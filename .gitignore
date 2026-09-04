@@ -1,0 +1,40 @@
+# Dependencies and build output
+node_modules/
+dist/
+dist-ssr/
+*.tsbuildinfo
+
+# THE DATA DIRECTORY IS NEVER COMMITTED.
+# server/data holds the SQLite database (opc.db + its WAL/SHM), the vault key
+# that decrypts every stored credential, and the managed SearXNG install. A copy
+# of the database carries ciphertext; the key beside it makes that ciphertext
+# readable. Neither belongs in a repository, private or not.
+/server/data/
+/server/src/data/
+*.db
+*.db-wal
+*.db-shm
+vault.key
+
+# Credentials in any other shape
+.env
+.env.*
+!.env.example
+*.p8
+*.pem
+*.key
+*-token
+*-token.json
+*-key.json
+*-keys.json
+
+# Logs and scratch
+logs/
+*.log
+.DS_Store
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.swp

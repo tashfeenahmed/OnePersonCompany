@@ -1,0 +1,300 @@
+import { Trash2, UnfoldHorizontal } from "lucide-react";
+import { BrandTile } from "@/components/BrandTile";
+import {
+  Bars,
+  Chart,
+  Figures,
+  MeterRow,
+  Runway,
+  Sparkline,
+} from "@/components/charts";
+import { cn } from "@/lib/utils";
+import { BRAND_ICONS } from "@/data/brandIcons";
+import { SOURCES, WIDGETS, type Widget } from "@/data/widgets";
+import type { PlacedWidget } from "@/lib/store";
+import { ago, collectedAt, deltaOver, useLive } from "@/lib/live";
+import { LIVE_BUILDERS } from "@/lib/liveWidgets";
+
+/**
+ * ONE WIDGET, ON ONE CARD.
+ *
+ * This file is the shell and the switch: which source, which numbers, and
+ * which of eight pictures. Every picture itself — and the pointer work that
+ * makes it readable — lives in components/charts, because a renderer that has
+ * to be scanned for "what does the runway kind draw" should not have three
+ * hundred lines of SVG geometry between its branches.
+ */
+export function WidgetCard({
+  placed,
+  editing,
+  onCycleWidth,
+  onRemove,
+  dragHandlers,
+  dropSide,
+  dragging,
+}: {
+  placed: PlacedWidget;
+  editing: boolean;
+  onCycleWidth: () => void;
+  onRemove: () => void;
+  dragHandlers?: React.HTMLAttributes<HTMLDivElement> & { draggable?: boolean };
+  dropSide?: "before" | "after" | null;
+  dragging?: boolean;
+}) {
+  const base = WIDGETS[placed.type];
+  const live = useLive();
+  if (!base) return null;
+  const src = SOURCES[base.src];
+
+  // Real numbers replace the sample ones in place, so the card's layout does
+  // not change when a provider connects — only what it is showing.
+  const isLive = live.liveTypes.has(placed.type);
+  const points = base.live?.metric
+    ? (live.metrics[base.live.metric] ?? [])
+    : [];
+  // Live values are merged OVER the catalog entry, so the sample definition
+  // still supplies the name, the kind and the width — only the numbers change.
+  const patch = isLive
+    ? LIVE_BUILDERS[placed.type]?.({
+        points,
+        summary: live.hetzner,
+        fleet: live.fleet,
+        load: live.load,
+        volumes: live.volumes,
+        domains: live.domains,
+        domainSummary: live.domainSummary,
+        github: live.github,
+        npm: live.npm,
+        costs: live.costs,
+        stock: live.stock,
+        mobile: live.mobile,
+        stripe: live.stripe,
+        adsense: live.adsense,
+        cloudflare: live.cloudflare,
+        gsc: live.gsc,
+        bing: live.bing,
+        meta: live.meta,
+        demand: live.demand,
+        mail: live.mail,
+      })
+    : null;
+  const def: Widget = patch ? { ...base, ...patch } : base;
+
+  // "No change" and "not enough history to say" are different claims. A sample
+  // widget with delta 0 means the first; a live one measured twice in an hour
+  // means the second, and it should say nothing rather than imply a flat line.
+  const trend = isLive ? deltaOver(points) : (base.delta ?? null);
+
+  // Positive is not always good: churn, spend and latency read the other way.
+  const good = trend ? (def.invert ? trend < 0 : trend > 0) : null;
+  const brand = src.icon ? BRAND_ICONS[src.icon]?.hex : src.tint;
+
+  return (
+    <div
+      {...dragHandlers}
+      style={{ gridColumn: `span ${placed.w} / span ${placed.w}` }}
+      className={cn(
+        "bg-card relative flex min-h-[116px] flex-col rounded-[10px] border p-3.5 transition-colors",
+        editing && "hover:border-line-strong cursor-grab",
+        dragging && "opacity-35",
+        dropSide === "before" &&
+          "before:bg-foreground before:absolute before:top-1.5 before:-left-1.5 before:bottom-1.5 before:w-0.5 before:rounded-sm before:content-['']",
+        dropSide === "after" &&
+          "after:bg-foreground after:absolute after:top-1.5 after:-right-1.5 after:bottom-1.5 after:w-0.5 after:rounded-sm after:content-['']",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <BrandTile
+          icon={src.icon}
+          name={src.name}
+          mono={src.mono}
+          tint={src.tint}
+          className="size-5 rounded-md"
+          glyphClassName="size-[11px] text-[9px]"
+        />
+        <span className="text-[11.5px]">{def.name}</span>
+        {isLive && (
+          <span
+            className="bg-ok size-1.5 shrink-0 rounded-full"
+            title={`Live — ${describeCollected(collectedAt(base.src, live))}`}
+          />
+        )}
+
+        {editing && (
+          <div className="ml-auto flex gap-px">
+            <button
+              title="Cycle width"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCycleWidth();
+              }}
+              className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[7px] p-1"
+            >
+              <UnfoldHorizontal className="size-3.5" strokeWidth={1.6} />
+            </button>
+            <button
+              title="Remove"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[7px] p-1"
+            >
+              <Trash2 className="size-3.5" strokeWidth={1.6} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div
+        className={cn(
+          "pt-2.5",
+          def.kind === "metric" || def.kind === "bars" ? "mt-auto" : "mt-2.5",
+        )}
+      >
+        {def.kind === "metric" && (
+          <>
+            <div className="text-[26px] leading-tight font-normal tracking-[-0.03em] tabular-nums">
+              {def.value}
+            </div>
+            <div className="text-muted-foreground mt-1 flex items-center gap-1.5 text-[11.5px]">
+              {trend !== null && trend !== 0 && (
+                <span
+                  className={cn(
+                    "font-medium",
+                    good ? "text-ok" : "text-destructive",
+                  )}
+                >
+                  {trend > 0 ? "+" : ""}
+                  {trend}
+                  {isLive ||
+                  (def.series &&
+                    Math.abs(trend) >= 1 &&
+                    !String(def.value).includes("%"))
+                    ? "%"
+                    : ""}
+                </span>
+              )}
+              {trend === 0 && <span>no change</span>}
+              {/* A judged figure carries the word as well as the colour, the
+                  same reason the status dots are never alone. */}
+              {def.tone && def.tone !== "ok" && (
+                <span
+                  className={cn(
+                    "font-medium",
+                    def.tone === "warn" ? "text-warn" : "text-destructive",
+                  )}
+                >
+                  {def.tone === "bad" ? "act" : "watch"}
+                </span>
+              )}
+              <span>{def.sub}</span>
+            </div>
+            {def.series && (
+              <Sparkline
+                series={def.series}
+                at={def.seriesAt}
+                unit={def.unit}
+              />
+            )}
+          </>
+        )}
+
+        {def.kind === "bars" && def.bars && (
+          <Bars
+            values={def.bars}
+            barLabels={def.barLabels}
+            labels={def.labels}
+            tint={brand}
+          />
+        )}
+
+        {def.kind === "rows" && def.rows && (
+          <div className="mt-2 flex flex-col gap-1.5">
+            {def.rows.map(([k, v]) => (
+              <div key={k} className="flex items-baseline gap-2 text-[12px]">
+                <span className="truncate">{k}</span>
+                <span className="text-muted-foreground ml-auto text-[11.5px] whitespace-nowrap tabular-nums">
+                  {v}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {def.kind === "chart" && (
+          <Chart
+            series={def.chart ?? []}
+            unit={def.unit ?? "percent"}
+            caption={def.caption}
+          />
+        )}
+
+        {def.kind === "meters" &&
+          (def.meters?.length ? (
+            <div className="mt-1 flex flex-col gap-1.5">
+              {/* Tighter than the old gap-2.5 because the rows now carry
+                  their own padding for the hover highlight: 2px + 6px + 2px
+                  is the same ten pixels of air the column had before. */}
+              {def.meters.map((m) => (
+                <MeterRow key={m.label} meter={m} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[11.5px]">
+              No samples yet — the collector writes these the first time it runs.
+            </p>
+          ))}
+
+        {def.kind === "runway" &&
+          (def.runway?.length ? (
+            <Runway
+              rows={def.runway}
+              thresholds={def.thresholds ?? { warn: 30, crit: 7 }}
+              cap={def.cap ?? 400}
+              caption={def.caption}
+            />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[11.5px]">
+              No dated renewals yet.
+            </p>
+          ))}
+
+        {def.kind === "table" &&
+          (def.table?.length ? (
+            <Figures headers={def.headers ?? []} rows={def.table} />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[11.5px]">
+              Nothing measured yet.
+            </p>
+          ))}
+
+        {def.kind === "statuses" && def.statuses && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {def.statuses.map(([label, tone]) => (
+              <span
+                key={label}
+                className="flex items-center gap-1.5 text-[11.5px]"
+              >
+                <i
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    tone === "ok" && "bg-ok",
+                    tone === "warn" && "bg-warn",
+                    tone === "bad" && "bg-destructive",
+                  )}
+                />
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A collection time in words, or the honest absence of one. */
+function describeCollected(at: string | null): string {
+  return at ? `collected ${ago(at)}` : "when this was collected is not reported";
+}

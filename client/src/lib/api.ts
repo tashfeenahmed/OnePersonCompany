@@ -1,0 +1,2740 @@
+/**
+ * The API client.
+ *
+ * Everything that needs a credential happens on the server: it holds the vault
+ * key, it makes the outbound call, and it is the only thing that ever sees a
+ * token. This file therefore has no notion of a secret value — it posts one
+ * up and never reads one back, which is the same one-way door the server's
+ * routes enforce from their side.
+ */
+
+const BASE = "/api";
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(BASE + path, {
+    ...init,
+    headers: { "content-type": "application/json", ...init?.headers },
+  });
+  const body: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message =
+      body && typeof body === "object" && "error" in body
+        ? String((body as { error: unknown }).error)
+        : `HTTP ${res.status}`;
+    throw new ApiError(res.status, message);
+  }
+  return body as T;
+}
+
+/* --------------------------------------------------------------- types */
+
+export type RunInfo = {
+  id: number;
+  startedAt: string;
+  finishedAt: string | null;
+  ok: boolean | null;
+  note: string | null;
+  error: string | null;
+};
+
+/**
+ * One account of one plugin.
+ *
+ * A plugin holds a LIST of these because a credential is often scoped to less
+ * than a person owns: a Hetzner token covers one project, a registrar key
+ * covers one login. Each carries its own connection state and its own last
+ * error, which is the point — one dead token should say which one.
+ *
+ * `secrets` is entry names, fields and dates. There is no value on this type
+ * because there is no route that returns one.
+ */
+export type PluginAccount = {
+  id: number;
+  label: string;
+  connected: boolean;
+  createdAt: string;
+  /** When the credential last CHANGED — not when it last worked. */
+  updatedAt: string;
+  /** When this account last answered its provider. Null means it never has
+   *  since it was stored, which is not the same as failing. */
+  lastOkAt: string | null;
+  lastError: string | null;
+  secrets: { name: string; field: string; updatedAt: string }[];
+};
+
+export type ServerPlugin = {
+  id: string;
+  /** True when ANY account is connected. */
+  connected: boolean;
+  updatedAt: string | null;
+  lastError: string | null;
+  /** Entry names and timestamps across every account. Never values — there is
+   *  no route for those. */
+  secrets: { name: string; updatedAt: string }[];
+  accounts: PluginAccount[];
+  collectable: boolean;
+  runs: RunInfo[];
+};
+
+export type CollectSummary = {
+  ok: boolean;
+  servers: number;
+  volumes: number;
+  monthlyEur: number;
+  /** One line per account that was tried, so "it worked" and "it worked for
+   *  two of three" are different answers rather than the same one. */
+  accounts?: { id: number; label: string; ok: boolean; error?: string }[];
+  warnings: string[];
+  error?: string;
+};
+
+export type HetznerSummary = {
+  servers: number;
+  running: number;
+  volumes: number;
+  monthlyEur: number;
+  serverMonthlyEur: number;
+  volumeMonthlyEur: number;
+  byLocation: Record<string, number>;
+  /** What the totals above are totals OF. One entry is one account; more than
+   *  one means every figure on the fleet page is a sum, and the page says so
+   *  rather than letting two projects read as one. */
+  accounts: {
+    id: number | null;
+    label: string;
+    servers: number;
+    volumes: number;
+    monthlyEur: number;
+  }[];
+  seenAt: string | null;
+};
+
+export type HetznerServer = {
+  id: number;
+  /** The account this box was read through. Null on a row collected before
+   *  accounts existed, which lasts exactly one collection. */
+  accountId: number | null;
+  accountLabel: string;
+  name: string | null;
+  ipv4: string | null;
+  status: string | null;
+  plan: string | null;
+  specs: string | null;
+  location: string | null;
+  monthlyEur: number | null;
+  ipv4MonthlyEur: number | null;
+  createdAt: string | null;
+};
+
+/**
+ * Three numbers about one metric over the window: the newest sample, the
+ * average across it and the highest it reached. Null all through when the box
+ * has no samples in the window — a machine created this morning has a bill and
+ * a plan and no history, and that is not a zero.
+ */
+export type LoadStat = {
+  now: number | null;
+  mean: number | null;
+  peak: number | null;
+};
+
+export type LoadPoint = { ts: string; value: number };
+
+export type ServerLoad = {
+  id: number;
+  name: string | null;
+  status: string | null;
+  plan: string | null;
+  location: string | null;
+  /** vCPUs, or null when the fleet listing did not say. */
+  cores: number | null;
+  /** False when cores were unknown, so the CPU figures are Hetzner's raw
+   *  per-core sum and can exceed 100. See the load route. */
+  cpuScaled: boolean;
+  monthlyEur: number;
+  /** Percent of the whole box, 0–100. The only per-server series sent whole. */
+  cpu: LoadStat & { points: LoadPoint[] };
+  /** Bytes per second. */
+  netIn: LoadStat;
+  netOut: LoadStat;
+  diskRead: LoadStat;
+  diskWrite: LoadStat;
+  samples: number;
+};
+
+export type HetznerLoad = {
+  hours: number;
+  servers: ServerLoad[];
+  fleet: {
+    /** Mean percent across the boxes reporting at each moment. */
+    cpu: LoadPoint[];
+    /** Bytes per second, summed across the fleet. */
+    netIn: LoadPoint[];
+    netOut: LoadPoint[];
+    diskWrite: LoadPoint[];
+  };
+  seenAt: string | null;
+  /** The newest sample in the window — which is NOT when the fleet was listed.
+   *  Hetzner's metrics lag their own clock; "collected 2m ago" and "sampled 9m
+   *  ago" are two true statements about the same collection. */
+  sampledAt: string | null;
+};
+
+export type HetznerVolume = {
+  id: number;
+  accountId: number | null;
+  accountLabel: string;
+  name: string | null;
+  sizeGb: number | null;
+  location: string | null;
+  serverId: number | null;
+  /** The server's NAME, resolved server-side — a volume id explains nothing. */
+  attachedTo: string | null;
+  monthlyEur: number | null;
+};
+
+/* --------------------------------------------------------------- domains */
+
+export type Domain = {
+  name: string;
+  /** The plugin that read it: "dynadot" | "spaceship". */
+  source: string;
+  /** WHICH LOGIN it was read through. A portfolio can span two accounts at one
+   *  registrar, and "where do I go to renew this" is a question only the
+   *  account answers. */
+  accountId: number;
+  account: string;
+  registrar: string;
+  expiresAt: string | null;
+  /**
+   * Whole days from today, computed server-side on every read and never
+   * stored. Negative means the date has already passed. Null means the
+   * registrar did not report a date — not that the name is safe.
+   */
+  expiresInDays: number | null;
+  registeredOn: string | null;
+  /** null is "asked and not told", which is not the same as false. */
+  autoRenew: boolean | null;
+  locked: boolean | null;
+  status: string | null;
+  /** One lowercase word. "off" is the only value drawn as a warning. */
+  privacy: string | null;
+  nameservers: string[] | null;
+  seenAt: string;
+};
+
+export type DomainSummary = {
+  total: number;
+  byRegistrar: Record<string, number>;
+  /** Keyed "Registrar · Account", because two logins at one registrar are two
+   *  answers to "where is this name". */
+  byAccount: Record<string, number>;
+  /** How many accounts the portfolio is the sum of. */
+  accounts: number;
+  byTld: Record<string, number>;
+  /** Already past their date. Counted here and in none of the windows below. */
+  lapsed: number;
+  expiring7: number;
+  expiring30: number;
+  expiring90: number;
+  autoRenewOff: number;
+  autoRenewUnknown: number;
+  unlocked: number;
+  lockUnknown: number;
+  privacyOff: number;
+  withoutExpiry: number;
+  soonest: { name: string; days: number } | null;
+  thresholds: { crit: number; warn: number };
+  seenAt: string | null;
+};
+
+/* ----------------------------------------------------------------- stock */
+
+/**
+ * A stock library's remaining request allowance.
+ *
+ * Every field is nullable because a header that is absent is not a zero. These
+ * two services report nothing else about themselves — no usage history, no
+ * spend — so the shape is deliberately small and the `cannot` list travels with
+ * it to say why.
+ */
+export type StockAccount = {
+  accountId: number | null;
+  label: string | null;
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
+  /** Share of the allowance already spent, 0–100. */
+  usedPct: number | null;
+  resetsAt: string | null;
+  /** Requests a day, measured across the window rather than between the last
+   *  two samples, and null until the window is long enough to mean anything. */
+  perDay: number | null;
+  daysLeft: number | null;
+  readings: number;
+  seenAt: string | null;
+  points: { ts: string; value: number }[];
+};
+
+export type StockLibrary = {
+  library: string;
+  name: string;
+  connected: boolean;
+  accounts: StockAccount[];
+  /** What this service will not tell you, as a property of the service. */
+  cannot: string[];
+};
+
+export type StockReport = {
+  window: { days: number };
+  libraries: StockLibrary[];
+  note: string;
+  generatedAt: string;
+};
+
+
+/* ---------------------------------------------------------------- mobile */
+
+/**
+ * The two app stores, in one document.
+ *
+ * THE SHAPE IS THE ARGUMENT. Each store carries an `estimated` block and a
+ * `payout` block, and they are different measurements of different things:
+ * Apple's estimated developer proceeds and Google's charged amounts are
+ * previews, while Apple's finance report and Google's earnings export are the
+ * money that lands. There is no field on this type into which one could be
+ * added to the other, and only the payout blocks may be called revenue.
+ *
+ * Every money figure is PER CURRENCY, because both stores report per currency
+ * and nothing here fetches an exchange rate. `currency.combined` is null and
+ * says why.
+ */
+export type Money = { currency: string; amount: number };
+
+export type AppStoreApp = {
+  id: string;
+  account: string;
+  name: string | null;
+  bundleId: string | null;
+  /** Apple's own version state — READY_FOR_DISTRIBUTION, WAITING_FOR_REVIEW… */
+  state: string | null;
+  version: string | null;
+  /** Null is "the version listing could not be read", never "not live". */
+  onStore: boolean | null;
+  /** Null with a zero count is "nobody has rated it" — not zero stars. */
+  rating: number | null;
+  ratingCount: number | null;
+  storefront: string | null;
+  listed: boolean | null;
+  releasedAt: string | null;
+  downloads: number;
+  updates: number;
+  inAppUnits: number;
+  estimatedProceeds: Money[];
+};
+
+export type MobileReport = {
+  window: { days: number; from: string; to: string };
+  currency: { seen: string[]; combined: null; note: string };
+  estimateVsPayout: string;
+  appstore: {
+    connected: boolean;
+    accounts: number;
+    seenAt: string | null;
+    /** The identifiers the collector actually sent. Not secrets: they are
+     *  printed in Apple's console, and a wrong vendor number is the one
+     *  failure here that leaves a board empty with nothing to explain it. */
+    identity: {
+      accountId: number;
+      label: string;
+      keyId: string | null;
+      issuerId: string | null;
+      vendor: string | null;
+      apps: number;
+    }[];
+    apps: AppStoreApp[];
+    store: { total: number; live: number; notLive: number; unknown: number };
+    downloads: {
+      units: number;
+      updates: number;
+      inAppUnits: number;
+      days: { day: string; downloads: number }[];
+      daysReported: number;
+      daysZero: number;
+      /** Days Apple has not generated yet. Left out of `days` rather than
+       *  drawn as zero. */
+      daysAbsent: number;
+      from: string | null;
+      to: string | null;
+    };
+    estimated: { currencies: Money[]; months: { month: string; currencies: Money[] }[]; note: string };
+    payout: {
+      currencies: Money[];
+      months: { month: string; currencies: Money[] }[];
+      monthsAsked: number;
+      monthsReported: number;
+      /** Months Apple issued no report for. NOT months that earned nothing —
+       *  the API cannot tell those apart. */
+      monthsNone: string[];
+      note: string;
+    };
+    rating: {
+      average: number | null;
+      ratings: number;
+      apps: number;
+      storefronts: (string | null)[];
+      source: string;
+    };
+    cannot: { asked: string; answer: string }[];
+  };
+  play: {
+    connected: boolean;
+    accounts: number;
+    seenAt: string | null;
+    identity: {
+      accountId: number;
+      label: string;
+      bucket: string | null;
+      serviceAccount: string | null;
+      packages: number;
+    }[];
+    packages: {
+      package: string;
+      installs: number;
+      uninstalls: number;
+      /** A current state, never summed over days: it is how many devices have
+       *  the app today. */
+      activeDevices: number | null;
+      activeAt: string | null;
+      rating: number | null;
+      ratingAt: string | null;
+      payout: Money[];
+    }[];
+    installs: {
+      installs: number;
+      uninstalls: number;
+      days: { day: string; installs: number }[];
+      daysReported: number;
+      from: string | null;
+      to: string | null;
+      activeDevices: number;
+    };
+    rating: { average: number | null; packages: number; at: string | null; note: string };
+    payout: {
+      currencies: Money[];
+      months: {
+        month: string;
+        currencies: {
+          currency: string;
+          charged: number;
+          refunds: number;
+          /** Google's cut, from its own fee rows — never a percentage. */
+          fees: number;
+          net: number;
+          transactions: number;
+        }[];
+      }[];
+      latestMonth: string | null;
+      note: string;
+    };
+    estimated: {
+      months: { month: string; settled: boolean; currencies: Money[]; orders: number; refunds: number }[];
+      /** Months with orders and no payout yet — Google writes the earnings
+       *  export only once a month has closed. */
+      running: string[];
+      note: string;
+    };
+    cannot: { asked: string; answer: string }[];
+  };
+  generatedAt: string;
+};
+
+/* --------------------------------------------------------------- calls */
+
+/* ---------------------------------------------------------------- github */
+
+/**
+ * One repo, as of the last collection.
+ *
+ * `traffic` is null when GitHub was never asked about this repo — it lost the
+ * ranking against the cap, or the token cannot push to it, which is what the
+ * traffic endpoints require. It never means nobody visited: a repo with no
+ * visitors and a repo we are not allowed to ask about are different findings,
+ * and only one of them is about the repo.
+ */
+export type GithubRepo = {
+  fullName: string;
+  owner: string;
+  name: string;
+  org: boolean;
+  private: boolean;
+  fork: boolean;
+  archived: boolean;
+  accountId: number;
+  account: string;
+  stars: number;
+  forks: number;
+  /** GitHub's `open_issues_count`, WHICH COUNTS OPEN PULL REQUESTS TOO.
+   *  Nothing in the payload separates them without a call per repo. */
+  openIssues: number;
+  watchers: number;
+  language: string | null;
+  homepage: string | null;
+  defaultBranch: string | null;
+  pushedAt: string | null;
+  createdAt: string | null;
+  traffic: {
+    days: number;
+    views: number | null;
+    /** GitHub's own de-duplicated count for the whole window — NOT the sum of
+     *  the daily uniques, which counts a returning visitor twice. */
+    uniques: number | null;
+    clones: number | null;
+    cloneUniques: number | null;
+    /** Which of the four traffic calls refused, and why. */
+    note: string | null;
+    seenAt: string;
+    /** True when this window stopped being refreshed — the repo dropped out of
+     *  the traffic selection, so its fortnight is not the current one. Kept on
+     *  the row and left out of every total and every line. */
+    stale: boolean;
+  } | null;
+  referrers: { name: string; title: string | null; count: number; uniques: number }[];
+  paths: { name: string; title: string | null; count: number; uniques: number }[];
+};
+
+/**
+ * One day of traffic, summed across every repo.
+ *
+ * `partial` is the day in progress. GitHub's aggregation lags its own clock —
+ * today's bucket can still read zero at six in the evening — so the flag is
+ * what keeps a line from ending in a cliff that is not there.
+ */
+export type GithubDay = {
+  day: string;
+  views: number;
+  /** Per-day, per-repo unique visitors ADDED. Not comparable with the window
+   *  figure, and never presented as "people". */
+  uniques: number;
+  clones: number;
+  cloneUniques: number;
+  /** How many repos are in this day's figure. Repos do not all report the same
+   *  fourteen days, and a day fewer of them cover is not comparable with the
+   *  days beside it. */
+  repos: number;
+  partial: boolean;
+};
+
+export type GithubRate = {
+  remaining: number | null;
+  limit: number | null;
+  resetAt: string | null;
+  /** True when the hour the figure describes has already ended, so the number
+   *  beside it describes a budget that has since refilled. */
+  expired: boolean;
+  /** What the last run spent. */
+  requests: number | null;
+  checkedAt: string | null;
+};
+
+export type GithubAccount = {
+  id: number;
+  label: string;
+  login: string | null;
+  name: string | null;
+  followers: number | null;
+  publicRepos: number | null;
+  connected: boolean;
+  lastError: string | null;
+  lastOkAt: string | null;
+  rate: GithubRate;
+  trafficAt: string | null;
+};
+
+export type GithubSummary = {
+  repos: number;
+  public: number;
+  private: number;
+  forks: number;
+  archived: number;
+  stars: number;
+  forkCount: number;
+  /** Issues AND open pull requests, summed. */
+  openIssues: number;
+  byLanguage: Record<string, number>;
+  /** How many repos have CURRENT traffic, how many hold a window that has
+   *  stopped being refreshed, and the cap that decides which get asked. */
+  trafficRepos: number;
+  trafficStale: number;
+  trafficCap: number;
+  trafficDays: number;
+  views: number;
+  /** Per-repo uniques added together. A person who looked at two repos is in
+   *  here twice; GitHub offers no cross-repo de-duplication at all. */
+  uniquesSummed: number;
+  clones: number;
+  cloneUniquesSummed: number;
+  topReferrers: { name: string; count: number; uniques: number }[];
+  topPaths: {
+    repo: string;
+    path: string;
+    title: string | null;
+    count: number;
+    uniques: number;
+  }[];
+  mostViewed: { fullName: string; views: number | null } | null;
+  accounts: GithubAccount[];
+  rate: GithubRate | null;
+  /** The orgs the owner asked for. Empty means none were walked — a setting,
+   *  not a silence. */
+  orgs: string[];
+  /** Two dates, because the repo facts and the traffic are collected on two
+   *  cadences and one date would be wrong for half the page. */
+  seenAt: string | null;
+  trafficSeenAt: string | null;
+  chartFrom: string;
+  chartTo: string;
+};
+
+export type Github = {
+  repos: GithubRepo[];
+  daily: GithubDay[];
+  summary: GithubSummary;
+};
+
+/* ------------------------------------------------------------------- npm */
+
+/** One ISO week, Monday to Sunday. `partial` is the week in progress, a
+ *  history that starts mid-week, or a week with a day missing — never drawn
+ *  beside complete weeks without saying so. */
+export type NpmWeek = {
+  week: string;
+  start: string;
+  downloads: number;
+  partial: boolean;
+};
+
+export type NpmPackage = {
+  package: string;
+  endpoint: string | null;
+  rangeStart: string | null;
+  rangeEnd: string | null;
+  lastError: string | null;
+  lastOkAt: string | null;
+  weeks: NpmWeek[];
+  days: { day: string; downloads: number }[];
+  lastCompleteWeek: NpmWeek | null;
+  currentWeek: NpmWeek | null;
+  total: number;
+};
+
+/**
+ * DOWNLOADS, NEVER INSTALLS. npm counts HTTP tarball fetches: a CI job, a
+ * Docker rebuild, a mirror and a person are one each and npm cannot tell them
+ * apart. Every field here is named for what it is, and so is every card that
+ * draws one.
+ */
+export type Npm = {
+  packages: NpmPackage[];
+  weeks: NpmWeek[];
+  days: { day: string; downloads: number }[];
+  summary: {
+    configured: number;
+    answering: number;
+    failing: number;
+    lastCompleteWeek: NpmWeek | null;
+    currentWeek: NpmWeek | null;
+    last30: number;
+    total: number;
+    byPackage: Record<string, number>;
+    counts: string;
+    from: string | null;
+    to: string | null;
+    seenAt: string | null;
+  };
+};
+
+/** A plugin's non-secret settings — npm's package list, GitHub's orgs. Values
+ *  come BACK from this one, which is the whole difference between it and the
+ *  vault: a list you maintain by hand has to be readable to be corrected. */
+export type PluginConfig = {
+  id: string;
+  config: Record<string, string>;
+  keys: {
+    key: string;
+    label: string;
+    hint: string;
+    ph: string | null;
+    value: string;
+  }[];
+};
+
+/* ----------------------------------------------------------------- costs */
+
+/**
+ * What the LLM and media habit costs, from the three providers that answer
+ * about it — and the shape of the answer is different for each, because the
+ * three APIs are not the same API.
+ *
+ * NOTHING HERE IS ADDED ACROSS CURRENCIES. Every figure on this type is US
+ * dollars; Hetzner's euro lives on `HetznerSummary` and the two are never
+ * summed. `currency.combined` is null and carries the sentence saying why,
+ * which is what the side-by-side card on the Costs board reads out.
+ */
+export type CostDay = { day: string; usd: number };
+
+export type CostsReport = {
+  window: { days: number; from: string; to: string };
+  generatedAt: string;
+  currency: {
+    usd: string[];
+    eur: string[];
+    /** Always null. A total across two currencies needs a dated rate this
+     *  box does not fetch, and a card must say so rather than show one. */
+    combined: null;
+    note: string;
+  };
+  openai: {
+    connected: boolean;
+    /** Null is "asked and not told" — never collected. Zero is a real, free
+     *  month, and the two must not read as each other. */
+    usd: number | null;
+    currency: "usd";
+    days: CostDay[];
+    /** The only breakdown the Costs API offers. It has no per-model cut. */
+    projects: { id: string; name: string; usd: number }[];
+    accounts: number;
+    /** The newest day whose bucket is complete; today's always lags. */
+    completeThrough: string;
+    lag: string;
+    noModelSplit: string;
+    seenAt: string | null;
+  };
+  openrouter: {
+    connected: boolean;
+    currency: "usd";
+    /** The account's ledger. `spentLifetime` is every key that ever existed —
+     *  which is why it exceeds both other totals on this object. */
+    credits: {
+      purchased: number;
+      spentLifetime: number;
+      balance: number;
+      accounts: number;
+      seenAt: string | null;
+    } | null;
+    /** Cut one: per day per model. Carries no key, because the API has no
+     *  per-day-per-key figure to carry. */
+    activity: {
+      usd: number | null;
+      /** Routed to the owner's own provider keys and billed elsewhere. Never
+       *  added to `usd`. */
+      byokUsd: number;
+      requests: number;
+      promptTokens: number;
+      completionTokens: number;
+      dayCount: number;
+      days: (CostDay & { requests: number })[];
+      models: {
+        model: string;
+        usd: number;
+        byokUsd: number;
+        requests: number;
+        promptTokens: number;
+        completionTokens: number;
+      }[];
+      seenAt: string | null;
+    };
+    /** Cut two: per key, and only the keys that still exist. */
+    keys: {
+      total: number;
+      count: number;
+      list: {
+        name: string;
+        account: string;
+        usd: number;
+        usdMonth: number;
+        usdWeek: number;
+        usdDay: number;
+        disabled: boolean;
+        createdAt: string | null;
+        /** Null is "no cap", not a cap of nothing. */
+        spendLimit: number | null;
+        limitRemaining: number | null;
+      }[];
+      seenAt: string | null;
+    };
+    totalsDiffer: string;
+    noJoin: string;
+    accounts: number;
+  };
+  replicate: {
+    connected: boolean;
+    /** ALWAYS NULL. Replicate publishes no billing endpoint, a prediction
+     *  carries no hardware or price, and half of what runs here is billed per
+     *  output rather than per second. `cannot` says what was asked. */
+    cost: null;
+    /** What was asked of the API about money, and what came back. The
+     *  exchange rather than the conclusion, so a card can show the evidence. */
+    cannot: {
+      checkedOn: string;
+      asked: readonly { asked: string; answer: string }[];
+    };
+    runs: number;
+    failed: number;
+    succeeded: number;
+    /** Seconds of prediction time — what Replicate measures. The RATE is not
+     *  knowable from this API, so no money follows from it. */
+    predictSeconds: number;
+    /** Predictions that reported no time at all: still running, or never ran.
+     *  Counted apart rather than added as zero seconds. */
+    unreported: number;
+    outputs: { images: number; videoSeconds: number; tokens: number };
+    days: { day: string; runs: number; seconds: number }[];
+    models: {
+      model: string;
+      runs: number;
+      failed: number;
+      seconds: number;
+      images: number;
+      videoSeconds: number;
+      tokens: number;
+    }[];
+    accounts: number;
+    seenAt: string | null;
+  };
+};
+
+
+
+/**
+ * STRIPE — what came in, and what is contracted to keep coming in.
+ *
+ * Every money field is a LIST keyed by currency, even where the account has
+ * only ever billed in one. A shape that can hold a single number is a shape
+ * that will silently add two the day a second currency appears, and this is
+ * the file where that would be hardest to notice.
+ */
+export type StripeMoney = { currency: string; amount: number };
+
+export type StripeReport = {
+  window: { days: number };
+  connected: boolean;
+  accounts: {
+    id: number;
+    label: string;
+    connected: boolean;
+    lastOkAt: string | null;
+    lastError: string | null;
+  }[];
+  /** Null is "asked and not told": nothing collected, ever. An account that
+   *  collected fine and holds no subscriptions is an empty book, and that is
+   *  a zero. */
+  mrr:
+    | {
+        currency: string;
+        amount: number;
+        /** MRR annualised — the same contracted revenue over twelve months. */
+        arr: number;
+        subscriptions: number;
+        /** How much of the figure is annual money spread across the year. The
+         *  normalisation is a choice, so the split it rests on travels with
+         *  it rather than living in a comment. */
+        byInterval: Record<
+          "monthly" | "annual" | "other",
+          { subscriptions: number; amount: number }
+        >;
+        /** List price not invoiced because of a recurring coupon. Already OUT
+         *  of `amount`: this says how much came off, not how much more. */
+        discountedAway: number;
+        discounted: number;
+        /** The sentence a card prints under the figure. */
+        basis: string;
+      }[]
+    | null;
+  subscriptions: {
+    /** What MRR is built from. Not "live" — a trial is live and is not money. */
+    billing: number;
+    trialing: number;
+    /** Billing and FAILING. Out of MRR and counted here, because it is the
+     *  one of these somebody can act on today. */
+    pastDue: number;
+    canceled: number;
+    /** A checkout that expired before its first payment ever succeeded. Never
+     *  a customer, and never churn. */
+    incompleteExpired: number;
+    total: number;
+    pendingCancellation: {
+      count: number;
+      mrr: StripeMoney[];
+      endingSoon: { days: number; count: number; mrr: StripeMoney[] };
+      note: string;
+    };
+    /** Cancellations whose invoices have not been checked yet. They count as
+     *  real churn until they have been. */
+    unresolvedCancellations: number;
+  };
+  /** One row per window per currency. `ratePct` is REVENUE churn over a
+   *  reconstructed starting book — `basis` says exactly which, because a rate
+   *  quoted without its denominator is not a measurement. */
+  churn: {
+    days: number;
+    currency: string;
+    mrr: number;
+    newMrr: number;
+    newSubs: number;
+    churnedMrr: number;
+    churnedSubs: number;
+    netMrr: number;
+    ratePct: number | null;
+    /** The rate's ACTUAL numerator: the part of `churnedMrr` that was in the
+     *  book when the window opened. A subscription that started and ended
+     *  inside the window is in neither this nor the denominator. */
+    churnedFromStartMrr: number;
+    churnedFromStartSubs: number;
+    startBookMrr: number;
+    /** The same question asked of heads rather than of money, with its own
+     *  denominator. A churned $99 plan and a churned $1 plan are one row each
+     *  here and nothing alike above. */
+    subRatePct: number | null;
+    startSubs: number;
+    /** Cancellations that never collected a penny: not churn, and split by
+     *  which problem they are. `wouldHaveBeen` is what they would have been
+     *  worth — never a loss, because this money never existed. */
+    notChurn: Record<
+      "trialNonConversion" | "failedActivation",
+      { subscriptions: number; wouldHaveBeen: number }
+    >;
+    involuntary: number;
+    byProduct: { product: string; mrr: number; subscriptions: number }[];
+    basis: string;
+    approximate: boolean;
+  }[];
+  /** SETTLEMENT, off the balance ledger: the fee Stripe actually took.
+   *  `fees` is its cut ex-tax and is the only figure a rate is derived from;
+   *  `taxWithheld` is a pass-through and not a cost. */
+  revenue: {
+    currency: string;
+    days: number;
+    gross: number;
+    fees: number;
+    taxWithheld: number;
+    feesTotal: number;
+    refunds: number;
+    disputes: number;
+    other: number;
+    net: number;
+    transactions: number;
+    feeBreakdown: Record<
+      "processing" | "managedPayments" | "disputes" | "billing" | "other",
+      number
+    >;
+    feeRatePct: number | null;
+    taxRatePct: number | null;
+    series: { day: string; net: number; gross: number; fees: number }[];
+    note: string;
+  }[];
+  /** ATTEMPTS, dated by the charge: the only cut that can see a failure.
+   *  Its `gross` is not the ledger's and the two are never added. */
+  charges: {
+    currency: string;
+    days: number;
+    gross: number;
+    refunded: number;
+    refunds: number;
+    succeeded: number;
+    failed: number;
+    /** Radar stopped it before a bank saw it. Not a payment failure in any
+     *  sense a person can act on, and it never shares a denominator with the
+     *  next field. */
+    blocked: number;
+    declined: number;
+    declineRatePct: number | null;
+    series: {
+      day: string;
+      gross: number;
+      refunded: number;
+      succeeded: number;
+      failed: number;
+      blocked: number;
+      declined: number;
+    }[];
+    note: string;
+  }[];
+  products: { name: string; subscribers: number; mrr: number; currency: string }[];
+  plans: { name: string; subscribers: number; mrr: number; currency: string }[];
+  balance: {
+    currency: string;
+    /** What could be paid out today. */
+    available: number;
+    /** Money Stripe has and will not release yet — beside `available`, never
+     *  inside it. */
+    pending: number;
+    account: string;
+    seenAt: string | null;
+  }[];
+  payouts: {
+    last: {
+      amount: number;
+      currency: string;
+      arrivalDate: string;
+      automatic: boolean;
+    } | null;
+    inFlight: {
+      amount: number;
+      currency: string;
+      status: string;
+      arrivalDate: string;
+    }[];
+    /** Null until a payout has been seen. False means somebody presses the
+     *  button, which is why no card here promises a next payout date. */
+    automatic: boolean | null;
+    note: string;
+  };
+  /** How much of the past the day figures cover. A window wider than this is
+   *  a FLOOR, not a total. */
+  history: {
+    from: string | null;
+    complete: boolean;
+    rewalkDays: number;
+    chunkDays: number;
+    note: string;
+  };
+  cannot: string[];
+  seenAt: string | null;
+  generatedAt: string;
+};
+
+/**
+ * GOOGLE ADSENSE — and, until somebody grants consent in a browser, an honest
+ * account of why there are no figures.
+ *
+ * `state` is the field to branch on before drawing anything. Everything below
+ * it is empty in three of its four values, and that is the integration working
+ * correctly rather than failing: minting a refresh token needs a human at a
+ * consent screen, and nothing here can fake one.
+ */
+export type AdSenseReport = {
+  window: { days: number };
+  connected: boolean;
+  state: "authorised" | "refused" | "not-connected";
+  accounts: {
+    id: number;
+    label: string;
+    connected: boolean;
+    lastOkAt: string | null;
+    /** Google's own sentence, with the console link where there was one. */
+    lastError: string | null;
+  }[];
+  error?: "not-authorised";
+  hint?: string;
+  enableUrl?: string;
+  /** How to get a token, in the order it has to happen. */
+  connect?: readonly string[];
+  /** Null is "asked and not told". */
+  earnings: number | null;
+  /** The account's reporting currency, as the report header named it. Null
+   *  when nothing has been read or when accounts disagree. */
+  currency: string | null;
+  currencies: string[];
+  estimated: string;
+  /** Earnings per thousand impressions, divided out on the read. Null where
+   *  nothing was served — which is not an RPM of zero. */
+  rpm: number | null;
+  impressions: number;
+  clicks: number;
+  pageViews: number;
+  days: {
+    day: string;
+    usd: number;
+    impressions: number;
+    clicks: number;
+    rpm: number | null;
+  }[];
+  sites: {
+    site: string;
+    usd: number;
+    last7Usd: number;
+    pageViews: number;
+    impressions: number;
+    clicks: number;
+    rpm: number | null;
+  }[];
+  months: { month: string; usd: number; rpm: number | null; complete: boolean }[];
+  /** The newest COMPLETE calendar month, decided on the read. A month-to-date
+   *  printed as a monthly figure halves it. */
+  latestMonth: { month: string; usd: number; rpm: number | null; complete: boolean } | null;
+  cannot: string[];
+  seenAt: string | null;
+  generatedAt: string;
+};
+
+/* ------------------------------------------------------------ cloudflare */
+
+/**
+ * One zone's traffic over the window.
+ *
+ * Every optional field is nullable because Cloudflare's GraphQL query can land
+ * on a thinner field set than it asked for, and a field that could not be asked
+ * for is not a field that came back zero. `fields` names the set that answered.
+ */
+export type CloudflareTraffic = {
+  requests: number;
+  cached: number;
+  /** Null over zero requests: a ratio of nothing is unknowable, not 0%. */
+  cacheRatio: number | null;
+  bytes: number;
+  threats: number | null;
+  pageViews: number | null;
+  /**
+   * Daily unique counts ADDED UP. Cloudflare de-duplicates visitors within one
+   * zone and one day and nowhere else, so a returning visitor is in this more
+   * than once. The name says so, and so does every card that draws it.
+   */
+  uniquesByDay: number | null;
+  /** The busiest single day's uniques — the one figure here that is a real
+   *  headcount, because it never crosses a day boundary. */
+  uniquesBusiestDay: number | null;
+  status: {
+    s2xx: number | null;
+    s3xx: number | null;
+    s4xx: number | null;
+    s5xx: number | null;
+  };
+  /** Complete days that actually landed. A zone added mid-window has fewer
+   *  than the window asked for, and "7d" over three days means something
+   *  else. */
+  days: number;
+  fields: string;
+};
+
+/**
+ * Where a zone's domain actually delegates, as far as this box can tell.
+ *
+ * FIVE STATES, NOT A BOOLEAN, because three of them are neither fine nor
+ * broken: a registrar that reported no nameservers is unknown, a name held at a
+ * registrar with no API here has nothing to compare against, and a name pointed
+ * at a DIFFERENT pair of Cloudflare nameservers is on Cloudflare and still not
+ * on this zone.
+ */
+export type CloudflareAlignment = {
+  state:
+    | "aligned"
+    | "off-cloudflare"
+    | "elsewhere-on-cloudflare"
+    | "unknown"
+    | "no-registrar-row";
+  note: string;
+  registrar: string | null;
+  account: string | null;
+  nameservers: string[] | null;
+};
+
+export type CloudflareEmail = {
+  mx: boolean;
+  spf: boolean;
+  dmarc: boolean;
+  /** The `p=` of the record. Null where DMARC is delegated by CNAME and the
+   *  policy lives on the reporting provider's side. */
+  dmarcPolicy: string | null;
+  /** Three states. Null is "nothing to conclude" — a zone with no mail at all
+   *  cannot be said to be missing DKIM. */
+  dkim: boolean | null;
+};
+
+export type CloudflareZone = {
+  id: string;
+  name: string;
+  accountId: number;
+  account: string;
+  /** Cloudflare's own name for the account the zone lives in. */
+  cfAccount: string | null;
+  status: string | null;
+  paused: boolean;
+  plan: string | null;
+  /** "full" or "partial". A partial zone serves part of the domain, which
+   *  changes what its request count is a count OF. */
+  type: string | null;
+  createdOn: string | null;
+  /** The nameservers Cloudflare ASSIGNED. What the domain delegates to is on
+   *  `alignment`, and the gap between the two is the point. */
+  nameServers: string[] | null;
+  /** Null, never 0 — an unreadable listing says nothing about how many records
+   *  a zone has. */
+  records: number | null;
+  proxied: number | null;
+  onPages: boolean | null;
+  email: CloudflareEmail | null;
+  recordsNote: string | null;
+  /** Null with a `trafficNote` beside it means nobody could measure this zone.
+   *  Zero requests with no note means it was measured and served nothing. */
+  traffic: CloudflareTraffic | null;
+  trafficNote: string | null;
+  alignment: CloudflareAlignment;
+  seenAt: string;
+};
+
+export type CloudflareReport = {
+  generatedAt: string;
+  /** When the zones were last COLLECTED. Every figure is recomputed per
+   *  request, so the document's own clock would say "just now" about numbers
+   *  read six hours ago. */
+  seenAt: string | null;
+  window: {
+    days: number;
+    since: string;
+    /** The last COMPLETE UTC day. Every total stops here. */
+    through: string;
+    collectedDays: number;
+    note: string;
+  };
+  zones: CloudflareZone[];
+  daily: {
+    day: string;
+    requests: number;
+    cached: number;
+    bytes: number;
+    threats: number | null;
+    pageViews: number | null;
+    /** Summed across ZONES on one day. Somebody who read two of these sites
+     *  that morning is in it twice, and there is no identity that spans zones
+     *  to fix that with. */
+    uniquesByZone: number | null;
+    zones: number;
+    /** Today, which Cloudflare is still writing. Never in a total. */
+    partial: boolean;
+  }[];
+  summary: {
+    zones: number;
+    active: number;
+    paused: number;
+    byPlan: Record<string, number>;
+    withTraffic: number;
+    withoutTraffic: number;
+    requests: number;
+    cached: number;
+    cacheRatio: number | null;
+    bytes: number;
+    threats: number | null;
+    pageViews: number | null;
+    /** Always null, with the reason beside it. There is no honest total. */
+    uniques: null;
+    uniquesNote: string;
+    records: number | null;
+    proxied: number | null;
+    recordsUnreadable: number;
+    onPages: number;
+    busiest: { name: string; requests: number } | null;
+    /** Measured, and served nothing. Named rather than counted. */
+    silent: string[];
+    seenAt: string | null;
+  };
+  email: {
+    zones: number;
+    unreadable: number;
+    /** Zones showing any sign of handling mail. The rest cannot be called badly
+     *  configured for not defending a mailbox they do not have. */
+    sending: number;
+    mx: number;
+    spf: number;
+    dmarc: number;
+    /** `p=none` monitors and enforces nothing, so it is counted apart from
+     *  "has DMARC" rather than inside it. */
+    dmarcMonitorOnly: number;
+    dkim: number;
+    dkimMissing: number;
+    dkimUnknown: number;
+  };
+  alignment: {
+    registrarDomains: number;
+    zones: number;
+    aligned: string[];
+    offCloudflare: {
+      name: string;
+      note: string;
+      registrar: string | null;
+      nameservers: string[] | null;
+    }[];
+    elsewhereOnCloudflare: {
+      name: string;
+      note: string;
+      registrar: string | null;
+      nameservers: string[] | null;
+    }[];
+    unknown: { name: string; registrar: string | null }[];
+    /** A zone here that no connected registrar holds — its renewal date is
+     *  invisible to this dashboard, which is the finding. */
+    zoneOnly: string[];
+    /** A name a registrar holds with no Cloudflare zone at all. */
+    registrarOnly: {
+      name: string;
+      registrar: string;
+      account: string;
+      expiresAt: string | null;
+      expiresInDays: number | null;
+      nameservers: string[] | null;
+    }[];
+    claimedTwice: string[];
+    note: string;
+  };
+  registrar: {
+    /** The field that matters. An empty list from an endpoint that ANSWERED is
+     *  a measurement; an empty list from one that refused is nothing at all. */
+    readable: boolean;
+    count: number;
+    domains: {
+      name: string;
+      account: string;
+      expiresAt: string | null;
+      expiresInDays: number | null;
+      autoRenew: boolean | null;
+      locked: boolean | null;
+      registrar: string | null;
+      status: string | null;
+    }[];
+    note: string;
+  };
+  accounts: {
+    id: number;
+    label: string;
+    cfAccount: string | null;
+    zones: number;
+    registrarReadable: boolean;
+    registrarCount: number;
+    registrarNote: string | null;
+    analyticsZones: number;
+    analyticsNote: string | null;
+    seenAt: string;
+  }[];
+  cannot: {
+    checkedOn: string;
+    asked: readonly { asked: string; answer: string }[];
+    summary: string;
+    graphql: string;
+  };
+};
+
+/* ------------------------------------------------------------------ search */
+
+/**
+ * THE TWO SEARCH ENGINES ARE TWO DOCUMENTS, and nothing on either type below
+ * could be added to the other. Google's impressions and Bing's count different
+ * searches by different people on different networks; a shared `SearchReport`
+ * would be a type inviting a sum that means nothing.
+ */
+
+export type GscProperty = {
+  property: string;
+  /** Without the `sc-domain:` prefix, which is Search Console's and not the
+   *  owner's. */
+  label: string;
+  account: string;
+  permission: string | null;
+  clicks: number;
+  impressions: number;
+  /** Clicks over impressions, as a percentage. Null with no impressions. */
+  ctr: number | null;
+  /** Impression-weighted. NULL rather than 0 for a property nobody saw —
+   *  Google answers 0.0 there, and that is the absence of a rank. */
+  position: number | null;
+  previous: { clicks: number; impressions: number; ctr: number | null; position: number | null };
+  delta: {
+    impressions: number | null;
+    clicks: number | null;
+    /** Places, not percent, and positive is WORSE. */
+    position: number | null;
+  };
+  /** Google's own dimensionless answer for the same window, kept so the summed
+   *  figures above can be checked against it rather than trusted. */
+  googleTotal: {
+    clicks: number | null;
+    impressions: number | null;
+    position: number | null;
+    window: { start: string; end: string } | null;
+  };
+  /** How much of this property the ranked query rows actually cover — 2% to
+   *  77% across these properties. `capped` separates "there is more tail" from
+   *  "the rest was anonymised". */
+  queryCoverage: {
+    rows: number | null;
+    impressions: number | null;
+    clicks: number | null;
+    pct: number | null;
+    capped: boolean | null;
+  };
+  sitemaps: {
+    /** 'reported' | 'none' | 'failed' — three states, because "submitted
+     *  nothing" and "could not be read" are not the same finding. */
+    state: string | null;
+    count: number | null;
+    submitted: number | null;
+    errors: number | null;
+    warnings: number | null;
+    pending: number | null;
+    lastDownloaded: string | null;
+  };
+  error: string | null;
+  seenAt: string;
+};
+
+export type GscRanked = {
+  query: string;
+  property: string;
+  clicks: number;
+  impressions: number;
+  ctr: number | null;
+  position: number | null;
+};
+
+export type GscReport = {
+  connected: boolean;
+  accounts: { id: number; label: string; connected: boolean; properties: number }[];
+  window: {
+    days: number;
+    start: string | null;
+    /** The last FINALISED day. Never today: Search Console takes two to three
+     *  days to finish one, and drawing the unfinished ones is a fall that
+     *  never happened. */
+    end: string | null;
+    previousStart: string | null;
+    previousEnd: string | null;
+    lagDays: number;
+    lagNote: string;
+  };
+  totals: {
+    clicks: number;
+    impressions: number;
+    ctr: number | null;
+    position: number | null;
+    properties: number;
+  };
+  previous: { clicks: number; impressions: number; ctr: number | null; position: number | null };
+  delta: { impressions: number | null; clicks: number | null; position: number | null };
+  series: { day: string; clicks: number; impressions: number; properties: number }[];
+  seriesDays: number;
+  properties: GscProperty[];
+  queries: GscRanked[];
+  /** Queries ranking 11th to 20th — one page short of the clicks. */
+  striking: { query: string; property: string; impressions: number; clicks: number; position: number | null }[];
+  strikingBasis: string;
+  pages: (Omit<GscRanked, "query"> & { page: string })[];
+  coverage: {
+    queryImpressions: number;
+    googleImpressions: number;
+    pct: number | null;
+    rowLimit: number;
+    note: string;
+  };
+  sitemaps: {
+    properties: number;
+    none: number;
+    unreadable: number;
+    submitted: number;
+    errors: number;
+    warnings: number;
+  };
+  cannot: string[];
+  seenAt: string | null;
+  generatedAt: string;
+};
+
+export type BingSite = {
+  site: string;
+  label: string;
+  account: string;
+  verified: boolean | null;
+  impressions: number;
+  clicks: number;
+  ctr: number | null;
+  index: {
+    inIndex: number | null;
+    crawledPages: number | null;
+    crawlErrors: number | null;
+    blockedByRobots: number | null;
+    day: string | null;
+  };
+  /** The crawler's inbound-link count. */
+  inLinks: number | null;
+  /** How many of OUR pages the link endpoint could NAME a link into. Zero on
+   *  every site here, which is why there is no referring-domain figure. */
+  linkedPages: number | null;
+  error: string | null;
+  seenAt: string;
+};
+
+export type BingKeyword = {
+  phrase: string;
+  /** The country and language the impressions were counted in. Part of the
+   *  measurement, not a footnote. */
+  market: string;
+  /** 'ok' | 'na' | 'void' | 'failed'. `void` means the control phrase came
+   *  back empty too, so nothing in that batch is a measurement — and `volume`
+   *  is null rather than zero. */
+  status: string;
+  volume: number | null;
+  /** Broad-match impressions: a different and much larger measurement, never
+   *  substituted for the exact one. */
+  broad: number | null;
+  peak: number | null;
+  weeks: number;
+  trend: "up" | "down" | "flat" | null;
+  error: string | null;
+  askedAt: string;
+};
+
+export type BingReport = {
+  connected: boolean;
+  accounts: { id: number; label: string; connected: boolean; sites: number }[];
+  window: { days: number; start: string | null; end: string | null; note: string };
+  totals: {
+    impressions: number;
+    clicks: number;
+    ctr: number | null;
+    sites: number;
+    verified: number;
+  };
+  series: { day: string; impressions: number; clicks: number }[];
+  seriesDays: number;
+  sites: BingSite[];
+  queries: {
+    query: string;
+    site: string;
+    impressions: number;
+    clicks: number;
+    ctr: number | null;
+    position: number | null;
+  }[];
+  index: {
+    inIndex: number;
+    crawledPages: number;
+    crawlErrors: number;
+    blockedByRobots: number;
+    day: string | null;
+    series: { day: string; crawled: number; errors: number; blocked: number }[];
+  };
+  /** Two inbound-link measurements that disagree, and the sentence saying so. */
+  links: {
+    inLinks: number;
+    namedPages: number;
+    sitesWithNamedLinks: number;
+    note: string;
+  };
+  keywords: {
+    market: string;
+    control: string;
+    configured: number;
+    max: number;
+    measured: number;
+    unavailable: number;
+    unmeasured: number;
+    failed: number;
+    phrases: BingKeyword[];
+    note: string;
+  };
+  cannot: string[];
+  seenAt: string | null;
+  generatedAt: string;
+};
+
+/* ------------------------------------------------------------------ meta */
+
+/**
+ * One insights window, in Meta's own units — and dated.
+ *
+ * `from`/`to` are not decoration. Meta's `last_30d` ends on the last complete
+ * day rather than on today, so a card captioned "30d" over this figure is
+ * captioning a window that closed yesterday-or-before. A window whose end is
+ * not stated reads as a window ending now.
+ */
+export type MetaWindow = {
+  from: string | null;
+  to: string | null;
+  spend: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  cpc?: number | null;
+  ctr: number | null;
+  /**
+   * DE-DUPLICATED OVER THIS ROW'S OWN WINDOW AND NOWHERE ELSE. Two campaigns
+   * that both reached the same person each count them once, so adding two
+   * campaign reaches counts that person twice — and averaging two frequencies
+   * does the same thing in reverse. Nothing in this client sums either.
+   */
+  reach: number | null;
+  frequency: number | null;
+  leads: number | null;
+  costPerLead: number | null;
+  /**
+   * ALWAYS NULL ON THIS ACCOUNT, and that is a property of the account rather
+   * than a gap in the collector. ROAS is revenue over spend; this account buys
+   * lead-form submissions, so there is no purchase event and no value for Meta
+   * to divide by. Null is "asked and not told" — never 0×.
+   */
+  roas?: number | null;
+};
+
+export type MetaCampaign = {
+  id: string;
+  name: string | null;
+  /** `effective_status` — an ad left ACTIVE inside a paused campaign is not
+   *  running, and only this field folds the parents and Meta's vetoes in. */
+  status: string | null;
+  objective: string | null;
+  window: MetaWindow | null;
+};
+
+export type MetaAdAccount = {
+  id: string;
+  accountId: number;
+  accountLabel: string;
+  name: string | null;
+  /** The account's OWN currency. Every money figure on this object is in it,
+   *  and nothing adds two accounts' figures without a dated FX rate. */
+  currency: string | null;
+  status: number | null;
+  active: boolean;
+  timezone: string | null;
+  createdAt: string | null;
+  lifetimeSpend: number | null;
+  window: MetaWindow | null;
+  note: string | null;
+  campaigns: MetaCampaign[];
+  /** The days Meta actually reported. A day with no row is a day the account
+   *  did not deliver, not a day measured at zero, and it is absent rather than
+   *  drawn flat. */
+  daily: {
+    day: string;
+    spend: number | null;
+    impressions: number | null;
+    clicks: number | null;
+    leads: number | null;
+  }[];
+  /** Summed from `daily` on the read. These add across days; `reach` and
+   *  `frequency` on the window above do not and are not here. */
+  totals: {
+    days: number;
+    spend: number | null;
+    impressions: number | null;
+    clicks: number | null;
+    leads: number | null;
+  };
+};
+
+export type MetaPage = {
+  id: string;
+  accountId: number;
+  accountLabel: string;
+  name: string | null;
+  /** Null is "Meta did not report it", never nought. */
+  followers: number | null;
+  fans: number | null;
+  followersSource: string | null;
+  link: string | null;
+  category: string | null;
+  about: string | null;
+  /** A signed, EXPIRING scontent URL — only as good as the last collection. */
+  picture: string | null;
+  instagram: {
+    /** THE FLAG THAT KEEPS TWO ANSWERS APART. `checked: true, id: null` is Meta
+     *  saying this Page has no Instagram Business account; without it, that is
+     *  indistinguishable from nobody having looked. */
+    checked: boolean;
+    id: string | null;
+    username: string | null;
+    followers: number | null;
+  };
+};
+
+export type MetaReport = {
+  generatedAt: string;
+  /** When Meta was last READ, not when this document was assembled. */
+  seenAt: string | null;
+  graphVersion: string;
+  everyHours: number;
+  windowDays: number;
+  /** The attribution window the lead counts were taken over, requested
+   *  explicitly rather than inherited from the account's Ads Manager default:
+   *  the same twelve leads are a different number at a different window. */
+  attribution: string;
+  state: {
+    accountId: number;
+    accountLabel: string;
+    user: string | null;
+    userId: string | null;
+    /** Whether the calls carried `appsecret_proof`. False means no app pair is
+     *  stored; the token reads everything either way. */
+    proofed: boolean;
+    pages: number;
+    pagesChecked: number;
+    instagramLinked: number;
+    adAccounts: number;
+    note: string | null;
+    seenAt: string;
+  }[];
+  pages: MetaPage[];
+  /**
+   * INSTAGRAM'S THREE-STATE ANSWER, and the reason this block exists at all.
+   *
+   * On this account the credential works, it lists three Pages by name, and
+   * every one of them reports no linked Instagram Business account. That is
+   * `none-linked` — not an error, and emphatically not "0 followers".
+   * `followers` is null rather than 0 for exactly that reason: zero would be a
+   * measurement of an audience, and this is the absence of an account to
+   * measure. `fix` carries the one step that changes it.
+   */
+  instagram: {
+    state: "no-plugin" | "no-pages" | "none-linked" | "linked";
+    pagesChecked: number;
+    accounts: {
+      pageId: string;
+      pageName: string | null;
+      id: string | null;
+      username: string | null;
+      followers: number | null;
+    }[];
+    followers: number | null;
+    fix: string | null;
+  };
+  adAccounts: MetaAdAccount[];
+  spendByCurrency: {
+    currency: string;
+    adAccounts: number;
+    windowSpend: number;
+    lifetimeSpend: number;
+  }[];
+  currency: {
+    seen: string[];
+    /** Null, always, with the reason beside it — the same contract the costs
+     *  and mobile reports keep. A total across currencies needs a dated
+     *  exchange rate this box does not fetch. */
+    combined: null;
+    note: string;
+  };
+  reachNote: string;
+  leadNote: string;
+  /** What was asked of the Graph API and what came back, dated — the evidence
+   *  rather than the verdict, the same shape Replicate's and Cloudflare's
+   *  `cannot` blocks carry. */
+  cannot: { checkedOn: string; asked: { asked: string; answer: string }[] };
+};
+
+/* ------------------------------------------------------------------ demand */
+
+/**
+ * One thing a stranger wrote, as one of the two sources reported it.
+ *
+ * FOUR OF THESE FIELDS ARE NULLABLE AND THE NULLS ARE THE POINT. A row learned
+ * through SearXNG has no date and no score because a web index knows neither;
+ * a Hacker News comment has no score because Algolia's index does not carry
+ * one. Written as zeroes, both would be measurements nobody made — "posted at
+ * the epoch, nobody upvoted it" — so they are nulls all the way to the card.
+ */
+export type DemandSignal = {
+  id: string;
+  term: string;
+  title: string;
+  url: string;
+  /** "r/selfhosted" on Reddit; "story" or "comment" on Hacker News. */
+  context: string | null;
+  createdAt: string | null;
+  ageDays: number | null;
+  points: number | null;
+  comments: number | null;
+  /** How this row was learned: the Atom feed, the feed with the account's own
+   *  token, SearXNG, or Algolia. On the card, because they are not the same
+   *  claim about the same twelve links. */
+  tier: string;
+  /** When THIS box first saw it, which is the only freshness figure an unaged
+   *  row can contribute. */
+  firstSeenAt: string;
+};
+
+/**
+ * What happened when one phrase was put to one source.
+ *
+ * `ok` with `items: 0` and `throttled` are different answers and this type is
+ * where that difference survives the trip to the browser.
+ */
+export type DemandQuery = {
+  term: string;
+  status: "ok" | "throttled" | "failed" | "skipped" | "unasked";
+  tier: string | null;
+  tierLabel: string | null;
+  items: number | null;
+  error: string | null;
+  askedAt: string | null;
+};
+
+type DemandSection = {
+  connected: boolean;
+  signals: DemandSignal[];
+  /** Distinct THREADS in the window, never the row count — a thread two
+   *  phrases both found is one conversation. */
+  threads: number;
+  /** Rows whose tier could not date them, so they are in no window at all. */
+  unaged: number;
+  unscored: number;
+  /** Threads first seen by this box inside the window. */
+  newHere: number;
+  queries: DemandQuery[];
+  seenAt: string | null;
+};
+
+export type DemandReport = {
+  generatedAt: string;
+  windowDays: number;
+  everyHours: number;
+  /** The watch list. Configuration rather than a credential, so it reads
+   *  back — which is the whole reason a typo in it can be corrected. */
+  terms: string[];
+  maxTerms: number;
+  /** When this box first saw anything at all. Everything is new on the first
+   *  morning, and a card drawing `newHere` has to be able to say so. */
+  collectingSince: string | null;
+  reddit: DemandSection & {
+    token: {
+      held: boolean;
+      accounts: { id: number; label: string; lastOkAt: string | null; lastError: string | null }[];
+      note: string;
+    };
+    tiers: { tier: string; label: string; queries: number }[];
+    subreddits: { name: string; threads: number }[];
+  };
+  hn: DemandSection & { stories: number; comments: number };
+  searxng: {
+    connected: boolean;
+    /** The endpoint in use — the setting, or the default it falls back to. */
+    url: string;
+    configured: boolean;
+    seenAt: string | null;
+    probe: {
+      ok: boolean;
+      query: string | null;
+      results: number | null;
+      /** Of those results, how many were on the site the probe restricted
+       *  itself to. Ten results with none of them on it is a node answering a
+       *  different question, which a count alone reads as perfect health. */
+      onSite: number | null;
+      site: string;
+      ms: number | null;
+      enginesOk: number | null;
+      enginesRefused: number | null;
+      error: string | null;
+    } | null;
+    /** Per engine, from that probe. `refused` is the node's own words. */
+    engines: { engine: string; results: number; refused: string | null }[];
+    /** How often the node actually had to stand in for Reddit. */
+    standIns: number;
+    cannot: { checkedOn: string; asked: { asked: string; answer: string }[] };
+  };
+  totals: { threads: number; newHere: number; unaged: number; note: string };
+  cannot: { checkedOn: string; asked: { asked: string; answer: string }[] };
+};
+
+/**
+ * THE TELEGRAM BRIDGE, WHICH IS THE ONE INTEGRATION THAT IS A DOOR RATHER THAN
+ * A MEASUREMENT.
+ *
+ * Every other type in this file describes something that was collected. This
+ * one describes something that is RUNNING: a long poll inside the API process,
+ * paired with exactly one chat, answering it through the same agent the Chat
+ * page talks to. Which is why `poller` is on here at all — "connected" is the
+ * whole answer for a collector and only half of it for a bot, because a
+ * connected token whose loop is being refused by a second process polling the
+ * same bot looks identical from the plugin row.
+ *
+ * COUNTS AND IDS, NEVER A PERSON. There is no field here that could carry a
+ * name or a word anybody typed, because there is none on the route.
+ */
+export type TelegramBot = {
+  accountId: number;
+  /** The bot's own @name once the poller has asked getMe. Never a person's. */
+  label: string;
+  username: string | null;
+  connected: boolean;
+  chat: {
+    locked: boolean;
+    /** Null is the state a fresh install is in: the bot is live and waiting to
+     *  be messaged. It is not an error. */
+    chatId: string | null;
+    /** The `plugin_config` key holding it — `chatId` for the first bot. */
+    key: string;
+    turns: number;
+    /** Where the conversation lives in the shared transcript. */
+    session: string | null;
+  };
+  poller: {
+    state: "starting" | "polling" | "conflict" | "backoff" | "stopped";
+    since: string | null;
+    failures: number;
+    nextAttemptAt: string | null;
+    lastError: string | null;
+    updates: number;
+  };
+  messages: {
+    handled: number;
+    /** Messages from any chat other than the paired one. Nothing was sent back
+     *  and nothing reached the agent — this is how often somebody else has
+     *  found this bot. */
+    ignored: number;
+    lastMessageAt: string | null;
+    lastIgnoredAt: string | null;
+    lastReplyAt: string | null;
+  };
+  lastError: string | null;
+  lastErrorAt: string | null;
+};
+
+export type TelegramReport = {
+  connected: boolean;
+  bots: TelegramBot[];
+  /** Whether there is anything on the other end of the bot. A live bridge with
+   *  no agent behind it is the one state that looks broken and is not. */
+  agent: {
+    connected: boolean;
+    backends: { id: string; connected: boolean; label: string | null }[];
+    label: string | null;
+  };
+  /** The step only a human can take, or null when there is none. */
+  next: string | null;
+  cannot: string[];
+  generatedAt: string;
+};
+
+/* -------------------------------------------------------------------- mail */
+
+/**
+ * One label in one mailbox.
+ *
+ * THE COUNTERS ARE GMAIL'S OWN and are exact — they come from `labels.get`, not
+ * from a search. Asked for the unread inbox as a query, Gmail answered 201
+ * against a true 263 on this mailbox, which is why no estimate is used anywhere
+ * behind these numbers.
+ *
+ * THE TRIAGE HALF IS NULLABLE AND THAT IS LOAD-BEARING. `needingReply: null`
+ * means the scan did not reach this label; `0` means it did and found nothing
+ * waiting. `scanned` is the denominator the verdict is over — a queue with no
+ * denominator is not a measurement — and `truncated` says the count is a FLOOR.
+ */
+export type MailLabel = {
+  id: string;
+  name: string;
+  kind: string;
+  messagesTotal: number | null;
+  messagesUnread: number | null;
+  threadsTotal: number | null;
+  threadsUnread: number | null;
+  scanned: number | null;
+  needingReply: number | null;
+  oldestWaitingDays: number | null;
+  truncated: boolean;
+  note: string | null;
+};
+
+export type MailVolumeDay = {
+  day: string;
+  received: number | null;
+  sent: number | null;
+  /** Today, which is still filling. Carried, marked, and in no total. */
+  partial: boolean;
+  capped: boolean;
+};
+
+export type Mailbox = {
+  accountId: number;
+  accountLabel: string;
+  /** The mailbox's own address — the only address on this document, and the
+   *  owner's. No correspondent's ever reaches the client. */
+  address: string | null;
+  messagesTotal: number | null;
+  threadsTotal: number | null;
+  labelsTotal: number | null;
+  historyId: string | null;
+  /**
+   * What Google says the grant carries. `gmail.modify` is a WRITE scope — it
+   * can archive, label and trash — and this is where a reader finds that out.
+   * `readOnly` beside it is the answer: the server's provider has one HTTP
+   * entry point, it hard-codes GET and takes no body, so the token's extra
+   * power is a fact about the credential and never about what this dashboard
+   * does with it.
+   */
+  scopes: string[];
+  readOnly: { enforced: boolean; how: string };
+  /** Two answers, because Gmail has two and they differ by a fifth here: 263
+   *  messages against 252 threads. Every card says which one it drew. */
+  unread: { messages: number | null; threads: number | null };
+  needingReply: number | null;
+  oldestWaitingDays: number | null;
+  scanned: number | null;
+  floor: boolean;
+  labels: MailLabel[];
+  volume: {
+    byDay: MailVolumeDay[];
+    /** Over COMPLETE days only. Received and sent are never added: one is mail
+     *  that cost you attention and the other mail that cost you a reply. */
+    received: number | null;
+    sent: number | null;
+    from: string | null;
+    to: string | null;
+    days: number;
+  };
+  outreach: {
+    people: number;
+    new: number;
+    known: number;
+    /** The earliest sent-mail day this dashboard has on hand. A "new contact"
+     *  count is only as good as the history it is new against. */
+    historyFrom: string | null;
+    lookbackDays: number;
+  };
+  seenAt: string;
+  note: string | null;
+};
+
+export type MailDnsRecord = {
+  record: string;
+  type: string;
+  name: string;
+  status: string | null;
+  priority: number | null;
+};
+
+export type SendingDomain = {
+  id: string;
+  name: string;
+  accountId: number;
+  accountLabel: string;
+  /** Resend's own word — "verified", "pending", "failed" — never reduced to a
+   *  boolean: a domain part-way through verification and one that will not send
+   *  are different situations and only one is a thing to fix. */
+  status: string | null;
+  region: string | null;
+  createdAt: string | null;
+  sending: string | null;
+  receiving: string | null;
+  /** Both false on every domain here, which is why there is no open rate
+   *  anywhere on this board: Resend never writes an `opened` event for a domain
+   *  that is not tracking. */
+  tracking: { open: boolean | null; click: boolean | null };
+  dns: {
+    /** Whether the per-domain call carrying the records answered. A domain with
+     *  no records READ is not a domain with no records. */
+    read: boolean;
+    records: MailDnsRecord[];
+    total: number | null;
+    verified: number | null;
+    /** The records that are not verified, named. A domain that reads "verified"
+     *  while one of its records has gone pending is a domain about to stop
+     *  sending, and the listing endpoint cannot show that. */
+    unhealthy: MailDnsRecord[];
+  };
+  sends: MailSends & {
+    windowDays: number;
+    byDay: { day: string; sent: number; delivered: number; bounced: number }[];
+    /** Which addresses on this domain actually send. Ours, not anybody's. */
+    fromAddresses: { address: string; sent: number }[];
+    oldest: string | null;
+    floor: boolean;
+  };
+  seenAt: string;
+  note: string | null;
+};
+
+/**
+ * One set of send figures.
+ *
+ * THE RATE DENOMINATOR IS NAMED BECAUSE THERE ARE THREE DEFENSIBLE ONES. It is
+ * mail that actually reached a mail server — delivered + bounced + complained —
+ * and NOT everything sent. `suppressed` is Resend declining to send at all, to
+ * an address already on its own suppression list: it never reached a server, so
+ * counting it in the denominator would make a bounce rate FALL every time
+ * Resend refused to try. It gets its own line instead, and it is the more
+ * actionable number: a suppression is a list to clean.
+ */
+export type MailSends = {
+  sent: number;
+  delivered: number;
+  bounced: number;
+  complained: number;
+  suppressed: number;
+  /** Queued, scheduled, delayed, cancelled — anything Resend has not finished
+   *  with. Counted apart rather than folded into a failure. */
+  inFlight: number;
+  /** Null over nothing attempted, never 0% — the same rule a cache ratio over
+   *  zero requests follows. */
+  bounceRate: number | null;
+  complaintRate: number | null;
+  deliveryRate: number | null;
+  rateBasis: string;
+  attempted: number;
+};
+
+/**
+ * Mail, in one document: what arrives and what leaves.
+ *
+ * ONE REPORT FOR TWO PROVIDERS, the way MobileReport is one report for two app
+ * stores — and NOT the split GscReport and BingReport take. That split exists
+ * because Google's impressions and Bing's count the same KIND of thing about
+ * different populations, and one document holding both would be one field away
+ * from a card that adds them. Nothing here is that shape: an inbox thread
+ * waiting on a reply and a transactional password reset are not the same kind
+ * of thing, and there is no arithmetic anybody would be tempted to perform
+ * across them. Two `connected` flags, two blocks, and no figure spanning them.
+ *
+ * NOTHING PRIVATE IS ON THIS TYPE AND NOTHING PRIVATE COULD BE. There is no
+ * field here for a subject, a message body, a recipient or a correspondent's
+ * name — the server's tables cannot hold one, so the client cannot render one.
+ */
+export type MailReport = {
+  generatedAt: string;
+  /** When the mail was last READ, not when the document was assembled: every
+   *  figure on it is recomputed per request. */
+  seenAt: string | null;
+  windowDays: number;
+  collectedEveryHours: number;
+  connected: { gmail: boolean; resend: boolean };
+  mailboxes: Mailbox[];
+  /**
+   * The triage headline, summed across MAILBOXES and never across labels.
+   *
+   * A thread can carry INBOX and a hand-made label at once, so adding the
+   * per-label queues counts it twice — the same rule GitHub's unique visitors
+   * and Cloudflare's visitors follow, in a place it is far easier to get wrong
+   * because labels look like folders. Two Google accounts are two separate
+   * stores of mail, so across mailboxes the counts genuinely do add.
+   */
+  inbox: {
+    mailboxes: number;
+    unreadThreads: number | null;
+    unreadMessages: number | null;
+    needingReply: number | null;
+    oldestWaitingDays: number | null;
+    scanned: number | null;
+    /** True when a listing or the run's thread budget ran out, which makes
+     *  `needingReply` a floor rather than a count. */
+    floor: boolean;
+    budget: number;
+    windowDays: number;
+    /** The sentence the count is only interpretable beside. */
+    definition: string;
+  };
+  volume: {
+    byDay: {
+      day: string;
+      received: number | null;
+      sent: number | null;
+      mailboxes: number;
+      partial: boolean;
+    }[];
+    received: number | null;
+    sent: number | null;
+    from: string | null;
+    to: string | null;
+    days: number;
+    note: string;
+  };
+  outreach: {
+    people: number;
+    new: number;
+    known: number;
+    historyFrom: string | null;
+    windowDays: number;
+    lookbackDays: number;
+    note: string;
+  };
+  sendingDomains: SendingDomain[];
+  sending: MailSends & {
+    domains: number;
+    verified: number;
+    pending: number;
+    failed: number;
+    regions: (string | null)[];
+    windowDays: number;
+    byDay: {
+      day: string;
+      sent: number;
+      delivered: number;
+      bounced: number;
+      domains: number;
+    }[];
+    floor: boolean;
+    pageCeiling: number;
+    walkDays: number;
+    oldest: string | null;
+    note: string;
+  };
+  dns: {
+    domains: number;
+    unread: number;
+    records: number | null;
+    verified: number | null;
+    unhealthy: { domain: string; records: string[]; status: (string | null)[] }[];
+  };
+  accounts: {
+    gmail: {
+      id: number;
+      label: string;
+      address: string | null;
+      seenAt: string;
+      note: string | null;
+    }[];
+    resend: {
+      id: number;
+      label: string;
+      domains: number;
+      emails: number;
+      pages: number;
+      oldest: string | null;
+      truncated: boolean;
+      seenAt: string;
+      note: string | null;
+    }[];
+  };
+  /** What was asked and what came back, with the date — the same evidence
+   *  block Replicate's and Cloudflare's reports carry. */
+  cannot: { what: string; asked: string; answer: string; checked: string }[];
+  privacy: string;
+};
+
+/* ------------------------------------------------------------------- chat */
+
+/**
+ * The agent's two ids. A union rather than a string, because the whole rule
+ * this feature enforces — exactly one of these answers — is only checkable if
+ * the set is closed.
+ */
+export type ChatBackendId = "hermes" | "openclaw";
+
+/**
+ * One message of a transcript, as the server stored it.
+ *
+ * `backend` is null on the owner's own messages, which is the one place null
+ * here means "not applicable" rather than "asked and not told". `model`,
+ * `usage` and `ms` are null whenever the agent did not report them — an agent
+ * that counts no tokens has not told us the turn was free.
+ */
+export type ChatMessage = {
+  id: number;
+  ts: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  backend: ChatBackendId | null;
+  channel: string;
+  model: string | null;
+  usage: { prompt: number; completion: number } | null;
+  ms: number | null;
+};
+
+/**
+ * Who could answer, who is chosen, and who is live — three facts, because they
+ * come apart.
+ *
+ * A backend can be connected and not chosen ("ready, not live"), chosen and
+ * not connected (picked before the key was pasted), or both, which is the only
+ * combination that answers a message. `why` is the server's own sentence for
+ * the cases where nothing will answer, so the page states the reason rather
+ * than inferring one from the flags.
+ */
+export type ChatBackends = {
+  backends: {
+    id: ChatBackendId;
+    connected: boolean;
+    label: string | null;
+    live: boolean;
+  }[];
+  chosen: ChatBackendId | null;
+  live: ChatBackendId | null;
+  liveLabel: string | null;
+  why: string | null;
+};
+
+export type ChatSession = ChatBackends & {
+  sessionId: string;
+  messages: ChatMessage[];
+};
+
+/** What a sent message comes back as: both rows, plus the reply's own facts
+ *  at the top level for a caller that wants the answer and not the row. */
+export type ChatReply = {
+  sessionId: string;
+  user: ChatMessage;
+  reply: ChatMessage;
+  backend: ChatBackendId;
+  model: string | null;
+  usage: { prompt: number; completion: number } | null;
+  ms: number;
+};
+
+/* ------------------------------------------------------- the mailbox app */
+
+/*
+  THESE ARE THE ONLY TYPES IN THIS FILE THAT CAN HOLD A SUBJECT OR A BODY, AND
+  THAT IS A DECISION RATHER THAN AN OVERSIGHT.
+
+  Everything above reads a document a collector wrote, out of tables whose
+  schema has no column for a message — which is what lets `MailReport` claim
+  that nothing private is on its wire without having to redact anything. This
+  block reads a live mailbox, so the private data IS the product: a thread list
+  that hid the sender would be a list of nothing.
+
+  What replaces the schema as the guarantee is that these objects have no
+  destination. They are fetched, rendered, and dropped when the page unmounts;
+  nothing here is written to `localStorage`, and the store in `lib/store.tsx`
+  has no field that could hold one. The server keeps the other half of the same
+  rule — see `routes/mailbox.ts`.
+*/
+
+/** Which venture mailbox a thread arrived at: a bare domain, `"gmail"`, or
+ *  null. NULL IS "NONE OF OURS" HERE — a mailing list, a Bcc, mail that reached
+ *  the account some other way — because this server always looks. Workdash's
+ *  version of this field has a third reading, "the server never said", which
+ *  this one cannot: there is no build of this API that omits it. */
+export type MailboxKey = string | null;
+
+export type MailboxChip = {
+  /** What `?mailbox=` takes. A domain, or "gmail". */
+  key: string;
+  kind: "gmail" | "domain";
+  domain: string | null;
+  address: string | null;
+  /** THE DOMAIN'S OWN NAME. The server deliberately does not name a chip after
+   *  a venture: ventures live in this browser's store and carry no domain
+   *  field, so the match is made on the page — and a domain matching no venture
+   *  keeps this label rather than being given an invented one. */
+  label: string;
+  accountId: number;
+  accountLabel: string;
+  status: string | null;
+};
+
+export type MailboxChips = {
+  connected: boolean;
+  gmail: MailboxChip | null;
+  accounts: { id: number; label: string }[];
+  mailboxes: MailboxChip[];
+  labelling: string;
+};
+
+export type MailThread = {
+  id: string;
+  subject: string;
+  from: string;
+  fromName: string;
+  to: string;
+  /** Unix milliseconds. Null when Gmail reported no date for any message. */
+  at: number | null;
+  snippet: string;
+  unread: boolean;
+  labels: string[];
+  /** How many messages the conversation holds — the "(3)" Gmail shows. */
+  messages: number;
+  mailbox: MailboxKey;
+};
+
+export type MailThreadPage = {
+  accountId: number;
+  accountLabel: string;
+  address: string | null;
+  /** The Gmail query that actually ran. Shown on an empty result, because "no
+   *  mail" and "the chip and the box asked for something impossible" look
+   *  identical without it. */
+  query: string;
+  mailbox: string | null;
+  mailboxIgnored: string | null;
+  threads: MailThread[];
+  /** Gmail's own opaque cursor, not an ordinal. */
+  nextPage: string | null;
+  dropped: number;
+  limit: number;
+};
+
+export type MailAttachment = {
+  filename: string;
+  mimeType: string;
+  size: number | null;
+};
+
+export type MailMessage = {
+  id: string;
+  /** The RFC 5322 `Message-ID` header — what a reply must reference. Gmail's
+   *  own id threads replies inside this mailbox and means nothing to the
+   *  recipient's mail client. */
+  messageId: string | null;
+  from: string;
+  fromName: string;
+  to: string;
+  cc: string;
+  subject: string;
+  at: number | null;
+  unread: boolean;
+  labels: string[];
+  text: string;
+  /** A COMPLETE DOCUMENT, sanitised on the server and carrying its own CSP.
+   *  It goes straight into a sandboxed frame's `srcDoc`; nothing on this side
+   *  parses it, rewrites it, or wraps it in anything. */
+  html: string | null;
+  /** How many remote images are being withheld. Zero means the button to load
+   *  them is not drawn, which is most personal mail. */
+  remoteImages: number;
+  imagesLoaded: boolean;
+  attachments: MailAttachment[];
+};
+
+export type MailThreadDoc = {
+  id: string;
+  accountId: number;
+  mailbox: MailboxKey;
+  subject: string;
+  messages: MailMessage[];
+};
+
+export type SentByApp = {
+  id: string;
+  domain: string;
+  /** ISO instant. Resend's own stamp, normalised. */
+  at: string;
+  from: string;
+  to: string[];
+  subject: string;
+  lastEvent: string | null;
+};
+
+export type SentPage = {
+  domain: string | null;
+  emails: SentByApp[];
+  /** Only a single-domain view has a cursor: each key sees its own domain, so
+   *  there is no cursor that means anything across ten independent lists. */
+  nextPage: string | null;
+  pageable: boolean;
+  domains: (string | null)[];
+  domainsRead: number;
+  /** Keys restricted to sending since they were pasted — their domain can send
+   *  and cannot be read back, which is not "this domain sent nothing". */
+  restricted: string[];
+  truncated: number;
+};
+
+export type SentEmailDoc = {
+  id: string;
+  domain: string;
+  at: string;
+  from: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  lastEvent: string | null;
+  messageId: string | null;
+  text: string;
+  html: string | null;
+  remoteImages: number;
+  imagesLoaded: boolean;
+  /** Always empty: Resend returns no attachment bytes and lists none. The
+   *  field exists so one reader component renders both sides. */
+  attachments: MailAttachment[];
+};
+
+export const api = {
+  health: () =>
+    call<{ ok: boolean; collectors: string[]; collectEveryMinutes: number }>(
+      "/health",
+    ),
+
+  plugins: () =>
+    call<{ plugins: ServerPlugin[]; configurable: string[] }>("/plugins"),
+
+  plugin: (id: string) => call<ServerPlugin>(`/plugins/${id}`),
+
+  /** The single-account door: the first account, or the only one. The server
+   *  refuses it once there are several, because "the credential" has no
+   *  referent then. */
+  connect: (id: string, fields: Record<string, string>) =>
+    call<
+      ServerPlugin & { verified: boolean; collected: CollectSummary | null }
+    >(`/plugins/${id}`, { method: "PUT", body: JSON.stringify({ fields }) }),
+
+  /** Every account of this plugin, forgotten. */
+  disconnect: (id: string) =>
+    call<ServerPlugin>(`/plugins/${id}`, { method: "DELETE" }),
+
+  addAccount: (id: string, label: string, fields: Record<string, string>) =>
+    call<ServerPlugin & { verified: boolean; accountId: number }>(
+      `/plugins/${id}/accounts`,
+      { method: "POST", body: JSON.stringify({ label, fields }) },
+    ),
+
+  /** Rename an account, replace its credentials, or both. A field left out of
+   *  `fields` keeps the value already in the vault — which is what makes
+   *  "change just the secret" a thing that can be verified as a pair. */
+  updateAccount: (
+    id: string,
+    accountId: number,
+    body: { label?: string; fields?: Record<string, string> },
+  ) =>
+    call<ServerPlugin & { verified: boolean }>(
+      `/plugins/${id}/accounts/${accountId}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+
+  removeAccount: (id: string, accountId: number) =>
+    call<ServerPlugin>(`/plugins/${id}/accounts/${accountId}`, {
+      method: "DELETE",
+    }),
+
+  collect: (id: string) =>
+    call<ServerPlugin & { collected: CollectSummary }>(
+      `/plugins/${id}/collect`,
+      {
+        method: "POST",
+      },
+    ),
+
+  hetznerSummary: () => call<HetznerSummary>("/hetzner/summary"),
+
+  hetznerServers: () =>
+    call<{ servers: HetznerServer[]; seenAt: string | null }>(
+      "/hetzner/servers",
+    ),
+
+  hetznerLoad: (hours = 24) => call<HetznerLoad>(`/hetzner/load?hours=${hours}`),
+
+  hetznerVolumes: () =>
+    call<{ volumes: HetznerVolume[]; seenAt: string | null }>(
+      "/hetzner/volumes",
+    ),
+
+  stock: (days = 30) => call<StockReport>(`/stock?days=${days}`),
+
+  domains: () =>
+    call<{ domains: Domain[]; summary: DomainSummary }>("/domains"),
+
+  /** The whole costs board in one fetch — three providers, three shapes of
+   *  answer, and no total across the two currencies in play. */
+  costs: (days = 30) => call<CostsReport>(`/costs?days=${days}`),
+
+  /** The whole GitHub board in one fetch: the repos, the daily traffic line
+   *  and the summary — including what is left of the hour's API budget. */
+  github: () => call<Github>("/github"),
+
+  /** Downloads by day and by ISO week, bucketed server-side on every read. */
+  npm: () => call<Npm>("/npm"),
+
+  /** A plugin's non-secret settings. Unlike a credential, these read back. */
+  pluginConfig: (id: string) => call<PluginConfig>(`/plugins/${id}/config`),
+
+  savePluginConfig: (id: string, config: Record<string, string>) =>
+    call<PluginConfig & { connected: boolean; collected: unknown }>(
+      `/plugins/${id}/config`,
+      { method: "PUT", body: JSON.stringify({ config }) },
+    ),
+
+  /** Both app stores in one fetch — estimates and payouts kept apart, every
+   *  figure in the currency it was earned in, and no total across them. */
+  mobile: (days = 30) => call<MobileReport>(`/mobile?days=${days}`),
+
+  /** The whole Stripe board in one fetch: the book, the ledger, the attempts
+   *  and the balance. Two currencies would arrive as two rows, never as one
+   *  sum. */
+  stripe: (days = 30) => call<StripeReport>(`/stripe?days=${days}`),
+
+  /** AdSense, which answers even when nothing has authorised it — the
+   *  not-authorised state is the point, not an error to swallow. */
+  adsense: (days = 30) => call<AdSenseReport>(`/adsense?days=${days}`),
+
+  /** The zones, what they served over complete UTC days, and the join between
+   *  the nameservers Cloudflare assigned and the ones the registrar actually
+   *  delegates to. Today is in the document and in none of its totals. */
+  cloudflare: (days = 7) => call<CloudflareReport>(`/cloudflare?days=${days}`),
+
+  /** Search Console: every verified property, its finalised daily line, and
+   *  what fraction of it the ranked query rows actually cover. */
+  gsc: (days = 90) => call<GscReport>(`/gsc?days=${days}`),
+
+  /** Bing Webmaster, on its own route rather than beside Google's — the two
+   *  count different searches on different networks and nothing adds them. */
+  bing: (days = 90) => call<BingReport>(`/bing?days=${days}`),
+
+  /** The Pages, the ad account and what it spent — and, in the same document,
+   *  the Instagram answer, because Instagram is a field on a Page rather than
+   *  an API of its own. There is deliberately no `api.instagram()`. */
+  meta: (days = 30) => call<MetaReport>(`/meta?days=${days}`),
+
+  /** Reddit, Hacker News and the search node behind both, in one document —
+   *  because a thread is a thread whichever site it was posted on, and that
+   *  count is the one figure that legitimately spans them. Upvotes are not:
+   *  the document says so rather than leaving it to be inferred. */
+  demand: (days = 30) => call<DemandReport>(`/demand?days=${days}`),
+
+  /** Mail: the mailboxes and the sending domains in ONE document, because the
+   *  Email page asks one question of two ends of the same pipe. There is
+   *  deliberately no `api.gmail()` and no `api.resend()` — a page that fetched
+   *  two documents and joined them is a page that eventually joins them
+   *  wrongly. No figure on it spans the two halves. */
+  mail: (days = 30) => call<MailReport>(`/mail?days=${days}`),
+
+  /* ------------------------------------------------------- the mailbox app */
+
+  /*
+    A SECOND SET OF MAIL CALLS BESIDE `mail()`, AND THEY ARE NOT THE SAME KIND
+    OF CALL. `api.mail()` reads a collected document and is cheap, cacheable
+    and safe to fire on every page load. Everything below reaches Gmail or
+    Resend inside the request: it costs real quota, it takes a second or two,
+    and its answer is a person's mail. They are kept apart here so that
+    nothing accidentally puts a thread body on a dashboard.
+  */
+
+  /** The chips: every connected Resend domain, plus the Gmail account itself.
+   *  Cheap — it reads account rows and collected domain rows and touches no
+   *  provider — so the page asks for it before it asks for any mail. */
+  mailboxes: () => call<MailboxChips>("/mailbox/mailboxes"),
+
+  /**
+   * One page of threads.
+   *
+   * `mailbox` is a Gmail QUERY on the server and never a filter over rows
+   * already fetched — filtering 25 rows in the browser would report "3
+   * threads" for a venture with hundreds. `page` is Gmail's own opaque cursor
+   * from the previous answer, not an ordinal.
+   */
+  mailboxThreads: (opts: {
+    q?: string;
+    mailbox?: string | null;
+    page?: string | null;
+    account?: number;
+    limit?: number;
+  } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q) p.set("q", opts.q);
+    if (opts.mailbox) p.set("mailbox", opts.mailbox);
+    if (opts.page) p.set("page", opts.page);
+    if (opts.account) p.set("account", String(opts.account));
+    if (opts.limit) p.set("limit", String(opts.limit));
+    const qs = p.toString();
+    return call<MailThreadPage>(`/mailbox/threads${qs ? `?${qs}` : ""}`);
+  },
+
+  /**
+   * One thread, whole.
+   *
+   * `images` names the ONE message whose remote pictures should be fetched, or
+   * "all". It re-reads the thread rather than unhiding something already
+   * delivered, because the only way to be sure the browser cannot load a
+   * tracking pixel is for the URL never to reach it.
+   */
+  mailboxThread: (id: string, opts: { images?: string; account?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.images) p.set("images", opts.images);
+    if (opts.account) p.set("account", String(opts.account));
+    const qs = p.toString();
+    return call<MailThreadDoc>(
+      `/mailbox/threads/${encodeURIComponent(id)}${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  /**
+   * Mark a thread read, or unread. THE ONE WRITE THIS DASHBOARD MAKES.
+   *
+   * It reaches a function in the server's Gmail provider that can only ever
+   * add or remove the UNREAD label — there is no archive, trash or send behind
+   * it, and no argument here that could find one. It exists because an opened
+   * thread that stays bold is a mail client nobody believes.
+   */
+  mailboxMarkRead: (id: string, unread = false, account?: number) =>
+    call<{ threadId: string; unread: boolean }>(
+      `/mailbox/threads/${encodeURIComponent(id)}/read`,
+      { method: "POST", body: JSON.stringify({ unread, account }) },
+    ),
+
+  /** What the products sent people. Without a domain it merges one page from
+   *  each connected key, newest first; with one it reads that key alone and
+   *  can be paged. */
+  mailboxSent: (opts: { domain?: string | null; page?: string | null } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.domain) p.set("domain", opts.domain);
+    if (opts.page) p.set("page", opts.page);
+    const qs = p.toString();
+    return call<SentPage>(`/mailbox/sent${qs ? `?${qs}` : ""}`);
+  },
+
+  /** One sent email, body and all. The domain is part of the address because
+   *  each Resend key can see only its own domain — "which key" is not a hint,
+   *  it is where the resource lives. */
+  mailboxSentEmail: (domain: string, id: string, images = false) =>
+    call<SentEmailDoc>(
+      `/mailbox/sent/${encodeURIComponent(domain)}/${encodeURIComponent(id)}${images ? "?images=1" : ""}`,
+    ),
+
+  /** The Telegram bridge: which bot, which chat it is paired with, whether the
+   *  poller is actually running, and how many messages from other chats it has
+   *  thrown away. The one integration whose interesting state is not a
+   *  collection but a loop. */
+  telegram: () => call<TelegramReport>("/telegram"),
+
+  /** Un-pair a bot so it can be handed to a different chat. The next message
+   *  it receives, from anyone, pairs it again — and the previous chat's
+   *  conversation is forgotten with the pairing. Omit `accountId` when there
+   *  is one bot; with several the server refuses and names them rather than
+   *  guessing which pairing to break. */
+  telegramUnlock: (accountId?: number) =>
+    call<{ accountId: number; unlocked: boolean; forgot: number; next: string }>(
+      accountId === undefined ? "/telegram/lock" : `/telegram/lock/${accountId}`,
+      { method: "DELETE" },
+    ),
+
+  metric: (name: string, days = 30) =>
+    call<{ metric: string; points: { ts: string; value: number }[] }>(
+      `/metrics/${name}?days=${days}`,
+    ),
+
+  /* ----------------------------------------------------------------- chat */
+
+  /** Which agents could answer and which one will. Cheap on the server — no
+   *  credential is decrypted to answer it — so the Chat page is free to ask on
+   *  every load. */
+  chatBackends: () => call<ChatBackends>("/chat/backends"),
+
+  /** Choose the one that answers, or `null` for none. Comes back with the
+   *  whole state, so a choice that turns out not to be connected says so
+   *  without a second request. */
+  setChatBackend: (backend: ChatBackendId | null) =>
+    call<ChatBackends>("/chat/backend", {
+      method: "PUT",
+      body: JSON.stringify({ backend }),
+    }),
+
+  /** One conversation's stored messages, oldest first, with the backend state
+   *  alongside — both are wanted at the same moment and this is one fetch. */
+  chatSession: (sessionId: string) =>
+    call<ChatSession>(`/chat/${encodeURIComponent(sessionId)}/messages`),
+
+  /**
+   * Say something.
+   *
+   * The MESSAGE goes up, not the transcript: the server holds the history so
+   * that this page and the Telegram bridge are two doors onto one
+   * conversation rather than two conversations. A 503 here means no agent is
+   * live and carries the sentence to show; a 502 means the agent was reached
+   * and failed.
+   */
+  chatSend: (sessionId: string, message: string) =>
+    call<ChatReply>("/chat", {
+      method: "POST",
+      body: JSON.stringify({ sessionId, message }),
+    }),
+
+  /** Forget one conversation, on the server. The session itself lives in the
+   *  browser's store and is not touched by this. */
+  chatClear: (sessionId: string) =>
+    call<{ sessionId: string; deleted: number }>(
+      `/chat/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+    ),
+};

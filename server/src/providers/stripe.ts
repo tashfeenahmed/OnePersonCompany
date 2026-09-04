@@ -1,0 +1,1223 @@
+/**
+ * Stripe — what actually came in, and what it is contracted to keep coming in.
+ *
+ * WHAT THE OWNER PASTES: a key with READ access to charges, balance, balance
+ * transactions, subscriptions, prices, invoices and payouts. A restricted key
+ * (`rk_live_…`) is the right sort: nothing in this file sends a request body
+ * or a method other than GET, so a key that can write is a key whose extra
+ * power is never used and can still be leaked. `get()` below is the single
+ * HTTP entry point and takes no body — that is the whole enforcement, and it
+ * is deliberately structural rather than a rule somebody has to remember.
+ *
+ * WHAT IT READS, and nothing else:
+ *   GET /v1/balance                — what Stripe is holding
+ *   GET /v1/payouts                — what it has actually sent to the bank
+ *   GET /v1/prices?expand=product  — the price list, for plan and product names
+ *   GET /v1/subscriptions          — status=all, the whole book, live and dead
+ *   GET /v1/invoices?subscription= — did THIS cancelled subscription ever bill
+ *   GET /v1/charges                — the attempts, succeeded and failed
+ *   GET /v1/balance_transactions   — the ledger: fees, tax, refunds, net
+ *
+ * TWO WALKS THAT LOOK ALIKE AND ARE NOT. The charge walk measures ATTEMPTS —
+ * it is the only place a failed payment exists, because a decline never posts
+ * to the balance. The balance-transaction walk measures SETTLEMENT — the fee
+ * Stripe actually took, the tax it withheld, the refund it paid back, and the
+ * net that reached the account. Their two "gross" figures are dated
+ * differently (the charge's own timestamp against the ledger's posting) and
+ * are therefore stored in two tables and never added together. Net revenue is
+ * a ledger question and is only ever answered from the ledger.
+ *
+ * THE INCREMENTAL STRATEGY, WHICH IS THE WHOLE REASON THIS IS NOT A LOOP OVER
+ * A YEAR. workdash's collector keeps a day ledger in a JSON file beside the
+ * key: each run rewalks ninety days, rewrites those ninety rows, and leaves
+ * everything older alone, because a settled day's gross cannot change — its
+ * refund window has closed — so re-deriving three hundred of them every ten
+ * minutes is traffic spent on an answer nobody's arithmetic can move. The
+ * database here IS that ledger, and the rule is the same one: every run
+ * rewrites the rolling ninety days by primary key, and older rows are never
+ * touched again.
+ *
+ * WHERE THIS DELIBERATELY DIFFERS FROM WORKDASH: its first run against an
+ * empty ledger backfills the account's whole history in one walk. That is the
+ * right trade for a systemd timer and the wrong one here, because the first
+ * collection happens INSIDE the HTTP request that stores the credential — an
+ * owner who pastes a key would sit on a spinner for however many years of
+ * charges the account has. So history is filled BACKWARDS, one chunk per run
+ * (HISTORY_CHUNK_DAYS), and the run that reaches the account's first charge
+ * says so and stops asking. Connecting costs one window; the year arrives over
+ * the next few collections, and every figure derived from it says how far back
+ * the ledger actually reaches rather than implying a completeness it lacks.
+ */
+import * as accounts from "../accounts.ts";
+import type { Account } from "../accounts.ts";
+
+export const STRIPE_API = "https://api.stripe.com/v1";
+const TIMEOUT_MS = 45_000;
+
+/**
+ * How far back every run rewalks, and it is not the same thing as how much
+ * history is held.
+ *
+ * Ninety days because that is the span in which a day's figures can still
+ * MOVE: a refund lands against a charge from July, a dispute is opened on
+ * August's payment, a charge caught mid-flight settles. Rows inside it are
+ * rewritten by primary key on every run; rows outside it are settled history
+ * and are read once, ever.
+ */
+export const WALK_DAYS = 90;
+
+/** How much older history one run adds while the ledger is still reaching
+ *  back. Four months a run: a two-year-old account is complete inside seven
+ *  collections, and no single run is unbounded. */
+export const HISTORY_CHUNK_DAYS = 120;
+
+/**
+ * One walk's ceiling. A walk that quietly stops short is a lie the document
+ * cannot detect, so the cap is named once and every hit is reported.
+ */
+const PAGE_CAP = 5000;
+
+/** Recent payouts kept. The question these answer is "when did money last
+ *  actually leave for the bank", which is the last few and never the history. */
+const PAYOUTS = 10;
+
+/**
+ * Cancelled subscriptions resolved against their invoices per run.
+ *
+ * WHY THERE IS A CAP AT ALL. Whether a cancellation cost anything is not on
+ * the subscription object in any form — `trial_end` says a trial was OFFERED,
+ * not that an invoice was ever paid — so it takes one GET per cancelled
+ * subscription. This account has 154 of them and a fresh install would make
+ * 154 extra requests inside the connect call. The answer never changes once
+ * known, so it is stored per subscription and asked for at most sixty a run,
+ * newest cancellation first: the churn windows anybody is reading fill on the
+ * first collection and the archive catches up over the next two.
+ */
+const RESOLVE_PER_RUN = 60;
+
+/**
+ * Any billing interval, as a share of a month.
+ *
+ * THIS IS THE NORMALISATION AND IT IS A CHOICE, NOT A FACT. An annual plan
+ * bills $29 once a year and this counts it as $2.4167 of MRR every month.
+ * That is the standard convention and it is the only way a book of 444 annual
+ * and 254 monthly items can be described by one figure at all — but it is
+ * arithmetic performed ON the customer's cash flow rather than a thing Stripe
+ * reported, so every surface that shows MRR says the annual plans are counted
+ * as a twelfth. The alternative — reporting only what bills this month — is a
+ * figure that jumps every time an annual renewal lands and describes nothing.
+ */
+const PER_MONTH: Record<string, number> = {
+  day: 30,
+  week: 4.34524,
+  month: 1,
+  year: 1 / 12,
+};
+
+/**
+ * LIVE IS NOT THE SAME AS BILLING, and conflating them is how a free trial
+ * becomes revenue.
+ *
+ * `trialing` is a going concern — somebody is inside the product and may well
+ * convert — but it has never sent a cent, and money counted IN as MRR has to
+ * come back out as churn when the trial ends. The only way to never book that
+ * loss is to never book the revenue: MRR, the plan mix and the product mix all
+ * key off THIS, and trialing value is reported beside them rather than inside.
+ *
+ * `past_due` is deliberately out too. It is a subscription that is billing and
+ * FAILING, and counting it as contracted revenue is how a book of dying cards
+ * reads as growth. It is counted on its own instead, which is a number
+ * somebody can act on.
+ *
+ * Exported because the collector's readings and the route's totals must agree
+ * to the cent, and the only way to guarantee that is for both to ask the same
+ * function what counts as money.
+ */
+export const isBilling = (status: string) => status === "active";
+
+/**
+ * Balance-transaction categories that move money between Stripe and a bank
+ * rather than between a customer and the business. A payout is the same
+ * dollars a second time; counting it would double every figure in the ledger.
+ */
+const LEDGER_EXCLUDED = new Set([
+  "payout",
+  "payout_reversal",
+  "transfer",
+  "transfer_reversal",
+  "advance",
+  "advance_funding",
+  "topup",
+  "topup_reversal",
+]);
+
+/** Old balance transactions carry `type` but no `reporting_category`. This
+ *  rebuilds the category Stripe's own reports use from the type alone. */
+const TYPE_CATEGORY: Record<string, string> = {
+  charge: "charge",
+  payment: "charge",
+  refund: "refund",
+  payment_refund: "refund",
+  refund_failure: "refund_failure",
+  payment_refund_failure: "refund_failure",
+  stripe_fee: "fee",
+  network_cost: "fee",
+  application_fee: "fee",
+  application_fee_refund: "fee",
+  adjustment: "other_adjustment",
+  payout: "payout",
+  payout_cancel: "payout",
+  payout_failure: "payout",
+  transfer: "transfer",
+  transfer_cancel: "transfer",
+  transfer_failure: "transfer",
+  transfer_refund: "transfer",
+  topup: "topup",
+  topup_reversal: "topup_reversal",
+};
+
+/**
+ * Which line of the fee breakdown one fee belongs on.
+ *
+ * Stripe names fees in PROSE, not in an enum: `fee_details[].type` is only
+ * ever `stripe_fee`, `tax`, `withheld_tax` or `application_fee`, and
+ * everything that distinguishes card processing from a merchant-of-record fee
+ * is in the free-text description. So the type decides tax versus not-tax —
+ * the one split that must never be wrong, because it is the difference between
+ * a cost and a pass-through — and the description decides the rest. An
+ * unrecognised description is `other` and never quietly folded into
+ * processing: a bucket that absorbs the unknown stops being a measurement.
+ *
+ * Descriptions seen on this account on 2026-09-04: "Stripe processing fees",
+ * "Withheld sales tax", "Refund of withheld sales tax", "Managed Payments
+ * Transaction Fee (2026-09-03)" and "Billing - Usage Fee (2026-09-03)".
+ */
+export function feeBucket(kind: string | null, desc: string | null): string {
+  if (kind === "tax" || kind === "withheld_tax" || kind === "withheld_tax_refund")
+    return "tax";
+  const d = (desc ?? "").toLowerCase();
+  if (d.includes("withheld sales tax")) return "tax";
+  if (d.includes("dispute")) return "disputes";
+  if (d.includes("managed payments")) return "managedPayments";
+  if (d.startsWith("billing")) return "billing";
+  if (d.includes("processing")) return "processing";
+  return "other";
+}
+
+/* ------------------------------------------------------------------ shapes */
+
+/**
+ * One UTC day of payment ATTEMPTS, per currency.
+ *
+ * `gross` and `succeeded` are succeeded charges only — that is what every
+ * chart drawn off this table assumes. The failure columns are the other half
+ * of the same walk and are the reason it exists at all: a decline never
+ * reaches the balance, so the ledger table below cannot see one.
+ *
+ * BLOCKED AND DECLINED ARE NOT THE SAME EVENT and never share a denominator.
+ * `outcome.type` is Stripe's own word for the difference: "blocked" means a
+ * Radar rule stopped the attempt before a bank saw it — an attack repelled,
+ * which is the system working — and "issuer_declined" means a real customer's
+ * bank said no, which is the only half anybody can act on. This account fails
+ * 553 of 1,135 attempts over ninety days and reading that as "49% of payments
+ * fail" would be a false alarm about card testing.
+ */
+export type ChargeDay = {
+  accountId: number;
+  accountLabel: string;
+  day: string;
+  currency: string;
+  gross: number;
+  refunded: number;
+  refunds: number;
+  succeeded: number;
+  failed: number;
+  blocked: number;
+  declined: number;
+};
+
+/**
+ * One UTC day of SETTLEMENT, per currency, straight off the balance ledger.
+ *
+ * `fees` is Stripe's own cut EX-TAX and is the figure any blended rate must be
+ * derived from. `taxWithheld` is sales tax Stripe collects as merchant of
+ * record and remits onward — real money off the top and not a cost, because it
+ * is not the business's money at any point. Folding the two together is how a
+ * 8.2% processing cost reads as 15.3%, which is a mistake workdash made and
+ * documented; here they are two columns and `feesTotal` is the sum for the one
+ * reader that needs it: net = gross - refunds - disputes - feesTotal + other.
+ */
+export type LedgerDay = {
+  accountId: number;
+  accountLabel: string;
+  day: string;
+  currency: string;
+  gross: number;
+  fees: number;
+  taxWithheld: number;
+  feesTotal: number;
+  refunds: number;
+  disputes: number;
+  other: number;
+  net: number;
+  count: number;
+  /** The fee scalar decomposed. Always adds back up to feesTotal. */
+  processing: number;
+  managedPayments: number;
+  disputeFees: number;
+  billing: number;
+  otherFees: number;
+};
+
+/**
+ * One subscription, live or dead, priced.
+ *
+ * ROWS RATHER THAN AGGREGATES. MRR, the active count and every churn rate are
+ * computed from this table when somebody asks, never written into it. A stored
+ * "MRR: $875" is wrong the moment a subscription cancels and badly wrong after
+ * a week of failed collections — which is the week somebody looks. The row
+ * carries what Stripe said; the arithmetic happens on the read.
+ */
+export type SubscriptionRow = {
+  accountId: number;
+  accountLabel: string;
+  id: string;
+  status: string;
+  currency: string;
+  /** Net of recurring coupons, normalised to a month. See PER_MONTH. */
+  monthlyUsd: number;
+  /** Before coupons, same normalisation — so "how much is discounted away"
+   *  is a subtraction rather than a second walk. */
+  listedMonthlyUsd: number;
+  interval: string | null;
+  intervalCount: number | null;
+  product: string | null;
+  plan: string | null;
+  createdAt: string;
+  /** When it actually ended. NOT set for a subscription that has merely asked
+   *  to cancel — Stripe fills `canceled_at` the moment a cancellation is
+   *  SCHEDULED, and 93 subscriptions on this account are in exactly that
+   *  state: still billing, still MRR, gone at the end of the period. */
+  endedAt: string | null;
+  cancelAtPeriodEnd: boolean;
+  cancelAt: string | null;
+  trialStart: string | null;
+  trialEnd: string | null;
+  /** cancellation_requested / payment_failed / payment_disputed, or null on
+   *  subscriptions older than the field. Null is treated as voluntary:
+   *  guessing "involuntary" would flatter the retention story. */
+  reason: string | null;
+  /**
+   * Cents this subscription has ever collected, or null for "not asked yet".
+   *
+   * Null is not zero and the difference decides whether a cancellation is
+   * churn. A row that could not be resolved is treated downstream as PAID —
+   * an unreachable invoice list must never silently reclassify a real loss as
+   * a trial that never mattered.
+   */
+  paidCents: number | null;
+};
+
+export type BalanceRow = {
+  accountId: number;
+  accountLabel: string;
+  currency: string;
+  available: number;
+  pending: number;
+};
+
+export type PayoutRow = {
+  accountId: number;
+  accountLabel: string;
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  /** False means somebody pressed the button. This account's payouts are all
+   *  manual, which is why nothing here promises a "next payout" date: there
+   *  is no schedule to read. */
+  automatic: boolean;
+  arrivalDate: string;
+  createdAt: string;
+};
+
+/** How far back one account's day tables reach, and whether that is the whole
+ *  account. Read from the database, because the collector is restarted far
+ *  more often than the account is. */
+export type AccountState = {
+  historyFrom: string | null;
+  backfilled: boolean;
+};
+
+export type AccountOutcome = {
+  id: number;
+  label: string;
+  ok: boolean;
+  error?: string;
+  /** What this account's history now covers, to be written back. */
+  state?: AccountState;
+  rows?: number;
+};
+
+export type CollectResult = {
+  chargeDays: ChargeDay[];
+  ledgerDays: LedgerDay[];
+  subscriptions: SubscriptionRow[];
+  balances: BalanceRow[];
+  payouts: PayoutRow[];
+  accounts: AccountOutcome[];
+  accountsTried: number;
+  warnings: string[];
+  /** Cancellations still waiting on an invoice lookup. Published rather than
+   *  hidden: a churn figure computed while some rows are unresolved is a
+   *  churn figure that may still move. */
+  unresolved: number;
+  truncated: string[];
+};
+
+/* -------------------------------------------------------------------- http */
+
+export class StripeError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "StripeError";
+    this.status = status;
+  }
+}
+
+type Params = Record<string, string | number | undefined>;
+
+/**
+ * The only HTTP call in this file. GET, no body, by construction.
+ *
+ * There is no second function here that takes a method or a payload, so
+ * "this integration cannot write to Stripe" is a property of the code rather
+ * than a promise in a comment. The key is live.
+ */
+async function get<T>(path: string, key: string, params: Params = {}): Promise<T> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params))
+    if (v !== undefined && v !== null) qs.set(k, String(v));
+  const url = `${STRIPE_API}/${path}${qs.toString() ? `?${qs}` : ""}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    // Stripe explains itself in the body, and its sentences are good ones —
+    // "This API call cannot be made with a publishable API key" names the
+    // mistake where a bare 401 would send the owner to rotate a fine key.
+    let detail = "";
+    try {
+      const body = (await res.json()) as { error?: { message?: string } };
+      detail = body?.error?.message ? ` — ${body.error.message}` : "";
+    } catch {
+      /* not JSON; the status is all there is */
+    }
+    throw new StripeError(res.status, `HTTP ${res.status}${detail}`);
+  }
+  return (await res.json()) as T;
+}
+
+type Page<T> = { data?: T[]; has_more?: boolean };
+
+/**
+ * Walk a Stripe list endpoint.
+ *
+ * `hit` is a set the caller owns; the path is added to it when the cap
+ * actually bit AND Stripe still had more to give. A short walk that says so is
+ * a caveat; a short walk that says nothing is a wrong number.
+ */
+async function* page<T extends { id: string }>(
+  path: string,
+  key: string,
+  params: Params,
+  hit: Set<string>,
+  cap = PAGE_CAP,
+): AsyncGenerator<T> {
+  let after: string | undefined;
+  let seen = 0;
+  while (seen < cap) {
+    const doc = await get<Page<T>>(path, key, { ...params, limit: 100, starting_after: after });
+    const rows = doc.data ?? [];
+    for (const r of rows) yield r;
+    seen += rows.length;
+    if (!doc.has_more || !rows.length) return;
+    after = rows[rows.length - 1]!.id;
+  }
+  hit.add(path);
+}
+
+/* ------------------------------------------------------------------ verify */
+
+/**
+ * Is this key real, and can it read the two things everything else rests on?
+ *
+ * Asked of `/v1/balance` — the cheapest call Stripe has, one object, no
+ * pagination — and then of one page of subscriptions, because a restricted key
+ * can carry balance access and not subscription access and would otherwise
+ * connect happily and show an MRR of nothing. Both refusals are named, so the
+ * owner learns which permission is missing at the point the key was pasted
+ * rather than from an empty card an hour later.
+ */
+export async function verify(
+  key: string,
+): Promise<
+  | { ok: true; livemode: boolean; currencies: string[] }
+  | { ok: false; error: string }
+> {
+  try {
+    const bal = await get<{
+      livemode?: boolean;
+      available?: { currency: string }[];
+      pending?: { currency: string }[];
+    }>("balance", key);
+    await get<Page<{ id: string }>>("subscriptions", key, { limit: 1, status: "all" });
+    const currencies = [
+      ...new Set([
+        ...(bal.available ?? []).map((b) => b.currency),
+        ...(bal.pending ?? []).map((b) => b.currency),
+      ]),
+    ].sort();
+    return { ok: true, livemode: Boolean(bal.livemode), currencies };
+  } catch (err) {
+    if (err instanceof StripeError) {
+      if (err.status === 401)
+        return {
+          ok: false,
+          error:
+            "Stripe refused that key. A restricted key (rk_live_…) needs READ " +
+            "access to Balance, Balance transactions, Charges, Subscriptions, " +
+            "Prices, Invoices and Payouts; a publishable key (pk_…) is refused " +
+            "on every one of them.",
+        };
+      if (err.status === 403)
+        return {
+          ok: false,
+          error: `${err.message} — the key is real but is missing a read permission. Balance and Subscriptions are both required.`,
+        };
+      return { ok: false, error: err.message };
+    }
+    const name = err instanceof Error ? err.name : "Error";
+    return {
+      ok: false,
+      error:
+        name === "TimeoutError"
+          ? "Stripe did not answer within 45 seconds."
+          : `Could not reach Stripe (${name}).`,
+    };
+  }
+}
+
+/* ----------------------------------------------------------------- helpers */
+
+const money = (cents: number) => Number((cents / 100).toFixed(6));
+
+const utcDay = (seconds: number) =>
+  new Date(seconds * 1000).toISOString().slice(0, 10);
+
+const iso = (seconds: number | null | undefined) =>
+  seconds ? new Date(seconds * 1000).toISOString() : null;
+
+/**
+ * The start of the UTC day a timestamp falls in.
+ *
+ * THE WALK'S EDGE HAS TO BE A DAY BOUNDARY, and workdash's collector records
+ * an afternoon lost to finding out why. The day tables are keyed by day and
+ * every run REPLACES the days it covered; a walk starting at 11:00 on the
+ * ninetieth day back reads only that day's afternoon and then overwrites the
+ * whole day with it. One run later the day is outside the walk entirely, so
+ * the truncated version is the one kept — permanently, and growing by one
+ * wrong day a day. Rounding down to midnight costs a few extra hours of
+ * charges and makes every rewritten day a whole one.
+ */
+const utcMidnight = (seconds: number) => seconds - (seconds % 86_400);
+
+const dayBefore = (day: string) =>
+  new Date(`${day}T00:00:00Z`).getTime() / 1000;
+
+/* ------------------------------------------------------------------ pricing */
+
+type StripePrice = {
+  id: string;
+  nickname?: string | null;
+  currency?: string;
+  unit_amount?: number | null;
+  recurring?: { interval?: string; interval_count?: number } | null;
+  product?: string | { id?: string; name?: string } | null;
+};
+
+type StripeCoupon = {
+  percent_off?: number | null;
+  amount_off?: number | null;
+  currency?: string | null;
+  duration?: string | null;
+};
+
+type StripeDiscount = { coupon?: StripeCoupon; end?: number | null };
+
+type StripeSubscription = {
+  id: string;
+  status?: string;
+  created?: number;
+  canceled_at?: number | null;
+  ended_at?: number | null;
+  cancel_at?: number | null;
+  current_period_end?: number | null;
+  cancel_at_period_end?: boolean;
+  trial_start?: number | null;
+  trial_end?: number | null;
+  cancellation_details?: { reason?: string | null } | null;
+  discount?: StripeDiscount | null;
+  discounts?: (StripeDiscount | string)[] | null;
+  items?: { data?: { price?: StripePrice; quantity?: number }[] };
+};
+
+/**
+ * The share of a subscription's list price that is actually invoiced.
+ *
+ * MRR taken as `unit_amount × quantity` is the STICKER and not the money —
+ * every coupon on the account gets billed to the dashboard at full price.
+ * A `percent_off` scales the whole invoice. An `amount_off` is a flat sum off
+ * each invoice and is normalised to a month by the subscription's own interval
+ * before it can be compared to a monthly figure: an annual plan with $12 off a
+ * year is $1 of MRR, not $12.
+ *
+ * A coupon whose `end` has passed is spent. A `once` coupon comes off the next
+ * invoice only — a one-off discount is not a change in recurring revenue — so
+ * it is left out entirely rather than being silently either way. Forever and
+ * still-running repeating coupons are applied.
+ */
+function discountFactor(
+  sub: StripeSubscription,
+  listedMonthly: number,
+  perMonth: number,
+  currency: string,
+  nowSec: number,
+): { factor: number; notes: string[] } {
+  const found: StripeDiscount[] = [];
+  const notes: string[] = [];
+  let unresolved = 0;
+  if (sub.discount && typeof sub.discount === "object") found.push(sub.discount);
+  for (const d of sub.discounts ?? []) {
+    if (d && typeof d === "object") found.push(d);
+    else if (d) unresolved += 1;
+  }
+  if (unresolved)
+    notes.push(`${unresolved} discount(s) came back as ids and were not applied`);
+
+  let factor = 1;
+  for (const d of found) {
+    const coupon = d.coupon ?? {};
+    if (d.end && d.end <= nowSec) continue;
+    if (coupon.duration === "once") {
+      notes.push("a one-off coupon is pending and is not in MRR");
+      continue;
+    }
+    if (coupon.percent_off) {
+      factor *= Math.max(0, 1 - Number(coupon.percent_off) / 100);
+      continue;
+    }
+    const off = coupon.amount_off;
+    if (!off) continue;
+    // A fixed coupon only means anything against the same currency; where they
+    // disagree Stripe would not apply it here either.
+    if (coupon.currency && coupon.currency !== currency) {
+      notes.push("an amount_off coupon is in another currency and was not applied");
+      continue;
+    }
+    if (listedMonthly <= 0) continue;
+    factor *= Math.max(0, 1 - (Number(off) * perMonth) / listedMonthly);
+  }
+  return { factor, notes };
+}
+
+/* ----------------------------------------------------------------- collect */
+
+/** The accounts holding a key, in the order they were added. */
+export function keyAccounts(reader: string): { account: Account; key: string }[] {
+  return accounts
+    .credentialed("stripe", ["key"], reader)
+    .ready.map(({ account, values }) => ({ account, key: values.key! }));
+}
+
+/**
+ * The two accumulators, IN CENTS.
+ *
+ * Stripe reports integers of the smallest currency unit and every sum below is
+ * done in them, converted once on the way out. Adding dollars-as-floats across
+ * a thousand charges accumulates a tail that turns "gross - refunds - fees"
+ * into a net that misses by a cent — and a reconciliation identity that is
+ * nearly true is worse than one that is not offered.
+ */
+type DayAcc = Omit<ChargeDay, "accountId" | "accountLabel" | "day" | "currency">;
+type LedgerAcc = Omit<LedgerDay, "accountId" | "accountLabel" | "day" | "currency">;
+
+const emptyDay = (): DayAcc => ({
+  gross: 0,
+  refunded: 0,
+  refunds: 0,
+  succeeded: 0,
+  failed: 0,
+  blocked: 0,
+  declined: 0,
+});
+
+const emptyLedger = (): LedgerAcc => ({
+  gross: 0,
+  /* Never accumulated. `fees` is DERIVED — feesTotal less the withheld tax —
+     and is computed once, at the end, where the row is converted to dollars.
+     Adding to it here as well would be a second definition of Stripe's cut,
+     and the two would eventually disagree about a rate the whole board
+     divides by. It is in the shape only so the accumulator matches the row it
+     becomes. */
+  fees: 0,
+  taxWithheld: 0,
+  feesTotal: 0,
+  refunds: 0,
+  disputes: 0,
+  other: 0,
+  net: 0,
+  count: 0,
+  processing: 0,
+  managedPayments: 0,
+  disputeFees: 0,
+  billing: 0,
+  otherFees: 0,
+});
+
+/**
+ * Every connected Stripe account, one after another.
+ *
+ * ONE ACCOUNT FAILING LOSES ONLY THAT ACCOUNT, exactly as it does everywhere
+ * else here: a revoked key takes its own book off the page and leaves the
+ * other account's revenue where it was. The run fails only when every account
+ * failed.
+ *
+ * `state` is what each account's day tables already cover; `resolved` is the
+ * set of subscription ids whose "did it ever bill" question has already been
+ * answered and is never asked twice.
+ */
+export async function collect(
+  state: Map<number, AccountState>,
+  resolved: Map<string, number>,
+  reader = "collect_stripe",
+): Promise<CollectResult> {
+  const pairs = keyAccounts(reader);
+  const out: CollectResult = {
+    chargeDays: [],
+    ledgerDays: [],
+    subscriptions: [],
+    balances: [],
+    payouts: [],
+    accounts: [],
+    accountsTried: pairs.length,
+    warnings: [],
+    unresolved: 0,
+    truncated: [],
+  };
+
+  for (const { account, key } of pairs) {
+    const label = account.label;
+    const truncated = new Set<string>();
+    try {
+      const walked = await collectAccount(
+        account,
+        key,
+        state.get(account.id) ?? { historyFrom: null, backfilled: false },
+        resolved,
+        truncated,
+      );
+      out.chargeDays.push(...walked.chargeDays);
+      out.ledgerDays.push(...walked.ledgerDays);
+      out.subscriptions.push(...walked.subscriptions);
+      out.balances.push(...walked.balances);
+      out.payouts.push(...walked.payouts);
+      out.unresolved += walked.unresolved;
+      for (const note of walked.notes)
+        if (!out.warnings.includes(`${label}: ${note}`))
+          out.warnings.push(`${label}: ${note}`);
+      for (const t of truncated) {
+        const line = `${label}: the ${t} walk hit its ${PAGE_CAP}-row cap and Stripe had more`;
+        out.truncated.push(line);
+        out.warnings.push(line);
+      }
+      out.accounts.push({
+        id: account.id,
+        label,
+        ok: true,
+        state: walked.state,
+        rows:
+          walked.chargeDays.length +
+          walked.ledgerDays.length +
+          walked.subscriptions.length,
+      });
+    } catch (err) {
+      const error = describe(err);
+      out.warnings.push(`${label}: ${error}`);
+      out.accounts.push({ id: account.id, label, ok: false, error });
+    }
+  }
+
+  return out;
+}
+
+async function collectAccount(
+  account: Account,
+  key: string,
+  state: AccountState,
+  resolved: Map<string, number>,
+  truncated: Set<string>,
+) {
+  const label = account.label;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rollingFrom = utcMidnight(nowSec - WALK_DAYS * 86_400);
+  const notes: string[] = [];
+
+  /* ---- the price list, for plan and product names ---------------------- */
+  // Expanded rather than a second walk over /products: one request instead of
+  // two, and a price whose product cannot be expanded keeps its own nickname
+  // rather than borrowing a name from somewhere else.
+  const planOf = new Map<string, string>();
+  const productOf = new Map<string, string>();
+  for await (const p of page<StripePrice & { id: string }>(
+    "prices",
+    key,
+    { "expand[]": "data.product" },
+    truncated,
+  )) {
+    const product =
+      p.product && typeof p.product === "object" ? (p.product.name ?? null) : null;
+    planOf.set(p.id, p.nickname || product || p.id);
+    productOf.set(p.id, product ?? "Other");
+  }
+
+  /* ---- balance and payouts --------------------------------------------- */
+  const bal = await get<{
+    available?: { currency: string; amount: number }[];
+    pending?: { currency: string; amount: number }[];
+  }>("balance", key);
+  const byCurrency = new Map<string, { available: number; pending: number }>();
+  for (const b of bal.available ?? []) {
+    const row = byCurrency.get(b.currency) ?? { available: 0, pending: 0 };
+    row.available += b.amount;
+    byCurrency.set(b.currency, row);
+  }
+  for (const b of bal.pending ?? []) {
+    const row = byCurrency.get(b.currency) ?? { available: 0, pending: 0 };
+    row.pending += b.amount;
+    byCurrency.set(b.currency, row);
+  }
+  const balances: BalanceRow[] = [...byCurrency.entries()].map(([currency, v]) => ({
+    accountId: account.id,
+    accountLabel: label,
+    currency,
+    available: money(v.available),
+    pending: money(v.pending),
+  }));
+
+  const payoutDoc = await get<Page<{
+    id: string;
+    amount: number;
+    currency: string;
+    status: string;
+    automatic: boolean;
+    arrival_date: number;
+    created: number;
+  }>>("payouts", key, { limit: PAYOUTS });
+  const payouts: PayoutRow[] = (payoutDoc.data ?? []).map((p) => ({
+    accountId: account.id,
+    accountLabel: label,
+    id: p.id,
+    amount: money(p.amount),
+    currency: p.currency,
+    status: p.status,
+    automatic: Boolean(p.automatic),
+    arrivalDate: utcDay(p.arrival_date),
+    createdAt: iso(p.created)!,
+  }));
+
+  /* ---- subscriptions: the whole book, live and dead --------------------- */
+  //
+  // status=all and unbounded in time on purpose. It is seven requests for this
+  // account's 698 subscriptions, and it is what makes churn answerable over
+  // ANY window without a second walk — the rows carry their own timestamps and
+  // the route filters them when somebody asks.
+  //
+  // The discount expansion is probed once rather than assumed: an unsupported
+  // `expand` is a hard 400 on some API versions, and a 400 mid-walk would cost
+  // the whole account for the sake of ten coupons.
+  const subParams: Params = { status: "all" };
+  try {
+    await get("subscriptions", key, { limit: 1, status: "all", "expand[]": "data.discounts" });
+    subParams["expand[]"] = "data.discounts";
+  } catch {
+    notes.push(
+      "this API version does not expand subscription discounts, so only coupons returned inline are applied to MRR",
+    );
+  }
+
+  const subscriptions: SubscriptionRow[] = [];
+  const toResolve: { id: string; endedAt: number }[] = [];
+
+  for await (const s of page<StripeSubscription & { id: string }>(
+    "subscriptions",
+    key,
+    subParams,
+    truncated,
+  )) {
+    const status = s.status ?? "unknown";
+    const items = s.items?.data ?? [];
+
+    // The subscription's interval comes off its FIRST line, which is the one
+    // that decides how the whole thing bills. A mixed-interval subscription
+    // does not exist at Stripe.
+    let perMonth: number | null = null;
+    let currency = "usd";
+    let interval: string | null = null;
+    let intervalCount: number | null = null;
+    let listed = 0;
+    for (const item of items) {
+      const price: StripePrice = item.price ?? { id: "" };
+      const rec = price.recurring ?? {};
+      const per = (PER_MONTH[rec.interval ?? "month"] ?? 1) / (rec.interval_count || 1);
+      if (perMonth === null) {
+        perMonth = per;
+        currency = price.currency ?? "usd";
+        interval = rec.interval ?? null;
+        intervalCount = rec.interval_count ?? null;
+      }
+      listed += (price.unit_amount ?? 0) * (item.quantity ?? 1) * per;
+    }
+
+    const { factor, notes: why } = discountFactor(
+      s,
+      listed,
+      perMonth ?? 1,
+      currency,
+      nowSec,
+    );
+    for (const n of why) if (!notes.includes(n)) notes.push(n);
+
+    const live = status === "active" || status === "trialing";
+    const ended = !live ? (s.canceled_at ?? s.ended_at ?? null) : null;
+    const firstPrice = items[0]?.price;
+
+    /*
+      DOES THIS CANCELLATION NEED AN INVOICE LOOKUP? Two of them do not.
+
+      `incomplete_expired` is Stripe's own word for a subscription whose FIRST
+      payment never succeeded inside the 23-hour window — it cannot have
+      collected anything, so it is resolved at zero here without spending a
+      request. That is 182 of this account's 336 dead subscriptions, and they
+      are the ones that would otherwise dominate a churn figure: they are
+      failed checkouts, not customers who left.
+
+      Everything else that has ended and has never been asked goes on the list.
+    */
+    let paidCents = resolved.get(s.id) ?? null;
+    if (ended && paidCents === null) {
+      if (status === "incomplete_expired") paidCents = 0;
+      else toResolve.push({ id: s.id, endedAt: ended });
+    }
+
+    subscriptions.push({
+      accountId: account.id,
+      accountLabel: label,
+      id: s.id,
+      status,
+      currency,
+      monthlyUsd: money(listed * factor),
+      listedMonthlyUsd: money(listed),
+      interval,
+      intervalCount,
+      product: firstPrice ? (productOf.get(firstPrice.id ?? "") ?? "Other") : null,
+      plan: firstPrice ? (planOf.get(firstPrice.id ?? "") ?? null) : null,
+      createdAt: iso(s.created ?? 0)!,
+      endedAt: iso(ended),
+      cancelAtPeriodEnd: Boolean(s.cancel_at_period_end),
+      cancelAt: iso(s.cancel_at ?? s.current_period_end),
+      trialStart: iso(s.trial_start),
+      trialEnd: iso(s.trial_end),
+      reason: s.cancellation_details?.reason ?? null,
+      paidCents,
+    });
+  }
+
+  /*
+    THE ONE EXTRA REQUEST PER CANCELLATION, newest first and capped.
+
+    Whether any money ever changed hands is the question that decides whether a
+    cancellation is churn at all, and it is not on the subscription object.
+    workdash learned this the expensive way: $415 of a reported $430 monthly
+    churn turned out to be free trials that were cancelled — revenue that never
+    existed — while the one real loss in the window was a three-year customer
+    whose card finally died. A duration heuristic cannot tell those apart in
+    either direction. The invoice list can.
+  */
+  toResolve.sort((a, b) => b.endedAt - a.endedAt);
+  let unresolved = Math.max(0, toResolve.length - RESOLVE_PER_RUN);
+  for (const { id } of toResolve.slice(0, RESOLVE_PER_RUN)) {
+    try {
+      let cents = 0;
+      for await (const inv of page<{ id: string; amount_paid?: number }>(
+        "invoices",
+        key,
+        { subscription: id },
+        truncated,
+        200,
+      ))
+        cents += inv.amount_paid ?? 0;
+      const row = subscriptions.find((r) => r.id === id);
+      if (row) row.paidCents = cents;
+    } catch {
+      // "Cannot say" and it stays that way: the row keeps paidCents null and
+      // the reader treats null as paid, which is the direction that never
+      // flatters retention.
+      unresolved += 1;
+    }
+  }
+
+  /* ---- the two day walks ------------------------------------------------ */
+  const chargeAcc = new Map<string, DayAcc>();
+  const ledgerAcc = new Map<string, LedgerAcc>();
+
+  await walkCharges(key, { "created[gte]": rollingFrom }, chargeAcc, truncated);
+  await walkLedger(key, { "created[gte]": rollingFrom }, ledgerAcc, truncated);
+
+  /*
+    HISTORY, ONE CHUNK PER RUN.
+
+    The first run writes down where the rolling window starts and stops there,
+    so pasting a key costs one window rather than however many years the
+    account has. Every run after it walks one chunk further back, and the run
+    that finds nothing older than the chunk it just read marks the account
+    backfilled and never asks again. `backfilled` is only set on the evidence
+    of that probe — a chunk that came back empty because it hit a page cap
+    would otherwise freeze a short history into the state forever.
+  */
+  let state2: AccountState = state;
+  if (state.historyFrom === null) {
+    /*
+      The first run writes the bookmark and stops. Deliberately NOT a warning:
+      an integration that is working exactly as designed must not put a line on
+      the plugin page that reads as a fault. How far the history reaches is
+      published by the route, beside the figures it qualifies.
+    */
+    state2 = { historyFrom: utcDay(rollingFrom), backfilled: false };
+  } else if (!state.backfilled) {
+    const until = dayBefore(state.historyFrom);
+    const from = utcMidnight(until - HISTORY_CHUNK_DAYS * 86_400);
+    const range = { "created[gte]": from, "created[lt]": until };
+    await walkCharges(key, range, chargeAcc, truncated);
+    await walkLedger(key, range, ledgerAcc, truncated);
+
+    // Is there anything at all older than the chunk just read? One request
+    // each, and a definitive answer — the alternative, "stop when a chunk
+    // comes back empty", would stop at any quiet season the account had.
+    const olderCharges = await get<Page<{ id: string }>>("charges", key, {
+      limit: 1,
+      "created[lt]": from,
+    });
+    const olderLedger = await get<Page<{ id: string }>>("balance_transactions", key, {
+      limit: 1,
+      "created[lt]": from,
+    });
+    const done = !(olderCharges.data ?? []).length && !(olderLedger.data ?? []).length;
+    state2 = { historyFrom: utcDay(from), backfilled: done };
+  }
+
+  const chargeDays: ChargeDay[] = [...chargeAcc.entries()].map(([k, v]) => {
+    const [day, currency] = k.split("|") as [string, string];
+    return {
+      accountId: account.id,
+      accountLabel: label,
+      day,
+      currency,
+      ...v,
+      gross: money(v.gross),
+      refunded: money(v.refunded),
+    };
+  });
+  const ledgerDays: LedgerDay[] = [...ledgerAcc.entries()].map(([k, v]) => {
+    const [day, currency] = k.split("|") as [string, string];
+    return {
+      accountId: account.id,
+      accountLabel: label,
+      day,
+      currency,
+      count: v.count,
+      gross: money(v.gross),
+      // Stripe's own cut, EX-TAX: the figure a blended rate is derived from,
+      // and the reason `taxWithheld` is a column rather than a bucket inside
+      // this one. Both come out of the same scalar.
+      fees: money(v.feesTotal - v.taxWithheld),
+      taxWithheld: money(v.taxWithheld),
+      feesTotal: money(v.feesTotal),
+      refunds: money(v.refunds),
+      disputes: money(v.disputes),
+      other: money(v.other),
+      net: money(v.net),
+      processing: money(v.processing),
+      managedPayments: money(v.managedPayments),
+      disputeFees: money(v.disputeFees),
+      billing: money(v.billing),
+      otherFees: money(v.otherFees),
+    };
+  });
+
+  return {
+    chargeDays,
+    ledgerDays,
+    subscriptions,
+    balances,
+    payouts,
+    unresolved,
+    notes,
+    state: state2,
+  };
+}
+
+type StripeCharge = {
+  id: string;
+  created: number;
+  amount?: number;
+  amount_refunded?: number;
+  currency?: string;
+  status?: string;
+  paid?: boolean;
+  refunded?: boolean;
+  outcome?: { type?: string } | null;
+};
+
+async function walkCharges(
+  key: string,
+  range: Params,
+  acc: Map<string, DayAcc>,
+  truncated: Set<string>,
+) {
+  for await (const c of page<StripeCharge>("charges", key, range, truncated)) {
+    const currency = c.currency ?? "usd";
+    const k = `${utcDay(c.created)}|${currency}`;
+    const row = acc.get(k) ?? emptyDay();
+    const ok = Boolean(c.paid) && c.status === "succeeded";
+    if (ok) {
+      row.gross += c.amount ?? 0;
+      row.succeeded += 1;
+    } else if (c.status === "failed") {
+      row.failed += 1;
+      // Anything that is neither blocked nor issuer_declined counts as
+      // neither rather than being guessed into one of them.
+      if (c.outcome?.type === "blocked") row.blocked += 1;
+      else if (c.outcome?.type === "issuer_declined") row.declined += 1;
+    }
+    /*
+      A refund is recorded against the day of the CHARGE, not the day the
+      refund happened. That is what "refunded" has always meant in a revenue
+      window — money back out of what came in on that day — and the ninety-day
+      rewalk is what keeps it true when a refund lands in September against a
+      July charge. The ledger table below dates the same refund the other way,
+      by settlement, which is why the two are never added together.
+    */
+    const refunded = c.amount_refunded ?? 0;
+    if (refunded > 0 || c.refunded) {
+      row.refunds += 1;
+      row.refunded += refunded;
+    }
+    acc.set(k, row);
+  }
+}
+
+type StripeBalanceTx = {
+  id: string;
+  created: number;
+  currency?: string;
+  amount?: number;
+  fee?: number;
+  net?: number | null;
+  type?: string;
+  description?: string | null;
+  reporting_category?: string | null;
+  fee_details?: { type?: string; description?: string | null; amount?: number }[] | null;
+};
+
+async function walkLedger(
+  key: string,
+  range: Params,
+  acc: Map<string, LedgerAcc>,
+  truncated: Set<string>,
+) {
+  for await (const b of page<StripeBalanceTx>("balance_transactions", key, range, truncated)) {
+    const category =
+      b.reporting_category ?? TYPE_CATEGORY[b.type ?? ""] ?? "other_adjustment";
+    if (LEDGER_EXCLUDED.has(category)) continue;
+
+    const currency = b.currency ?? "usd";
+    const k = `${utcDay(b.created)}|${currency}`;
+    const row = acc.get(k) ?? emptyLedger();
+    const amount = b.amount ?? 0;
+    const fee = b.fee ?? 0;
+    const net = b.net ?? amount - fee;
+
+    row.count += 1;
+    row.feesTotal += fee;
+    row.net += net;
+    if (category === "charge") row.gross += amount;
+    else if (category === "refund" || category === "refund_failure") row.refunds -= amount;
+    else if (category === "dispute" || category === "dispute_reversal") row.disputes -= amount;
+    else if (category === "fee") {
+      // A standalone fee row is money out with no fee field of its own — the
+      // Managed Payments and Billing lines this account is charged daily.
+      row.feesTotal -= amount;
+      addFee(row, feeBucket(b.type ?? null, b.description ?? null), -amount);
+    } else row.other += amount;
+
+    /*
+      THE FEE SCALAR, DECOMPOSED, with the residual kept rather than dropped.
+      `fee` is one number and reading only that is how 46% of a "fee" turns out
+      to be money Stripe never kept: on this account the last thirty days split
+      into withheld sales tax, card processing, a merchant-of-record
+      transaction fee, dispute fees and Billing usage — and the tax is larger
+      than the processing. Anything the details do not account for lands in
+      `other`, so the buckets always add back up to the scalar they came from.
+    */
+    if (fee) {
+      let seen = 0;
+      for (const d of b.fee_details ?? []) {
+        const cents = d.amount ?? 0;
+        addFee(row, feeBucket(d.type ?? null, d.description ?? null), cents);
+        seen += cents;
+      }
+      if (seen !== fee) addFee(row, "other", fee - seen);
+    }
+    acc.set(k, row);
+  }
+}
+
+/** One fee bucket, in CENTS. `tax` is kept apart from the rest for the whole
+ *  of the ledger's life: it is a pass-through, not a cost. */
+function addFee(row: LedgerAcc, bucket: string, cents: number) {
+  if (bucket === "tax") row.taxWithheld += cents;
+  else if (bucket === "processing") row.processing += cents;
+  else if (bucket === "managedPayments") row.managedPayments += cents;
+  else if (bucket === "disputes") row.disputeFees += cents;
+  else if (bucket === "billing") row.billing += cents;
+  else row.otherFees += cents;
+}
+
+function describe(err: unknown): string {
+  if (err instanceof StripeError) {
+    if (err.status === 401)
+      return "Stripe refused the key — it has been revoked or rolled.";
+    if (err.status === 403)
+      return `${err.message} — the key is missing a read permission.`;
+    return err.message;
+  }
+  if (err instanceof Error && err.name === "TimeoutError")
+    return "Stripe did not answer within 45 seconds.";
+  return err instanceof Error ? err.name : "Error";
+}
+
+export type { Account };
