@@ -1912,10 +1912,17 @@ export function Chat() {
                     `cursor-default` is what that resolves to on the bare
                     column beside the text.
                   */}
-                  <span
-                    aria-hidden
-                    className="bg-foreground pointer-events-none ml-0.5 inline-block h-[13px] w-[2px] animate-pulse cursor-default align-[-1px] select-none"
-                  />
+                  {/* And it stands down while a tool is running. Nothing is
+                      being typed then — the model is waiting on a result —
+                      and the tool's own line already shimmers to say so; a
+                      caret blinking under it would be the second control this
+                      comment just said the page does not have. */}
+                  {!flight.tools.some((t) => t.finishedAt === null) && (
+                    <span
+                      aria-hidden
+                      className="bg-foreground pointer-events-none ml-0.5 inline-block h-[13px] w-[2px] animate-pulse cursor-default align-[-1px] select-none"
+                    />
+                  )}
                 </div>
               ) : null}
 
