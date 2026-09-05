@@ -66,6 +66,7 @@
  */
 import { PORT } from "../config.ts";
 import { getPlugin } from "../db.ts";
+import { manifestSkills } from "../integrations/index.ts";
 
 /* ------------------------------------------------------------------- types */
 
@@ -214,7 +215,7 @@ export const UNIVERSAL_RULES: string[] = [
  * "there is no AdSense data" and "nobody asked AdSense" are different answers
  * and only one of them is about the business.
  */
-export const ENTRIES: Skill[] = [
+const BUILTIN_ENTRIES: Skill[] = [
   {
     id: "stripe",
     title: "Stripe — subscriptions, settlement and the book",
@@ -1558,6 +1559,15 @@ export const ENTRIES: Skill[] = [
     openWorld: true,
   },
 ];
+
+/**
+ * Every entry: the built-ins above, then each integration area's own — see
+ * integrations/manifest.ts. Spread at import, which is safe only while no
+ * manifest imports THIS file at value level — an area that needs the base URL
+ * takes PORT from config.ts rather than apiBase() from here.
+ */
+export const ENTRIES: Skill[] = [...BUILTIN_ENTRIES, ...manifestSkills()];
+
 
 /* ------------------------------------------------------------- what is live */
 

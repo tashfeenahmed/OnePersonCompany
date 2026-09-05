@@ -28,6 +28,7 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { DB_FILE } from "./config.ts";
+import { INTEGRATION_MIGRATIONS } from "./integrations/migrations.ts";
 
 export const db = new DatabaseSync(DB_FILE);
 
@@ -2560,6 +2561,8 @@ const MIGRATIONS: { name: string; sql: string }[] = [
          strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now'));
     `,
   },
+  /* The integration areas' own migrations — see integrations/manifest.ts. */
+  ...INTEGRATION_MIGRATIONS,
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (

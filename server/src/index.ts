@@ -15,7 +15,14 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { COLLECT_MINUTES, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "./config.ts";
 import { allPlugins, prune, ventureRows } from "./db.ts";
-import { COLLECTORS } from "./collector.ts";
+import { COLLECTORS as BUILTIN_COLLECTORS } from "./collector.ts";
+import { MANIFESTS, manifestCollectors } from "./integrations/index.ts";
+
+/* Built-in collectors plus each integration area's — see integrations/manifest.ts. */
+const COLLECTORS: Record<string, () => Promise<{ ok: boolean; error?: string | null }>> = {
+  ...BUILTIN_COLLECTORS,
+  ...manifestCollectors(),
+};
 import { plugins } from "./routes/plugins.ts";
 import { hetznerRoutes } from "./routes/hetzner.ts";
 import { metrics } from "./routes/metrics.ts";
@@ -269,6 +276,9 @@ app.route("/api/ventures", ventureRoutes);
   different parameter names to remember.
 */
 app.route("/api/skills", skillRoutes);
+
+/* Every integration area's routers, at the paths their manifests name. */
+for (const m of MANIFESTS) for (const r of m.routes ?? []) app.route(r.path, r.app);
 
 app.notFound((c) => c.json({ error: "No such route." }, 404));
 

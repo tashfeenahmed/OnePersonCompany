@@ -45,7 +45,16 @@ import * as openrouterChat from "../providers/openrouter-chat.ts";
 import * as demand from "../providers/demand.ts";
 import * as telegram from "../providers/telegram.ts";
 import { configValue } from "../db.ts";
-import { COLLECTORS } from "../collector.ts";
+import { COLLECTORS as BUILTIN_COLLECTORS } from "../collector.ts";
+import { manifestCollectors, manifestPlugins } from "../integrations/index.ts";
+import type { PluginRegistryEntry } from "../integrations/manifest.ts";
+
+/* The built-in collectors plus every integration area's — see
+   integrations/manifest.ts. */
+const COLLECTORS: Record<string, () => Promise<{ ok: boolean; error?: string | null }>> = {
+  ...BUILTIN_COLLECTORS,
+  ...manifestCollectors(),
+};
 
 export const plugins = new Hono();
 
@@ -70,58 +79,9 @@ export const plugins = new Hono();
  * accounts it is worse — a quietly missing third of the fleet reads as a
  * fleet, because the other two thirds are right.
  */
-const REGISTRY: Record<
+const BUILTIN: Record<
   string,
-  {
-    secret: string;
-    fields: string[];
-    /**
-     * Fields that may be left empty, out of `fields`.
-     *
-     * ADDED FOR TWO CREDENTIALS THAT ARE GENUINELY OPTIONAL, and the two are
-     * different kinds of optional. A local model server — Ollama, LM Studio —
-     * ships with no auth at all and binds to loopback, which IS its access
-     * control; demanding a key there would mean inventing one. And `chat-key`
-     * on OpenAI and OpenRouter is a SECOND credential on a plugin that already
-     * works without it: those two connect to read a bill, and an owner who
-     * does not want to complete through them must not be nagged for an
-     * inference key to keep their costs page.
-     *
-     * It is a list rather than a flag per field because the two checks that
-     * care ("is anything missing" on add, and on replace) both want a set to
-     * subtract. An empty optional field is not stored as an empty ciphertext:
-     * `applyCredentials` below writes what has a value and FORGETS the entry
-     * for what has been cleared, so "connected with no key" and "connected
-     * with a key that is the empty string" never both exist.
-     */
-    optional?: string[];
-    /**
-     * A field that gets its own vault STEM instead of `<secret>-<field>`.
-     *
-     * THE DERIVATION IS RIGHT UNTIL A PLUGIN GROWS A SECOND FIELD LATE.
-     * `openai` held one field, so its entry was the plain `openai-admin-key` —
-     * the name workdash's own vault uses, which is what makes moving the
-     * credential a copy. Adding `chat-key` beside it flips the derivation to
-     * the multi-field form and every NEW account would write
-     * `openai-admin-key-key`: a name that describes nothing and breaks the
-     * promise the README makes about where to look.
-     *
-     * So the second field is written as its own single-field set under its own
-     * stem, and the first keeps the name it always had. `openai-admin-key` and
-     * `openai-chat-key`, which is what the two credentials actually are.
-     *
-     * The cost is that such a plugin is stored in TWO transactions rather than
-     * one. That is honest here and would not be for the registrars: a Dynadot
-     * key and secret are a PAIR, meaningless apart, and half of one stored is
-     * an account that reads nothing while looking configured. An admin key and
-     * an inference key are two independent credentials that happen to be filed
-     * under one company, and either one working without the other is a real
-     * state this page can already draw.
-     */
-    stems?: Record<string, string>;
-    verify?: (v: Record<string, string>) => Promise<string | null>;
-  }
-> = {
+  PluginRegistryEntry> = {
   hetzner: {
     secret: "hetzner-token",
     fields: ["token"],
@@ -1062,6 +1022,10 @@ const REGISTRY: Record<
     },
   },
 };
+
+/* Built-ins first, then every integration area's entries — a manifest cannot
+   redefine a built-in, which is the order this spread enforces. */
+const REGISTRY: Record<string, PluginRegistryEntry> = { ...manifestPlugins(), ...BUILTIN };
 
 /* ------------------------------------------------------------------ shapes */
 

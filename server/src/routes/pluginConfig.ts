@@ -29,7 +29,14 @@ import { MAX_KEYWORDS, parseKeywords } from "../providers/bing.ts";
 import { MAX_TERMS, parseTerms } from "../providers/demand.ts";
 import { DEFAULT_URL, isLoopback, normalise } from "../providers/searxng.ts";
 import { pruneOrphanHistory } from "../telegram/bridge.ts";
-import { COLLECTORS } from "../collector.ts";
+import { COLLECTORS as BUILTIN_COLLECTORS } from "../collector.ts";
+import { manifestCollectors, manifestConfig } from "../integrations/index.ts";
+import type { ConfigKey, ConfigRegistryEntry } from "../integrations/manifest.ts";
+
+const COLLECTORS: Record<string, () => Promise<{ ok: boolean; error?: string | null }>> = {
+  ...BUILTIN_COLLECTORS,
+  ...manifestCollectors(),
+};
 /* A TYPE ONLY. models/provider.ts is the contract for what a provider is; this
    file owns where its choice is kept. Importing the type rather than a value
    keeps the config store out of the seam's import graph, which is the property
@@ -38,15 +45,7 @@ import type { ProviderId } from "../models/provider.ts";
 
 export const pluginConfig = new Hono();
 
-type Key = {
-  label: string;
-  /** What the owner is being asked for, in one sentence, shown on the page. */
-  hint: string;
-  /** A placeholder that is a real example rather than a shape. */
-  ph?: string;
-  /** Null when the value is fine, otherwise the reason it is not. */
-  check?: (value: string) => string | null;
-};
+type Key = ConfigKey;
 
 /**
  * The watch-list field, written once and used by both doors onto it.
@@ -131,24 +130,9 @@ function mirrorTerms(source: string, values: Record<string, string>) {
   }
 }
 
-const REGISTRY: Record<
+const BUILTIN: Record<
   string,
-  {
-    keys: Record<string, Key>;
-    /** What being configured MEANS for this plugin, run after a write. */
-    after?: (values: Record<string, string>) => void;
-    /**
-     * Other plugins this setting also configures, collected alongside it.
-     *
-     * ONE KEY EXISTS THAT GOVERNS TWO PLUGINS — the demand watch list, mirrored
-     * onto both doors — and without this, saving it on the Reddit page would
-     * fill Reddit's cards and leave Hacker News's blank until the next tick.
-     * A card blank for six hours after a save reads as a setting that did not
-     * save, which is the exact reason this route collects at all.
-     */
-    alsoCollect?: string[];
-  }
-> = {
+  ConfigRegistryEntry> = {
   npm: {
     keys: {
       packages: {
@@ -663,6 +647,8 @@ const REGISTRY: Record<
     },
   },
 };
+
+const REGISTRY: Record<string, ConfigRegistryEntry> = { ...manifestConfig(), ...BUILTIN };
 
 /* ------------------------------------------------------- the chat backend */
 

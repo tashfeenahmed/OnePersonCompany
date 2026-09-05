@@ -37,6 +37,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { UNIVERSAL_RULES, apiBase, skills, type Skill } from "./registry.ts";
+import { manifestPacks } from "../integrations/index.ts";
 
 /** The category directory these all live in, under `$HERMES_HOME/skills/`. One
  *  of its own so the agent's index groups them, and so the prune below has a
@@ -60,7 +61,7 @@ import { UNIVERSAL_RULES, apiBase, skills, type Skill } from "./registry.ts";
  * `github` keeps a suffix because Hermes ships a bundled skill of that name and
  * a clash makes `_locate_skill` refuse both. Everything else is plain.
  */
-const PLACEMENT: Record<string, { name: string; category: string }> = {
+const BUILTIN_PLACEMENT: Record<string, { name: string; category: string }> = {
   stripe: { name: "stripe-revenue", category: "finance" },
   costs: { name: "llm-spend", category: "finance" },
   mobile: { name: "app-store-revenue", category: "finance" },
@@ -84,6 +85,12 @@ const PLACEMENT: Record<string, { name: string; category: string }> = {
   ventures: { name: "ventures", category: "productivity" },
   stock: { name: "stock-media-quota", category: "media" },
   search: { name: "web-search", category: "research" },
+};
+
+/* Built-ins, then each integration area's packs — see integrations/manifest.ts. */
+const PLACEMENT: Record<string, { name: string; category: string }> = {
+  ...manifestPacks(),
+  ...BUILTIN_PLACEMENT,
 };
 
 /** The pack name for a skill — the table above, or the id when it is not
