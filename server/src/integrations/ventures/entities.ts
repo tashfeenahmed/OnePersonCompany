@@ -142,7 +142,15 @@ function squash(raw: string | null | undefined): string {
 const MIN_NAME = 5;
 
 function nameMatch(venture: VentureRow, label: string): boolean {
-  const l = squash(label);
+  /*
+    AN OWNER IS NOT A NAME. A GitHub repo is labelled `owner/repo`, and the
+    owner half is the same login on every one of them — so a venture named
+    after the person (the portfolio site) read as every repository the person
+    has ever made: thirty-one links accepted in one press, thirty of them
+    wrong. Only the part after the last slash is a thing's own name; the part
+    before it is whose it is, which every entity on this box shares.
+  */
+  const l = squash(label.includes("/") ? label.slice(label.lastIndexOf("/") + 1) : label);
   if (!l) return false;
   for (const candidate of [venture.name, venture.slug]) {
     const v = squash(candidate);
