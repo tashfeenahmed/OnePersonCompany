@@ -311,7 +311,7 @@ export function AppSidebar() {
                 */
                 <div
                   className={cn(
-                    "group/row relative flex items-center gap-1 rounded-[7px] pr-1 transition-colors",
+                    "group/row relative flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-[7px] pr-1 transition-colors",
                     s.id === openSessionId
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -419,7 +419,7 @@ export function AppSidebar() {
                     <div
                       key={c.id}
                       className={cn(
-                        "relative flex items-center gap-1 rounded-[7px] transition-colors",
+                        "relative flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-[7px] transition-colors",
                         c.id === openSessionId
                           ? "bg-accent text-foreground"
                           : "text-muted-foreground hover:bg-accent hover:text-foreground",

@@ -15,7 +15,18 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        /*
+          THE INNER DIV IS RADIX'S, AND IT IS A TABLE. The viewport wraps its
+          children in a div styled inline `display: table; min-width: 100%`
+          so horizontal content can scroll — which also means the div is as
+          wide as its widest child. A flex row inside it therefore never
+          has a width to shrink to, `truncate` has nothing to truncate
+          against, and a long session title walks straight out of the rail.
+          Nothing here scrolls sideways, so the table is overridden (the
+          `!` beats an inline style; nothing else does) and the row gets the
+          viewport's width back.
+        */
+        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 [&>div]:!block [&>div]:min-w-0"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
