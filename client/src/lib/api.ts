@@ -2783,6 +2783,17 @@ export type ChatStreamHandlers = {
     usage: { prompt: number; completion: number } | null;
     ms: number;
     tools: ChatToolCall[];
+    /**
+     * How long this turn waited for a model slot before it was sent.
+     *
+     * OPTIONAL, AND HONESTLY SO. The provider layer measures it — it is on
+     * `ProviderReply` above and the Models page already shows it — but the
+     * chat stream's `done` frame does not carry it today, so a page that
+     * assumed a number here would be drawing one it was never given. Read
+     * when it is there, ignored when it is not: `ms` is how long the model
+     * took, this is how long the queue was, and they want different fixes.
+     */
+    queuedMs?: number;
   }) => void;
   /** The turn failed. `partial` says whether the words already on screen were
    *  stored — the difference between "that is now in the transcript, marked

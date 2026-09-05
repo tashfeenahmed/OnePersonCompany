@@ -58,11 +58,13 @@
  *    arrive, and the `Markdown` component is memoised on its text so the rest
  *    of the transcript does not re-parse at all.
  *
- * 3. STOPPING IS AN ABORT, END TO END. One `AbortController`: aborting it
- *    closes the fetch body, which the server sees as a disconnect, which
- *    aborts its own call to the agent. Nothing is lost by stopping — the
- *    server stores what was said as a PARTIAL answer, and this page reloads
- *    the transcript to pick it up rather than keeping its own copy of it.
+ * 3. STOPPING IS AN ABORT, END TO END — of ONE chat. Each turn carries its
+ *    own `AbortController`: aborting it closes that fetch body, which the
+ *    server sees as a disconnect, which aborts its own call to the agent.
+ *    Nothing is lost by stopping — the server stores what was said as a
+ *    PARTIAL answer, and this page reloads the transcript to pick it up
+ *    rather than keeping its own copy of it. The button stops the
+ *    conversation you are LOOKING AT and no other.
  *
  * 4. THE RAIL IS RECONCILED AGAINST THE SERVER ON LOAD. The session list is
  *    still the store's, and it is still in localStorage — but it is now
@@ -70,8 +72,54 @@
  *    the twelve invented sessions this app shipped with are retired: they are
  *    marked by the store's `migrate()` and swept here, once it is known which
  *    of them have real transcripts behind them. See `Session.seeded`.
+ *
+ * ------------------------------------------------------------------------
+ *
+ * SEVERAL CHATS CAN BE ANSWERING AT ONCE, and `flights` below is the whole of
+ * how.
+ *
+ * WHAT IT REPLACED, AND WHY THAT COULD NOT BE PATCHED. This page held one
+ * `busy` session id, one `AbortController` and one `writing` bubble for the
+ * entire screen — a shape that encodes "there is at most one turn in the
+ * world". Under it, asking a second chat while the first was writing took the
+ * first one's controller away (leaving a stream running that nothing could
+ * stop) and painted the second one's words wherever the first one's had been;
+ * and switching chats mid-answer dropped the answer off the screen, because
+ * the single bubble belonged to whichever session was last looked at. Keyed by
+ * session id, each of those becomes a fact about ONE conversation: its
+ * controller, its text, its reasoning, its tool lines, when it started, and
+ * the stored rows it is being said into.
+ *
+ * A REF RATHER THAN STATE, WITH A FORCED RENDER TO PAINT BY. The deltas of a
+ * chat nobody is looking at must keep accumulating without re-rendering the
+ * chat somebody IS looking at; a `useState` map would do exactly the opposite
+ * — one render of this whole page per chunk of every background answer. So the
+ * map is mutated in place and the render is forced only when the session that
+ * changed is the session on screen. Switching chats reads the map afresh,
+ * which is what makes coming back to a chat mid-answer show the LIVE buffer
+ * instead of a reload that would arrive without the sentence in it.
+ *
+ * THE SERVER NEEDED NOTHING FOR THIS, AND THERE IS NO SECOND AGENT. Each
+ * `POST /chat/stream` reads that session's own history — `chatMessages(
+ * sessionId, CONTEXT_TURNS)` — and hands it to the backend as the turns of the
+ * call, so two chats answering at once are two ordinary HTTP requests that
+ * share nothing but a process. One Hermes serves them both. The only ceiling
+ * is the model provider's concurrency policy, and only on the path where this
+ * app owns the gate: with no agent live the answer goes through
+ * `models/provider.ts`, where `series` means the second call waits for a slot.
+ * That wait is said out loud below rather than left looking hung.
+ *
+ * A RELOAD CANNOT RE-ATTACH, AND THIS PAGE DOES NOT PRETEND OTHERWISE. A
+ * stream belongs to a request and the request dies with the tab. The server
+ * has no way to hand a fresh connection the middle of an answer, and faking
+ * one — polling the partial row, say — would draw words that stop growing and
+ * never finish. So a reload mid-answer shows what is STORED: the partial row
+ * the stream route writes in its `finally`, labelled as cut off. The rail's
+ * streaming marks are not persisted for the same reason (see
+ * `setSessionStreaming` in the store) — a dot that survived a refresh would be
+ * reporting an answer nobody is receiving.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowUp,
@@ -319,27 +367,46 @@ function Thinking({ text, done }: { text: string; done: boolean }) {
 }
 
 /**
- * The turn being written, right now, on this page.
+ * ONE TURN IN FLIGHT — everything about an answer that is still arriving.
  *
- * Kept OUT of `convo.messages` on purpose. Merging it in would need an id and
- * a timestamp the database has not issued yet, and every piece of code that
- * touches the list would then have to know which rows are real. Separate, it
- * is obvious: these are the stored messages, and this is the one still being
- * said.
+ * Kept OUT of `convo.messages` on purpose. Merging the words being written
+ * into the stored list would need an id and a timestamp the database has not
+ * issued yet, and every piece of code that touches that list would then have
+ * to know which rows are real. Separate, it is obvious: those are the stored
+ * messages, and this is the one still being said.
+ *
+ * IT CARRIES ITS OWN COPY OF THE TRANSCRIPT, which is the field that makes
+ * several of these possible at once. `convo` below describes the chat being
+ * LOOKED AT — and a turn does not stop when you look somewhere else, so the
+ * rows it is being said into travel with it. Coming back to a chat that is
+ * still answering then draws from this record rather than from a fetch, and a
+ * fetch is precisely what must not happen: the server's copy of that
+ * conversation does not have the sentence currently arriving in it.
  */
-type LiveTurn = {
-  /** Which session it belongs to. Switching chats mid-answer must not paint
-   *  the new chat with the old one's words. */
-  sessionId: string;
+type Flight = {
+  /** The stop button's other end, for THIS chat and no other. */
+  controller: AbortController;
+  /** The answer so far. */
   text: string;
+  /** The model's working so far, if it shows any. Never drawn as the answer. */
   reasoning: string;
   /** Merged as the events arrive: `running` creates the record, `completed`
    *  closes it, exactly as the server does before storing them. */
   tools: ChatToolCall[];
+  /** When the question went up. Nothing draws it yet; it is the field a record
+   *  of an in-flight turn is incomplete without, and what a "still going after
+   *  two minutes" line would be measured from. */
+  startedAt: number;
+  /** The stored rows this turn is being said into, the owner's own message
+   *  included — see above. */
+  messages: ChatMessage[];
+  /** How long the provider's gate made this turn wait, when it says so. */
+  queuedMs: number | null;
 };
 
 export function Chat() {
-  const { state, addSession, reconcileSessions } = useStore();
+  const { state, addSession, reconcileSessions, setSessionStreaming } =
+    useStore();
   const [text, setText] = useState("");
   // Empty is a real answer: most chats are about nothing in particular.
   // Settings → General presets this; the picker still overrides it per chat.
@@ -377,13 +444,22 @@ export function Chat() {
     error: string | null;
   }>({ id: null, messages: [], error: null });
 
-  const [sending, setSending] = useState(false);
   /** The last send's failure, in the server's own words, tagged with the
    *  session it happened in. Deliberately NOT stored as a message: a
    *  transcript is what was said, and an error is something the interface
    *  reports. It does not survive a reload, which is correct — the question is
-   *  durable, the failure was a moment. */
+   *  durable, the failure was a moment.
+   *
+   *  ONE SLOT, AND IT IS TAGGED RATHER THAN PER-SESSION. Two chats failing
+   *  before either is looked at is a case where the second overwrites the
+   *  first; a map of failures would be a map of things that are cleared on the
+   *  next send anyway. The tag is what matters — a failure is only ever drawn
+   *  under the chat it happened in. */
   const [failure, setFailure] = useState<{ id: string; text: string } | null>(null);
+  /** How long the last finished turn waited for a model slot, when the server
+   *  said. Tagged the same way and for the same reason: it is a fact about one
+   *  chat's last answer, not about the page. */
+  const [waited, setWaited] = useState<{ id: string; ms: number } | null>(null);
   const [backends, setBackends] = useState<ChatBackends | null>(null);
   /**
    * THE PROVIDER LAYER, kept beside the agent one rather than folded into it.
@@ -414,53 +490,120 @@ export function Chat() {
 
   /* ----------------------------------------------------------- streaming */
 
-  const [writing, setWriting] = useState<LiveTurn | null>(null);
+  /**
+   * WHICH CHAT IS ON SCREEN — read from inside promises and stream callbacks,
+   * where the render's `sessionId` is already stale.
+   *
+   * Two things need it. A transcript that arrives late must not overwrite a
+   * newer one: switching chats in the rail twice in quick succession fires two
+   * loads, and without this the slower answer wins and puts the wrong
+   * conversation on screen. And a turn that finishes in the BACKGROUND must
+   * not write its result over the conversation the owner has moved to. Both
+   * comparisons only mean anything after an await, which is exactly what a ref
+   * is for.
+   */
+  const showing = useRef<string | null>(null);
 
   /**
-   * DELTAS GO INTO A REF AND OUT ONCE PER FRAME.
+   * EVERY TURN IN FLIGHT, KEYED BY THE CHAT IT BELONGS TO. See the file header
+   * for what this replaced and why the single `busy`/`abort` pair could not be
+   * made to hold two conversations.
+   */
+  const flights = useRef(new Map<string, Flight>());
+
+  /**
+   * The render this page cannot get from state, because its streaming data is
+   * deliberately not in state.
+   *
+   * `repaint` is the whole policy: a chat that is not on screen can grow all
+   * it likes for free, and the only thing that costs a render is the one being
+   * read. A `useState` map would have inverted that — three background answers
+   * would re-render the transcript in front of somebody a hundred times a
+   * second between them.
+   */
+  const [, forceRepaint] = useReducer((n: number) => n + 1, 0);
+  const repaint = useCallback((id: string) => {
+    if (showing.current === id) forceRepaint();
+  }, []);
+
+  /**
+   * DELTAS GO INTO A BUFFER AND OUT ONCE PER FRAME.
    *
    * A `setState` per chunk is a render per chunk, and an agent writing quickly
    * emits one every few tens of milliseconds — which would re-parse the
    * markdown of the growing message tens of times a second and re-render every
-   * other bubble with it. The ref absorbs the chunks; `requestAnimationFrame`
+   * other bubble with it. The buffer absorbs the chunks; `requestAnimationFrame`
    * hands them over at the rate the screen can actually show them.
    *
    * rAF rather than a timer, because it is the browser saying "I am about to
    * paint" — a 16ms interval keeps firing in a background tab, where nobody is
    * reading and the work is pure heat.
+   *
+   * ONE BUFFER PER SESSION, ONE FRAME FOR ALL OF THEM. Three answers arriving
+   * at once are still a single flush and at most a single render, and a chunk
+   * belonging to a chat nobody is looking at costs one string concatenation
+   * and nothing else. A frame per stream would be three times the paints for
+   * one screen's worth of change.
    */
-  const pending = useRef<{ text: string; reasoning: string }>({ text: "", reasoning: "" });
+  const pending = useRef(new Map<string, { text: string; reasoning: string }>());
   const frame = useRef<number | null>(null);
+
+  const buffer = useCallback((id: string) => {
+    let b = pending.current.get(id);
+    if (!b) {
+      b = { text: "", reasoning: "" };
+      pending.current.set(id, b);
+    }
+    return b;
+  }, []);
 
   const flush = useCallback(() => {
     if (frame.current !== null) {
       cancelAnimationFrame(frame.current);
       frame.current = null;
     }
-    const { text, reasoning } = pending.current;
-    if (!text && !reasoning) return;
-    pending.current = { text: "", reasoning: "" };
-    setWriting((t) =>
-      t ? { ...t, text: t.text + text, reasoning: t.reasoning + reasoning } : t,
-    );
+    if (!pending.current.size) return;
+    let paint = false;
+    for (const [id, buf] of pending.current) {
+      const flight = flights.current.get(id);
+      /* A buffer whose turn has already ended is dropped rather than kept: by
+         then the stored row is the truth and these characters are in it. */
+      if (!flight) continue;
+      flight.text += buf.text;
+      flight.reasoning += buf.reasoning;
+      if (showing.current === id) paint = true;
+    }
+    pending.current.clear();
+    if (paint) forceRepaint();
   }, []);
 
   const schedule = useCallback(() => {
     if (frame.current === null) frame.current = requestAnimationFrame(flush);
   }, [flush]);
 
-  /* The stop button's other end. A ref rather than state: aborting must not
-     wait for a render, and nothing is drawn from it. */
-  const abort = useRef<AbortController | null>(null);
+  /*
+    AN UNMOUNT STOPS EVERY ANSWER — and switching chats is not an unmount,
+    which is the distinction the whole feature turns on. Leaving the Chat page
+    entirely means nobody is left to receive any of these, and a turn running
+    on the server with no screen to appear on is billable work for nothing.
+    Moving between chats keeps them, because the owner is still here and can
+    come back to one.
 
-  /* An unmount mid-answer stops the agent. Without this, navigating away
-     leaves a turn running on the server with nobody to receive it — which is
-     billable work for an answer that has no screen left to appear on. */
+    The rail's marks go out with them. `setSessionStreaming` is a functional
+    setState, so the copy captured on the first render is as good as the
+    current one — which is what lets this effect be declared once.
+  */
   useEffect(
     () => () => {
-      abort.current?.abort();
+      for (const [id, flight] of flights.current) {
+        flight.controller.abort();
+        setSessionStreaming(id, false);
+      }
+      flights.current.clear();
+      pending.current.clear();
       if (frame.current !== null) cancelAnimationFrame(frame.current);
     },
+    /* eslint-disable-next-line react-hooks/exhaustive-deps -- runs once; see above */
     [],
   );
 
@@ -485,47 +628,34 @@ export function Chat() {
    * noise on top of the sentence the transcript loader is already about to say
    * if the API is really down.
    */
+  const syncRail = useCallback(
+    () =>
+      api
+        .chatSessions()
+        .then((doc) =>
+          reconcileSessions(
+            doc.sessions.map((s) => ({
+              id: s.sessionId,
+              /* The server sends the first thing that was said, up to 200
+                 characters. Shortening it to a rail-width label is this side's
+                 job — and it is the same function the composer uses to name a
+                 new chat, so a conversation gets one name wherever it is
+                 named. */
+              title: s.title ? sessionTitle(s.title) : "Untitled chat",
+            })),
+          ),
+        )
+        .catch(() => {}),
+    [reconcileSessions],
+  );
+
   const reconciled = useRef(false);
   useEffect(() => {
     if (reconciled.current) return;
     reconciled.current = true;
-    api
-      .chatSessions()
-      .then((doc) =>
-        reconcileSessions(
-          doc.sessions.map((s) => ({
-            id: s.sessionId,
-            /* The server sends the first thing that was said, up to 200
-               characters. Shortening it to a rail-width label is this side's
-               job — and it is the same function the composer uses to name a
-               new chat, so a conversation gets one name wherever it is
-               named. */
-            title: s.title ? sessionTitle(s.title) : "Untitled chat",
-          })),
-        ),
-      )
-      .catch(() => {});
+    void syncRail();
     /* eslint-disable-next-line react-hooks/exhaustive-deps -- runs once; see above */
   }, []);
-
-  /*
-    A session id that arrives late must not overwrite a newer one's messages.
-    Switching chats in the rail twice in quick succession fires two loads, and
-    without this the slower answer wins and puts the wrong conversation on
-    screen. The ref is read inside the promise, after the await, which is the
-    only place the comparison means anything.
-  */
-  const showing = useRef<string | null>(null);
-
-  /*
-    Which session is mid-send. A chat STARTED by the composer creates its
-    session and immediately shows the owner's message, which fires the loader
-    below for a session the server has never heard of — and that load, arriving
-    a moment later with an empty list, would wipe the message off the screen
-    while it was being answered. The load defers to a send in progress; the
-    send's own result is the newer truth anyway.
-  */
-  const busy = useRef<string | null>(null);
 
   const refreshBackends = useCallback(() => {
     /* The provider list is refreshed with the backend state, because the two
@@ -557,17 +687,34 @@ export function Chat() {
       refreshBackends();
       return;
     }
+    /*
+      A CHAT WITH A TURN IN FLIGHT IS NOT RE-READ FROM THE SERVER, and this is
+      the guard that makes switching back to a streaming chat work at all. Its
+      transcript is the one the flight is carrying — the rows it started
+      against, plus the words arriving now — and the server's copy has neither
+      the owner's just-sent message nor the sentence being written. Fetching it
+      would wipe a live answer off the screen and replace it with the version
+      stored before it began.
+
+      It is the same guard the old page-wide `busy` ref was: a chat STARTED by
+      the composer creates its session and shows the owner's message
+      immediately, which fires this loader for a session the server has never
+      heard of. Per session, it now also covers coming back to one.
+    */
+    if (flights.current.has(sessionId)) return;
     api
       .chatSession(sessionId)
       .then((doc) => {
-        if (showing.current !== sessionId || busy.current === sessionId) return;
+        if (showing.current !== sessionId || flights.current.has(sessionId))
+          return;
         setConvo({ id: sessionId, messages: doc.messages, error: null });
         /* The session read carries the backend state with it — one fetch for
            two things wanted at the same instant. */
         setBackends(doc);
       })
       .catch((e: unknown) => {
-        if (showing.current !== sessionId || busy.current === sessionId) return;
+        if (showing.current !== sessionId || flights.current.has(sessionId))
+          return;
         setConvo({
           id: sessionId,
           messages: [],
@@ -584,22 +731,42 @@ export function Chat() {
     one's transcript has not arrived yet, which is the whole of what "loading"
     means here.
   */
+  /**
+   * The turn being written in THIS chat, if there is one.
+   *
+   * Read out of the map on every render rather than held in state, which is
+   * what makes coming back to a chat mid-answer show the live buffer instead
+   * of the version that was stored before it started. Switching away leaves
+   * the answer running — it is still stored when it finishes — and it is not
+   * painted over the conversation you moved to, because that conversation is
+   * a different key.
+   */
+  const flight = sessionId ? (flights.current.get(sessionId) ?? null) : null;
+
   const settled = convo.id === sessionId;
-  const messages = settled ? convo.messages : [];
-  const loadError = settled ? convo.error : null;
-  const loading = !settled && sessionId !== null;
+  /* WHILE A TURN IS IN FLIGHT, ITS OWN COPY OF THE ROWS WINS. `convo` describes
+     the chat being looked at and may still be describing the one you switched
+     away from; the flight's copy is the only one with the owner's just-sent
+     message in it. */
+  const messages = flight ? flight.messages : settled ? convo.messages : [];
+  const loadError = flight ? null : settled ? convo.error : null;
+  /* Reading and answering are different waits. A chat with a turn in flight is
+     never "loading": there is nothing being waited for that is not already on
+     the screen. */
+  const loading = !settled && !flight && sessionId !== null;
+  /** Whether the chat ON SCREEN is answering — which is the only sense the
+   *  composer's button has. Another chat being busy is not this one being
+   *  busy, and that is the point of the whole map. */
+  const busyHere = flight !== null;
   /** A failure belongs to the chat it happened in. Switching away and back
    *  should not show yesterday's timeout under today's question. */
   const failureText = failure && failure.id === sessionId ? failure.text : null;
-  /** The turn being written, if it belongs to the chat on screen. Switching
-   *  chats mid-answer leaves the answer running — it is still stored when it
-   *  finishes — but it is not painted over the conversation you moved to. */
-  const liveTurn = writing && writing.sessionId === sessionId ? writing : null;
+  const waitedMs = waited && waited.id === sessionId ? waited.ms : null;
 
   /* New turns arrive at the bottom, which is where the eye is. */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, sending]);
+  }, [messages.length, busyHere]);
 
   /**
    * A GROWING ANSWER FOLLOWS THE BOTTOM — UNLESS THE OWNER HAS SCROLLED UP.
@@ -614,36 +781,48 @@ export function Chat() {
   const scroller = useRef<HTMLElement>(null);
   useEffect(() => {
     const el = scroller.current;
-    if (!el || !liveTurn) return;
+    if (!el || !flight) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (distance < 120) el.scrollTop = el.scrollHeight;
-  }, [liveTurn, liveTurn?.text, liveTurn?.tools.length]);
+    /* The record is MUTATED in place, so the object identity never changes and
+       cannot be the dependency that matters. Its text and its tool count are
+       values, and they are what moves the bottom of the page. */
+  }, [flight, flight?.text, flight?.tools.length]);
 
   /* ------------------------------------------------------------- sending */
 
   async function send() {
     const trimmed = text.trim();
-    if (!trimmed || sending) return;
+    /*
+      A CHAT THAT IS ALREADY ANSWERING DOES NOT TAKE A SECOND QUESTION — and
+      that is now the ONLY thing being refused. The guard used to be a
+      page-wide `sending` flag, which also refused a question put to a
+      DIFFERENT chat while any answer anywhere was being written. With one
+      record per session there is no reason for that: the composer of a quiet
+      chat works while three others are streaming.
+    */
+    if (!trimmed || (sessionId && flights.current.has(sessionId))) return;
 
     /*
-      A session is created only when there is not one already. The old mock
-      made a new session on EVERY send, which was harmless when nothing was
-      stored and would now start a fresh conversation with every sentence —
-      the agent losing the thread between one message and the next.
+      A SESSION IS CREATED ONLY WHEN THERE IS NOT ONE ALREADY, and "New chat"
+      is what makes that happen — it sets the active session to null, and this
+      is the line that finally makes the row, on the first thing said and named
+      after it. The old mock made a new session on EVERY send, which was
+      harmless when nothing was stored and would now start a fresh conversation
+      with every sentence, the agent losing the thread between one message and
+      the next.
+
+      The title comes from the same rule the rail uses when a conversation
+      arrives from the server with no name in the store — one function, so a
+      chat started here and the same chat seen from another door get one name.
     */
-    let id = sessionId;
-    if (!id) {
-      /* The same rule the rail uses when a conversation arrives from the
-         server with no name in the store — one function, so a chat started
-         here and the same chat seen from another door get one title. */
-      id = addSession(sessionTitle(trimmed), target?.id ?? null).id;
-      showing.current = id;
-    }
+    const id =
+      sessionId ?? addSession(sessionTitle(trimmed), target?.id ?? null).id;
+    showing.current = id;
 
     setText("");
     setFailure(null);
-    setSending(true);
-    busy.current = id;
+    setWaited(null);
 
     /*
       The owner's own words go on screen immediately, with a negative id so it
@@ -665,20 +844,39 @@ export function Chat() {
       tools: null,
       partial: false,
     };
-    setConvo((c) => ({
-      id,
-      messages: c.id === id ? [...c.messages, optimistic] : [optimistic],
-      error: null,
-    }));
 
-    /* The bubble the answer grows into. Created before the first byte so the
-       "thinking" state and the answer are the same element, rather than a
-       spinner that is replaced by a bubble a moment later. */
-    setWriting({ sessionId: id, text: "", reasoning: "", tools: [] });
-    pending.current = { text: "", reasoning: "" };
+    /*
+      THE RECORD, MADE BEFORE THE REQUEST LEAVES.
 
+      One fact, read by everything downstream: the loader's guard, the
+      composer's button, the rail's mark, and the bubble the answer grows into.
+      The alternative — a boolean for busy, a controller in one ref, a bubble
+      in state — is four things that have to be kept in step, and they were
+      exactly the four that could only ever describe one conversation.
+
+      Its `messages` are the rows on screen for THIS chat plus the question
+      just asked. They live on the record rather than in `convo` because
+      `convo` is about the chat being LOOKED AT, and this one may stop being
+      that a second from now.
+    */
     const controller = new AbortController();
-    abort.current = controller;
+    const flight: Flight = {
+      controller,
+      text: "",
+      reasoning: "",
+      tools: [],
+      startedAt: Date.now(),
+      messages: [...(convo.id === id ? convo.messages : []), optimistic],
+      queuedMs: null,
+    };
+    flights.current.set(id, flight);
+    pending.current.delete(id);
+    /* The rail's mark, from the moment the request leaves rather than from the
+       first byte: what it reports is "this chat is answering", and that is
+       true while the gateway is still deciding to say anything. */
+    setSessionStreaming(id, true);
+    forceRepaint();
+
     /* Whether a `done` arrived. Everything else — a stop, a dead gateway, an
        error event — is the other case, and it has one recovery: re-read the
        transcript, because the server has already written down whatever was
@@ -698,25 +896,19 @@ export function Chat() {
               keeps the fake id would break the moment anything wanted to
               address that message.
             */
-            setConvo((c) =>
-              c.id === id
-                ? {
-                    ...c,
-                    messages: c.messages.map((m) =>
-                      m.id === optimistic.id ? e.user : m,
-                    ),
-                  }
-                : c,
+            flight.messages = flight.messages.map((m) =>
+              m.id === optimistic.id ? e.user : m,
             );
+            repaint(id);
           },
 
           onDelta: (chunk) => {
-            pending.current.text += chunk;
+            buffer(id).text += chunk;
             schedule();
           },
 
           onReasoning: (chunk) => {
-            pending.current.reasoning += chunk;
+            buffer(id).reasoning += chunk;
             schedule();
           },
 
@@ -724,41 +916,43 @@ export function Chat() {
             /*
               FLUSHED FIRST. The tool's `offset` is measured against the whole
               answer, and applying it while a frame's worth of text is still
-              sitting in the ref would put the grey line in front of words that
-              were written before it. One frame of wrongness that corrects
+              sitting in the buffer would put the grey line in front of words
+              that were written before it. One frame of wrongness that corrects
               itself is still a frame of wrongness that somebody sees.
             */
             flush();
-            setWriting((t) => {
-              if (!t) return t;
-              const at = t.tools.findIndex((x) => x.toolCallId === e.toolCallId);
-              /* Merged exactly as the server merges them before storing, so
-                 the live drawing and the reloaded one cannot differ. */
-              if (at === -1)
-                return {
-                  ...t,
-                  tools: [
-                    ...t.tools,
-                    {
-                      toolCallId: e.toolCallId,
-                      tool: e.tool,
-                      label: e.label,
-                      emoji: e.emoji,
-                      startedAt: e.at,
-                      finishedAt: e.status === "completed" ? e.at : null,
-                      offset: e.offset,
-                    },
-                  ],
-                };
-              const tools = [...t.tools];
+            const at = flight.tools.findIndex(
+              (x) => x.toolCallId === e.toolCallId,
+            );
+            /* Merged exactly as the server merges them before storing, so the
+               live drawing and the reloaded one cannot differ. A NEW array
+               each time rather than a push: the list is a prop of a memoised
+               body, and a mutated array is a change React cannot see. */
+            if (at === -1) {
+              flight.tools = [
+                ...flight.tools,
+                {
+                  toolCallId: e.toolCallId,
+                  tool: e.tool,
+                  label: e.label,
+                  emoji: e.emoji,
+                  startedAt: e.at,
+                  finishedAt: e.status === "completed" ? e.at : null,
+                  offset: e.offset,
+                },
+              ];
+            } else {
+              const tools = [...flight.tools];
               tools[at] = {
                 ...tools[at],
-                finishedAt: e.status === "completed" ? e.at : tools[at].finishedAt,
+                finishedAt:
+                  e.status === "completed" ? e.at : tools[at].finishedAt,
                 label: tools[at].label ?? e.label,
                 emoji: tools[at].emoji ?? e.emoji,
               };
-              return { ...t, tools };
-            });
+              flight.tools = tools;
+            }
+            repaint(id);
           },
 
           onDone: (e) => {
@@ -768,12 +962,13 @@ export function Chat() {
                the one that will be there after a reload, and drawing anything
                else for the last three seconds of a turn is a transcript that
                changes when you refresh it. */
-            setConvo((c) =>
-              c.id === id
-                ? { ...c, messages: [...c.messages, e.message], error: null }
-                : c,
-            );
-            setWriting(null);
+            flight.messages = [...flight.messages, e.message];
+            /* Only if the server said so — the field is optional on the
+               handler for the reason written there, and a queue this turn
+               never waited in is not something to report. */
+            if (typeof e.queuedMs === "number" && e.queuedMs > 0)
+              flight.queuedMs = e.queuedMs;
+            repaint(id);
           },
 
           onError: (e) => {
@@ -793,9 +988,14 @@ export function Chat() {
         and for an abort. The abort is not a failure and gets no banner: the
         owner pressed the button, and the answer so far is about to appear as
         a partial message, which says everything the interface needs to.
+
+        The banner is set whether or not this chat is the one on screen. It is
+        tagged with the session and only ever drawn under it, so a chat that
+        failed while the owner was reading another one says so when it is
+        opened rather than failing silently.
       */
       const stopped = controller.signal.aborted;
-      if (!stopped && showing.current === id)
+      if (!stopped)
         setFailure({
           id,
           text:
@@ -811,18 +1011,33 @@ export function Chat() {
       */
       if (e instanceof ApiError && e.status === 503) refreshBackends();
     } finally {
-      if (frame.current !== null) {
-        cancelAnimationFrame(frame.current);
-        frame.current = null;
-      }
-      abort.current = null;
-      busy.current = null;
-      setWriting((t) => (t?.sessionId === id ? null : t));
-      if (showing.current === id) setSending(false);
+      /*
+        EVERYTHING STILL BUFFERED GOES IN BEFORE THE RECORD IS DROPPED —
+        including other chats’, which costs nothing: `flush` is the one frame
+        they were already waiting for, and a buffer whose record has gone is
+        discarded by it rather than stranded.
+      */
+      flush();
+      flights.current.delete(id);
+      pending.current.delete(id);
+      setSessionStreaming(id, false);
+      if (flight.queuedMs !== null) setWaited({ id, ms: flight.queuedMs });
+
+      /*
+        THE ROWS THE TURN ENDED WITH BECOME THE TRANSCRIPT — but only if this
+        chat is the one being read. Writing them into `convo` when the owner
+        has moved on would replace the conversation in front of them with one
+        they are not looking at, which is the "yanked away" failure this whole
+        change exists to avoid. Nothing is lost by not doing it: the words are
+        on the server, and opening the chat again fetches them.
+      */
+      const here = showing.current === id;
+      if (here) setConvo({ id, messages: flight.messages, error: null });
+      forceRepaint();
 
       if (completed) {
         refreshBackends();
-      } else {
+      } else if (here) {
         /*
           RE-READ THE TRANSCRIPT RATHER THAN KEEPING WHAT IS ON SCREEN.
 
@@ -840,21 +1055,42 @@ export function Chat() {
         api
           .chatSession(id)
           .then((doc) => {
-            if (showing.current !== id) return;
+            if (showing.current !== id || flights.current.has(id)) return;
             setConvo({ id, messages: doc.messages, error: null });
             setBackends(doc);
           })
           .catch(() => {});
       }
+
+      /*
+        A TURN THAT FINISHED WHILE THE OWNER WAS ELSEWHERE STILL HAS TO LAND IN
+        THE RAIL. The mark goes out above; the list is re-read here, which is
+        what picks up a name the server derived or a conversation that arrived
+        by another door. It touches the rail and nothing else — the transcript
+        on screen belongs to a different chat and is not disturbed, which is
+        the difference between a row updating and somebody being yanked away
+        from what they were reading.
+      */
+      if (!here) void syncRail();
     }
   }
 
-  /** Stop the agent mid-answer. One abort, all the way down: the fetch body
-   *  closes, the server sees a disconnect, and its own call to the agent is
-   *  cancelled. What was already said is stored as partial, so nothing on
-   *  screen is lost by pressing this. */
+  /**
+   * Stop the agent mid-answer — THIS chat's answer, and no other.
+   *
+   * One abort, all the way down: the fetch body closes, the server sees a
+   * disconnect, and its own call to the agent is cancelled. What was already
+   * said is stored as partial, so nothing on screen is lost by pressing this.
+   *
+   * A CHAT THAT IS NOT ON SCREEN HAS NO STOP BUTTON, deliberately. The control
+   * lives in the composer, the composer belongs to the conversation being
+   * read, and a button that stopped an answer somewhere you could not see it
+   * would be the one control on this page whose effect is invisible. Open the
+   * chat, then stop it — the rail says which ones are still going.
+   */
   function stop() {
-    abort.current?.abort();
+    if (!sessionId) return;
+    flights.current.get(sessionId)?.controller.abort();
   }
 
   async function chooseBackend(id: ChatBackendId | null) {
@@ -904,6 +1140,37 @@ export function Chat() {
   /** Who takes the message when no agent does. Null with `noAgent` true is the
    *  only state in which the composer cannot be used at all. */
   const fallback = backends?.fallback ?? null;
+
+  /**
+   * "QUEUED", SAID ONLY WHERE IT IS KNOWN TO BE TRUE.
+   *
+   * With no agent live the turn goes through `models/provider.ts`, which holds
+   * a gate: in `series` mode a second call WAITS for a slot before it is sent,
+   * and this page would otherwise sit on "thinking…" for as long as the first
+   * answer takes — indistinguishable, to somebody watching, from hung. Naming
+   * the wait is the difference between a queue and a bug.
+   *
+   * IT IS NOT CLAIMED WHEN AN AGENT IS ANSWERING. Hermes is somebody else's
+   * gateway with its own idea of how many calls it takes at once, and nothing
+   * on this side can tell whether a second question is waiting or being worked
+   * on. A guess would put a wrong explanation on screen, which is worse than
+   * the honest "thinking…" it would have replaced.
+   *
+   * The condition is "this turn has produced nothing yet, another turn is in
+   * flight, and the gate cannot be holding them both" — which is exactly when
+   * the silence has a cause worth naming.
+   */
+  const gate = providers?.providers.find((p) => p.live)?.policy ?? null;
+  const othersInFlight = flights.current.size - (flight ? 1 : 0);
+  const queuedHere =
+    busyHere &&
+    !flight?.text &&
+    !flight?.reasoning &&
+    !flight?.tools.length &&
+    othersInFlight > 0 &&
+    live === null &&
+    gate !== null &&
+    othersInFlight >= (gate.mode === "series" ? 1 : gate.concurrency);
 
   const picker = (
     <DropdownMenu>
@@ -1074,7 +1341,7 @@ export function Chat() {
     </DropdownMenu>
   );
 
-  const hasChat = messages.length > 0 || sending;
+  const hasChat = messages.length > 0 || busyHere;
 
   return (
     <>
@@ -1290,12 +1557,12 @@ export function Chat() {
                 different — the only thing that changes when the `done` event
                 lands is where the text is coming from.
               */}
-              {liveTurn && (liveTurn.text || liveTurn.reasoning || liveTurn.tools.length) ? (
+              {flight && (flight.text || flight.reasoning || flight.tools.length) ? (
                 <div>
-                  {liveTurn.reasoning && (
-                    <Thinking text={liveTurn.reasoning} done={false} />
+                  {flight.reasoning && (
+                    <Thinking text={flight.reasoning} done={false} />
                   )}
-                  <AssistantBody text={liveTurn.text} tools={liveTurn.tools} />
+                  <AssistantBody text={flight.text} tools={flight.tools} />
                   {/*
                     THE CARET, WHICH IS THE ONLY THING ON THIS PAGE THAT SAYS
                     "still going". A spinner beside a growing answer is two
@@ -1308,14 +1575,29 @@ export function Chat() {
 
               {/* Before the first byte there is nothing to draw a caret after,
                   so the wait gets a sentence — and it names who is answering,
-                  because that is the thing worth knowing while you wait. */}
-              {sending &&
-                !liveTurn?.text &&
-                !liveTurn?.reasoning &&
-                !liveTurn?.tools.length && (
+                  because that is the thing worth knowing while you wait. When
+                  the wait is a QUEUE rather than an agent thinking, it says
+                  that instead: silence with a known cause is not the same
+                  screen as silence. */}
+              {busyHere &&
+                !flight?.text &&
+                !flight?.reasoning &&
+                !flight?.tools.length && (
                 <p className="text-muted-foreground text-[12.5px]">
-                  {backends?.liveLabel ?? fallback?.label ?? "The agent"} is
-                  thinking…
+                  {queuedHere
+                    ? "Queued behind another reply — this provider completes one at a time."
+                    : `${backends?.liveLabel ?? fallback?.label ?? "The agent"} is thinking…`}
+                </p>
+              )}
+
+              {/* How long it waited for a slot, when the server said — beside
+                  the answer it delayed rather than in a settings panel, because
+                  "the model is slow" and "the queue was long" are different
+                  complaints and only one of them is about the model. */}
+              {waitedMs !== null && (
+                <p className="text-muted-foreground text-[11.5px]">
+                  Waited {(waitedMs / 1000).toFixed(1)}s for a model slot before
+                  that answer could start.
                 </p>
               )}
 
@@ -1379,7 +1661,7 @@ export function Chat() {
                 already said, flagged as cut off. Nothing on screen is lost by
                 pressing it, which is why it is offered without a confirmation.
               */}
-              {sending ? (
+              {busyHere ? (
                 <button
                   onClick={stop}
                   title="Stop"

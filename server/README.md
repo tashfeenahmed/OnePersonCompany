@@ -262,6 +262,9 @@ with entry names and timestamps only.
 | `DELETE /api/board/cards/:id` | gone |
 | `PATCH /api/board/columns/:id` | rename it, or set a WIP limit (`null` removes it) |
 | `POST /api/board/columns/:id/move` | reorder the columns, in the same `{ before }` vocabulary |
+| `GET /api/skills` | the catalog: every data integration an agent can read, and what is not connected |
+| `GET /api/skills/prompt` | the same, compressed into a system-prompt preamble for an agent with no skills of its own |
+| `GET /api/skills/:id?<params>` | **a GET-only proxy** onto that integration's own route — one base URL for the whole board |
 
 Every write goes through a **closed registry** (`src/routes/plugins.ts`), for
 the reason WorkDash's is closed: a route that can write any name into the vault
@@ -2525,6 +2528,240 @@ which never showed before because two agents were rarely connected at once and
 now routinely are. Its own comment says as much ("Which one actually answers is
 the chat backend's own choice"). It is left alone here rather than quietly
 corrected, and it is the one thing on this page that is known to be imprecise.
+
+## Skills: the same data, in a shape an agent can learn
+
+The dashboard already answers "what is my MRR" in twenty-six routes. An agent
+could call them — but then the thing it has to learn is twenty-six paths, four
+parameter names, and which of them take a `days` clamped to 400 against an
+`hours` clamped to 720. That is a list a model gets wrong at the tail, and the
+way it gets it wrong is not a 404: it is a confident figure with the wrong
+window printed beside it.
+
+So there is one more surface, and it holds no data of its own.
+
+### The registry is code, and that is the whole argument
+
+`src/skills/registry.ts` has one entry per data integration — eighteen of them —
+and each entry carries four things: the route(s) it reads and what their
+parameters mean **in the units the route actually clamps to**, a description
+written for an agent rather than for a person, one or two questions it really
+answers, and the **honesty rules lifted out of that route's own header**.
+
+Those rules are the point of the file. Every route on this server spends
+paragraphs establishing why a figure is null rather than zero, why two numbers
+that look alike may not be added, and which of two similar figures is the one
+that may be called revenue. A tool handed to a model without them is worse than
+no tool at all, because a model with a tool will use it:
+
+| skill | the rule it must carry forward |
+| --- | --- |
+| `stripe` | MRR is a normalisation this app computes, not a figure Stripe publishes — an annual plan counts as a twelfth a month; trials, past-due and one-off payments are never in it. Attempts and settlement are two measurements. Only `fees` may produce a processing rate |
+| `hetzner` | EUR net of VAT, never added to a dollar. CPU is already divided by cores; the fleet line is a mean and never a sum. There is no memory or disk-capacity figure and there cannot be |
+| `domains` | countdowns computed on the read; `autoRenewUnknown` is not `autoRenewOff`; `lapsed` is in none of the expiring windows |
+| `costs` | USD and EUR side by side, **no blended total and you must not make one**. OpenAI has no per-model cut. Replicate's `cost` is null and stays null |
+| `mobile` | the estimate and the payout are different things — never added, never substituted. Only a payout may be called revenue. Ten currencies, no total |
+| `mail` | nothing spans the two halves; received and sent are never added; there is no subject, body or recipient in this data and there cannot be |
+| `github` | views add up and **uniques do not** — not across days, not across repos. `partial` days are off the line |
+| `npm` | downloads, never installs. ISO weeks; a partial week is never drawn beside a complete one |
+| `gsc` | the query rows carry ~19% of impressions and **must never be summed into a total**; the window ends three days back; positions are impression-weighted and null rather than zero |
+| `bing` | never added to a Google figure. `void` is unmeasured, `na` is "Bing reported none", neither is zero. No referring-domain figure exists |
+| `cloudflare` | the window ends yesterday; uniques do not add; `traffic: null` is "not measured" and a zero is a measurement; alignment has five states and is not a boolean |
+| `meta` | reach and frequency cannot be summed or averaged and carry their own dates; a day with no row did not deliver; ROAS is null because this account buys leads |
+| `adsense` | every figure is an estimate and is never added to a Stripe one; not-authorised is a state, not a failure |
+| `demand` | the thread count spans the sources and is the only thing that does — **upvotes are never added across Reddit and Hacker News**; an undated row is in no window |
+| `stock` | it measures a constraint, not a result — there is no "clips used" figure and none can be produced |
+| `telegram` | it is a door, not a measurement |
+| `board` | these rows are the owner's own words, and this skill is **read only** |
+| `search` | a tool, not a report — the one skill here that reaches off this machine |
+
+Plus four rules that are true of every document and therefore live in one place:
+money is never added across currencies; a figure the source de-duplicated cannot
+be summed; `null` means asked and not told; quote the window and the units.
+
+`skills()` returns only the entries whose plugins are connected **right now**,
+and `plugins` is an ANY-OF — the domain portfolio answers with one registrar or
+with two, and mail answers with Gmail alone.
+
+**What is deliberately not in it.** `/api/mailbox` reads live Gmail — subjects,
+bodies, correspondents — and is the one route here whose whole design is that
+nothing is stored and nothing is logged. Handing an agent a tool onto it would
+widen a surface that was narrowed on purpose, and none of the questions this
+exists to answer need it.
+
+### Three routes
+
+`GET /api/skills` is the catalog: every connected entry with its parameters,
+its rules and its example questions — **and a `disconnected` block naming what
+is not there and which plugin would change that**, because "there is no AdSense
+figure" and "nobody connected AdSense" are different sentences.
+
+`GET /api/skills/:id?<params>` is a **GET-only proxy** onto that entry's route,
+so an agent needs one base URL and one shape. `?view=` picks between an entry's
+cuts (`hetzner` has `default`, `servers`, `volumes` and `load`). An unknown id
+answers **404 with the list of ids**; a known but disconnected one answers
+**409** saying the credential is missing and not to report it as zero; an
+unknown parameter is **refused rather than forwarded**, because a silently
+ignored `month=august` is how an agent captions a 30-day window as August.
+
+The document is passed through **verbatim, including the status code**. Wrapping
+it in an envelope of this file's own was the obvious move and is wrong twice: it
+would put a second shape between the agent and the route's contract, and it
+would leave every honesty rule describing a field at a path it is no longer at.
+
+`GET /api/skills/prompt` is the whole thing compressed to about 1,300
+characters: the base URL, one line per connected id with its parameters, and the
+four universal rules. The lines are ids rather than descriptions on purpose — a
+name the agent has never seen is a question it will answer out of its own head,
+while a name without a description is one `GET /api/skills` away from the full
+explanation. The rules are never trimmed.
+
+Nothing on these routes writes. `routes/skills.ts` registers no `post`, `put`,
+`patch` or `delete` and its one outbound call sends no method but GET, so "an
+agent cannot write to the board through here" is a property of the code rather
+than a promise in a comment — the same claim `providers/stripe.ts` makes about
+its own outbound half.
+
+### The MCP server
+
+`src/skills/mcp.ts` is a **zero-dependency stdio JSON-RPC 2.0 server**:
+`initialize`, `ping`, `tools/list`, `tools/call`. One tool per connected skill,
+named `opc_<id>`, with an input schema built from the route's parameters and
+**the honesty rules in the tool description** — which is the only text an MCP
+client is guaranteed to put in front of the model, and therefore the only place
+a rule is certain to arrive before the numbers do.
+
+It is a **client of `/api/skills`** and holds no registry of its own, so a
+plugin connected while an agent is running appears on the next `tools/list`
+without this process being restarted. It has no database handle and will not be
+given one. The API being unreachable is an **error** rather than an empty tool
+list, because an empty list is indistinguishable from "nothing is connected" and
+an agent told that will answer out of its own head.
+
+Every tool is annotated `readOnlyHint: true`, `destructiveHint: false`,
+`idempotentHint: true`. `openWorldHint` is the one that is not uniform and is
+why the registry carries a flag for it: `search` performs a live web search and
+everything else reads a document a collector already wrote to a file on this
+machine. Declaring the search tool closed-world to save a field would be a false
+statement in exactly the field a client trusts when it decides whether to ask
+first. Without the annotations OpenClaw's own probe reports "tools have no
+safety annotations; calls require approval" and every read of the fleet becomes
+a prompt somebody has to answer.
+
+Point any MCP-capable agent at it:
+
+```json
+{ "command": "node",
+  "args": ["--experimental-strip-types", "<repo>/server/src/skills/mcp.ts"],
+  "env": { "OPC_API": "http://127.0.0.1:8787" } }
+```
+
+or drive it by hand — it is newline-delimited JSON on stdin:
+
+```bash
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  | OPC_API=http://127.0.0.1:8787 node --experimental-strip-types src/skills/mcp.ts
+```
+
+### What is installed where
+
+**Hermes gets both doors.** `configureHermes` writes one `SKILL.md` per
+connected integration into `$HERMES_HOME/skills/opc/opc-<id>/SKILL.md` and
+registers the MCP server under `mcp_servers.opc` in the same `config.yaml` it
+already writes whole. That is not belt and braces: the packs are what the agent
+**sees** — one line each in its system prompt, which is how it knows the data
+exists at all — and the MCP tools are what a model with no terminal actually
+**invokes**. Both are rendered from the same registry, so neither restates a
+rule in its own words.
+
+The names carry an `opc-` prefix and the directory name equals the frontmatter
+name, and both of those were forced. Hermes ships fifty-seven bundled skills and
+one of them is called `github`; a second `github` is not a warning here, it is
+`_locate_skill` refusing to guess — "Ambiguous skill name: 2 skills match" —
+which would stop **both** from loading by name. And Hermes' index renders
+`frontmatter.name` while its lookup collects candidates by **directory** name,
+so setting them differently shows the agent a name it cannot then load.
+
+**OpenClaw gets only the MCP server, because it has only one door.** Probed
+against `openclaw config schema`: there is no key for a skills directory and no
+raw-HTTP tool to hand a URL to. So `configureOpenClaw` writes `mcp.servers.opc`
+plus `tools.sandbox.tools.alsoAllow: ["bundle-mcp"]` — and that second line is
+what lets the agent actually **call** them. Without it the server connects,
+lists its tools and is never invoked, which is a failure with no error in it. It
+is `alsoAllow` rather than `allow` because the two cannot both be set in one
+scope and `allow` replaces the built-in tool set: the agent would gain this
+dashboard and lose its shell.
+
+**A remote agent gets the preamble instead.** When the live backend's mode is
+`remote`, `routes/chat.ts` prepends `GET /api/skills/prompt` as a system turn.
+A managed agent gets nothing of the kind, and the asymmetry is deliberate: it
+already has the packs and the tools, both carrying the full rules, and putting a
+summary in front of it as well is two sets of instructions about one subject.
+The failure mode of that is not redundancy — it is a model reading the short
+one, deciding it now knows how to fetch Stripe, never loading the pack, and
+answering without the rules. The provider fallback gets nothing either: a raw
+model has no way to fetch a URL, and one told to fetch something it cannot fetch
+does not say so, it writes down what the answer would probably have been.
+
+### Keeping it in step, and the restart
+
+The set is regenerated on `reconfigure()`, before every spawn (configure runs
+first, so a fresh start always has current packs), and by a **watcher** in
+`agents/instance.ts` on the same fifteen-second poll and sixty-second settle
+window the provider watcher uses — for the same measured reason, which is that
+an owner connecting three integrations in a minute would otherwise restart the
+agent three times and a restart that lands mid-turn ends that turn.
+
+**A poll rather than a callback on `upsertPlugin`, and that is not laziness — a
+callback would be wrong for three of these plugins.** npm, Reddit and Hacker
+News have no credential at all: "connected" for them means "there is a list in
+`plugin_config`", written by a route that never touches the plugins table.
+Hooking the credential door would keep the packs in step for twenty-four
+integrations and silently miss the three whose connection is a setting.
+
+**Removal is the half that matters.** A stale App Store pack on a box with no
+App Store credential invites the agent to report a revenue of zero for an
+integration nobody set up, which is the single worst failure this feature can
+have, because it looks exactly like an answer. The sync deletes packs whose
+integration has gone — and only ever directories under `skills/opc/` whose name
+starts with `opc-`, so the fifty-seven bundled skills and anything the agent
+wrote for itself are untouched.
+
+**A running Hermes does need a restart when the SET changes, and this was
+measured rather than assumed.** Hermes builds the `## Skills` block of its
+system prompt once and caches it in `_SKILLS_PROMPT_CACHE`
+(`agent/prompt_builder.py`), keyed on the skills directory, the tool list and
+the platform. The disk snapshot beside it *is* invalidated correctly by a file
+manifest, and the `skills_list` **tool** re-scans every thirty seconds — but the
+in-process prompt cache has no key that a new file changes, so a running gateway
+goes on advertising the set it started with for the life of the process. The
+agent would still find a new pack if it thought to call `skills_list`; it has no
+reason to, because nothing in its prompt says the pack exists. So the watcher
+bounces the child when the set actually moved, and never for a sync that wrote
+nothing. Packs are compared against what is on disk before being written, so an
+ordinary reconfigure leaves every mtime alone and costs no restart.
+
+**OpenClaw is never restarted for this and needs no equivalent**, because its
+door is the MCP server, whose tool list is built by asking `/api/skills` on
+every `tools/list`.
+
+### What it answered
+
+Asked through `POST /api/chat/stream` on a fresh session — *"What is my Stripe
+MRR right now, and how many servers am I running? Use your skills."* — the live
+Hermes called `skill_view(opc-stripe)`, `skill_view(opc-hetzner)`, then
+`curl -s "http://127.0.0.1:8787/api/skills/stripe?days=30"` and one more, and
+answered:
+
+> Stripe MRR is $795.21 USD (368 active subscriptions, annual plans counted as a
+> twelfth per month, net of recurring coupons; trials and one-offs excluded).
+>
+> You are running 7 servers on Hetzner (all 7 running), costing €63.47/month net
+> of VAT (€59.63 for servers, €3.83 for one volume). Last seen
+> 2026-09-05T07:40:45Z.
+
+Both figures are real, and every qualifier in that reply came out of a rule in
+the registry rather than out of the model.
 
 ## LinkedIn and TikTok are registered, unset, and not built
 

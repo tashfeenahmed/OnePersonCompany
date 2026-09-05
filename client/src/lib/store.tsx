@@ -780,7 +780,17 @@ type StoreApi = {
   deleteVenture: (id: string) => void;
   /** A session may name a venture or none at all. Newest lands first. */
   addSession: (title: string, ventureId?: string | null) => Session;
-  setActiveSession: (id: string) => void;
+  /**
+   * Open a chat — or NULL, which is the new-chat screen.
+   *
+   * Null was always a value `activeSessionId` could hold (it is what the seed
+   * ships and what a delete leaves behind); it just had no way in. "New chat"
+   * in the rail is exactly that transition, and without it the button could
+   * only navigate to a page that was already showing the last conversation.
+   * Widening the parameter is the whole of the change: nothing else about a
+   * null active session is new.
+   */
+  setActiveSession: (id: string | null) => void;
   sessionsFor: (ventureId: string) => Session[];
   /** Give a chat a name the owner chose. It sticks: a stored name always beats
    *  the one derived from the first message. */
@@ -810,6 +820,23 @@ type StoreApi = {
    * because this is the first moment anything knows whether they were real.
    */
   reconcileSessions: (server: { id: string; title: string }[]) => void;
+  /**
+   * WHICH CHATS ARE BEING ANSWERED RIGHT NOW, so the rail can say so.
+   *
+   * DELIBERATELY NOT PART OF `StoreState`. Everything in that object is
+   * mirrored to localStorage on every change, and a "this chat is streaming"
+   * flag that survives a reload would be a lie the moment it was written: the
+   * stream belongs to a request, the request dies with the tab, and nothing
+   * can re-attach to it. A dot that came back after a refresh would report an
+   * answer that nobody is receiving.
+   *
+   * So it lives beside the persisted state instead — same provider, same
+   * hook, no migration, and gone on reload, which is the truth. The Chat page
+   * sets it when a turn leaves and clears it when the turn ends, including
+   * when it ends by being aborted.
+   */
+  streamingSessions: string[];
+  setSessionStreaming: (id: string, streaming: boolean) => void;
   addDashboard: (name: string, presetId: string) => Dashboard;
   renameDashboard: (id: string, name: string) => void;
   deleteDashboard: (id: string) => void;
@@ -830,6 +857,11 @@ const StoreContext = createContext<StoreApi | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StoreState>(load);
+
+  /* The chats with a turn in flight. Not in `state`, and not persisted — see
+     `setSessionStreaming` on the API type for why that is a correctness
+     matter rather than a tidiness one. */
+  const [streamingSessions, setStreamingSessions] = useState<string[]>([]);
 
   useEffect(() => {
     try {
@@ -989,6 +1021,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
 
+      streamingSessions,
+
+      setSessionStreaming(id, streaming) {
+        setStreamingSessions((ids) => {
+          const has = ids.includes(id);
+          /* The same array back when nothing changed: this is called at the
+             start and end of every turn, and a fresh array each time would
+             re-render every page that reads the store for no reason. */
+          if (has === streaming) return ids;
+          return streaming ? [...ids, id] : ids.filter((x) => x !== id);
+        });
+      },
+
       addDashboard(name, presetId) {
         const preset = DASHBOARD_PRESETS.find((p) => p.id === presetId);
         const board: Dashboard = {
@@ -1055,7 +1100,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setState(structuredClone(SEED));
       },
     };
-  }, [state]);
+  }, [state, streamingSessions]);
 
   return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
 }

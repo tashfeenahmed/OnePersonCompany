@@ -163,6 +163,10 @@ export type ChatStreamEvent =
       model: string | null;
       usage: { prompt: number; completion: number } | null;
       ms: number;
+      /** How long the call waited for a provider slot before it was sent —
+       *  only the raw-provider path owns a queue, so an agent's turn leaves
+       *  this null. Absent is "not measured", never zero. */
+      queuedMs?: number | null;
     };
 
 export interface ChatBackend {

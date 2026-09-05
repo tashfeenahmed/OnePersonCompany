@@ -79,6 +79,7 @@ import {
   ask,
   backends,
   setChoiceReader,
+  type ChatBackend,
   type ChatStreamEvent,
   type ChatTurn,
   type MessageBackendId,
@@ -95,6 +96,15 @@ import * as openclaw from "../providers/openclaw.ts";
 */
 import { activeProvider, complete } from "../models/provider.ts";
 import { noteOutcome } from "./models.ts";
+/*
+  WHERE THE SKILLS LIVE, AND WHY THIS ROUTE HAS TO KNOW. A MANAGED agent has
+  the packs installed into its own home and the MCP server registered in its
+  own config; a REMOTE one is somebody else's process on somebody else's box
+  and this app can write nothing into it. `readMode` is how those two are told
+  apart — see `withSkills` below.
+*/
+import { readMode } from "../agents/instance.ts";
+import { preamble } from "../skills/registry.ts";
 
 export const chat = new Hono();
 
@@ -130,6 +140,45 @@ const CONTEXT_TURNS = 40;
  *  rather than at the agent, where it arrives as an opaque 400 after a long
  *  wait and a token bill. */
 const MAX_MESSAGE = 32_000;
+
+/**
+ * Tell a REMOTE agent that this dashboard's data exists — and tell a managed
+ * one nothing.
+ *
+ * THE ASYMMETRY IS THE POINT AND IT IS NOT AN OVERSIGHT. A managed agent has
+ * the whole registry installed: one skill pack per connected integration in its
+ * own skills directory, and the MCP server registered in its own config. Both
+ * carry the full honesty rules. Prepending a summary of the same thing as a
+ * system turn would put two sets of instructions about one subject in front of
+ * one model — a short one saying "curl /api/skills/stripe" and a long one
+ * saying rather more — and the failure mode of that is not redundancy, it is a
+ * model choosing between them: it reads the preamble, decides it now knows how
+ * to fetch Stripe, never loads the pack, and answers without the rules. The
+ * packs are strictly the better half, so the preamble stands down for them.
+ *
+ * A REMOTE agent has neither, because there is nothing of ours on the machine
+ * it runs on. The preamble is all it will ever get, so it gets it: the base
+ * URL, one line per connected skill, and the four rules that are true of every
+ * document here. It is capped at about 1,500 characters — see
+ * `skills/registry.ts` — so it costs a fraction of one turn.
+ *
+ * THE PROVIDER FALLBACK GETS NOTHING EITHER, and that is deliberate. When no
+ * agent is live, a message goes to a raw model through `complete()`: no tools,
+ * no terminal, no way to fetch a URL. Handing it a base URL would be handing it
+ * an instruction it cannot carry out, and a model told to fetch something it
+ * cannot fetch does not say so — it writes down what the answer would probably
+ * have been. That is the one outcome this whole feature exists to prevent.
+ *
+ * The turn is prepended rather than appended so the transcript stays the last
+ * thing the model read, and it is NOT stored: it is context for one call, not
+ * something anybody said, and a transcript read six weeks later should not have
+ * a paragraph in it that the owner never typed.
+ */
+function withSkills(turns: ChatTurn[], live: ChatBackend | null): ChatTurn[] {
+  if (!live) return turns;
+  if (readMode(live.id) === "managed") return turns;
+  return [{ role: "system", content: preamble() }, ...turns];
+}
 
 /* ------------------------------------------------------------------ shapes */
 
@@ -455,7 +504,7 @@ chat.post("/", async (c) => {
       usage: { prompt: number; completion: number } | null;
       ms: number;
     } = live
-      ? await ask(turns, {
+      ? await ask(withSkills(turns, live), {
           sessionId,
           channel,
           /* The client's own signal. A closed tab or a cancelled fetch ends the
@@ -666,6 +715,7 @@ chat.post("/stream", async (c) => {
     let usage: { prompt: number; completion: number } | null = null;
     let ms = 0;
     let finished = false;
+    let queuedMs: number | null = null;
     let failure: string | null = null;
 
     /**
@@ -681,11 +731,11 @@ chat.post("/stream", async (c) => {
      */
     async function* oneShot(): AsyncGenerator<ChatStreamEvent> {
       const reply = live
-        ? await ask(turns, { sessionId, channel, signal: c.req.raw.signal })
+        ? await ask(withSkills(turns, live), { sessionId, channel, signal: c.req.raw.signal })
         : await (async () => {
             const r = await complete(turns, { signal: c.req.raw.signal });
             noteOutcome(r.provider, r.endpoint, null);
-            return { text: r.text, model: r.model, usage: r.usage, ms: r.ms };
+            return { text: r.text, model: r.model, usage: r.usage, ms: r.ms, queuedMs: r.queuedMs };
           })();
       yield { type: "delta", text: reply.text };
       yield {
@@ -694,11 +744,14 @@ chat.post("/stream", async (c) => {
         model: reply.model,
         usage: reply.usage,
         ms: reply.ms,
+        // An agent's turn never queues here — Hermes owns its own concurrency
+        // and reports nothing — so only the provider path carries a number.
+        queuedMs: "queuedMs" in reply ? (reply.queuedMs ?? null) : null,
       };
     }
 
     const events: AsyncGenerator<ChatStreamEvent> = live?.stream
-      ? live.stream(turns, { sessionId, channel, signal: c.req.raw.signal })
+      ? live.stream(withSkills(turns, live), { sessionId, channel, signal: c.req.raw.signal })
       : oneShot();
 
     try {
@@ -754,6 +807,7 @@ chat.post("/stream", async (c) => {
           }
 
           case "done": {
+            queuedMs = event.queuedMs ?? null;
             /*
               `event.text` and not the accumulated `text`. The adapter counted
               the answer as it read it and may have applied a rule this loop
@@ -837,6 +891,7 @@ chat.post("/stream", async (c) => {
           usage,
           ms,
           tools: list,
+          queuedMs,
         });
     }
 

@@ -96,6 +96,15 @@ import { getJson, readModelIds } from "../chat/wire.ts";
 import { activeProvider, type Endpoint, type ModelProvider } from "../models/provider.ts";
 import * as hermesAdapter from "../providers/hermes.ts";
 import * as openclawAdapter from "../providers/openclaw.ts";
+/*
+  THE SKILL PACKS AND THE MCP SERVER — the two doors an agent has onto this
+  app's own data, wired in here because this is the file that already owns
+  "write the agent's config from what is true right now". A skill set is
+  exactly that kind of fact: it follows what is connected, and it has to be on
+  disk before a child is spawned.
+*/
+import { liveFingerprint, syncHermesSkills } from "../skills/hermes.ts";
+import { mcpCommand } from "../skills/spawn.ts";
 
 /* ------------------------------------------------------------------- ids */
 
@@ -856,6 +865,28 @@ function configureHermes(s: Spec, pl: Plan) {
   const dir = hermesHome(s);
   mkdirSync(dir, { recursive: true });
 
+  /*
+    THE MCP SERVER, REGISTERED ALONGSIDE THE SKILL PACKS RATHER THAN INSTEAD
+    OF THEM.
+
+    `mcp_servers` is the block Hermes' own cli-config.yaml.example documents
+    (command / args / env for an stdio server), and `hermes mcp add` writes the
+    same shape — so this is the config door rather than a shell-out to a CLI
+    that would want a TTY for its hook prompt.
+
+    BOTH DOORS, AND THAT IS NOT BELT AND BRACES. They are read at different
+    moments and neither covers the other's case. The packs are what the agent
+    SEES: one line each in its system prompt, which is how it knows this data
+    exists at all. The MCP tools are what a model with no terminal — or one
+    that would rather call a typed tool than compose a curl — actually invokes.
+    A pack that says "curl this" still works when the MCP subprocess is down,
+    and the tools still work in a session where the agent never read a pack.
+    The one thing that must not differ between them is the honesty rules, which
+    is why both are rendered from the same registry and neither restates a rule
+    in its own words.
+  */
+  const mcp = mcpCommand();
+
   const yaml = [
     "# Written by the dashboard, whole, on every configure. Hermes' own",
     "# cli-config.yaml.example is the reference for everything not named here;",
@@ -866,6 +897,15 @@ function configureHermes(s: Spec, pl: Plan) {
     `  base_url: ${JSON.stringify(pl.baseUrl)}`,
     ...(pl.key ? [`  api_key: ${JSON.stringify(pl.key)}`] : []),
     `  default: ${JSON.stringify(pl.model)}`,
+    "",
+    "# This dashboard's own data, as MCP tools. The skill packs under",
+    "# skills/opc/ are the other half and say the same things in prose.",
+    "mcp_servers:",
+    "  opc:",
+    `    command: ${JSON.stringify(mcp.command)}`,
+    `    args: [${mcp.args.map((a) => JSON.stringify(a)).join(", ")}]`,
+    "    env:",
+    ...Object.entries(mcp.env).map(([k, v]) => `      ${k}: ${JSON.stringify(v)}`),
     "",
   ].join("\n");
   const config = join(dir, "config.yaml");
@@ -885,6 +925,28 @@ function configureHermes(s: Spec, pl: Plan) {
   const envFile = join(dir, ".env");
   writeFileSync(envFile, env, { mode: 0o600 });
   chmodSync(envFile, 0o600);
+
+  /*
+    THE SKILL PACKS, WRITTEN HERE RATHER THAN ON A TIMER OF THEIR OWN.
+
+    Configure runs before every spawn and on every reconfigure, which are
+    exactly the two moments a fresh set has to be on disk before the child
+    reads it. `syncHermesSkills` writes one pack per CONNECTED integration and
+    deletes the packs of integrations that have gone — the delete being the
+    half that matters, because a stale App Store pack on a box with no App
+    Store credential invites the agent to report a revenue of zero for an
+    integration nobody set up, which looks exactly like an answer.
+
+    It writes only where content differs, so a configure that changed nothing
+    leaves every mtime alone — see the watcher at the bottom of this file for
+    why that matters.
+  */
+  const sync = syncHermesSkills(join(dir, "skills"));
+  if (sync.changed)
+    logger(s)(
+      `skills: ${sync.written.length} written, ${sync.removed.length} removed` +
+        (sync.removed.length ? ` (${sync.removed.join(", ")})` : ""),
+    );
 }
 
 /**
@@ -941,6 +1003,25 @@ function configureOpenClaw(s: Spec, pl: Plan) {
       auth: { mode: "token", token: pl.door },
       http: { endpoints: { chatCompletions: { enabled: true } } },
     },
+    /*
+      THIS APP'S OWN DATA, AS THE ONLY DOOR OPENCLAW HAS FOR IT.
+
+      Probed against `openclaw config schema`: there is no key for a skills
+      directory and no raw-HTTP tool to hand a URL to. Custom capability
+      arrives through `mcp.servers.<id>` and nowhere else, so where Hermes gets
+      nineteen Markdown packs AND these tools, OpenClaw gets the tools or it
+      gets nothing.
+
+      `tools.sandbox.tools.alsoAllow` is what actually lets the agent CALL
+      them. The sandbox's default tool set does not include MCP bundles, and a
+      server registered without this is a server that connects, lists its
+      tools, and is never invoked — a failure with no error in it. It is
+      `alsoAllow` rather than `allow` because the two cannot both be set in one
+      scope, and `allow` would replace the built-in tool set rather than extend
+      it: the agent would gain this dashboard and lose its shell.
+    */
+    mcp: { servers: { opc: mcpCommand() } },
+    tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
     discovery: { mdns: { mode: "off" } },
     logging: { level: "info", file: join(logsDir(s), "gateway.log") },
   };
@@ -1500,6 +1581,7 @@ export function boot() {
   }
 
   watchProvider();
+  watchSkills();
 }
 
 /**
@@ -1567,6 +1649,85 @@ function watchProvider() {
         delete pending[id];
         await reconfigure(id);
       }
+    })();
+  }, 15_000);
+  timer.unref();
+}
+
+/**
+ * Keep the installed SKILL PACKS in step with what is connected.
+ *
+ * A POLL RATHER THAN A CALLBACK ON `upsertPlugin`, and that is not laziness —
+ * a callback would be WRONG for three of these plugins. npm, Reddit and Hacker
+ * News have no credential at all: "connected" for them means "there is a list
+ * in `plugin_config`", written by a route that never touches the plugins
+ * table. Hooking the credential door would therefore keep the packs in step for
+ * twenty-four integrations and silently miss the three whose connection is a
+ * setting — and a skills mechanism that is right most of the time is one nobody
+ * can trust to be right about the case in front of them. The registry's own
+ * `skills()` already answers the question exactly; this asks it on a timer.
+ *
+ * IT USES THE SAME SETTLE WINDOW AS `watchProvider` ABOVE, for the same reason
+ * and with the same evidence behind it: an owner connecting three integrations
+ * in a minute would otherwise restart the agent three times, and a restart that
+ * lands mid-turn ends that turn.
+ *
+ * AND A RESTART IS UNAVOIDABLE WHEN THE SET CHANGES — this was measured rather
+ * than assumed. Hermes builds the "## Skills" block of its system prompt once
+ * and caches it in `_SKILLS_PROMPT_CACHE`, keyed on the skills DIRECTORY, the
+ * tool list and the platform (agent/prompt_builder.py). The disk snapshot
+ * beside it is invalidated correctly by a file manifest, and the `skills_list`
+ * TOOL re-scans every thirty seconds — but the in-process prompt cache has no
+ * key that a new file changes, so a running gateway goes on advertising the
+ * set it started with for the life of the process. The agent would still find
+ * a new pack if it thought to call `skills_list`; it has no reason to, because
+ * nothing in its prompt says the pack exists. So: sync, and if the set actually
+ * moved and a child is up, bounce it. Nothing is restarted for a sync that
+ * wrote nothing, which is the ordinary case.
+ *
+ * OPENCLAW IS NOT RESTARTED HERE and needs no equivalent. Its door is the MCP
+ * server, whose tool list is built by asking `/api/skills` on every
+ * `tools/list` — so a plugin connected while it runs is a tool that appears
+ * without its config or its process changing.
+ */
+function watchSkills() {
+  const SETTLE_MS = 60_000;
+  let acted = liveFingerprint();
+  let pending: { print: string; since: number } | null = null;
+
+  const timer = setInterval(() => {
+    void (async () => {
+      const print = liveFingerprint();
+      if (print === acted) {
+        pending = null;
+        return;
+      }
+      if (!pending || pending.print !== print) {
+        pending = { print, since: Date.now() };
+        return;
+      }
+      if (Date.now() - pending.since < SETTLE_MS) return;
+      pending = null;
+      acted = print;
+
+      const s = SPECS.hermes;
+      const r = RUNTIME.hermes;
+      if (!r.installed) return;
+      const log = logger(s);
+      const sync = syncHermesSkills(join(hermesHome(s), "skills"));
+      if (!sync.changed) return;
+      log(
+        `skills: the connected set changed — ${sync.written.length} written, ` +
+          `${sync.removed.length} removed` +
+          (sync.removed.length ? ` (${sync.removed.join(", ")})` : ""),
+      );
+      if (!r.child) return;
+      log(
+        "restarting so the new skill set reaches the system prompt — a running " +
+          "gateway caches its skills index for the life of the process",
+      );
+      await kill("hermes", "the connected skill set changed");
+      spawnChild("hermes");
     })();
   }, 15_000);
   timer.unref();

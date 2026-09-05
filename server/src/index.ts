@@ -94,6 +94,7 @@ import * as searxngInstance from "./searxng/instance.ts";
 import * as freellmapiInstance from "./freellmapi/instance.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { boardRoutes } from "./routes/board.ts";
+import { skillRoutes } from "./routes/skills.ts";
 import * as agentInstances from "./agents/instance.ts";
 
 const app = new Hono();
@@ -240,6 +241,20 @@ app.route("/api/search", searchRoutes);
   all, so there is nothing above it that it needs to have run.
 */
 app.route("/api/board", boardRoutes);
+/*
+  THE SKILLS SURFACE — the same data every route above already serves, in the
+  one shape an AGENT can learn. It is mounted last, beside the board, because
+  it depends on nothing here: it holds a registry of paths in code and reaches
+  the routes above over loopback exactly as a person with curl would, so there
+  is no import order it could be wrong about and no provider registry it needs
+  to have been filled.
+
+  It is deliberately NOT a nineteenth data route. Nothing on it measures
+  anything; it is a directory of what the others measure, plus a GET-only
+  proxy so an agent has one base URL rather than nineteen paths and four
+  different parameter names to remember.
+*/
+app.route("/api/skills", skillRoutes);
 
 app.notFound((c) => c.json({ error: "No such route." }, 404));
 

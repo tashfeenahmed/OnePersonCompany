@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronsUpDown,
   FolderClosed,
   LayoutDashboard,
-  LayoutGrid,
+  Blocks,
   MoreHorizontal,
   Moon,
   Pencil,
@@ -49,13 +49,77 @@ const NAV = [
     like a whole category and would have grown the rail by a row every time
     one was added. The rail names the place; the page names what is in it.
   */
-  { to: "/apps", label: "Apps", icon: LayoutGrid },
+  { to: "/apps", label: "Apps", icon: Blocks },
 ];
 
 export function AppSidebar() {
-  const { state, setActiveSession, renameSession, removeSession } = useStore();
+  const {
+    state,
+    setActiveSession,
+    renameSession,
+    removeSession,
+    streamingSessions,
+  } = useStore();
   const { theme, resolved, setTheme } = useTheme();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+
+  /** The chats with an answer arriving. A Set because this is looked up once
+   *  per row and the rail is the one place that asks. */
+  const streaming = new Set(streamingSessions);
+
+  /**
+   * NEW CHAT IS A STATE CHANGE, NOT A NAVIGATION — and that was the bug.
+   *
+   * This button was a `<Link to="/">`, which on the chat page is a link to the
+   * page you are already on: the router matches the same route, renders the
+   * same component, and the store still names the same active session — so the
+   * "new" chat opened with the last conversation's history in it and the next
+   * thing said was appended to that conversation. Nothing about it was new
+   * except the click. A second Link, a key on the route, a redirect: all of
+   * them dress up the same missing step, which is that the ACTIVE SESSION has
+   * to be cleared.
+   *
+   * Null is the empty composer, and the row in the rail is created by the
+   * first message and named after it — that path already existed and is
+   * untouched. Clearing before navigating rather than after, because the other
+   * order paints one frame of the old conversation on the way in.
+   *
+   * IT DOES NOT TOUCH ANYTHING IN FLIGHT. An answer being written belongs to
+   * its own session and goes on arriving — the mark stays on its row here, and
+   * pressing New chat while one is streaming is how you ask a second question,
+   * not how you cancel the first.
+   */
+  const newChat = useCallback(() => {
+    setActiveSession(null);
+    navigate("/");
+  }, [navigate, setActiveSession]);
+
+  /**
+   * ⌘K, WHICH THIS BUTTON HAS BEEN PROMISING SINCE THE PROTOTYPE.
+   *
+   * The shortcut was printed on the button and bound to nothing: the label
+   * said one thing and the keyboard did another, which is worse than no label
+   * at all. It is bound here, beside the control it describes, rather than in
+   * a global key-handling layer this app does not have.
+   *
+   * `preventDefault` because ⌘K is the browser's own — a search field in
+   * Firefox, the address bar in Chrome — and a shortcut that opens a new chat
+   * AND hijacks the URL bar is not a shortcut. Ctrl is taken beside Meta so
+   * the same key works on the other two platforms. It deliberately fires from
+   * inside the composer as well: reaching for a new chat with your hands
+   * already in a text field is the case it exists for.
+   */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key.toLowerCase() !== "k") return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      newChat();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [newChat]);
 
   /** Which chat is being renamed in place, and what it says so far. Null is
    *  "none" — there is never more than one, because the input takes focus and
@@ -108,14 +172,12 @@ export function AppSidebar() {
       </div>
 
       <Button
-        asChild
+        onClick={newChat}
         className="mb-3 h-auto w-full justify-start gap-2.5 py-2 text-[12.5px]"
       >
-        <Link to="/">
-          <Plus className="size-[14px]" strokeWidth={2} />
-          New chat
-          <span className="ml-auto font-mono text-[10.5px] opacity-55">⌘K</span>
-        </Link>
+        <Plus className="size-[14px]" strokeWidth={2} />
+        New chat
+        <span className="ml-auto font-mono text-[10.5px] opacity-55">⌘K</span>
       </Button>
 
       <nav className="flex flex-col gap-px">
@@ -215,6 +277,24 @@ export function AppSidebar() {
                   >
                     {s.title}
                   </button>
+
+                  {/*
+                    STILL ANSWERING — a dot, and nothing more than a dot.
+
+                    A chat can be written to while you are reading another one,
+                    and the rail is the only place that can say so. It is
+                    deliberately not a spinner, a count or a label: the row's
+                    job is to name a conversation, and the one extra fact worth
+                    two pixels of it is that this one is not finished. Pressing
+                    the row shows the answer arriving, live, mid-sentence.
+                  */}
+                  {streaming.has(s.id) && (
+                    <span
+                      title="Still answering"
+                      aria-label="Still answering"
+                      className="bg-foreground/60 mr-1 size-1.5 shrink-0 animate-pulse rounded-full"
+                    />
+                  )}
 
                   {/*
                     THE ROW'S OWN MENU, shown on hover and on focus. On hover
