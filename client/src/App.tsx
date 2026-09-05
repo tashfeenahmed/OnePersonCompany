@@ -36,7 +36,37 @@ export default function App() {
                 <AppSidebar />
                 <main className="flex min-w-0 flex-1 flex-col">
                   <Routes>
+                    {/*
+                      A CHAT IS A PLACE, SO IT HAS AN ADDRESS — the same rule
+                      the boards follow, arrived at for the same reason. The
+                      selection used to be `store.activeSessionId`, which meant
+                      pressing a session in the rail from /ventures changed a
+                      field and left you on /ventures: the chat you asked for
+                      opened on a page you could not see it from. The store
+                      field is gone; `/chat/<id>` IS the open conversation, and
+                      it is linkable, middle-clickable and reachable with the
+                      back button because of it.
+
+                      `/` is a NEW chat and stays that way: an empty composer,
+                      with the session created by the first message and the URL
+                      replaced with its address the moment it exists.
+
+                      BOTH PATHS RENDER THE SAME `<Chat />` ELEMENT, WHICH IS
+                      LOAD-BEARING. React Router renders the matched route's
+                      element into the same slot with no key, so two routes
+                      whose element is the same component type reconcile as one
+                      instance: moving between /, /chat/a and /chat/b does not
+                      remount the page. That is what keeps the map of turns in
+                      flight — a ref on this component — alive across a
+                      switch. A `key` here, or two different wrapper
+                      components, would silently drop every answer being
+                      written the moment somebody changed chats.
+                    */}
                     <Route path="/" element={<Chat />} />
+                    <Route path="/chat/:sessionId" element={<Chat />} />
+                    {/* The bare /chat names no conversation, and the screen
+                        for "no conversation" already has an address. */}
+                    <Route path="/chat" element={<Navigate to="/" replace />} />
                     <Route path="/ventures" element={<Ventures />} />
                     <Route path="/subagents" element={<Subagents />} />
                     <Route path="/integrations" element={<Plugins />} />

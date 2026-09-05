@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Pencil, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { VentureDialog } from "@/components/VentureDialog";
 import { useStore, type Venture } from "@/lib/store";
 
 export function Ventures() {
-  const { state, setActiveSession, sessionsFor } = useStore();
+  const { state, sessionsFor } = useStore();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Venture | undefined>();
@@ -71,17 +71,20 @@ export function Ventures() {
                 <div className="border-line-soft mt-3 flex flex-col gap-px border-t pt-2.5">
                   {mine.length ? (
                     <>
+                      {/* A chat has an address, so this is a link to it —
+                          which is also what fixed it. It used to set the
+                          store's active session and navigate to "/", and "/"
+                          is the NEW-chat screen: the conversation you pressed
+                          opened only because the page happened to read the
+                          same field. */}
                       {mine.slice(0, 3).map((s) => (
-                        <button
+                        <Link
                           key={s.id}
-                          onClick={() => {
-                            setActiveSession(s.id);
-                            navigate("/");
-                          }}
+                          to={`/chat/${encodeURIComponent(s.id)}`}
                           className="hover:bg-accent -mx-1.5 block truncate rounded-md px-1.5 py-1 text-left text-[12px]"
                         >
                           {s.title}
-                        </button>
+                        </Link>
                       ))}
                       {mine.length > 3 && (
                         <span className="text-muted-foreground pt-1 text-[11.5px]">

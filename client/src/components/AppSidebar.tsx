@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
 import {
   ChevronsUpDown,
   FolderClosed,
@@ -53,13 +53,7 @@ const NAV = [
 ];
 
 export function AppSidebar() {
-  const {
-    state,
-    setActiveSession,
-    renameSession,
-    removeSession,
-    streamingSessions,
-  } = useStore();
+  const { state, renameSession, removeSession, streamingSessions } = useStore();
   const { theme, resolved, setTheme } = useTheme();
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -69,21 +63,35 @@ export function AppSidebar() {
   const streaming = new Set(streamingSessions);
 
   /**
-   * NEW CHAT IS A STATE CHANGE, NOT A NAVIGATION — and that was the bug.
+   * WHICH CHAT IS OPEN — READ OFF THE ADDRESS, NOT OUT OF THE STORE.
    *
-   * This button was a `<Link to="/">`, which on the chat page is a link to the
-   * page you are already on: the router matches the same route, renders the
-   * same component, and the store still names the same active session — so the
-   * "new" chat opened with the last conversation's history in it and the next
-   * thing said was appended to that conversation. Nothing about it was new
-   * except the click. A second Link, a key on the route, a redirect: all of
-   * them dress up the same missing step, which is that the ACTIVE SESSION has
-   * to be cleared.
+   * It used to be `state.activeSessionId`, and the store field is gone. Two
+   * places holding the answer is two places that can disagree, and they did:
+   * pressing a row from /ventures set the field and left the owner on
+   * /ventures, so the rail lit a chat that was nowhere on screen. The URL is
+   * the one copy now, so a lit row and the page in front of you cannot come
+   * apart — there is nothing to keep in step.
    *
-   * Null is the empty composer, and the row in the rail is created by the
-   * first message and named after it — that path already existed and is
-   * untouched. Clearing before navigating rather than after, because the other
-   * order paints one frame of the old conversation on the way in.
+   * `useMatch` rather than picking the pathname apart by hand: it decodes the
+   * segment, and a session id is arbitrary text that goes through
+   * `encodeURIComponent` on the way out.
+   */
+  const openSessionId = useMatch("/chat/:sessionId")?.params.sessionId ?? null;
+
+  /**
+   * NEW CHAT IS AN ADDRESS NOW, WHICH IS WHAT FINALLY MADE IT HONEST.
+   *
+   * It was a `<Link to="/">` once, and that was a real bug: `/` and the chat
+   * being read were the same address, so the router matched the same route,
+   * rendered the same component, and the store still named the same active
+   * session — the "new" chat opened with the last conversation in it. The fix
+   * at the time was to clear `activeSessionId` first. With the session in the
+   * URL there is nothing to clear: `/` names no conversation, so arriving
+   * there IS the empty composer, and the row in the rail is still created by
+   * the first message and named after it.
+   *
+   * It stays a `navigate` rather than reverting to a Link because ⌘K binds to
+   * the same action below, and one function is one behaviour.
    *
    * IT DOES NOT TOUCH ANYTHING IN FLIGHT. An answer being written belongs to
    * its own session and goes on arriving — the mark stays on its row here, and
@@ -91,9 +99,8 @@ export function AppSidebar() {
    * not how you cancel the first.
    */
   const newChat = useCallback(() => {
-    setActiveSession(null);
     navigate("/");
-  }, [navigate, setActiveSession]);
+  }, [navigate]);
 
   /**
    * ⌘K, WHICH THIS BUTTON HAS BEEN PROMISING SINCE THE PROTOTYPE.
@@ -150,6 +157,19 @@ export function AppSidebar() {
          back rather than losing. */
     });
     removeSession(id);
+    /*
+      DELETING THE CHAT YOU ARE READING LEAVES NO CHAT OPEN — and that is a
+      navigation now rather than a store field being nulled, because the
+      address is what says which chat is open. Standing on /chat/<id> after the
+      row and the transcript have both gone would draw the "no session at this
+      address" screen, which is true and is the wrong thing to say to somebody
+      who just deleted it on purpose.
+
+      It is deliberately not "open the next one down": landing the owner in a
+      conversation they did not choose, one keystroke after a delete, is how
+      the wrong thing gets typed into the wrong chat.
+    */
+    if (id === openSessionId) navigate("/");
   }
 
   const working = SUBAGENTS.filter((a) => a.running).length;
@@ -238,7 +258,7 @@ export function AppSidebar() {
             </p>
           )}
           {state.sessions.map((s) => (
-            <div key={s.id} className="group/session flex flex-col">
+            <div key={s.id} className="flex flex-col">
               {editing?.id === s.id ? (
                 /*
                   RENAME IN PLACE, IN THE ROW ITSELF. A dialog for one short
@@ -266,17 +286,54 @@ export function AppSidebar() {
                   className="bg-accent text-foreground focus:border-foreground w-full rounded-[7px] border border-transparent px-2 py-[5px] text-[12.5px] outline-none"
                 />
               ) : (
-                <div className="flex items-center">
-                  <button
-                    onClick={() => setActiveSession(s.id)}
-                    aria-current={s.id === state.activeSessionId}
-                    className={cn(
-                      "text-muted-foreground hover:bg-accent hover:text-foreground block min-w-0 flex-1 truncate rounded-[7px] px-2 py-[5px] text-left text-[12.5px]",
-                      s.id === state.activeSessionId && "bg-accent text-foreground",
-                    )}
+                /*
+                  ONE ROW, AND EVERYTHING THE ROW HAS IS INSIDE IT.
+
+                  It used to be a tinted button with two controls standing
+                  next to it, which is why the highlight stopped short of the
+                  ⋯ and the dot: the background belonged to the title, not to
+                  the row, so the lit rectangle was the wrong shape and the
+                  menu appeared to float beside the chat rather than belong to
+                  it. The tint, the hover, the focus state and both trailing
+                  controls now live on ONE flex box with one radius — the
+                  title takes the space that is left and truncates, and the
+                  dot and the ⋯ are the last two items in the same line, so
+                  there is nothing that can overhang the rounded edge.
+
+                  `relative` is the row's other job: it is the positioning
+                  context anything that ever needs to sit ON the row (a drag
+                  handle, an unread pip) would be placed against, and a row
+                  without one would hang that off the sidebar instead.
+
+                  `group/row` is per ROW rather than per session, because a
+                  session with sub-agent runs under it is several rows and
+                  hovering a child should not light the parent's menu.
+                */
+                <div
+                  className={cn(
+                    "group/row relative flex items-center gap-1 rounded-[7px] pr-1 transition-colors",
+                    s.id === openSessionId
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    /* A keyboard reaching the row lights the row, not a
+                       rectangle around the title inside it. */
+                    "focus-within:bg-accent focus-within:text-foreground",
+                  )}
+                >
+                  {/*
+                    A LINK, NOT A BUTTON. The chat has an address, so the row
+                    that opens it should be the ordinary thing a browser knows
+                    what to do with: middle-click into a tab, ⌘-click, copy
+                    link, and the back button on the way out. A button could
+                    only ever navigate the one window it was clicked in.
+                  */}
+                  <Link
+                    to={`/chat/${encodeURIComponent(s.id)}`}
+                    aria-current={s.id === openSessionId ? "page" : undefined}
+                    className="block min-w-0 flex-1 truncate py-[5px] pl-2 text-left text-[12.5px] outline-none"
                   >
                     {s.title}
-                  </button>
+                  </Link>
 
                   {/*
                     STILL ANSWERING — a dot, and nothing more than a dot.
@@ -292,7 +349,7 @@ export function AppSidebar() {
                     <span
                       title="Still answering"
                       aria-label="Still answering"
-                      className="bg-foreground/60 mr-1 size-1.5 shrink-0 animate-pulse rounded-full"
+                      className="bg-foreground/60 size-1.5 shrink-0 animate-pulse rounded-full"
                     />
                   )}
 
@@ -303,11 +360,18 @@ export function AppSidebar() {
                     because hover is not a thing a keyboard has, and a control
                     that only exists for a mouse is a control half the people
                     using this cannot reach.
+
+                    It carries no background of its own any more. The row is
+                    already tinted by the time this is visible — it only
+                    appears on hover, focus or while open — so a second accent
+                    square inside an accent row was a rectangle nobody could
+                    see. What it does instead is darken to the foreground
+                    colour, which is a difference that shows against the tint.
                   */}
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       title="Rename or delete"
-                      className="text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent grid shrink-0 place-items-center rounded-[7px] p-1 opacity-0 transition-opacity group-hover/session:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                      className="hover:text-foreground data-[state=open]:text-foreground grid shrink-0 place-items-center rounded-[6px] p-1 opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
                     >
                       <MoreHorizontal className="size-3.5" strokeWidth={1.6} />
                     </DropdownMenuTrigger>
@@ -339,18 +403,44 @@ export function AppSidebar() {
               {!!s.children?.length && (
                 <div className="border-line-soft mt-px mb-1 ml-3 flex flex-col gap-px border-l pl-2.5">
                   {s.children.map((c) => (
-                    <button
+                    /*
+                      THE SAME ROW, ONE INDENT IN. Same container, same radius,
+                      same tint, same truncation — the indent and the type size
+                      are the only differences, because a sub-run is a chat you
+                      open exactly like any other and a second row shape would
+                      be a second thing to keep in step.
+
+                      No ⋯ here, and that is not an omission: rename and delete
+                      are the store's, and the store's session list is flat —
+                      `removeSession` would not find a child to remove. A menu
+                      offering two actions that quietly do nothing is worse
+                      than no menu.
+                    */
+                    <div
                       key={c.id}
-                      onClick={() => setActiveSession(c.id)}
-                      aria-current={c.id === state.activeSessionId}
                       className={cn(
-                        "text-muted-foreground hover:bg-accent hover:text-foreground block truncate rounded-[7px] px-2 py-[5px] text-left text-[12px]",
-                        c.id === state.activeSessionId &&
-                          "bg-accent text-foreground",
+                        "relative flex items-center gap-1 rounded-[7px] transition-colors",
+                        c.id === openSessionId
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        "focus-within:bg-accent focus-within:text-foreground",
                       )}
                     >
-                      {c.title}
-                    </button>
+                      <Link
+                        to={`/chat/${encodeURIComponent(c.id)}`}
+                        aria-current={c.id === openSessionId ? "page" : undefined}
+                        className="block min-w-0 flex-1 truncate px-2 py-[5px] text-left text-[12px] outline-none"
+                      >
+                        {c.title}
+                      </Link>
+                      {streaming.has(c.id) && (
+                        <span
+                          title="Still answering"
+                          aria-label="Still answering"
+                          className="bg-foreground/60 mr-2 size-1.5 shrink-0 animate-pulse rounded-full"
+                        />
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

@@ -162,3 +162,70 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+/* ------------------------------------------------------------------------
+   A TOOL CALL THAT IS STILL RUNNING, AS A SWEEP ACROSS ITS OWN WORDS.
+
+   The line already says "running…", and a word alone is a poor answer to "is
+   this stuck?" — it reads exactly the same after four seconds and after four
+   minutes. Movement is the thing that distinguishes them, and this is the
+   cheapest movement available: no spinner beside the text (a second control
+   saying what the text already says), no dot, no layout of its own. The line
+   IS the indicator, and when the call finishes the sweep stops and the same
+   words settle into the same grey with a duration on the end.
+
+   background-clip: text rather than an overlay, because an overlay would need
+   a box the same shape as the text — which is unknowable for a line that
+   truncates at whatever width the transcript happens to be. The gradient is
+   painted on the element and clipped to its glyphs, so it fits by
+   construction and costs one composited property to animate.
+
+   TWO HIGHLIGHT TOKENS, ONE PER THEME, AND THAT IS NOT AN OVERSIGHT. A
+   shimmer is a highlight moving over a base, so it has to travel AWAY from
+   the base: on paper that is towards the paper (`--line-strong`, the palette's
+   lightest grey), in the dark it is towards the ink (`--foreground`). A single
+   token would sweep the right way in one theme and dip into mud in the other.
+   ------------------------------------------------------------------------ */
+:root {
+    --shimmer-highlight: var(--line-strong);
+}
+
+.dark {
+    --shimmer-highlight: var(--foreground);
+}
+
+@keyframes tool-shimmer-sweep {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+
+.tool-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    var(--muted-foreground) 42%,
+    var(--shimmer-highlight) 50%,
+    var(--muted-foreground) 58%
+  );
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: tool-shimmer-sweep 1.9s linear infinite;
+}
+
+/* Somebody who has asked their machine to stop moving things has asked for
+   this too. The state still has to be visible, so the fallback is the
+   highlight held still — a lighter grey than the finished lines around it,
+   which is the same difference the sweep was drawing, minus the motion. */
+@media (prefers-reduced-motion: reduce) {
+  .tool-shimmer {
+    background-image: none;
+    color: var(--shimmer-highlight);
+    animation: none;
+  }
+}

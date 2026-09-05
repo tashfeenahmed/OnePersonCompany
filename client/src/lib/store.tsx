@@ -57,8 +57,9 @@ export type Session = {
    * The problem is that `migrate()` runs synchronously against localStorage
    * and cannot know which sessions have real history: that is a fact on the
    * server, one fetch away. And at least one of the seeded ids DOES have
-   * history — `s-1` was the store's starting `activeSessionId`, so the first
-   * real conversation anybody had on this dashboard was stored under it.
+   * history — `s-1` was the store's starting `activeSessionId` (a field this
+   * state no longer has; see `StoreState`), so the first real conversation
+   * anybody had on this dashboard was stored under it.
    * Deleting by id would throw that away.
    *
    * So it is two steps. `migrate()` marks; `reconcileSessions()`, which has
@@ -118,7 +119,23 @@ export type StoreState = {
   ventures: Venture[];
   sessions: Session[];
   dashboards: Dashboard[];
-  activeSessionId: string | null;
+  /*
+    THERE IS NO `activeSessionId` HERE ANY MORE, and its absence is the point.
+
+    It named the chat that was open, the rail set it and the Chat page read it
+    — two copies of one fact, in a store that is written to localStorage, next
+    to a URL that also had an opinion. They came apart exactly where you would
+    expect: pressing a session from /ventures set the field and left the owner
+    on /ventures, lighting a row for a conversation that was nowhere on screen.
+
+    A chat is at `/chat/<id>` now and that address is the only copy. Which also
+    settles a question this field could never answer well: an open conversation
+    is a fact about where you ARE, and persisting it meant a new tab, or a
+    reload a fortnight later, opening whatever was last read as though it had
+    been asked for. An older state may still have the key in localStorage; it
+    is ignored rather than migrated away, because a stale field nothing reads
+    costs less than a migration that rewrites everybody's store to remove it.
+  */
   /**
    * The Apps strip in the owner's order, by slug. Optional and absent on an
    * older state: the registry's own order is the default, and a slug that no
@@ -534,9 +551,6 @@ const SEED: StoreState = {
       ],
     },
   ],
-  /* Null, and it has to be: there is no session to be active in. The Chat
-     page reads null as "a new chat" and creates one on the first message. */
-  activeSessionId: null,
 };
 
 export function uid(prefix: string) {
@@ -643,8 +657,9 @@ function migrate(state: StoreState): StoreState {
     This function runs against localStorage before anything has been fetched,
     so it cannot answer the only question that matters: does this session have
     a real conversation in it? At least one of them does. `s-1` was the seed's
-    own `activeSessionId`, which means the first thing anybody ever said on
-    this dashboard was stored under that id and is sitting in the server's
+    own `activeSessionId` — the field that named the open chat before an
+    address did — which means the first thing anybody ever said on this
+    dashboard was stored under that id and is sitting in the server's
     transcript table right now. A `filter` by id here would take the title off
     a real chat and leave the words orphaned.
 
@@ -778,19 +793,17 @@ type StoreApi = {
   addVenture: (v: { name: string; desc: string; color: string }) => Venture;
   updateVenture: (id: string, patch: Partial<Omit<Venture, "id">>) => void;
   deleteVenture: (id: string) => void;
-  /** A session may name a venture or none at all. Newest lands first. */
-  addSession: (title: string, ventureId?: string | null) => Session;
   /**
-   * Open a chat — or NULL, which is the new-chat screen.
+   * A session may name a venture or none at all. Newest lands first.
    *
-   * Null was always a value `activeSessionId` could hold (it is what the seed
-   * ships and what a delete leaves behind); it just had no way in. "New chat"
-   * in the rail is exactly that transition, and without it the button could
-   * only navigate to a page that was already showing the last conversation.
-   * Widening the parameter is the whole of the change: nothing else about a
-   * null active session is new.
+   * IT DOES NOT OPEN THE CHAT, and there is no longer anything here that
+   * could: opening one is `navigate("/chat/<id>")`, and the caller that made
+   * the session is the caller that knows whether it wants to go there. There
+   * used to be a `setActiveSession` beside this and it is gone — see
+   * `StoreState` for what it was and why one copy of "which chat is open"
+   * beats two.
    */
-  setActiveSession: (id: string | null) => void;
+  addSession: (title: string, ventureId?: string | null) => Session;
   sessionsFor: (ventureId: string) => Session[];
   /** Give a chat a name the owner chose. It sticks: a stored name always beats
    *  the one derived from the first message. */
@@ -911,14 +924,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         };
         setState((s) => ({
           ...s,
-          activeSessionId: session.id,
           sessions: [session, ...s.sessions],
         }));
         return session;
-      },
-
-      setActiveSession(id) {
-        setState((s) => ({ ...s, activeSessionId: id }));
       },
 
       sessionsFor(ventureId) {
@@ -940,21 +948,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       removeSession(id) {
-        setState((s) => {
-          const sessions = s.sessions.filter((x) => x.id !== id);
-          /*
-            DELETING THE OPEN CHAT LEAVES NO CHAT OPEN, rather than jumping to
-            the next one. Landing the owner in a conversation they did not
-            choose, one keystroke after a delete, is how the wrong thing gets
-            typed into the wrong chat. Null is the new-chat screen, which is
-            where somebody who just deleted something is going anyway.
-          */
-          return {
-            ...s,
-            sessions,
-            activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
-          };
-        });
+        /*
+          THE ROW, AND ONLY THE ROW. Deleting the chat somebody is READING
+          also has to take them somewhere, and that is a navigation now rather
+          than a field being nulled — the rail does it, because the rail is
+          where the address is known. See `deleteSession` in `AppSidebar`,
+          which also deletes the transcript: two deletions, both required, and
+          neither of them this one.
+        */
+        setState((s) => ({
+          ...s,
+          sessions: s.sessions.filter((x) => x.id !== id),
+        }));
       },
 
       reconcileSessions(server) {
@@ -1001,23 +1006,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             if (same) return s;
           }
 
-          return {
-            ...s,
-            sessions: [...added, ...kept],
-            /* An active session that has just been swept is no longer a place
-               to be. Null lands on the new-chat screen rather than on a
-               transcript that no longer has a row in the rail. */
-            activeSessionId:
-              s.activeSessionId &&
-              !added.some((x) => x.id === s.activeSessionId) &&
-              !kept.some(
-                (x) =>
-                  x.id === s.activeSessionId ||
-                  x.children?.some((c) => c.id === s.activeSessionId),
-              )
-                ? null
-                : s.activeSessionId,
-          };
+          /* A session that has just been swept is no longer a place to be,
+             and nothing here has to say so any more: the Chat page reads the
+             address, finds no such conversation in the reconciled list, and
+             says that in as many words. Nulling a field was the old way of
+             answering the same question one render earlier and one page
+             further from where it is asked. */
+          return { ...s, sessions: [...added, ...kept] };
         });
       },
 

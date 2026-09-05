@@ -16,6 +16,7 @@ npm run lint
 | route         | what it is                                                          |
 | ------------- | ------------------------------------------------------------------- |
 | `/`           | New chat: empty state, four openers, composer with a project picker |
+| `/chat/:sessionId` | One conversation. The URL is the selection — see below         |
 | `/ventures`   | Venture grid, create/edit/delete                                    |
 | `/subagents`  | The queue's standing workers, split by lane                         |
 | `/plugins`    | The integration store, with the setup drawer                        |
@@ -1046,10 +1047,27 @@ editing what they said.
 
 Hermes streams `hermes.tool.progress` events mid-answer — the tool, a one-line
 label, running then completed. There is **no result in the stream**, so the line
-shows what is known and the chevron opens onto the raw event JSON rather than an
-empty "Output" box. Each call is stored with an `offset` (how much of the answer
-had been written when it started), which is what puts the line back between the
-right two paragraphs on reload instead of in a pile at the end.
+shows what is known and opening it gives the timestamps, the duration and the
+call id rather than an empty "Output" box. Each call is stored with an `offset`
+(how much of the answer had been written when it started), which is what puts
+the line back between the right two paragraphs on reload instead of in a pile at
+the end.
+
+The line is **proportional grey text at the transcript's own size, with no
+emoji, no monospace and no chevron** — every one of those was scaffolding drawn
+louder than the answer it belongs to. The line itself is the toggle (it is a
+button, so Enter and Space come free) and the expanded detail is more grey text
+rather than a bordered JSON block. The `emoji` field is still on the wire and is
+deliberately drawn nowhere.
+
+While a call is running its own words carry a **shimmer** — a grey → light-grey
+→ grey gradient swept across the text with `background-clip: text`, defined as
+`.tool-shimmer` in `index.css`. The highlight is a different token per theme
+(`--line-strong` on paper, `--foreground` in the dark), because a shimmer has to
+travel away from the base colour and "away" points opposite ways in the two
+themes. Under `prefers-reduced-motion` it is that highlight held still: the
+state stays visible, the movement goes. "running…" that reads the same after
+four minutes as after four seconds is the thing it exists to fix.
 
 ### A cut-off answer is stored, and says so
 
@@ -1059,6 +1077,44 @@ and the page draws the flag under it, every time it is read. The page does not
 keep its own copy: when a turn ends any way other than `done`, it re-reads the
 transcript, because the stored row is the one that will still be there after a
 refresh.
+
+### Chats have addresses too
+
+`/chat/<sessionId>` is a conversation and `/` is a new one, the same rule the
+boards follow. It replaced `store.activeSessionId`, and the bug that field
+caused is the argument for the rule: the rail set it and the Chat page read it,
+so pressing a session while on `/ventures` changed a field and left you on
+`/ventures` — the chat you had just asked for opened on a page you could not see
+it from, and the only way in was New chat followed by the same click again. A
+chat also could not be linked, bookmarked, opened in a second tab or reached
+with Back, because it had no address to put in any of those places.
+
+The field is **retired rather than mirrored**. Two copies of "which chat is
+open" is exactly the thing that came apart, and it also answered a question
+badly on the way: an open conversation is a fact about where you are, not about
+the workspace, and persisting it meant a new tab opening whatever was last read
+as though it had been asked for. Every session row is a `<Link>`, so
+middle-click and ⌘-click do what they do everywhere else.
+
+A new chat **replaces** its own address once the first message creates the
+session — `/` and the conversation it became are one place, and pushing would
+put a Back step between somebody and the page they came from. A session id that
+names nothing gets the same answer a bad dashboard slug gets: told so, with the
+rail still full of the ones that do exist. It waits for the rail to have been
+reconciled against the server once before saying it, because a conversation that
+started on Telegram is real and is not in this browser's localStorage until
+then.
+
+Both routes render **the same `<Chat />` element**, which is load-bearing:
+React Router puts the matched element in one slot with no key, so moving between
+`/`, `/chat/a` and `/chat/b` does not remount the page. The turns in flight then
+survive a switch. They survive leaving the page altogether as well — the map,
+the delta buffers and the rAF are module state, and every mounted Chat registers
+a watcher the streams announce into. Leaving for `/integrations` used to abort
+every answer being written, which was defensible when leaving the chat page
+meant leaving the conversation for good and is not defensible now that a chat is
+somewhere you bounce in and out of. Closing the tab still ends them all: a fetch
+dies with the page that made it.
 
 ### The session rail is real now
 
