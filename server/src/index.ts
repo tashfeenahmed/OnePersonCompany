@@ -399,6 +399,16 @@ serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {
     `[api] collectors: ${Object.keys(COLLECTORS).join(", ") || "none"}` +
       (COLLECT_MINUTES > 0 ? ` · every ${COLLECT_MINUTES}m` : " · scheduler off"),
   );
+  /* Each integration area's own start-up work — a nightly timer, a weekly
+     refresh — once the port is open and never before it. An area's start
+     must not take the process down; the catch is the guarantee. */
+  for (const m of MANIFESTS) {
+    try {
+      m.onStart?.();
+    } catch (err) {
+      console.error(`[api] ${m.id} onStart failed:`, err);
+    }
+  }
 });
 
 /* ------------------------------------------------------------- ventures */

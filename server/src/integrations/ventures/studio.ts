@@ -1,0 +1,694 @@
+/**
+ * THE STUDIO — a post for a venture: words from the model provider, a picture
+ * from Replicate, both in the venture's own brand.
+ *
+ * WHY THIS IS A VENTURE ROUTE AND NOT A "SOCIAL" INTEGRATION. Nothing here
+ * measures anything and nothing here publishes anything. It takes what the box
+ * already KNOWS about a business — the name, the sentence the owner wrote, the
+ * stage it is at, the palette and the fonts read off its own site — and turns
+ * a one-line brief into a caption and an image that look like they came from
+ * that business rather than from a stock library. The venture record is the
+ * whole input; without it this would be a prompt box.
+ *
+ * THE TWO HALVES FAIL SEPARATELY AND THE ROW KEEPS BOTH. A caption needs a
+ * model provider; an image needs a Replicate token. A box with the first and
+ * not the second produces a post with words, no picture, and an `error` saying
+ * exactly which credential is missing — which is a useful post and a true
+ * record. The reverse is not offered: an image with no caption is a picture,
+ * and this is not a picture generator.
+ *
+ * THE IMAGE COSTS MONEY AND THE ROUTE SAYS SO BEFORE IT SPENDS ANY. `GET
+ * /api/studio` reports readiness — is a provider live, is Replicate connected,
+ * which model — so a page can offer the button honestly rather than discover
+ * the failure after the owner pressed it. flux-schnell is the default because
+ * it is the cheapest thing on Replicate that produces something usable; the
+ * model is a setting because "cheapest usable" is a judgement that changes.
+ *
+ * REPLICATE IS CALLED WITH `Prefer: wait`, which is the synchronous door onto
+ * an API that is otherwise a poll loop. It holds the connection for up to a
+ * minute and answers with the finished prediction — for a four-step model that
+ * runs in a couple of seconds, that is the whole call. When it does NOT finish
+ * in time the answer is a prediction that is still running, and this reports
+ * that as what it is rather than polling somebody else's queue on a route
+ * somebody is waiting on.
+ *
+ * NO COST IS REPORTED, and providers/replicate.ts's header explains at length
+ * why there is none to report: Replicate publishes no price anywhere in its
+ * API and a prediction record carries no hardware and no rate. `ms` is the
+ * wall clock this took. It is not money and is not labelled as if it were.
+ */
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { Hono } from "hono";
+import { DATA_DIR } from "../../config.ts";
+import { configValue, db, now, ventureRow, ventureRowById, type VentureRow } from "../../db.ts";
+import { readBrand } from "../../ventures/enrich.ts";
+import { REPLICATE_API, tokenAccounts } from "../../providers/replicate.ts";
+import { activeProvider, complete, NoProviderError } from "../../models/provider.ts";
+
+export const studioRoutes = new Hono();
+
+/** The pseudo-plugin the image model hangs off — `chat` and `models` do the
+ *  same one layer up, and for the same foreign-key reason. */
+export const STUDIO_PLUGIN = "studio";
+
+export const STUDIO_DIR = resolve(DATA_DIR, "studio");
+
+/**
+ * The default image model.
+ *
+ * flux-schnell: four steps, a second or two, a fraction of a cent, and good
+ * enough for a social card. Named as `owner/name` because that is the shape
+ * Replicate's model-predictions endpoint takes in its path.
+ */
+export const DEFAULT_MODEL = "black-forest-labs/flux-schnell";
+
+/** How long Replicate is allowed to hold the connection open under
+ *  `Prefer: wait`, plus a little. Its own ceiling is 60 seconds. */
+const REPLICATE_MS = 75_000;
+/** Downloading the finished image. */
+const DOWNLOAD_MS = 30_000;
+/** An image bigger than this is not a social card. */
+const IMAGE_CAP = 12 * 1024 * 1024;
+
+const FORMATS = {
+  square: { ratio: "1:1", about: "1:1 — a feed post on Instagram, LinkedIn or X." },
+  story: { ratio: "9:16", about: "9:16 — a story or a reel cover." },
+  landscape: { ratio: "16:9", about: "16:9 — a link preview, a blog header, a YouTube thumbnail." },
+} as const;
+
+export type Format = keyof typeof FORMATS;
+
+const MAX_BRIEF = 2_000;
+const MAX_PLATFORM = 40;
+
+/* ------------------------------------------------------------------ rows */
+
+export type PostRow = {
+  id: string;
+  venture_id: string;
+  ts: string;
+  brief: string;
+  platform: string | null;
+  format: string;
+  caption: string | null;
+  hashtags: string | null;
+  image_prompt: string | null;
+  image_path: string | null;
+  model: string | null;
+  ms: number | null;
+  error: string | null;
+};
+
+function shape(r: PostRow) {
+  return {
+    id: r.id,
+    ventureId: r.venture_id,
+    ts: r.ts,
+    brief: r.brief,
+    platform: r.platform,
+    format: r.format,
+    caption: r.caption,
+    /* A list rather than the stored line, because every caller wants them
+       separately and splitting a string in four places is four rules. */
+    hashtags: r.hashtags ? r.hashtags.split(/\s+/).filter(Boolean) : [],
+    imagePrompt: r.image_prompt,
+    image: r.image_path && existsSync(r.image_path) ? `/api/studio/posts/${r.id}/image` : null,
+    imageOnDisk: r.image_path ? existsSync(r.image_path) : false,
+    model: r.model,
+    ms: r.ms,
+    error: r.error,
+  };
+}
+
+function postRow(id: string): PostRow | undefined {
+  return db.prepare("SELECT * FROM studio_posts WHERE id = ?").get(id) as PostRow | undefined;
+}
+
+function newId(): string {
+  for (;;) {
+    const id = `p-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    if (!postRow(id)) return id;
+  }
+}
+
+/* --------------------------------------------------------------- the brief */
+
+/**
+ * WHAT THE MODEL IS TOLD ABOUT THE BUSINESS.
+ *
+ * Every fact in here is one the owner or a measurement already produced, and
+ * each is labelled with which it is: the name, the sentence and the stage are
+ * the OWNER'S, the palette and the fonts were READ OFF THE SITE. That
+ * distinction is on the wire in routes/ventures.ts and it is kept here,
+ * because a model told "your brand colour is #44AA44" will write about the
+ * brand colour, and what is true is that the site's strongest colour reads as
+ * that.
+ *
+ * THE STAGE CHANGES WHAT A POST IS FOR. An idea has nothing to sell yet and a
+ * launched business does; a post that says "try it now" about a thing that
+ * does not exist is the most expensive kind of wrong here, because somebody
+ * clicks it.
+ */
+const STAGE_VOICE: Record<string, string> = {
+  idea: "This is an IDEA — it is not built and there is nothing to sign up for. A post about it can share the problem, ask a question, or gather interest. It must not say the product exists, invite anybody to try it, or imply a price.",
+  "pre-launch": "This is PRE-LAUNCH — being built, not yet available. A post can build anticipation, show progress or collect a waiting list. It must not read as if the product were on sale today.",
+  launched: "This is LAUNCHED and serving people. A post can point at the product, name what it does for someone, and invite them to use it.",
+};
+
+function brandFacts(v: VentureRow): string[] {
+  const brand = readBrand(v.brand);
+  const facts: string[] = [
+    `Name (the owner's): ${v.name}`,
+    `What it is (the owner's own words): ${v.description || "— he has not written one."}`,
+    `Stage (the owner's declaration): ${v.stage}. ${STAGE_VOICE[v.stage] ?? ""}`,
+    `Website: ${v.website ?? "none yet"}`,
+  ];
+  const hexes = [brand.palette.primary, brand.palette.secondary, brand.palette.accent].filter(
+    (h): h is string => !!h,
+  );
+  if (hexes.length)
+    facts.push(
+      `Colours MEASURED FROM THE SITE (not chosen by anyone): ${hexes.join(", ")}` +
+        (brand.palette.background ? `, on ${brand.palette.background}` : ""),
+    );
+  else if (v.color_source === "owner") facts.push(`Colour the owner chose: ${v.color}`);
+  if (brand.fonts.length) facts.push(`Fonts seen in the site's CSS: ${brand.fonts.join(", ")}`);
+  if (brand.title) facts.push(`The site's own title: ${brand.title}`);
+  return facts;
+}
+
+function captionTurns(v: VentureRow, brief: string, platform: string | null, format: Format) {
+  const system =
+    "You write social posts for a one-person software business. You are given " +
+    "facts about the business and a brief. Answer with exactly two blocks and " +
+    "nothing else:\n" +
+    "CAPTION:\n<the post, ready to publish, no surrounding quotes>\n" +
+    "HASHTAGS:\n<between three and six hashtags on one line, space separated, each starting with #>\n\n" +
+    "Rules: write in the owner's register, not a marketing agency's. No emoji " +
+    "unless the brief asks for them. Never invent a feature, a price, a " +
+    "customer, a statistic or a launch date — you may only use what the facts " +
+    "below say. Do not describe the image; the caption stands beside one." +
+    (platform ? ` The post is for ${platform}; write to that platform's length and register.` : "") +
+    ` The image beside it is ${FORMATS[format].about}`;
+
+  const user =
+    `The business:\n${brandFacts(v).map((f) => `- ${f}`).join("\n")}\n\n` +
+    `The brief: ${brief}`;
+
+  return [
+    { role: "system" as const, content: system },
+    { role: "user" as const, content: user },
+  ];
+}
+
+/**
+ * The caption and the hashtags, out of whatever shape the model answered in.
+ *
+ * MARKERS FIRST, THEN A FALLBACK, because the two-block format is what was
+ * asked for and most models comply — but a model that answered with a caption
+ * and a trailing line of hashtags has done the job, and throwing that away
+ * over a missing header would be this code being right at the owner's expense.
+ */
+export function splitCaption(text: string): { caption: string; hashtags: string[] } {
+  const marked = /CAPTION:\s*([\s\S]*?)(?:\n\s*HASHTAGS:\s*([\s\S]*))?$/i.exec(text.trim());
+  let caption = (marked?.[1] ?? text).trim();
+  let tagLine = (marked?.[2] ?? "").trim();
+
+  if (!tagLine) {
+    const lines = caption.split(/\n/);
+    const last = lines[lines.length - 1]?.trim() ?? "";
+    /* A trailing line that is nothing but hashtags is the hashtags. A line
+       with one hashtag in a sentence is a sentence. */
+    if (last.startsWith("#") && last.split(/\s+/).every((t) => t.startsWith("#"))) {
+      tagLine = last;
+      caption = lines.slice(0, -1).join("\n").trim();
+    }
+  }
+
+  const hashtags = [...tagLine.matchAll(/#[\wÀ-ɏ]+/g)].map((m) => m[0]!);
+  return { caption: caption.replace(/^["“]|["”]$/g, "").trim(), hashtags };
+}
+
+/**
+ * THE IMAGE PROMPT, built from the same facts as the caption.
+ *
+ * "No text in the image" is not a preference: every diffusion model renders
+ * lettering as approximate glyphs, and a social card with a misspelt product
+ * name on it is worse than no card. The words go in the caption, where they
+ * are spelled correctly by construction.
+ *
+ * WHICH IS WHY THE BUSINESS'S NAME IS NOT IN THIS PROMPT, and that is the one
+ * thing here that was changed after watching it fail. The first version opened
+ * "A clean, modern social graphic for Example App 1, …" and flux-schnell wrote
+ * PLANINTEL across the middle of the picture in two colours, beside a line of
+ * invented lettering — with "no text, no words, no lettering" in the same
+ * prompt. Naming a brand in an image prompt IS an instruction to render the
+ * brand, and a negative clause does not outrank it in a model that has no
+ * negative prompt at all. So the subject is described and never named; the
+ * name belongs in the caption, which is the half that can spell it.
+ */
+function imagePrompt(v: VentureRow, brief: string, format: Format): string {
+  const brand = readBrand(v.brand);
+  const hexes = [brand.palette.primary, brand.palette.secondary, brand.palette.accent]
+    .filter((h): h is string => !!h)
+    .slice(0, 3);
+  const palette = hexes.length
+    ? `Colour palette ${hexes.join(", ")}${brand.palette.background ? ` on ${brand.palette.background}` : ""}.`
+    : `Colour palette ${v.color}.`;
+
+  /* The subject, with the brand's own name stripped out of both halves it
+     could arrive in — the description the owner wrote and the brief he typed.
+     A word boundary and a case-insensitive match, because "Example App 1",
+     "example-app-1" and "PLANINTEL" are the same instruction to a diffusion
+     model. */
+  const strip = (text: string) =>
+    text
+      .replace(new RegExp(`\\b${v.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), "the product")
+      .trim();
+
+  const subject = [strip(v.description || "a small software product"), strip(brief)]
+    .filter(Boolean)
+    .join(". ");
+
+  return (
+    `A clean, modern editorial illustration about: ${subject}. ${palette} ` +
+    "Flat vector style, generous negative space, soft even lighting. " +
+    "Absolutely no text, no words, no letters, no numbers, no captions, no " +
+    "logos, no signage, no watermark, no user interface screenshots — the " +
+    "picture must contain no writing of any kind. " +
+    `Composed for a ${FORMATS[format].ratio} frame.`
+  );
+}
+
+/* ------------------------------------------------------------- replicate */
+
+export type ImageResult = {
+  ok: boolean;
+  path: string | null;
+  model: string;
+  ms: number;
+  error: string | null;
+};
+
+export function imageModel(): string {
+  return (configValue(STUDIO_PLUGIN, "imageModel") ?? "").trim() || DEFAULT_MODEL;
+}
+
+/**
+ * One prediction, run to completion if Replicate will hold the line.
+ *
+ * The model-scoped endpoint (`/v1/models/<owner>/<name>/predictions`) rather
+ * than the generic one, because it takes no version hash: a version pinned in
+ * this file would be a file that stops working the day the model publishes a
+ * new one, for a feature whose whole point is that the model is a setting.
+ */
+export async function makeImage(
+  prompt: string,
+  format: Format,
+  id: string,
+): Promise<ImageResult> {
+  const model = imageModel();
+  const started = Date.now();
+  const fail = (error: string): ImageResult => ({
+    ok: false, path: null, model, ms: Date.now() - started, error,
+  });
+
+  const pairs = tokenAccounts("studio_image");
+  if (!pairs.length)
+    return fail(
+      "Replicate is not connected, so there is no image. Paste an `r8_…` API token " +
+        "under Integrations → Replicate and regenerate this post's image.",
+    );
+  const token = pairs[0]!.token;
+
+  if (!/^[\w.-]+\/[\w.-]+$/.test(model))
+    return fail(`“${model}” is not a Replicate model. It wants owner/name, like ${DEFAULT_MODEL}.`);
+
+  let doc: {
+    id?: string;
+    status?: string;
+    output?: unknown;
+    error?: unknown;
+    detail?: string;
+    urls?: { get?: string };
+  };
+  try {
+    const res = await fetch(`${REPLICATE_API}/models/${model}/predictions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        /* The synchronous door. Without it this answers immediately with a
+           queued prediction and somebody has to poll. */
+        Prefer: "wait",
+      },
+      body: JSON.stringify({
+        input: {
+          prompt,
+          aspect_ratio: FORMATS[format].ratio,
+          /* PNG rather than the WebP default: the file is served to a browser
+             and stored in a backup, and a format every tool opens is worth a
+             few hundred kilobytes. */
+          output_format: "png",
+          num_outputs: 1,
+          /* Flux-schnell's own maximum. Four steps is what makes it schnell. */
+          num_inference_steps: 4,
+          disable_safety_checker: false,
+        },
+      }),
+      signal: AbortSignal.timeout(REPLICATE_MS),
+    });
+    doc = (await res.json().catch(() => ({}))) as typeof doc;
+    if (!res.ok)
+      return fail(
+        `Replicate answered HTTP ${res.status}${doc?.detail ? ` — ${doc.detail}` : ""}.`,
+      );
+  } catch (err) {
+    const name = err instanceof Error ? err.name : "Error";
+    return fail(
+      name === "TimeoutError"
+        ? `Replicate did not finish within ${REPLICATE_MS / 1000} seconds.`
+        : `Could not reach Replicate (${name}).`,
+    );
+  }
+
+  if (doc.error) return fail(`The prediction failed — ${String(doc.error).slice(0, 300)}`);
+  if (doc.status && doc.status !== "succeeded")
+    return fail(
+      `The prediction is “${doc.status}” — Replicate did not finish it while the ` +
+        "connection was held open. Regenerate the image; nothing here polls.",
+    );
+
+  const url = firstUrl(doc.output);
+  if (!url) return fail("The prediction succeeded and produced no image URL this could read.");
+
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_MS) });
+    if (!res.ok) return fail(`The image URL answered HTTP ${res.status}.`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (!bytes.length) return fail("The image URL answered with nothing.");
+    if (bytes.length > IMAGE_CAP)
+      return fail(`The image is ${Math.round(bytes.length / 1024)} KB, which is larger than this stores.`);
+    mkdirSync(STUDIO_DIR, { recursive: true });
+    const path = resolve(STUDIO_DIR, `${id}.png`);
+    /* Written whole rather than streamed: it is one file of a few hundred
+       kilobytes that is already entirely in memory. */
+    writeFileSync(path, bytes);
+    return { ok: true, path, model, ms: Date.now() - started, error: null };
+  } catch (err) {
+    const name = err instanceof Error ? err.name : "Error";
+    return fail(
+      name === "TimeoutError"
+        ? "The finished image took longer than 30 seconds to download."
+        : `The finished image could not be downloaded (${name}).`,
+    );
+  }
+}
+
+function firstUrl(output: unknown): string | null {
+  if (typeof output === "string") return output.startsWith("http") ? output : null;
+  if (Array.isArray(output)) {
+    for (const o of output) {
+      const u = firstUrl(o);
+      if (u) return u;
+    }
+  }
+  return null;
+}
+
+/* --------------------------------------------------------------- readiness */
+
+function readiness() {
+  const provider = activeProvider();
+  const replicate = tokenAccounts("studio_readiness");
+  const model = imageModel();
+  return {
+    caption: {
+      ready: provider !== null,
+      provider: provider?.id ?? null,
+      label: provider?.label ?? null,
+      model: provider?.defaultModel ?? null,
+      note: provider
+        ? `Captions come from ${provider.label}, under its own concurrency policy.`
+        : "No model provider is live, so no caption can be written. Choose one under Integrations → Models.",
+    },
+    image: {
+      ready: replicate.length > 0,
+      accounts: replicate.length,
+      model,
+      isDefault: model === DEFAULT_MODEL,
+      note: replicate.length
+        ? `Images come from ${model} on Replicate, called with \`Prefer: wait\`. ` +
+          "Replicate publishes no price in its API, so nothing here can tell you what a " +
+          "post cost — see the Costs page for what it does report."
+        : "Replicate is not connected, so a post will be stored with its caption and no image.",
+    },
+    formats: Object.entries(FORMATS).map(([key, f]) => ({ key, ratio: f.ratio, about: f.about })),
+    note:
+      "A post needs the caption half. Without a model provider nothing is created; " +
+      "without Replicate a post is created with words and an error where the picture goes.",
+  };
+}
+
+studioRoutes.get("/", (c) => c.json(readiness()));
+
+/* ------------------------------------------------------------------ posts */
+
+studioRoutes.get("/posts", (c) => {
+  const key = c.req.query("venture");
+  let rows: PostRow[];
+  let venture: VentureRow | undefined;
+  if (key) {
+    venture = ventureRow(key);
+    if (!venture) return c.json({ error: "No venture by that id or slug." }, 404);
+    rows = db
+      .prepare("SELECT * FROM studio_posts WHERE venture_id = ? ORDER BY ts DESC LIMIT 200")
+      .all(venture.id) as unknown as PostRow[];
+  } else {
+    rows = db
+      .prepare("SELECT * FROM studio_posts ORDER BY ts DESC LIMIT 200")
+      .all() as unknown as PostRow[];
+  }
+  return c.json({
+    venture: venture ? { id: venture.id, slug: venture.slug, name: venture.name } : null,
+    posts: rows.map(shape),
+    readiness: readiness(),
+  });
+});
+
+studioRoutes.post("/posts", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    ventureId?: unknown;
+    brief?: unknown;
+    format?: unknown;
+    platform?: unknown;
+  } | null;
+  if (!body) return c.json({ error: "Expected a JSON body." }, 400);
+
+  const key = typeof body.ventureId === "string" ? body.ventureId.trim() : "";
+  const v = key ? ventureRow(key) : undefined;
+  if (!v)
+    return c.json(
+      { error: "Expected { ventureId, brief, format } — ventureId is a venture's id or slug." },
+      400,
+    );
+
+  const brief = typeof body.brief === "string" ? body.brief.trim() : "";
+  if (!brief) return c.json({ error: "A brief is required — one line saying what the post is about." }, 400);
+  if (brief.length > MAX_BRIEF)
+    return c.json({ error: `A brief is at most ${MAX_BRIEF} characters.` }, 400);
+
+  const format = String(body.format ?? "square") as Format;
+  if (!(format in FORMATS))
+    return c.json(
+      { error: `A format is one of ${Object.keys(FORMATS).join(", ")}.` },
+      400,
+    );
+
+  let platform: string | null = null;
+  if (body.platform !== undefined && body.platform !== null) {
+    if (typeof body.platform !== "string")
+      return c.json({ error: "A platform is text — instagram, linkedin, x." }, 400);
+    platform = body.platform.trim().slice(0, MAX_PLATFORM) || null;
+  }
+
+  const started = Date.now();
+  const id = newId();
+  const prompt = imagePrompt(v, brief, format);
+
+  /* --- the caption, which is the half without which there is no post --- */
+  let caption: string | null = null;
+  let hashtags: string[] = [];
+  let captionModel: string | null = null;
+  const problems: string[] = [];
+  try {
+    const reply = await complete(captionTurns(v, brief, platform, format));
+    const split = splitCaption(reply.text);
+    caption = split.caption || null;
+    hashtags = split.hashtags;
+    captionModel = reply.model;
+    if (!caption) problems.push("The model answered with no caption text.");
+  } catch (err) {
+    if (err instanceof NoProviderError)
+      return c.json(
+        {
+          error:
+            "No model provider is live, so there is no caption and no post. Choose one " +
+            "under Integrations → Models — the image half alone is a picture, not a post.",
+        },
+        400,
+      );
+    problems.push(
+      `The caption failed — ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  /* --- the image, which may legitimately not happen ------------------- */
+  const image = await makeImage(prompt, format, id);
+  if (!image.ok && image.error) problems.push(image.error);
+
+  const ms = Date.now() - started;
+  db.prepare(
+    `INSERT INTO studio_posts
+       (id, venture_id, ts, brief, platform, format, caption, hashtags,
+        image_prompt, image_path, model, ms, error)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    id, v.id, now(), brief, platform, format,
+    caption, hashtags.join(" ") || null,
+    prompt, image.path,
+    [captionModel, image.ok ? image.model : null].filter(Boolean).join(" + ") || null,
+    ms,
+    problems.length ? problems.join(" ") : null,
+  );
+
+  return c.json(
+    {
+      post: shape(postRow(id)!),
+      venture: { id: v.id, slug: v.slug, name: v.name },
+      imageMs: image.ms,
+      note: problems.length
+        ? "The post was stored with what worked. `error` says what did not."
+        : "Both halves worked.",
+    },
+    201,
+  );
+});
+
+studioRoutes.get("/posts/:id/image", (c) => {
+  const row = postRow(c.req.param("id"));
+  if (!row) return c.json({ error: "No post by that id." }, 404);
+  if (!row.image_path)
+    return c.json(
+      {
+        error: row.error
+          ? `That post has no image — ${row.error}`
+          : "That post has no image.",
+      },
+      404,
+    );
+  if (!existsSync(row.image_path))
+    return c.json({ error: "The image file is no longer on disk." }, 404);
+
+  const bytes = readFileSync(row.image_path);
+  return c.body(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    200,
+    {
+      "Content-Type": "image/png",
+      "Content-Length": String(bytes.length),
+      "Cache-Control": "private, max-age=3600",
+    },
+  );
+});
+
+/**
+ * Make one half again.
+ *
+ * A NEW CAPTION REPLACES THE OLD ONE AND SO DOES A NEW IMAGE, because a post
+ * is a draft and a draft with a history of rejected captions is a table nobody
+ * asked for. The brief is what is kept; regenerate is "try again with the same
+ * instruction", and a different instruction is a different post.
+ */
+studioRoutes.post("/posts/:id/regenerate", async (c) => {
+  const row = postRow(c.req.param("id"));
+  if (!row) return c.json({ error: "No post by that id." }, 404);
+  const v = ventureRowById(row.venture_id);
+  if (!v)
+    return c.json(
+      { error: "That post's venture no longer exists, so there is nothing to regenerate from." },
+      404,
+    );
+
+  const body = (await c.req.json().catch(() => null)) as { what?: unknown } | null;
+  const what = String(body?.what ?? "");
+  if (what !== "caption" && what !== "image")
+    return c.json({ error: 'Expected { what: "caption" } or { what: "image" }.' }, 400);
+
+  const started = Date.now();
+  const format = (row.format in FORMATS ? row.format : "square") as Format;
+
+  if (what === "caption") {
+    try {
+      const reply = await complete(captionTurns(v, row.brief, row.platform, format));
+      const split = splitCaption(reply.text);
+      db.prepare(
+        "UPDATE studio_posts SET caption = ?, hashtags = ?, ms = ?, error = ? WHERE id = ?",
+      ).run(
+        split.caption || null,
+        split.hashtags.join(" ") || null,
+        Date.now() - started,
+        /* The old error was about the old attempt. Whatever was wrong with the
+           image is still wrong, so only the caption's half of it is cleared. */
+        row.error && row.image_path === null ? row.error : null,
+        row.id,
+      );
+      return c.json({ post: shape(postRow(row.id)!), ms: Date.now() - started });
+    } catch (err) {
+      const error =
+        err instanceof NoProviderError
+          ? err.message
+          : `The caption failed — ${err instanceof Error ? err.message : String(err)}`;
+      db.prepare("UPDATE studio_posts SET error = ? WHERE id = ?").run(error, row.id);
+      return c.json({ post: shape(postRow(row.id)!), error }, 200);
+    }
+  }
+
+  const prompt = imagePrompt(v, row.brief, format);
+  const image = await makeImage(prompt, format, row.id);
+  db.prepare(
+    "UPDATE studio_posts SET image_prompt = ?, image_path = ?, model = ?, ms = ?, error = ? WHERE id = ?",
+  ).run(
+    prompt,
+    image.ok ? image.path : row.image_path,
+    image.ok ? image.model : row.model,
+    image.ms,
+    image.error,
+    row.id,
+  );
+  return c.json({ post: shape(postRow(row.id)!), ms: image.ms, error: image.error });
+});
+
+/**
+ * Gone, and the file with it.
+ *
+ * THE PICTURE IS DELETED HERE AND NOT LEFT BEHIND, which is the opposite of
+ * what the schema's cascade can do: SQLite can drop a row and cannot unlink a
+ * file, so a venture deleted from the Ventures page leaves its posts' images
+ * on disk while this route does not. That asymmetry is real and is named in
+ * 063's comment rather than pretended away.
+ */
+studioRoutes.delete("/posts/:id", (c) => {
+  const row = postRow(c.req.param("id"));
+  if (!row) return c.json({ error: "No post by that id." }, 404);
+  if (row.image_path && existsSync(row.image_path)) {
+    try {
+      unlinkSync(row.image_path);
+    } catch {
+      /* a file that will not delete is not a reason to keep the row */
+    }
+  }
+  db.prepare("DELETE FROM studio_posts WHERE id = ?").run(row.id);
+  return c.json({ ok: true, deleted: row.id });
+});

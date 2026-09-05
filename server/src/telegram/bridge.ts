@@ -57,6 +57,21 @@ import {
   type ChatTurn,
 } from "../chat/backend.ts";
 import * as telegram from "../providers/telegram.ts";
+/*
+  THE ONE HOOK INTO AN INTEGRATION AREA, and the only import in this file that
+  points at `integrations/`.
+
+  A voice note arrives with no `text` field, and this file's whole job below
+  is deciding what to do with text. Turning speech into some is an
+  integration's work — an endpoint, a key, a format, an ffmpeg — and all of it
+  lives in `integrations/signals/voice/`, which owns the plugin, the settings,
+  the routes and the failure sentences. What crosses the line is two
+  functions: one that answers "what did they say", and one that says an answer
+  back out loud. Both are best-effort and neither can throw: `hearVoice`
+  returns null when a message has no audio at all, which leaves the sentence
+  below exactly as it was for a photo or a sticker.
+*/
+import { hearVoice, shouldSpeakBack, speakBack } from "../integrations/signals/voice/telegram.ts";
 import { escapeHtml, type TelegramUpdate } from "../providers/telegram.ts";
 
 export const PLUGIN = "telegram";
@@ -355,12 +370,44 @@ export async function handleUpdate(
 
   /* ------------------------------------------------------- the owner */
   countTelegramMessage(ctx.accountId, "handled");
-  const text = (message.text ?? "").trim();
+  let text = (message.text ?? "").trim();
+
+  /*
+    A VOICE NOTE IS TEXT WE DO NOT HAVE YET. `hearVoice` downloads it,
+    transcribes it through the voice integration and hands back words — or a
+    sentence to say instead, because every failure on this path has to end in
+    one: a bot that goes quiet is indistinguishable from a bot that is down,
+    and the owner is holding a phone with no logs on it. It returns null when
+    the message carries no audio, which is a photo or a sticker and is
+    answered below exactly as it always was.
+
+    THE TRANSCRIPT THEN GOES DOWN THE SAME PATH A TYPED MESSAGE TAKES —
+    commands included, so "/status" spoken aloud works — and is stored in the
+    transcript as `[voice] …`, which is the one place the two differ. That
+    prefix is for the reader of the Chat page, who is entitled to know that a
+    line was spoken rather than typed and that a transcriber stood between the
+    words and the record.
+  */
+  let spoken = false;
+  if (!text) {
+    const heard = await hearVoice(message, ctx.token);
+    if (heard?.kind === "say") {
+      await wire.send(chatId, heard.text);
+      writeTelegramReply(ctx.accountId);
+      return { action: "explained", reason: "voice", replied: true, chatId };
+    }
+    if (heard?.kind === "text") {
+      text = heard.text;
+      spoken = true;
+      console.log(`[telegram] ${ctx.label}: transcribed a voice note in ${heard.ms} ms`);
+    }
+  }
 
   if (!text) {
-    // A photo, a sticker, a voice note. Saying so is the point: silence here
-    // reads as a bot that has stopped working, and the owner would have no way
-    // to tell the difference from a phone.
+    // A photo, a sticker, a document — anything with no words in it that the
+    // hook above could not turn into some. Saying so is the point: silence
+    // here reads as a bot that has stopped working, and the owner would have
+    // no way to tell the difference from a phone.
     await wire.send(
       chatId,
       "I can only read text — that message had none, so there is nothing to send on.",
@@ -389,7 +436,7 @@ export async function handleUpdate(
     two above are intercepted because they are questions about the BRIDGE,
     which the agent knows nothing about.
   */
-  await answer(ctx, wire, chatId, text);
+  await answer(ctx, wire, chatId, text, spoken);
   return { action: "answered", replied: true, chatId };
 }
 
@@ -422,7 +469,16 @@ function isCommand(text: string, ctx: BotContext): string | null {
  * its own silence as a turn. So a failed exchange leaves the history exactly
  * as it was, and the owner can simply send it again.
  */
-async function answer(ctx: BotContext, wire: Wire, chatId: string, text: string) {
+async function answer(
+  ctx: BotContext,
+  wire: Wire,
+  chatId: string,
+  text: string,
+  /** The question arrived as a voice note. It changes two things and nothing
+   *  else: how the user's turn is written down, and whether the answer is
+   *  said back out loud when the owner has asked for that. */
+  spoken = false,
+) {
   const session = sessionFor(chatId);
   const turns: ChatTurn[] = [
     ...chatMessages(session, HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content })),
@@ -465,7 +521,12 @@ async function answer(ctx: BotContext, wire: Wire, chatId: string, text: string)
     backend spoke, and a row that recorded only the current choice would
     re-attribute old answers the moment somebody switched.
   */
-  appendChatMessage({ sessionId: session, role: "user", content: text, channel: "telegram" });
+  appendChatMessage({
+    sessionId: session,
+    role: "user",
+    content: spoken ? `[voice] ${text}` : text,
+    channel: "telegram",
+  });
   appendChatMessage({
     sessionId: session,
     role: "assistant",
@@ -479,6 +540,24 @@ async function answer(ctx: BotContext, wire: Wire, chatId: string, text: string)
   });
   writeTelegramReply(ctx.accountId);
   writeTelegramError(ctx.accountId, null);
+
+  /*
+    AND, IF THE OWNER ASKED FOR IT, THE SAME ANSWER OUT LOUD — after the text
+    has already gone, which is the design rather than an ordering accident.
+    The words are the answer; the voice note is a convenience, so a speech
+    endpoint that is down, slow or out of credit costs a nicety and never the
+    reply. `speakBack` throws nothing and reports what happened; a failure is
+    logged and nothing else, because the owner already has their answer.
+
+    It reaches Telegram directly rather than through `wire`, and only ever on
+    a turn that BEGAN as a voice note. That keeps the seam honest: a test
+    handing this a typed message can never reach the network, which is what
+    the injected wire exists to guarantee.
+  */
+  if (spoken && shouldSpeakBack()) {
+    const said = await speakBack(ctx.token, chatId, body);
+    console.log(`[telegram] ${ctx.label}: spoken reply ${said.sent ? said.note : `not sent — ${said.note}`}`);
+  }
 }
 
 /* ---------------------------------------------------------------- notify */
