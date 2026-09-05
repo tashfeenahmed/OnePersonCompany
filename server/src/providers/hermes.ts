@@ -232,12 +232,36 @@ async function pickModel(
  * nothing. The key is opened inside `ask`, once, by the call that actually
  * needs it.
  */
+function usable(account: accounts.Account): boolean {
+  if (!account.connected) return false;
+  const held = new Set(accounts.entries(account.id).map((e) => e.field));
+  return FIELDS.every((f) => held.has(f));
+}
+
 function answering(): accounts.Account | null {
-  for (const account of accounts.list("hermes")) {
-    if (!account.connected) continue;
-    const held = new Set(accounts.entries(account.id).map((e) => e.field));
-    if (FIELDS.every((f) => held.has(f))) return account;
+  /*
+    THE MANAGED INSTANCE WINS WHEN THE OWNER HAS SAID SO, and only then.
+
+    `agents/instance.ts` can install and run a Hermes on this machine and
+    connects it as an account of its own — which means a plugin can hold two
+    perfectly good credentials at once: a Hermes on another box, pasted months
+    ago, and the one this app spawned five minutes ago. "The first connected
+    account" cannot decide between those, and whichever it picked would be an
+    accident of insertion order rather than a decision.
+
+    So it is a SETTING. `mode` says which kind of credential answers and
+    `managedAccount` names the row the spawner created — both written by
+    agents/instance.ts, both spelled out here rather than imported, because
+    importing that module from this one would close a cycle (it imports this
+    file for `verify` and FIELDS). Anything other than `managed` leaves the
+    original rule exactly as it was.
+  */
+  if (configValue("hermes", "mode") === "managed") {
+    const id = Number(configValue("hermes", "managedAccount") ?? 0);
+    const managed = id ? accounts.get(id) : undefined;
+    if (managed && managed.pluginId === "hermes" && usable(managed)) return managed;
   }
+  for (const account of accounts.list("hermes")) if (usable(account)) return account;
   return null;
 }
 

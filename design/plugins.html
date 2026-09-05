@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plugins · One Person Company</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .controls { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+
+  .search {
+    display: flex; align-items: center; gap: 8px;
+    flex: 1; min-width: 220px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 9px; padding: 7px 10px; color: var(--muted);
+    transition: border-color .14s ease;
+  }
+
+  .search:focus-within { border-color: var(--text); }
+  .search input { border: 0; outline: 0; background: none; width: 100%; color: var(--text); }
+  .search input::placeholder { color: var(--faint); opacity: .85; }
+
+  .tabs { display: flex; gap: 2px; flex-wrap: wrap; margin-bottom: 18px; }
+
+  .tab { padding: 5px 10px; border-radius: 8px; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .tab:hover { background: var(--hover); color: var(--text); }
+  .tab[aria-selected="true"] { background: var(--hover); color: var(--text); font-weight: 500; }
+  .tab .n { color: var(--muted); font-size: 11px; margin-left: 4px; }
+
+  .group-label {
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); margin: 26px 0 10px;
+  }
+  .group-label:first-of-type { margin-top: 4px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 8px; }
+
+  .card {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 14px; text-align: left;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius);
+    transition: border-color .12s ease, transform .12s ease;
+  }
+
+  .card:hover { border-color: var(--line-strong); }
+  .card:active { transform: translateY(1px); }
+
+  .card-body { min-width: 0; flex: 1; }
+  .card-top { display: flex; align-items: center; gap: 8px; }
+  .card-name { font-size: 13.5px; font-weight: 500; letter-spacing: -0.01em; }
+
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; margin-left: auto; }
+  .card[data-connected="false"] .dot { background: var(--line); }
+
+  .card-desc {
+    font-size: 12px; color: var(--muted); margin-top: 3px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .card-meta { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
+
+  .used { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+
+  .used li {
+    font: 11.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--muted); display: flex; gap: 7px; align-items: baseline;
+  }
+
+  .used li::before { content: "\2192"; color: var(--muted); }
+
+  .docs {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; color: var(--muted);
+    padding: 5px 8px; border-radius: 8px; margin-left: -8px;
+  }
+
+  .docs:hover { background: var(--hover); color: var(--text); }
+</style>
+</head>
+<body>
+
+<aside class="sidebar"></aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="chip">Plugins</button>
+    <div class="topbar-right">
+      <button class="chip">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        Add custom
+      </button>
+    </div>
+  </header>
+
+  <div class="scroll">
+    <div class="page">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Plugins</h1>
+          <p class="page-sub"><b id="connectedCount">0</b> of <b id="totalCount">0</b> connected. Keys are stored in the encrypted vault and never shown again once saved.</p>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="search">
+          <svg class="icon" viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="Search plugins…" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="tabs" id="tabs"></div>
+      <div id="results"></div>
+    </div>
+  </div>
+</main>
+
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="tile" id="dTile"></div>
+    <div>
+      <div class="drawer-title" id="dName"></div>
+      <div class="drawer-sub" id="dSub"></div>
+    </div>
+    <button class="drawer-close" id="dClose" aria-label="Close">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+    <p class="page-sub" id="dHelp" style="font-size:13px;margin-bottom:18px"></p>
+    <a class="docs" id="dDocs" href="#" target="_blank" rel="noreferrer">
+      <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+      Where to get this
+    </a>
+    <div id="dFields"></div>
+    <div id="dUsedWrap">
+      <div class="section-label">Read by</div>
+      <ul class="used" id="dUsed"></ul>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn" id="dSave">Connect</button>
+    <button class="btn ghost right" id="dDisconnect">Disconnect</button>
+  </div>
+</aside>
+
+<script src="icons.js"></script>
+<script src="app.js"></script>
+<script>
+renderSidebar('plugins');
+const scrim = ensureScrim();
+
+/* ---------- the catalog ---------- */
+const CATEGORIES = [
+  { id: 'all', label: 'All' },
+  { id: 'connected', label: 'Connected' },
+  { id: 'revenue', label: 'Revenue' },
+  { id: 'seo', label: 'Search & SEO' },
+  { id: 'social', label: 'Social' },
+  { id: 'infra', label: 'Infrastructure' },
+  { id: 'ai', label: 'AI' },
+  { id: 'comms', label: 'Email & messaging' },
+  { id: 'media', label: 'Media' },
+  { id: 'signals', label: 'Signals' },
+];
+
+const PLUGINS = [
+  /* --- revenue --- */
+  {
+    id: 'stripe', name: 'Stripe', icon: 'stripe', cat: 'revenue', connected: true,
+    secret: 'stripe-key', desc: 'MRR, churn and payout balances across every product.',
+    help: 'Stripe Dashboard → Developers → API keys. A restricted key with read access to charges, subscriptions and balance is enough — this never writes.',
+    docs: 'https://dashboard.stripe.com/apikeys',
+    fields: [{ key: 'key', label: 'Restricted key', kind: 'secret', ph: 'rk_live_…' }],
+    usedBy: ['collect_stripe.py (revenue.json)', 'agent/outbox.js (churn survey)'],
+  },
+  {
+    id: 'adsense', name: 'Google AdSense', icon: 'googleadsense', cat: 'revenue', connected: true,
+    secret: 'adsense-token', desc: 'Ad earnings and RPM per site, backfilled daily.',
+    help: 'An OAuth refresh token for the AdSense Management API, minted once with adsense_auth.py. The consent screen has to be re-run when the token is revoked.',
+    docs: 'https://developers.google.com/adsense/management',
+    fields: [{ key: 'token', label: 'Refresh token', kind: 'secret', ph: '1//0e…' }],
+    usedBy: ['collect_adsense.py (adsense.json)'],
+  },
+  {
+    id: 'appstore', name: 'App Store Connect', icon: 'appstore', cat: 'revenue', connected: true,
+    secret: 'asc-key.p8', desc: 'iOS installs, proceeds and review status for shipped apps.',
+    help: 'App Store Connect → Users and Access → Integrations → App Store Connect API. Download the .p8 once — Apple will not show it a second time.',
+    docs: 'https://appstoreconnect.apple.com/access/integrations/api',
+    fields: [
+      { key: 'key-id', label: 'Key ID', kind: 'text', ph: 'ABCD1234EF' },
+      { key: 'issuer-id', label: 'Issuer ID', kind: 'text', ph: '69a6de7f-…' },
+      { key: 'p8', label: 'Private key (.p8)', kind: 'secret', ph: '-----BEGIN PRIVATE KEY-----' },
+    ],
+    usedBy: ['collect_appstore.py (appstore.json)'],
+  },
+  {
+    id: 'playstore', name: 'Google Play', icon: 'googleplay', cat: 'revenue', connected: false,
+    secret: 'play-key.json', desc: 'Android installs, ratings and Play Console revenue.',
+    help: 'A Google Cloud service account with the Play Developer Reporting and Android Publisher APIs enabled, then invited to the Play Console.',
+    docs: 'https://play.google.com/console/developers/api-access',
+    fields: [{ key: 'json', label: 'Service account JSON', kind: 'secret', ph: '{"type":"service_account",…}' }],
+    usedBy: ['collect_playstore.py (playstore.json)'],
+  },
+
+  /* --- search & seo --- */
+  {
+    id: 'gsc', name: 'Google Search Console', icon: 'googlesearchconsole', cat: 'seo', connected: true,
+    secret: 'gsc-key.json', desc: 'Impressions, clicks and query positions for all verified sites.',
+    help: 'A service account JSON with the Search Console API enabled, added as a full user on each property. Property-by-property — a domain missed here is a domain silently absent from the charts.',
+    docs: 'https://search.google.com/search-console',
+    fields: [{ key: 'json', label: 'Service account JSON', kind: 'secret', ph: '{"type":"service_account",…}' }],
+    usedBy: ['collect_gsc.py (gsc.json)', 'collect_seo.py (seo.json)'],
+  },
+  {
+    id: 'bing-webmaster', name: 'Bing Webmaster Tools', icon: 'microsoftbing', cat: 'seo', connected: true,
+    secret: 'bing-key', desc: 'Keyword search volume and inbound links — the only free source for both.',
+    help: 'Bing Webmaster Tools → Settings → API access → API key. Free, and the only source in this dashboard for keyword volume and backlinks; every paid alternative was declined.',
+    docs: 'https://www.bing.com/webmasters/',
+    fields: [{ key: 'key', label: 'API key', kind: 'secret', ph: 'the 32-character key from the API access page' }],
+    usedBy: ['collect_bingkw.py (keywords.json)', 'collect_backlinks.py (backlinks.json)'],
+  },
+  {
+    id: 'cloudflare', name: 'Cloudflare', icon: 'cloudflare', cat: 'seo', connected: true,
+    secret: 'cf-token', desc: 'Zone records, DNS drift and per-domain request volume.',
+    help: 'An API token scoped to Zone → Read. Deliberately read-only: this token cannot edit zone settings or deploy Pages, and it should stay that way.',
+    docs: 'https://dash.cloudflare.com/profile/api-tokens',
+    fields: [{ key: 'token', label: 'API token', kind: 'secret', ph: 'zone-read scope only' }],
+    usedBy: ['collect_domains.py (domains.json)', 'collect_uptime.py (uptime.json)'],
+  },
+
+  /* --- social --- */
+  {
+    id: 'meta', name: 'Meta', icon: 'meta', cat: 'social', connected: true,
+    secret: 'meta-token', desc: 'Facebook Pages reach plus every ad account’s spend and ROAS.',
+    help: 'A system-user token from Business Manager with pages_read_engagement and ads_read. One token serves Facebook, Instagram and Ads — when it expires, all three go dark together.',
+    docs: 'https://business.facebook.com/',
+    fields: [
+      { key: 'app', label: 'App ID', kind: 'text', ph: '123456789012345' },
+      { key: 'token', label: 'System user token', kind: 'secret', ph: 'EAA…' },
+    ],
+    usedBy: ['collect_social.py (social.json)', 'collect_ads.py (ads.json)'],
+  },
+  {
+    id: 'instagram', name: 'Instagram', icon: 'instagram', cat: 'social', connected: true,
+    secret: 'meta-token', desc: 'Follower and reach numbers, carried on the Meta token.',
+    help: 'Nothing to paste. Instagram is reached through the Meta system-user token that already serves Pages and Ads, so it is configured when that token is — and it stops working the day that one does.',
+    docs: 'https://business.facebook.com/',
+    fields: [],
+    usedBy: ['collect_social.py (social.json)'],
+  },
+  {
+    id: 'linkedin', name: 'LinkedIn', icon: 'linkedin', cat: 'social', connected: false,
+    secret: 'linkedin', desc: 'Company page posting. Credentials stored, flow not shipped.',
+    help: 'A LinkedIn developer app, Auth tab. Stored here now so the sign-in flow has something to sign in WITH; nothing reads these until that flow ships.',
+    docs: 'https://www.linkedin.com/developers/apps',
+    fields: [
+      { key: 'client-id', label: 'Client ID', kind: 'text', ph: '77xxxxxxxxxxxx' },
+      { key: 'client-secret', label: 'Client secret', kind: 'secret', ph: 'the secret beside it in the Auth tab' },
+    ],
+    usedBy: ['not read yet — the posting flow is being built separately'],
+  },
+  {
+    id: 'tiktok', name: 'TikTok', icon: 'tiktok', cat: 'social', connected: false,
+    secret: 'tiktok', desc: 'Short-form posting. Credentials stored, flow not shipped.',
+    help: 'A TikTok for Developers app, Manage → Credentials. Stored here now for the same reason as LinkedIn; nothing reads these yet.',
+    docs: 'https://developers.tiktok.com/apps',
+    fields: [
+      { key: 'client-key', label: 'Client key', kind: 'text', ph: 'awxxxxxxxxxxxxxxxx' },
+      { key: 'client-secret', label: 'Client secret', kind: 'secret', ph: 'the secret beside it in Manage' },
+    ],
+    usedBy: ['not read yet — the posting flow is being built separately'],
+  },
+
+  /* --- infrastructure --- */
+  {
+    id: 'hetzner', name: 'Hetzner Cloud', icon: 'hetzner', cat: 'infra', connected: true,
+    secret: 'hetzner-token', desc: 'Server inventory and the monthly bill, per project.',
+    help: 'Hetzner Cloud Console → Security → API tokens, read permission. Feeds the cost rollup that converts to EUR against the ECB daily rate.',
+    docs: 'https://console.hetzner.cloud/',
+    fields: [{ key: 'token', label: 'API token', kind: 'secret', ph: '64-character read token' }],
+    usedBy: ['collect_costs.py (costs.json)', 'collect_uptime.py (uptime.json)'],
+  },
+  {
+    id: 'dynadot', name: 'Dynadot', icon: null, mono: 'D', tint: '#3B7BD8', cat: 'infra', connected: true,
+    secret: 'dynadot-key', desc: 'Domain portfolio, renewal dates and yearly registrar spend.',
+    help: 'Dynadot → Tools → API. The RESTful v2 surface signs every request with an HMAC, so the key alone reads nothing — the secret half is required too.',
+    docs: 'https://www.dynadot.com/account/domain/setting/api.html',
+    fields: [
+      { key: 'key', label: 'API key', kind: 'secret', ph: 'the key from Tools → API' },
+      { key: 'secret', label: 'API secret', kind: 'secret', ph: 'the signing half of the pair' },
+    ],
+    usedBy: ['collect_domains.py (domains.json)', 'collect_costs.py (costs.json)'],
+  },
+  {
+    id: 'spaceship', name: 'Spaceship', icon: 'spaceship', cat: 'infra', connected: true,
+    secret: 'spaceship-key', desc: 'The second registrar — domains that never moved to Dynadot.',
+    help: 'Spaceship → Account → API manager. Key and secret are issued as a pair and both go in.',
+    docs: 'https://www.spaceship.com/application/api-manager/',
+    fields: [
+      { key: 'key', label: 'API key', kind: 'secret', ph: 'from the API manager' },
+      { key: 'secret', label: 'API secret', kind: 'secret', ph: 'issued alongside the key' },
+    ],
+    usedBy: ['collect_domains.py (domains.json)'],
+  },
+  {
+    id: 'github', name: 'GitHub', icon: 'github', cat: 'infra', connected: true,
+    secret: 'github-token', desc: 'Commit cadence, open PRs, Actions minutes and release tags.',
+    help: 'A fine-grained personal access token with read access to repository contents, issues and actions. Also lifts the anonymous rate limit on the demand scan.',
+    docs: 'https://github.com/settings/tokens',
+    fields: [{ key: 'token', label: 'Personal access token', kind: 'secret', ph: 'github_pat_…' }],
+    usedBy: ['collect_github.py (github.json)', 'collect_demand.py (demand.json)'],
+  },
+  {
+    id: 'npm', name: 'npm', icon: 'npm', cat: 'infra', connected: true,
+    secret: null, desc: 'Weekly download counts for published packages. No key needed.',
+    help: 'The npm downloads API is public — nothing to configure. Listed so the set of things this dashboard reaches is complete.',
+    docs: 'https://api.npmjs.org/',
+    fields: [],
+    usedBy: ['collect_npm.py (npm.json)'],
+  },
+
+  /* --- ai --- */
+  {
+    id: 'openai', name: 'OpenAI', icon: 'openai', cat: 'ai', connected: true,
+    secret: 'openai-admin-key', desc: 'Organisation spend by project and model, day by day.',
+    help: 'An ORG ADMIN key (sk-admin-…) for /v1/organization/costs. An ordinary project key is refused there, so this is a separate secret rather than a reuse of any inference key.',
+    docs: 'https://platform.openai.com/settings/organization/admin-keys',
+    fields: [{ key: 'key', label: 'Admin key', kind: 'secret', ph: 'sk-admin-…' }],
+    usedBy: ['collect_openai.py (costs.json)'],
+  },
+  {
+    id: 'openrouter', name: 'OpenRouter', icon: 'openrouter', cat: 'ai', connected: true,
+    secret: 'openrouter-key', desc: 'Credit balance and per-model usage for routed inference.',
+    help: 'OpenRouter → Keys. Used for the spend rollup and as the fallback route when a provider is down.',
+    docs: 'https://openrouter.ai/keys',
+    fields: [{ key: 'key', label: 'API key', kind: 'secret', ph: 'sk-or-v1-…' }],
+    usedBy: ['collect_openrouter.py (models.json)'],
+  },
+  {
+    id: 'replicate', name: 'Replicate', icon: 'replicate', cat: 'ai', connected: true,
+    secret: 'replicate-token', desc: 'Image and video model runs for the media workers.',
+    help: 'Replicate → Account → API tokens. Billed per second of GPU time, so the workers cap concurrency rather than fan out.',
+    docs: 'https://replicate.com/account/api-tokens',
+    fields: [{ key: 'token', label: 'API token', kind: 'secret', ph: 'r8_…' }],
+    usedBy: ['faceless-worker', 'reel-worker', 'shorts-worker'],
+  },
+  {
+    id: 'hermes', name: 'Hermes', icon: null, mono: 'H', tint: '#2a8c82', cat: 'ai', connected: false,
+    secret: 'hermes-key', desc: 'Nous Research\u2019s agent. Would author chart specs from the collector data.',
+    help:
+      'A CLI agent in a container, reached over an OpenAI-compatible endpoint. The plan is that it AUTHORS a chart \u2014 picks the series, the encoding, the framing \u2014 and hands back a spec this app renders; it does not draw pixels. Its execute_code toolset could render a PNG instead, but that gives up the theme and the crisp text.',
+    docs: 'https://hermes-agent.nousresearch.com/docs/',
+    fields: [
+      { key: 'base-url', label: 'Base URL', kind: 'text', ph: 'http://127.0.0.1:3011/v1' },
+      { key: 'key', label: 'API key', kind: 'secret', ph: 'the Nous Portal key, or the local router\u2019s' },
+    ],
+    usedBy: ['not read yet \u2014 chart routing is being evaluated'],
+  },
+  {
+    id: 'openclaw', name: 'OpenClaw', icon: null, mono: 'C', tint: '#e2543b', cat: 'ai', connected: false,
+    secret: 'openclaw-token', desc: 'The same job as Hermes, on the open-source gateway instead.',
+    help:
+      'The OpenClaw gateway, on 127.0.0.1:18789 by default. POST /tools/invoke calls one named tool without a whole chat turn, which is the shape a chart request wants. Note that a shared-secret bearer here is operator access to the entire gateway, so the token belongs on the server and never in the browser.',
+    docs: 'https://docs.openclaw.ai/gateway/tools-invoke-http-api',
+    fields: [
+      { key: 'gateway-url', label: 'Gateway URL', kind: 'text', ph: 'http://127.0.0.1:18789' },
+      { key: 'token', label: 'Bearer token', kind: 'secret', ph: 'the gateway\u2019s shared secret' },
+    ],
+    usedBy: ['not read yet \u2014 chart routing is being evaluated'],
+  },
+  {
+    id: 'freellmapi', name: 'FreeLLMAPI', icon: null, mono: 'F', tint: '#7C5CE6', cat: 'ai', connected: true,
+    secret: 'freellmapi-key', desc: 'The in-house catalog API — licence checks and free-tier routing.',
+    help: 'Issued by the catalog service itself. Rotating it here does not rotate it on the Oracle box; both sides have to be set in the same window.',
+    docs: 'https://freellmapi.co',
+    fields: [{ key: 'key', label: 'Service key', kind: 'secret', ph: 'issued by catalog/' }],
+    usedBy: ['agent/models.js (routing)'],
+  },
+
+  /* --- email & messaging --- */
+  {
+    id: 'gmail', name: 'Gmail', icon: 'gmail', cat: 'comms', connected: true,
+    secret: 'gmail-token.json', desc: 'Inbox triage and the contact graph behind outreach.',
+    help: 'An OAuth client plus a refresh token minted by gmail_auth.py, read-only scopes. The token is per-account; the client JSON is the app it was minted against.',
+    docs: 'https://console.cloud.google.com/apis/credentials',
+    fields: [
+      { key: 'client', label: 'OAuth client JSON', kind: 'secret', ph: '{"installed":{…}}' },
+      { key: 'token', label: 'Refresh token', kind: 'secret', ph: '1//0e…' },
+    ],
+    usedBy: ['collect_inbox.py (inbox.json)', 'collect_contacts.py (contacts.json)'],
+  },
+  {
+    id: 'resend', name: 'Resend', icon: 'resend', cat: 'comms', connected: true,
+    secret: 'resend-keys.json', desc: 'Outbound sending for the drafts queue, one key per domain.',
+    help: 'Resend → API keys, sending permission. Keys are held per sending domain, so adding a domain means adding a key rather than widening an existing one.',
+    docs: 'https://resend.com/api-keys',
+    fields: [{ key: 'keys', label: 'Keys by domain (JSON)', kind: 'secret', ph: '{"example.ie":"re_…"}' }],
+    usedBy: ['agent/outbox.js (drafts, sends)'],
+  },
+  {
+    id: 'telegram', name: 'Telegram', icon: 'telegram', cat: 'comms', connected: true,
+    secret: 'telegram-token', desc: 'Where alerts land — deploys, uptime flips, spend spikes.',
+    help: 'A bot token from @BotFather. The chat id is discovered on the first message the bot receives, so send it one after pasting this.',
+    docs: 'https://core.telegram.org/bots#botfather',
+    fields: [{ key: 'token', label: 'Bot token', kind: 'secret', ph: '123456:AA…' }],
+    usedBy: ['notifier (alerts)'],
+  },
+
+  /* --- media --- */
+  {
+    id: 'pexels', name: 'Pexels', icon: 'pexels', cat: 'media', connected: true,
+    secret: 'pexels-key', desc: 'Stock footage and stills for the short-form pipeline.',
+    help: 'Pexels → Image & Video API → your API key. Free tier, 200 requests an hour, which the workers stay well under.',
+    docs: 'https://www.pexels.com/api/',
+    fields: [{ key: 'key', label: 'API key', kind: 'secret', ph: '563492ad…' }],
+    usedBy: ['faceless-worker', 'reel-worker'],
+  },
+  {
+    id: 'pixabay', name: 'Pixabay', icon: 'pixabay', cat: 'media', connected: false,
+    secret: 'pixabay-key', desc: 'Second stock source, used when Pexels has no match.',
+    help: 'Pixabay → API docs, key shown when signed in. Configured as a fallback, so an empty result here is not an error.',
+    docs: 'https://pixabay.com/api/docs/',
+    fields: [{ key: 'key', label: 'API key', kind: 'secret', ph: '12345678-…' }],
+    usedBy: ['faceless-worker (fallback)'],
+  },
+
+  /* --- signals --- */
+  {
+    id: 'searxng', name: 'SearXNG', icon: 'searxng', cat: 'signals', connected: true,
+    secret: 'searxng-key', desc: 'The self-hosted search endpoint behind every agent lookup.',
+    help: 'Configured by hand on the box that runs it; shown here so the list of what this dashboard reaches is complete.',
+    docs: null,
+    fields: [],
+    usedBy: ['agent/websearch.js (search_web, research, competitors)'],
+  },
+  {
+    id: 'reddit', name: 'Reddit', icon: 'reddit', cat: 'signals', connected: false,
+    secret: null, desc: 'Demand signals from subreddit search. RSS tier, no key issued.',
+    help: 'Self-serve API registration closed in Nov 2025, so this runs on search.rss with Arctic Shift enrichment. Dropping a personal feed URL here lifts the throttle from ~49 minutes to ~5.',
+    docs: 'https://www.reddit.com/prefs/feeds/',
+    fields: [{ key: 'feed', label: 'Private feed URL', kind: 'text', ph: 'https://reddit.com/.rss?feed=…&user=…' }],
+    usedBy: ['collect_demand.py (demand.json)'],
+  },
+  {
+    id: 'hackernews', name: 'Hacker News', icon: 'ycombinator', cat: 'signals', connected: true,
+    secret: null, desc: 'Mentions and launch chatter, via the Algolia search API.',
+    help: 'The HN Algolia API is public — nothing to configure. Scanned for brand mentions and for demand signals on the same schedule as Reddit.',
+    docs: 'https://hn.algolia.com/api',
+    fields: [],
+    usedBy: ['collect_demand.py (demand.json)', 'collect_presence.py (presence.json)'],
+  },
+];
+
+/* ---------- render ---------- */
+const results = document.getElementById('results');
+const tabsEl = document.getElementById('tabs');
+const qEl = document.getElementById('q');
+let activeCat = 'all';
+
+document.getElementById('totalCount').textContent = PLUGINS.length;
+document.getElementById('connectedCount').textContent = PLUGINS.filter(p => p.connected).length;
+
+const tileFor = brandTile;
+
+function catLabel(id) {
+  const c = CATEGORIES.find(c => c.id === id);
+  return c ? c.label : id;
+}
+
+function renderTabs() {
+  tabsEl.innerHTML = '';
+  CATEGORIES.forEach(c => {
+    const n = c.id === 'all' ? PLUGINS.length
+      : c.id === 'connected' ? PLUGINS.filter(p => p.connected).length
+      : PLUGINS.filter(p => p.cat === c.id).length;
+    const b = document.createElement('button');
+    b.className = 'tab';
+    b.setAttribute('aria-selected', String(c.id === activeCat));
+    b.innerHTML = c.label + '<span class="n">' + n + '</span>';
+    b.addEventListener('click', () => { activeCat = c.id; renderTabs(); render(); });
+    tabsEl.appendChild(b);
+  });
+}
+
+function render() {
+  const q = qEl.value.trim().toLowerCase();
+  let list = PLUGINS.filter(p => {
+    if (activeCat === 'connected' && !p.connected) return false;
+    if (activeCat !== 'all' && activeCat !== 'connected' && p.cat !== activeCat) return false;
+    if (!q) return true;
+    return (p.name + ' ' + p.desc + ' ' + (p.secret || '') + ' ' + catLabel(p.cat)).toLowerCase().includes(q);
+  });
+
+  results.innerHTML = '';
+  if (!list.length) {
+    results.innerHTML = '<p class="empty-note">Nothing matches that. Every integration here is custom built — if it is missing, it has not been wired up yet.</p>';
+    return;
+  }
+
+  // group by category unless the user narrowed to one
+  const groups = (activeCat === 'all' || activeCat === 'connected')
+    ? CATEGORIES.filter(c => c.id !== 'all' && c.id !== 'connected')
+        .map(c => [c.label, list.filter(p => p.cat === c.id)])
+        .filter(([, items]) => items.length)
+    : [[null, list]];
+
+  groups.forEach(([label, items]) => {
+    if (label) {
+      const h = document.createElement('div');
+      h.className = 'group-label';
+      h.textContent = label;
+      results.appendChild(h);
+    }
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    items.forEach(p => grid.appendChild(cardFor(p)));
+    results.appendChild(grid);
+  });
+}
+
+function cardFor(p) {
+  const card = document.createElement('button');
+  card.className = 'card';
+  card.dataset.connected = String(!!p.connected);
+
+  const body = document.createElement('div');
+  body.className = 'card-body';
+
+  const top = document.createElement('div');
+  top.className = 'card-top';
+  top.innerHTML = '<span class="card-name"></span><span class="dot"></span>';
+  top.querySelector('.card-name').textContent = p.name;
+
+  const desc = document.createElement('div');
+  desc.className = 'card-desc';
+  desc.textContent = p.desc;
+
+  const meta = document.createElement('div');
+  meta.className = 'card-meta';
+  const status = document.createElement('span');
+  status.className = 'pill' + (p.connected ? ' on' : '');
+  status.textContent = p.connected ? 'Connected' : (p.fields.length ? 'Set up' : 'No key needed');
+  meta.appendChild(status);
+  if (p.secret) {
+    const s = document.createElement('span');
+    s.className = 'pill';
+    s.textContent = p.secret;
+    meta.appendChild(s);
+  }
+
+  body.append(top, desc, meta);
+  card.append(tileFor(p), body);
+  card.addEventListener('click', () => openDrawer(p));
+  return card;
+}
+
+/* ---------- drawer ---------- */
+const drawer = document.getElementById('drawer');
+
+let current = null;
+
+function openDrawer(p) {
+  current = p;
+  const tile = document.getElementById('dTile');
+  tile.replaceWith(Object.assign(tileFor(p), { id: 'dTile' }));
+  document.getElementById('dTile').className = 'tile';
+
+  document.getElementById('dName').textContent = p.name;
+  document.getElementById('dSub').textContent = p.connected
+    ? (p.secret ? 'Connected · vault entry ' + p.secret : 'Connected · no credential')
+    : (p.fields.length ? 'Not connected' : 'Nothing to configure');
+  document.getElementById('dHelp').textContent = p.help;
+
+  const docs = document.getElementById('dDocs');
+  if (p.docs) { docs.href = p.docs; docs.style.display = 'inline-flex'; }
+  else { docs.style.display = 'none'; }
+
+  const fields = document.getElementById('dFields');
+  fields.innerHTML = '';
+  if (p.fields.length) {
+    const lbl = document.createElement('div');
+    lbl.className = 'section-label';
+    lbl.textContent = 'Credentials';
+    fields.appendChild(lbl);
+  }
+  p.fields.forEach(f => {
+    const wrap = document.createElement('div');
+    wrap.className = 'field';
+    const id = 'f-' + p.id + '-' + f.key;
+    wrap.innerHTML =
+      '<label for="' + id + '"></label>' +
+      '<input id="' + id + '" type="' + (f.kind === 'secret' ? 'password' : 'text') + '" autocomplete="off" spellcheck="false">' +
+      '<div class="hint"></div>';
+    wrap.querySelector('label').textContent = f.label;
+    const input = wrap.querySelector('input');
+    input.placeholder = f.ph || '';
+    if (p.connected && f.kind === 'secret') { input.value = '••••••••••••••••'; }
+    wrap.querySelector('.hint').textContent = f.kind === 'secret'
+      ? 'Stored as ' + (p.fields.length > 1 ? p.secret + '-' + f.key : p.secret) + ', write-only.'
+      : 'Public by design — shown in full.';
+    fields.appendChild(wrap);
+  });
+
+  const usedWrap = document.getElementById('dUsedWrap');
+  const used = document.getElementById('dUsed');
+  used.innerHTML = '';
+  if (p.usedBy && p.usedBy.length) {
+    usedWrap.style.display = '';
+    p.usedBy.forEach(u => {
+      const li = document.createElement('li');
+      li.textContent = u;
+      used.appendChild(li);
+    });
+  } else {
+    usedWrap.style.display = 'none';
+  }
+
+  const save = document.getElementById('dSave');
+  const disc = document.getElementById('dDisconnect');
+  save.textContent = p.connected ? 'Save changes' : 'Connect';
+  save.style.display = p.fields.length ? '' : 'none';
+  disc.style.display = p.connected && p.fields.length ? '' : 'none';
+
+  document.body.classList.add('drawer-open');
+  drawer.setAttribute('aria-hidden', 'false');
+}
+
+function closeDrawer() {
+  document.body.classList.remove('drawer-open');
+  drawer.setAttribute('aria-hidden', 'true');
+  current = null;
+}
+
+document.getElementById('dClose').addEventListener('click', closeDrawer);
+scrim.addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+document.getElementById('dSave').addEventListener('click', () => {
+  if (!current) return;
+  current.connected = true;
+  document.getElementById('connectedCount').textContent = PLUGINS.filter(p => p.connected).length;
+  renderTabs(); render(); closeDrawer();
+});
+
+document.getElementById('dDisconnect').addEventListener('click', () => {
+  if (!current) return;
+  current.connected = false;
+  document.getElementById('connectedCount').textContent = PLUGINS.filter(p => p.connected).length;
+  renderTabs(); render(); closeDrawer();
+});
+
+qEl.addEventListener('input', render);
+
+renderTabs();
+render();
+
+</script>
+</body>
+</html>

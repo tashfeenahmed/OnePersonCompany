@@ -25,9 +25,49 @@
  * chosen. A caller that gets null should say "no agent is connected" in its
  * own words (the Chat page's, Telegram's) rather than reply with an empty
  * string — silence from a bot is indistinguishable from a broken bot.
+ *
+ * AND THERE IS NOW A FLOOR BELOW NULL. `models/provider.ts` holds the layer
+ * this one sits on: the providers that merely COMPLETE. When no agent is live
+ * but a provider is, routes/chat.ts answers through that instead of refusing —
+ * see `ProviderBackendId` below and the fallback in the route. This file is
+ * unchanged by it: `ask()` still throws `NoBackendError` when no agent will
+ * answer, because "no agent" is the true answer to the question this seam is
+ * asked, and the caller is the right place to decide that a raw model is
+ * better than nothing.
  */
+import type { ProviderId } from "../models/provider.ts";
 
 export type ChatBackendId = "hermes" | "openclaw";
+
+/**
+ * WHAT WROTE A MESSAGE DOWN, which is a wider set than what can be an AGENT.
+ *
+ * When no agent is live but a model provider is, `routes/chat.ts` answers
+ * through `models/provider.ts`'s `complete()` — a plain chat, with nothing
+ * thinking in front of it. That reply was not written by a ChatBackend and
+ * must not be stamped as one: an owner reading a transcript six weeks later is
+ * entitled to know that a particular answer came from a raw model rather than
+ * from Hermes with its tools.
+ *
+ * So the stored `backend` column can also hold `provider:<id>`, and this is
+ * the type of that. It is deliberately NOT part of `ChatBackendId`:
+ *
+ *   — `ChatBackend.id` and `ChatReply.backend` stay the two agent ids, so
+ *     neither adapter has to know this exists and neither can accidentally
+ *     claim to be a provider.
+ *   — the widening happens exactly once, on the MESSAGE, which is the only
+ *     place both kinds of author meet.
+ *
+ * A template literal type rather than a hand-written union of four strings,
+ * because the four are `ProviderId`'s four and a fifth provider must not need
+ * an edit here to be storable.
+ */
+export type ProviderBackendId = `provider:${ProviderId}`;
+
+/** Who a stored message says wrote it: an agent, a provider asked directly,
+ *  or null on the owner's own turn — where null means "not applicable" rather
+ *  than "asked and not told". */
+export type MessageBackendId = ChatBackendId | ProviderBackendId;
 
 export type ChatTurn = {
   role: "user" | "assistant" | "system";

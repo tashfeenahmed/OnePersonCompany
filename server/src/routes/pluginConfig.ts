@@ -27,9 +27,14 @@ import { configValue, configValues, getPlugin, setConfig, upsertPlugin } from ".
 import { parsePackages, validName } from "../providers/npm.ts";
 import { MAX_KEYWORDS, parseKeywords } from "../providers/bing.ts";
 import { MAX_TERMS, parseTerms } from "../providers/demand.ts";
-import { DEFAULT_URL, normalise } from "../providers/searxng.ts";
+import { DEFAULT_URL, isLoopback, normalise } from "../providers/searxng.ts";
 import { pruneOrphanHistory } from "../telegram/bridge.ts";
 import { COLLECTORS } from "../collector.ts";
+/* A TYPE ONLY. models/provider.ts is the contract for what a provider is; this
+   file owns where its choice is kept. Importing the type rather than a value
+   keeps the config store out of the seam's import graph, which is the property
+   that lets the seam stay a seam. */
+import type { ProviderId } from "../models/provider.ts";
 
 export const pluginConfig = new Hono();
 
@@ -80,6 +85,29 @@ function termsKey(source: string): Key {
 
 /** The plugins that share the one watch list. */
 const DEMAND_PLUGINS = ["reddit", "hackernews"] as const;
+
+/**
+ * The four model providers, as a closed list this door can check against.
+ *
+ * Written out here rather than imported as a value from models/provider.ts,
+ * because that file's list is the REGISTRY's — the ids that may register a
+ * factory — and this one is the CONFIG's: the ids a settings write may name.
+ * They are the same four today and they are two different statements, and the
+ * type below is what keeps them from drifting: adding a fifth to `ProviderId`
+ * without adding it here is a compile error rather than a setting that is
+ * silently refused.
+ */
+export const PROVIDER_IDS: ProviderId[] = ["freellmapi", "local", "openai", "openrouter"];
+
+/** The one check the three `model` fields share. A model id is whatever the
+ *  endpoint calls it, so the only wrong values are the ones that cannot be an
+ *  id: more than one of them, or a paragraph. */
+function modelIdCheck(value: string): string | null {
+  if (!value) return null; // cleared means "whatever the endpoint lists first"
+  if (value.includes("\n")) return "One model id, on one line.";
+  if (value.length > 120) return "That is too long to be a model id.";
+  return null;
+}
 
 /**
  * Write the list onto every door, and set both flags from it.
@@ -246,6 +274,19 @@ const REGISTRY: Record<
     would be an edit and a redeploy rather than a text field. The API KEY is
     still a credential and still goes in the vault; this is the address, which
     is not a secret and has to read back to be corrected.
+
+    IT IS ALSO THE SWITCH BETWEEN THE TWO KINDS OF INSTANCE, which is why this
+    entry has an `after` hook and the npm one does not. There is a second
+    setting beside it — `mode`, managed or remote — that decides whether an
+    `x-api-key` header goes out at all, and a mode that could disagree with the
+    URL would be a bug with two symptoms: a key sent to the loopback instance
+    that ignores it, or a call to somebody's public node with the credential
+    stripped off. So the mode is DERIVED from the URL on every write and is
+    never typed. Pointing this field back at the remote node is the whole of
+    "stop using the local instance": the next search reads the setting, sends
+    the key that is still sealed in the vault, and goes to the public node —
+    with no restart, no re-paste, and the local process left running or not
+    entirely as the owner chooses.
   */
   searxng: {
     keys: {
@@ -254,8 +295,11 @@ const REGISTRY: Record<
         hint:
           "Where the SearXNG instance answers. The base URL or the /search " +
           "path — both are accepted, because both are what a person copies. " +
-          "The API key is stored separately, in the vault, and travels as a " +
-          "header rather than in this URL.",
+          "A loopback address (127.0.0.1) is the instance this box installed " +
+          "and runs itself, and needs no key: nothing off this machine can " +
+          "reach it. Any other host is a remote node, and its key is stored " +
+          "separately in the vault and travels as a header rather than in " +
+          "this URL.",
         ph: DEFAULT_URL,
         check(value) {
           if (!value) return null; // cleared means "use the default"
@@ -264,6 +308,13 @@ const REGISTRY: Record<
             : "That is not a URL this can call — it needs a scheme and a host, like https://searxng.example.com/search.";
         },
       },
+    },
+    after: (values) => {
+      /* The default is remote — it is a public host — so a cleared field is a
+         remote node too, and `mode` follows the URL that will actually be
+         called rather than the one that was typed. */
+      const url = normalise(values.url ?? "") ?? DEFAULT_URL;
+      setConfig("searxng", "mode", isLoopback(url) ? "managed" : "remote");
     },
   },
 
@@ -463,6 +514,154 @@ const REGISTRY: Record<
       },
     },
   },
+
+  /*
+    WHICH MODEL PROVIDER IS THE DEFAULT — the same shape `chat.backend` takes,
+    one layer down, and the pseudo-plugin trick is borrowed wholesale.
+
+    AGENTS and PROVIDERS are two different choices. `chat.backend` names the
+    agent that answers the Chat page — Hermes or OpenClaw, one of them, the
+    thing that thinks. `models.provider` names the provider every agent is
+    POINTED AT and that a plain chat talks to directly when there is no agent
+    in front of it. An installation can have both, either, or neither, and the
+    two settings genuinely do not constrain each other.
+
+    THE PSEUDO-PLUGIN `models`, for `chat`'s reason: plugin_config has a
+    foreign key onto plugins, so a setting has to hang off a row, and hanging
+    this one off `local` or `openai` would mean deleting that integration
+    silently un-chooses the other three. The row holds no credential, has no
+    account, appears in no catalog entry and therefore draws no tile.
+
+    AN UNCONNECTED CHOICE IS ALLOWED, as it is for the agents: naming a
+    provider and then going to paste its key is the ordinary order of
+    operations, and models/provider.ts already treats "chosen but not
+    connected" as a first-class state that `activeProvider()` reports as null.
+  */
+  models: {
+    keys: {
+      provider: {
+        label: "Default model provider",
+        hint:
+          "Which provider completes — freellmapi, local, openai or openrouter. " +
+          "One: several can be connected, and only the one named here is asked. " +
+          "Every agent spawned from here inherits it, and a plain chat with no " +
+          "agent in front of it talks to it directly. Clearing it leaves nothing " +
+          "completing, and the pages say so rather than guessing.",
+        ph: "local",
+        check(value) {
+          if (!value) return null; // cleared means "no provider completes"
+          return PROVIDER_IDS.includes(value as ProviderId)
+            ? null
+            : `“${value}” is not a model provider. The four are ${PROVIDER_IDS.join(", ")}.`;
+        },
+      },
+    },
+  },
+
+  /*
+    THE MODEL EACH PROVIDER ASKS FOR, and it is Hermes' field three times over
+    for Hermes' reason: one endpoint can front very different things, each
+    publishing its own ids, and both ways of inventing an answer are wrong. A
+    hard-coded id breaks the day a catalog changes — and on OpenAI it breaks on
+    a retirement date nobody here knows — while silently picking one and never
+    saying which leaves the owner unable to explain why the answers changed.
+
+    EMPTY IS A REAL VALUE and means "whatever this endpoint lists first", which
+    models/provider.ts discovers once per endpoint from /models. That is the
+    right default because it is READ FROM the endpoint rather than assumed
+    about it, and for a local runner serving exactly one model — the ordinary
+    case — it never needs filling at all.
+
+    The policy that goes with each of these — series or parallel, how many at
+    once, which endpoint next — is NOT registered here. It is four keys under
+    the same plugin ids (`policy.mode`, `policy.concurrency`, `policy.balance`,
+    `policy.timeoutMs`) written through `PUT /api/models/:id/policy`, which is
+    a closed registry of its own with a validator per field. Registering them
+    here as well would put four raw text boxes on the plugin page beside the
+    real controls, and give two doors onto one value with two ideas of what a
+    legal one is.
+  */
+  /*
+    FREELLMAPI'S MODEL, AND EMPTY IS THE BEST ANSWER HERE RATHER THAN MERELY
+    AN ACCEPTABLE ONE.
+
+    "Whatever the endpoint lists first" is a weak default on OpenAI (a hundred
+    ids in no useful order) and a fine one here: this gateway's catalog begins
+    with its own routing ALIASES — `auto`, and whatever the owner has defined
+    beside it — so the first id is the router saying "let me choose", which is
+    the thing a router is for. Measured against the owner's instance on
+    2026-09-05: 631 ids, `auto` first.
+
+    Pinning one is still worth doing when a specific model matters, and the id
+    goes in exactly as the Models page of that gateway spells it. Whichever way
+    it is left, the model that ACTUALLY answered is on every reply — this
+    gateway fails over between providers, so the id asked for and the id that
+    wrote the words are routinely different.
+  */
+  freellmapi: {
+    keys: {
+      model: {
+        label: "Model",
+        hint:
+          "The model id to ask FreeLLMAPI for, when it is the default provider. " +
+          "Leave it empty to take the first id its catalog lists, which on this " +
+          "gateway is `auto` — its own router, not a guess made here. The model " +
+          "that actually answered is reported on every reply, because it fails " +
+          "over between providers and often routes elsewhere.",
+        ph: "auto",
+        check: modelIdCheck,
+      },
+    },
+  },
+
+  local: {
+    keys: {
+      model: {
+        label: "Model",
+        hint:
+          "The model id to ask for, exactly as the endpoint lists it at " +
+          "/v1/models — the same id for every endpoint, so two boxes serving " +
+          "one model can share the load. Leave it empty to use whichever model " +
+          "the endpoint lists first, which is read from the endpoint rather " +
+          "than guessed. The model that actually answered is reported on every " +
+          "reply.",
+        ph: "qwen3:0.6b",
+        check: modelIdCheck,
+      },
+    },
+  },
+
+  openai: {
+    keys: {
+      model: {
+        label: "Model",
+        hint:
+          "The model id OpenAI is asked for, when this is the default provider. " +
+          "Leave it empty to take the first id /v1/models lists, which on OpenAI " +
+          "is a hundred ids in no useful order — so this is a field worth " +
+          "filling. It has nothing to do with the costs collector, which reads " +
+          "the organisation's bill and asks no model anything.",
+        ph: "gpt-4o-mini",
+        check: modelIdCheck,
+      },
+    },
+  },
+
+  openrouter: {
+    keys: {
+      model: {
+        label: "Model",
+        hint:
+          "The model id OpenRouter is asked for, when this is the default " +
+          "provider — its own `openrouter/auto` is a legal value and routes on " +
+          "the prompt. Leave it empty to take the first id the catalog lists. " +
+          "It has nothing to do with the costs collector, which reads the " +
+          "activity and asks no model anything.",
+        ph: "openrouter/auto",
+        check: modelIdCheck,
+      },
+    },
+  },
 };
 
 /* ------------------------------------------------------- the chat backend */
@@ -497,6 +696,42 @@ export function readChatBackend(): "hermes" | "openclaw" | null {
 export function writeChatBackend(id: "hermes" | "openclaw" | null) {
   if (!getPlugin(CHAT_PLUGIN)) upsertPlugin(CHAT_PLUGIN, false, null);
   setConfig(CHAT_PLUGIN, "backend", id ?? "");
+}
+
+/* ---------------------------------------------------- the model provider */
+
+/** The pseudo-plugin the provider choice hangs off — `chat`'s trick, one layer
+ *  down. Named once, here, because the string is a foreign key value and two
+ *  spellings of it would be two settings. */
+export const MODELS_PLUGIN = "models";
+
+/**
+ * Which provider is the default, or null.
+ *
+ * VALIDATED ON THE WAY OUT AS WELL AS ON THE WAY IN, for `readChatBackend`'s
+ * reason: this row can also be reached by a hand-edited database, or hold an
+ * id that was later removed, and `activeProvider()` looking up a factory for
+ * "ollama" would quietly return null with no explanation. An unrecognised value
+ * is read as "nothing is chosen", which is a state the whole models path
+ * already knows how to say out loud.
+ *
+ * routes/models.ts hands this to `setProviderChoiceReader` at import, which is
+ * what makes `complete()` consult the setting on every call rather than
+ * caching it — so switching provider takes effect on the next completion and
+ * never needs a restart.
+ */
+export function readModelProvider(): ProviderId | null {
+  const value = configValue(MODELS_PLUGIN, "provider");
+  return value !== null && PROVIDER_IDS.includes(value as ProviderId)
+    ? (value as ProviderId)
+    : null;
+}
+
+/** Set it, or clear it with null. The plugins row is created on demand because
+ *  the foreign key says it has to exist before a setting can point at it. */
+export function writeModelProvider(id: ProviderId | null) {
+  if (!getPlugin(MODELS_PLUGIN)) upsertPlugin(MODELS_PLUGIN, false, null);
+  setConfig(MODELS_PLUGIN, "provider", id ?? "");
 }
 
 /** The keys a plugin accepts, with their current values. Never a secret: no

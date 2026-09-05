@@ -29,6 +29,19 @@ import * as resend from "../providers/resend.ts";
 import * as hermes from "../providers/hermes.ts";
 import * as openclaw from "../providers/openclaw.ts";
 import * as searxng from "../providers/searxng.ts";
+/* The model gateway. Imported for `verify` and for the two constants the help
+   text quotes; registering it as a model provider is a side effect of the same
+   import, and index.ts is where that ordering is spelled out. */
+import * as freellmapi from "../providers/freellmapi.ts";
+/* THE THREE MODEL PROVIDERS' VERIFIERS. `local` is a plugin of its own; the
+   other two are a SECOND, optional credential on plugins that already exist —
+   an inference key beside the key that reads the bill. Imported for `verify`
+   alone, exactly as the two chat agents above are; the ModelProvider each of
+   them registers is a side effect of routes/models.ts's import, not this
+   one's. */
+import * as localModels from "../providers/local.ts";
+import * as openaiChat from "../providers/openai-chat.ts";
+import * as openrouterChat from "../providers/openrouter-chat.ts";
 import * as demand from "../providers/demand.ts";
 import * as telegram from "../providers/telegram.ts";
 import { configValue } from "../db.ts";
@@ -62,6 +75,50 @@ const REGISTRY: Record<
   {
     secret: string;
     fields: string[];
+    /**
+     * Fields that may be left empty, out of `fields`.
+     *
+     * ADDED FOR TWO CREDENTIALS THAT ARE GENUINELY OPTIONAL, and the two are
+     * different kinds of optional. A local model server — Ollama, LM Studio —
+     * ships with no auth at all and binds to loopback, which IS its access
+     * control; demanding a key there would mean inventing one. And `chat-key`
+     * on OpenAI and OpenRouter is a SECOND credential on a plugin that already
+     * works without it: those two connect to read a bill, and an owner who
+     * does not want to complete through them must not be nagged for an
+     * inference key to keep their costs page.
+     *
+     * It is a list rather than a flag per field because the two checks that
+     * care ("is anything missing" on add, and on replace) both want a set to
+     * subtract. An empty optional field is not stored as an empty ciphertext:
+     * `applyCredentials` below writes what has a value and FORGETS the entry
+     * for what has been cleared, so "connected with no key" and "connected
+     * with a key that is the empty string" never both exist.
+     */
+    optional?: string[];
+    /**
+     * A field that gets its own vault STEM instead of `<secret>-<field>`.
+     *
+     * THE DERIVATION IS RIGHT UNTIL A PLUGIN GROWS A SECOND FIELD LATE.
+     * `openai` held one field, so its entry was the plain `openai-admin-key` —
+     * the name workdash's own vault uses, which is what makes moving the
+     * credential a copy. Adding `chat-key` beside it flips the derivation to
+     * the multi-field form and every NEW account would write
+     * `openai-admin-key-key`: a name that describes nothing and breaks the
+     * promise the README makes about where to look.
+     *
+     * So the second field is written as its own single-field set under its own
+     * stem, and the first keeps the name it always had. `openai-admin-key` and
+     * `openai-chat-key`, which is what the two credentials actually are.
+     *
+     * The cost is that such a plugin is stored in TWO transactions rather than
+     * one. That is honest here and would not be for the registrars: a Dynadot
+     * key and secret are a PAIR, meaningless apart, and half of one stored is
+     * an account that reads nothing while looking configured. An admin key and
+     * an inference key are two independent credentials that happen to be filed
+     * under one company, and either one working without the other is a real
+     * state this page can already draw.
+     */
+    stems?: Record<string, string>;
     verify?: (v: Record<string, string>) => Promise<string | null>;
   }
 > = {
@@ -142,9 +199,33 @@ const REGISTRY: Record<
     own vault uses, which makes moving a credential across a copy rather than
     a translation.
   */
+  /*
+    OPENAI AND OPENROUTER EACH HOLD TWO KEYS NOW, AND THEY ARE NOT
+    INTERCHANGEABLE. Probed on 2026-09-05, with the keys already in this
+    vault, and the answers are the reason the second field exists:
+
+      openai   sk-admin-…  POST /v1/chat/completions
+               401 "You have insufficient permissions for this operation.
+                    Missing scopes: model.request."   code missing_scope
+               …and GET /v1/models 403 "Missing scopes: api.model.read."
+
+      openrouter  management key   POST /api/v1/chat/completions
+               401 {"error":{"message":"User not found.","code":401}}
+
+    So the key that reads the bill cannot ask the model a question, on both
+    services, for two unrelated reasons. `chat-key` is the second credential —
+    a project key on OpenAI, an ordinary inference key on OpenRouter — and it
+    is OPTIONAL, because the costs collectors were working before it existed
+    and must go on working for an owner who never wants to complete through
+    either. Neither collector reads it and nothing here changes what they read.
+  */
   openai: {
     secret: "openai-admin-key",
-    fields: ["key"],
+    fields: ["key", "chat-key"],
+    optional: ["chat-key"],
+    /* So the two entries read `openai-admin-key` and `openai-chat-key` rather
+       than `openai-admin-key-key` and `openai-admin-key-chat-key`. */
+    stems: { "chat-key": "openai-chat-key" },
     async verify(values) {
       const key = (values.key ?? "").trim();
       if (!key)
@@ -152,13 +233,23 @@ const REGISTRY: Record<
       if (key.includes("\n"))
         return "That is more than one line. One key per account here.";
       const res = await openai.verify(key);
-      return res.ok ? null : res.error;
+      if (!res.ok) return res.error;
+      /* Only when one has been typed. An account that holds the bill and no
+         inference key is a complete, working account. */
+      const chatKey = (values["chat-key"] ?? "").trim();
+      if (chatKey) {
+        const inference = await openaiChat.verifyChatKey(chatKey);
+        if (!inference.ok) return inference.error;
+      }
+      return null;
     },
   },
 
   openrouter: {
     secret: "openrouter-key",
-    fields: ["key"],
+    fields: ["key", "chat-key"],
+    optional: ["chat-key"],
+    stems: { "chat-key": "openrouter-chat-key" },
     async verify(values) {
       const key = (values.key ?? "").trim();
       if (!key)
@@ -166,6 +257,59 @@ const REGISTRY: Record<
       if (key.includes("\n"))
         return "That is more than one line. One key per account here.";
       const res = await openrouter.verify(key);
+      if (!res.ok) return res.error;
+      const chatKey = (values["chat-key"] ?? "").trim();
+      if (chatKey) {
+        const inference = await openrouterChat.verifyChatKey(chatKey);
+        if (!inference.ok) return inference.error;
+      }
+      return null;
+    },
+  },
+
+  /*
+    LOCAL MODELS — ONE PLUGIN FOR EVERY OpenAI-COMPATIBLE SERVER ON THIS
+    MACHINE OR THIS NETWORK, and one account per endpoint.
+
+    Ollama, LM Studio, vLLM, llama.cpp's server and a hand-rolled FastAPI all
+    answer the same two paths, and the differences between them are in what
+    they run rather than in how they are asked — so a plugin per product would
+    be six plugins holding one adapter, and a seventh the day somebody ships a
+    new runner. The product's name is what the owner types in the label.
+
+    THIS IS THE ONE CREDENTIAL HERE THAT MAY BE HALF EMPTY. A loopback runner
+    has no auth to paste, and searxng's entry two hundred lines below makes the
+    same argument about a managed instance: a key checked by this process
+    against a value this process generated is a password on a door in a locked
+    room. So the key is optional — and providers/local.ts refuses an EMPTY one
+    against a host outside the owner's own network, and refuses to send a
+    non-empty one over plain http to such a host at all.
+
+    Several accounts are several MACHINES, and unlike every other plugin here
+    they all answer: the limiter in models/provider.ts spreads completions
+    across them under the provider's balance setting. That is the one place in
+    this codebase where "more accounts" means throughput rather than coverage.
+  */
+  local: {
+    /* Stem plus field key, so the first endpoint's entries are exactly
+       `local-base-url` and `local-key`. */
+    secret: "local",
+    fields: ["base-url", "key"],
+    optional: ["key"],
+    async verify(values) {
+      const baseUrl = (values["base-url"] ?? "").trim();
+      const key = (values.key ?? "").trim();
+      if (!baseUrl)
+        return (
+          "Paste the endpoint's base URL. Ollama is http://127.0.0.1:11434/v1, " +
+          "LM Studio http://127.0.0.1:1234/v1, vLLM http://127.0.0.1:8000/v1 — " +
+          "the origin on its own is fine, /v1 is added when it is missing."
+        );
+      if (key.includes("\n"))
+        return "That is more than one line. One key per endpoint here.";
+      if (/^https?:\/\//i.test(key))
+        return "That is a URL, not a key. The endpoint goes in the base URL field.";
+      const res = await localModels.verify({ baseUrl, key });
       return res.ok ? null : res.error;
     },
   },
@@ -539,20 +683,37 @@ const REGISTRY: Record<
     it. A node that answers with a key but has every engine refusing is
     refused HERE, with the engines' own words, rather than connecting happily
     and returning nothing for every agent search afterwards.
+
+    AND AN EMPTY KEY IS A REAL ANSWER WHEN THE ENDPOINT IS LOOPBACK. The 401
+    above is the reverse proxy in front of the owner's public node, not
+    SearXNG: the program has no key auth. An instance this box installed and
+    runs itself binds to 127.0.0.1, which is the whole of its access control —
+    so demanding a key for it would mean inventing one, storing it, and
+    checking it against ourselves. The refusal is kept for every other URL,
+    because "I left the key box empty" against somebody else's host is a
+    mistake and not a configuration.
+
+    THAT DOOR IS FOR A SCRIPT AND NOT FOR THE PANEL. "Install here" connects
+    through searxng/instance.ts, which writes NO credential at all and
+    therefore leaves a remote key sealed exactly where it was — which is what
+    makes switching back to the remote node a one-field change. A `PUT` with an
+    empty key is the other way in, and it means here what it means for every
+    plugin: these are the credentials now, replacing whatever the account held.
   */
   searxng: {
     secret: "searxng-key",
     fields: ["key"],
     async verify(values) {
       const key = (values.key ?? "").trim();
-      if (!key)
-        return "Paste the API key the SearXNG instance was configured with — it travels as an x-api-key header, never in the URL.";
-      if (key.includes("\n"))
-        return "That is more than one line. One key per node here.";
       const configured = configValue("searxng", "url") ?? "";
       if (configured && !searxng.normalise(configured))
         return `The search endpoint setting (${configured}) is not a URL this can call. Fix it in Settings first.`;
-      const res = await searxng.verify(searxng.endpoint(), key);
+      const url = searxng.endpoint();
+      if (!key && !searxng.isLoopback(url))
+        return "Paste the API key the SearXNG instance was configured with — it travels as an x-api-key header, never in the URL.";
+      if (key.includes("\n"))
+        return "That is more than one line. One key per node here.";
+      const res = await searxng.verify(url, key);
       return res.ok ? null : res.error;
     },
   },
@@ -847,6 +1008,59 @@ const REGISTRY: Record<
       return res.ok ? null : res.error;
     },
   },
+
+  /*
+    FREELLMAPI — A BASE URL AND THE KEY THAT ENDPOINT ISSUED, and the base URL
+    is a field for a reason that took a day to establish: THERE IS NO HOSTED
+    FREELLMAPI. `freellmapi.co` is a static marketing site (every `/v1` path
+    404s as HTML; a POST to one is 405, because static hosting has no POST) and
+    `api.freellmapi.co` is its catalog-and-licence API, which sells the live
+    model list and cannot complete a chat turn. The gateway is self-hosted, so
+    every instance of it is somebody's own and the address is theirs to say.
+
+    TWO ACCOUNTS ARE THE ORDINARY SHAPE HERE rather than the exception: one
+    pointing at the instance already running on the owner's Hetzner box — the
+    same endpoint workdash's agent/llmprovider.js completes against — and one
+    at the instance freellmapi/instance.ts installs into DATA_DIR and runs on
+    127.0.0.1:3001. The second is created by the installer and never typed;
+    this door exists for the first.
+
+    Two fields, so the naming scheme writes exactly `freellmapi-base-url` and
+    `freellmapi-key` for the first account — the second being the name
+    workdash's own vault uses, which makes moving the credential a copy.
+
+    VERIFIED WITH ONE CALL, AND IT IS THE ONE THAT MATTERS. `/v1/models` on
+    this gateway is authenticated (measured: 401 without a key), so a single
+    round trip proves the address, proves the key, and proves the router has a
+    catalog to route into. An EMPTY catalog is refused rather than stored: a
+    gateway with no provider keys in it answers 200 with `data: []` and would
+    connect as a provider that cannot complete anything.
+  */
+  freellmapi: {
+    secret: freellmapi.SECRET_STEM,
+    fields: [...freellmapi.FIELDS],
+    async verify(values) {
+      const baseUrl = (values["base-url"] ?? "").trim();
+      const key = (values.key ?? "").trim();
+      if (!baseUrl)
+        return (
+          `Paste the base URL of your FreeLLMAPI — there is no hosted one to ` +
+          `default to. Yours on the Hetzner box is ${freellmapi.DEFAULT_BASE}; ` +
+          `an instance installed here answers at ${freellmapi.LOCAL_URL}, and the ` +
+          `Install button below connects that one without a paste.`
+        );
+      if (!key)
+        return (
+          "Paste the unified key that instance issued. It is on its own dashboard " +
+          "under Keys and begins `freellmapi-`; a per-client `sk-cp-` key works too."
+        );
+      if (key.includes("\n")) return "That is more than one line. One key per account here.";
+      if (/^https?:\/\//i.test(key))
+        return "That is a URL, not a key. The endpoint goes in the base URL field.";
+      const res = await freellmapi.verify({ baseUrl, key });
+      return res.ok ? null : res.error;
+    },
+  },
 };
 
 /* ------------------------------------------------------------------ shapes */
@@ -882,6 +1096,19 @@ function shape(id: string) {
     secrets: vault.status(id),
     accounts: accounts.list(id).map(shapeAccount),
     collectable: id in COLLECTORS,
+    /*
+      WHETHER THIS PLUGIN HAS A DOOR HERE AT ALL, which is NOT the same
+      question as `collectable` and used to be answered by it.
+
+      Every plugin that could hold a credential also had a collector, so the
+      page treated "has a collector" as "is wired to the API". `local` breaks
+      that: it holds endpoints and there is nothing to collect FROM a model
+      server — a completion is its own health check and happens when somebody
+      asks a question, not on a timer. Without this the plugin page would fall
+      back to its catalog-only form and write the endpoint into localStorage
+      instead of the vault.
+    */
+    configurable: id in REGISTRY,
     runs: recentRuns(id, 5).map((r) => ({
       id: r.id,
       startedAt: r.started_at,
@@ -907,6 +1134,64 @@ function checkFields(
   if (unknown.length)
     return { ok: false, error: `Unknown field(s): ${unknown.join(", ")}` };
   return { ok: true, fields: values };
+}
+
+/** The fields that must actually carry a value. Everything the registry did
+ *  not mark optional — so a plugin with no `optional` list behaves exactly as
+ *  it did before this existed. */
+function requiredFields(entry: (typeof REGISTRY)[string]): string[] {
+  const optional = entry.optional ?? [];
+  return entry.fields.filter((f) => !optional.includes(f));
+}
+
+/**
+ * Store a credential set, and FORGET the optional fields that were cleared.
+ *
+ * `accounts.writeCredentials` seals whatever it is handed, so passing an
+ * optional field through as `""` would put an empty ciphertext in the vault
+ * under a real entry name — and every reader that decides "is there a key
+ * here" from the entry NAME (which is how this codebase avoids decrypting to
+ * draw a page) would then say yes about nothing. So an optional field that
+ * arrives empty is not written; if an entry for it already exists, it is
+ * removed, which is what makes "take the inference key off this account"
+ * something the same form can do.
+ *
+ * A REQUIRED field arriving empty never reaches here — the routes below refuse
+ * it first, and `verify` refuses it before that.
+ */
+function applyCredentials(
+  account: accounts.Account,
+  entry: (typeof REGISTRY)[string],
+  values: Record<string, string>,
+) {
+  const optional = entry.optional ?? [];
+  const stems = entry.stems ?? {};
+  const write: Record<string, string> = {};
+  const forget: string[] = [];
+
+  for (const field of entry.fields) {
+    const value = values[field];
+    if (value === undefined) continue; /* not sent: keep what is stored */
+    if (value.trim()) write[field] = value.trim();
+    else if (optional.includes(field)) forget.push(field);
+  }
+
+  /* The fields that share the plugin's own stem, written as one set so the
+     derivation sees the right number of them — see `stems` above. */
+  const shared = entry.fields.filter((f) => !(f in stems));
+  const sharedValues: Record<string, string> = {};
+  for (const field of shared) if (field in write) sharedValues[field] = write[field]!;
+  accounts.writeCredentials(account, entry.secret, shared, sharedValues);
+
+  for (const [field, stem] of Object.entries(stems)) {
+    if (!(field in write)) continue;
+    accounts.writeCredentials(account, stem, [field], { [field]: write[field]! });
+  }
+
+  for (const field of forget) {
+    const held = accounts.entries(account.id).find((e) => e.field === field);
+    if (held) vault.remove(held.name);
+  }
 }
 
 /** A freshly stored credential should have data immediately, not in half an
@@ -969,7 +1254,7 @@ plugins.put("/:id", async (c) => {
 
   upsertPlugin(id, false, null);
   const account = existing[0] ?? accounts.create(id, accounts.nextLabel(id));
-  accounts.writeCredentials(account, entry.secret, entry.fields, checked.fields);
+  applyCredentials(account, entry, checked.fields);
 
   return c.json({
     ...shape(id),
@@ -1016,7 +1301,7 @@ plugins.post("/:id/accounts", async (c) => {
   const checked = checkFields(entry, body?.fields);
   if (!checked.ok) return c.json({ error: checked.error }, 400);
 
-  const missing = entry.fields.filter((f) => !(checked.fields[f] ?? "").trim());
+  const missing = requiredFields(entry).filter((f) => !(checked.fields[f] ?? "").trim());
   if (missing.length)
     return c.json({ error: `Missing: ${missing.join(", ")}.` }, 400);
 
@@ -1036,7 +1321,7 @@ plugins.post("/:id/accounts", async (c) => {
 
   upsertPlugin(id, false, null);
   const account = accounts.create(id, label);
-  accounts.writeCredentials(account, entry.secret, entry.fields, checked.fields);
+  applyCredentials(account, entry, checked.fields);
 
   return c.json(
     {
@@ -1101,7 +1386,7 @@ plugins.patch("/:id/accounts/:accountId", async (c) => {
       const typed = (checked.fields[f] ?? "").trim();
       merged[f] = typed || (current[f] ?? "");
     }
-    const missing = entry.fields.filter((f) => !merged[f]);
+    const missing = requiredFields(entry).filter((f) => !merged[f]);
     if (missing.length)
       return c.json({ error: `Missing: ${missing.join(", ")}.` }, 400);
 
@@ -1109,7 +1394,7 @@ plugins.patch("/:id/accounts/:accountId", async (c) => {
       const problem = await entry.verify(merged);
       if (problem) return c.json({ error: problem, verified: false }, 400);
     }
-    accounts.writeCredentials(account, entry.secret, entry.fields, merged);
+    applyCredentials(account, entry, merged);
     verified = true;
   }
 

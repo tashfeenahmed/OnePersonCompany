@@ -129,6 +129,7 @@ import {
   demandQueries,
   forgetDemandTerms,
   replaceSearxngEngines,
+  searxngStates,
   writeDemandItems,
   writeDemandQuery,
   writeSearxngState,
@@ -3137,7 +3138,19 @@ export async function collectSearxng(): Promise<SearxngSummary> {
 
   try {
     const at = lastSeenAt("searxng_state");
-    if (at && Date.now() - Date.parse(at) < DEMAND_EVERY_HOURS * 3_600_000) {
+    /*
+      THE CLOCK DOES NOT APPLY ACROSS A CHANGE OF INSTANCE, which is the same
+      correction MAIL_EVERY_HOURS needed for an account it had never read. A
+      clock that exists to avoid REDUNDANT work does not get to call a probe of
+      a different node redundant: the endpoint can move from the remote node to
+      a locally installed one in a single click, and every row on the page —
+      the latency, the engines, the on-site count — would then describe a node
+      the box has stopped searching, for up to six hours, with nothing on the
+      page able to say so.
+    */
+    const probed = searxngStates()[0]?.url ?? null;
+    const sameNode = probed === null || probed === searxng.endpoint();
+    if (at && sameNode && Date.now() - Date.parse(at) < DEMAND_EVERY_HOURS * 3_600_000) {
       const note = `search node not due — probed ${ago(at)}`;
       finishRun(runId, true, note);
       return { ...EMPTY_SEARXNG, ok: true, runId, skipped: true };

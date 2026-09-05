@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Projects · One Person Company</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+
+  .pcard {
+    display: flex; flex-direction: column;
+    padding: 14px; text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    transition: border-color .12s ease;
+    min-height: 148px;
+  }
+
+  .pcard:hover { border-color: var(--line-strong); }
+
+  .pcard-top { display: flex; align-items: center; gap: 9px; }
+  .pcard-dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .pcard-name { font-size: 13.5px; font-weight: 500; letter-spacing: -0.01em; }
+  .pcard-menu { margin-left: auto; }
+
+  .pcard-desc {
+    font-size: 12px; color: var(--muted); margin-top: 7px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .pcard-sessions {
+    margin-top: 12px; padding-top: 10px;
+    border-top: 1px solid var(--line-soft);
+    display: flex; flex-direction: column; gap: 1px;
+  }
+
+  .pcard-session {
+    display: block; width: 100%; text-align: left;
+    font-size: 12px; color: var(--text);
+    padding: 4px 6px; margin: 0 -6px; border-radius: 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .pcard-session:hover { background: var(--hover); color: var(--text); }
+  .pcard-more { font-size: 11.5px; color: var(--muted); padding: 4px 0 0; }
+
+  .pcard-foot { margin-top: auto; padding-top: 12px; display: flex; align-items: center; gap: 6px; }
+
+  .new-card {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px;
+    min-height: 148px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    color: var(--muted);
+    transition: border-color .12s ease, color .12s ease;
+  }
+
+  .new-card:hover { border-color: var(--line-strong); color: var(--text); }
+  .new-card .icon { width: 18px; height: 18px; }
+  .new-card span { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar"></aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="chip">Projects</button>
+  </header>
+
+  <div class="scroll">
+    <div class="page">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Projects</h1>
+          <p class="page-sub"><b id="pCount">0</b> projects, <b id="sCount">0</b> sessions filed.</p>
+        </div>
+        <button class="btn" id="newProject">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          New project
+        </button>
+      </div>
+
+      <div class="grid" id="grid"></div>
+    </div>
+  </div>
+</main>
+
+<script src="icons.js"></script>
+<script src="app.js"></script>
+<script>
+renderSidebar('projects');
+
+const grid = document.getElementById('grid');
+
+function render() {
+  document.getElementById('pCount').textContent = State.projects.length;
+  document.getElementById('sCount').textContent =
+    State.projects.reduce((n, p) => n + p.sessions.length, 0);
+
+  grid.innerHTML = '';
+
+  State.projects.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'pcard';
+
+    const top = document.createElement('div');
+    top.className = 'pcard-top';
+    top.innerHTML =
+      '<span class="pcard-dot" style="background:' + p.color + '"></span>' +
+      '<span class="pcard-name"></span>' +
+      '<button class="icon-btn pcard-menu" title="Edit project">' + svgIcon('edit') + '</button>';
+    top.querySelector('.pcard-name').textContent = p.name;
+    top.querySelector('.pcard-menu').addEventListener('click', () => openProjectModal(p, render));
+
+    const desc = document.createElement('div');
+    desc.className = 'pcard-desc';
+    desc.textContent = p.desc || 'No description yet.';
+
+    const sessions = document.createElement('div');
+    sessions.className = 'pcard-sessions';
+    if (p.sessions.length) {
+      p.sessions.slice(0, 3).forEach(s => {
+        const b = document.createElement('button');
+        b.className = 'pcard-session';
+        b.textContent = s;
+        b.addEventListener('click', () => {
+          State.activeSession = s;
+          saveState();
+          renderSidebarProjects();
+          location.href = 'index.html';
+        });
+        sessions.appendChild(b);
+      });
+      if (p.sessions.length > 3) {
+        const more = document.createElement('div');
+        more.className = 'pcard-more';
+        more.textContent = p.sessions.length - 3 + ' more';
+        sessions.appendChild(more);
+      }
+    } else {
+      const none = document.createElement('div');
+      none.className = 'pcard-more';
+      none.textContent = 'No sessions yet.';
+      sessions.appendChild(none);
+    }
+
+    const foot = document.createElement('div');
+    foot.className = 'pcard-foot';
+    const start = document.createElement('a');
+    start.className = 'btn outline';
+    start.href = 'index.html';
+    start.innerHTML = svgIcon('plus') + 'New chat';
+    start.addEventListener('click', () => {
+      State.activeProject = p.id;
+      saveState();
+    });
+    const count = document.createElement('span');
+    count.className = 'pill';
+    count.textContent = p.sessions.length + (p.sessions.length === 1 ? ' session' : ' sessions');
+    foot.append(start, count);
+
+    card.append(top, desc, sessions, foot);
+    grid.appendChild(card);
+  });
+
+  const add = document.createElement('button');
+  add.className = 'new-card';
+  add.innerHTML = svgIcon('plus') + '<span>New project</span>';
+  add.addEventListener('click', () => openProjectModal(null, render));
+  grid.appendChild(add);
+}
+
+document.getElementById('newProject').addEventListener('click', () => openProjectModal(null, render));
+render();
+</script>
+</body>
+</html>

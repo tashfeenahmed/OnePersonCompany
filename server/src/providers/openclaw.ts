@@ -268,12 +268,30 @@ export async function verify(values: {
  *  backend selector never decrypts a token. Same reasoning as the Hermes
  *  adapter's, and the same reason it is written out twice: the two files are
  *  read one at a time by somebody debugging one of them. */
+function usable(account: accounts.Account): boolean {
+  if (!account.connected) return false;
+  const held = new Set(accounts.entries(account.id).map((e) => e.field));
+  return FIELDS.every((f) => held.has(f));
+}
+
 function answering(): accounts.Account | null {
-  for (const account of accounts.list("openclaw")) {
-    if (!account.connected) continue;
-    const held = new Set(accounts.entries(account.id).map((e) => e.field));
-    if (FIELDS.every((f) => held.has(f))) return account;
+  /*
+    THE MANAGED GATEWAY WINS WHEN THE OWNER HAS SAID SO. Same rule, same
+    reasoning and the same two config keys as the Hermes adapter's — written
+    out again rather than shared, because these two files are read one at a
+    time by somebody debugging one of them, and because importing
+    agents/instance.ts here would close an import cycle.
+
+    It matters slightly more on this side: a remote gateway token is operator
+    access to somebody's whole machine, so "which of my two gateways did that
+    turn actually go to" is not a question to answer with an insertion order.
+  */
+  if (configValue("openclaw", "mode") === "managed") {
+    const id = Number(configValue("openclaw", "managedAccount") ?? 0);
+    const managed = id ? accounts.get(id) : undefined;
+    if (managed && managed.pluginId === "openclaw" && usable(managed)) return managed;
   }
+  for (const account of accounts.list("openclaw")) if (usable(account)) return account;
   return null;
 }
 

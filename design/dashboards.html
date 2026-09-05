@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboards · One Person Company</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .board-tabs { display: flex; align-items: center; gap: 2px; overflow-x: auto; }
+
+  .board-tab {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 10px; border-radius: 8px;
+    color: var(--muted); font-size: 12.5px; white-space: nowrap;
+  }
+
+  .board-tab:hover { background: var(--hover); color: var(--text); }
+  .board-tab[aria-selected="true"] { background: var(--hover); color: var(--text); font-weight: 500; }
+  .board-tab .n { font-size: 11px; color: var(--muted); }
+
+  .builder { flex: 1; min-height: 0; display: flex; }
+
+  .canvas { flex: 1; min-width: 0; overflow-y: auto; padding: 8px 24px 80px; }
+  .canvas-inner { max-width: 1040px; margin: 0 auto; }
+
+  .board-head { display: flex; align-items: flex-end; gap: 12px; margin: 8px 0 20px; }
+  .board-name { font-size: 25px; font-weight: 400; letter-spacing: -0.025em; margin: 0 0 4px; }
+  .board-meta { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .board-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+
+  /* ---- the grid widgets are placed on ---- */
+
+  .board {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .widget {
+    grid-column: span var(--w, 1);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 13px 14px;
+    min-height: 116px;
+    display: flex; flex-direction: column;
+    position: relative;
+    transition: border-color .12s ease, opacity .12s ease;
+  }
+
+  body.editing .widget { cursor: grab; }
+  body.editing .widget:hover { border-color: var(--line-strong); }
+  .widget.dragging { opacity: .35; }
+
+  .widget.drop-before::before,
+  .widget.drop-after::after {
+    content: ""; position: absolute; top: 6px; bottom: 6px;
+    width: 2px; border-radius: 2px; background: var(--text);
+  }
+
+  .widget.drop-before::before { left: -6px; }
+  .widget.drop-after::after { right: -6px; }
+
+  .w-head { display: flex; align-items: center; gap: 8px; }
+  .w-tile { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; background: var(--tile-bg, var(--hover)); flex: none; }
+  .w-tile svg { width: 11px; height: 11px; display: block; }
+  .w-tile .mono { font-size: 9px; font-weight: 700; }
+  .w-name { font-size: 11.5px; color: var(--text); letter-spacing: -0.005em; }
+
+  .w-tools { margin-left: auto; display: none; gap: 1px; }
+  body.editing .w-tools { display: flex; }
+  .w-tools .icon-btn .icon { width: 14px; height: 14px; }
+
+  .w-body { margin-top: auto; padding-top: 10px; }
+
+  .w-value {
+    font-size: 26px; font-weight: 400; letter-spacing: -0.03em;
+    line-height: 1.1; font-variant-numeric: tabular-nums;
+  }
+
+  .w-sub { font-size: 11.5px; color: var(--muted); margin-top: 4px; display: flex; align-items: center; gap: 6px; }
+  .delta { font-weight: 500; }
+  .delta.up { color: var(--ok); }
+  .delta.down { color: #b4442f; }
+  .delta.flat { color: var(--muted); }
+
+  .spark { display: block; width: 100%; height: 34px; margin-top: 8px; overflow: visible; }
+
+  .bars { display: flex; align-items: flex-end; gap: 4px; height: 46px; margin-top: 8px; }
+  .bars .bar { flex: 1; border-radius: 2px 2px 0 0; background: var(--bar, var(--line)); min-height: 3px; }
+
+  .rows { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+  .row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+  .row .k { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .v { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11.5px; white-space: nowrap; opacity: .9; }
+
+  .statuses { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+  .status { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text); }
+  .status i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; }
+  .status.bad i { background: #b4442f; }
+  .status.warn i { background: var(--warn); }
+
+  .board-empty {
+    grid-column: 1 / -1;
+    border: 1px dashed var(--line); border-radius: var(--radius);
+    padding: 44px 20px; text-align: center; color: var(--muted);
+  }
+
+  .add-slot {
+    grid-column: span 1;
+    min-height: 116px;
+    border: 1px dashed var(--line); border-radius: var(--radius);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+    color: var(--muted); font-size: 12.5px;
+    transition: border-color .12s ease, color .12s ease;
+  }
+
+  .add-slot:hover { border-color: var(--line-strong); color: var(--text); }
+
+  /* ---- palette ---- */
+
+  .palette {
+    width: 300px; flex: none;
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    display: none; flex-direction: column;
+  }
+
+  body.editing .palette { display: flex; }
+
+  .palette-head {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .palette-title { font-size: 13px; font-weight: 500; }
+  .palette-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+  .palette-search {
+    display: flex; align-items: center; gap: 7px;
+    margin-top: 10px; padding: 6px 9px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; color: var(--muted);
+  }
+
+  .palette-search input { border: 0; outline: 0; background: none; width: 100%; font-size: 12.5px; color: var(--text); }
+  .palette-search .icon { width: 14px; height: 14px; }
+
+  .palette-body { flex: 1; overflow-y: auto; padding: 10px 12px 24px; }
+
+  .src-group { margin-bottom: 14px; }
+
+  .src-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 4px 6px;
+  }
+
+  .src-head .tile { width: 20px; height: 20px; border-radius: 6px; }
+  .src-head .tile svg { width: 11px; height: 11px; }
+  .src-head .tile .mono { font-size: 9px; font-weight: 700; }
+  .src-name { font-size: 11.5px; color: var(--text); }
+  .src-off { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+
+  .opt {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; text-align: left;
+    padding: 6px 8px; border-radius: 7px;
+    font-size: 12.5px; color: var(--text);
+  }
+
+  .opt:hover { background: var(--hover); }
+  .opt .kind { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+  .opt[data-added="true"] { color: var(--muted); }
+  .opt[data-added="true"] .kind { color: var(--ok); }
+  .opt[disabled] { opacity: .45; pointer-events: none; }
+
+  @media (max-width: 1100px) {
+    .board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .widget { grid-column: span min(var(--w, 1), 2); }
+  }
+</style>
+</head>
+<body>
+
+<aside class="sidebar"></aside>
+
+<main class="main">
+  <header class="topbar">
+    <div class="board-tabs" id="boardTabs"></div>
+    <div class="topbar-right">
+      <button class="chip" id="newBoard">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        New dashboard
+      </button>
+    </div>
+  </header>
+
+  <div class="builder">
+    <div class="canvas">
+      <div class="canvas-inner">
+        <div class="board-head">
+          <div>
+            <h1 class="board-name" id="boardName">—</h1>
+            <p class="board-meta" id="boardMeta"></p>
+          </div>
+          <div class="board-actions">
+            <button class="btn ghost" id="renameBoard">Rename</button>
+            <button class="btn outline" id="editToggle">Edit layout</button>
+          </div>
+        </div>
+        <div class="board" id="board"></div>
+      </div>
+    </div>
+
+    <aside class="palette">
+      <div class="palette-head">
+        <div class="palette-title">Add a widget</div>
+        <div class="palette-sub">Every metric your connected plugins report. Click to place, drag on the canvas to reorder.</div>
+        <div class="palette-search">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="paletteQ" type="search" placeholder="Search metrics…" autocomplete="off" />
+        </div>
+      </div>
+      <div class="palette-body" id="paletteBody"></div>
+    </aside>
+  </div>
+</main>
+
+<script src="icons.js"></script>
+<script src="app.js"></script>
+<script>
+renderSidebar('dashboards');
+
+/* ------------------------------------------------------------------ sources
+ * Mirrors the plugins page: a widget can only come from a service that is
+ * actually wired up, and each one names the collector output it reads. */
+const SOURCES = {
+  stripe:     { name: 'Stripe',                icon: 'stripe',              connected: true  },
+  adsense:    { name: 'Google AdSense',        icon: 'googleadsense',       connected: true  },
+  appstore:   { name: 'App Store Connect',     icon: 'appstore',            connected: true  },
+  play:       { name: 'Google Play',           icon: 'googleplay',          connected: false },
+  gsc:        { name: 'Google Search Console', icon: 'googlesearchconsole', connected: true  },
+  bing:       { name: 'Bing Webmaster',        icon: 'microsoftbing',       connected: true  },
+  cf:         { name: 'Cloudflare',            icon: 'cloudflare',          connected: true  },
+  uptime:     { name: 'Uptime',                icon: null, mono: 'U', tint: '#2f7d4f', connected: true },
+  meta:       { name: 'Meta',                  icon: 'meta',                connected: true  },
+  instagram:  { name: 'Instagram',             icon: 'instagram',           connected: true  },
+  hetzner:    { name: 'Hetzner Cloud',         icon: 'hetzner',             connected: true  },
+  dynadot:    { name: 'Dynadot',               icon: null, mono: 'D', tint: '#3b7bd8', connected: true },
+  github:     { name: 'GitHub',                icon: 'github',              connected: true  },
+  npm:        { name: 'npm',                   icon: 'npm',                 connected: true  },
+  openai:     { name: 'OpenAI',                icon: 'openai',              connected: true  },
+  openrouter: { name: 'OpenRouter',            icon: 'openrouter',          connected: true  },
+  replicate:  { name: 'Replicate',             icon: 'replicate',           connected: true  },
+  gmail:      { name: 'Gmail',                 icon: 'gmail',               connected: true  },
+  resend:     { name: 'Resend',                icon: 'resend',              connected: true  },
+  telegram:   { name: 'Telegram',              icon: 'telegram',            connected: true  },
+  searxng:    { name: 'SearXNG',               icon: 'searxng',             connected: true  },
+  reddit:     { name: 'Reddit',                icon: 'reddit',              connected: false },
+  hn:         { name: 'Hacker News',           icon: 'ycombinator',         connected: true  },
+};
+
+/* Sample series are fixed rather than random so a reload does not repaint the
+ * whole board with different numbers. */
+const s = (...n) => n;
+
+const WIDGETS = {
+  'stripe.mrr':        { src: 'stripe', name: 'MRR', kind: 'metric', value: '€8,240', delta: +6.1, sub: 'vs last month', series: s(58,61,60,64,66,70,69,74,78,80,79,82) },
+  'stripe.net30':      { src: 'stripe', name: 'Net revenue · 30d', kind: 'metric', value: '€11,905', delta: +2.4, sub: 'after fees and refunds', series: s(70,66,72,80,74,78,84,81,88,86,90,92) },
+  'stripe.subs':       { src: 'stripe', name: 'Active subscriptions', kind: 'metric', value: '412', delta: +9, sub: 'net new this month', series: s(340,352,358,364,370,377,381,390,396,401,407,412) },
+  'stripe.churn':      { src: 'stripe', name: 'Churn rate', kind: 'metric', value: '3.1%', delta: -0.4, invert: true, sub: 'monthly, cancellations', series: s(4.4,4.2,4.3,3.9,3.8,3.9,3.6,3.5,3.4,3.3,3.2,3.1) },
+  'stripe.payouts':    { src: 'stripe', name: 'Payout balance', kind: 'metric', value: '€3,417', delta: 0, sub: 'next payout Friday' },
+  'adsense.earnings':  { src: 'adsense', name: 'Ad earnings · 30d', kind: 'metric', value: '$684', delta: -4.2, sub: 'across 6 sites', series: s(30,28,26,29,25,27,24,26,23,25,22,24) },
+  'adsense.rpm':       { src: 'adsense', name: 'RPM by site', kind: 'bars', bars: s(9,7,6,5,4,3,2), labels: 'example.ie · example-app-1 · betaware · example-support · example-video · freellmapi · ob1' },
+  'appstore.installs': { src: 'appstore', name: 'iOS installs · 7d', kind: 'metric', value: '1,204', delta: +12.8, sub: 'first-time downloads', series: s(120,138,142,151,160,172,181,190,188,201,214,229) },
+  'appstore.proceeds': { src: 'appstore', name: 'App Store proceeds', kind: 'metric', value: '$1,880', delta: +5.5, sub: 'after Apple’s cut' },
+  'appstore.rating':   { src: 'appstore', name: 'iOS rating', kind: 'metric', value: '4.6', delta: +0.1, sub: '218 ratings' },
+  'play.installs':     { src: 'play', name: 'Android installs · 7d', kind: 'metric', value: '—', delta: 0, sub: 'connect Google Play' },
+  'play.rating':       { src: 'play', name: 'Play rating', kind: 'metric', value: '—', delta: 0, sub: 'connect Google Play' },
+  'gsc.impressions':   { src: 'gsc', name: 'Impressions · 28d', kind: 'metric', value: '184.2k', delta: +18.4, sub: 'all verified properties', series: s(96,102,108,104,118,126,131,140,152,161,174,184) },
+  'gsc.clicks':        { src: 'gsc', name: 'Clicks · 28d', kind: 'metric', value: '6,431', delta: +11.2, sub: 'CTR 3.5%', series: s(38,41,40,44,46,49,48,53,55,58,61,64) },
+  'gsc.position':      { src: 'gsc', name: 'Average position', kind: 'metric', value: '14.8', delta: -1.6, invert: true, sub: 'lower is better' },
+  'gsc.queries':       { src: 'gsc', name: 'Top queries', kind: 'rows', rows: [['free llm api', '3.1k'], ['planning permission ie', '2.4k'], ['ai reel generator', '1.9k'], ['bet edge finder', '1.2k'], ['claude code hooks', '980']] },
+  'bing.keywords':     { src: 'bing', name: 'Keyword volume', kind: 'rows', rows: [['free llm api', '18.1k/mo'], ['ai video shorts', '12.4k/mo'], ['planning search ireland', '5.6k/mo'], ['domain for ai agents', '2.2k/mo']] },
+  'bing.backlinks':    { src: 'bing', name: 'Inbound links', kind: 'metric', value: '1,847', delta: +64, sub: 'new referring domains: 12' },
+  'cf.requests':       { src: 'cf', name: 'Requests by domain', kind: 'bars', bars: s(9,8,6,5,4,4,3,2), labels: 'top 8 zones, 24h' },
+  'cf.dns':            { src: 'cf', name: 'DNS drift', kind: 'statuses', statuses: [['18 zones clean', 'ok'], ['neu.so → stale A', 'warn']] },
+  'uptime.status':     { src: 'uptime', name: 'Uptime', kind: 'statuses', statuses: [['12 endpoints up', 'ok'], ['ob1-api slow', 'warn'], ['99.97% · 30d', 'ok']] },
+  'meta.reach':        { src: 'meta', name: 'Page reach · 28d', kind: 'metric', value: '42.6k', delta: +7.3, sub: 'organic, all pages', series: s(24,26,25,28,30,29,33,35,34,38,40,43) },
+  'meta.spend':        { src: 'meta', name: 'Ad spend · 30d', kind: 'metric', value: '€1,120', delta: +3.9, sub: '4 active campaigns' },
+  'meta.roas':         { src: 'meta', name: 'ROAS', kind: 'metric', value: '2.8×', delta: +0.3, sub: 'blended, 30d' },
+  'instagram.followers': { src: 'instagram', name: 'Followers', kind: 'metric', value: '9,412', delta: +214, sub: 'net, last 30 days', series: s(84,85,86,87,88,89,90,91,92,93,93,94) },
+  'hetzner.servers':   { src: 'hetzner', name: 'Servers', kind: 'statuses', statuses: [['6 running', 'ok'], ['1 rebuilding', 'warn']] },
+  'hetzner.spend':     { src: 'hetzner', name: 'Infra spend · month', kind: 'metric', value: '€128', delta: -8.0, invert: true, sub: 'projected at this rate' },
+  'dynadot.domains':   { src: 'dynadot', name: 'Domains held', kind: 'metric', value: '64', delta: +2, sub: 'across two registrars' },
+  'dynadot.renewals':  { src: 'dynadot', name: 'Renewals due', kind: 'rows', rows: [['support.example.test', '11 Sep'], ['video.example.test', '24 Sep'], ['example-app-12.example.test', '3 Oct'], ['example.ie', '19 Oct']] },
+  'github.commits':    { src: 'github', name: 'Commits · 14d', kind: 'bars', bars: s(3,6,2,8,5,9,4,7,6,10,3,8,5,7), labels: 'across 11 repos' },
+  'github.prs':        { src: 'github', name: 'Open PRs', kind: 'rows', rows: [['example-app-4-platform #212', '2d'], ['example-app-6 #48', '4d'], ['freellmapi-catalog #17', '9d']] },
+  'github.actions':    { src: 'github', name: 'Actions minutes', kind: 'metric', value: '412', delta: -18, invert: true, sub: 'of 2,000 included' },
+  'npm.downloads':     { src: 'npm', name: 'npm downloads · 7d', kind: 'metric', value: '3,190', delta: +14.1, sub: '4 published packages', series: s(18,20,19,22,24,23,26,28,27,30,31,32) },
+  'openai.cost':       { src: 'openai', name: 'OpenAI spend · 30d', kind: 'metric', value: '$212', delta: +22.5, invert: true, sub: 'org total, all projects', series: s(9,11,10,13,14,12,16,17,15,19,20,21) },
+  'openai.models':     { src: 'openai', name: 'Spend by model', kind: 'bars', bars: s(9,6,4,3,2), labels: 'top 5 models, 30d' },
+  'openrouter.credits':{ src: 'openrouter', name: 'OpenRouter credits', kind: 'metric', value: '$48.20', delta: -12.0, sub: 'burn rate ~$1.60/day' },
+  'replicate.gpu':     { src: 'replicate', name: 'GPU seconds · 7d', kind: 'metric', value: '4,120', delta: +31.0, invert: true, sub: '≈ $19 at current rates' },
+  'gmail.unread':      { src: 'gmail', name: 'Inbox needing a reply', kind: 'metric', value: '7', delta: -3, invert: true, sub: 'oldest is 2 days' },
+  'gmail.contacts':    { src: 'gmail', name: 'New contacts · 30d', kind: 'metric', value: '38', delta: +11, sub: 'first-time senders' },
+  'resend.sends':      { src: 'resend', name: 'Emails sent · 7d', kind: 'metric', value: '264', delta: +6.4, sub: '3 sending domains', series: s(28,31,30,35,33,38,40,37,42,44,41,46) },
+  'resend.bounce':     { src: 'resend', name: 'Bounce rate', kind: 'metric', value: '0.8%', delta: -0.2, invert: true, sub: 'soft and hard combined' },
+  'telegram.alerts':   { src: 'telegram', name: 'Alerts · 24h', kind: 'rows', rows: [['ob1-api latency', '06:12'], ['example-app-4 deploy ok', '01:44'], ['cert renewed example.ie', '00:03']] },
+  'searxng.queries':   { src: 'searxng', name: 'Agent searches · 24h', kind: 'metric', value: '186', delta: +9, sub: 'via the self-hosted node' },
+  'reddit.signals':    { src: 'reddit', name: 'Demand signals', kind: 'rows', rows: [['r/SaaS — pricing pain', '—'], ['r/selfhosted — llm proxy', '—']] },
+  'hn.mentions':       { src: 'hn', name: 'Mentions · 7d', kind: 'rows', rows: [['Show HN: FreeLLMAPI', '84 pts'], ['Ask HN: solo infra costs', '31 pts'], ['comment · example-video', '—']] },
+};
+
+/* ------------------------------------------------------------------ chrome */
+
+let activeBoard = State.dashboards[0] || null;
+let editing = false;
+
+const boardEl = document.getElementById('board');
+const tabsEl = document.getElementById('boardTabs');
+
+function srcTile(srcId, small) {
+  const src = SOURCES[srcId] || { name: '?' };
+  const el = brandTile(src);
+  el.className = small ? 'w-tile' : 'tile';
+  return el;
+}
+
+function renderTabs() {
+  tabsEl.innerHTML = '';
+  State.dashboards.forEach(d => {
+    const b = document.createElement('button');
+    b.className = 'board-tab';
+    b.setAttribute('aria-selected', String(d === activeBoard));
+    b.innerHTML = '<span></span><span class="n">' + d.widgets.length + '</span>';
+    b.querySelector('span').textContent = d.name;
+    b.addEventListener('click', () => { activeBoard = d; render(); });
+    tabsEl.appendChild(b);
+  });
+}
+
+function render() {
+  renderTabs();
+  document.body.classList.toggle('editing', editing);
+  document.getElementById('editToggle').textContent = editing ? 'Done' : 'Edit layout';
+  document.getElementById('editToggle').className = editing ? 'btn' : 'btn outline';
+
+  if (!activeBoard) {
+    document.getElementById('boardName').textContent = 'No dashboards yet';
+    document.getElementById('boardMeta').textContent = 'Create one to start placing widgets.';
+    boardEl.innerHTML = '<div class="board-empty">Nothing here yet.</div>';
+    return;
+  }
+
+  document.getElementById('boardName').textContent = activeBoard.name;
+  const srcs = new Set(activeBoard.widgets.map(w => (WIDGETS[w.type] || {}).src).filter(Boolean));
+  document.getElementById('boardMeta').textContent =
+    activeBoard.widgets.length + (activeBoard.widgets.length === 1 ? ' widget' : ' widgets') +
+    ' from ' + srcs.size + (srcs.size === 1 ? ' service' : ' services');
+
+  boardEl.innerHTML = '';
+
+  if (!activeBoard.widgets.length) {
+    const empty = document.createElement('div');
+    empty.className = 'board-empty';
+    empty.textContent = editing
+      ? 'Pick metrics from the panel on the right to build this dashboard.'
+      : 'Empty dashboard. Hit Edit layout to add widgets.';
+    boardEl.appendChild(empty);
+  }
+
+  activeBoard.widgets.forEach(w => boardEl.appendChild(widgetEl(w)));
+
+  if (editing) {
+    const slot = document.createElement('button');
+    slot.className = 'add-slot';
+    slot.innerHTML = svgIcon('plus') + '<span>Add widget</span>';
+    slot.addEventListener('click', () => document.getElementById('paletteQ').focus());
+    boardEl.appendChild(slot);
+  }
+
+  renderPalette();
+  saveState();
+}
+
+/* ------------------------------------------------------------------ widgets */
+
+function sparkline(series) {
+  const min = Math.min(...series), max = Math.max(...series);
+  const span = max - min || 1;
+  const pts = series.map((v, i) => {
+    const x = (i / (series.length - 1)) * 100;
+    const y = 30 - ((v - min) / span) * 26;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  return '<svg class="spark" viewBox="0 0 100 32" preserveAspectRatio="none">' +
+    '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.4" ' +
+    'stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity=".5"/></svg>';
+}
+
+function deltaHtml(def) {
+  if (!def.delta) return '<span class="delta flat">no change</span>';
+  const good = def.invert ? def.delta < 0 : def.delta > 0;
+  const sign = def.delta > 0 ? '+' : '';
+  const val = Math.abs(def.delta) < 1 && String(def.delta).includes('.')
+    ? sign + def.delta : sign + def.delta;
+  return '<span class="delta ' + (good ? 'up' : 'down') + '">' + val +
+    (String(def.value).includes('%') || Math.abs(def.delta) < 1 ? '' : (def.series ? '%' : '')) + '</span>';
+}
+
+function widgetEl(w) {
+  const def = WIDGETS[w.type];
+  const el = document.createElement('div');
+  el.className = 'widget';
+  el.style.setProperty('--w', w.w || 1);
+  el.dataset.id = w.id;
+
+  if (!def) {
+    el.innerHTML = '<div class="w-name">Unknown widget</div>';
+    return el;
+  }
+
+  const head = document.createElement('div');
+  head.className = 'w-head';
+  head.appendChild(srcTile(def.src, true));
+  const nm = document.createElement('span');
+  nm.className = 'w-name';
+  nm.textContent = def.name;
+  head.appendChild(nm);
+
+  const tools = document.createElement('div');
+  tools.className = 'w-tools';
+
+  const wider = document.createElement('button');
+  wider.className = 'icon-btn';
+  wider.title = 'Cycle width';
+  wider.innerHTML = svgIcon('wide');
+  wider.addEventListener('click', e => {
+    e.stopPropagation();
+    w.w = w.w === 1 ? 2 : w.w === 2 ? 4 : 1;
+    render();
+  });
+
+  const del = document.createElement('button');
+  del.className = 'icon-btn';
+  del.title = 'Remove';
+  del.innerHTML = svgIcon('trash');
+  del.addEventListener('click', e => {
+    e.stopPropagation();
+    activeBoard.widgets = activeBoard.widgets.filter(x => x !== w);
+    render();
+  });
+
+  tools.append(wider, del);
+  head.appendChild(tools);
+
+  const body = document.createElement('div');
+  body.className = 'w-body';
+
+  if (def.kind === 'metric') {
+    body.innerHTML =
+      '<div class="w-value">' + def.value + '</div>' +
+      '<div class="w-sub">' + deltaHtml(def) + '<span>' + def.sub + '</span></div>' +
+      (def.series ? sparkline(def.series) : '');
+  } else if (def.kind === 'bars') {
+    const max = Math.max(...def.bars);
+    const src = SOURCES[def.src];
+    const brand = (window.ICONS[src.icon] || {}).hex || src.tint;
+    const bar = brand ? brand + '66' : 'var(--line)';
+    body.innerHTML =
+      '<div class="bars">' + def.bars.map(v =>
+        '<div class="bar" style="height:' + Math.round((v / max) * 100) + '%;--bar:' + bar + '"></div>').join('') +
+      '</div><div class="w-sub"><span>' + def.labels + '</span></div>';
+  } else if (def.kind === 'rows') {
+    body.innerHTML = '<div class="rows">' + def.rows.map(([k, v]) =>
+      '<div class="row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>').join('') + '</div>';
+  } else if (def.kind === 'statuses') {
+    body.innerHTML = '<div class="statuses">' + def.statuses.map(([t, s]) =>
+      '<span class="status ' + (s === 'ok' ? '' : s) + '"><i></i>' + t + '</span>').join('') + '</div>';
+  }
+
+  el.append(head, body);
+  attachDrag(el, w);
+  return el;
+}
+
+/* ------------------------------------------------------------------ drag */
+
+let dragged = null;
+
+function attachDrag(el, w) {
+  el.draggable = true;
+
+  el.addEventListener('dragstart', e => {
+    if (!editing) { e.preventDefault(); return; }
+    dragged = w;
+    el.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', w.id); } catch (err) {}
+  });
+
+  el.addEventListener('dragend', () => {
+    dragged = null;
+    el.classList.remove('dragging');
+    boardEl.querySelectorAll('.widget').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+  });
+
+  el.addEventListener('dragover', e => {
+    if (!dragged || dragged === w) return;
+    e.preventDefault();
+    const r = el.getBoundingClientRect();
+    const after = e.clientX > r.left + r.width / 2;
+    el.classList.toggle('drop-before', !after);
+    el.classList.toggle('drop-after', after);
+  });
+
+  el.addEventListener('dragleave', () => el.classList.remove('drop-before', 'drop-after'));
+
+  el.addEventListener('drop', e => {
+    if (!dragged || dragged === w) return;
+    e.preventDefault();
+    const after = el.classList.contains('drop-after');
+    const list = activeBoard.widgets;
+    list.splice(list.indexOf(dragged), 1);
+    const at = list.indexOf(w) + (after ? 1 : 0);
+    list.splice(at, 0, dragged);
+    render();
+  });
+}
+
+/* ------------------------------------------------------------------ palette */
+
+const paletteQ = document.getElementById('paletteQ');
+const paletteBody = document.getElementById('paletteBody');
+
+function renderPalette() {
+  const q = paletteQ.value.trim().toLowerCase();
+  paletteBody.innerHTML = '';
+
+  Object.keys(SOURCES).forEach(srcId => {
+    const src = SOURCES[srcId];
+    const items = Object.keys(WIDGETS)
+      .filter(k => WIDGETS[k].src === srcId)
+      .filter(k => !q || (WIDGETS[k].name + ' ' + src.name).toLowerCase().includes(q));
+    if (!items.length) return;
+
+    const group = document.createElement('div');
+    group.className = 'src-group';
+
+    const head = document.createElement('div');
+    head.className = 'src-head';
+    head.appendChild(brandTile(src));
+    const nm = document.createElement('span');
+    nm.className = 'src-name';
+    nm.textContent = src.name;
+    head.appendChild(nm);
+    if (!src.connected) {
+      const off = document.createElement('span');
+      off.className = 'src-off';
+      off.textContent = 'not connected';
+      head.appendChild(off);
+    }
+    group.appendChild(head);
+
+    items.forEach(k => {
+      const def = WIDGETS[k];
+      const added = activeBoard && activeBoard.widgets.some(w => w.type === k);
+      const b = document.createElement('button');
+      b.className = 'opt';
+      b.dataset.added = String(added);
+      if (!src.connected) b.disabled = true;
+      b.innerHTML = '<span></span><span class="kind">' + (added ? 'added' : def.kind) + '</span>';
+      b.querySelector('span').textContent = def.name;
+      b.addEventListener('click', () => {
+        if (!activeBoard) return;
+        activeBoard.widgets.push({ id: uid('w'), type: k, w: def.kind === 'metric' ? 1 : 2 });
+        render();
+      });
+      group.appendChild(b);
+    });
+
+    paletteBody.appendChild(group);
+  });
+
+  if (!paletteBody.children.length) {
+    paletteBody.innerHTML = '<p class="empty-note">No metric matches that.</p>';
+  }
+}
+
+paletteQ.addEventListener('input', renderPalette);
+
+/* ------------------------------------------------------------------ actions */
+
+document.getElementById('editToggle').addEventListener('click', () => {
+  editing = !editing;
+  render();
+});
+
+document.getElementById('renameBoard').addEventListener('click', () => {
+  if (!activeBoard) return;
+  const body = document.createElement('div');
+  body.innerHTML = '<div class="field"><label for="bName">Name</label><input id="bName" autocomplete="off"></div>';
+  const input = body.querySelector('#bName');
+  input.value = activeBoard.name;
+  openModal({
+    title: 'Rename dashboard',
+    body,
+    destructive: State.dashboards.length > 1 ? {
+      label: 'Delete',
+      onClick: () => {
+        State.dashboards = State.dashboards.filter(d => d !== activeBoard);
+        activeBoard = State.dashboards[0] || null;
+        render();
+      },
+    } : null,
+    onConfirm: () => {
+      const v = input.value.trim();
+      if (!v) { input.focus(); return false; }
+      activeBoard.name = v;
+      render();
+    },
+  });
+});
+
+document.getElementById('newBoard').addEventListener('click', () => {
+  const body = document.createElement('div');
+  body.innerHTML =
+    '<div class="field"><label for="nbName">Name</label>' +
+    '<input id="nbName" placeholder="Morning check" autocomplete="off"></div>' +
+    '<div class="field"><label>Start from</label></div>';
+
+  const opts = document.createElement('div');
+  opts.style.cssText = 'display:flex;flex-direction:column;gap:1px;margin-top:-8px';
+  const presets = [
+    { id: 'blank', label: 'Blank dashboard', note: 'place your own' },
+    { id: 'money', label: 'Money', note: 'Stripe, AdSense, App Store, infra spend' },
+    { id: 'traffic', label: 'Traffic', note: 'Search Console, Bing, Cloudflare' },
+    { id: 'build', label: 'Build health', note: 'GitHub, uptime, alerts' },
+  ];
+  let preset = 'blank';
+  presets.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'opt';
+    b.innerHTML = '<span></span><span class="kind"></span>';
+    b.querySelectorAll('span')[0].textContent = p.label;
+    b.querySelector('.kind').textContent = p.id === preset ? '✓' : p.note;
+    b.addEventListener('click', () => {
+      preset = p.id;
+      opts.querySelectorAll('.opt').forEach((x, i) =>
+        x.querySelector('.kind').textContent = presets[i].id === preset ? '✓' : presets[i].note);
+    });
+    opts.appendChild(b);
+  });
+  body.appendChild(opts);
+
+  const input = body.querySelector('#nbName');
+
+  const PRESET_WIDGETS = {
+    blank: [],
+    money: ['stripe.mrr', 'stripe.churn', 'adsense.earnings', 'appstore.proceeds', 'hetzner.spend', 'openai.cost'],
+    traffic: ['gsc.impressions', 'gsc.clicks', 'gsc.queries', 'bing.keywords', 'cf.requests'],
+    build: ['github.commits', 'github.prs', 'uptime.status', 'hetzner.servers', 'telegram.alerts'],
+  };
+
+  openModal({
+    title: 'New dashboard',
+    sub: 'Widgets come from whatever plugins are connected.',
+    body,
+    confirmLabel: 'Create',
+    onConfirm: () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); return false; }
+      const board = {
+        id: uid('d'), name,
+        widgets: PRESET_WIDGETS[preset].map(t => ({
+          id: uid('w'), type: t, w: WIDGETS[t].kind === 'metric' ? 1 : 2,
+        })),
+      };
+      State.dashboards.push(board);
+      activeBoard = board;
+      editing = true;
+      render();
+    },
+  });
+});
+
+render();
+</script>
+</body>
+</html>

@@ -23,7 +23,7 @@
 import { Hono } from "hono";
 import * as accounts from "../accounts.ts";
 import { getPlugin, telegramSessionTurns, telegramState } from "../db.ts";
-import { backends } from "../chat/backend.ts";
+import { activeBackend, backends } from "../chat/backend.ts";
 import { PLUGIN, lockKey, lockedChat, sessionFor, unlockChat } from "../telegram/bridge.ts";
 import { statuses } from "../telegram/poller.ts";
 
@@ -35,12 +35,22 @@ export const telegramRoutes = new Hono();
  *  on a second fetch. */
 function agent() {
   const list = backends();
-  const live = list.find((b) => b.connected) ?? null;
+  /*
+    THE LIVE ONE, NOT THE FIRST CONNECTED ONE. This used to take the first
+    backend with a key, which was harmless while only one ever had a key and
+    routinely wrong once both agents could be spawned here: a page reading
+    "Agent: Hermes" while every reply came from OpenClaw. `activeBackend()` is
+    the same answer `ask()` gives the bridge, so the label and the reply now
+    come from one decision.
+  */
+  const live = activeBackend();
   return {
-    /** Whether ANY backend is connected. Which one actually answers is the
-     *  chat backend's own choice, made on every call. */
+    /** Whether ANY backend is connected. */
     connected: list.some((b) => b.connected),
     backends: list,
+    /** The one that actually answers a message, or null when none is chosen
+     *  — which is a real state, not a missing field. */
+    live: live?.id ?? null,
     label: live?.label ?? null,
   };
 }

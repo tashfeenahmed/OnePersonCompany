@@ -10,6 +10,7 @@ import { PageShell, TopBar } from "@/components/PageShell";
 import { cn } from "@/lib/utils";
 import { isStoreState, useStore } from "@/lib/store";
 import { useTheme, type Theme } from "@/lib/theme";
+import { ModelsSettings } from "@/components/ModelsSettings";
 
 const THEMES: { id: Theme; label: string; note: string; icon: typeof Sun }[] = [
   { id: "light", label: "Light", note: "Always the paper palette", icon: Sun },
@@ -90,6 +91,13 @@ export function Settings() {
         <Tabs defaultValue="general">
           <TabsList>
             <TabsTrigger value="general">General</TabsTrigger>
+            {/* MODELS, AND NOT UNDER "GENERAL". Which provider completes is
+                not a preference about this browser — it is the one setting on
+                this page that changes what the server DOES, and it has a table
+                of four providers, their endpoints and their policies behind
+                it. See ModelsSettings.tsx for why the one-click switch lives
+                in the Chat header instead and this is the page you read. */}
+            <TabsTrigger value="models">Models</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="data">Data</TabsTrigger>
           </TabsList>
@@ -157,6 +165,11 @@ export function Settings() {
                 ))}
               </div>
             </Section>
+          </TabsContent>
+
+          {/* ----------------------------------------------------- models */}
+          <TabsContent value="models" className="mt-2 divide-y">
+            <ModelsSettings />
           </TabsContent>
 
           {/* ------------------------------------------------- appearance */}

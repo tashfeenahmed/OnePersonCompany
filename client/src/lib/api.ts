@@ -82,6 +82,17 @@ export type ServerPlugin = {
   secrets: { name: string; updatedAt: string }[];
   accounts: PluginAccount[];
   collectable: boolean;
+  /**
+   * Whether the server has a credential door for this plugin at all — which is
+   * NOT the same question as `collectable`, and used to be answered by it.
+   *
+   * Every plugin that could hold a credential also had a collector, so the
+   * page took "has a collector" for "is wired to the API". The local-models
+   * plugin breaks that: it holds endpoints and there is nothing to collect
+   * FROM a model server — a completion is its own health check and happens
+   * when somebody asks a question, not on a timer.
+   */
+  configurable: boolean;
   runs: RunInfo[];
 };
 
@@ -1909,6 +1920,176 @@ export type TelegramReport = {
   generatedAt: string;
 };
 
+/**
+ * THE SEARCH NODE THIS BOX CAN INSTALL RATHER THAN MERELY CONNECT TO.
+ *
+ * Every other integration in this file is a credential pointed at somebody
+ * else's service. SearXNG has a second way in: the server clones it, builds it
+ * into a virtualenv under `data/searxng/` and runs it as a child process on
+ * 127.0.0.1:8888 — so what the page has to draw is not "connected or not" but
+ * a PROCESS, with an install that takes minutes and a state that changes while
+ * you are looking at it.
+ *
+ * THE STATES ARE SEVEN AND EACH IS A DIFFERENT SENTENCE. `absent` is nothing
+ * on disk; `installing` is the long one, and is the reason `step` and `log`
+ * exist; `installed` and `stopped` are the same disk with two different
+ * histories behind them, and saying "stopped" about something that has never
+ * run would be inventing one; `starting` is spawned but not yet answering
+ * /healthz; `running` is answering; `failed` is the install or the process
+ * giving up, with `lastError` carrying why.
+ *
+ * `inUse` IS NOT `running`. The instance can be up while the plugin is pointed
+ * at the remote node — that is a legitimate state and the panel says so rather
+ * than implying the searches have moved.
+ *
+ * THERE IS NO SECRET ON THIS TYPE. The instance has one — Flask's session key
+ * — and it is generated on the server, written to a file at mode 0600 and
+ * returned by no route, which is why there is no field here that could hold it.
+ */
+export type SearxngInstance = {
+  state:
+    | "absent"
+    | "installing"
+    | "installed"
+    | "starting"
+    | "running"
+    | "stopped"
+    | "failed";
+  since: string;
+  /** Which install step is running. Null when nothing is installing. */
+  step: string | null;
+  lastError: string | null;
+  url: string;
+  port: number;
+  /** The exact commit the checkout is pinned to. Null before an install. */
+  commit: string | null;
+  installedAt: string | null;
+  installSeconds: number | null;
+  python: { path: string; version: string } | null;
+  pid: number | null;
+  healthyAt: string | null;
+  restarts: number;
+  /** Whether searches actually go through this instance. */
+  inUse: boolean;
+  /** Whether it comes back on its own when the API restarts. */
+  autostart: boolean;
+  log: string[];
+  dir: string;
+};
+
+/* -------------------------------------------------------------- freellmapi */
+
+/**
+ * THE SECOND THING THIS BOX CAN INSTALL RATHER THAN MERELY CONNECT TO.
+ *
+ * FreeLLMAPI is an OpenAI-compatible gateway that holds keys for the ~34
+ * providers with a free tier and routes each completion to whichever of them
+ * can serve it, failing over when one is throttled. There is no hosted one:
+ * `freellmapi.co` is a marketing site and `api.freellmapi.co` is its catalog
+ * and licence API, neither of which completes a chat turn — so an instance is
+ * always somebody's own, and the page has to ask WHICH one.
+ *
+ * HENCE TWO ACCOUNTS, WHICH IS THE SHAPE OF THIS WHOLE PANEL. One points at an
+ * instance already running elsewhere (the owner's is on a Hetzner box); one is
+ * installed into `data/freellmapi/` and run as a child process on
+ * 127.0.0.1:3001. Both are the same wire, so switching is a click rather than
+ * a re-paste — and `inUse` says which is actually answering, which is NOT the
+ * same question as which is running.
+ *
+ * THERE IS NO KEY ON THIS TYPE, and there is no route that would fill one.
+ * The managed instance mints its own — the value is read out of the gateway's
+ * own database on the server and sealed into the vault without passing through
+ * a log, a response or a clipboard — so `hasKey` is a boolean and that is all
+ * a page ever needs to know about it.
+ */
+export type FreeLlmApiInstance = {
+  state:
+    | "absent"
+    | "installing"
+    | "installed"
+    | "starting"
+    | "running"
+    | "stopped"
+    | "failed";
+  since: string;
+  /** Which install step is running. Null when nothing is installing. */
+  step: string | null;
+  lastError: string | null;
+  /** Where the managed instance's API answers when it is up. */
+  url: string;
+  /** Its own web dashboard — where provider keys are added. Same port. */
+  dashboardUrl: string;
+  port: number;
+  /** The exact commit the checkout is pinned to. Null before an install. */
+  commit: string | null;
+  installedAt: string | null;
+  installSeconds: number | null;
+  node: { path: string; version: string } | null;
+  /** Whether the dashboard bundle was built. False means the API works and
+   *  the browser page will not render — a fact, not a failure. */
+  dashboard: boolean;
+  pid: number | null;
+  healthyAt: string | null;
+  restarts: number;
+  /** Whether a unified key has been minted. Never the key itself. */
+  hasKey: boolean;
+  /**
+   * Whether the two providers that need no key have been switched on.
+   *
+   * A gateway with no provider keys in it routes to nothing — its catalog is
+   * real and every candidate answers "no enabled key for platform" — so the
+   * first start switches on the two that work anonymously, once, and records
+   * it. Once. After that the gateway's own Keys page owns those switches, and
+   * turning one off stays off.
+   */
+  seeded: boolean;
+  /** Whether it comes back on its own when the API restarts. */
+  autostart: boolean;
+  log: string[];
+  dir: string;
+};
+
+/** One FreeLLMAPI endpoint the owner has connected. The base URL is shown in
+ *  full because it is an address they typed, not a credential. */
+export type FreeLlmApiAccount = {
+  id: number;
+  label: string;
+  connected: boolean;
+  baseUrl: string | null;
+  /** Whether this row is the managed instance on this machine. */
+  local: boolean;
+  /** Whether a completion sent now would go here. At most one row is true. */
+  inUse: boolean;
+  lastOkAt: string | null;
+  lastError: string | null;
+};
+
+export type FreeLlmApiDoc = {
+  instance: FreeLlmApiInstance;
+  accounts: FreeLlmApiAccount[];
+  inUse: { accountId: number; label: string; baseUrl: string; local: boolean } | null;
+  /** The owner's explicit choice, which may name an account that is gone —
+   *  shown beside `inUse` so "I picked the hosted one and the local one is
+   *  answering" is visible rather than mysterious. Null is automatic. */
+  chosenAccountId: number | null;
+  provider: {
+    id: string;
+    /** Whether this is the provider every agent inherits. */
+    isDefault: boolean;
+    /** The pinned model id, or null for "whatever the catalog lists first". */
+    model: string | null;
+    policy: { mode: string; concurrency: number; balance: string; timeoutMs: number };
+  };
+  /** What the endpoint in use says it serves. Read live on the server and
+   *  cached for a minute, so polling this document costs one request in
+   *  thirty rather than one per poll. */
+  models: { ids: string[]; count: number; readAt: string; error: string | null };
+  /** The placeholder the credential form offers for a hosted instance. Not a
+   *  default — nothing is written anywhere until somebody types it. */
+  hostedPlaceholder: string;
+  localUrl: string;
+};
+
 /* -------------------------------------------------------------------- mail */
 
 /**
@@ -2204,6 +2385,121 @@ export type MailReport = {
   privacy: string;
 };
 
+/* ---------------------------------------------------------------- models */
+
+/**
+ * THE LAYER BELOW THE AGENTS, and the distinction is the whole reason there
+ * are two sets of types here rather than one.
+ *
+ * An AGENT (Hermes, OpenClaw) thinks: tools, memory, multi-step work, and
+ * exactly one of them answers the Chat page. A PROVIDER completes: turns in,
+ * text out, over an OpenAI-shaped wire. Exactly one is the DEFAULT that every
+ * agent is pointed at — so "which model" is decided once — and a plain chat
+ * with no agent in front of it talks to it directly.
+ *
+ * A closed union rather than a string, for `ChatBackendId`'s reason: the rule
+ * this feature enforces is that one of a known set answers, and that is only
+ * checkable if the set is closed.
+ */
+export type ProviderId = "freellmapi" | "local" | "openai" | "openrouter";
+
+/**
+ * How many completions a provider runs at once, and how they are spread.
+ *
+ * IT IS A SETTING ON THE PROVIDER RATHER THAN ON THE CALLER, because it is a
+ * fact about the service: a local model on one GPU wants calls in SERIES —
+ * two at once halves the speed of both and can run the card out of memory — and
+ * a hosted API wants them in parallel up to a ceiling. Every caller then gets
+ * the right behaviour without knowing why.
+ */
+export type ModelPolicy = {
+  mode: "series" | "parallel";
+  /** Ignored in series mode. 1 to 64. */
+  concurrency: number;
+  /** Which endpoint the NEXT call goes to, when there are several. */
+  balance: "round-robin" | "least-busy";
+  /** Per-call timeout in milliseconds, 5s to 10 minutes. */
+  timeoutMs: number;
+};
+
+/**
+ * One provider, and the six facts that come apart.
+ *
+ * Connected and not the default; the default and not connected (chosen before
+ * a key was pasted); both, which is the only combination that completes. The
+ * gate figures are separate because "the model is slow" and "the queue is
+ * long" are different complaints with different fixes.
+ */
+export type ModelProvider = {
+  id: ProviderId;
+  connected: boolean;
+  /** The provider's own name for itself, including which account or how many
+   *  endpoints. Null when it is not connected. */
+  label: string | null;
+  endpoints: number;
+  live: boolean;
+  default: boolean;
+  /** The model id asked for, or null for "whatever the endpoint lists first" —
+   *  which is a real answer read from the endpoint, not a blank. */
+  model: string | null;
+  policy: ModelPolicy;
+  /** Whether those four numbers are the owner's or the server's own default.
+   *  A page that showed one as the other would be lying quietly. */
+  policyIsDefault: boolean;
+  policyDefaults: ModelPolicy;
+  gate: {
+    inFlight: number;
+    queued: number;
+    /** Only endpoints that have taken a call appear — the gate counts calls,
+     *  not endpoints. The panel draws the endpoint list from the plugin and
+     *  looks its counter up here. */
+    byEndpoint: { baseUrl: string; inFlight: number }[];
+  };
+};
+
+export type ModelProviders = {
+  providers: ModelProvider[];
+  chosen: ProviderId | null;
+  live: ProviderId | null;
+  liveLabel: string | null;
+  /** The server's own sentence for "nothing will complete". */
+  why: string | null;
+};
+
+/** One local endpoint and what it is serving right now — asked live, because a
+ *  model is pulled and deleted by a person at a terminal and a list written
+ *  down at connect time would be wrong within a day. */
+export type LocalEndpoint = {
+  accountId: number;
+  label: string;
+  baseUrl: string;
+  /** Whether a bearer is being sent. Never the bearer. */
+  hasKey: boolean;
+  models: string[];
+  /** Why this endpoint could not be asked. A laptop that is closed does not
+   *  take the GPU box's model list off the page. */
+  error: string | null;
+};
+
+export type LocalModels = {
+  endpoints: LocalEndpoint[];
+  model: string | null;
+};
+
+/** One completion, straight through the default provider under its policy. */
+export type ProviderReply = {
+  text: string;
+  provider: ProviderId;
+  /** Which endpoint answered — the account's own label. */
+  endpoint: string;
+  model: string | null;
+  usage: { prompt: number; completion: number } | null;
+  ms: number;
+  /** How long it waited for a slot. Visible, because "the model is slow" and
+   *  "the queue is long" want different fixes. */
+  queuedMs: number;
+};
+
 /* ------------------------------------------------------------------- chat */
 
 /**
@@ -2212,6 +2508,19 @@ export type MailReport = {
  * the set is closed.
  */
 export type ChatBackendId = "hermes" | "openclaw";
+
+/**
+ * WHAT WROTE A MESSAGE DOWN, which is a wider set than what can be an AGENT.
+ *
+ * When no agent is live but a model provider is, the server answers through
+ * the provider directly — a plain chat, with nothing thinking in front of it —
+ * and stamps the row `provider:<id>` rather than with an agent's name. A
+ * transcript read six weeks later must not attribute a bare completion to
+ * Hermes and its tools.
+ */
+export type ProviderBackendId = `provider:${ProviderId}`;
+
+export type MessageBackendId = ChatBackendId | ProviderBackendId;
 
 /**
  * One message of a transcript, as the server stored it.
@@ -2226,7 +2535,7 @@ export type ChatMessage = {
   ts: string;
   role: "user" | "assistant" | "system";
   content: string;
-  backend: ChatBackendId | null;
+  backend: MessageBackendId | null;
   channel: string;
   model: string | null;
   usage: { prompt: number; completion: number } | null;
@@ -2243,6 +2552,101 @@ export type ChatMessage = {
  * the cases where nothing will answer, so the page states the reason rather
  * than inferring one from the flags.
  */
+/* ------------------------------------------------------ the managed agents */
+
+export type AgentId = "hermes" | "openclaw";
+
+export type AgentInstanceState =
+  | "absent"
+  | "installing"
+  | "installed"
+  | "starting"
+  | "running"
+  | "stopped"
+  | "failed";
+
+/**
+ * What the agent was last configured to talk to.
+ *
+ * THERE IS NO KEY ON THIS TYPE AND THERE CANNOT BE ONE. The server writes the
+ * provider's bearer into the agent's own config file at mode 0600 and returns
+ * this instead — the label, the endpoint and the model, which is everything a
+ * page needs to say "pointed at FreeLLMAPI, local instance" and nothing that
+ * would be a credential in a browser.
+ */
+export type AgentPointedAt = {
+  provider: string;
+  providerLabel: string;
+  endpoint: string;
+  endpointUrl: string;
+  model: string;
+  at: string;
+};
+
+/**
+ * One managed agent: what is on disk, what is running, and what it is pointed
+ * at.
+ *
+ * `state` and `live` are two different facts and the panel says both. An agent
+ * can be running and not chosen — perfectly legitimate, and the only way to
+ * try one without switching the Chat page over to it — and it can be chosen
+ * and stopped, which is what the owner sees a moment after pressing Stop.
+ *
+ * `mode` is the third: which CREDENTIAL answers. A plugin can hold a pasted
+ * remote agent and this managed one at the same time, and nothing in "which is
+ * connected" can decide between them, so it is a setting rather than a guess.
+ */
+export type AgentReport = {
+  id: AgentId;
+  label: string;
+  state: AgentInstanceState;
+  since: string;
+  /** Which install step is running, while installing. Null otherwise. */
+  step: string | null;
+  /** The last thing that went wrong, or the reason for the current wait. */
+  lastError: string | null;
+  /** Where it answers when it is up. Loopback, always. */
+  url: string;
+  port: number;
+  /** The model name it advertises on its own endpoint — `hermes-agent`,
+   *  `openclaw/default`. Reported by the server, never guessed here. */
+  advertises: string;
+  version: string | null;
+  /** Hermes tracks a branch, so its real version is the commit that landed.
+   *  Null for OpenClaw, whose npm version IS the pin. */
+  commit: string | null;
+  installedAt: string | null;
+  installSeconds: number | null;
+  dir: string;
+  pid: number | null;
+  healthyAt: string | null;
+  restarts: number;
+  /** What the owner last asked for, which survives a restart of the API. */
+  autostart: boolean;
+  mode: "managed" | "remote";
+  managedAccount: number | null;
+  pointed: AgentPointedAt | null;
+  live: boolean;
+  log: string[];
+};
+
+/** Both agents, plus the two facts that are about the pair rather than either
+ *  of them: which is live, and whether there is a model provider to point one
+ *  at in the first place. */
+export type AgentsDoc = {
+  agents: AgentReport[];
+  live: AgentId | null;
+  /** Which one has a child process. Not the same question as `live`. */
+  running: AgentId | null;
+  provider: {
+    id: string;
+    label: string;
+    endpoints: { label: string; baseUrl: string }[];
+    defaultModel: string | null;
+  } | null;
+  why: string | null;
+};
+
 export type ChatBackends = {
   backends: {
     id: ChatBackendId;
@@ -2253,6 +2657,13 @@ export type ChatBackends = {
   chosen: ChatBackendId | null;
   live: ChatBackendId | null;
   liveLabel: string | null;
+  /**
+   * Who takes the message when no AGENT is live — the model provider, asked
+   * directly. Deliberately its own field rather than folded into `live`:
+   * `live` means an agent is thinking, and a raw completion is not one. Null
+   * here as well as in `live` is the only state that refuses a message.
+   */
+  fallback: { provider: ProviderId; label: string; endpoints: number } | null;
   why: string | null;
 };
 
@@ -2267,7 +2678,7 @@ export type ChatReply = {
   sessionId: string;
   user: ChatMessage;
   reply: ChatMessage;
-  backend: ChatBackendId;
+  backend: MessageBackendId;
   model: string | null;
   usage: { prompt: number; completion: number } | null;
   ms: number;
@@ -2689,6 +3100,86 @@ export const api = {
       { method: "DELETE" },
     ),
 
+  /* ------------------------------------------------------ the search node */
+
+  /** What is installed under `data/searxng/` and what is running, including
+   *  the install's step and the tail of its output — which is the only thing
+   *  a page can honestly show during four minutes of compiling. */
+  searxngInstance: () => call<SearxngInstance>("/searxng/instance"),
+
+  /** Begin the install. Answers 202 with the state as it stands: nothing is
+   *  installed yet when this returns, and the panel polls until it is. */
+  searxngInstall: () =>
+    call<SearxngInstance>("/searxng/instance/install", { method: "POST" }),
+
+  /** Spawn it. Comes back as soon as the process exists — `running` arrives
+   *  when /healthz answers, which is a second or two later. */
+  searxngStart: () =>
+    call<SearxngInstance>("/searxng/instance/start", { method: "POST" }),
+
+  /** Stop it, and stop it coming back at the next API boot. SIGTERM, then
+   *  SIGKILL after a grace: the server never leaves a child on the port. */
+  searxngStop: () =>
+    call<SearxngInstance>("/searxng/instance/stop", { method: "POST" }),
+
+  /* ------------------------------------------------------ the model gateway */
+
+  /** The whole FreeLLMAPI picture in one document: what is installed under
+   *  `data/freellmapi/`, what is running, both accounts, which one a
+   *  completion would go to, and what that endpoint says it can serve. One
+   *  fetch because the panel wants all of it at once and a page that asked
+   *  twice would render a running instance beside a stale account list. */
+  freellmapi: () => call<FreeLlmApiDoc>("/freellmapi"),
+
+  /** Begin the install: a clone, eight hundred packages, two builds and the
+   *  migration that mints the key. Answers 202 — nothing is installed when it
+   *  returns, and the panel polls `step` and `log` until it is. */
+  freellmapiInstall: () =>
+    call<FreeLlmApiDoc>("/freellmapi/instance/install", { method: "POST" }),
+
+  /** Spawn it. Comes back as soon as the process exists; `running` arrives
+   *  when /livez answers, and the local account is connected at that moment
+   *  with a key read from the gateway's own database. */
+  freellmapiStart: () =>
+    call<FreeLlmApiDoc>("/freellmapi/instance/start", { method: "POST" }),
+
+  /** Stop it, and stop it coming back at the next API boot. SIGTERM, then
+   *  SIGKILL after a grace: the server never leaves a child on 3001. */
+  freellmapiStop: () =>
+    call<FreeLlmApiDoc>("/freellmapi/instance/stop", { method: "POST" }),
+
+  /** Re-read the managed instance's key and re-seal it — the one button for
+   *  "I rotated it on its own Keys page". There is nothing to paste: the value
+   *  is already on this machine and never travels through the browser. */
+  freellmapiReconnect: () =>
+    call<FreeLlmApiDoc>("/freellmapi/instance/reconnect", { method: "POST" }),
+
+  /** Choose which endpoint answers, or `null` for automatic — the local
+   *  instance while it is running, the hosted one otherwise. Comes back with
+   *  the whole document, so a choice that turns out not to be connected says
+   *  so without a second request. */
+  freellmapiUseAccount: (accountId: number | null) =>
+    call<FreeLlmApiDoc>("/freellmapi/account", {
+      method: "PUT",
+      body: JSON.stringify({ accountId }),
+    }),
+
+  /**
+   * Make FreeLLMAPI the provider every agent completes through.
+   *
+   * IT WRITES THE SEAM'S SETTING RATHER THAN ONE OF ITS OWN — the same
+   * `PUT /api/models/provider` the models page uses, because there is exactly
+   * one default and two ways of setting it would be two settings. The reply is
+   * deliberately untyped here: this call cares only that it succeeded, and the
+   * panel re-reads its own document afterwards. Typing the models page's
+   * document is that page's business.
+   */
+  freellmapiMakeDefault: () =>
+    call<unknown>("/models/provider", {
+      method: "PUT",
+      body: JSON.stringify({ provider: "freellmapi" }),
+    }),
+
   metric: (name: string, days = 30) =>
     call<{ metric: string; points: { ts: string; value: number }[] }>(
       `/metrics/${name}?days=${days}`,
@@ -2730,6 +3221,52 @@ export const api = {
       body: JSON.stringify({ sessionId, message }),
     }),
 
+  /* --------------------------------------------------------------- models */
+
+  /** Every provider, whether each is connected, which is the default, and what
+   *  the limiter is doing right now. Cheap on the server — no credential is
+   *  decrypted to answer it — so a settings page may poll it. */
+  modelProviders: () => call<ModelProviders>("/models/providers"),
+
+  /** Choose the default, or `null` for none. Comes back with the whole state,
+   *  so a choice that turns out not to be connected says so without a second
+   *  request. */
+  setModelProvider: (provider: ProviderId | null) =>
+    call<ModelProviders>("/models/provider", {
+      method: "PUT",
+      body: JSON.stringify({ provider }),
+    }),
+
+  /** Change one provider's policy. A PARTIAL body is the normal case — a
+   *  concurrency box that has just been changed sends one field — because a
+   *  form that resends everything overwrites what somebody changed in another
+   *  tab a second ago. */
+  setModelPolicy: (id: ProviderId, patch: Partial<ModelPolicy>) =>
+    call<{ id: ProviderId } & ModelProviders>(`/models/${id}/policy`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
+
+  /** Forget the four keys, so the provider's own default stands again. Offered
+   *  as a button rather than making the owner retype four numbers they never
+   *  chose. */
+  clearModelPolicy: (id: ProviderId) =>
+    call<{ id: ProviderId } & ModelProviders>(`/models/${id}/policy`, {
+      method: "DELETE",
+    }),
+
+  /** What each local endpoint is serving, asked live. */
+  localModels: () => call<LocalModels>("/models/local/models"),
+
+  /** One completion through the DEFAULT provider, under its policy — the same
+   *  path a plain chat takes, which is why it is worth a button. It writes no
+   *  row: this is the one chat-shaped call that leaves no transcript. */
+  complete: (message: string, model?: string) =>
+    call<ProviderReply>("/models/complete", {
+      method: "POST",
+      body: JSON.stringify({ message, ...(model ? { model } : {}) }),
+    }),
+
   /** Forget one conversation, on the server. The session itself lives in the
    *  browser's store and is not touched by this. */
   chatClear: (sessionId: string) =>
@@ -2737,4 +3274,52 @@ export const api = {
       `/chat/${encodeURIComponent(sessionId)}`,
       { method: "DELETE" },
     ),
+
+  /* --------------------------------------------------------------- agents */
+
+  /**
+   * Both agents as PROCESSES — installed, running, pointed at, live.
+   *
+   * ONE CALL FOR THE PAIR rather than one per agent, because every question
+   * this answers is a question about both: which is running (at most one),
+   * which is live (at most one), and whether there is a model provider to
+   * point either at. Two calls would be two half-answers that a page would
+   * have to join.
+   */
+  agents: () => call<AgentsDoc>("/agents"),
+
+  agent: (id: AgentId) => call<AgentReport>(`/agents/${id}`),
+
+  /** Begin an install. Answers 202 and a state to poll: a clone, a virtualenv
+   *  and a compiled dependency tree take minutes, and a request that waited
+   *  for them would time out somewhere with nothing to show. */
+  agentInstall: (id: AgentId) =>
+    call<AgentReport>(`/agents/${id}/install`, { method: "POST" }),
+
+  /** Configure it from the active model provider, then spawn it. Refused with
+   *  a sentence when there is no provider, when it is not installed, or when
+   *  the other agent is already running. */
+  agentStart: (id: AgentId) =>
+    call<AgentReport>(`/agents/${id}/start`, { method: "POST" }),
+
+  agentStop: (id: AgentId) =>
+    call<AgentReport>(`/agents/${id}/stop`, { method: "POST" }),
+
+  /** Rewrite its provider config now. A running agent is restarted, because
+   *  neither agent re-reads its config file. */
+  agentReconfigure: (id: AgentId) =>
+    call<AgentReport>(`/agents/${id}/reconfigure`, { method: "POST" }),
+
+  /** Make it the agent that answers. The same `chat.backend` switch the Chat
+   *  page flips — there is one, and this is the door on the plugin page. */
+  agentMakeLive: (id: AgentId) =>
+    call<AgentsDoc>(`/agents/${id}/make-live`, { method: "POST" }),
+
+  /** Which credential this plugin uses: the instance spawned here, or a pasted
+   *  remote one. Both can be connected at once, which is why it is a setting. */
+  agentMode: (id: AgentId, mode: "managed" | "remote") =>
+    call<AgentReport>(`/agents/${id}/mode`, {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    }),
 };

@@ -31,6 +31,18 @@ export type PluginField = {
    * and a wrong one sends them looking for an entry that does not exist.
    */
   entry?: string;
+  /**
+   * A field that may be left empty, which is otherwise not a thing here.
+   *
+   * TWO KINDS OF OPTIONAL, both real. A local model server — Ollama, LM Studio
+   * — ships with no auth at all and binds to loopback, which IS its access
+   * control; demanding a key would mean inventing one. And the inference key
+   * on OpenAI and OpenRouter is a SECOND credential on a plugin that already
+   * works: both of those connect to read a bill, and an owner who does not
+   * want to complete through them must not be nagged for a key to keep their
+   * costs page.
+   */
+  optional?: boolean;
 };
 
 export type PluginCategory =
@@ -543,12 +555,26 @@ export const PLUGINS: Plugin[] = [
     connected: true,
     secret: "openai-admin-key",
     desc: "Organisation spend by project, day by day.",
-    help: "An ORG ADMIN key (sk-admin-…) for /v1/organization/costs. An ordinary project key is refused there, so this is a separate secret rather than a reuse of any inference key. The Costs API groups by project or by line item and never both, so there is no per-model split to be had from it.",
+    help: "TWO KEYS THAT DO TWO DIFFERENT JOBS, and neither can do the other's. The ADMIN key (sk-admin-…) reads /v1/organization/costs and is what fills the costs board; a project key is refused there whatever scopes it carries. It is also refused at /v1/chat/completions — probed 2026-09-05, OpenAI answers 401 “Missing scopes: model.request” — so completing through OpenAI needs the second field: an ordinary PROJECT key (sk-proj-…) with model access. Leave that one empty and everything about the bill still works. The Costs API groups by project or by line item and never both, so there is no per-model split to be had from it.",
     docs: "https://platform.openai.com/settings/organization/admin-keys",
     fields: [
       { key: "key", label: "Admin key", kind: "secret", ph: "sk-admin-…" },
+      {
+        key: "chat-key",
+        label: "Inference key (optional)",
+        kind: "secret",
+        ph: "sk-proj-… — only if you want to CHAT through OpenAI",
+        /* Named rather than derived: the derivation for a multi-field plugin
+           is `<secret>-<field>`, which would read `openai-admin-key-chat-key`.
+           The admin key keeps the plain name it has always had. */
+        entry: "openai-chat-key",
+        optional: true,
+      },
     ],
-    usedBy: ["collect_openai.py (costs.json)"],
+    usedBy: [
+      "collect_openai.py (costs.json)",
+      "GET /api/models — completions, when the inference key is set and OpenAI is the default provider",
+    ],
   },
   {
     id: "openrouter",
@@ -558,12 +584,23 @@ export const PLUGINS: Plugin[] = [
     connected: true,
     secret: "openrouter-key",
     desc: "Credit balance and per-model usage for routed inference.",
-    help: "OpenRouter → Settings → Keys, and it must be a MANAGEMENT key: an inference key answers /credits and its own /key and is refused by /activity and /keys with a 403, so it would connect, show a balance and never show what the balance went on.",
+    help: "TWO KEYS THAT DO TWO DIFFERENT JOBS. The first must be a MANAGEMENT key: an inference key answers /credits and its own /key and is refused by /activity and /keys with a 403, so it would connect, show a balance and never show what the balance went on. The reverse is just as true — probed 2026-09-05, the management key is refused at /chat/completions with 401 “User not found.” — so completing through OpenRouter needs the second field: an ordinary inference key. Leave it empty and everything about the bill still works. (Its /models catalog answers 200 to no key at all, so a key that lists models has proved nothing.)",
     docs: "https://openrouter.ai/keys",
     fields: [
-      { key: "key", label: "API key", kind: "secret", ph: "sk-or-v1-…" },
+      { key: "key", label: "Management key", kind: "secret", ph: "sk-or-v1-… (management)" },
+      {
+        key: "chat-key",
+        label: "Inference key (optional)",
+        kind: "secret",
+        ph: "sk-or-v1-… — only if you want to CHAT through OpenRouter",
+        entry: "openrouter-chat-key",
+        optional: true,
+      },
     ],
-    usedBy: ["collect_openrouter.py (models.json)"],
+    usedBy: [
+      "collect_openrouter.py (models.json)",
+      "GET /api/models — completions, when the inference key is set and OpenRouter is the default provider",
+    ],
   },
   {
     id: "replicate",
@@ -597,7 +634,7 @@ export const PLUGINS: Plugin[] = [
       read-only proxy, which answers /v1/models with 200 and an index.html.
       The OpenAI-compatible door Hermes actually ships is `hermes proxy start`.
     */
-    help: "A CLI agent — the container serves no HTTP by itself. The OpenAI-compatible door is `hermes proxy start`, on 127.0.0.1:8645 by default, which forwards to Nous Portal and accepts ANY bearer token because it attaches your real OAuth credential on the way out. (`hermes serve` on 9119 is a WebSocket JSON-RPC gateway and does not speak this API.) Point this at any OpenAI-compatible endpoint and it works; the model is picked in Settings, or left empty to use whichever the endpoint lists first.",
+    help: "TWO WAYS IN. Paste the address of a Hermes that is already running somewhere — any OpenAI-compatible endpoint works, and the model is picked in Settings or left empty to use whichever the endpoint lists first. Or press “Install here” further down and this app installs Hermes into its own data directory, points it at your default model provider, runs it as a child process and connects the plugin for you. The door a managed instance serves is the API SERVER on 127.0.0.1:8642, which runs the agent with its tools and needs no Nous login — NOT `hermes proxy` on 8645, which only forwards to Nous or xAI OAuth and refuses to start without one, and not `hermes serve` on 9119, which is WebSocket JSON-RPC and does not speak this API.",
     docs: "https://hermes-agent.nousresearch.com/docs/",
     fields: [
       {
@@ -618,7 +655,10 @@ export const PLUGINS: Plugin[] = [
         entry: "hermes-key",
       },
     ],
-    usedBy: ["POST /api/chat — when Hermes is the live chat backend"],
+    usedBy: [
+      "POST /api/chat — when Hermes is the live chat backend",
+      "GET /api/agents — the managed instance: installed, running, and what it is pointed at",
+    ],
   },
   {
     id: "openclaw",
@@ -639,7 +679,7 @@ export const PLUGINS: Plugin[] = [
       until you switch it on, which is the single most useful sentence on this
       page.
     */
-    help: "The OpenClaw gateway, on 127.0.0.1:18789 by default. A chat turn goes to POST /v1/chat/completions with the agent name openclaw/default — NOT to /tools/invoke, whose hard deny list blocks sessions_send. That endpoint is disabled by default: set gateway.http.endpoints.chatCompletions.enabled = true and restart, or /v1/models answers 404 while /health answers 200. The shared-secret bearer here is operator access to the ENTIRE gateway, not a scoped API key, so the token stays on the server and this refuses to send it in the clear to anything outside your own network.",
+    help: "TWO WAYS IN. Paste the address of a gateway you already run — 127.0.0.1:18789 by default — with its shared secret. Or press “Install here” further down and this app npm-installs a pinned OpenClaw into its own data directory, writes a config pointing it at your default model provider, runs it as a child process and connects the plugin for you. Either way a chat turn goes to POST /v1/chat/completions addressed to openclaw/default — NOT to /tools/invoke, whose hard deny list blocks sessions_send. That endpoint is OFF by default: gateway.http.endpoints.chatCompletions.enabled = true is what turns it on, and without it /v1/models answers 404 while /health answers 200. The bearer here is operator access to the ENTIRE gateway rather than a scoped API key, so it stays on the server and this refuses to send it in the clear to anything outside your own network.",
     docs: "https://docs.openclaw.ai/gateway/openai-http-api",
     fields: [
       {
@@ -658,7 +698,63 @@ export const PLUGINS: Plugin[] = [
         entry: "openclaw-token",
       },
     ],
-    usedBy: ["POST /api/chat — when OpenClaw is the live chat backend"],
+    usedBy: [
+      "POST /api/chat — when OpenClaw is the live chat backend",
+      "GET /api/agents — the managed instance: installed, running, and what it is pointed at",
+    ],
+  },
+  /*
+    LOCAL MODELS — ONE ENTRY FOR EVERY OpenAI-COMPATIBLE SERVER, and that is a
+    decision rather than laziness.
+
+    Ollama, LM Studio, vLLM, llama.cpp's server and a hand-rolled FastAPI all
+    answer `GET /v1/models` and `POST /v1/chat/completions`, and the
+    differences between them are in what they RUN rather than in how they are
+    asked. A tile per product would be five tiles holding one adapter, and a
+    sixth the day somebody ships a new runner — so there is one, its credential
+    is a URL, and the product's name is what you type in the account's label.
+
+    IT IS ALSO THE ONE PLUGIN HERE WHERE MORE ACCOUNTS MEANS MORE THROUGHPUT.
+    Everywhere else a second account is a second thing to read — another
+    Hetzner project, another mailbox. Two local endpoints are two machines that
+    can each take a completion, spread across by the policy on this page.
+  */
+  {
+    id: "local",
+    name: "Local models",
+    icon: null,
+    mono: "L",
+    tint: "#4c8c5a",
+    cat: "ai",
+    connected: false,
+    /* The stem, not an entry: with two fields the names are `<stem>-<field>`,
+       so the first endpoint holds `local-base-url` and, if it needs one,
+       `local-key`. */
+    secret: "local",
+    desc: "Ollama, LM Studio, vLLM — anything on this machine that speaks the OpenAI wire.",
+    help: "Paste the base URL the runner printed when it started: Ollama is http://127.0.0.1:11434, LM Studio 1234, vLLM 8000, llama.cpp 8080. The origin on its own is fine — /v1 is added when it is missing, and Ollama's own /api is a DIFFERENT, non-OpenAI surface from the /v1 this uses. The key is optional and normally empty: these runners ship with no auth and bind to loopback, which is the access control. An endpoint that is NOT on your own network is refused without one, and a key is never sent in the clear over plain http to such a host. Each endpoint is its own account, and they all answer — how many calls run at once, and which box takes the next one, are the policy settings on this page.",
+    docs: "https://ollama.com/",
+    fields: [
+      {
+        key: "base-url",
+        label: "Base URL",
+        kind: "text",
+        ph: "http://127.0.0.1:11434/v1",
+        entry: "local-base-url",
+      },
+      {
+        key: "key",
+        label: "Bearer token (optional)",
+        kind: "secret",
+        ph: "usually empty — vLLM's --api-key, or a proxy in front",
+        entry: "local-key",
+        optional: true,
+      },
+    ],
+    usedBy: [
+      "GET /api/models — completions, when this is the default provider",
+      "POST /api/chat — when no agent is live and this is the default provider",
+    ],
   },
   {
     id: "freellmapi",
@@ -668,19 +764,43 @@ export const PLUGINS: Plugin[] = [
     tint: "#7C5CE6",
     cat: "ai",
     connected: true,
-    secret: "freellmapi-key",
-    desc: "The in-house catalog API — licence checks and free-tier routing.",
-    help: "Issued by the catalog service itself. Rotating it here does not rotate it on the Oracle box; both sides have to be set in the same window.",
-    docs: "https://freellmapi.co",
+    /* The STEM, not an entry: two fields, so the vault holds
+       `freellmapi-base-url` and `freellmapi-key` — the second being the name
+       workdash's own vault already uses. */
+    secret: "freellmapi",
+    desc: "One key in front of every provider with a free tier — hosted, or installed here.",
+    /*
+      REWRITTEN AGAINST THE REAL THING (repo at 1edb8d5, probed 2026-09-05).
+      The old entry described this as "the in-house catalog API — licence
+      checks and free-tier routing", which is a different service: the catalog
+      API at api.freellmapi.co sells the live model list and completes nothing.
+      FreeLLMAPI itself is an OpenAI-compatible GATEWAY, and the thing worth
+      saying on this page is that THERE IS NO HOSTED ONE — freellmapi.co is a
+      static marketing site whose /v1 paths 404 — so the base URL is always
+      somebody's own instance, and this box can be one of them.
+    */
+    help: "An OpenAI-compatible gateway that holds keys for the ~34 providers with a free tier and routes each completion to whichever can serve it, failing over when one is throttled. THERE IS NO HOSTED FREELLMAPI: freellmapi.co is a marketing site and api.freellmapi.co is its catalog-and-licence API — neither completes a chat turn — so the base URL is an instance somebody runs. Two ways to have one, and this page offers both. Point it at one you already run (the Hetzner box answers at https://freellm.178-105-187-189.sslip.io/v1) and paste the unified key from that instance's own Keys page, which begins `freellmapi-`. Or install one here: the server clones the repo at a commit it writes down, builds it, and runs it as a child process on 127.0.0.1:3001 — loopback only, stopped when this API stops. That one needs nothing pasted at all, because the gateway mints its own key into its database on first migration and the server reads it straight into the vault. Both end up as accounts of this plugin, so switching which one answers is a click. A freshly installed gateway routes to nothing until it has provider keys, so the first start switches on the two providers that work anonymously; add your own on its dashboard at http://127.0.0.1:3001, which no setup code is needed for from a browser on this machine.",
+    docs: "https://github.com/tashfeenahmed/freellmapi",
     fields: [
       {
+        key: "base-url",
+        label: "Base URL",
+        kind: "text",
+        ph: "https://freellm.178-105-187-189.sslip.io/v1",
+        entry: "freellmapi-base-url",
+      },
+      {
         key: "key",
-        label: "Service key",
+        label: "Unified key",
         kind: "secret",
-        ph: "issued by catalog/",
+        ph: "freellmapi-…, from that instance's Keys page",
+        entry: "freellmapi-key",
       },
     ],
-    usedBy: ["agent/models.js (routing)"],
+    usedBy: [
+      "models/provider.ts — every completion, when it is the default provider",
+      "freellmapi/instance.ts — the copy installed under data/freellmapi/",
+    ],
   },
   {
     id: "gmail",
@@ -816,8 +936,8 @@ export const PLUGINS: Plugin[] = [
     cat: "signals",
     connected: false,
     secret: "searxng-key",
-    desc: "The self-hosted search node behind every agent lookup — and Reddit's safety net.",
-    help: "The API key travels as an x-api-key HEADER; the same key as a ?key= parameter is refused 401, and a key in a URL is a key in an access log. The endpoint is a SETTING rather than a constant, because the node is on your own box and its hostname carries that box's address. The node publishes no count of the searches made against it — /stats is HTML and counts engines — so what is measured here is whether a search made right now answers, and which engines served it.",
+    desc: "The search node behind every agent lookup — install one here, or point at one you run.",
+    help: "TWO WAYS IN. Install it here and the server clones SearXNG, builds it into its own virtualenv with uv and runs it as a child process on 127.0.0.1:8888 — no Docker, no key, and it connects itself the moment it answers, because a loopback bind is the whole of the access control. Or point at a node you already run: its address goes in the search endpoint setting and its API key in the credentials, travelling as an x-api-key HEADER (the same key as a ?key= parameter is refused 401, and a key in a URL is a key in an access log). That key belongs to the proxy in front of a public instance, not to SearXNG, which has no key auth of its own. Either way, agents search through GET /api/search?q=… and never learn which of the two answered. The node publishes no count of the searches made against it — /stats is HTML and counts engines — so what is measured here is whether a search made right now answers, and which engines served it.",
     docs: "https://docs.searxng.org/",
     fields: [
       {

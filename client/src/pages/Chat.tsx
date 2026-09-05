@@ -45,10 +45,12 @@ import {
   Check,
   ChevronDown,
   Code2,
+  Cpu,
   FolderClosed,
   LayoutDashboard,
   Plug,
   Plus,
+  SlidersHorizontal,
   Sparkles,
   TriangleAlert,
   Wrench,
@@ -65,7 +67,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { VentureDialog } from "@/components/VentureDialog";
-import { ApiError, api, type ChatBackendId, type ChatBackends, type ChatMessage } from "@/lib/api";
+import {
+  ApiError,
+  api,
+  type ChatBackendId,
+  type ChatBackends,
+  type ChatMessage,
+  type MessageBackendId,
+  type ModelProviders,
+  type ProviderId,
+} from "@/lib/api";
 
 const SUGGESTIONS = [
   {
@@ -99,6 +110,31 @@ const BACKEND_NAMES: Record<ChatBackendId, string> = {
   hermes: "Hermes",
   openclaw: "OpenClaw",
 };
+
+const PROVIDER_NAMES: Record<ProviderId, string> = {
+  freellmapi: "FreeLLMAPI",
+  local: "Local model",
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+};
+
+/**
+ * WHO WROTE THIS MESSAGE, and the two kinds of author are named differently on
+ * purpose.
+ *
+ * An AGENT answered with tools and memory behind it; a PROVIDER answered as a
+ * bare completion because no agent was live. Reading a transcript six weeks
+ * later, "Hermes" and "Local model, direct" are two different claims about
+ * what that answer was capable of being, and collapsing them into one name
+ * would be the same lie the two agents already refuse to tell about each
+ * other.
+ */
+function authorName(backend: MessageBackendId | null): string {
+  if (!backend) return "Agent";
+  if (backend.startsWith("provider:"))
+    return `${PROVIDER_NAMES[backend.slice("provider:".length) as ProviderId]}, direct`;
+  return BACKEND_NAMES[backend as ChatBackendId];
+}
 
 function greeting() {
   const h = new Date().getHours();
@@ -154,6 +190,30 @@ export function Chat() {
    *  durable, the failure was a moment. */
   const [failure, setFailure] = useState<{ id: string; text: string } | null>(null);
   const [backends, setBackends] = useState<ChatBackends | null>(null);
+  /**
+   * THE PROVIDER LAYER, kept beside the agent one rather than folded into it.
+   *
+   * `/chat/backends` already says WHICH provider would take a message when no
+   * agent is live — that is the `fallback` field, and it is what the banner
+   * and the composer read. This second document is the list of all four and
+   * their connected states, which only the picker needs; fetching it here
+   * rather than inside the picker means the header does not flicker a "No
+   * provider" label for one frame on every open.
+   */
+  const [providers, setProviders] = useState<ModelProviders | null>(null);
+  /*
+    MANAGED OR REMOTE, per agent — a second fetch, and worth it.
+
+    `GET /api/chat/backends` answers the question this page is really asking
+    (who can answer, who is chosen, who is live) and deliberately knows nothing
+    about processes. But an agent this app SPAWNED and one running on somebody
+    else's box are very different things to be talking to, and the one place
+    that difference is invisible is a menu that names them both "Hermes". So
+    the mode comes from /api/agents, which is the route that owns that fact.
+  */
+  const [modes, setModes] = useState<
+    Partial<Record<ChatBackendId, "managed" | "remote">>
+  >({});
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -177,6 +237,20 @@ export function Chat() {
   const busy = useRef<string | null>(null);
 
   const refreshBackends = useCallback(() => {
+    /* The provider list is refreshed with the backend state, because the two
+       change together: making a provider the default is what turns "no agent
+       is live" from a refusal into a fallback. */
+    api
+      .modelProviders()
+      .then(setProviders)
+      .catch(() => setProviders(null));
+    /* And the agents' modes, from the route that owns that fact. */
+    api
+      .agents()
+      .then((doc) => setModes(Object.fromEntries(doc.agents.map((a) => [a.id, a.mode]))))
+      /* Not knowing whether an agent is managed is a missing word, not a
+         broken page. The selector still works without it. */
+      .catch(() => setModes({}));
     api
       .chatBackends()
       .then(setBackends)
@@ -333,10 +407,36 @@ export function Chat() {
     }
   }
 
+  /**
+   * Choose the provider every agent inherits — and, when no agent is live, the
+   * one that answers this chat directly.
+   *
+   * The backend state is re-read afterwards and not merely the provider list,
+   * because THAT is what carries the fallback sentence the banner and the
+   * composer are drawn from: a provider chosen here changes what the page says
+   * about a chat with no agent in it.
+   */
+  async function chooseProvider(id: ProviderId | null) {
+    try {
+      setProviders(await api.setModelProvider(id));
+      setBackends(await api.chatBackends());
+      setFailure(null);
+    } catch (e: unknown) {
+      if (sessionId)
+        setFailure({
+          id: sessionId,
+          text: e instanceof Error ? e.message : "Could not change the provider.",
+        });
+    }
+  }
+
   /* --------------------------------------------------------------- parts */
 
   const live = backends?.live ?? null;
   const noAgent = backends !== null && live === null;
+  /** Who takes the message when no agent does. Null with `noAgent` true is the
+   *  only state in which the composer cannot be used at all. */
+  const fallback = backends?.fallback ?? null;
 
   const picker = (
     <DropdownMenu>
@@ -406,7 +506,12 @@ export function Chat() {
             />
             <span className="flex-1">{BACKEND_NAMES[b.id]}</span>
             <span className="text-muted-foreground text-[11.5px]">
-              {!b.connected ? "not connected" : b.live ? "live" : "ready"}
+              {/* MANAGED or REMOTE beside each, because the two are not the
+                  same thing to be talking to: one is a process this app
+                  installed and supervises, the other is somebody else's box. */}
+              {!b.connected
+                ? "not connected"
+                : `${modes[b.id] ? `${modes[b.id]} · ` : ""}${b.live ? "live" : "ready"}`}
             </span>
           </DropdownMenuItem>
         ))}
@@ -430,6 +535,78 @@ export function Chat() {
     </DropdownMenu>
   );
 
+  /*
+    THE PROVIDER PICKER, WHICH IS NOT A SECOND AGENT SELECTOR.
+
+    The two menus name two layers and the header shows both because they can
+    disagree in a way the owner has to be able to see. The agent selector says
+    who is THINKING; this says which model is COMPLETING — the one every agent
+    is pointed at, and the one that answers this chat directly when no agent is
+    live. A single control covering both would have to pretend that "Hermes"
+    and "the local model" are alternatives at the same level, and they are not:
+    Hermes talks to the local model.
+
+    It is shown whether or not an agent is live, for the same reason: an agent
+    IS spending the provider named here, and hiding the label until the agent
+    goes away would mean the only time you could see which model you were
+    paying for is when nothing was using it.
+
+    The whole table — endpoints, policies, what each provider is — lives in
+    Settings → Models. This is the switch, not the page.
+  */
+  const providerPicker = (
+    <DropdownMenu>
+      <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]">
+        <Cpu className="size-3.5" strokeWidth={1.6} />
+        {providers?.live ? PROVIDER_NAMES[providers.live] : "No provider"}
+        <ChevronDown className="size-[13px]" strokeWidth={1.6} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel className="text-muted-foreground text-[11.5px] font-normal">
+          One provider completes. Agents are pointed at it, and with no agent
+          live it answers this chat itself.
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {(providers?.providers ?? []).map((p) => (
+          <DropdownMenuItem
+            key={p.id}
+            disabled={!p.connected}
+            onSelect={() => p.connected && void chooseProvider(p.id)}
+          >
+            <Check
+              className={cn("size-3.5 shrink-0", !p.live && "opacity-0")}
+              strokeWidth={2}
+            />
+            <span className="flex-1">{PROVIDER_NAMES[p.id]}</span>
+            <span className="text-muted-foreground text-[11.5px]">
+              {!p.connected
+                ? "not connected"
+                : p.live
+                  ? `default · ${p.policy.mode === "series" ? "series" : `${p.policy.concurrency} at once`}`
+                  : "ready"}
+            </span>
+          </DropdownMenuItem>
+        ))}
+        {providers?.live && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void chooseProvider(null)}>
+              <span className="size-3.5 shrink-0" />
+              No default — nothing completes
+            </DropdownMenuItem>
+          </>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/settings">
+            <SlidersHorizontal className="size-3.5" strokeWidth={1.6} />
+            Endpoints and policy
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   const hasChat = messages.length > 0 || sending;
 
   return (
@@ -437,6 +614,7 @@ export function Chat() {
       <header className="flex h-12 shrink-0 items-center gap-2 px-4.5">
         {picker}
         <div className="ml-auto flex items-center gap-0.5">
+          {providerPicker}
           {selector}
           <Link
             to="/dashboards"
@@ -469,21 +647,63 @@ export function Chat() {
             "nothing is chosen" from "the chosen one has no credentials", which
             are two different walks to two different places.
           */}
+          {/*
+            NO AGENT — WHICH IS NOW TWO DIFFERENT SITUATIONS, AND THE BANNER
+            SAYS WHICH.
+
+            With a provider live this is not a warning at all: the composer
+            works, the message gets an answer, and the only thing the owner
+            needs to know is that there is no agent in front of the model — no
+            tools, no memory beyond this transcript — so an answer that says "I
+            cannot look that up" is telling the truth rather than failing. It
+            is drawn as a plain note with a Cpu rather than a warning triangle,
+            because a triangle over a working composer teaches the owner to
+            ignore triangles.
+
+            With nothing live at all it is the original warning, and `why` is
+            the server's own sentence: "nothing is chosen" and "the chosen one
+            has no credentials" are two different walks to two different pages.
+          */}
           {noAgent && (
             <div className="border-line-strong bg-card mb-5 flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3">
-              <TriangleAlert
-                className="text-muted-foreground mt-0.5 size-4 shrink-0"
-                strokeWidth={1.6}
-              />
+              {fallback ? (
+                <Cpu
+                  className="text-muted-foreground mt-0.5 size-4 shrink-0"
+                  strokeWidth={1.6}
+                />
+              ) : (
+                <TriangleAlert
+                  className="text-muted-foreground mt-0.5 size-4 shrink-0"
+                  strokeWidth={1.6}
+                />
+              )}
               <p className="text-[12.5px]">
-                <span className="font-medium">No agent is live.</span>{" "}
-                <span className="text-muted-foreground">
-                  {backends?.why ??
-                    "Connect Hermes or OpenClaw and choose one as the chat backend."}{" "}
-                </span>
-                <Link to="/integrations" className="underline underline-offset-2">
-                  Open Integrations
-                </Link>
+                {fallback ? (
+                  <>
+                    <span className="font-medium">
+                      Talking to {fallback.label} directly — no agent in front of
+                      it.
+                    </span>{" "}
+                    <span className="text-muted-foreground">
+                      Answers come straight from the model: no tools, no memory
+                      beyond this conversation.{" "}
+                    </span>
+                    <Link to="/integrations" className="underline underline-offset-2">
+                      Connect an agent
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium">Nothing is live.</span>{" "}
+                    <span className="text-muted-foreground">
+                      {backends?.why ??
+                        "Connect Hermes or OpenClaw and choose one as the chat backend, or choose a model provider."}{" "}
+                    </span>
+                    <Link to="/integrations" className="underline underline-offset-2">
+                      Open Integrations
+                    </Link>
+                  </>
+                )}
               </p>
             </div>
           )}
@@ -561,7 +781,7 @@ export function Chat() {
                       was free.
                     */}
                     <p className="text-muted-foreground mt-1.5 text-[11.5px]">
-                      {m.backend ? BACKEND_NAMES[m.backend] : "Agent"}
+                      {authorName(m.backend)}
                       {m.model && ` · ${m.model}`}
                       {m.ms !== null && ` · ${(m.ms / 1000).toFixed(1)}s`}
                       {m.usage &&
@@ -573,7 +793,8 @@ export function Chat() {
 
               {sending && (
                 <p className="text-muted-foreground text-[12.5px]">
-                  {backends?.liveLabel ?? "The agent"} is thinking…
+                  {backends?.liveLabel ?? fallback?.label ?? "The agent"} is
+                  thinking…
                 </p>
               )}
 
@@ -605,7 +826,7 @@ export function Chat() {
                 }
               }}
               placeholder={
-                noAgent
+                noAgent && !fallback
                   ? "Connect an agent under Integrations to start talking…"
                   : "Ask anything, or describe what you want to build…"
               }
@@ -650,7 +871,9 @@ export function Chat() {
           <p className="text-muted-foreground mt-2.5 text-center text-[11.5px]">
             {backends?.liveLabel
               ? `${backends.liveLabel} is answering. Only one agent is live at a time.`
-              : "Every chat lands in the rail. Naming a venture is optional."}
+              : fallback
+                ? `${fallback.label} is answering directly, across ${fallback.endpoints} endpoint${fallback.endpoints === 1 ? "" : "s"}. No agent, so no tools.`
+                : "Every chat lands in the rail. Naming a venture is optional."}
           </p>
         </div>
       </div>

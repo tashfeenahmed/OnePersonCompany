@@ -15,6 +15,10 @@ import { useApi } from "@/hooks/useApi";
 import { api, type PluginAccount, type ServerPlugin } from "@/lib/api";
 import { HetznerPanel } from "@/components/HetznerPanel";
 import { TelegramPanel } from "@/components/TelegramPanel";
+import { AgentPanel } from "@/components/AgentPanel";
+import { SearxngPanel } from "@/components/SearxngPanel";
+import { FreeLlmApiPanel } from "@/components/FreeLlmApiPanel";
+import { LocalModelsPanel, ProviderPolicyPanel } from "@/components/LocalModelsPanel";
 
 /** The vault name a field lands under: one field takes the base name, several
  *  take `base-fieldKey`. The same rule as agent/integrations.js. */
@@ -47,7 +51,19 @@ export function PluginDetail() {
   // Is this one actually wired to the API, or still catalog-only? The server
   // answers that; the page does not assume it.
   const server = useApi(() => api.plugin(id ?? ""), [id]);
-  const live = !server.error && server.data?.collectable === true;
+  /*
+    COLLECTABLE OR MERELY CONFIGURABLE — either one means the API backs this
+    plugin, and only the second is true of the four that COMPLETE rather than
+    collect. The two agents and the model providers hold real accounts and run
+    no collector (a completion is its own health check and happens when
+    somebody asks, not on a timer), so asking only about a collector drew them
+    the catalog-only form and the sentence "not wired to the API yet" under a
+    credential the vault was already holding. The server has answered both
+    questions since `configurable` was added beside `collectable`.
+  */
+  const live =
+    !server.error &&
+    (server.data?.collectable === true || server.data?.configurable === true);
 
   /*
     THE TWO AGENTS ARE THE ONLY PLUGINS WHERE CONNECTING IS NOT THE LAST STEP.
@@ -70,6 +86,22 @@ export function PluginDetail() {
     [id, isAgent],
   );
   const chatRow = chat.data?.backends.find((b) => b.id === id) ?? null;
+
+  /*
+    SEARXNG IS THE ONE INTEGRATION THIS BOX CAN INSTALL RATHER THAN CONNECT TO,
+    and its panel needs to know which endpoint the settings hold — the same
+    value the Settings section below edits. Fetched here rather than read out
+    of that section, because the panel sits ABOVE it: the choice between "a
+    node you already run" and "install one here" is the first thing on the
+    page, and a panel that had to wait for a form further down to load would
+    render the wrong half of it first. Only for this one id; every other plugin
+    gets `null` without a request.
+  */
+  const isSearxng = id === "searxng";
+  const searxConfig = useApi(
+    () => (isSearxng ? api.pluginConfig("searxng") : Promise.resolve(null)),
+    [id, isSearxng],
+  );
 
   if (!plugin) {
     return (
@@ -271,6 +303,20 @@ export function PluginDetail() {
               it an accounts list would be showing a feature that does not
               exist for it yet.
           */}
+          {/* The two doors onto a search node, before the form for one of
+              them — see SearxngPanel: neither is the advanced path, so the
+              page offers both rather than leading with the one that needs a
+              second machine. */}
+          {live && isSearxng && (
+            <SearxngPanel
+              endpoint={searxConfig.data?.config.url ?? null}
+              onChanged={() => {
+                server.reload();
+                searxConfig.reload();
+              }}
+            />
+          )}
+
           {live && !!plugin.fields.length && (
             <Accounts
               plugin={plugin}
@@ -347,6 +393,38 @@ export function PluginDetail() {
             <HetznerPanel onCollected={() => server.reload()} />
           )}
           {live && connected && plugin.id === "telegram" && <TelegramPanel />}
+          {/* The agents get their panel whether or not a credential has been
+              pasted, which is the one place this page breaks its own rule that
+              a panel follows a connection. It has to: the whole point of
+              "spawn here" is that there is nothing to paste, and hiding the
+              second path behind the first would leave an owner with no agent
+              anywhere staring at a form asking for the address of one. */}
+          {live && isAgent && <AgentPanel id={plugin.id as "hermes" | "openclaw"} />}
+
+          {/*
+              FREELLMAPI, AND NOT GATED ON `connected` — which is the point of
+              it. The panel's whole left half is the path for somebody with no
+              account at all: install the gateway here, and it mints its own
+              key and connects itself. A panel that waited for a credential
+              would be a panel that could never produce the one it was waiting
+              for. It draws its own empty states.
+          */}
+          {live && plugin.id === "freellmapi" && <FreeLlmApiPanel />}
+
+          {/* The endpoints, what each one is serving right now, and the policy
+              that decides which takes the next call. Gated on `connected`,
+              unlike FreeLLMAPI's above: there is nothing this panel can do for
+              somebody with no endpoint, and an endpoints list over an empty
+              credentials form is a panel about nothing. */}
+          {live && connected && plugin.id === "local" && <LocalModelsPanel />}
+
+          {/* The same policy block, smaller, on the two COST integrations that
+              can also complete. It draws nothing until an inference key has
+              been stored, so a page whose owner only wants the spend chart is
+              exactly as it was. */}
+          {live && connected && (plugin.id === "openai" || plugin.id === "openrouter") && (
+            <ProviderPolicyPanel id={plugin.id} />
+          )}
 
           {live && !!server.data?.runs.length && (
             <>
@@ -916,6 +994,10 @@ function AccountForm({
             className="font-mono text-[12.5px]"
           />
           <p className="text-muted-foreground text-[11px]">
+            {/* An optional field says so HERE as well as in its label, because
+                the label is what a reader skims and this is where they look
+                when they are stuck on an empty box. */}
+            {f.optional ? "Optional — leave it empty if there is nothing to paste. " : ""}
             {f.kind === "secret"
               ? "Write-only — it is never read back out."
               : "Public by design — shown in full."}

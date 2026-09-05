@@ -115,6 +115,44 @@ accounts"), and the Hetzner panel breaks the monthly figure down per account
 once there is more than one. A figure that quietly became a sum is a figure
 that changed meaning.
 
+### SearXNG is the one page that offers to install something
+
+Every other integration is a credential pointed at somebody else's service.
+SearXNG has two doors, and `SearxngPanel` draws them **side by side rather than
+as a wizard**: "Add a URL and a key" for a node the owner already runs, and
+"Install here", which asks the server to clone SearXNG, build it into its own
+virtualenv and run it on `127.0.0.1:8888`. Neither is the advanced path — a
+node that already exists is the right answer on a box that should not be
+compiling anything, and a local install is the right answer on a laptop with
+nothing yet — so a flow that led with one would be making the choice for the
+owner.
+
+The right-hand column has to draw a **process**, which nothing else on this
+page does, and each part of it earns its place:
+
+- **the state as a word, with the sentence the word cannot carry.**
+  `installed` and `stopped` are the same directory on disk and mean different
+  things about what has happened; telling somebody their fresh install is
+  "stopped" invites them to go hunting for what stopped it.
+- **the step and the last twelve log lines while it installs.** It is a clone,
+  a virtualenv and three compiled dependencies — a minute or two of nothing
+  visible — and a spinner with no words under it is indistinguishable from a
+  hang.
+- **the commit and the Python version.** "SearXNG" is not a version; there is
+  no release tag to print instead, and the day it breaks the only useful
+  question is which checkout is on disk.
+- **"connected automatically", once it is.** There is no key to paste and no
+  Save to press, so without that line the panel would look like a form the
+  owner had failed to fill in.
+- **running and *in use* kept apart.** The instance can be up while the
+  endpoint setting still points at the remote node, which is a legitimate
+  state and the panel says so plainly rather than implying the searches have
+  moved.
+
+It polls **only while something is moving** — installing or starting — because
+an installed instance does not change on its own, and a page re-fetching every
+two seconds forever would be spending the machine to redraw the same word.
+
 ## The Servers dashboard
 
 Modelled on the fleet page in WorkDash — the four figures first, then the

@@ -233,7 +233,27 @@ with entry names and timestamps only.
 | `GET /api/telegram` | the bot, the chat it is paired with, whether the poller is running, and how many messages from other chats it threw away |
 | `DELETE /api/telegram/lock[/:accountId]` | un-pair a bot, so the next message from any chat pairs it again |
 | `GET /api/mail?days=30` | every mailbox and every sending domain — what is waiting, what arrived, and what became of what left |
+| `GET /api/searxng/instance` | the locally installed search node: what is on disk, what is running, the install's step and log |
+| `POST /api/searxng/instance/install\|start\|stop` | install it, run it, stop it |
+| `GET /api/search?q=` | **a tool, not a report** — search through whichever SearXNG instance is active |
+| `GET /api/freellmapi` | the model gateway: what is installed under `data/freellmapi/`, what is running, both endpoints, which one answers, and its catalog |
+| `POST /api/freellmapi/instance/install\|start\|stop` | install it, run it, stop it |
+| `POST /api/freellmapi/instance/reconnect` | re-read the managed instance's own key and re-seal it |
+| `PUT /api/freellmapi/account` | choose which endpoint answers, or `null` for automatic |
+| `GET /api/models/providers` | every model provider, which is the default, and what the limiter is doing right now |
+| `PUT /api/models/provider` | choose the default, or `null` for none |
+| `PUT /api/models/:id/policy` | series or parallel, how many at once, which endpoint next, how long to wait |
+| `DELETE /api/models/:id/policy` | forget those four, so the provider's own default stands again |
+| `GET /api/models/local/models` | what each local endpoint is serving, asked live |
+| `POST /api/models/complete` | one completion through the default provider, under its policy. Writes no transcript |
 | `GET /api/metrics/:metric?days=30` | one series, for a widget |
+| `GET /api/agents` | both agents as processes: installed, running, what each is pointed at, which is live |
+| `GET /api/agents/:id` | one of them |
+| `POST /api/agents/:id/install` | install Hermes or OpenClaw into `DATA_DIR/<agent>/` — a job, answered 202 |
+| `POST /api/agents/:id/start\|stop` | configure from the active provider and spawn it; SIGTERM it |
+| `POST /api/agents/:id/reconfigure` | rewrite its provider config now, restarting it if it is up |
+| `POST /api/agents/:id/make-live` | make it the chat backend — the same `chat.backend` switch |
+| `POST /api/agents/:id/mode` | which credential answers: the instance here, or a pasted remote one |
 
 Every write goes through a **closed registry** (`src/routes/plugins.ts`), for
 the reason WorkDash's is closed: a route that can write any name into the vault
@@ -1403,6 +1423,148 @@ Run on 2026-09-04 it printed 30 results in 1450ms, `bing, brave` answering and
 `duckduckgo (CAPTCHA), qwant (access denied)` refusing, then `verified and
 stored · connected: true · vault entries: searxng-key`.
 
+### Two kinds of instance, and the second one this box installs itself
+
+Everything above is the REMOTE node. There is now a second way to have one:
+**`POST /api/searxng/instance/install`** clones SearXNG into
+`DATA_DIR/searxng/`, builds it into its own virtualenv with `uv`, writes a
+settings file and runs it as a child of this process on **127.0.0.1:8888**.
+
+**The 401 that shaped this integration is not SearXNG.** SearXNG has no key
+auth and never has — the key belongs to the reverse proxy in front of the
+owner's public node, which is what makes a public node possible at all.
+Measured on 2026-09-05 against a locally installed instance: `/healthz` is 200
+and two bytes with no key, `/stats` is 200, a search answers. So the managed
+mode sends **no `x-api-key` header at all**, and A LOOPBACK BIND IS THE AUTH:
+nothing off this machine can open that port, and a key checked by this process
+against a value this process generated would be a password on a door in a
+locked room.
+
+**Which mode is in force is derived from the endpoint, never typed.**
+`plugin_config` holds `mode` beside `url`, the settings form rewrites it on
+every save, and the provider insists on BOTH — managed *and* loopback — before
+it drops the header. A mode row that had drifted from the URL would otherwise
+be a bug with two symptoms: a key sent to an instance that ignores it, or a
+call to somebody's public host with the credential stripped off. Pointing the
+endpoint back at the remote node is the whole of "stop using the local one":
+the key is still sealed in the vault, the next search uses it, and no restart
+or re-paste is involved.
+
+**Auto-connect writes no credential.** On the first healthy run the installer
+writes the URL and the mode, marks the existing account connected — creating
+one only if the plugin has never held anything — and probes. It never touches
+the vault, which is exactly what makes switching back a one-field change.
+
+**What it cost here, measured.** On an arm64 Mac with `uv` already present:
+**67 seconds** from the button to `installed`, pinned to commit
+`23e7e4da008fdc9ac5b27b2625faa9144d46f208`, on **CPython 3.12.13** (3.14 is on
+this machine and is too new for the compiled dependencies — `lxml`, `msgspec`
+and `curl_cffi` all had arm64 wheels for 3.12 and none was built from source).
+It answers `/healthz` about three seconds after the process starts. Two engines
+— `ahmia` and `torch` — fail to register at boot, which is upstream's onion
+engines finding no Tor proxy, and is not a fault.
+
+**And the local instance searches better than the remote one**, which was not
+the expected result. The same probe, minutes apart: the Hetzner node returned
+30 links and **0 of them on reddit.com** with duckduckgo answering CAPTCHA and
+qwant "access denied"; the local one returned **36 links, all 36 on
+reddit.com**, with brave, google and duckduckgo all answering and only
+`startpage` refusing (a parsing error). That is the datacentre-versus-home-IP
+difference, and it is the reason the `on_site` column exists.
+
+**The process is never orphaned.** The instance is spawned by the API and:
+
+- SIGTERM on `SIGINT`/`SIGTERM`, then SIGKILL after five seconds — a shutdown
+  that can be refused is not a shutdown;
+- SIGKILL from the `exit` handler, which is the last resort and can only do
+  synchronous work;
+- restarted with exponential backoff if it dies while it is meant to be
+  running, and given up on after five starts that never reached health — an
+  instance that HAS worked is worth bringing back, one that never has is
+  failing for a reason the fifth attempt will not change;
+- started again at boot if it was running when the API last stopped, which is
+  the owner's own instruction in `plugin_config` and not a guess about what
+  was running;
+- and **reaped** at boot when the API was `kill -9`'d: the child's pid is
+  written to `searxng.pid`, and a start that finds the port busy kills a
+  process it can prove is its own and refuses one it cannot.
+
+### The tool surface: `GET /api/search`
+
+```
+GET /api/search?q=self+hosted+search+engine
+GET /api/search?q=nixos+flakes&engines=duckduckgo&language=de&page=2
+GET /api/search?q=planning+permission&categories=news
+```
+
+```json
+{
+  "query": "self hosted search engine",
+  "results": [
+    {
+      "title": "…", "url": "https://…", "content": "…",
+      "engine": "brave", "score": 4.5, "publishedDate": null
+    }
+  ],
+  "engines": {
+    "answered": [{ "engine": "brave", "results": 20 }],
+    "refused":  [{ "engine": "startpage", "reason": "parsing error" }]
+  },
+  "ms": 1361,
+  "instance": "managed"
+}
+```
+
+**This is the one route on this box that a caller ACTS on rather than reads.**
+Everything else here reports what a service already did; this performs a search
+and hands back links.
+
+**It is not the `/api/search` this README argues against.** That argument is
+about a *report* over Google's and Bing's figures — two populations that must
+never be added, which is why `/api/gsc` and `/api/bing` are two routes — and it
+stands. Nothing on this route is a measurement, so there is nothing on it to
+add up wrongly.
+
+**GET-only, no body, no key.** An agent that can fetch a URL can use it, with
+no client, no SDK and no schema; and a GET can be tried by hand in a terminal,
+which is how anybody debugs an agent that says it searched and came back with
+nothing. It needs no credential because the API binds to 127.0.0.1 and this
+route is behind that bind like every other one — a token here would be a
+credential for a service already unreachable from anywhere it would matter. On
+the LAN it is reachable only if the owner deliberately binds the API wider,
+which is a decision made in one place and not here.
+
+**The caller never learns which instance answered except as a fact on the
+answer.** `instance` is `"managed"` or `"remote"` and is there because "why are
+these results different from yesterday's" is usually answered by it. Switching
+instances changes nothing about how anything asks.
+
+**`publishedDate` is `null` when the engine did not say so**, and never today's
+date; `engine` is the engine that carried the result; `refused` is reported even
+on a perfectly successful search, because a metasearch node down to one engine
+still answers ten links and looks healthy.
+
+**A managed instance that is not running is a 503 with a sentence**, never an
+empty result set. Zero links means the engines found nothing; this means nobody
+asked them, and an agent handed the first when the second is true will report
+that the web is empty on the subject. An upstream failure is 502 with the node's
+own words, scrubbed of the key.
+
+**How an agent is pointed at it.** There is no tool-registration hook here and
+this deliberately does not invent one: `providers/hermes.ts` and
+`providers/openclaw.ts` are chat adapters that send messages and read replies,
+and neither Hermes' OpenAI-compatible proxy nor OpenClaw's gateway takes a tool
+definition from this side of the wire. What both DO take is a system prompt or
+an agent configuration held on their own side — so an agent is pointed at this
+by being told the URL:
+
+> To search the web, GET `http://127.0.0.1:8787/api/search?q=<url-encoded
+> query>` and read `results[].title`, `.url` and `.content`. No key. Optional:
+> `categories`, `engines`, `language`, `page`.
+
+That is the whole integration, and it is the same sentence for a sub-agent
+running on this box, for a shell script, and for `curl`.
+
 ### Collected every six hours
 
 `DEMAND_EVERY_HOURS` is 6, for the reason `SEARCH_EVERY_HOURS` and
@@ -1410,6 +1572,14 @@ stored · connected: true · vault entries: searxng-key`.
 and its score matures over a day, the window being searched is a year wide, and
 these are two free endpoints nobody is obliged to serve us. A phrase newly
 typed is asked immediately regardless, and so is one the last run deferred.
+
+**And the clock does not apply across a change of instance** — the same
+correction `MAIL_EVERY_HOURS` needed for an account it had never read. The
+endpoint can move from the remote node to a locally installed one in a single
+click, and a probe that called itself "not due" would leave the latency, the
+engine list and the on-site count describing a node the box had stopped
+searching, for up to six hours, with nothing on the page able to say so. The
+state row records the URL it probed; a different one is always due.
 
 ### What is deliberately not here
 
@@ -1802,6 +1972,551 @@ A finished Gmail day is asked about once and the newest three are re-read every
 run, because a day is still gaining mail until it is over — the same "never
 re-fetch a day already answered, bar the ones still moving" rule the app stores
 keep. In steady state that is six day queries a run rather than sixty.
+
+## Model providers: who completes, and how many at once
+
+Two layers, and the distinction is the whole design. An **agent** — Hermes,
+OpenClaw — thinks: tools, memory, multi-step work, and exactly one of them
+answers the Chat page. A **provider** — a local model, OpenAI, OpenRouter,
+FreeLLMAPI — completes: turns in, text out, over an OpenAI-shaped wire, and
+exactly one is the DEFAULT that every agent is pointed at. `src/models/provider.ts`
+is the contract and the limiter; `src/routes/models.ts` owns the settings and
+hands the contract its choice reader, exactly as `routes/chat.ts` does for the
+agent seam.
+
+So "which model" is decided once, in one place, and switching it takes effect
+on the next completion rather than the next restart — the factory is called on
+every `activeProvider()`, so a rotated key, a changed URL or a switched policy
+is picked up with no bounce.
+
+**The default may be unset, and that is the shipping state.** Nothing picks a
+provider on the owner's behalf. Quietly defaulting to whichever happens to be
+connected is a dashboard that starts spending somebody's OpenRouter credits
+because a key was in the vault.
+
+### The policy lives with the provider, not the caller
+
+A local model on one GPU wants calls in **series** — two at once halves the
+speed of both and can run the card out of memory. A hosted API wants them in
+**parallel** up to some ceiling. Two local boxes want the calls **spread**.
+Those are facts about the service, so they are settings on it
+(`plugin_config`, under `policy.mode`, `policy.concurrency`, `policy.balance`
+and `policy.timeoutMs`), and every caller gets the right behaviour without
+knowing why. The limiter enforces them in-process; it is not a promise the
+callers keep.
+
+| | mode | at once | balance | timeout | why |
+| --- | --- | --- | --- | --- | --- |
+| `local` | series | 1 | round-robin | 120s | one GPU. The model already loaded is the fast one |
+| `openai` | parallel | 6 | least-busy | 120s | not about OpenAI's limits — about a runaway loop here not spending six ways before anybody notices |
+| `openrouter` | parallel | 4 | least-busy | 180s | it is a router; the request waits on whichever upstream it picked, and the free-tier ones are slow |
+| `freellmapi` | parallel | 4 | round-robin | 120s | argued in its own section below |
+
+Every one is overridable per provider and every write is validated: mode is
+`series` or `parallel`, concurrency is a whole number 1–64, balance is
+`round-robin` or `least-busy`, and the timeout is 5s–10min. The bounds are not
+limits of this box — 64 is the point past which a number is a typo, and below
+five seconds no real completion finishes.
+
+**The limiter is proved rather than asserted.** `scripts/limiter-proof.mjs`
+fires four concurrent completions under each policy against whatever `local`
+endpoints are connected, and reads back what happened from figures the server
+reports. Under `series` it measures an observed concurrency of 1.00 with
+`queuedMs` climbing 0 → 310 → 683 → 1226; under `parallel/4` every call's
+`queuedMs` is zero. Four simultaneous calls alternate across two endpoints
+under *both* balance rules, so the script also runs the uneven load that tells
+them apart — one long call left running, one short call completed elsewhere,
+then a third — where round-robin hands the third call to the endpoint still
+busy (1115ms) and least-busy hands it to the free one (51ms).
+
+### `local`: one plugin for every OpenAI-compatible server
+
+Ollama, LM Studio, vLLM, llama.cpp's server and a hand-rolled FastAPI all
+answer `GET /v1/models` and `POST /v1/chat/completions`, and the differences
+between them are in what they RUN rather than in how they are asked. A plugin
+per product would be six plugins holding one adapter and a seventh the day
+somebody ships a new runner. So there is one, its credential is a URL, and the
+product's name is what the owner types in the account's label.
+
+**This is the one plugin where several accounts mean throughput.** Everywhere
+else a second account is a second thing to read — another Hetzner project,
+another mailbox. Two local endpoints are two machines that can each take a
+completion, and the limiter spreads across them. It is also the opposite of
+the agents, where several accounts exist and exactly one answers: asking two
+agents one question is two answers to reconcile; asking two endpoints two
+questions is twice the throughput.
+
+**The key is optional, which no other credential here is.** Ollama and LM
+Studio ship with no auth and bind to loopback, which IS the access control —
+the same argument SearXNG's managed instance makes. But an empty key against a
+host that is NOT on the owner's own network is refused with a sentence, and a
+key is never sent in the clear over plain `http` to such a host. Both rules are
+in the provider rather than only in the verify, so a hand-edited row cannot
+walk around them.
+
+An endpoint whose `/models` answers and lists **nothing** is refused at the
+door. A runner with nothing pulled connects perfectly and then fails every
+completion with "model not found", which is the connect-happily-then-be-empty
+failure this codebase keeps catching early — and it is the likeliest way this
+integration is first tried.
+
+### OpenAI and OpenRouter hold two keys, and neither can do the other's job
+
+This was probed rather than assumed, on 2026-09-05, with the keys already in
+this vault. Verbatim, scrubbed:
+
+```
+openai   sk-admin-…  GET  /v1/models
+         403 "…Missing scopes: api.model.read…"
+                     POST /v1/chat/completions
+         401 "…Missing scopes: model.request."   code missing_scope
+
+openrouter  management key  POST /api/v1/chat/completions
+         401 {"error":{"message":"User not found.","code":401}}
+```
+
+So the key that reads the bill cannot ask the model a question, on both
+services, for two unrelated reasons — and `src/providers/openrouter.ts` had
+already established the reverse, that an inference key is refused by
+`/activity` and `/keys`. Each plugin therefore gains a second, **optional**
+field, `chat-key`: a project key on OpenAI, an ordinary inference key on
+OpenRouter. The cost collectors are untouched and read `key` as they always
+did; an owner who only wants their spend chart pastes one key and is never
+nagged for another.
+
+The entry names are `openai-chat-key` and `openrouter-chat-key`, not
+`openai-admin-key-key`. A plugin that grows a second field late would otherwise
+flip the naming derivation and rename the first field's entry for every new
+account, breaking the promise this file makes about where to look — so the
+second field is written under its own stem and the first keeps the name it has
+always had.
+
+**One probe here looks like evidence and is not.** OpenRouter's
+`GET /api/v1/models` answers 200 to the management key — and to no key at all,
+which was checked. Its catalog is public, so a verify built on it would pass
+every string ever typed into the box. The inference key is verified against
+`/api/v1/key`, which says `is_management_key` about itself, and a key whose own
+spend limit is exhausted is refused there too: it answers `/key` perfectly and
+402s every completion.
+
+**Neither of the two keys in this vault can complete**, so no completion has
+ever been made through OpenAI or OpenRouter here. That gap is stated rather
+than papered over; the wiring is exercised by the refusals above, which are
+real round trips to both services.
+
+### The chat fallback: a model with nothing in front of it
+
+`POST /api/chat` used to answer 503 when no agent was live. It now falls
+through to `complete()` when a provider is, and stamps the assistant row
+`provider:<id>` rather than with an agent's name. Reading a transcript six
+weeks later, "Hermes" and "Local model, direct" are two different claims about
+what that answer was capable of being.
+
+The order is **agent first, always**. An agent that is live is what the owner
+chose and is strictly more capable; falling through to a raw model while one
+was running would answer a question with the worse of two available answers.
+And the fallback goes through `complete()` rather than round the side of it, so
+a chat message queues behind the provider's policy exactly as an agent's turn
+would — a chat that jumped the limiter would be the one caller able to put two
+completions on a single GPU at once.
+
+`ChatBackendId` is unchanged and still means the two agents; the widening
+happens once, on the stored MESSAGE, as `MessageBackendId`. Neither adapter has
+to know the provider layer exists and neither can accidentally claim to be one.
+
+## FreeLLMAPI: the second thing this box can install rather than connect to
+
+FreeLLMAPI is an OpenAI-compatible **gateway**: it holds keys for the ~34
+providers that publish a free tier, aggregates their catalogs into one
+`/v1/models`, and routes each completion to whichever of them can serve the
+model right now, failing over when one is throttled. It is the owner's own
+open-source project (`github.com/tashfeenahmed/freellmapi`).
+
+**There is no hosted FreeLLMAPI, and establishing that shaped the whole
+integration.** Probed on 2026-09-05: `freellmapi.co` is a static site on
+Cloudflare Pages — every path under `/v1` answers 404 as HTML, and a POST to
+one is 405, because static hosting has no POST. `api.freellmapi.co` is a
+different service again: the **catalog and licence** API (`/v1/latest`,
+`/v1/license`, `/v1/account`, `/v1/checkout`), which sells the same-day model
+catalog to a `$19/yr` licence and completes nothing. The catalog entry that
+described this plugin as "the in-house catalog API" was describing that second
+thing, and has been corrected.
+
+So an instance is always somebody's own, the base URL is a **field**, and there
+are two ways to have one. Both end up as accounts of the same plugin, because
+they are the same software and the same wire — which is what makes switching
+which one answers a click rather than a re-paste.
+
+| | |
+| --- | --- |
+| **hosted** | an instance running elsewhere. The owner's is on the Hetzner box at `https://freellm.178-105-187-189.sslip.io/v1` — the same endpoint workdash's `agent/llmprovider.js` completes against, which is where that placeholder comes from. Its key is the `freellmapi-key` already in the Pi's vault |
+| **managed** | cloned into `data/freellmapi/`, built, and run as a child of this process on `127.0.0.1:3001`. Nothing is pasted: it mints its own key |
+
+### Three facts that are constantly confused, and are kept apart
+
+`installed` is something on disk. `running` is a child process answering on
+3001. **`inUse` is which endpoint a completion would actually go to** — and it
+is a third thing, because a running local instance beside a deliberately chosen
+hosted account is a legitimate state. With no explicit choice the local one
+wins **while it is healthy**, because a completion served on this machine costs
+nobody's free-tier allowance and cannot be taken away by a box rebooting; the
+hosted one answers when it is not. A choice made by hand overrules that and is
+never quietly ignored — but it is also never allowed to point at an account
+that has been deleted, because an id left behind would otherwise mean "no
+provider" with nothing on the page able to say why.
+
+A fourth, one layer up: whether FreeLLMAPI is the **default provider** at all
+(`PUT /api/models/provider`). A perfectly connected gateway with a local model
+chosen over it completes nothing, and the panel says so rather than showing a
+green dot beside silence.
+
+### The key is minted headlessly, and that was the open question
+
+The documented route to a key is "open the dashboard, go to Keys, copy it",
+which no process can do. It turns out not to be where the key comes from.
+Reading the repo at commit `1edb8d5`: the unified key is **inserted by the
+baseline migration** the first time the database is created — `freellmapi-`
+plus 24 random bytes as hex, into `settings.unified_api_key`, in plaintext,
+before any account exists. The dashboard's Keys page reads that row; it does
+not create it.
+
+So the install runs the migration itself (`npm run db:migration:up -w server`,
+with `FREEAPI_DB_PATH` pointing inside `data/freellmapi/`) and then reads one
+row out of the resulting file with `node:sqlite` — the reader this runtime
+already has for `opc.db`. **No account, no browser, and nothing on port 5173 at
+any point.** The value goes from that row into the vault and is never logged,
+returned or passed as an argument.
+
+Two working routes were rejected:
+
+- **The HTTP one.** `POST /api/auth/setup` is open without a setup code from a
+  loopback socket, so this process could claim the dashboard with an invented
+  email and password and read the key from `GET /api/settings/api-key`. It
+  would also permanently claim the owner's dashboard with a password only this
+  process knows — locking them out of the page where provider keys are added —
+  to obtain a value already sitting in a file. The owner claims it themselves,
+  from a browser on this machine, with no code needed.
+- **Scraping the boot log.** The migration writes the key straight to stdout,
+  deliberately past the gateway's own redaction, because for a person
+  installing by hand that line *is* the delivery. Parsing it would make the
+  key's arrival depend on a log format — and that line is exactly why
+  `instance.ts` scrubs every line it writes down: `freellmapi-…` and `sk-cp-…`
+  are replaced whole before anything reaches the log file or the panel.
+
+### What the install actually does
+
+Clone shallow and record the commit; `npm ci` at the repo root (it is an npm
+workspace — installing inside `server/` produces a tree that cannot see
+`@freellmapi/shared`); check that `better-sqlite3` really has its prebuilt
+binary, because it is an **optional** dependency whose absence npm reports as
+success and the gateway discovers on its first query; `npm run build -w server`
+into `server/dist/`; `npm run build -w client`, whose failure is **not** the
+install's failure — the API works without the bundle and only the browser page
+would not render; then the migration above.
+
+It is refused before the clone if this API's own Node is outside the gateway's
+`engines` (`>=20.18.0 <25.0.0`), because finding that out at `npm ci` is a
+wasted clone and a confusing error about a dependency.
+
+Three environment variables carry the whole configuration, and one is
+load-bearing: **`HOST=127.0.0.1`**. The gateway binds `::` by default — every
+interface, dual stack — which for a service guarded by a single bearer token on
+a laptop that joins café wifi is not a default anybody chose. `FREEAPI_DB_PATH`
+puts the database (and the `.encryption-key` it generates beside it) under
+`data/freellmapi/data/`, so a reinstall of the checkout does not throw away the
+provider keys the owner added. `NODE_ENV` is deliberately **unset**: at
+`production` the gateway refuses to start without an `ENCRYPTION_KEY`, at
+`development` it refuses to run its own migrations, and unset is the one value
+that self-migrates and generates its own key.
+
+### A fresh gateway routes to nothing, and the smallest honest fix
+
+Installed and started with nothing in it, the gateway's catalog is real — 250
+models on this machine — and **every candidate fails**: `no enabled+healthy key
+for platform`, because a model is only reachable through a provider the owner
+has given a key for. "Install here" would end with a running process, a
+connected account, and a completion that fails in a paragraph.
+
+Two of the providers need no key: Kilo's gateway serves its `:free` routes
+anonymously and OVH's AI Endpoints have an anonymous tier, and the repo
+registers both `keyless: true` — the adapter sends no `Authorization` header
+and the stored "key" is a sentinel row saying the provider is on. The **first
+start** switches those two on through the gateway's own declarative-config
+mechanism, and records it on the install marker.
+
+**Once, and never again**, which is why it is not simply an environment
+variable left in place: the gateway applies that config idempotently on every
+boot and reads a missing `enabled` as *enabled*, so a config left in the
+environment would switch these two back on every time the owner turned them
+off. Seeded once, the dashboard's own switches are the last word. Nothing else
+is seeded — no routing strategy, no model list, no fallback order, because
+those are opinions about somebody else's gateway.
+
+### The policy: parallel, four at a time
+
+`series` is right for a single local model because two calls at once halve the
+speed of both — the contention is *ours*. Nothing here is contended by our own
+concurrency: every completion runs on somebody else's machine, and this is a
+router with a failover loop, not a GPU. Unbounded is wrong for the opposite
+reason: the scarce thing is upstream free-tier allowance, counted per minute
+and spent by failover retries as well as by answers, and the gateway
+rate-limits its own proxy surface at 120 requests a minute per client IP by
+default. Four in flight, at the five-to-thirty seconds a free provider actually
+takes, is comfortably inside that.
+
+The timeout is two minutes rather than the wire's sixty seconds, because the
+gateway's own failover budget is 45 seconds and its per-provider ceilings run
+to 180: a turn that fails over twice is legitimately slow, and cutting it at
+sixty would report a timeout for a request that was about to answer. All four
+numbers are overridable per provider from the models page.
+
+`defaultModel` is `null` unless the owner pins one, and here that is a real
+answer rather than a shrug: this gateway's catalog **begins with its own
+routing aliases** — `auto` first, measured on both instances — so "whatever the
+endpoint lists first" is the router saying "let me choose". The model that
+actually answered is on every reply, because it routes elsewhere constantly:
+the two probes below were answered by two different models neither of which was
+asked for.
+
+### Measured on 2026-09-05
+
+```
+GET  /v1/models            hosted: 200, 631 ids     managed: 200, 250 ids
+GET  /v1/models  no key    401 — the key is auth, not decoration
+POST /v1/chat/completions  hosted:  dots-studio/dots-3-note-preview:free, 2.9s
+                           managed: openrouter/free (Kilo, anonymous), 5.9s
+```
+
+Both replies carry `_routed_via` naming the platform and model that served
+them, and `reasoning_content` beside `content` — which `chat/wire.ts` already
+reads in the right order, content first.
+
+### No orphans
+
+Every exit path of this API sends `SIGTERM` and then `SIGKILL` after a grace,
+the pid is written to `data/freellmapi/freellmapi.pid` before the child is
+adopted, and boot reaps a pid left behind by a `kill -9` that ran none of that.
+The child is spawned as `node server/dist/index.js` rather than `npm start`
+deliberately: `npm` would sit between this process and the thing holding the
+port, so `SIGTERM` would land on the wrong process and the grandchild would be
+exactly the orphan this arrangement exists to prevent. A port that is busy and
+not ours is a sentence naming it, never a takeover.
+
+## Spawning an agent here: Hermes and OpenClaw as child processes
+
+Both agent plugins already worked, and the shape of "working" was the problem.
+`providers/hermes.ts` and `providers/openclaw.ts` connect an agent that is
+**already running somewhere**: paste a base URL and a bearer, the adapter
+verifies it, chat works. That is the right answer when there is one — a Hermes
+on the Pi, a gateway on a work laptop — and it is unchanged. What it left was
+the ordinary case: a form asking for the address of a thing that does not
+exist. `src/agents/instance.ts` is the other door. Install it here, configure
+it here, run it here, connect it here.
+
+It is the third managed child on this box, after the SearXNG node and the
+FreeLLMAPI gateway, and it keeps their contract exactly: a background install
+with a step and a log tail, a marker file that answers "which version is this",
+a singleton child with a health probe and backoff, auto-start at boot only if
+it was running when the API last stopped, and `SIGTERM` then `SIGKILL` on every
+exit path so nothing is orphaned on 8642 or 18789.
+
+### Two things everybody knows about these agents, both wrong
+
+Both were installed and run for real on this Mac on 2026-09-05, and the two
+facts the catalog and the adapters carried turned out to be false. They are
+written down in the module's own header as well, because the next person will
+otherwise spend the same hour.
+
+**Hermes' OpenAI door is the API server on 8642, not `hermes proxy` on 8645.**
+`hermes proxy start` reads as the obvious candidate and is not one:
+`hermes_cli/proxy/cli.py` takes `--provider nous|xai`, calls
+`adapter.is_authenticated()`, and exits 2 with `Not logged into Nous Portal`
+when it is not. There is no code path in it that reaches a custom endpoint — so
+no amount of provider configuration makes it start, and if it did start it
+would forward to a **model** rather than run the **agent**. The real door is in
+the checkout's own docs at `website/docs/user-guide/features/api-server.md`:
+`API_SERVER_ENABLED=true` and `API_SERVER_KEY` in `$HERMES_HOME/.env`, then
+`hermes gateway run`, and an OpenAI-compatible server appears on
+127.0.0.1:8642 whose `/v1/models` lists exactly one model — `hermes-agent` —
+and whose `/v1/chat/completions` runs the agent with its tools. **It needs no
+Nous login of any kind.** (`hermes serve` on 9119 is JSON-RPC over WebSocket
+and does not speak this API; that part was right.)
+
+**OpenClaw's provider lives under top-level `models.providers`, not under the
+agent.** `openclaw config schema` is the authority: a provider is
+`models.providers.<id>` with `baseUrl`, `apiKey`, `api` and its own `models`
+list, and the agent selects it with `agents.defaults.model.primary` spelled
+`<provider>/<model>`. The 500 an earlier attempt got from a bare gateway was
+the **harness**, not the wire — `agentRuntime.id: "openclaw"` pins the built-in
+one so the gateway cannot go looking for `codex`.
+
+### Containment: a HOME of its own, which is the whole trick
+
+Neither installer takes a "put everything here" flag, and both spread
+themselves across `$HOME`. Hermes' script resolves `HERMES_HOME` to
+`$HOME/.hermes`, puts the checkout under it, links the `hermes` command into
+`$HOME/.local/bin` — and, on this machine, decided the system npm was in a bad
+band and installed a **managed Node 26** beside it. Given the owner's real home
+that is three surprises for one agent.
+
+So the child and the installer are given `HOME=DATA_DIR/<agent>/home`.
+Everything lands inside it: `data/hermes/home/.hermes/hermes-agent` (the
+checkout and its virtualenv), `data/hermes/home/.hermes/node` (that managed
+Node), `data/hermes/home/.local/bin/hermes` (the command). `~/.hermes`,
+`~/.openclaw` and `~/.local/bin` on this machine are untouched, which was
+checked. OpenClaw takes the same shape through `OPENCLAW_HOME`, which is a HOME
+replacement rather than a config path — the config lands at
+`$OPENCLAW_HOME/.openclaw/openclaw.json`, and `openclaw config file` says so —
+and the package itself is an `npm install --prefix` into `data/openclaw/`
+rather than a `-g` that would put a second `openclaw` on the owner's PATH.
+
+One cost, named because it is visible in the log: the path is deep, and Hermes'
+shutdown watchdog wants a unix socket under it. `AF_UNIX path too long` is what
+that produces. It costs a liveness witness inside Hermes and nothing this app
+uses.
+
+### What gets written, and the two secrets in it
+
+`activeProvider()` is read once per configure, and the result is written into
+the agent's own config **whole**. For Hermes that is two files at mode 0600:
+
+```yaml
+# $HERMES_HOME/config.yaml
+model:
+  provider: "custom"
+  base_url: "…/v1"
+  api_key: "…"
+  default: "…"
+```
+
+```
+# $HERMES_HOME/.env
+API_SERVER_ENABLED=true
+API_SERVER_KEY=…
+API_SERVER_HOST=127.0.0.1
+API_SERVER_PORT=8642
+```
+
+and for OpenClaw one JSON document at mode 0600 carrying
+`models.providers.opc` (baseUrl, apiKey, `api: "openai-completions"`,
+`agentRuntime.id: "openclaw"`, one model), `agents.defaults.model.primary`,
+`gateway` (port, `bind: loopback`, `auth.mode: token`,
+`http.endpoints.chatCompletions.enabled: true`) and **`discovery.mdns.mode:
+"off"`** — left alone the gateway advertises itself on the LAN over Bonjour,
+which was observed, and announcing a loopback-bound agent to the network is the
+same decision made backwards.
+
+Hermes' `config.yaml` is written whole rather than edited. Upstream ships a
+1,600-line commented example; every key in it has a default in code, so a short
+file saying only what this app decided is both complete and readable, and a
+surgical edit of a document this app does not own is a merge conflict waiting
+for the next release. OpenClaw's file cannot even carry a note saying who wrote
+it: the gateway validates against a closed schema and exits 78 on
+`<root>: Unrecognized key: "_comment"`, then trips its own restart-loop breaker
+after three tries. That was learned the expensive way.
+
+**Two secrets, neither ever printed.** The provider's key comes from
+`activeProvider()`; the **door key** — the bearer this app uses to talk to the
+agent — is 24 random bytes generated once into `data/<agent>/door.key` at mode
+0600. Both go into config files and nowhere else: not into a log line, not into
+a route's answer, and never into an argument list, because `ps` is readable by
+every process on this machine. `AgentReport` has no field that could hold
+either.
+
+### Connecting: the same `verify()` a pasted credential goes through
+
+The first healthy probe runs the **remote adapter's own** `verify()` against the
+managed URL and the door key, and only then writes the credential set. A managed
+connect therefore proves exactly what a pasted one proves — the address is a
+server, it speaks this API, it accepts this bearer, and it lists something to
+ask — with the same code, so the two paths cannot drift into disagreeing about
+what "connected" means.
+
+It gets **its own account** and never overwrites a pasted one, which is new and
+is the reason both adapters grew a `mode` check. A plugin can now hold two
+perfectly good credentials — a Hermes on another box and the one spawned here —
+and "the first connected account" cannot decide between them: whichever it
+picked would be an accident of insertion order. So `plugin_config` carries
+`mode` (`managed` or `remote`) and `managedAccount` (the row this app created),
+`answering()` in each adapter prefers the managed row when the mode says so,
+and anything else leaves the old rule exactly as it was.
+
+### Only one is live, and only one runs
+
+`chat.backend` already names the single agent that answers, and that rule is not
+re-implemented here: `POST /api/agents/:id/make-live` writes that setting and
+nothing else, so a managed agent and a remote one compete for the same slot on
+the same terms. What this adds is the cheaper half — **it refuses to start the
+second managed agent while the first is running**, with a sentence naming the
+one that is up. Two agents thinking on one laptop is two model bills and two
+several-hundred-megabyte runtimes, and only one of them is reachable anyway.
+Boot resumes at most one, for the same reason.
+
+### Following the provider, without thrashing
+
+Neither agent re-reads its config file, so a changed default provider means a
+rewrite and a restart. A fifteen-second watcher compares the active provider
+against the fingerprint the running child was configured from — the base URL,
+the model, and a **digest** of the key, so a rotated key counts as a change
+without a copy of it being kept to compare against.
+
+It waits a minute before acting, and that debounce is not a nicety. Without it,
+an owner trying three providers in a minute restarts the agent three times, and
+a restart that lands mid-turn ends that turn: the reply that came back said
+`Operation interrupted: waiting for model response (8.2s elapsed)`, which is a
+true sentence about a thing this file did to itself. A flip-flop back to the
+running configuration cancels the pending change entirely and the agent never
+notices. `POST /api/agents/:id/reconfigure` is the impatient version.
+
+### Measured on 2026-09-05
+
+| | |
+| --- | --- |
+| Hermes, cold install (nothing cached) | ~5 minutes |
+| Hermes, through the route with uv/Node caches warm | **18 s** — clone 4 s, venv and dependencies the rest |
+| Hermes on disk | 852 MB checkout + venv, 495 MB of toolchain under its home |
+| Hermes version | `Hermes Agent v0.21.0 (2026.8.31)`, commit `f159e581c7af` |
+| OpenClaw install | **10 s** cold, `openclaw@2026.9.1` pinned in source |
+| Hermes cold start to healthy | ~20 s (tool registry, skills index, model catalogue) |
+| OpenClaw cold start to healthy | ~5 s |
+
+Two real round trips through `POST /api/chat`, both against FreeLLMAPI as the
+default provider:
+
+```
+hermes    · hermes-agent     · 4,741 ms
+  "I am Hermes Agent, built by Nous Research."
+
+openclaw  · openclaw/default · 3,985 ms
+  "I'm your OpenClaw assistant — a fresh agent that just woke up in this
+   workspace, still unnamed, ready to figure out who I am alongside you."
+```
+
+And one refusal worth keeping, because it is a real constraint rather than a
+bug: pointed at the local Ollama provider serving `qwen2.5:0.5b`, Hermes
+answers `Model qwen2.5:0.5b has a context window of 32,768 tokens, which is
+below the minimum 64,000 required by Hermes Agent`. Neither model on that
+endpoint clears the bar. Nothing here papers over it by writing a
+`model.context_length` this box cannot vouch for — an invented context window
+is a made-up number in exactly the sense the rest of this document refuses.
+
+### Telegram needed no change, and here is the proof
+
+The bridge already calls `ask()`, so an agent spawned here is reachable from a
+phone the moment it is made live. With the managed OpenClaw live, `handleUpdate`
+fed a `/status` command over a **copy** of the live database (the harness shape
+`src/telegram/bridge.test.ts` establishes) answers:
+
+```
+<b>Agent</b> OpenClaw · Managed instance (OpenClaw here)
+```
+
+`GET /api/telegram` reports an `agent.label` too — with the caveat that its
+`agent()` helper names the first **connected** backend rather than the live one,
+which never showed before because two agents were rarely connected at once and
+now routinely are. Its own comment says as much ("Which one actually answers is
+the chat backend's own choice"). It is left alone here rather than quietly
+corrected, and it is the one thing on this page that is known to be imprecise.
 
 ## LinkedIn and TikTok are registered, unset, and not built
 

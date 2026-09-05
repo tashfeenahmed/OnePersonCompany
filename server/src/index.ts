@@ -57,7 +57,43 @@ import { mailbox } from "./routes/mailbox.ts";
   "no agent is connected" with a perfectly good key in the vault.
 */
 import { chat } from "./routes/chat.ts";
+/*
+  THE MODELS ROUTES, AND THIS IMPORT IS LOAD-BEARING FOR THE SAME REASON THE
+  ONE ABOVE IT IS — one layer down.
+
+  models/provider.ts holds a registry that adapters fill at IMPORT TIME:
+  providers/local.ts, providers/openai-chat.ts and providers/openrouter-chat.ts
+  each call `registerProvider` as a side effect of being loaded, and
+  `activeProvider()` can only return a provider that has registered.
+  routes/models.ts imports all three itself and hands `setProviderChoiceReader`
+  the config reader, so importing it is enough.
+
+  IT MUST COME AFTER routes/chat.ts AND IT DOES. Nothing enforces that today —
+  the two registries are independent — but the chat route's fallback asks
+  `activeProvider()` when no agent is live, and a build where the providers had
+  not registered yet would answer "no provider" with three of them connected.
+  Keeping the pair in this order means the question is never asked before the
+  answer exists.
+*/
+import { models } from "./routes/models.ts";
+import { searchRoutes, searxngRoutes } from "./routes/searxng.ts";
+/*
+  THE MODEL GATEWAY, AND THIS IMPORT IS LOAD-BEARING FOR THE SAME REASON THE
+  CHAT ONE ABOVE IS.
+
+  models/provider.ts holds a registry that adapters fill at IMPORT TIME:
+  providers/freellmapi.ts calls `registerProvider` as a side effect of being
+  loaded, and `activeProvider()` can only return a provider that has
+  registered. routes/freellmapi.ts imports the adapter itself, so importing it
+  is enough — and routes/plugins.ts imports it too, for `verify`, which means
+  the registration happens whichever of the two loads first.
+*/
+import { freellmapiRoutes } from "./routes/freellmapi.ts";
 import * as telegramPoller from "./telegram/poller.ts";
+import * as searxngInstance from "./searxng/instance.ts";
+import * as freellmapiInstance from "./freellmapi/instance.ts";
+import { agentRoutes } from "./routes/agents.ts";
+import * as agentInstances from "./agents/instance.ts";
 
 const app = new Hono();
 
@@ -154,6 +190,45 @@ app.route("/api/mailbox", mailbox);
    integrations keep their credential pages under /api/plugins like every other
    plugin; this is where they are talked to. */
 app.route("/api/chat", chat);
+/* WHERE THE COMPLETIONS COME FROM, as against who does the thinking. /api/chat
+   is the AGENT — Hermes or OpenClaw, one of them, with tools and memory.
+   This is the layer beneath: which provider completes, how many calls it will
+   take at once, and how they are spread over several endpoints. An agent
+   spawned here inherits the default set on this route, and /api/chat falls
+   through to it when no agent is live — so a plain chat with nothing in front
+   of it still answers, and says which provider answered. */
+app.route("/api/models", models);
+/* The locally installed search node: what is on disk, what is running, and the
+   two buttons that change either. It is the only integration this box can
+   INSTALL rather than merely connect to, so it is the only one with a route
+   about a process of its own. */
+app.route("/api/searxng", searxngRoutes);
+/* The model gateway as a PROCESS, beside /api/models rather than inside it.
+   That route is the seam — which of the four providers is the default, and
+   what the limiter is doing — in terms every provider shares. This one is
+   about the single thing no other provider has: a program on this machine
+   that this process cloned, built, runs, and can leave orphaned on a port. It
+   is also where the second account comes from: the installer reads the key the
+   gateway minted into its own database and seals it, so "install here" ends
+   with a connected provider rather than a running process and an empty form. */
+app.route("/api/freellmapi", freellmapiRoutes);
+/* The two agents as PROCESSES: what is installed, what is running, which model
+   provider each is pointed at, and which one is live. One route for both
+   rather than /api/hermes and /api/openclaw, which is the same argument
+   /api/chat makes one screen up — a caller never learns which agent answered
+   it except as a fact on the answer. Their credential pages stay under
+   /api/plugins like every other plugin. */
+app.route("/api/agents", agentRoutes);
+/*
+  THE SEARCH TOOL, AND IT IS NOT THE `/api/search` THIS FILE ARGUES AGAINST
+  ABOVE. That argument is about a REPORT over Google's and Bing's figures —
+  two populations that must never be added — and it stands. This route
+  measures nothing: it performs a search through whichever SearXNG instance is
+  active and hands back the links, which is the one thing on this box an agent
+  calls rather than reads. GET, no key, no body, no client: an agent that can
+  fetch a URL can use it, and so can a person with curl.
+*/
+app.route("/api/search", searchRoutes);
 
 app.notFound((c) => c.json({ error: "No such route." }, 404));
 
@@ -209,6 +284,64 @@ if (COLLECT_MINUTES > 0) {
  * cadence costs nothing and leaves `secret_access` a record of real use.
  */
 telegramPoller.start();
+
+/* ------------------------------------------------------------- searxng */
+
+/**
+ * The managed search instance, adopted at boot.
+ *
+ * IT IS CALLED BEFORE THE SERVER LISTENS, and that ordering is the point.
+ * `boot()` installs the SIGINT/SIGTERM/exit handlers that kill the child, and
+ * only then decides whether to start one — so there is no window in which a
+ * SearXNG exists and nothing is arranged to take it down with the API. A child
+ * process outliving its parent is the one failure mode this whole feature can
+ * have that the owner cannot see: the port stays busy, the next start fails
+ * for a reason nothing on the page could state, and the searches keep working
+ * against a process nobody owns.
+ *
+ * It starts the instance only if the instance was RUNNING when the API last
+ * stopped — the owner's own last instruction, written to `plugin_config`
+ * rather than inferred, because a process that was killed cannot report what
+ * it was doing.
+ */
+searxngInstance.boot();
+
+/* ---------------------------------------------------------- freellmapi */
+
+/**
+ * The managed model gateway, adopted at boot — the same contract SearXNG's
+ * `boot()` keeps, called before the server listens and for the same reason:
+ * the SIGINT/SIGTERM/exit handlers that kill a child go in FIRST, and only
+ * then is anything spawned. There is no window in which a gateway exists and
+ * nothing is arranged to take it down with the API.
+ *
+ * It also hands the provider the "is the local instance live" question, which
+ * is what decides — when the owner has not chosen an account — whether a
+ * completion goes to the instance on this machine or to the one on the Hetzner
+ * box. A function rather than an import, because the provider owns the URLs
+ * the instance is built from and the two would otherwise be a cycle.
+ */
+freellmapiInstance.boot();
+
+/* ------------------------------------------------------------- agents */
+
+/**
+ * The managed agents, adopted at boot — the same contract SearXNG's `boot()`
+ * keeps, and called for the same reason before the server listens: the
+ * SIGINT/SIGTERM/exit handlers that kill a child go in FIRST, and only then is
+ * anything spawned. There is no window in which a Hermes or an OpenClaw exists
+ * and nothing is arranged to take it down with the API.
+ *
+ * The stakes are higher here than for a search node. An orphaned agent is
+ * several hundred megabytes of runtime holding 8642 or 18789 and, if the
+ * default model provider is a metered one, quietly able to spend money on
+ * whatever it was in the middle of.
+ *
+ * It brings back at most ONE, whichever was running when the API last
+ * stopped — that being the whole of the "only one at a time" rule, which is
+ * about the machine rather than about the chat setting.
+ */
+agentInstances.boot();
 
 serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {
   console.log(`[api] http://127.0.0.1:${info.port}`);
