@@ -35,15 +35,52 @@
  * wipe it. The load is therefore written out below with an explicit guard on
  * which session the answer belongs to. The alternative — `useApi` plus a
  * reload after every send — flickers the whole conversation on each turn.
+ *
+ * ------------------------------------------------------------------------
+ *
+ * THE ANSWER ARRIVES A WORD AT A TIME NOW, and that changed four things.
+ *
+ * 1. THERE ARE TWO KINDS OF MESSAGE ON SCREEN AT ONCE. The stored ones, which
+ *    came out of the database and cannot change; and the one being written,
+ *    which is state on this page and is not in the database yet. They are kept
+ *    apart — `convo.messages` and `writing` — rather than merged into one list
+ *    with a fake row in it, because a fake row needs a fake id and a fake
+ *    timestamp, and every piece of code downstream then has to know which rows
+ *    are real. When the turn finishes, the stored row arrives on the `done`
+ *    event and replaces the live one; there is never a moment where both are
+ *    drawn.
+ *
+ * 2. DELTAS ARE BATCHED TO AN ANIMATION FRAME. An agent writing quickly emits
+ *    a chunk every few tens of milliseconds, and a `setState` per chunk is a
+ *    React render per chunk — each of which re-parses the markdown of the
+ *    message being written. Accumulating into a ref and flushing once per
+ *    frame caps that at 60 renders a second no matter how fast the words
+ *    arrive, and the `Markdown` component is memoised on its text so the rest
+ *    of the transcript does not re-parse at all.
+ *
+ * 3. STOPPING IS AN ABORT, END TO END. One `AbortController`: aborting it
+ *    closes the fetch body, which the server sees as a disconnect, which
+ *    aborts its own call to the agent. Nothing is lost by stopping — the
+ *    server stores what was said as a PARTIAL answer, and this page reloads
+ *    the transcript to pick it up rather than keeping its own copy of it.
+ *
+ * 4. THE RAIL IS RECONCILED AGAINST THE SERVER ON LOAD. The session list is
+ *    still the store's, and it is still in localStorage — but it is now
+ *    checked against the conversations that actually exist. That is also how
+ *    the twelve invented sessions this app shipped with are retired: they are
+ *    marked by the store's `migrate()` and swept here, once it is known which
+ *    of them have real transcripts behind them. See `Session.seeded`.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowUp,
   Bot,
+  Brain,
   Bug,
   Check,
   ChevronDown,
+  ChevronRight,
   Code2,
   Cpu,
   FolderClosed,
@@ -52,6 +89,7 @@ import {
   Plus,
   SlidersHorizontal,
   Sparkles,
+  Square,
   TriangleAlert,
   Wrench,
 } from "lucide-react";
@@ -67,12 +105,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { VentureDialog } from "@/components/VentureDialog";
+import { Markdown } from "@/components/Markdown";
+import { ToolCallLine } from "@/components/ToolCallLine";
 import {
   ApiError,
   api,
   type ChatBackendId,
   type ChatBackends,
   type ChatMessage,
+  type ChatToolCall,
   type MessageBackendId,
   type ModelProviders,
   type ProviderId,
@@ -143,8 +184,162 @@ function greeting() {
   return "Good evening";
 }
 
+/**
+ * A conversation's name, from the first thing said in it.
+ *
+ * ONE RULE, USED IN BOTH PLACES A TITLE IS DERIVED: when the composer starts a
+ * chat here, and when a conversation arrives from the server with no name in
+ * the store — a chat that began on Telegram, or in another browser. Written
+ * once so the same conversation does not end up with two different labels
+ * depending on which door named it.
+ *
+ * It lives on this page rather than in the store because this page is where
+ * both of those happen, and because the store is a `.tsx` module whose
+ * non-component exports each cost a fast-refresh warning.
+ *
+ * Forty-eight characters is about a rail's width at this type size. The
+ * ellipsis is a real one rather than three dots, because three dots wrap.
+ */
+function sessionTitle(text: string): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  if (!trimmed) return "New chat";
+  return trimmed.length > 48 ? `${trimmed.slice(0, 48).trimEnd()}…` : trimmed;
+}
+
+/**
+ * A MESSAGE, SPLIT AT THE POINTS ITS TOOL CALLS HAPPENED.
+ *
+ * `offset` on each call is how many characters of the answer had been written
+ * when it started, so the text is cut there and the grey line goes in the gap.
+ * That is what makes a reloaded transcript read the way it did live — without
+ * it, every stored call renders in a pile at the end and the message tells a
+ * different story about the order things happened in.
+ *
+ * THE COST, NAMED: a cut lands wherever the agent happened to be, which can be
+ * inside a markdown block. A tool called mid-list splits that list into two
+ * lists with a grey line between them. That is accepted rather than worked
+ * around, because the alternative — nudging the cut to the nearest blank line
+ * — moves a tool call to a place it did not happen, and a transcript that
+ * quietly reorders events is worse than one that renders two lists. In
+ * practice agents call tools between paragraphs, which is where the cut lands.
+ *
+ * Offsets are sorted and clamped rather than trusted: they come out of a JSON
+ * column, and one past the end of the text would silently drop the rest of the
+ * answer.
+ */
+function splitByTools(
+  text: string,
+  tools: ChatToolCall[],
+): { text: string; call: ChatToolCall | null }[] {
+  if (!tools.length) return [{ text, call: null }];
+
+  const sorted = [...tools].sort((a, b) => a.offset - b.offset);
+  const parts: { text: string; call: ChatToolCall | null }[] = [];
+  let cursor = 0;
+
+  for (const call of sorted) {
+    const at = Math.min(Math.max(call.offset, cursor), text.length);
+    /* An empty segment is skipped, so two tools that ran back to back do not
+       get a blank paragraph between their lines. */
+    if (at > cursor) parts.push({ text: text.slice(cursor, at), call: null });
+    parts.push({ text: "", call });
+    cursor = at;
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), call: null });
+  return parts;
+}
+
+/**
+ * The body of an assistant turn: markdown, with the tool lines where they
+ * belong.
+ *
+ * Used for BOTH the stored messages and the one being streamed, which is the
+ * point — a live answer and a reloaded one are drawn by the same function, so
+ * they cannot look different. The only thing that differs is where the text
+ * came from.
+ */
+function AssistantBody({
+  text,
+  tools,
+}: {
+  text: string;
+  tools: ChatToolCall[] | null;
+}) {
+  const parts = splitByTools(text, tools ?? []);
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.call ? (
+          <ToolCallLine key={`${part.call.toolCallId}-${i}`} call={part.call} />
+        ) : (
+          <Markdown key={i} text={part.text} />
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * The model's working, folded.
+ *
+ * SOME MODELS SHOW THEIR REASONING and it arrives on its own event, separate
+ * from the answer. It is NEVER drawn as the answer: a scratchpad in front of a
+ * reply, on every turn, is the failure the server's reader avoids on the
+ * non-streaming path for exactly the same reason. Folded, grey, and above the
+ * text it led to.
+ *
+ * It is deliberately not persisted. Reasoning is a fact about how an answer
+ * was arrived at, it can be several times the length of the answer, and it is
+ * of interest for about as long as it takes to read the reply. Storing it
+ * would double the size of the transcript to keep something nobody scrolls
+ * back for.
+ */
+function Thinking({ text, done }: { text: string; done: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-muted-foreground hover:bg-accent hover:text-foreground -mx-1.5 flex items-center gap-1.5 rounded-[7px] px-1.5 py-1 text-[12px] transition-colors"
+      >
+        <ChevronRight
+          className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")}
+          strokeWidth={1.8}
+        />
+        <Brain className="size-3.5 shrink-0" strokeWidth={1.6} />
+        {done ? "Thought about it" : "Thinking…"}
+      </button>
+      {open && (
+        <p className="text-muted-foreground border-line-soft mt-1 ml-4 border-l pl-3 text-[12px] leading-[1.55] whitespace-pre-wrap">
+          {text.trim()}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The turn being written, right now, on this page.
+ *
+ * Kept OUT of `convo.messages` on purpose. Merging it in would need an id and
+ * a timestamp the database has not issued yet, and every piece of code that
+ * touches the list would then have to know which rows are real. Separate, it
+ * is obvious: these are the stored messages, and this is the one still being
+ * said.
+ */
+type LiveTurn = {
+  /** Which session it belongs to. Switching chats mid-answer must not paint
+   *  the new chat with the old one's words. */
+  sessionId: string;
+  text: string;
+  reasoning: string;
+  /** Merged as the events arrive: `running` creates the record, `completed`
+   *  closes it, exactly as the server does before storing them. */
+  tools: ChatToolCall[];
+};
+
 export function Chat() {
-  const { state, addSession } = useStore();
+  const { state, addSession, reconcileSessions } = useStore();
   const [text, setText] = useState("");
   // Empty is a real answer: most chats are about nothing in particular.
   // Settings → General presets this; the picker still overrides it per chat.
@@ -216,6 +411,102 @@ export function Chat() {
   >({});
 
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  /* ----------------------------------------------------------- streaming */
+
+  const [writing, setWriting] = useState<LiveTurn | null>(null);
+
+  /**
+   * DELTAS GO INTO A REF AND OUT ONCE PER FRAME.
+   *
+   * A `setState` per chunk is a render per chunk, and an agent writing quickly
+   * emits one every few tens of milliseconds — which would re-parse the
+   * markdown of the growing message tens of times a second and re-render every
+   * other bubble with it. The ref absorbs the chunks; `requestAnimationFrame`
+   * hands them over at the rate the screen can actually show them.
+   *
+   * rAF rather than a timer, because it is the browser saying "I am about to
+   * paint" — a 16ms interval keeps firing in a background tab, where nobody is
+   * reading and the work is pure heat.
+   */
+  const pending = useRef<{ text: string; reasoning: string }>({ text: "", reasoning: "" });
+  const frame = useRef<number | null>(null);
+
+  const flush = useCallback(() => {
+    if (frame.current !== null) {
+      cancelAnimationFrame(frame.current);
+      frame.current = null;
+    }
+    const { text, reasoning } = pending.current;
+    if (!text && !reasoning) return;
+    pending.current = { text: "", reasoning: "" };
+    setWriting((t) =>
+      t ? { ...t, text: t.text + text, reasoning: t.reasoning + reasoning } : t,
+    );
+  }, []);
+
+  const schedule = useCallback(() => {
+    if (frame.current === null) frame.current = requestAnimationFrame(flush);
+  }, [flush]);
+
+  /* The stop button's other end. A ref rather than state: aborting must not
+     wait for a render, and nothing is drawn from it. */
+  const abort = useRef<AbortController | null>(null);
+
+  /* An unmount mid-answer stops the agent. Without this, navigating away
+     leaves a turn running on the server with nobody to receive it — which is
+     billable work for an answer that has no screen left to appear on. */
+  useEffect(
+    () => () => {
+      abort.current?.abort();
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+    },
+    [],
+  );
+
+  /**
+   * THE RAIL, RECONCILED AGAINST WHAT THE SERVER ACTUALLY HAS — once, on load.
+   *
+   * The store keeps the list and the names; the server keeps the messages.
+   * This is the one moment they are compared: sessions the server has and the
+   * store does not are added with a derived title, sessions the store has and
+   * the server does not are kept as empty drafts, and the twelve invented ones
+   * this app shipped with are finally swept — but only the ones with no
+   * transcript behind them. See `Session.seeded` in the store for why that
+   * cannot happen in `migrate()`.
+   *
+   * ONCE, AND THE REF IS WHY. `reconcileSessions` comes from a context value
+   * that is rebuilt on every state change, so an effect that depended on it
+   * would fire, write state, get a new function, and fire again — forever. The
+   * guard is not an optimisation; without it this is an infinite loop.
+   *
+   * A failure is silent. The rail already has its sessions from localStorage,
+   * and an error banner about a list that is merely not-yet-checked would be
+   * noise on top of the sentence the transcript loader is already about to say
+   * if the API is really down.
+   */
+  const reconciled = useRef(false);
+  useEffect(() => {
+    if (reconciled.current) return;
+    reconciled.current = true;
+    api
+      .chatSessions()
+      .then((doc) =>
+        reconcileSessions(
+          doc.sessions.map((s) => ({
+            id: s.sessionId,
+            /* The server sends the first thing that was said, up to 200
+               characters. Shortening it to a rail-width label is this side's
+               job — and it is the same function the composer uses to name a
+               new chat, so a conversation gets one name wherever it is
+               named. */
+            title: s.title ? sessionTitle(s.title) : "Untitled chat",
+          })),
+        ),
+      )
+      .catch(() => {});
+    /* eslint-disable-next-line react-hooks/exhaustive-deps -- runs once; see above */
+  }, []);
 
   /*
     A session id that arrives late must not overwrite a newer one's messages.
@@ -300,11 +591,33 @@ export function Chat() {
   /** A failure belongs to the chat it happened in. Switching away and back
    *  should not show yesterday's timeout under today's question. */
   const failureText = failure && failure.id === sessionId ? failure.text : null;
+  /** The turn being written, if it belongs to the chat on screen. Switching
+   *  chats mid-answer leaves the answer running — it is still stored when it
+   *  finishes — but it is not painted over the conversation you moved to. */
+  const liveTurn = writing && writing.sessionId === sessionId ? writing : null;
 
   /* New turns arrive at the bottom, which is where the eye is. */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, sending]);
+
+  /**
+   * A GROWING ANSWER FOLLOWS THE BOTTOM — UNLESS THE OWNER HAS SCROLLED UP.
+   *
+   * Scrolling to the bottom on every frame of a stream is the behaviour that
+   * makes a long answer impossible to read while it is being written: you
+   * scroll back to check something and get yanked forward a sixtieth of a
+   * second later. So the follow only happens when the view is already within a
+   * couple of lines of the end, which is the same rule a terminal uses and the
+   * one people already have in their fingers.
+   */
+  const scroller = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !liveTurn) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distance < 120) el.scrollTop = el.scrollHeight;
+  }, [liveTurn, liveTurn?.text, liveTurn?.tools.length]);
 
   /* ------------------------------------------------------------- sending */
 
@@ -320,9 +633,10 @@ export function Chat() {
     */
     let id = sessionId;
     if (!id) {
-      const title =
-        trimmed.length > 44 ? `${trimmed.slice(0, 44).trimEnd()}…` : trimmed;
-      id = addSession(title, target?.id ?? null).id;
+      /* The same rule the rail uses when a conversation arrives from the
+         server with no name in the store — one function, so a chat started
+         here and the same chat seen from another door get one title. */
+      id = addSession(sessionTitle(trimmed), target?.id ?? null).id;
       showing.current = id;
     }
 
@@ -348,6 +662,8 @@ export function Chat() {
       model: null,
       usage: null,
       ms: null,
+      tools: null,
+      partial: false,
     };
     setConvo((c) => ({
       id,
@@ -355,28 +671,138 @@ export function Chat() {
       error: null,
     }));
 
+    /* The bubble the answer grows into. Created before the first byte so the
+       "thinking" state and the answer are the same element, rather than a
+       spinner that is replaced by a bubble a moment later. */
+    setWriting({ sessionId: id, text: "", reasoning: "", tools: [] });
+    pending.current = { text: "", reasoning: "" };
+
+    const controller = new AbortController();
+    abort.current = controller;
+    /* Whether a `done` arrived. Everything else — a stop, a dead gateway, an
+       error event — is the other case, and it has one recovery: re-read the
+       transcript, because the server has already written down whatever was
+       said, flagged partial. */
+    let completed = false;
+
     try {
-      const doc = await api.chatSend(id, trimmed);
-      if (showing.current !== id) return;
-      setConvo((c) => ({
+      await api.chatStream(
         id,
-        messages: [
-          ...(c.id === id ? c.messages.filter((x) => x.id !== optimistic.id) : []),
-          doc.user,
-          doc.reply,
-        ],
-        error: null,
-      }));
-      refreshBackends();
+        trimmed,
+        {
+          onStart: (e) => {
+            /*
+              The optimistic row is replaced by the STORED one the moment the
+              server confirms it. Not cosmetic: the optimistic id is negative
+              and the real one is a row in the database, and a transcript that
+              keeps the fake id would break the moment anything wanted to
+              address that message.
+            */
+            setConvo((c) =>
+              c.id === id
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === optimistic.id ? e.user : m,
+                    ),
+                  }
+                : c,
+            );
+          },
+
+          onDelta: (chunk) => {
+            pending.current.text += chunk;
+            schedule();
+          },
+
+          onReasoning: (chunk) => {
+            pending.current.reasoning += chunk;
+            schedule();
+          },
+
+          onTool: (e) => {
+            /*
+              FLUSHED FIRST. The tool's `offset` is measured against the whole
+              answer, and applying it while a frame's worth of text is still
+              sitting in the ref would put the grey line in front of words that
+              were written before it. One frame of wrongness that corrects
+              itself is still a frame of wrongness that somebody sees.
+            */
+            flush();
+            setWriting((t) => {
+              if (!t) return t;
+              const at = t.tools.findIndex((x) => x.toolCallId === e.toolCallId);
+              /* Merged exactly as the server merges them before storing, so
+                 the live drawing and the reloaded one cannot differ. */
+              if (at === -1)
+                return {
+                  ...t,
+                  tools: [
+                    ...t.tools,
+                    {
+                      toolCallId: e.toolCallId,
+                      tool: e.tool,
+                      label: e.label,
+                      emoji: e.emoji,
+                      startedAt: e.at,
+                      finishedAt: e.status === "completed" ? e.at : null,
+                      offset: e.offset,
+                    },
+                  ],
+                };
+              const tools = [...t.tools];
+              tools[at] = {
+                ...tools[at],
+                finishedAt: e.status === "completed" ? e.at : tools[at].finishedAt,
+                label: tools[at].label ?? e.label,
+                emoji: tools[at].emoji ?? e.emoji,
+              };
+              return { ...t, tools };
+            });
+          },
+
+          onDone: (e) => {
+            completed = true;
+            flush();
+            /* The STORED row, not the accumulated text. The database's copy is
+               the one that will be there after a reload, and drawing anything
+               else for the last three seconds of a turn is a transcript that
+               changes when you refresh it. */
+            setConvo((c) =>
+              c.id === id
+                ? { ...c, messages: [...c.messages, e.message], error: null }
+                : c,
+            );
+            setWriting(null);
+          },
+
+          onError: (e) => {
+            /* The server has already written the partial row by the time this
+               arrives — that ordering is its guarantee — so there is nothing
+               to keep on screen here. The reload below picks up what was
+               stored, flagged as cut off. */
+            setFailure({ id, text: e.message });
+          },
+        },
+        controller.signal,
+      );
     } catch (e: unknown) {
-      if (showing.current !== id) return;
-      setFailure({
-        id,
-        text:
-          e instanceof Error
-            ? e.message
-            : "The message did not get through, and nothing said why.",
-      });
+      /*
+        A REFUSAL, OR A STOP. `chatStream` throws for the errors that happen
+        BEFORE the stream opens — no agent live, message too long, API down —
+        and for an abort. The abort is not a failure and gets no banner: the
+        owner pressed the button, and the answer so far is about to appear as
+        a partial message, which says everything the interface needs to.
+      */
+      const stopped = controller.signal.aborted;
+      if (!stopped && showing.current === id)
+        setFailure({
+          id,
+          text:
+            e instanceof Error
+              ? e.message
+              : "The message did not get through, and nothing said why.",
+        });
       /*
         A 503 is "no agent is live", which may have become true since the page
         loaded — somebody disconnected the plugin in another tab. The banner is
@@ -385,9 +811,50 @@ export function Chat() {
       */
       if (e instanceof ApiError && e.status === 503) refreshBackends();
     } finally {
+      if (frame.current !== null) {
+        cancelAnimationFrame(frame.current);
+        frame.current = null;
+      }
+      abort.current = null;
       busy.current = null;
+      setWriting((t) => (t?.sessionId === id ? null : t));
       if (showing.current === id) setSending(false);
+
+      if (completed) {
+        refreshBackends();
+      } else {
+        /*
+          RE-READ THE TRANSCRIPT RATHER THAN KEEPING WHAT IS ON SCREEN.
+
+          Every path that is not `done` ends with the server holding words this
+          page does not: a stop, a dead gateway, an error event. It has stored
+          them as a PARTIAL assistant row, and that row — with its real id, its
+          real timestamp and its flag — is the truth. Reconstructing it here
+          from the deltas would put a message on screen that the database does
+          not have, which survives exactly until a refresh.
+
+          A failure to re-read is left alone. The question is still in the
+          transcript, the failure banner is still up, and a second error about
+          being unable to check the first one is not information.
+        */
+        api
+          .chatSession(id)
+          .then((doc) => {
+            if (showing.current !== id) return;
+            setConvo({ id, messages: doc.messages, error: null });
+            setBackends(doc);
+          })
+          .catch(() => {});
+      }
     }
+  }
+
+  /** Stop the agent mid-answer. One abort, all the way down: the fetch body
+   *  closes, the server sees a disconnect, and its own call to the agent is
+   *  cancelled. What was already said is stored as partial, so nothing on
+   *  screen is lost by pressing this. */
+  function stop() {
+    abort.current?.abort();
   }
 
   async function chooseBackend(id: ChatBackendId | null) {
@@ -632,6 +1099,7 @@ export function Chat() {
       </header>
 
       <section
+        ref={scroller}
         className={cn(
           "flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pt-6",
           hasChat ? "items-center" : "items-center justify-center",
@@ -761,6 +1229,13 @@ export function Chat() {
             <div className="flex flex-col gap-5 pb-2">
               {messages.map((m) =>
                 m.role === "user" ? (
+                  /*
+                    THE OWNER'S OWN WORDS STAY PLAIN TEXT. Not markdown, and
+                    that is deliberate: a person who types `*` means an
+                    asterisk, and a pasted stack trace that quietly becomes a
+                    bulleted list is the interface editing what somebody said.
+                    Whitespace is preserved for the same reason.
+                  */
                   <div key={m.id} className="flex justify-end">
                     <div className="bg-card max-w-[85%] rounded-[12px] border px-3.5 py-2.5 text-[13.5px] whitespace-pre-wrap">
                       {m.content}
@@ -768,9 +1243,7 @@ export function Chat() {
                   </div>
                 ) : (
                   <div key={m.id}>
-                    <div className="text-[13.5px] leading-[1.6] whitespace-pre-wrap">
-                      {m.content.trim()}
-                    </div>
+                    <AssistantBody text={m.content.trim()} tools={m.tools} />
                     {/*
                       WHICH AGENT, WHICH MODEL, HOW LONG. Under every answer and
                       not in a tooltip, because the two backends do not answer
@@ -787,11 +1260,59 @@ export function Chat() {
                       {m.usage &&
                         ` · ${m.usage.prompt + m.usage.completion} tokens`}
                     </p>
+                    {/*
+                      A CUT-OFF ANSWER SAYS SO, EVERY TIME IT IS READ.
+
+                      The words above are real — the agent said them and the
+                      owner watched them arrive — but they are not the whole
+                      answer, and a transcript that drew them like one would be
+                      lying quietly and forever. This is why the row was stored
+                      at all rather than dropped: half an answer, labelled, is
+                      worth more than a gap where a conversation was.
+                    */}
+                    {m.partial && (
+                      <p className="text-muted-foreground mt-1 text-[11.5px]">
+                        <TriangleAlert
+                          className="mr-1 inline size-3 align-[-1px]"
+                          strokeWidth={1.8}
+                        />
+                        Cut off before the agent finished — this is what it had
+                        said.
+                      </p>
+                    )}
                   </div>
                 ),
               )}
 
-              {sending && (
+              {/*
+                THE ANSWER BEING WRITTEN. The same body renderer the stored
+                messages use, so a live turn and a reloaded one cannot look
+                different — the only thing that changes when the `done` event
+                lands is where the text is coming from.
+              */}
+              {liveTurn && (liveTurn.text || liveTurn.reasoning || liveTurn.tools.length) ? (
+                <div>
+                  {liveTurn.reasoning && (
+                    <Thinking text={liveTurn.reasoning} done={false} />
+                  )}
+                  <AssistantBody text={liveTurn.text} tools={liveTurn.tools} />
+                  {/*
+                    THE CARET, WHICH IS THE ONLY THING ON THIS PAGE THAT SAYS
+                    "still going". A spinner beside a growing answer is two
+                    controls saying the same thing; this is one, and it sits
+                    exactly where the next word will appear.
+                  */}
+                  <span className="bg-foreground ml-0.5 inline-block h-[13px] w-[2px] animate-pulse align-[-1px]" />
+                </div>
+              ) : null}
+
+              {/* Before the first byte there is nothing to draw a caret after,
+                  so the wait gets a sentence — and it names who is answering,
+                  because that is the thing worth knowing while you wait. */}
+              {sending &&
+                !liveTurn?.text &&
+                !liveTurn?.reasoning &&
+                !liveTurn?.tools.length && (
                 <p className="text-muted-foreground text-[12.5px]">
                   {backends?.liveLabel ?? fallback?.label ?? "The agent"} is
                   thinking…
@@ -847,19 +1368,38 @@ export function Chat() {
                 <Plug className="size-[15px]" strokeWidth={1.6} />
                 Integrations
               </Link>
-              <button
-                onClick={() => void send()}
-                disabled={!text.trim() || sending}
-                title="Send"
-                className={cn(
-                  "bg-primary text-primary-foreground ml-auto grid size-7 place-items-center rounded-lg transition-opacity",
-                  text.trim() && !sending
-                    ? "opacity-100"
-                    : "pointer-events-none opacity-25",
-                )}
-              >
-                <ArrowUp className="size-4" strokeWidth={2} />
-              </button>
+              {/*
+                SEND BECOMES STOP, IN THE SAME PLACE. One control, because
+                there is only ever one thing to do with a turn in flight, and a
+                separate stop button somewhere else is a button that is
+                disabled 99% of the time. The square is the universal spelling
+                of it and needs no label.
+
+                Stopping is not a cancel: the server keeps what the agent had
+                already said, flagged as cut off. Nothing on screen is lost by
+                pressing it, which is why it is offered without a confirmation.
+              */}
+              {sending ? (
+                <button
+                  onClick={stop}
+                  title="Stop"
+                  className="bg-primary text-primary-foreground ml-auto grid size-7 place-items-center rounded-lg"
+                >
+                  <Square className="size-3 fill-current" strokeWidth={2} />
+                </button>
+              ) : (
+                <button
+                  onClick={() => void send()}
+                  disabled={!text.trim()}
+                  title="Send"
+                  className={cn(
+                    "bg-primary text-primary-foreground ml-auto grid size-7 place-items-center rounded-lg transition-opacity",
+                    text.trim() ? "opacity-100" : "pointer-events-none opacity-25",
+                  )}
+                >
+                  <ArrowUp className="size-4" strokeWidth={2} />
+                </button>
+              )}
             </div>
           </div>
           {/*

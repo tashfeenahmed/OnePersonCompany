@@ -2530,6 +2530,31 @@ export type MessageBackendId = ChatBackendId | ProviderBackendId;
  * `usage` and `ms` are null whenever the agent did not report them — an agent
  * that counts no tokens has not told us the turn was free.
  */
+/**
+ * ONE TOOL CALL THE AGENT MADE WHILE WRITING AN ANSWER.
+ *
+ * THERE IS NO RESULT FIELD AND THERE CANNOT BE ONE. The agent's stream carries
+ * the tool's name, a one-line label ("date", "ls /etc") and running/completed —
+ * and nothing about what came back. A page that drew an output panel here
+ * would be drawing an empty box that looks broken, so it draws what is known:
+ * what ran, what it was called with, and how long it took.
+ *
+ * `finishedAt` is null while a call is still going and STAYS null on a turn
+ * that was cut off mid-call. `offset` is how many characters of the answer had
+ * been written when it started, which is what lets a reloaded transcript put
+ * the grey line back between the right two paragraphs instead of in a pile at
+ * the end.
+ */
+export type ChatToolCall = {
+  toolCallId: string;
+  tool: string;
+  label: string | null;
+  emoji: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  offset: number;
+};
+
 export type ChatMessage = {
   id: number;
   ts: string;
@@ -2540,6 +2565,18 @@ export type ChatMessage = {
   model: string | null;
   usage: { prompt: number; completion: number } | null;
   ms: number | null;
+  /** Null when the turn made no tool calls, and equally when it was not
+   *  streamed. The two are the same drawing, so the page does not distinguish
+   *  them. */
+  tools: ChatToolCall[] | null;
+  /**
+   * The answer was cut off before the agent finished writing it.
+   *
+   * Stored rather than dropped, and drawn with the flag showing rather than as
+   * a complete reply. Half an answer that the owner watched arrive is real;
+   * the two dishonest options are to delete it and to pretend it is whole.
+   */
+  partial: boolean;
 };
 
 /**
@@ -2670,6 +2707,87 @@ export type ChatBackends = {
 export type ChatSession = ChatBackends & {
   sessionId: string;
   messages: ChatMessage[];
+};
+
+/**
+ * A conversation the SERVER knows about, which is not the same list as the
+ * rail.
+ *
+ * The rail is the browser's: it holds names the owner typed, chats that have
+ * been started and not yet spoken into, and an order. This is the other half —
+ * every session id that has a message in it — and the page reconciles the two
+ * on load. `title` is a DERIVATION and not a name: the first thing the owner
+ * said in that conversation, which is the best guess available to something
+ * that was never told what to call it. A name held in the store always wins.
+ *
+ * `channels` says which doors the conversation came in by. A `telegram:…`
+ * session is a real transcript with the same agent and appears here for that
+ * reason — hiding it would rebuild the amnesia the shared table exists to
+ * prevent.
+ */
+export type ChatSessionSummary = {
+  sessionId: string;
+  title: string | null;
+  messages: number;
+  firstAt: string;
+  lastAt: string;
+  channels: string[];
+};
+
+export type ChatSessionsDoc = {
+  sessions: ChatSessionSummary[];
+  total: number;
+};
+
+/* ------------------------------------------------------ the streamed turn */
+
+/**
+ * What arrives while the agent is writing.
+ *
+ * ONE HANDLER OBJECT RATHER THAN AN ASYNC ITERATOR the caller pumps. The page
+ * is a React component: every event ends in a state update, and a `for await`
+ * in an event handler is a loop the component cannot be unmounted out of. The
+ * callbacks are called synchronously as frames arrive, and `chatStream`
+ * resolves when the turn is over, which is the shape the composer wants —
+ * `await` it, then re-enable the button.
+ *
+ * `onDone` AND `onError` ARE EXCLUSIVE and exactly one fires per turn, which
+ * is the server's guarantee and not this file's. Both are emitted only after
+ * the row they describe has been written, so a caller that has seen either can
+ * reload and find the same words.
+ */
+export type ChatStreamHandlers = {
+  onStart?: (e: {
+    sessionId: string;
+    userMessageId: number;
+    user: ChatMessage;
+    backend: MessageBackendId;
+    backendLabel: string | null;
+  }) => void;
+  onDelta?: (text: string) => void;
+  onReasoning?: (text: string) => void;
+  onTool?: (e: {
+    toolCallId: string;
+    tool: string;
+    label: string | null;
+    emoji: string | null;
+    status: "running" | "completed";
+    at: string;
+    offset: number;
+  }) => void;
+  onDone?: (e: {
+    messageId: number;
+    message: ChatMessage;
+    text: string;
+    model: string | null;
+    usage: { prompt: number; completion: number } | null;
+    ms: number;
+    tools: ChatToolCall[];
+  }) => void;
+  /** The turn failed. `partial` says whether the words already on screen were
+   *  stored — the difference between "that is now in the transcript, marked
+   *  incomplete" and "nothing was kept". */
+  onError?: (e: { message: string; messageId: number | null; partial: boolean }) => void;
 };
 
 /** What a sent message comes back as: both rows, plus the reply's own facts
@@ -2851,6 +2969,95 @@ export type SentEmailDoc = {
   /** Always empty: Resend returns no attachment bytes and lists none. The
    *  field exists so one reader component renders both sides. */
   attachments: MailAttachment[];
+};
+
+/* --------------------------------------------------------- the board app */
+
+/**
+ * A card, exactly as the server hands it over.
+ *
+ * `ventureId` and nothing else about the venture. The server has never seen a
+ * venture — they live in lib/store.tsx and are mirrored to localStorage — so
+ * the document cannot carry a name or a colour and does not pretend to. The
+ * page looks the id up in the store; one that resolves to nothing is drawn as
+ * unfiled, which is the truth about a card whose venture was deleted.
+ */
+export type BoardCard = {
+  id: number;
+  columnId: number;
+  /** The server's sparse sort key within its column. Nothing here sorts by
+   *  it — the cards arrive in order and stay in order under an optimistic
+   *  splice — and nothing ever sends one back: a move says which NEIGHBOUR the
+   *  card landed above, and the server works out what number that means. */
+  position: number;
+  title: string;
+  body: string | null;
+  ventureId: string | null;
+  /** 0 low · 1 normal · 2 high · 3 urgent. An order, so it is a number. */
+  urgency: number;
+  /** A day, 'YYYY-MM-DD', or null for a card with no date. Null is "not
+   *  given", which is why it is not an empty string. */
+  due: string | null;
+  /** When it reached Done. Set by the move that put it there and cleared by
+   *  one that takes it out. */
+  doneAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Non-null only on a card something FILED rather than somebody typing it.
+   *  Nothing files today; see the seam at the foot of routes/board.ts. */
+  origin: string | null;
+};
+
+export type BoardColumn = {
+  id: number;
+  /** The stable name the code means, which a rename does not change. */
+  key: string;
+  /** The visible name, which a rename does. */
+  title: string;
+  position: number;
+  /** Null is no limit set — a real third answer beside a limit of 0, which is
+   *  a column nothing may sit in. */
+  wipLimit: number | null;
+  /** Backlog and Done. Named so the page can hide a control rather than offer
+   *  a press the server would refuse. */
+  structural: boolean;
+  count: number;
+  /** Decided on the server, where the count and the limit both are. Two places
+   *  deciding what "over" means is how a column ends up drawn calm while its
+   *  own number says otherwise. */
+  overLimit: boolean;
+  cards: BoardCard[];
+};
+
+/**
+ * The whole board in one document — which is also what EVERY mutation answers
+ * with, so a write never needs a second fetch to find out what it did.
+ *
+ * That is the contract the optimistic drag on the Board page rests on: apply
+ * the guess, send the move, replace the guess with the reply. A move can
+ * change the positions of cards nobody touched, so a reply of "the card as it
+ * now is" would leave the page to guess at the rest of the column.
+ */
+export type BoardDoc = {
+  columns: BoardColumn[];
+  totals: {
+    cards: number;
+    done: number;
+    /** Out of the way, not gone — not in `columns` above, and not deleted. */
+    archived: number;
+  };
+};
+
+/** A partial edit. A field left out is untouched; a field sent as `null` is
+ *  cleared. That is what lets the dialog send the one field that changed
+ *  rather than resending a whole card over somebody else's edit — and what
+ *  makes "remove the due date" an instruction rather than an omission. */
+export type BoardCardPatch = {
+  title?: string;
+  body?: string | null;
+  urgency?: number;
+  due?: string | null;
+  ventureId?: string | null;
 };
 
 export const api = {
@@ -3221,6 +3428,171 @@ export const api = {
       body: JSON.stringify({ sessionId, message }),
     }),
 
+  /**
+   * Say something, and watch it being written.
+   *
+   * WHY THIS IS `fetch` AND NOT `EventSource`. EventSource is the browser's
+   * built-in SSE client and it is the wrong one here for three separate
+   * reasons, any of which would be enough: it can only issue a GET, so the
+   * message would have to go in the URL; it cannot set a header; and it
+   * RECONNECTS on its own, which on a chat endpoint means silently asking the
+   * same question again and paying for it twice. So: a POST, a readable body,
+   * and the frame parser below.
+   *
+   * The `AbortSignal` is the stop button. Aborting closes the body, which
+   * closes the connection, which the server sees as a disconnect and turns
+   * into an aborted call to the agent — the whole chain, from a click to the
+   * gateway giving up, is that one signal. What has already been said is
+   * stored as a partial answer at the far end, so stopping loses nothing that
+   * was on screen.
+   */
+  chatStream: async (
+    sessionId: string,
+    message: string,
+    handlers: ChatStreamHandlers,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const res = await fetch(`${BASE}/chat/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      body: JSON.stringify({ sessionId, message }),
+      signal,
+    });
+
+    /*
+      A REFUSAL IS STILL AN ORDINARY HTTP ERROR. "No agent is connected" and
+      "that message is too long" are decided before the stream opens and come
+      back as JSON with a status, so they throw an ApiError exactly like every
+      other call in this file and the page's existing error handling catches
+      them unchanged. Only failures that happen AFTER the agent was reached
+      arrive as an `error` event.
+    */
+    if (!res.ok) {
+      const body: unknown = await res.json().catch(() => null);
+      throw new ApiError(
+        res.status,
+        body && typeof body === "object" && "error" in body
+          ? String((body as { error: unknown }).error)
+          : `HTTP ${res.status}`,
+      );
+    }
+    if (!res.body) throw new ApiError(502, "The API opened a stream with nothing in it.");
+
+    /*
+      THE SAME PARSER THE SERVER USES ON THE AGENT'S STREAM, for the same
+      reasons and with the same two traps. `res.body` is BYTES: a chunk can end
+      mid-character (TextDecoder with `stream: true` holds the split one until
+      the rest arrives) and mid-frame (only a blank line dispatches). The naive
+      `split("\n\n")` version works until the first answer with an emoji in it
+      lands on a buffer boundary.
+    */
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let event: string | null = null;
+    let data: string[] = [];
+
+    const dispatch = () => {
+      if (data.length) {
+        const raw = data.join("\n");
+        data = [];
+        const name = event;
+        event = null;
+        let parsed: unknown = null;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          /* A malformed frame is one lost event, not a lost turn. The answer
+             so far is still real and the next frame is probably fine. */
+          return;
+        }
+        switch (name) {
+          case "start":
+            handlers.onStart?.(parsed as Parameters<
+              NonNullable<ChatStreamHandlers["onStart"]>
+            >[0]);
+            break;
+          case "delta":
+            handlers.onDelta?.((parsed as { text: string }).text);
+            break;
+          case "reasoning":
+            handlers.onReasoning?.((parsed as { text: string }).text);
+            break;
+          case "tool":
+            handlers.onTool?.(parsed as Parameters<
+              NonNullable<ChatStreamHandlers["onTool"]>
+            >[0]);
+            break;
+          case "done":
+            handlers.onDone?.(parsed as Parameters<
+              NonNullable<ChatStreamHandlers["onDone"]>
+            >[0]);
+            break;
+          case "error":
+            handlers.onError?.(parsed as Parameters<
+              NonNullable<ChatStreamHandlers["onError"]>
+            >[0]);
+            break;
+          /* An event this build does not know about is skipped rather than
+             guessed at. A newer server may say more than an older page reads. */
+        }
+      } else {
+        event = null;
+      }
+    };
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let nl: number;
+        while ((nl = buffer.search(/\r\n|\r|\n/)) !== -1) {
+          const line = buffer.slice(0, nl);
+          buffer = buffer.slice(nl + (buffer.startsWith("\r\n", nl) ? 2 : 1));
+
+          if (line === "") {
+            dispatch();
+            continue;
+          }
+          /* A comment — servers send these to keep an idle proxy from hanging
+             up, and they are not events. */
+          if (line.startsWith(":")) continue;
+
+          const colon = line.indexOf(":");
+          const field = colon === -1 ? line : line.slice(0, colon);
+          let value2 = colon === -1 ? "" : line.slice(colon + 1);
+          /* Exactly one leading space is stripped, per the spec: `data:  x`
+             carries a value that starts with a space. */
+          if (value2.startsWith(" ")) value2 = value2.slice(1);
+
+          if (field === "event") event = value2;
+          else if (field === "data") data.push(value2);
+        }
+      }
+      /* A stream that ends without a trailing blank line still has a frame in
+         hand, and it is usually the `done`. */
+      dispatch();
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+  },
+
+  /** Every conversation the server has messages for. The rail reconciles
+   *  against this on load — see `ChatSessionSummary` for which half of a
+   *  session each side owns. */
+  chatSessions: () => call<ChatSessionsDoc>("/chat/sessions"),
+
+  /** Forget one conversation, on the server. The store's own entry is removed
+   *  separately, by the caller: the two are different facts and deleting one
+   *  is not deleting the other. */
+  deleteChatSession: (sessionId: string) =>
+    call<{ sessionId: string; deleted: number }>(
+      `/chat/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+    ),
+
   /* --------------------------------------------------------------- models */
 
   /** Every provider, whether each is connected, which is the default, and what
@@ -3321,5 +3693,87 @@ export const api = {
     call<AgentReport>(`/agents/${id}/mode`, {
       method: "POST",
       body: JSON.stringify({ mode }),
+    }),
+
+  /* ------------------------------------------------------- the board app */
+
+  /**
+   * The board: every column with its cards in order, archived ones left out.
+   *
+   * ONE FETCH FOR THE WHOLE PAGE, and every call below answers with the same
+   * document — so the page has exactly one shape of state and a mutation's
+   * reply replaces it whole. Nothing here returns a fragment that would have
+   * to be merged into something.
+   */
+  board: () => call<BoardDoc>("/board"),
+
+  /** Write a card down. `column` is its id or its key; left out, it lands in
+   *  Backlog — a card typed in a hurry has to have somewhere to go that is
+   *  not a decision. */
+  boardAddCard: (input: {
+    title: string;
+    body?: string | null;
+    ventureId?: string | null;
+    urgency?: number;
+    due?: string | null;
+    column?: number | string;
+  }) =>
+    call<BoardDoc>("/board/cards", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  boardEditCard: (id: number, patch: BoardCardPatch) =>
+    call<BoardDoc>(`/board/cards/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  /**
+   * THE DRAG. "Put it in that column, above that card" — `before` is the id of
+   * the card to land on top of, or null for the foot of the column.
+   *
+   * A NEIGHBOUR RATHER THAN AN INDEX, which is the one place this differs from
+   * workdash's board and the difference is worth having: an index of 3 means a
+   * different slot the moment anything else has been inserted, and it silently
+   * means SOMETHING, so a stale drop lands in the wrong place and reads as a
+   * misfire. A card id either still names a card in that column or it does
+   * not, and the server says so rather than guessing. It is also what lets the
+   * page stay draggable while a venture filter is on: a hidden card cannot
+   * make "above that card" mean somewhere else.
+   */
+  boardMoveCard: (id: number, columnId: number, before: number | null) =>
+    call<BoardDoc>(`/board/cards/${id}/move`, {
+      method: "POST",
+      body: JSON.stringify({ columnId, before }),
+    }),
+
+  /** Out of the way, not gone. It keeps its column and its place; the board
+   *  stops returning it. */
+  boardArchiveCard: (id: number) =>
+    call<BoardDoc>(`/board/cards/${id}/archive`, { method: "POST" }),
+
+  /** Gone, with no undo — which is why archive exists beside it and why the
+   *  dialog asks before it calls this. */
+  boardDeleteCard: (id: number) =>
+    call<BoardDoc>(`/board/cards/${id}`, { method: "DELETE" }),
+
+  /** Rename a column, or put a ceiling on it. `wipLimit: null` removes the
+   *  ceiling; 0 is a column nothing should sit in, and they are different. The
+   *  limit is never enforced — it is a thing to be told about, and a board
+   *  that refuses a drop teaches you to put the card somewhere dishonest. */
+  boardEditColumn: (id: number, patch: { title?: string; wipLimit?: number | null }) =>
+    call<BoardDoc>(`/board/columns/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  /** Reorder the columns, in the same vocabulary a card moves in. Nothing on
+   *  the page calls this yet — the board draws its five in the order the
+   *  server gives them — and it is here because the route is. */
+  boardMoveColumn: (id: number, before: number | null) =>
+    call<BoardDoc>(`/board/columns/${id}/move`, {
+      method: "POST",
+      body: JSON.stringify({ before }),
     }),
 };

@@ -93,6 +93,7 @@ import * as telegramPoller from "./telegram/poller.ts";
 import * as searxngInstance from "./searxng/instance.ts";
 import * as freellmapiInstance from "./freellmapi/instance.ts";
 import { agentRoutes } from "./routes/agents.ts";
+import { boardRoutes } from "./routes/board.ts";
 import * as agentInstances from "./agents/instance.ts";
 
 const app = new Hono();
@@ -229,6 +230,16 @@ app.route("/api/agents", agentRoutes);
   fetch a URL can use it, and so can a person with curl.
 */
 app.route("/api/search", searchRoutes);
+/*
+  THE BOARD — the first route here that stores what the OWNER typed rather than
+  what a provider reported. Every other route on this server is a window onto a
+  collector's transcript, where a row is replaced the moment the next
+  collection disagrees with it; these rows are the record, and nothing
+  collects them. It is mounted last for that reason rather than by accident:
+  it depends on no credential, no provider registry and no import order at
+  all, so there is nothing above it that it needs to have run.
+*/
+app.route("/api/board", boardRoutes);
 
 app.notFound((c) => c.json({ error: "No such route." }, 404));
 

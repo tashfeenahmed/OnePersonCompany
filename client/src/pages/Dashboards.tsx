@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BrandTile } from "@/components/BrandTile";
 import { WidgetCard } from "@/components/WidgetCard";
+import { TabStrip } from "@/components/TabStrip";
 import { cn } from "@/lib/utils";
 import {
   defaultWidth,
@@ -85,8 +86,14 @@ export function Dashboards() {
 }
 
 function Board({ board }: { board: Dashboard }) {
-  const { state, addDashboard, renameDashboard, deleteDashboard, setWidgets } =
-    useStore();
+  const {
+    state,
+    addDashboard,
+    renameDashboard,
+    deleteDashboard,
+    reorderDashboards,
+    setWidgets,
+  } = useStore();
   const live = useLive();
   const navigate = useNavigate();
   const { state: nav } = useLocation();
@@ -174,26 +181,18 @@ function Board({ board }: { board: Dashboard }) {
   return (
     <>
       <header className="flex h-12 shrink-0 items-center gap-2 px-4.5">
-        <div className="flex items-center gap-0.5 overflow-x-auto">
-          {/* Links, not buttons: each tab IS the board's address, so it can be
-              middle-clicked into a new tab and copied out of the bar. */}
-          {state.dashboards.map((d) => (
-            <Link
-              key={d.id}
-              to={`/dashboards/${d.slug}`}
-              aria-current={d.id === board.id ? "page" : undefined}
-              className={cn(
-                "text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-[7px] rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap",
-                d.id === board.id && "bg-accent text-foreground font-medium",
-              )}
-            >
-              {d.name}
-              <span className="text-muted-foreground text-[11px]">
-                {d.widgets.length}
-              </span>
-            </Link>
-          ))}
-        </div>
+        {/* Links, not buttons: each tab IS the board's address. Hold and drag
+            to reorder — the order lives in the store beside the boards. */}
+        <TabStrip
+          tabs={state.dashboards.map((d) => ({
+            key: d.id,
+            to: `/dashboards/${d.slug}`,
+            label: d.name,
+            count: d.widgets.length,
+          }))}
+          activeKey={board.id}
+          onReorder={reorderDashboards}
+        />
         <button
           onClick={() => setCreating(true)}
           className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]"

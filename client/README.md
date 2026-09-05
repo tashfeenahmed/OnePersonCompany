@@ -21,6 +21,8 @@ npm run lint
 | `/plugins`    | The integration store, with the setup drawer                        |
 | `/dashboards` | Redirects to the first board — the bare path is a way in, not a page |
 | `/dashboards/:slug` | One board: widget palette, drag to reorder, width cycling      |
+| `/apps`       | Redirects to the first app — the same shape the bare `/dashboards` takes |
+| `/apps/board` | The Board: columns, cards, drag between them, filtered by venture   |
 
 ## Layout
 
@@ -884,3 +886,190 @@ complained — and not over everything sent. The card prints `61 of 947 that
 reached a server` rather than a bare percentage, and names the worst domain
 beside it, because a 6.4% portfolio rate made of one domain at 15% and eight at
 zero is a fact about one domain.
+
+## The Board app
+
+The first app here that is a place to **put** something. Email and Email stats
+are windows onto mail that arrived whether anybody opened them or not; a card
+on the board exists nowhere until it is typed in, and losing one is losing
+work. It is first in the `APPS` registry for that reason, so the bare `/apps`
+lands on it.
+
+Its shape is workdash's `/kanban` — columns across, cards down, urgency as a
+word and a colour, a venture chip, a due date — with the machinery that fills
+that board deliberately left behind. Workdash has a backlog filer, an issue
+ranking and a gardening sweep writing cards in from other collectors. **These
+cards are the owner's.** The seam for the other kind is a nullable `origin` on
+the server and nothing on this page.
+
+### The page does not scroll — three things inside it do
+
+The header is fixed, the row of columns scrolls sideways, and each column
+scrolls itself. A board is the one layout in this app that is wider than any
+window *and* taller than one, and letting either dimension escape into the
+document would take the sidebar and every other page's alignment with it.
+
+A column is held by flex rather than `position: sticky`: a header that cannot
+shrink, a card list that is `flex-1 min-h-0 overflow-y-auto`, and a footer that
+cannot shrink. Sticky would need a scroll container to stick inside and a
+z-index to win against the cards passing under it. This needs neither, and it
+cannot come unstuck at a width nobody tested.
+
+### Drag state lives on the page, because a drag crosses columns
+
+A card starts in one column component and is dropped in another, so the only
+thing that can see both ends is the thing that renders both. Every column is
+handed the id being carried and the current drop point and reports back; none
+of them owns either. It is also why the indicator line is *drawn* by a column
+and *decided* by the page — two columns each deciding where the line goes is
+two lines.
+
+The mechanism is **native HTML5 drag and drop**, the same four handlers and one
+`preventDefault` the dashboard's widgets use (`Dashboards.tsx` — `dragHandlers`,
+`dropTarget`, before/after). No library: the whole interaction is `draggable`
+plus a rule about which half of a card the pointer is in.
+
+### The move is optimistic, and the reply replaces the guess
+
+A drop repaints on the same frame from a locally-spliced board, sends
+`{ columnId, before }`, and then throws the guess away in favour of the
+document the server answers with. Thrown away rather than merged: the server's
+board is the record, a move can renumber cards nobody touched, and a client
+that reconciled its guess into the reply would be maintaining a second opinion
+about where things are.
+
+`applyMove` splices one card between two arrays and keeps the two numbers drawn
+beside it — the count, and whether that count is over the WIP limit — in step.
+It does not recompute positions, because nothing on this page ever sorts by
+one: the server's lists arrive in order and stay in order under a splice.
+
+**A refused move puts the previous board back and says so, in the server's own
+words, in a line at the top.** Never a silent revert: a card sliding home on
+its own reads as a bug in the drag rather than as an answer.
+
+### A filtered board is still a draggable board
+
+Workdash's board turns dragging off while its search box has anything in it,
+and it is right to: its drop sends an index, and an index counted over a list
+with rows hidden inside it is a lie. This one names the **card** to land above,
+so a hidden card cannot make "above that card" mean somewhere else. The card
+lands exactly where the line promised, with whatever the filter hid staying
+where it already was — so the venture chips across the top filter the board
+without disarming it.
+
+A column whose cards are partly hidden says `1 of 3` rather than `1`: the count
+in a header is a fact about the work, not about the filter somebody has on.
+
+### What the cards say, and what they leave out
+
+- **Urgency is a word in a pill, and only the top two are coloured.** Urgent is
+  the destructive red, high the same amber a mailbox uses for an unverified
+  domain — the status palette borrowed on purpose, because a page that spends
+  its alarm colours on two scales teaches you to read neither. **Normal draws
+  no chip at all**: it is the default and most of the board, and a chip on
+  every card says nothing. The dialog still offers all four.
+- **The venture chip is a different vocabulary and stays one.** Urgency means
+  how much of a hurry; a venture means whose work, and only it carries the
+  store's own hue.
+- **A due date is a day, compared as text.** `new Date("2026-09-05")` is
+  midnight UTC, so west of Greenwich a card would go overdue at a time
+  depending on nothing the owner can see. Two ISO days compare correctly as
+  strings, so there is no arithmetic to get wrong. Overdue is drawn `bad`,
+  today `warn`.
+- **One line of the body and no more.** A card is a handle on a piece of work;
+  the note is for the dialog.
+
+### Honest states, including the two that are not "no data"
+
+The API being down does not draw an empty board — an empty board would be a
+claim, and the truthful answer is that every card lives on the server and none
+of them can be read. An empty board draws its columns with a sentence in
+Backlog and the composer under it, because the point of the screen is that you
+can type the first card. A column emptied by the filter says so, and says how
+many cards it is hiding.
+
+### The dialog sends only what changed
+
+The patch is built by comparing the form against the card it came from, and a
+form with nothing changed closes without a request — a save that writes an
+`updated_at` and nothing else makes a card look edited. The server's contract
+already tells "left out" from "sent as `null`", and resending five fields would
+overwrite an edit made in another tab a second ago.
+
+**Archive and delete are both offered, because they are different intentions.**
+Archive keeps the card and takes it off the board; delete is gone. Only the one
+with no undo asks twice.
+
+### What is not built
+
+Columns cannot be created or deleted — the five the server seeds are the board,
+and there is no route for either. They can be renamed (click the name) and
+given a WIP limit (click the `limit` chip), and the limit is **reported, never
+enforced**: a board that refuses a drop teaches you to put the card somewhere
+dishonest instead. Columns are not draggable on this page yet, though
+`api.boardMoveColumn` and the route behind it exist. And archived cards can be
+made but not read back: nothing renders them, which the header says out loud
+rather than leaving a count that goes nowhere.
+
+## The Chat page streams, and renders markdown
+
+`POST /api/chat/stream` is SSE, read by `api.chatStream` — `fetch` plus a frame
+parser, not `EventSource`, which cannot POST, cannot set a header, and
+reconnects on its own (on a chat endpoint that means asking the same question
+twice and paying for it twice). The events are `start`, `delta`, `reasoning`,
+`tool`, `done` and `error`; the server's `routes/chat.ts` documents the shape of
+each.
+
+**Two markdown dependencies were added on purpose: `react-markdown` and
+`remark-gfm`.** Every model on the other end of this app writes markdown whether
+or not it was asked to, and `whitespace-pre-wrap` was not a neutral choice — it
+was a decision to show the owner the asterisks and let them parse. The
+alternative was a regex pass, and it is the wrong trade in three ways that all
+arrive later than the afternoon it takes to write: markdown is not a regular
+language (a fence inside a blockquote, a table cell with a pipe in backticks);
+a hand-rolled renderer that emits HTML is an XSS hole pointed at text that came
+from a model, which on this app means text that has been near the owner's
+mailbox and their Hetzner bill; and a stream re-parses the whole message on
+every delta, so it has to be fast as well as correct.
+
+Sanitisation is by **omission**. `react-markdown` builds React elements and
+never touches `dangerouslySetInnerHTML`; raw HTML in the source is passed
+through as text because `rehype-raw` is not installed and must not be. There is
+no HTML path to sanitise, which is a stronger guarantee than an allowlist.
+
+Only the agent's messages are rendered this way. **The owner's own stay plain
+text** with whitespace preserved: somebody who types `*` means an asterisk, and
+a pasted stack trace that quietly becomes a bulleted list is the interface
+editing what they said.
+
+### Tool calls are one grey line each
+
+Hermes streams `hermes.tool.progress` events mid-answer — the tool, a one-line
+label, running then completed. There is **no result in the stream**, so the line
+shows what is known and the chevron opens onto the raw event JSON rather than an
+empty "Output" box. Each call is stored with an `offset` (how much of the answer
+had been written when it started), which is what puts the line back between the
+right two paragraphs on reload instead of in a pile at the end.
+
+### A cut-off answer is stored, and says so
+
+Stopping the stream, a dead gateway or a closed tab all leave text the agent
+really did say. The server writes it as an assistant row with `partial: true`
+and the page draws the flag under it, every time it is read. The page does not
+keep its own copy: when a turn ends any way other than `done`, it re-reads the
+transcript, because the stored row is the one that will still be there after a
+refresh.
+
+### The session rail is real now
+
+The twelve seeded sessions are gone. The store still owns the list, the names
+and the order — the server owns the messages — and `GET /api/chat/sessions`
+reconciles the two on load: conversations the server has and the store does not
+are added (including ones that started on Telegram), sessions with no messages
+stay as empty drafts, and a name the owner typed always beats a derived one.
+Rename and delete live in the row's `⋯` menu; delete removes the transcript as
+well as the entry.
+
+`Session.children` and the sidebar's indented rendering are **kept and unused**.
+Nothing writes to them yet; they are the shape a chat's sub-agent runs will hang
+from.

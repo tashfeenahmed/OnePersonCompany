@@ -28,6 +28,10 @@
  * fields everybody implements and nothing clever, and the reader tries the
  * shapes in the order of how likely they are to be the real answer.
  */
+/* The frame reader, in its own file because it is the one piece of this that
+   is also needed on the OTHER side of the wire — the browser reads this
+   server's SSE with a copy of the same parser. */
+import { readSse, type SseFrame } from "./sse.ts";
 
 /** Every outbound call in this file carries one. An agent is allowed to think
  *  for a while; it is not allowed to think for as long as it likes while a
@@ -41,6 +45,28 @@ export const ASK_TIMEOUT_MS = 60_000;
  *  there and is this token real" in fifteen seconds is not going to answer a
  *  chat turn, and the owner is sitting in front of the form waiting. */
 export const PROBE_TIMEOUT_MS = 15_000;
+
+/**
+ * A STREAM GETS TWO DEADLINES, AND NEITHER OF THEM IS `ASK_TIMEOUT_MS`.
+ *
+ * The sixty-second budget above exists because a page is spinning on nothing:
+ * the whole cost of a slow agent is paid before a single word appears. A
+ * stream inverts that. Words are appearing the entire time, the owner can read
+ * them, and cutting a working answer off at sixty seconds because the agent is
+ * still writing would be the timeout doing harm.
+ *
+ * What is actually wrong with a stream is SILENCE. So the budget that matters
+ * is idle time — no bytes for this long means the far end has died in a way
+ * that did not close the socket, which is the failure a TCP connection cannot
+ * tell you about on its own. It resets on every chunk.
+ *
+ * The hard cap is the backstop for the pathological case the idle timer cannot
+ * see: an agent looping, emitting a token a second, forever. Ten minutes is
+ * long enough that no honest answer hits it and short enough that a runaway is
+ * a sentence rather than a socket held until the process restarts.
+ */
+export const STREAM_IDLE_MS = 90_000;
+export const STREAM_MAX_MS = 600_000;
 
 /**
  * A failure with the status that caused it, so the adapters can map 401 to
@@ -306,12 +332,20 @@ export async function getJson<T>(
  * false` — because each optional field is one more thing a gateway can refuse
  * a whole turn over.
  *
- * STREAMING IS EXPLICITLY OFF. Both servers support SSE and the page could
- * render it, but a streamed answer has to be persisted at the end anyway and
- * the failure modes are worse: a stream that dies half way has already put
- * half an answer on screen, and there is no honest way to store that as a
- * message. This asks for the whole turn, waits for it, writes it down, and
- * returns it. See the note in routes/chat.ts about what streaming would cost.
+ * STREAMING IS OFF ON THIS FUNCTION, AND IT IS A SEPARATE FUNCTION NOW.
+ *
+ * This one asks for the whole turn, waits for it, and hands back a document —
+ * which is what a caller with nowhere to put a half-answer wants, and there is
+ * one: the Telegram bridge, which has no growing bubble to render into and
+ * sends a message once. `chatCompletionStream` below is the other shape, and
+ * the objection that kept it out for so long ("no honest way to store half an
+ * answer") is answered in the schema rather than avoided — see the `partial`
+ * column in 019_chat_tools.
+ *
+ * Two functions rather than one with a flag, because the return types are
+ * genuinely different — a document versus a sequence of frames — and a
+ * `stream?: boolean` parameter that changes what comes back is a function that
+ * every caller has to narrow before it can use.
  */
 export async function chatCompletion(opts: {
   base: string;
@@ -355,6 +389,210 @@ export async function chatCompletion(opts: {
         `is usually a web UI on the port rather than the API.`,
     );
   return (await res.json()) as Completion;
+}
+
+/**
+ * One OpenAI streaming chunk. Every field is optional for the same reason the
+ * non-streaming `Completion`'s are: two servers, two subsets. The reasoning
+ * fields sit on the DELTA here rather than on a message, which is the shape
+ * Hermes' router emits them in.
+ */
+export type StreamChunk = {
+  model?: string | null;
+  choices?: {
+    delta?: {
+      content?: string | Part[] | null;
+      reasoning?: string | null;
+      reasoning_content?: string | null;
+    } | null;
+    finish_reason?: string | null;
+  }[];
+  usage?: {
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+  } | null;
+  error?: { message?: string; type?: string } | string | null;
+};
+
+/** The text out of one delta, in the same order of preference `readText` uses
+ *  on a whole message: `content` is the answer, and a string or an array of
+ *  parts are both legal spellings of it. Empty string rather than null,
+ *  because a chunk with no content is the normal case (the opening
+ *  `{"role":"assistant"}` frame) and not a fault worth reporting. */
+export function deltaText(
+  delta: { content?: string | Part[] | null } | null | undefined,
+): string {
+  const content = delta?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content))
+    return content
+      .filter((p) => p && (p.type === undefined || p.type === "text"))
+      .map((p) => p.text ?? "")
+      .join("");
+  return "";
+}
+
+/**
+ * The same turn, as it is written.
+ *
+ * WHAT COMES BACK IS FRAMES, NOT TEXT, and that is the point. Hermes'
+ * router interleaves named events with the ordinary chunks — a tool starting,
+ * a tool finishing — and a function that yielded strings would have thrown
+ * away the half of the stream that says what the agent DID. The adapters
+ * decide what each frame means, because that is the part the two of them
+ * genuinely differ on; the fetch, the deadlines and the refusal are the same
+ * on both wires and live here.
+ *
+ * THE DEADLINES ARE A CONTROLLER RATHER THAN `AbortSignal.timeout`, which is
+ * the one real difference from `send()` above. A single timeout on a stream is
+ * wrong in both directions at once: short enough to catch a dead gateway is
+ * short enough to cut off a long answer, and long enough for a long answer
+ * leaves a dead gateway holding a socket for ten minutes. So there are two —
+ * an idle timer that resets on every frame, and a hard cap — and both abort
+ * the same controller, with a flag saying which fired so the error can say so.
+ *
+ * The idle timer resets per FRAME rather than per chunk, which is a small
+ * inaccuracy in the honest direction: a server dribbling out half a frame
+ * every eighty seconds is not a server anybody is being asked to tolerate.
+ */
+export async function* chatCompletionStream(opts: {
+  base: string;
+  path?: string;
+  key: string | null;
+  model: string;
+  turns: WireTurn[];
+  service: string;
+  extra?: Record<string, string>;
+  body?: Record<string, unknown>;
+  idleMs?: number;
+  maxMs?: number;
+  signal?: AbortSignal;
+}): AsyncGenerator<SseFrame> {
+  const url = `${opts.base}${opts.path ?? "/chat/completions"}`;
+  const idleMs = opts.idleMs ?? STREAM_IDLE_MS;
+  const maxMs = opts.maxMs ?? STREAM_MAX_MS;
+
+  const controller = new AbortController();
+  /* Which of the two fired, so the failure names itself. Without this both
+     look like a bare AbortError and the owner is told "cancelled" about a
+     gateway that stopped talking. */
+  let expired: "idle" | "max" | null = null;
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const hard = setTimeout(() => {
+    expired = "max";
+    controller.abort();
+  }, maxMs);
+  const touch = () => {
+    clearTimeout(idle);
+    idle = setTimeout(() => {
+      expired = "idle";
+      controller.abort();
+    }, idleMs);
+  };
+  touch();
+
+  const signal = opts.signal
+    ? AbortSignal.any([controller.signal, opts.signal])
+    : controller.signal;
+
+  try {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          /* Asked for explicitly. A gateway that can answer either way needs
+             to be told which, and one that cannot will ignore it. */
+          Accept: "text/event-stream",
+          ...(opts.key ? { Authorization: `Bearer ${opts.key}` } : {}),
+          ...opts.extra,
+        },
+        body: JSON.stringify({
+          model: opts.model,
+          messages: opts.turns,
+          stream: true,
+          ...opts.body,
+        }),
+        signal,
+      });
+    } catch (err) {
+      const name = err instanceof Error ? err.name : "Error";
+      if (expired) throw expiredError(opts.service, expired, idleMs, maxMs);
+      if (name === "AbortError")
+        throw new WireError(499, `The ${opts.service} call was cancelled.`);
+      throw new WireError(502, `Could not reach ${opts.service} at ${url} (${name}).`);
+    }
+
+    if (!res.ok) throw new WireError(res.status, await refusal(res, opts.service));
+    /*
+      A 200 that is not an event stream is a server that quietly ignored
+      `stream: true` and answered with the whole document — which is a
+      perfectly reasonable thing for an OpenAI-compatible server to do and is
+      NOT an error the caller should die on. It is named as its own status so
+      the adapter can fall back to `ask()` rather than showing the owner a
+      failure for a turn that actually succeeded somewhere.
+    */
+    const type = res.headers.get("content-type") ?? "";
+    if (!type.includes("text/event-stream"))
+      throw new WireError(
+        406,
+        `${opts.service} was asked to stream and answered with ` +
+          `${type || "no content type"} instead. That endpoint does not stream.`,
+      );
+    if (!res.body) throw new WireError(502, `${opts.service} sent an empty stream.`);
+
+    try {
+      for await (const frame of readSse(res.body)) {
+        touch();
+        yield frame;
+      }
+    } catch (err) {
+      const name = err instanceof Error ? err.name : "Error";
+      if (expired) throw expiredError(opts.service, expired, idleMs, maxMs);
+      /*
+        THE CALLER'S SIGNAL IS CHECKED BEFORE THE ERROR'S NAME, because a body
+        read that is aborted mid-stream does NOT reliably surface as an
+        AbortError — undici raises a plain TypeError from the reader when the
+        request underneath it goes away, and reporting that as "the stream
+        broke" would blame the agent for a tab the owner closed.
+      */
+      if (opts.signal?.aborted)
+        throw new WireError(
+          499,
+          `The ${opts.service} stream was cancelled — whatever it had already ` +
+            `said is kept.`,
+        );
+      if (name === "AbortError")
+        throw new WireError(499, `The ${opts.service} stream was cancelled.`);
+      throw new WireError(
+        502,
+        `${opts.service}'s stream broke half way (${name}).`,
+      );
+    }
+  } finally {
+    clearTimeout(hard);
+    clearTimeout(idle);
+  }
+}
+
+function expiredError(
+  service: string,
+  which: "idle" | "max",
+  idleMs: number,
+  maxMs: number,
+): WireError {
+  return which === "idle"
+    ? new WireError(
+        504,
+        `${service} stopped sending anything for ${Math.round(idleMs / 1000)} ` +
+          `seconds mid-answer. Whatever it had already said is kept.`,
+      )
+    : new WireError(
+        504,
+        `${service} was still writing after ${Math.round(maxMs / 60_000)} ` +
+          `minutes. The answer so far is kept.`,
+      );
 }
 
 /** The `{ data: [{ id }] }` every OpenAI-compatible server returns from

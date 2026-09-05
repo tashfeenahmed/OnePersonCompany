@@ -68,6 +68,8 @@ import {
   PROBE_TIMEOUT_MS,
   WireError,
   chatCompletion,
+  chatCompletionStream,
+  deltaText,
   getJson,
   isPrivateHost,
   parseEndpoint,
@@ -75,8 +77,15 @@ import {
   readModelIds,
   readText,
   readUsage,
+  type StreamChunk,
 } from "../chat/wire.ts";
-import { registerBackend, type ChatBackend, type ChatReply } from "../chat/backend.ts";
+import { parseFrame } from "../chat/sse.ts";
+import {
+  registerBackend,
+  type ChatBackend,
+  type ChatReply,
+  type ChatStreamEvent,
+} from "../chat/backend.ts";
 
 const SERVICE = "OpenClaw";
 
@@ -374,6 +383,116 @@ registerBackend("openclaw", (): ChatBackend | null => {
         */
         model: readModel(doc) ?? agent,
         usage: readUsage(doc),
+        ms,
+      };
+    },
+
+    /**
+     * The same turn, streamed — BUILT TO THE DOCUMENTED SHAPE AND NOT VERIFIED
+     * AGAINST A RUNNING GATEWAY, which is said here rather than discovered by
+     * somebody later.
+     *
+     * The gateway documents `stream: true` on `/v1/chat/completions` as plain
+     * OpenAI SSE: `data:` chunks carrying `choices[0].delta.content`, a
+     * trailing usage chunk, `data: [DONE]`. That is what this reads, and it is
+     * the same reader the Hermes adapter uses for the same fields. What has
+     * NOT happened is a real streamed answer coming back from a real gateway:
+     * the file header already names the gap — the gateway on this estate has
+     * no harness behind it and answers a completion with a 500 — and streaming
+     * does not close it.
+     *
+     * SO THERE IS DELIBERATELY NOTHING SPECULATIVE IN HERE. No named events
+     * are matched, because none are documented; a named event that does arrive
+     * is skipped rather than guessed at. Hermes' `hermes.tool.progress` is
+     * Hermes', and reading it here on the theory that the gateway might send
+     * something similar would be an adapter with a feature it invented.
+     *
+     * THE SESSION AND THE CHANNEL HEADER ARE THE SAME AS `ask`'s and for the
+     * same reasons — a streamed turn is still a turn in the gateway's own
+     * session, and one that landed in a fresh session because the streaming
+     * path forgot the `user` field would be an agent with amnesia on every
+     * other message.
+     */
+    async *stream(turns, opts): AsyncGenerator<ChatStreamEvent> {
+      const values = vault.readSet(account.id, "chat_openclaw");
+      const normalised = normaliseGateway(values["gateway-url"] ?? "");
+      if (!normalised.ok) throw new WireError(500, normalised.error);
+      const token = (values.token ?? "").trim();
+      const agent = (configValue("openclaw", "agent") ?? "").trim() || DEFAULT_AGENT;
+      const user = opts?.sessionId ? `conv:${opts.sessionId}` : undefined;
+
+      const started = Date.now();
+      let text = "";
+      let thinking = "";
+      let reportedModel: string | null = null;
+      let usage: { prompt: number; completion: number } | null = null;
+
+      for await (const frame of chatCompletionStream({
+        base: normalised.base,
+        path: "/v1/chat/completions",
+        key: token,
+        model: agent,
+        turns,
+        service: SERVICE,
+        extra: { "x-openclaw-message-channel": opts?.channel ?? "web" },
+        body: user ? { user } : {},
+        signal: opts?.signal,
+      })) {
+        /* Named events are not part of this gateway's documented stream. Left
+           alone rather than interpreted — see the note above. */
+        if (frame.event && frame.event !== "message") continue;
+        if (frame.data === "[DONE]") break;
+
+        const chunk = parseFrame<StreamChunk>(frame.data);
+        if (!chunk) continue;
+        const err = chunk.error;
+        if (err) {
+          const message = typeof err === "string" ? err : (err.message ?? "");
+          throw new WireError(
+            502,
+            `${SERVICE} stopped mid-answer${message ? ` — ${message}` : "."}`,
+          );
+        }
+
+        if (chunk.model) reportedModel = chunk.model;
+        if (chunk.usage) {
+          const u = readUsage({ usage: chunk.usage });
+          if (u) usage = u;
+        }
+
+        const choice = chunk.choices?.[0];
+        const piece = deltaText(choice?.delta);
+        if (piece) {
+          text += piece;
+          yield { type: "delta", text: piece };
+        }
+        const reasoning = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content;
+        if (typeof reasoning === "string" && reasoning) {
+          thinking += reasoning;
+          yield { type: "reasoning", text: reasoning };
+        }
+      }
+
+      const ms = Date.now() - started;
+      const answer = text || thinking;
+      if (!answer)
+        throw new WireError(
+          502,
+          `${SERVICE} streamed no text. The agent ran and produced nothing, ` +
+            `which on this gateway usually means the turn ended in a tool call ` +
+            `it could not complete.`,
+        );
+
+      accounts.markOk(account.id);
+
+      yield {
+        type: "done",
+        text: answer,
+        /* The AGENT name, as `ask` explains: `model` on this endpoint is an
+           agent target and reporting it as a model would be a claim the
+           gateway never made. */
+        model: reportedModel ?? agent,
+        usage,
         ms,
       };
     },

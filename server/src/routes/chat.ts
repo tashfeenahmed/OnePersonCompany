@@ -33,21 +33,45 @@
  * both end the call. An agent that decides to think for an hour must not be
  * able to hold a socket, a page and a row lock while it does.
  *
- * NO STREAMING, DELIBERATELY. Both backends speak SSE — Hermes' router streams
- * `data:` chunks with `reasoning` deltas, OpenClaw documents `stream: true`
- * with a trailing usage chunk — and rendering it would be nicer. It is not
- * built, because the honest version is more than a pipe: a stream that dies
- * half way has already put half an answer on screen and there is no truthful
- * way to store that as a message, so it needs a partial-message state in the
- * table, in the API and on the page. That is a feature, not a wire change, and
- * this route is the wire. The full turn is fetched, written down, and returned.
+ * STREAMING, AND THE PRICE THAT WAS PAID FOR IT.
+ *
+ * This header used to say there was none, and gave the reason: "a stream that
+ * dies half way has already put half an answer on screen and there is no
+ * truthful way to store that as a message, so it needs a partial-message state
+ * in the table, in the API and on the page. That is a feature, not a wire
+ * change." That was right, and the feature has now been built — all three
+ * parts of it, which is why it took a migration rather than a flag:
+ *
+ *   the table   019_chat_tools adds `partial` and `tools`
+ *   the API     POST /chat/stream below, whose `error` event is emitted AFTER
+ *               the partial row is written, so a client that sees the failure
+ *               can trust the transcript already has the words
+ *   the page    a bubble that grows, and draws the partial flag when it is set
+ *
+ * THE OLD ROUTE IS UNCHANGED AND IS NOT DEPRECATED. `POST /chat` still fetches
+ * a whole turn and returns a document, because the second caller still wants
+ * exactly that: Telegram has no growing bubble to render into and sends one
+ * message when the answer is done. Two routes for two shapes of caller is
+ * cheaper than one route with a mode, and it means the bridge cannot be broken
+ * by a change to the streaming path.
+ *
+ * WHAT IS STORED, AND WHEN. Nothing assistant-shaped is written until the
+ * stream ends, one way or the other. A row written on the first delta and
+ * updated as it grew would be a row that is briefly a lie in the database (an
+ * assistant message that says three words), readable by the other door mid-
+ * sentence. So: the user's turn goes down first as it always did, the deltas
+ * go to the browser and nowhere else, and exactly one assistant row is written
+ * at the end — complete, or flagged `partial` and honest about it.
  */
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import {
   appendChatMessage,
   chatMessages,
+  chatSessionSummaries,
   deleteChatSession,
   type ChatMessageRow,
+  type ChatToolCall,
 } from "../db.ts";
 import {
   NoBackendError,
@@ -55,6 +79,7 @@ import {
   ask,
   backends,
   setChoiceReader,
+  type ChatStreamEvent,
   type ChatTurn,
   type MessageBackendId,
 } from "../chat/backend.ts";
@@ -128,7 +153,30 @@ function shapeMessage(r: ChatMessageRow) {
         ? null
         : { prompt: r.prompt_tokens ?? 0, completion: r.completion_tokens ?? 0 },
     ms: r.ms,
+    /*
+      THE TOOL CALLS, PARSED HERE RATHER THAN SHIPPED AS A STRING. The column
+      is JSON this codebase wrote, so it parses — but "so it parses" is the
+      assumption every JSON column in every project has made right up until a
+      hand-edited row, and a transcript that throws a 500 because one message
+      has a bad `tools` value is a whole conversation lost to one artefact of
+      its rendering. Null on anything unreadable: the message is the point, the
+      grey lines are decoration.
+    */
+    tools: readTools(r.tools),
+    /* A boolean on the wire, because 0/1 is SQLite's way of spelling one and
+       the browser should not have to know that. */
+    partial: r.partial === 1,
   };
+}
+
+function readTools(raw: string | null): ChatToolCall[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as ChatToolCall[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -181,6 +229,52 @@ function backendState() {
   };
 }
 
+/**
+ * THE BODY BOTH SEND ROUTES TAKE, VALIDATED ONCE.
+ *
+ * `POST /chat` and `POST /chat/stream` are two shapes of ANSWER and exactly
+ * one shape of REQUEST, and the refusals have to agree: a message that is too
+ * long must be too long on both, with the same sentence and the same status,
+ * or the streaming page and the Telegram bridge disagree about what is
+ * sendable. Written out twice they would drift the first time one of them
+ * grew a field.
+ */
+type SendBody =
+  | { ok: true; sessionId: string; message: string; channel: "web" | "telegram" }
+  | { ok: false; status: 400 | 413; error: string };
+
+async function readSendBody(c: {
+  req: { json: () => Promise<unknown> };
+}): Promise<SendBody> {
+  const body = (await c.req.json().catch(() => null)) as {
+    sessionId?: string;
+    message?: string;
+    channel?: string;
+  } | null;
+
+  const sessionId = (body?.sessionId ?? "").trim();
+  const message = body?.message ?? "";
+  if (!sessionId) return { ok: false, status: 400, error: "A sessionId is required." };
+  if (typeof message !== "string" || !message.trim())
+    return { ok: false, status: 400, error: "There is no message to send." };
+  if (message.length > MAX_MESSAGE)
+    return {
+      ok: false,
+      status: 413,
+      error:
+        `That message is ${message.length.toLocaleString()} characters. The ` +
+        `limit here is ${MAX_MESSAGE.toLocaleString()} — anything larger is a ` +
+        `file rather than a message, and the agent would refuse it after a ` +
+        `long wait and a token bill.`,
+    };
+  return {
+    ok: true,
+    sessionId,
+    message,
+    channel: body?.channel === "telegram" ? "telegram" : "web",
+  };
+}
+
 /* ------------------------------------------------------------------ routes */
 
 /** The selector's data. Cheap on purpose: no vault value is decrypted to
@@ -223,6 +317,43 @@ chat.put("/backend", async (c) => {
   return c.json(backendState());
 });
 
+/**
+ * EVERY CONVERSATION THAT HAS WORDS IN IT.
+ *
+ * This is the route that makes the rail honest. Until now the session list was
+ * entirely the browser's: twelve seeded titles in localStorage that named no
+ * conversation, beside a `chat_messages` table full of conversations that were
+ * named by nothing. The page could open a chat it had never had and show an
+ * empty transcript for one it had.
+ *
+ * SO WHO OWNS A SESSION NOW? Both, and the split is the same one 016_chat drew
+ * and this route does not move: the SERVER owns the messages, the CLIENT owns
+ * the list. There is still no `chat_sessions` table — see the comment on
+ * `chatSessionSummaries` in db.ts for the argument, which is that a rename
+ * would immediately give one name two authorities. What this answers is the
+ * question only the server can: which ids have messages, how many, and when.
+ * The page reconciles its list against that — new ids get added with the title
+ * derived here, ids it has that the server has never heard of stay as empty
+ * drafts, and a name the owner typed always wins over this one.
+ *
+ * TELEGRAM'S CONVERSATIONS ARE IN HERE TOO, and that is deliberate rather than
+ * an oversight. `telegram:<chat id>` sessions are real transcripts with the
+ * same agent, and hiding them from the page would rebuild the exact thing the
+ * shared table exists to prevent: one agent with amnesia on whichever door you
+ * did not come in through. `channels` says which door each came by, so the
+ * page can label them rather than pretend they started here.
+ */
+chat.get("/sessions", (c) => {
+  const sessions = chatSessionSummaries();
+  return c.json({
+    sessions,
+    /* The count is the server's own, not `sessions.length` read by the client
+       after a filter — a page that shows fewer rows than exist should be able
+       to tell that it is doing so. */
+    total: sessions.length,
+  });
+});
+
 /** One conversation, oldest first — what the page loads when a session is
  *  opened, and what Telegram would read to show history. */
 chat.get("/:sessionId/messages", (c) => {
@@ -258,29 +389,9 @@ chat.delete("/:sessionId", (c) => {
  * durable, the failure was a moment.
  */
 chat.post("/", async (c) => {
-  const body = (await c.req.json().catch(() => null)) as {
-    sessionId?: string;
-    message?: string;
-    channel?: string;
-  } | null;
-
-  const sessionId = (body?.sessionId ?? "").trim();
-  const message = body?.message ?? "";
-  if (!sessionId) return c.json({ error: "A sessionId is required." }, 400);
-  if (typeof message !== "string" || !message.trim())
-    return c.json({ error: "There is no message to send." }, 400);
-  if (message.length > MAX_MESSAGE)
-    return c.json(
-      {
-        error:
-          `That message is ${message.length.toLocaleString()} characters. The ` +
-          `limit here is ${MAX_MESSAGE.toLocaleString()} — anything larger is a ` +
-          `file rather than a message, and the agent would refuse it after a ` +
-          `long wait and a token bill.`,
-      },
-      413,
-    );
-  const channel = body?.channel === "telegram" ? "telegram" : "web";
+  const body = await readSendBody(c);
+  if (!body.ok) return c.json({ error: body.error }, body.status);
+  const { sessionId, message, channel } = body;
 
   /*
     WHO IS GOING TO ANSWER — AND THE FALLBACK, WHICH IS THE ONE REAL ADDITION
@@ -438,4 +549,306 @@ chat.post("/", async (c) => {
       status,
     );
   }
+});
+
+/* ---------------------------------------------------------------- streaming */
+
+/**
+ * Say something, and watch it being written.
+ *
+ * THE EVENT CONTRACT, IN FULL, because a stream with an undocumented shape is
+ * a stream nobody can write a second client for. Every event is an SSE frame
+ * with a name and a JSON body:
+ *
+ *   start      { sessionId, userMessageId, user, backend, backendLabel, model }
+ *              Once, after the owner's turn is in the table. `model` is null
+ *              here and not omitted: the model is what the SERVER reports
+ *              having used and it is not known until it says so, which is a
+ *              fact rather than a gap in the protocol.
+ *   delta      { text }        a piece of the answer, in order
+ *   reasoning  { text }        a piece of the model's working, if it shows any
+ *   tool       { toolCallId, tool, label, emoji, status, at, offset }
+ *              A tool starting or finishing. `offset` is how much of the
+ *              answer had been written when it happened — see below.
+ *   done       { messageId, message, text, model, usage, ms, tools }
+ *              Once, and only after the assistant row is in the table.
+ *   error      { message, messageId, partial }
+ *              The turn failed. `messageId` is the PARTIAL row if there was
+ *              anything to keep, and null if the agent had said nothing at
+ *              all — the distinction the page needs to decide whether the
+ *              words on screen are now durable or were never real.
+ *
+ * EXACTLY ONE OF `done` AND `error` IS SENT, and both are sent AFTER the write
+ * they describe. A client that has seen either one can reload and find the
+ * same words; a client that has seen neither knows the connection died before
+ * the server made up its mind, and reloading is how it finds out which.
+ *
+ * WHY `offset` IS ON THE TOOL EVENT. The grey line belongs where it happened —
+ * between the paragraph the agent wrote before it ran the tool and the one it
+ * wrote after. Live, that is free: the events arrive in order. On RELOAD it is
+ * not, because the stored message is one string and an array of calls, and
+ * without a position every tool line piles up at the end and the transcript
+ * tells a different story than the one that was watched. The offset is a
+ * character count into `text`, which is stable under nothing except the exact
+ * string it was measured against — and that string is stored beside it in the
+ * same row, so it cannot drift.
+ *
+ * AN ABORTED STREAM STILL WRITES. The client's `AbortSignal` is passed down to
+ * the agent call, so a closed tab stops the outbound turn — but the words
+ * already streamed are words the owner read, and the write happens in a
+ * `finally` that does not care whether anybody is still listening. This is the
+ * one place in the file where the database write matters more than the
+ * response.
+ */
+chat.post("/stream", async (c) => {
+  const body = await readSendBody(c);
+  if (!body.ok) return c.json({ error: body.error }, body.status);
+  const { sessionId, message, channel } = body;
+
+  /*
+    REFUSED AS A PLAIN HTTP ERROR, BEFORE THE STREAM OPENS. A 503 with a
+    sentence is something every client already handles; the same refusal
+    delivered as an `error` event inside a 200 would make "no agent is
+    connected" indistinguishable, at the status line, from a successful
+    conversation. The stream is for things that go wrong AFTER the agent has
+    been reached.
+  */
+  const live = activeBackend();
+  const fallback = live ? null : activeProvider();
+  if (!live && !fallback)
+    return c.json({ error: new NoBackendError().message, ...backendState() }, 503);
+
+  /* Same order of writes as the non-streaming route, for the same reason: a
+     turn that falls over still leaves the question in the transcript. */
+  const stored = appendChatMessage({ sessionId, role: "user", content: message, channel });
+  const history = chatMessages(sessionId, CONTEXT_TURNS);
+  const turns: ChatTurn[] = history.map((m) => ({ role: m.role, content: m.content }));
+
+  const backendId: MessageBackendId = live
+    ? live.id
+    : (`provider:${fallback!.id}` as MessageBackendId);
+  const label = live ? live.label : (fallback?.label ?? null);
+
+  return streamSSE(c, async (sse) => {
+    /*
+      EVERY WRITE IS ALLOWED TO FAIL SILENTLY. Once the browser has gone,
+      writing to the stream throws — and the interesting work left in this
+      handler is the database write, which must not be skipped because nobody
+      is listening. Swallowing here rather than wrapping each call site keeps
+      that decision in one place with the reason attached.
+    */
+    const say = async (event: string, data: unknown) => {
+      try {
+        await sse.writeSSE({ event, data: JSON.stringify(data) });
+      } catch {
+        /* the reader is gone; the row still gets written below */
+      }
+    };
+
+    await say("start", {
+      sessionId,
+      userMessageId: stored.id,
+      user: shapeMessage(stored),
+      backend: backendId,
+      backendLabel: label,
+      model: null,
+    });
+
+    /* What has been said so far, and what was done while saying it. Both are
+       read by the `finally`, which is why they live out here rather than in
+       the loop. */
+    let text = "";
+    /* Keyed by toolCallId so `completed` finds the record `running` made.
+       A Map because insertion order IS the order they happened, and that is
+       the order the page draws them in. */
+    const tools = new Map<string, ChatToolCall>();
+    let model: string | null = null;
+    let usage: { prompt: number; completion: number } | null = null;
+    let ms = 0;
+    let finished = false;
+    let failure: string | null = null;
+
+    /**
+     * THE BACKEND THAT CANNOT STREAM, MADE TO LOOK LIKE ONE THAT CAN.
+     *
+     * `stream()` is optional on `ChatBackend`, and the provider fallback has
+     * no streaming path at all — `models/provider.ts` owns the limiter and is
+     * not this feature's to rewrite. Both are served by asking once and
+     * emitting the answer as a single `delta` followed by `done`. The words
+     * arrive in one lump instead of one at a time, and every other part of the
+     * contract — the row, the events, the partial handling — is identical, so
+     * the page needs no second code path for it.
+     */
+    async function* oneShot(): AsyncGenerator<ChatStreamEvent> {
+      const reply = live
+        ? await ask(turns, { sessionId, channel, signal: c.req.raw.signal })
+        : await (async () => {
+            const r = await complete(turns, { signal: c.req.raw.signal });
+            noteOutcome(r.provider, r.endpoint, null);
+            return { text: r.text, model: r.model, usage: r.usage, ms: r.ms };
+          })();
+      yield { type: "delta", text: reply.text };
+      yield {
+        type: "done",
+        text: reply.text,
+        model: reply.model,
+        usage: reply.usage,
+        ms: reply.ms,
+      };
+    }
+
+    const events: AsyncGenerator<ChatStreamEvent> = live?.stream
+      ? live.stream(turns, { sessionId, channel, signal: c.req.raw.signal })
+      : oneShot();
+
+    try {
+      for await (const event of events) {
+        switch (event.type) {
+          case "delta":
+            text += event.text;
+            await say("delta", { text: event.text });
+            break;
+
+          case "reasoning":
+            await say("reasoning", { text: event.text });
+            break;
+
+          case "tool": {
+            /*
+              MERGED ON THE WAY THROUGH, not on the way out. The wire carries
+              two events per call and the table stores one record with two
+              timestamps — so `running` creates the record and `completed`
+              closes it. A `completed` for a call that was never announced
+              still creates one, with `startedAt` equal to `finishedAt`: a
+              tool that finished is a thing that happened, and dropping it
+              because the first half of the pair went missing would lose a
+              fact to a wire glitch.
+            */
+            const existing = tools.get(event.toolCallId);
+            if (existing) {
+              if (event.status === "completed") existing.finishedAt = event.at;
+              if (!existing.label && event.label) existing.label = event.label;
+              if (!existing.emoji && event.emoji) existing.emoji = event.emoji;
+            } else {
+              tools.set(event.toolCallId, {
+                toolCallId: event.toolCallId,
+                tool: event.tool,
+                label: event.label,
+                emoji: event.emoji,
+                startedAt: event.at,
+                finishedAt: event.status === "completed" ? event.at : null,
+                /* Where in the answer this happened. See the header. */
+                offset: text.length,
+              });
+            }
+            await say("tool", {
+              toolCallId: event.toolCallId,
+              tool: event.tool,
+              label: event.label,
+              emoji: event.emoji,
+              status: event.status,
+              at: event.at,
+              offset: tools.get(event.toolCallId)!.offset,
+            });
+            break;
+          }
+
+          case "done": {
+            /*
+              `event.text` and not the accumulated `text`. The adapter counted
+              the answer as it read it and may have applied a rule this loop
+              cannot see — Hermes falls back to the model's reasoning when the
+              content came back empty, which is a whole answer that arrived as
+              no deltas at all. Trusting the accumulator here would store an
+              empty message for exactly the turn where the fallback mattered.
+            */
+            text = event.text;
+            model = event.model;
+            usage = event.usage;
+            ms = event.ms;
+            finished = true;
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      failure =
+        err instanceof WireError
+          ? err.message
+          : err instanceof NoBackendError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "The agent stopped for a reason it did not give.";
+
+      /* Against the account that failed, so Integrations shows a red line on
+         the credential that stopped working — the same rule the non-streaming
+         route keeps, and the adapters still know which account answered. */
+      if (live?.id === "hermes") hermes.noteFailure(failure);
+      else if (live?.id === "openclaw") openclaw.noteFailure(failure);
+      else if (fallback) noteOutcome(fallback.id, null, failure);
+      console.error(`[chat/stream] ${backendId} failed — ${failure}`);
+    }
+
+    /*
+      THE WRITE, AND IT HAPPENS ON EVERY PATH THAT PRODUCED WORDS.
+
+      Three outcomes and each has one row, or none:
+        finished              a complete assistant row
+        failed, text so far   the same row with partial = 1
+        failed, nothing said  no row at all
+      The third is the non-streaming route's rule, unchanged: a failed turn
+      writes no "error" message, because a transcript is what was SAID and an
+      error is something the interface reports. What is new is the second — the
+      case where the agent DID say something before it fell over, which the old
+      route could never be in, and where dropping the words would delete
+      something the owner watched arrive.
+    */
+    const list = [...tools.values()];
+    let messageId: number | null = null;
+    if (finished || text) {
+      const assistant = appendChatMessage({
+        sessionId,
+        role: "assistant",
+        content: text,
+        channel,
+        backend: backendId,
+        model,
+        promptTokens: usage?.prompt ?? null,
+        completionTokens: usage?.completion ?? null,
+        /* Null rather than 0 on a failed turn: a stream that broke has not
+           told us how long the answer took, only how long we waited. */
+        ms: finished ? ms : null,
+        tools: list,
+        partial: !finished,
+      });
+      messageId = assistant.id;
+
+      if (finished)
+        await say("done", {
+          messageId: assistant.id,
+          /* The stored row itself, so the page swaps in what the database has
+             rather than keeping its own reconstruction of it. Two copies of
+             one message is how a transcript starts disagreeing with itself
+             across a reload. */
+          message: shapeMessage(assistant),
+          text,
+          model,
+          usage,
+          ms,
+          tools: list,
+        });
+    }
+
+    if (!finished)
+      await say("error", {
+        message: failure ?? "The stream ended without an answer.",
+        messageId,
+        /* Whether anything was kept. The page draws the bubble it already has
+           as a partial answer when this is true, and drops it when it is not —
+           because in that case nothing was ever stored and leaving it on
+           screen would promise a durability the transcript does not have. */
+        partial: messageId !== null,
+      });
+  });
 });

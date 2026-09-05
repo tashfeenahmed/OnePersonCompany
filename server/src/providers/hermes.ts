@@ -58,14 +58,23 @@ import {
   PROBE_TIMEOUT_MS,
   WireError,
   chatCompletion,
+  chatCompletionStream,
+  deltaText,
   getJson,
   parseEndpoint,
   readModel,
   readModelIds,
   readText,
   readUsage,
+  type StreamChunk,
 } from "../chat/wire.ts";
-import { registerBackend, type ChatBackend, type ChatReply } from "../chat/backend.ts";
+import { parseFrame } from "../chat/sse.ts";
+import {
+  registerBackend,
+  type ChatBackend,
+  type ChatReply,
+  type ChatStreamEvent,
+} from "../chat/backend.ts";
 
 const SERVICE = "Hermes";
 
@@ -327,6 +336,168 @@ registerBackend("hermes", (): ChatBackend | null => {
            answers `auto` with the id it actually routed to. */
         model: readModel(doc) ?? model,
         usage: readUsage(doc),
+        ms,
+      };
+    },
+
+    /**
+     * The same turn, as it is written — and the one place this adapter reads
+     * something no other OpenAI-compatible server sends.
+     *
+     * HERMES' ROUTER PUTS TOOL CALLS IN NAMED SSE EVENTS, which is not in the
+     * OpenAI spec and is the reason `chatCompletionStream` yields FRAMES
+     * rather than text. Probed against the live instance on 2026-09-05:
+     *
+     *   event: hermes.tool.progress
+     *   data: {"tool":"terminal","emoji":"💻","label":"date",
+     *          "toolCallId":"call_…","status":"running"}
+     *
+     * …then the identical object with `"status":"completed"`, interleaved
+     * between ordinary `data:` content chunks. THERE IS NO RESULT IN THE
+     * STREAM — no output, no exit code, no stdout — so what this yields is
+     * exactly what arrived: the tool, its one-line label, and running or
+     * completed. Anything more on the page would be invented.
+     *
+     * THE TIMESTAMP IS OURS. The event carries none, and a timestamp from the
+     * agent's own box would be a clock this process cannot vouch for. `at` is
+     * stamped here, on receipt, which is honestly "when we heard about it"
+     * rather than "when it happened" — the difference is a network hop and it
+     * is the only one of the two this side can actually measure.
+     *
+     * FAILURE IS A THROW, MID-GENERATOR, AND THE ROUTE IS WRITTEN FOR IT. Text
+     * already yielded has already been drawn on somebody's screen; the route
+     * stores it flagged `partial` and says what went wrong. That is the whole
+     * argument that kept streaming out of this codebase until now, and it is
+     * settled in the route and the schema rather than here.
+     */
+    async *stream(turns, opts): AsyncGenerator<ChatStreamEvent> {
+      const values = vault.readSet(account.id, "chat_hermes");
+      const normalised = normaliseBase(values["base-url"] ?? "");
+      if (!normalised.ok) throw new WireError(500, normalised.error);
+      const key = (values.key ?? "").trim();
+
+      const started = Date.now();
+      const model = await pickModel(normalised.base, key, opts?.signal);
+
+      /*
+        Accumulated here rather than by the caller. The route needs the WHOLE
+        answer to write the row, and reassembling it from the deltas at the far
+        end would put two counts of "what was said" in play — the one drawn and
+        the one stored — which are the same string right up until one chunk is
+        dropped.
+      */
+      let text = "";
+      let thinking = "";
+      let reportedModel: string | null = null;
+      let usage: { prompt: number; completion: number } | null = null;
+
+      for await (const frame of chatCompletionStream({
+        base: normalised.base,
+        key: key || null,
+        model,
+        turns,
+        service: SERVICE,
+        signal: opts?.signal,
+      })) {
+        /* The tool events, which are the reason for the frame reader. Named
+           events are matched by name and nothing else — an unknown named event
+           is skipped in silence rather than guessed at. */
+        if (frame.event === "hermes.tool.progress") {
+          const t = parseFrame<{
+            tool?: unknown;
+            emoji?: unknown;
+            label?: unknown;
+            toolCallId?: unknown;
+            status?: unknown;
+          }>(frame.data);
+          /* A tool event with no id and no name is not a tool event. Dropped
+             rather than yielded with placeholders, because a grey line reading
+             "unknown · unknown" tells the owner strictly less than no line. */
+          if (!t || typeof t.tool !== "string" || !t.tool) continue;
+          const status = t.status === "completed" ? "completed" : "running";
+          yield {
+            type: "tool",
+            /* An id is what pairs `running` with `completed`. When the router
+               omits one, the tool name is the next best key — two concurrent
+               calls to the same tool would then merge into one line, which is
+               a wrong drawing rather than a lost event. */
+            toolCallId:
+              typeof t.toolCallId === "string" && t.toolCallId ? t.toolCallId : t.tool,
+            tool: t.tool,
+            label: typeof t.label === "string" && t.label.trim() ? t.label : null,
+            emoji: typeof t.emoji === "string" && t.emoji.trim() ? t.emoji : null,
+            status,
+            at: new Date().toISOString(),
+          };
+          continue;
+        }
+        /* Anything else named is not ours to interpret. */
+        if (frame.event && frame.event !== "message") continue;
+
+        if (frame.data === "[DONE]") break;
+        const chunk = parseFrame<StreamChunk>(frame.data);
+        if (!chunk) continue;
+        /*
+          AN ERROR CAN ARRIVE MID-STREAM, on a 200, after real text. A gateway
+          that loses its upstream half way says so in a chunk and then closes;
+          read as an ordinary chunk it is silence, and the turn ends looking
+          complete when it was cut off.
+        */
+        const err = chunk.error;
+        if (err) {
+          const message = typeof err === "string" ? err : (err.message ?? "");
+          throw new WireError(
+            502,
+            `${SERVICE} stopped mid-answer${message ? ` — ${message}` : "."}`,
+          );
+        }
+
+        if (chunk.model) reportedModel = chunk.model;
+        if (chunk.usage) {
+          const u = readUsage({ usage: chunk.usage });
+          if (u) usage = u;
+        }
+
+        const choice = chunk.choices?.[0];
+        const piece = deltaText(choice?.delta);
+        if (piece) {
+          text += piece;
+          yield { type: "delta", text: piece };
+        }
+        /* Reasoning is a SEPARATE event and never appended to `text`. A model's
+           scratchpad in front of its answer, on every turn, is the failure
+           `readText` avoids on the non-streaming path for the same reason. */
+        const reasoning = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content;
+        if (typeof reasoning === "string" && reasoning) {
+          thinking += reasoning;
+          yield { type: "reasoning", text: reasoning };
+        }
+      }
+
+      const ms = Date.now() - started;
+
+      /*
+        THE SAME FALLBACK `readText` MAKES, and for the same reason: a model
+        cut off at max_tokens has its working in `reasoning` and nothing in
+        `content`, and showing the owner the working beats showing them an
+        empty bubble. It is a fallback and never a supplement — the two are
+        concatenated nowhere.
+      */
+      const answer = text || thinking;
+      if (!answer)
+        throw new WireError(
+          502,
+          `${SERVICE} streamed no text at all. The turn reached the model and ` +
+            `came back empty, which is a fault at the endpoint rather than here.`,
+        );
+
+      accounts.markOk(account.id);
+
+      yield {
+        type: "done",
+        text: answer,
+        model: reportedModel ?? model,
+        usage,
         ms,
       };
     },

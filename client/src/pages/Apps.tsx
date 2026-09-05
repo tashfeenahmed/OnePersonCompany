@@ -1,6 +1,8 @@
 import { Link, Navigate, useParams } from "react-router-dom";
-import { BarChart3, Mail } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { BarChart3, KanbanSquare, Mail } from "lucide-react";
+import { TabStrip } from "@/components/TabStrip";
+import { useStore } from "@/lib/store";
+import { Board } from "@/pages/Board";
 import { EmailStats } from "@/pages/EmailStats";
 import { Mailbox } from "@/pages/Mailbox";
 
@@ -22,6 +24,14 @@ import { Mailbox } from "@/pages/Mailbox";
  */
 const APPS: { slug: string; name: string; icon: typeof Mail; page: () => React.JSX.Element }[] = [
   /*
+    The board is first because it is the only app here that is a place to PUT
+    something. Email and Email stats are windows onto mail that arrived whether
+    anybody opened them or not; the board holds work that exists nowhere else
+    until somebody types it in, so it is the one worth landing on — the bare
+    /apps rewrites itself to the first app in this list.
+  */
+  { slug: "board", name: "Board", icon: KanbanSquare, page: Board },
+  /*
     "Email" is the mailbox — the threads and the reader, every venture's mail
     in one list, filtered by the domain it arrived at. "Email stats" beside it
     is the instrument panel for the same mail: counts, queues, bounce rates.
@@ -35,7 +45,22 @@ const APPS: { slug: string; name: string; icon: typeof Mail; page: () => React.J
 
 export function Apps() {
   const { app } = useParams();
-  const first = APPS[0]!;
+  const { state, setAppOrder } = useStore();
+
+  /*
+    THE OWNER'S ORDER OVER THE REGISTRY'S. `appOrder` is a list of slugs the
+    owner dragged into place; anything the registry has that the list does not
+    (a new app shipped since) is appended in registry order, and a slug the
+    list has that the registry does not (an app removed) is simply not drawn.
+    Neither case needs a migration, which is the point of resolving it here.
+  */
+  const known = state.appOrder ?? [];
+  const rank = (a: (typeof APPS)[number]) => {
+    const i = known.indexOf(a.slug);
+    return i >= 0 ? i : known.length + APPS.indexOf(a);
+  };
+  const ordered = [...APPS].sort((a, b) => rank(a) - rank(b));
+  const first = ordered[0]!;
 
   if (!app) return <Navigate to={`/apps/${first.slug}`} replace />;
 
@@ -46,25 +71,16 @@ export function Apps() {
       {/* The strip: links, not buttons, because each tab IS the app's address
           and can be middle-clicked or copied out of the bar. */}
       <header className="flex h-12 shrink-0 items-center gap-2 px-4.5">
-        <div className="flex items-center gap-0.5 overflow-x-auto">
-          {APPS.map((a) => {
-            const active = a.slug === current?.slug;
-            return (
-              <Link
-                key={a.slug}
-                to={`/apps/${a.slug}`}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-[7px] rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap",
-                  active && "bg-accent text-foreground font-medium",
-                )}
-              >
-                <a.icon className="size-3.5" strokeWidth={1.6} />
-                {a.name}
-              </Link>
-            );
-          })}
-        </div>
+        <TabStrip
+          tabs={ordered.map((a) => ({
+            key: a.slug,
+            to: `/apps/${a.slug}`,
+            label: a.name,
+            icon: a.icon,
+          }))}
+          activeKey={current?.slug ?? null}
+          onReorder={setAppOrder}
+        />
       </header>
 
       {current ? (

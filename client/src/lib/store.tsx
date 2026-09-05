@@ -46,6 +46,32 @@ export type Session = {
   ventureId?: string | null;
   /** Runs this chat dispatched — sub-agent work, mostly. */
   children?: { id: string; title: string }[];
+  /**
+   * A SEEDED SESSION THAT HAS NOT YET BEEN CHECKED AGAINST THE SERVER.
+   *
+   * The rail shipped with twelve invented chats. They named no conversation —
+   * the transcripts live in the server's `chat_messages` and none of those
+   * twelve had any — so they are removed, and this flag is how that is done
+   * SAFELY rather than by deleting twelve ids and hoping.
+   *
+   * The problem is that `migrate()` runs synchronously against localStorage
+   * and cannot know which sessions have real history: that is a fact on the
+   * server, one fetch away. And at least one of the seeded ids DOES have
+   * history — `s-1` was the store's starting `activeSessionId`, so the first
+   * real conversation anybody had on this dashboard was stored under it.
+   * Deleting by id would throw that away.
+   *
+   * So it is two steps. `migrate()` marks; `reconcileSessions()`, which has
+   * the server's list in hand, sweeps — dropping the marked ones the server
+   * has never heard of and clearing the mark on the ones it has. A rail that
+   * cannot reach the API keeps all twelve, which is the correct failure: not
+   * knowing whether a chat is real is not a reason to delete it.
+   *
+   * Absent on every session the owner made, and gone from the seeded ones
+   * after the first successful reconcile. It is a migration state, not a
+   * property of a chat.
+   */
+  seeded?: boolean;
 };
 
 export type PlacedWidget = {
@@ -93,6 +119,13 @@ export type StoreState = {
   sessions: Session[];
   dashboards: Dashboard[];
   activeSessionId: string | null;
+  /**
+   * The Apps strip in the owner's order, by slug. Optional and absent on an
+   * older state: the registry's own order is the default, and a slug that no
+   * longer exists is dropped at read time rather than migrated away. Apps are
+   * code; only their order is the owner's.
+   */
+  appOrder?: string[];
 };
 
 export const VENTURE_COLORS = [
@@ -115,7 +148,44 @@ const KEY = "opc-state-v5";
   boards a state has never been offered, exactly once, so a board the owner
   deleted stays deleted and one they have reshaped stays reshaped.
 */
-export const SEED_VERSION = 9;
+/*
+  v10 retires the twelve invented sessions. They were the last mock left in the
+  rail: titles with no conversation behind them, sitting beside real
+  transcripts on the server and indistinguishable from them until you clicked.
+  See `Session.seeded` for why removing them takes two steps and a fetch rather
+  than a `filter` here.
+*/
+export const SEED_VERSION = 10;
+
+/**
+ * The sessions the seed invented, by id — the exact list, because the removal
+ * is by id and a pattern like /^s-\d+$/ would also match a real chat if `uid`
+ * ever produced one.
+ *
+ * The four children are in here too. They are the sub-agent runs nested under
+ * two of the twelve, and the NESTING ITSELF STAYS: `Session.children` and the
+ * sidebar's indented rendering are kept exactly as they were, because a chat
+ * that dispatches sub-agent runs is what the rail is going to want to show
+ * next. What goes is the invented data, not the shape that held it.
+ */
+const SEEDED_SESSION_IDS = new Set([
+  "s-1",
+  "s-2",
+  "s-3",
+  "s-3a",
+  "s-3b",
+  "s-4",
+  "s-5",
+  "s-6",
+  "s-6a",
+  "s-6b",
+  "s-7",
+  "s-8",
+  "s-9",
+  "s-10",
+  "s-11",
+  "s-12",
+]);
 
 const SEED: StoreState = {
   seedVersion: SEED_VERSION,
@@ -150,42 +220,21 @@ const SEED: StoreState = {
     },
   ],
 
-  // Newest first, the way the rail reads them. Two of these dispatched
-  // sub-agent runs and own them.
-  sessions: [
-    { id: "s-1", title: "Pricing table variants", ventureId: "v-example-support" },
-    { id: "s-2", title: "Stripe webhook retries", ventureId: "v-example-video" },
-    {
-      id: "s-3",
-      title: "Competitor sweep before the rewrite",
-      ventureId: "v-example-video",
-      children: [
-        { id: "s-3a", title: "Competitors — AI video tools" },
-        { id: "s-3b", title: "Demand — what r/editing asked for" },
-      ],
-    },
-    { id: "s-4", title: "Domain DNS check" },
-    {
-      id: "s-5",
-      title: "Render queue backpressure",
-      ventureId: "v-example-video",
-    },
-    {
-      id: "s-6",
-      title: "Why is example.ie sliding on brand terms",
-      ventureId: "v-example-content",
-      children: [
-        { id: "s-6a", title: "SEO — crawl and Search Console" },
-        { id: "s-6b", title: "AI visibility — what the models say" },
-      ],
-    },
-    { id: "s-7", title: "Council CSV import", ventureId: "v-example-app-1" },
-    { id: "s-8", title: "Widget bundle size", ventureId: "v-example-support" },
-    { id: "s-9", title: "Notes on onboarding" },
-    { id: "s-10", title: "Weekly digest cron", ventureId: "v-example-app-1" },
-    { id: "s-11", title: "App Store review notes", ventureId: "v-example-video" },
-    { id: "s-12", title: "Hero copy rewrite", ventureId: "v-example-support" },
-  ],
+  /*
+    NO SESSIONS. The rail starts empty and fills with conversations that
+    actually happened.
+
+    It used to ship with twelve — "Pricing table variants", "Stripe webhook
+    retries", ten more — from when the Chat page was a mock and a title in the
+    rail was the whole feature. The page is real now: the transcripts live on
+    the server, the rail reconciles against them on load, and a title with no
+    conversation behind it is a row that opens onto an empty screen. Worse, it
+    is indistinguishable from a real chat until you click one.
+
+    An empty rail on a fresh install is the honest first screen. The greeting
+    and the four openers are already there to say what to do with it.
+  */
+  sessions: [],
 
   dashboards: [
     {
@@ -485,7 +534,9 @@ const SEED: StoreState = {
       ],
     },
   ],
-  activeSessionId: "s-1",
+  /* Null, and it has to be: there is no session to be active in. The Chat
+     page reads null as "a new chat" and creates one on the first message. */
+  activeSessionId: null,
 };
 
 export function uid(prefix: string) {
@@ -585,6 +636,34 @@ function migrate(state: StoreState): StoreState {
   if ((state.seedVersion ?? 0) >= SEED_VERSION)
     return dashboards === state.dashboards ? state : { ...state, dashboards };
 
+  /*
+    MARK THE TWELVE INVENTED SESSIONS FOR REMOVAL — mark, not delete, and the
+    difference is the whole safety of this step.
+
+    This function runs against localStorage before anything has been fetched,
+    so it cannot answer the only question that matters: does this session have
+    a real conversation in it? At least one of them does. `s-1` was the seed's
+    own `activeSessionId`, which means the first thing anybody ever said on
+    this dashboard was stored under that id and is sitting in the server's
+    transcript table right now. A `filter` by id here would take the title off
+    a real chat and leave the words orphaned.
+
+    So this only sets a flag, and `reconcileSessions` — which has the server's
+    list — does the sweeping. It is gated on `seedVersion` like every other
+    gift-or-repair here, so a chat the owner has since renamed to one of these
+    titles, or a session marked once and kept because it had history, is never
+    marked again.
+
+    RENAMED SESSIONS ARE LEFT ALONE ENTIRELY. A seeded id whose title no longer
+    matches the seeded title is a row the owner has touched, and a row the
+    owner has touched is theirs whatever it started as.
+  */
+  const sessions = state.sessions.map((s) =>
+    SEEDED_SESSION_IDS.has(s.id) && SEEDED_SESSION_TITLES.get(s.id) === s.title
+      ? { ...s, seeded: true }
+      : s,
+  );
+
   // Gift: whichever starter boards this state has never been offered.
   const have = new Set(dashboards.map((d) => d.id));
   const taken = new Set(dashboards.map((d) => d.slug));
@@ -632,9 +711,39 @@ function migrate(state: StoreState): StoreState {
   return {
     ...state,
     seedVersion: SEED_VERSION,
+    sessions,
     dashboards: topped,
   };
 }
+
+/**
+ * The titles the seeded sessions shipped with, keyed by id.
+ *
+ * Kept as data rather than read out of `SEED.sessions`, because the seed no
+ * longer HAS these sessions — it ships an empty rail now. A migration has to
+ * be able to recognise what an older build wrote long after the current build
+ * has stopped writing it, which is the same reason a database migration never
+ * refers to the current schema.
+ */
+const SEEDED_SESSION_TITLES = new Map<string, string>([
+  ["s-1", "Pricing table variants"],
+  ["s-2", "Stripe webhook retries"],
+  ["s-3", "Competitor sweep before the rewrite"],
+  ["s-3a", "Competitors — AI video tools"],
+  ["s-3b", "Demand — what r/editing asked for"],
+  ["s-4", "Domain DNS check"],
+  ["s-5", "Render queue backpressure"],
+  ["s-6", "Why is example.ie sliding on brand terms"],
+  ["s-6a", "SEO — crawl and Search Console"],
+  ["s-6b", "AI visibility — what the models say"],
+  ["s-7", "Council CSV import"],
+  ["s-8", "Widget bundle size"],
+  ["s-9", "Notes on onboarding"],
+  ["s-10", "Weekly digest cron"],
+  ["s-11", "App Store review notes"],
+  ["s-12", "Hero copy rewrite"],
+]);
+
 
 /**
  * Widgets a seeded board should have gained since it was first handed out.
@@ -673,9 +782,41 @@ type StoreApi = {
   addSession: (title: string, ventureId?: string | null) => Session;
   setActiveSession: (id: string) => void;
   sessionsFor: (ventureId: string) => Session[];
+  /** Give a chat a name the owner chose. It sticks: a stored name always beats
+   *  the one derived from the first message. */
+  renameSession: (id: string, title: string) => void;
+  /** Drop a chat from the rail. The transcript on the server is a SEPARATE
+   *  deletion, made by the caller — see the Chat page, which does both. */
+  removeSession: (id: string) => void;
+  /**
+   * Bring the rail into line with what the server actually has.
+   *
+   * THREE RULES, AND THEY ARE NOT SYMMETRIC, because the two sides own
+   * different things. The server owns the messages; the store owns the list,
+   * the names and the order.
+   *
+   *   — a session the server has and the store does not is ADDED, with the
+   *     derived title. This is how a conversation that started on Telegram, or
+   *     on another browser, appears in the rail at all.
+   *   — a session the store has and the server does not is KEPT. It is an
+   *     empty draft: a chat opened and not yet spoken into, which has no rows
+   *     on the server precisely because nothing has been said.
+   *   — a session the store already has keeps its TITLE and its venture. A
+   *     name the owner typed is not overwritten by the first thing they
+   *     happened to say.
+   *
+   * The one thing it deletes is a `seeded` session the server has never heard
+   * of — the twelve invented ones, swept here rather than in `migrate()`
+   * because this is the first moment anything knows whether they were real.
+   */
+  reconcileSessions: (server: { id: string; title: string }[]) => void;
   addDashboard: (name: string, presetId: string) => Dashboard;
   renameDashboard: (id: string, name: string) => void;
   deleteDashboard: (id: string) => void;
+  /** The strip's order, as a list of ids. Ids not in the list keep their
+   *  relative order at the end, so a stale list can never lose a board. */
+  reorderDashboards: (ids: string[]) => void;
+  setAppOrder: (slugs: string[]) => void;
   setWidgets: (dashboardId: string, widgets: PlacedWidget[]) => void;
   setWorkspace: (patch: Partial<Workspace>) => void;
   setPluginConnected: (id: string, connected: boolean) => void;
@@ -752,6 +893,102 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return state.sessions.filter((x) => x.ventureId === ventureId);
       },
 
+      renameSession(id, title) {
+        const name = title.trim();
+        /* An empty rename is a no-op rather than an unnamed chat. The dialog
+           can be dismissed with the field cleared, and a rail full of blank
+           rows is not a feature. */
+        if (!name) return;
+        setState((s) => ({
+          ...s,
+          sessions: s.sessions.map((x) =>
+            x.id === id ? { ...x, title: name, seeded: undefined } : x,
+          ),
+        }));
+      },
+
+      removeSession(id) {
+        setState((s) => {
+          const sessions = s.sessions.filter((x) => x.id !== id);
+          /*
+            DELETING THE OPEN CHAT LEAVES NO CHAT OPEN, rather than jumping to
+            the next one. Landing the owner in a conversation they did not
+            choose, one keystroke after a delete, is how the wrong thing gets
+            typed into the wrong chat. Null is the new-chat screen, which is
+            where somebody who just deleted something is going anyway.
+          */
+          return {
+            ...s,
+            sessions,
+            activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
+          };
+        });
+      },
+
+      reconcileSessions(server) {
+        setState((s) => {
+          const known = new Set(s.sessions.map((x) => x.id));
+          const onServer = new Set(server.map((x) => x.id));
+
+          const titles = new Map(server.map((x) => [x.id, x.title]));
+
+          /*
+            Kept, minus the invented ones the server has never heard of. The
+            mark comes off the survivors: a seeded id with real messages is a
+            real chat now and must never be swept again.
+
+            AND A SURVIVOR TAKES THE SERVER'S TITLE, which is the one exception
+            to "a name in the store wins". That rule protects names the OWNER
+            typed, and a seeded title is not one — it is invented data that
+            happens to be sitting on a real conversation, which is exactly the
+            situation `s-1` is in on this machine: the seed made it the active
+            session, so the first thing anybody said on this dashboard was
+            stored under a chat called "Pricing table variants". The first line
+            of the actual conversation is a better name than a placeholder, and
+            it is the only chance to swap it — after this pass the mark is
+            gone and the title is the owner's to change.
+          */
+          const kept = s.sessions
+            .filter((x) => !x.seeded || onServer.has(x.id))
+            .map((x) =>
+              x.seeded
+                ? { ...x, title: titles.get(x.id) ?? x.title, seeded: undefined }
+                : x,
+            );
+
+          /* New arrivals go on top, in the order the server gave them — which
+             is newest activity first, the same order the rail reads in. */
+          const added: Session[] = server
+            .filter((x) => !known.has(x.id))
+            .map((x) => ({ id: x.id, title: x.title, ventureId: null }));
+
+          if (!added.length && kept.length === s.sessions.length) {
+            /* Nothing changed except possibly the marks, and a new array with
+               the same contents is a re-render of every page that reads this. */
+            const same = kept.every((x, i) => x === s.sessions[i]);
+            if (same) return s;
+          }
+
+          return {
+            ...s,
+            sessions: [...added, ...kept],
+            /* An active session that has just been swept is no longer a place
+               to be. Null lands on the new-chat screen rather than on a
+               transcript that no longer has a row in the rail. */
+            activeSessionId:
+              s.activeSessionId &&
+              !added.some((x) => x.id === s.activeSessionId) &&
+              !kept.some(
+                (x) =>
+                  x.id === s.activeSessionId ||
+                  x.children?.some((c) => c.id === s.activeSessionId),
+              )
+                ? null
+                : s.activeSessionId,
+          };
+        });
+      },
+
       addDashboard(name, presetId) {
         const preset = DASHBOARD_PRESETS.find((p) => p.id === presetId);
         const board: Dashboard = {
@@ -784,6 +1021,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       setWidgets(dashboardId, widgets) {
         mapDashboards((d) => (d.id === dashboardId ? { ...d, widgets } : d));
+      },
+
+      reorderDashboards(ids) {
+        setState((s) => {
+          const rank = new Map(ids.map((id, i) => [id, i]));
+          const ordered = [...s.dashboards].sort(
+            (a, b) =>
+              (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+              (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+          );
+          return { ...s, dashboards: ordered };
+        });
+      },
+
+      setAppOrder(slugs) {
+        setState((s) => ({ ...s, appOrder: slugs }));
       },
 
       setWorkspace(patch) {

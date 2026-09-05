@@ -20,6 +20,13 @@
  * adapters live — those are `providers/hermes.ts` and `providers/openclaw.ts`,
  * registered here — and it holds no HTTP itself.
  *
+ * STREAMING WAS ADDED WITHOUT WIDENING THE SEAM. `ask()` is still the one
+ * call every caller makes and still returns a whole turn; `stream()` is an
+ * OPTIONAL second method beside it, and a backend that does not implement it
+ * loses nothing — the route asks once and emits the answer as a single chunk.
+ * The alternative, making every adapter speak SSE before it can answer a
+ * message, would have made the next adapter's first day a stream parser.
+ *
  * NULL MEANS "NO AGENT". `activeBackend()` returns null when nothing is
  * connected, or the configured backend is not connected, or nothing has been
  * chosen. A caller that gets null should say "no agent is connected" in its
@@ -98,12 +105,89 @@ export type AskOptions = {
   signal?: AbortSignal;
 };
 
+/**
+ * ONE TOOL CALL, AS THE AGENT REPORTS IT WHILE IT IS HAPPENING.
+ *
+ * Hermes' router emits these as NAMED SSE events interleaved with the answer —
+ * `event: hermes.tool.progress`, one with `status: "running"` and one with
+ * `status: "completed"` per call. What it does NOT emit is the tool's RESULT,
+ * and that absence is the whole shape of this type: there is no `output`
+ * field, and there is not going to be one, because inventing a place to put a
+ * result the wire never carries is how a page ends up with an empty box that
+ * looks broken.
+ *
+ * So what a tool event can honestly say is: which tool, what it was called
+ * with (`label` — the router's own one-line summary, "date", "ls /etc"), and
+ * whether it is still going. That is what the grey line on the Chat page
+ * shows, and it is exactly as much as is known.
+ *
+ * `label` and `emoji` are nullable because a backend that reports a tool
+ * without a label has told us nothing about what it was doing, and "null"
+ * beats a made-up label. `at` is this server's clock, not the agent's: an
+ * agent's timestamps are its own box's, and two of them subtracted are only a
+ * duration if the clocks agree.
+ */
+export type ChatToolEvent = {
+  toolCallId: string;
+  tool: string;
+  label: string | null;
+  emoji: string | null;
+  status: "running" | "completed";
+  at: string;
+};
+
+/**
+ * What a streaming turn emits, in the order it happens.
+ *
+ * A DISCRIMINATED UNION AND NOT FOUR CALLBACKS. The route writes each of these
+ * to the browser as an SSE event of the same name, and a union means the
+ * compiler checks that every case is handled — which matters more than usual
+ * here, because a case that is silently dropped is not a crash, it is an
+ * answer that is quietly missing a paragraph.
+ *
+ * `done` IS THE LAST EVENT AND IT CARRIES THE WHOLE ANSWER, not just the last
+ * chunk. The deltas are for drawing; `done.text` is what gets written to the
+ * table. Reassembling the message from the deltas at the far end would mean
+ * two places agreeing about what was said, and the one that ends up in the
+ * transcript should be the one the server counted.
+ */
+export type ChatStreamEvent =
+  | { type: "delta"; text: string }
+  /** The model's working. Rendered folded and NEVER as the answer — a
+   *  scratchpad in front of a reply is not what was said. */
+  | { type: "reasoning"; text: string }
+  | ({ type: "tool" } & ChatToolEvent)
+  | {
+      type: "done";
+      text: string;
+      model: string | null;
+      usage: { prompt: number; completion: number } | null;
+      ms: number;
+    };
+
 export interface ChatBackend {
   id: ChatBackendId;
   /** The account label this backend is using, for display ("Hermes · Nous
    *  Portal"). */
   label: string;
   ask(turns: ChatTurn[], opts?: AskOptions): Promise<ChatReply>;
+  /**
+   * The same turn, streamed — OPTIONAL, and that is a contract decision.
+   *
+   * Making it required would mean every backend that ever registers has to
+   * implement SSE before it can answer a single message, which is a tax on the
+   * next adapter for a feature the page can do without. So a backend without
+   * this one still works everywhere: routes/chat.ts falls back to `ask()` and
+   * emits the answer as a single `delta` followed by `done`, which is a
+   * degraded stream rather than a broken page — the words arrive all at once
+   * instead of one at a time, and everything downstream is unchanged.
+   *
+   * An async generator rather than a callback, so that a caller which stops
+   * reading (a closed tab) cancels the upstream request through the
+   * generator's own `finally` instead of through a flag somebody forgot to
+   * check.
+   */
+  stream?(turns: ChatTurn[], opts?: AskOptions): AsyncGenerator<ChatStreamEvent>;
 }
 
 /* ------------------------------------------------------------------ registry */

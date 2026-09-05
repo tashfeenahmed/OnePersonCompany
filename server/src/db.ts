@@ -2257,6 +2257,200 @@ const MIGRATIONS: { name: string; sql: string }[] = [
       DROP TABLE IF EXISTS telegram_messages;
     `,
   },
+
+  {
+    name: "019_chat_tools",
+    sql: `
+      -- WHAT A STREAMED TURN KNOWS THAT A FETCHED ONE DID NOT.
+      --
+      -- 016_chat stored the two facts a completed turn has: who said it and
+      -- what they said. Streaming adds two more, and both of them are about
+      -- the SHAPE of the answer rather than about the conversation:
+      --
+      --   tools    the agent's tool calls, in the order they happened
+      --   partial  this answer was cut off half way and is not the whole thing
+      --
+      -- PARTIAL IS THE WHOLE REASON STREAMING WAS DECLINED UNTIL NOW, and the
+      -- route header said so: "a stream that dies half way has already put
+      -- half an answer on screen and there is no truthful way to store that as
+      -- a message". This column is the truthful way. A dropped connection, a
+      -- gateway that dies mid-sentence or a tab that closes leaves text that
+      -- WAS said, and the two dishonest options are to drop it (the owner
+      -- watched it appear and then watched it vanish) or to store it as a
+      -- complete answer (a transcript that lies about where the agent
+      -- stopped). So it is stored, and flagged, and the page draws it with the
+      -- flag showing. 0 for every row written before this migration, which is
+      -- correct: they came back whole or they were never written.
+      --
+      -- TOOLS AS A JSON COLUMN RATHER THAN A chat_tool_calls TABLE, which was
+      -- the other option and is the one a schema purist would take.
+      --
+      -- The argument for the table is indexing: "which sessions used the
+      -- terminal tool", "how often does it call search". The argument against
+      -- is that nothing asks those questions and nothing here is going to —
+      -- these rows are a RENDERING ARTEFACT of one message. They are read
+      -- exactly when that message is read, never joined, never aggregated,
+      -- never queried across sessions, and their ORDER is load-bearing (a tool
+      -- line renders at the point in the text where it happened). A JSON array
+      -- keeps the order for free; a table needs a sequence column to get it
+      -- back, plus a foreign key onto an AUTOINCREMENT id, plus a second write
+      -- inside the same turn that must not half-succeed. That is three moving
+      -- parts bought to make a query nobody runs faster.
+      --
+      -- If the day comes that somebody wants tool usage across a month, this
+      -- is a migration that reads the JSON and fills the table. Until then the
+      -- honest shape is "a message, and what it did while writing itself".
+      --
+      -- The shape, written down here because SQLite will not check it:
+      --   [{ toolCallId, tool, label, emoji, startedAt, finishedAt, offset }]
+      -- One entry per CALL, not per event — the running and completed events
+      -- for one toolCallId are merged into one record with two timestamps.
+      -- \`offset\` is how many characters of the answer had been streamed when
+      -- the call started, which is what lets a reloaded transcript put the
+      -- line back where it happened instead of in a pile at the end.
+      ALTER TABLE chat_messages ADD COLUMN tools TEXT;
+      ALTER TABLE chat_messages ADD COLUMN partial INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    name: "020_board",
+    sql: `
+      -- THE BOARD: columns, and cards that sit in them in an order somebody
+      -- chose. The first thing on this server that stores what the OWNER
+      -- typed rather than what a provider reported — every other table here
+      -- is a collector's transcript, and a row in one of those is replaced
+      -- when the next collection disagrees with it. These rows are the record.
+      -- Nothing may ever overwrite one because an API said something else.
+      --
+      -- THE COLUMNS ARE ROWS RATHER THAN AN ENUM. A board whose columns are a
+      -- CHECK constraint cannot be renamed without a migration, and "Doing"
+      -- becoming "In progress" is a Tuesday rather than a schema change. The
+      -- five below are seeded because an empty board with no columns is not a
+      -- board, and picking five is a better first minute than an empty screen
+      -- asking somebody to invent a workflow.
+      --
+      -- \`key\` IS THE STABLE NAME AND \`title\` IS THE VISIBLE ONE, and they
+      -- are two columns because a rename must not change what the code means.
+      -- Two keys are STRUCTURAL — \`backlog\` is where a card with nowhere else
+      -- to be lands, and \`done\` is the one column that means a thing is
+      -- finished (moving a card in stamps \`done_at\`, moving it out clears it).
+      -- Both can be renamed; neither may be deleted. There is no delete route
+      -- for a column at all today, so nothing enforces that yet — the key is
+      -- what a future one would refuse on, which is why it is stored rather
+      -- than derived from the title or from position 0.
+      CREATE TABLE board_columns (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        key         TEXT NOT NULL UNIQUE,
+        title       TEXT NOT NULL,
+        position    INTEGER NOT NULL,
+        -- NULL means no limit, and it is a real third answer: a column with a
+        -- limit of 0 is a column nothing may sit in, which is a different
+        -- (and legitimate) instruction from "I have not set a limit here".
+        wip_limit   INTEGER,
+        created_at  TEXT NOT NULL
+      );
+
+      -- POSITIONS ARE SPARSE INTEGERS, IN STEPS OF 1000, AND THAT IS THE WHOLE
+      -- POINT OF THIS SCHEMA.
+      --
+      -- The obvious design is a dense 0..n-1 index per column. It is also the
+      -- one that turns every drag into a rewrite of two whole columns: pulling
+      -- a card out of the middle of Backlog renumbers everything below it, and
+      -- dropping it into the middle of Doing renumbers everything below THAT.
+      -- Twenty cards moved one place is twenty UPDATEs to express one
+      -- intention, inside a transaction, every time somebody drags anything.
+      --
+      -- With gaps of 1000 a move is ONE row update: the new position is the
+      -- midpoint of the two neighbours it landed between, and the neighbours
+      -- do not move. The board is read \`ORDER BY position\`, so the numbers
+      -- themselves are private — nothing outside this table means anything by
+      -- 3000 rather than 3.
+      --
+      -- The cost is that a gap eventually closes. Dropping repeatedly into the
+      -- same slot halves the interval each time, and after ten drops into one
+      -- gap there is no integer left between the neighbours. That case is
+      -- handled by renumbering THAT COLUMN back to 1000, 2000, 3000 — which is
+      -- the dense design's cost, paid once every ten drops into the same gap
+      -- instead of on every drag. Floats were the other way to avoid the
+      -- renumber and were declined: doubles run out of mantissa in the same
+      -- shape, silently and later, and an ORDER BY that starts comparing
+      -- 3.0000000000000004 to 3.000000000000001 is a bug nobody will find.
+      --
+      -- THE COLUMNS THEMSELVES ARE NUMBERED DENSELY, 0..n-1, and the
+      -- difference is deliberate rather than an oversight. There are five of
+      -- them, they are reordered about once, and rewriting five rows to
+      -- express that is not worth a scheme; cards are dragged all day and
+      -- there can be hundreds in one column. The rule is "sparse where the
+      -- writes are, dense where they are not", and each table's own header
+      -- says which it is so nobody has to infer it from the numbers.
+      CREATE TABLE board_cards (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        column_id   INTEGER NOT NULL REFERENCES board_columns(id),
+        position    INTEGER NOT NULL,
+        title       TEXT NOT NULL,
+        body        TEXT,
+        -- The venture this is work FOR, or NULL for work that is not about one
+        -- of them. It is a bare string with no foreign key because ventures do
+        -- not live on this server at all: they are client state in
+        -- lib/store.tsx, mirrored to localStorage, and the board's document
+        -- carries \`ventureId\` and never a name or a colour. A card whose
+        -- venture has since been deleted therefore keeps an id that resolves to
+        -- nothing, and the page draws it as unfiled rather than inventing a
+        -- chip — which is the honest outcome and the reason this is not
+        -- REFERENCES anything.
+        venture_id  TEXT,
+        -- 0 low, 1 normal, 2 high, 3 urgent. An integer rather than the four
+        -- words because it is an ORDER: "is this more urgent than that" is a
+        -- comparison, and a TEXT column makes it a lookup table. The words
+        -- live on the client, which is the only place they are read.
+        urgency     INTEGER NOT NULL DEFAULT 1,
+        -- A date, 'YYYY-MM-DD', not a timestamp. A due date is a day in the
+        -- owner's own calendar; storing 23:59 in some timezone would make
+        -- "overdue" a question about UTC offsets on the one screen where it
+        -- should be a question about whether today is past it.
+        due         TEXT,
+        -- When it reached Done, set by the move and cleared by a move out.
+        -- NULL on a card that has never been finished — which is different
+        -- from 0 or from an empty string, and is the reason it is nullable.
+        done_at     TEXT,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL,
+        -- ARCHIVED IS NOT DELETED. A finished card that is out of the way is
+        -- still a record of work done; a deleted one is gone. Both are offered
+        -- because they are different intentions, and every read of the board
+        -- filters \`archived_at IS NULL\`.
+        archived_at TEXT
+      );
+      CREATE INDEX board_cards_column_position
+        ON board_cards(column_id, position);
+
+      -- THE SEAM FOR CARDS NOBODY TYPED.
+      --
+      -- Nothing writes this column today and no route sets it. It is here
+      -- because the shape of "something filed this automatically" is known and
+      -- costs one nullable column to leave room for: \`origin\` is the
+      -- DERIVATION'S OWN ID with a namespace on it, and the unique index is
+      -- what makes filing idempotent — a sweep that runs twice, or in two
+      -- tabs, leaves one card rather than two. A card somebody typed has NULL
+      -- here, and SQLite treats NULLs as distinct in a unique index, so a
+      -- hundred hand-written cards do not collide with each other.
+      --
+      -- That is the whole seam. There is no filer, no ranking and no collector
+      -- pointed at this table, because the cards on this board are the owner's
+      -- and a board that fills itself is a different product decision than the
+      -- one being made here.
+      ALTER TABLE board_cards ADD COLUMN origin TEXT;
+      CREATE UNIQUE INDEX board_cards_origin ON board_cards(origin);
+
+      INSERT INTO board_columns (key, title, position, wip_limit, created_at)
+      VALUES
+        ('backlog', 'Backlog', 0, NULL, strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        ('next',    'Next',    1, NULL, strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        ('doing',   'Doing',   2, NULL, strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        ('blocked', 'Blocked', 3, NULL, strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        ('done',    'Done',    4, NULL, strftime('%Y-%m-%dT%H:%M:%SZ','now'));
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -6539,6 +6733,36 @@ export function pruneMail(retainDays: number) {
  * retention clock would quietly delete the one kind of row the owner would
  * actually miss.
  */
+/**
+ * One tool call an agent made while writing an answer, as it is stored.
+ *
+ * ONE RECORD PER CALL, NOT PER EVENT. Hermes streams two named SSE events for
+ * every call — running, then completed — and keeping both would store the same
+ * tool name and label twice to record two timestamps. Merged on the way in,
+ * they are one thing that happened with a start and an end, which is also what
+ * the page draws: "💻 terminal · date · completed in 0.8s".
+ *
+ * `finishedAt` is null while a call is still running, and STAYS null on a turn
+ * that was cut off mid-call — which is a fact worth keeping rather than
+ * rounding to the moment the stream died. Null here is "asked and not told",
+ * exactly as everywhere else in this file.
+ *
+ * `offset` is how many characters of the answer had been streamed when the
+ * call started. It is what a reloaded transcript needs to put the grey line
+ * back BETWEEN the paragraphs it happened between; without it every stored
+ * tool call renders in a pile at the end of the message, which is a different
+ * story about what the agent did.
+ */
+export type ChatToolCall = {
+  toolCallId: string;
+  tool: string;
+  label: string | null;
+  emoji: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  offset: number;
+};
+
 export type ChatMessageRow = {
   id: number;
   session_id: string;
@@ -6551,6 +6775,13 @@ export type ChatMessageRow = {
   prompt_tokens: number | null;
   completion_tokens: number | null;
   ms: number | null;
+  /** JSON: `ChatToolCall[]`. Null means the turn made no tool calls OR was not
+   *  streamed — the two are indistinguishable here on purpose, because "an
+   *  agent that used no tools" and "a turn that could not have reported them"
+   *  both draw the same message. */
+  tools: string | null;
+  /** 1 when the answer was cut off before the agent finished it. */
+  partial: number;
 };
 
 export function appendChatMessage(m: {
@@ -6563,13 +6794,17 @@ export function appendChatMessage(m: {
   promptTokens?: number | null;
   completionTokens?: number | null;
   ms?: number | null;
+  /** Serialised here rather than by the caller, so there is one place that
+   *  decides an empty list is stored as null. */
+  tools?: ChatToolCall[] | null;
+  partial?: boolean;
 }): ChatMessageRow {
   const info = db
     .prepare(
       `INSERT INTO chat_messages
          (session_id, ts, role, content, backend, channel, model,
-          prompt_tokens, completion_tokens, ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          prompt_tokens, completion_tokens, ms, tools, partial)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       m.sessionId,
@@ -6582,6 +6817,8 @@ export function appendChatMessage(m: {
       m.promptTokens ?? null,
       m.completionTokens ?? null,
       m.ms ?? null,
+      m.tools && m.tools.length ? JSON.stringify(m.tools) : null,
+      m.partial ? 1 : 0,
     );
   return db
     .prepare("SELECT * FROM chat_messages WHERE id = ?")
@@ -6607,6 +6844,98 @@ export function chatMessages(sessionId: string, limit = 200): ChatMessageRow[] {
     )
     .all(sessionId, limit) as unknown as ChatMessageRow[];
   return rows.reverse();
+}
+
+/**
+ * Every conversation that has a message in it, newest activity first.
+ *
+ * WHY THERE IS STILL NO `chat_sessions` TABLE, which is the obvious thing to
+ * add the moment somebody asks for a session LIST.
+ *
+ * 016_chat's header settled it and nothing since has changed the argument:
+ * sessions are the CLIENT's idea. The browser creates them, names them,
+ * renames them and deletes them, and it does all of that in localStorage
+ * beside the ventures and dashboards they sit with. A table here would make
+ * two authorities on one name — the rail's, and the server's — and the first
+ * rename would put them out of step with no rule for which wins.
+ *
+ * So this is a DERIVATION and not a record. `title` is the first thing the
+ * owner said in the conversation, which is the best guess available to
+ * something that was never told the name; the page is free to overwrite it
+ * with a name it holds, and does. What the server IS the authority on is what
+ * this actually answers: which session ids have messages, how many, and when.
+ * Those are facts about rows, and rows are this file's business.
+ *
+ * Capped at 200 characters rather than shortened to a rail-width label. Where
+ * to trim a title for display is a layout question, and answering it here
+ * would put the rail's pixel budget in a SQL file.
+ */
+export type ChatSessionSummary = {
+  sessionId: string;
+  title: string | null;
+  messages: number;
+  firstAt: string;
+  lastAt: string;
+  /** Which doors this conversation came in by — 'web', 'telegram', or both.
+   *  Sorted, so the value is stable to compare. */
+  channels: string[];
+};
+
+export function chatSessionSummaries(): ChatSessionSummary[] {
+  const rows = db
+    .prepare(
+      `SELECT session_id,
+              COUNT(*)            AS messages,
+              MIN(ts)             AS first_at,
+              MAX(ts)             AS last_at,
+              MAX(id)             AS last_id,
+              -- The first thing the owner said, which is the only text in the
+              -- conversation that was not written by a machine and is
+              -- therefore the only honest candidate for a name. A session that
+              -- somehow holds no user turn gets null rather than the agent's
+              -- opening words, and the caller says "Untitled" in its own
+              -- voice.
+              (SELECT substr(m2.content, 1, 200)
+                 FROM chat_messages m2
+                WHERE m2.session_id = m.session_id
+                  AND m2.role = 'user'
+                ORDER BY m2.id
+                LIMIT 1)          AS title
+         FROM chat_messages m
+        GROUP BY session_id
+        -- By the newest ROW rather than the newest timestamp: two messages
+        -- written in the same millisecond are possible, and the id is the only
+        -- total order this table has.
+        ORDER BY last_id DESC`,
+    )
+    .all() as unknown as {
+    session_id: string;
+    messages: number;
+    first_at: string;
+    last_at: string;
+    title: string | null;
+  }[];
+
+  const channels = db
+    .prepare(
+      "SELECT DISTINCT session_id, channel FROM chat_messages ORDER BY session_id, channel",
+    )
+    .all() as unknown as { session_id: string; channel: string }[];
+  const bySession = new Map<string, string[]>();
+  for (const c of channels) {
+    const list = bySession.get(c.session_id);
+    if (list) list.push(c.channel);
+    else bySession.set(c.session_id, [c.channel]);
+  }
+
+  return rows.map((r) => ({
+    sessionId: r.session_id,
+    title: r.title === null ? null : r.title.trim() || null,
+    messages: r.messages,
+    firstAt: r.first_at,
+    lastAt: r.last_at,
+    channels: bySession.get(r.session_id) ?? [],
+  }));
 }
 
 /** Forget one conversation. Used by the route that clears a chat; there is no

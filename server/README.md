@@ -254,6 +254,14 @@ with entry names and timestamps only.
 | `POST /api/agents/:id/reconfigure` | rewrite its provider config now, restarting it if it is up |
 | `POST /api/agents/:id/make-live` | make it the chat backend — the same `chat.backend` switch |
 | `POST /api/agents/:id/mode` | which credential answers: the instance here, or a pasted remote one |
+| `GET /api/board` | the board: every column with its cards in order, counts, and what a WIP limit says |
+| `POST /api/board/cards` | write a card down — in Backlog, or in a column you name |
+| `PATCH /api/board/cards/:id` | title, body, urgency, due, venture. A field left out is untouched; `null` clears it |
+| `POST /api/board/cards/:id/move` | the drag: `{ columnId, before }` — that column, above that card, or `null` for the foot |
+| `POST /api/board/cards/:id/archive` | out of the way, not gone |
+| `DELETE /api/board/cards/:id` | gone |
+| `PATCH /api/board/columns/:id` | rename it, or set a WIP limit (`null` removes it) |
+| `POST /api/board/columns/:id/move` | reorder the columns, in the same `{ before }` vocabulary |
 
 Every write goes through a **closed registry** (`src/routes/plugins.ts`), for
 the reason WorkDash's is closed: a route that can write any name into the vault
@@ -2533,3 +2541,149 @@ as the page's admin, and on the other side of it there is no read surface worth
 collecting. A registry entry would mean either a `verify` that cannot be
 exercised — storing a credential unchecked, which is the one thing the closed
 registry exists to prevent — or a stub that lies about having tried.
+
+## The board: the first table here that is not a transcript
+
+Every other route on this server is a window onto something a collector
+fetched. A row in `hetzner_servers` is replaced the moment the next collection
+disagrees with it, and the worst a bug can do is show a stale number. The board
+is the other kind of table: **a card exists nowhere else until somebody types
+it in**, and losing one is losing work. Nothing collects it, nothing overwrites
+it, and there is no provider behind it.
+
+`GET /api/board` answers with columns, each carrying its own cards in order and
+its own count — and **so does every mutation**. That is the whole contract, and
+it is workdash's own. The reason shows up under a drag: a move changes a card's
+column, its position, its `updated_at` and possibly its `done_at`, and, because
+positions are shared, it can change cards nobody touched. `{ ok: true }` would
+leave the page to work all of that out; "the card as it now is" would leave it
+to work out the rest of the column. Handing back the document means the
+client's next state is not derived from anything — it *is* the answer, applied
+whole. Five columns and a few dozen cards is a few kilobytes.
+
+### Positions are sparse integers, and that is the point of the schema
+
+The obvious design is a dense `0..n-1` per column. It is also the one that
+turns every drag into a rewrite of two columns: pulling a card out of the
+middle of Backlog renumbers everything under it, and dropping it into the
+middle of Doing renumbers everything under that. Twenty cards moved one place
+to express one intention, every time anybody drags anything.
+
+Cards are numbered in steps of **1000** instead. A move is one `UPDATE`: the
+new position is the midpoint of the two neighbours it landed between, and the
+neighbours do not move. Nothing outside the table means anything by 3000 rather
+than 3 — the board is read `ORDER BY position`.
+
+The cost is that a gap eventually closes: dropping into the same slot halves
+the interval each time, and after about ten drops there is no integer left.
+That column is then renumbered back to 1000, 2000, 3000 — the dense design's
+cost, paid once every ten drops into one gap instead of on every drag. Floats
+were the other way out and were declined: doubles run out of mantissa in the
+same shape, silently and later, and an `ORDER BY` comparing
+`3.0000000000000004` with `3.000000000000001` is a bug nobody will find.
+
+**The columns themselves are dense, `0..n-1`.** There are five, they are
+reordered about once, and rewriting five rows is not worth a scheme. Sparse
+where the writes are, dense where they are not.
+
+### A move names a neighbour, not an index
+
+`{ columnId, before }` — "that column, above that card", with `before: null`
+meaning the foot of it. Workdash sends `{ column, index }`; both keep the order
+on the server, which is the part that matters, and the difference is what
+happens when the client's copy is a few seconds old. An index of 3 means a
+different slot the moment anything has been inserted, and it silently means
+*something*, so a stale drop lands in the wrong place and reads as a misfired
+drag. A card id either still names a card in that column or it does not, and
+this route answers 409 with a sentence rather than guessing. It is also what
+lets the page stay draggable while a venture filter is on — a hidden card
+cannot make "above that card" mean somewhere else.
+
+### Done is a column and a timestamp, kept in step by the move
+
+Arriving in the `done` column stamps `done_at` if it has none; re-ordering
+*within* Done leaves the stamp alone, because tidying a column is not
+finishing something twice. Leaving Done clears it — a card back in Doing is not
+a finished card with a date on it, and a stale stamp is exactly what a later
+report would count.
+
+### Two structural columns, five seeded, none deletable
+
+`backlog` and `done` are structural: the first is where a card with nowhere
+else to be lands, the second is the one whose name is a claim about the card.
+Both can be **renamed** — a board that calls its first column "Someday" is
+still a board — which is why `key` (what the code means) and `title` (what the
+eye reads) are two columns. Neither can be deleted, and today nothing can:
+there is no create-or-delete route for a column at all. That is a real design
+decision left unmade (what happens to the cards in a deleted column), and a
+stub answering 501 would be a promise this file cannot keep.
+
+### A WIP limit is reported, never enforced
+
+The document carries `overLimit`; no move is refused because of it. A limit is
+something the owner set in order to be told about, and a board that physically
+refuses a drop teaches you to drag the card somewhere dishonest instead — the
+work is still started, the board just stops describing it. `null` is no limit
+and `0` is a column nothing should sit in, and they are different answers.
+
+### Ventures are not stored here
+
+A card carries `venture_id` and nothing else. Ventures live in the browser's
+own store (`client/src/lib/store.tsx`), mirrored to localStorage; this server
+has never seen one, so the document cannot carry a name or a colour and does
+not pretend to. There is no foreign key, and a card whose venture has since
+been deleted keeps an id that resolves to nothing — the page draws it as
+unfiled and says so in the dialog, which is better than a chip labelled with a
+business that no longer exists.
+
+### The seam for cards nobody typed
+
+`board_cards.origin` is nullable, uniquely indexed, and **never written**. It is
+the derivation's own id with a namespace on it — `issue:disk-dell` — and the
+unique index is what would make an automatic filer idempotent: a sweep that
+runs twice leaves one card rather than two. `fileCard()` in `routes/board.ts`
+is the twenty lines that would use it, exported and called by nothing.
+
+That is the entire seam. Workdash's board has a backlog filer, an issue ranking
+and a gardening sweep writing into it; none of that is ported, because those
+cards are derived from collectors reading other people's systems and **these
+cards are the owner's**. A board that fills itself is a different product
+decision, and this leaves the schema right for the day it is made rather than
+making it.
+
+## Chat streams, and a half-answer is a stored fact
+
+`POST /api/chat` is unchanged and is not deprecated — Telegram has no growing
+bubble to render into and wants one document when the answer is done.
+`POST /api/chat/stream` is the other shape: SSE, one event per thing that
+happened, with the contract written out in full at the bottom of
+`routes/chat.ts`.
+
+The objection that kept streaming out of this codebase was never the wire. It
+was that a stream which dies half way has already put half an answer on screen
+and there is no truthful way to store that as a message. That is answered in the
+schema rather than avoided: `019_chat_tools` adds `partial`, and the rule is
+that **exactly one assistant row is written per turn, at the end** — complete,
+or flagged and honest about it. Nothing is written while the deltas are flowing,
+because a row that is briefly three words long is a row the other door can read
+mid-sentence.
+
+Tool calls ride in a `tools` JSON column on the same row rather than in a
+`chat_tool_calls` table. They are a rendering artefact of one message: read when
+that message is read, never joined, never aggregated, and their order is
+load-bearing. A table would need a sequence column to get the order back, a
+foreign key onto an `AUTOINCREMENT` id, and a second write inside the turn that
+must not half-succeed — three moving parts to make a query nobody runs faster.
+
+`GET /api/chat/sessions` lists every session id that has messages, with counts,
+timestamps and a title derived from the first user turn. There is still **no
+`chat_sessions` table**: sessions are the client's idea, it renames them, and a
+table here would make two authorities on one name. What the server is the
+authority on is which ids have rows, and that is what this answers.
+
+A stream gets two deadlines instead of `ASK_TIMEOUT_MS`, because the reason for
+a sixty-second budget — a page spinning on nothing — does not apply when words
+are arriving the whole time. What is actually wrong with a stream is silence, so
+there is an idle timer that resets on every frame (90s) and a hard cap for a
+runaway agent (10m). Both abort the same controller, and the error says which
+fired.
