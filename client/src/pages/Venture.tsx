@@ -14,8 +14,12 @@ import { PageShell, TopBar } from "@/components/PageShell";
 import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NewDashboardDialog, NoBoard } from "@/components/BoardView";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
+import { Audit } from "@/components/ventures/Audit";
+import { Connections } from "@/components/ventures/Connections";
+import { Site } from "@/components/ventures/Site";
 import { useApi } from "@/hooks/useApi";
 import { api, VENTURE_STAGES, type Venture as VentureDoc } from "@/lib/api";
+import { ventureApi, type VentureLinks } from "@/lib/api/ventures";
 import { ScopeProvider } from "@/lib/live";
 import { useStore } from "@/lib/store";
 
@@ -36,19 +40,75 @@ import { useStore } from "@/lib/store";
  * A venture with NO website is not an error and not an empty page: the boards
  * show the whole portfolio and say so under the title. Filtering everything
  * away because nobody has typed a URL would be a page pretending to measure.
+ *
+ * SINCE THE LINK TABLE EXISTS, THE HOST IS NOT THE ONLY JOIN. A venture owns a
+ * Cloudflare zone id, a Search Console property, an uptime host — the owner
+ * said so, one row at a time — and those statements narrow the boards more
+ * precisely than a hostname guess ever could. So this page reads the venture's
+ * links and hands them to the scope beside the host.
  */
+/** The tabs that are not dashboards. Named once, because the strip builds them
+ *  and the reorder handler has to be able to throw them away again. */
+const FIXED_TABS = new Set(["overview", "connections", "site", "audit"]);
+
+/**
+ * What the board says it was narrowed to.
+ *
+ * BOTH HALVES OR NEITHER. The host is a guess that usually lands — a Cloudflare
+ * zone called `example-app-1.example.test` almost certainly is Example App 1's — and a link is
+ * the owner having said so. A card narrowed by seven links and a hostname is a
+ * different claim from one narrowed by a hostname alone, so the sub-line says
+ * which, and a venture with no website says that it is showing everything
+ * rather than quietly showing nothing.
+ */
+function scopeNote(host: string | null, links: number): string {
+  const named = links ? ` · ${links} ${links === 1 ? "link" : "links"}` : "";
+  if (host) return `scoped to ${host}${named}`;
+  return links
+    ? `no website — scoped to ${links} linked ${links === 1 ? "thing" : "things"}`
+    : "no website — showing the whole portfolio";
+}
+
 export function Venture() {
   const { slug, board: boardSlug } = useParams();
-  /* Which of the two addresses this is: the venture, or its boards with none
-     named. `useParams` cannot tell them apart — both leave `board` undefined —
-     so the path is the only thing that can. */
-  const bare = useLocation().pathname.endsWith("/dashboards");
+  /*
+    WHICH TAB, OUT OF THE PATH. `useParams` cannot tell /ventures/x from
+    /ventures/x/dashboards — both leave `board` undefined — and the four fixed
+    tabs are literal segments rather than a `:tab` param, because a param there
+    would also match /ventures/x/edit and swallow the form. So the segment is
+    read straight off the path: "" is the overview, and everything else is
+    named below.
+  */
+  const tab = useLocation().pathname.split("/")[3] ?? "";
+  const bare = tab === "dashboards" && !boardSlug;
   const { state, dashboardsIn, addDashboard, copyDashboard, reorderDashboards } =
     useStore();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
 
   const venture = state.ventures.find((v) => v.slug === slug);
+  const boards = venture ? dashboardsIn(venture.id) : [];
+  const board = boardSlug ? boards.find((d) => d.slug === boardSlug) : undefined;
+
+  /*
+    THE LINK TABLE IS READ FOR TWO TABS AND NO OTHERS. It is not an expensive
+    document but it is not a free one either — the route recomputes every
+    suggestion out of live tables on each read, which is a dozen queries and up
+    to eight loopback calls — and the overview does not use it. So it is
+    fetched when the connections tab is open, which is what it is for, and when
+    a board is open, which is what narrows it.
+  */
+  const wantsLinks = !!venture && !!slug && (tab === "connections" || !!board);
+  const links = useApi(
+    () => (wantsLinks && slug ? ventureApi.links(slug) : Promise.resolve(null)),
+    [slug, wantsLinks],
+  );
+  /* A new array every render, deliberately: `ScopeProvider` keys on the
+     CONTENTS of this list, not on its identity, for exactly this reason. */
+  const linked = (links.data?.links ?? []).map((l) => ({
+    plugin: l.plugin,
+    entity: l.entity,
+  }));
 
   if (!venture)
     return (
@@ -75,8 +135,6 @@ export function Venture() {
     );
 
   const basePath = `/ventures/${venture.slug}/dashboards`;
-  const boards = dashboardsIn(venture.id);
-  const board = boardSlug ? boards.find((d) => d.slug === boardSlug) : undefined;
 
   /* The bare /ventures/<slug>/dashboards names no board. It lands on the first
      one and rewrites itself to that board's own address — the same way
@@ -156,6 +214,16 @@ export function Venture() {
         <TabStrip
           tabs={[
             { key: "overview", to: `/ventures/${venture.slug}`, label: "Overview" },
+            {
+              key: "connections",
+              to: `/ventures/${venture.slug}/connections`,
+              label: "Connections",
+              /* Only once it is known. A zero beside the label while the
+                 table is still being read would be a measurement. */
+              count: links.data?.links.length,
+            },
+            { key: "site", to: `/ventures/${venture.slug}/site`, label: "Site" },
+            { key: "audit", to: `/ventures/${venture.slug}/audit`, label: "Audit" },
             ...boards.map((d) => ({
               key: d.id,
               to: `${basePath}/${d.slug}`,
@@ -163,10 +231,13 @@ export function Venture() {
               count: d.widgets.length,
             })),
           ]}
-          activeKey={board ? board.id : boardSlug ? null : "overview"}
-          /* Overview is not a board and cannot be dragged out of first place:
-             the key is dropped before the order reaches the store. */
-          onReorder={(keys) => reorderDashboards(keys.filter((k) => k !== "overview"))}
+          activeKey={board ? board.id : boardSlug ? null : tab || "overview"}
+          /* The four fixed tabs are not boards and cannot be dragged out of
+             the front: their keys are dropped before the order reaches the
+             store, which only ever knew about dashboards. */
+          onReorder={(keys) =>
+            reorderDashboards(keys.filter((k) => !FIXED_TABS.has(k)))
+          }
         />
         <button
           onClick={() => setCreating(true)}
@@ -188,25 +259,43 @@ export function Venture() {
       )}
 
       {board && (
-        <ScopeProvider hosts={venture.host ? [venture.host] : []}>
+        <ScopeProvider
+          hosts={venture.host ? [venture.host] : []}
+          entities={linked}
+        >
           <BoardView
             key={board.id}
             board={board}
             basePath={basePath}
             homePath={`/ventures/${venture.slug}`}
             ventureId={venture.id}
-            scopeNote={
-              venture.host
-                ? `scoped to ${venture.host}`
-                : "no website — showing the whole portfolio"
-            }
+            scopeNote={scopeNote(venture.host, linked.length)}
           />
         </ScopeProvider>
       )}
 
-      {!boardSlug && (
+      {!boardSlug && !tab && (
         <Overview venture={venture} onNewDashboard={() => setCreating(true)} />
       )}
+
+      {tab === "connections" && slug && (
+        <Connections
+          slug={slug}
+          doc={links.data}
+          error={links.error}
+          loading={links.loading}
+          reload={links.reload}
+          onLinksChanged={(rows) =>
+            links.setData((d: VentureLinks | null) =>
+              d ? { ...d, links: rows } : d,
+            )
+          }
+        />
+      )}
+
+      {tab === "site" && <Site venture={venture} />}
+
+      {tab === "audit" && <Audit venture={venture} />}
 
       <NewDashboardDialog
         open={creating}
@@ -418,23 +507,35 @@ function Overview({
           </div>
         </Section>
 
-        {/* -------------------------------------------------- brand */}
+        {/* -------------------------------------------------- brand
+            THE SHORT VERSION. What was read, and when. The photograph, the
+            rendered reading, the two palettes side by side and the statement
+            about which of them is in use are all one tab away on Site — this
+            is the summary that stops the overview from becoming that page. */}
         <Section
           title="Brand"
           note="Measured from the site, not written here."
           action={
             venture.website ? (
-              <button
-                onClick={() => {
-                  setReading(true);
-                  void enrichVenture(venture.id).finally(() => setReading(false));
-                }}
-                disabled={reading}
-                className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[11.5px]"
-              >
-                <RefreshCw className="size-3.5" strokeWidth={1.6} />
-                {reading ? "Reading…" : "Re-read the site"}
-              </button>
+              <div className="flex items-center gap-3">
+                <Link
+                  to={`/ventures/${venture.slug}/site`}
+                  className="text-muted-foreground hover:text-foreground text-[11.5px]"
+                >
+                  The page and both readings
+                </Link>
+                <button
+                  onClick={() => {
+                    setReading(true);
+                    void enrichVenture(venture.id).finally(() => setReading(false));
+                  }}
+                  disabled={reading}
+                  className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[11.5px]"
+                >
+                  <RefreshCw className="size-3.5" strokeWidth={1.6} />
+                  {reading ? "Reading…" : "Re-read the site"}
+                </button>
+              </div>
             ) : undefined
           }
         >
@@ -473,23 +574,16 @@ function Overview({
                   ))}
                 </div>
               )}
-              {venture.brand.fonts.length > 0 && (
-                <p className="text-muted-foreground">
-                  Fonts: {venture.brand.fonts.join(", ")}
-                </p>
-              )}
+              {/* The fonts and the notes about what could not be measured are
+                  on the Site tab, beside the rendered reading they are meant
+                  to be compared with. */}
               <p className="text-muted-foreground text-[11.5px]">
                 {venture.brand.enrichedAt
                   ? `Read ${new Date(venture.brand.enrichedAt).toLocaleString()}`
                   : "Never read."}
+                {venture.brand.notes.length > 0 &&
+                  ` · ${venture.brand.notes.length} ${venture.brand.notes.length === 1 ? "note" : "notes"} about what could not be measured`}
               </p>
-              {venture.brand.notes.length > 0 && (
-                <ul className="text-muted-foreground flex flex-col gap-1 text-[11.5px]">
-                  {venture.brand.notes.map((n) => (
-                    <li key={n}>{n}</li>
-                  ))}
-                </ul>
-              )}
             </div>
           )}
         </Section>

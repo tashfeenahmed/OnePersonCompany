@@ -29,6 +29,20 @@ import type {
   DemandQuery,
   DemandSignal,
 } from "@/lib/api";
+import type {
+  BacklinksReport,
+  BlueskyReport,
+  CalendarEvent,
+  CalendarReport,
+  FleetBox,
+  FleetReport,
+  PresenceReport,
+  ProductsReport,
+  PypiReport,
+  UmamiReport,
+  UmamiWebsite,
+  UptimeReport,
+} from "@/lib/api/reports";
 import type { Meter, RunwayRow, StatusTone, Widget } from "@/data/widgets";
 
 /**
@@ -132,6 +146,41 @@ export type LiveInputs = {
    * field would only be a second thing to forget to pass.
    */
   mail?: MailReport | null;
+
+  /*
+    THE NINE SECOND-WAVE REPORTS, AS NINE FIELDS.
+
+    No merging this time, and the rule that decided it is the one `gsc`/`bing`
+    were split on rather than the one `demand` was joined on: each of these is
+    a separate FETCH from a separate collector on a separate schedule, so a
+    single field holding two of them would be a field that is half stale for
+    half the page. `fleet` and `uptime` are the pair most tempting to fold
+    together — both are "is the box well" — and they are the pair it would be
+    worst to fold: the probe reaches a host over the public internet and the
+    fleet reaches it over ssh, so they disagree about a box behind a broken
+    reverse proxy, and that disagreement is a finding rather than a conflict to
+    be resolved by a shape.
+
+    Optional, like every field added after the first release, so a caller that
+    has not been taught to pass one draws samples rather than failing to
+    compile.
+  */
+  umami?: UmamiReport | null;
+  calendar?: CalendarReport | null;
+  pypi?: PypiReport | null;
+  bluesky?: BlueskyReport | null;
+  uptime?: UptimeReport | null;
+  /**
+   * The ssh fleet. Called `boxes` and not `fleet`, because `fleet` above is
+   * already Hetzner's server list and these are not the same set: a Hetzner
+   * server this account pays for may have no ssh credential, and half the ssh
+   * boxes are somebody else's hardware. One name for two populations is a
+   * builder averaging across both within a month.
+   */
+  boxes?: FleetReport | null;
+  products?: ProductsReport | null;
+  backlinks?: BacklinksReport | null;
+  presence?: PresenceReport | null;
 };
 
 /**
@@ -5024,5 +5073,925 @@ Object.assign(LIVE_BUILDERS, {
       .map((c) => [c.what, `${c.answer.split(".")[0]!.trim()} (${c.asked})`]);
     rows.push(["Checked", M.cannot[0]?.checked ?? "—"]);
     return { rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================ umami ==
+   Self-hosted analytics. Two refusals travel through every builder below and
+   both are the route's own: there is NO portfolio visitor count, because Umami
+   de-duplicates per website and no endpoint joins identity across them; and
+   the top-N lists are RANKINGS of a list Umami already truncated, so nothing
+   here totals them or presents them as a share of anything.
+*/
+
+/** The name a site is known by on a card: its domain first, because that is
+ *  what a reader recognises and what a venture link matches on. */
+const siteName = (w: UmamiWebsite) => w.domain ?? w.name ?? w.entity;
+
+/** Seconds as a duration a person reads — "1m 47s". Never decimal minutes:
+ *  "1.8 minutes" is a number nobody has ever said out loud. */
+function secs(n: number | null): string {
+  if (n === null) return "—";
+  const s = Math.round(n);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/**
+ * The top N of a set of per-site rankings, merged.
+ *
+ * MERGED AND NOT ADDED, which is the whole care in this function. Each row
+ * belongs to exactly one website — a path is a path on one site — so putting
+ * two sites' rows in one list and ordering by count is a legitimate ranking of
+ * rows. What would not be legitimate is summing rows that share a name across
+ * sites: "/pricing" on two different products is two different pages, so the
+ * site is prefixed onto the label rather than being collapsed away.
+ */
+function mergedTop(
+  websites: UmamiWebsite[],
+  pick: (w: UmamiWebsite) => { name: string; count: number }[],
+  limit = 8,
+): [string, string][] {
+  const many = websites.length > 1;
+  return websites
+    .flatMap((w) =>
+      pick(w).map((r) => ({
+        label: many ? `${siteName(w)} ${r.name}` : r.name,
+        count: r.count,
+      })),
+    )
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit)
+    .map((r) => [r.label, count(r.count)] as [string, string]);
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "umami.pageviews": ({ umami: U }: LiveInputs) => {
+    const p = U?.portfolio;
+    if (!p?.answering || p.window.pageviews === null) return null;
+    return {
+      value: count(p.window.pageviews),
+      sub: also(
+        `${p.answering} of ${p.websites} site${p.websites === 1 ? "" : "s"} answering`,
+        movedBy(p.deltas.pageviews, p.window.days),
+      ),
+      series: p.days.length > 1 ? p.days.map((d) => d.pageviews) : undefined,
+      seriesAt: p.days.length > 1 ? p.days.map((d) => at(d.day)) : undefined,
+    };
+  },
+
+  /*
+    THE CARD THAT REFUSES TO ADD, and keeps its key while doing it.
+
+    Umami counts a visitor once per website per window. Two sites' figures are
+    therefore two answers about overlapping populations, and the only honest
+    portfolio total is the one that exists when there is a single site — where
+    "the portfolio" and "the site" are the same thing. With more than one, the
+    card stops being a number and says which figures it is holding instead;
+    every one of them is on `umami.sites` a row below. The same move
+    `meta.roas` makes, for the same reason: a key a saved board points at is
+    worth more than a card, and a wrong number is worth less than neither.
+  */
+  "umami.visitors": ({ umami: U }: LiveInputs) => {
+    const p = U?.portfolio;
+    if (!p?.answering) return null;
+    const sites = p.visitors.perSite.filter((s) => s.visitors !== null);
+    if (!sites.length) return null;
+    if (sites.length === 1) {
+      const only = sites[0]!;
+      return {
+        value: count(only.visitors),
+        sub: `${only.domain ?? only.entity} · de-duplicated over ${p.window.days} days`,
+      };
+    }
+    const biggest = [...sites].sort((a, b) => (b.visitors ?? 0) - (a.visitors ?? 0))[0]!;
+    return {
+      value: "—",
+      sub:
+        `not added across ${sites.length} sites — one reader of two of them is ` +
+        `one person, and no Umami endpoint can say so. Largest is ` +
+        `${biggest.domain ?? biggest.entity} at ${count(biggest.visitors)}`,
+    };
+  },
+
+  "umami.bounce": ({ umami: U }: LiveInputs) => {
+    const w = U?.portfolio.window;
+    if (!w || w.bounceRate === null) return null;
+    return {
+      value: pct(w.bounceRate),
+      /* Computed from the SUMS rather than averaged across sites: an average
+         of two percentages weights four visits like four thousand. */
+      sub: `a visit with one pageview, Umami's own definition · ${count(w.bounces)} of ${count(w.visits)} visits`,
+    };
+  },
+
+  "umami.avgVisit": ({ umami: U }: LiveInputs) => {
+    const w = U?.portfolio.window;
+    if (!w || w.avgVisitSeconds === null) return null;
+    return {
+      value: secs(w.avgVisitSeconds),
+      sub: `total time ÷ ${count(w.visits)} visits, over ${w.days} days`,
+    };
+  },
+
+  "umami.daily": ({ umami: U }: LiveInputs) => {
+    const days = U?.portfolio.days ?? [];
+    if (days.length < 2) return null;
+    return {
+      chart: [
+        { label: "Pageviews", points: days.map((d) => ({ ts: at(d.day), value: d.pageviews })) },
+        { label: "Visits", points: days.map((d) => ({ ts: at(d.day), value: d.sessions })) },
+      ],
+      unit: "count" as const,
+      caption:
+        `${days.length} days across ${U!.portfolio.websites} site` +
+        `${U!.portfolio.websites === 1 ? "" : "s"} · bucketed in the INSTANCE's ` +
+        `timezone, which this browser does not know — so these are not UTC days ` +
+        `and are never lined up against another integration's`,
+    };
+  },
+
+  "umami.sites": ({ umami: U }: LiveInputs) => {
+    const sites = U?.websites.filter((w) => w.window) ?? [];
+    if (!sites.length) return null;
+    return {
+      headers: ["Site", "Pageviews", "Visitors", "Visits", "Bounce", "Avg visit"],
+      table: [...sites]
+        .sort((a, b) => (b.window!.pageviews ?? 0) - (a.window!.pageviews ?? 0))
+        .map((w) => [
+          siteName(w),
+          count(w.window!.pageviews),
+          count(w.window!.visitors),
+          count(w.window!.visits),
+          pct(w.window!.bounceRate),
+          secs(w.window!.avgVisitSeconds),
+        ]),
+    };
+  },
+
+  "umami.pages": ({ umami: U }: LiveInputs) => {
+    const rows = mergedTop(U?.websites ?? [], (w) => w.top.pages);
+    return rows.length ? { rows } : null;
+  },
+
+  "umami.referrers": ({ umami: U }: LiveInputs) => {
+    const rows = mergedTop(U?.websites ?? [], (w) => w.top.referrers);
+    return rows.length ? { rows } : null;
+  },
+
+  "umami.events": ({ umami: U }: LiveInputs) => {
+    const rows = mergedTop(U?.websites ?? [], (w) => w.top.events);
+    return rows.length ? { rows } : null;
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================= calendar ==
+   TIMES ARE PRINTED FROM THE STRING, NOT FROM A DATE OBJECT. Google returns
+   RFC3339 with the offset the event was created in, and the route deliberately
+   normalises none of it — so slicing "14:30" out of the timestamp shows the
+   time the event says it is, whereas parsing it would show what that instant
+   is in whatever timezone this browser happens to be in. For a calendar those
+   are two different answers and only the first one is on the invitation.
+*/
+
+/** "14:30" out of an RFC3339 stamp, or null for a date-only (all-day) value. */
+function clockOf(iso: string | null): string | null {
+  if (!iso || iso.length <= 10) return null;
+  return iso.slice(11, 16);
+}
+
+/** "Fri 5" — a bar label wants the weekday, not the year. */
+function weekdayOf(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return day;
+  return d.toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" });
+}
+
+/** How long an event runs, or the honest word for one that has no length. */
+function eventLength(e: CalendarEvent): string {
+  if (e.allDay) return "all day";
+  if (e.minutes === null) return "—";
+  return e.minutes < 60
+    ? `${e.minutes}m`
+    : `${Math.floor(e.minutes / 60)}h${e.minutes % 60 ? ` ${e.minutes % 60}m` : ""}`;
+}
+
+const eventTitle = (e: CalendarEvent) => e.summary ?? "(no title)";
+
+Object.assign(LIVE_BUILDERS, {
+  "calendar.today": ({ calendar: C }: LiveInputs) => {
+    if (!C?.connected) return null;
+    const t = C.today;
+    const rows: [string, string][] = [
+      ...t.events.map(
+        (e) =>
+          [`${clockOf(e.start) ?? "—"} ${eventTitle(e)}`, eventLength(e)] as [string, string],
+      ),
+      /* All-day entries are listed and never converted into hours. Three days
+         of "Conference" is not twenty-four hours and not eight. */
+      ...t.allDay.map((e) => [eventTitle(e), "all day"] as [string, string]),
+    ];
+    if (!rows.length) rows.push(["Nothing in the calendar today", "0h busy"]);
+    else
+      rows.push([
+        "Busy",
+        `${t.busyHours}h · overlaps merged, not added`,
+      ]);
+    return { rows };
+  },
+
+  "calendar.busy": ({ calendar: C }: LiveInputs) => {
+    const days = C?.days ?? [];
+    if (!C?.connected || !days.length) return null;
+    return {
+      bars: days.map((d) => d.busyHours),
+      barLabels: days.map(
+        (d) =>
+          `${weekdayOf(d.day)} · ${d.busyHours}h` +
+          (d.allDay.length ? ` · ${d.allDay.length} all-day, no hours` : ""),
+      ),
+      labels:
+        `${C.summary.busyHours}h over ${days.length} days · overlapping events ` +
+        `count once` +
+        (C.summary.allDayEvents
+          ? ` · ${C.summary.allDayEvents} all-day entr${C.summary.allDayEvents === 1 ? "y" : "ies"} contribute none`
+          : ""),
+    };
+  },
+
+  "calendar.next": ({ calendar: C }: LiveInputs) => {
+    if (!C?.connected) return null;
+    const today = C.today.day;
+    const rows: [string, string][] = [];
+    for (const d of C.days) {
+      if (d.day === today) continue;
+      for (const e of [...d.events, ...d.allDay]) {
+        if (rows.length >= 8) break;
+        rows.push([
+          `${weekdayOf(d.day)} ${clockOf(e.start) ?? "all day"} ${eventTitle(e)}`,
+          eventLength(e),
+        ]);
+      }
+    }
+    if (!rows.length)
+      rows.push([
+        `Nothing booked to ${C.summary.window.to}`,
+        `${C.calendars.filter((k) => k.selected).length} calendars read`,
+      ]);
+    return { rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================= pypi ==
+   Downloads and never installs: CDN file requests, with mirrors excluded on
+   every request — so these figures are smaller than pypistats' own default
+   view, and deliberately. A partial ISO week is never drawn beside a complete
+   one, which is the rule the npm cards already keep; and the two sources are
+   never added, because a wheel and a tarball are different artefacts for
+   different runtimes.
+*/
+
+Object.assign(LIVE_BUILDERS, {
+  "pypi.downloads": ({ pypi: P }: LiveInputs) => {
+    const s = P?.summary;
+    if (!s?.lastCompleteWeek) return null;
+    const complete = (P!.weeks ?? []).filter((w) => !w.partial);
+    return {
+      value: count(s.lastCompleteWeek.downloads),
+      sub: also(
+        `${s.lastCompleteWeek.week} · ${s.configured} package${s.configured === 1 ? "" : "s"}`,
+        s.currentWeek ? `${s.currentWeek.week} still running, not counted` : "",
+      ),
+      series: complete.length > 1 ? complete.map((w) => w.downloads) : undefined,
+      seriesAt: complete.length > 1 ? complete.map((w) => at(w.start)) : undefined,
+    };
+  },
+
+  "pypi.last30": ({ pypi: P }: LiveInputs) => {
+    const s = P?.summary;
+    if (!s || !P?.days.length) return null;
+    return {
+      value: count(s.last30),
+      /* Rolling from the days HELD, which is not a calendar month and not
+         pypistats' own `last_month` window. Saying which is the difference
+         between a figure and a figure somebody can check. */
+      sub: `rolling 30 days of ${P.days.length} held · mirrors excluded`,
+    };
+  },
+
+  "pypi.weekly": ({ pypi: P }: LiveInputs) => {
+    const weeks = (P?.weeks ?? []).filter((w) => !w.partial);
+    if (weeks.length < 2) return null;
+    const current = P!.summary.currentWeek;
+    return {
+      chart: [
+        {
+          label: "Downloads",
+          points: weeks.map((w) => ({ ts: at(w.start), value: w.downloads })),
+        },
+      ],
+      unit: "count" as const,
+      caption:
+        `ISO weeks, Monday to Sunday, across ${P!.summary.configured} ` +
+        `package${P!.summary.configured === 1 ? "" : "s"} · CDN file requests, ` +
+        `so CI and containers are in here with people, and mirrors are not` +
+        (current ? ` · ${current.week} is still running and is not drawn` : ""),
+    };
+  },
+
+  "pypi.packages": ({ pypi: P }: LiveInputs) => {
+    const packages = P?.packages ?? [];
+    if (!packages.length) return null;
+    return {
+      headers: ["Package", "Last full week", "30d", "Version", "State"],
+      table: packages.map((p) => [
+        p.package,
+        p.lastCompleteWeek ? count(p.lastCompleteWeek.downloads) : "—",
+        count(p.last30),
+        p.version ?? "—",
+        // A package pypistats would not answer for keeps the figures it has and
+        // says why they stopped moving, rather than reading as a quiet week.
+        p.lastError ? p.lastError.slice(0, 40) : `ok · ${sinceWord(p.lastOkAt)}`,
+      ]),
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================== bluesky ==
+   The public AppView, unauthenticated. Followers are Bluesky's own totals and
+   are quoted PER HANDLE; the engagement figures are what the posts carry now
+   rather than what they earned inside the window; and a window computed from
+   one page of the author feed is a floor when it filled that page, which every
+   card below says out loud rather than quoting as a count.
+*/
+
+/** The thirty-day window, if it is held. `held: false` is a handle the
+ *  collector has not reached yet — not a handle that posted nothing. */
+const bsky30 = (h: BlueskyReport["handles"][number]) => {
+  const w = h.windows.find((x) => x.days === 30);
+  return w && w.held ? w : null;
+};
+
+Object.assign(LIVE_BUILDERS, {
+  /*
+    THE SAME REFUSAL `umami.visitors` MAKES, from the other side of the
+    dashboard. One person following two of these accounts is one person, and
+    the public API offers nothing that would let anybody subtract them again —
+    so a single handle gets its number and several get the sentence, with every
+    figure on `bluesky.handles` a card below.
+  */
+  "bluesky.followers": ({ bluesky: B }: LiveInputs) => {
+    const answering = (B?.handles ?? []).filter((h) => h.profile.followers !== null);
+    if (!answering.length) return null;
+    if (answering.length === 1) {
+      const h = answering[0]!;
+      return {
+        value: count(h.profile.followers),
+        sub: also(
+          `@${h.handle}`,
+          h.growth.change === null
+            ? (h.growth.note ?? "no growth figure yet")
+            : `${h.growth.change > 0 ? "+" : ""}${count(h.growth.change)} over ${h.growth.readings} readings`,
+        ),
+        series: h.history.length > 1 ? h.history.map((p) => p.followers) : undefined,
+        seriesAt: h.history.length > 1 ? h.history.map((p) => p.ts) : undefined,
+      };
+    }
+    const biggest = [...answering].sort(
+      (a, b) => (b.profile.followers ?? 0) - (a.profile.followers ?? 0),
+    )[0]!;
+    return {
+      value: "—",
+      sub:
+        `not added across ${answering.length} handles — one person following two ` +
+        `of them is one person, and the public API cannot say so. Largest is ` +
+        `@${biggest.handle} at ${count(biggest.profile.followers)}`,
+    };
+  },
+
+  "bluesky.engagement": ({ bluesky: B }: LiveInputs) => {
+    const p = B?.portfolio;
+    if (!p || p.last30.posts === null) return null;
+    const rows: [string, string][] = [
+      ["Posts", count(p.last30.posts)],
+      ["Likes", count(p.last30.likes)],
+      ["Reposts of ours", count(p.last30.reposts)],
+      ["Replies", count(p.last30.replies)],
+    ];
+    /*
+      THE ROW THAT CHANGES WHAT THE FOUR ABOVE MEAN. A window built from one
+      page of the feed that filled that page is a floor, so "42 posts" is "at
+      least 42" — and a reader who is not told treats it as a count.
+    */
+    rows.push([
+      p.last30.anyTruncated ? "At least — the feed page filled" : "Complete window",
+      p.last30.anyTruncated ? "there were more" : `${p.answering} of ${p.handles} answering`,
+    ]);
+    rows.push([
+      "Counted now, not earned then",
+      "an old post gathering likes moves these",
+    ]);
+    return { rows };
+  },
+
+  "bluesky.handles": ({ bluesky: B }: LiveInputs) => {
+    const handles = B?.handles ?? [];
+    if (!handles.length) return null;
+    return {
+      headers: ["Handle", "Followers", "Posts 30d", "Likes", "Per post", "Growth"],
+      table: handles.map((h) => {
+        const w = bsky30(h);
+        return [
+          `@${h.handle}`,
+          count(h.profile.followers),
+          w ? `${w.truncated ? "≥" : ""}${count(w.posts)}` : "—",
+          w ? count(w.likes) : "—",
+          w?.perPost === null || w === null ? "—" : String(w.perPost),
+          // Null on a single reading, which is not a flat line and never a zero.
+          h.growth.change === null
+            ? "not enough readings"
+            : `${h.growth.change > 0 ? "+" : ""}${count(h.growth.change)}`,
+        ];
+      }),
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* =============================================================== uptime ==
+   Everything here is measured from ONE machine on ONE connection at roughly
+   half-hour intervals, and every card carries the consequence rather than
+   hiding it: percentages travel with their check count, a window with fewer
+   than six checks is marked instead of being drawn as a confident 100%, and an
+   outage shorter than the gap between checks is invisible to all of it.
+*/
+
+const ms = (n: number | null) => (n === null ? "—" : `${Math.round(n)} ms`);
+
+Object.assign(LIVE_BUILDERS, {
+  "uptime.up": ({ uptime: U }: LiveInputs) => {
+    const s = U?.summary;
+    if (!s?.configured) return null;
+    const measured = s.up + s.down;
+    return {
+      value: `${s.up} of ${measured || s.configured} up`,
+      tone: s.down ? ("bad" as const) : undefined,
+      sub: also(
+        s.unknown ? `${s.unknown} never checked` : `last checked ${sinceWord(s.lastCheckedAt)}`,
+        s.soonestTlsExpiry === null
+          ? ""
+          : `soonest certificate ${s.soonestTlsExpiry}d`,
+      ),
+    };
+  },
+
+  /*
+    THE THREE DOTS ON THE MORNING BOARD. What it will not say any more is
+    "99.97% · 30d": this probe holds a week and checks from a laptop, so the
+    third dot is the certificate — a number this collector can actually stand
+    behind — and the count of checks is what makes the first two readable.
+  */
+  "uptime.status": ({ uptime: U }: LiveInputs) => {
+    const s = U?.summary;
+    if (!s?.configured) return null;
+    const statuses: [string, StatusTone][] = [
+      [`${s.up} of ${s.configured} up`, s.down ? "bad" : "ok"],
+    ];
+    if (s.down) statuses.push([`${s.down} down`, "bad"]);
+    if (s.unknown) statuses.push([`${s.unknown} never checked`, "warn"]);
+    const day = U!.hosts.filter((h) => h.availability.day.enough);
+    statuses.push(
+      day.length
+        ? [
+            `${pct(Math.min(...day.map((h) => h.availability.day.percent ?? 100)))} worst · 24h`,
+            "ok",
+          ]
+        : ["too few checks to quote a percentage", "warn"],
+    );
+    if (s.soonestTlsExpiry !== null)
+      statuses.push([
+        `certificate ${s.soonestTlsExpiry}d`,
+        s.soonestTlsExpiry < 7 ? "bad" : s.soonestTlsExpiry < 30 ? "warn" : "ok",
+      ]);
+    return { statuses };
+  },
+
+  "uptime.availability": ({ uptime: U }: LiveInputs) => {
+    const hosts = (U?.hosts ?? []).filter((h) => h.availability.window.checks > 0);
+    if (!hosts.length) return null;
+    const thin = hosts.filter((h) => !h.availability.window.enough).length;
+    return {
+      bars: hosts.map((h) => h.availability.window.percent ?? 0),
+      /*
+        THE CAVEAT TRAVELS WITH THE BAR rather than sitting under the set. A
+        line saying "some of these are thin" leaves the reader to work out
+        which, and a 100% bar over three checks is exactly the one that would
+        be believed.
+      */
+      barLabels: hosts.map(
+        (h) =>
+          `${h.host} · ${pct(h.availability.window.percent)} of ` +
+          `${h.availability.window.checks} check${h.availability.window.checks === 1 ? "" : "s"}` +
+          (h.availability.window.enough ? "" : " — too few to quote"),
+      ),
+      labels: also(
+        `${U!.window.hours}h · ${U!.window.cadence}`,
+        thin ? `${thin} host${thin === 1 ? "" : "s"} below six checks` : "",
+      ),
+    };
+  },
+
+  "uptime.latency": ({ uptime: U }: LiveInputs) => {
+    const hosts = (U?.hosts ?? []).filter((h) => h.latency.samples > 0);
+    if (!hosts.length) return null;
+    const rows: [string, string][] = [...hosts]
+      .sort((a, b) => (b.latency.p95 ?? 0) - (a.latency.p95 ?? 0))
+      .map((h) => [
+        h.host,
+        `p50 ${ms(h.latency.p50)} · p95 ${ms(h.latency.p95)} · ${h.latency.samples}`,
+      ]);
+    /* Said once for the column: a timeout folded into a p95 turns a connection
+       refused, which took two milliseconds, into a slow site. */
+    rows.push(["Over successful checks only", "failures are one card over"]);
+    return { rows };
+  },
+
+  "uptime.tls": ({ uptime: U }: LiveInputs) => {
+    const hosts = (U?.hosts ?? []).filter((h) => h.tls.daysLeft !== null);
+    if (!hosts.length) return null;
+    const runway: RunwayRow[] = [...hosts]
+      .sort((a, b) => a.tls.daysLeft! - b.tls.daysLeft!)
+      .map((h) => ({
+        label: h.host,
+        // Never clamped: a negative row is an expired certificate, and it is
+        // the most urgent thing this dashboard can draw.
+        days: h.tls.daysLeft!,
+        sub: `read ${sinceWord(h.tls.measuredAt)}`,
+      }));
+    const unread = (U!.hosts.length - hosts.length);
+    return {
+      runway,
+      thresholds: { warn: 30, crit: 7 },
+      cap: 400,
+      caption: unread
+        ? `${runway.length} of ${U!.hosts.length} · ${unread} certificate${unread === 1 ? "" : "s"} never read — unknown, not expired`
+        : `All ${runway.length}, soonest first`,
+    };
+  },
+
+  "uptime.incidents": ({ uptime: U }: LiveInputs) => {
+    if (!U?.hosts.length) return null;
+    const rows: [string, string][] = [];
+    for (const h of U.hosts)
+      for (const i of h.incidents) {
+        if (rows.length >= 8) break;
+        rows.push([
+          `${h.host} · ${sinceWord(i.start)}`,
+          /* `end` is the first check that SUCCEEDED again, which is the
+             earliest moment this box can honestly say the site was back. */
+          i.ongoing
+            ? `still failing · ${i.checks} check${i.checks === 1 ? "" : "s"}`
+            : `${i.checks} check${i.checks === 1 ? "" : "s"} · back by ${sinceWord(i.end)}`,
+        ]);
+      }
+    if (!rows.length)
+      rows.push([
+        `No failed check in ${U.window.hours}h`,
+        `an outage shorter than the gap between checks is invisible`,
+      ]);
+    return { rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================ fleet ==
+   The ssh boxes. Memory adds across them and nothing else does: a load average
+   is already relative to a machine's cores, and filesystems share pools, so
+   the meters below are per box and there is no fleet total for either.
+*/
+
+/** GB at one decimal, for a memory note. Bytes are the wire's unit and nobody
+ *  reads them. */
+const gb = (bytes: number | null) =>
+  bytes === null ? "—" : `${(bytes / 1e9).toFixed(1)} GB`;
+
+/** The box's fullest mount — the figure a disk page is actually for. */
+function fullestMount(b: FleetBox) {
+  return (
+    [...b.disks]
+      .filter((d) => d.meter)
+      .sort((a, b2) => (b2.meter!.percent ?? 0) - (a.meter!.percent ?? 0))[0] ?? null
+  );
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "fleet.memory": ({ boxes: F }: LiveInputs) => {
+    const withMemory = (F?.boxes ?? []).filter((b) => b.sample?.memory);
+    if (!withMemory.length) return null;
+    const meters: Meter[] = [...withMemory]
+      .sort((a, b) => (b.sample!.memory!.percent ?? 0) - (a.sample!.memory!.percent ?? 0))
+      .map((b) => ({
+        label: b.label,
+        value: b.sample!.memory!.percent,
+        warn: F!.thresholds.warn,
+        crit: F!.thresholds.critical,
+        /* USED IS TOTAL MINUS AVAILABLE, done at the probe: Linux's page cache
+           is not memory anybody is short of, and "94% used" that is mostly
+           cache is how a dashboard learns to cry wolf. */
+        note: `${gb(b.sample!.memory!.used)} of ${gb(b.sample!.memoryTotal)}`,
+      }));
+    return { meters };
+  },
+
+  "fleet.disk": ({ boxes: F }: LiveInputs) => {
+    const rows = (F?.boxes ?? [])
+      .map((b) => ({ box: b, disk: fullestMount(b) }))
+      .filter((r) => r.disk);
+    if (!rows.length) return null;
+    const meters: Meter[] = rows
+      .sort((a, b) => (b.disk!.meter!.percent ?? 0) - (a.disk!.meter!.percent ?? 0))
+      .map((r) => ({
+        label: r.box.label,
+        value: r.disk!.meter!.percent,
+        warn: F!.thresholds.warn,
+        crit: F!.thresholds.critical,
+        /* The MOUNT is named, because "the disk" is not a thing on a box with
+           six filesystems and this is only ever the fullest of them. The
+           percentage is used / (used + available) — what `df` calls Capacity —
+           and not used / size, which calls a 62%-full Mac 2% full. */
+        note: `${r.disk!.mount} · ${gb(r.disk!.avail)} free`,
+      }));
+    return { meters };
+  },
+
+  "fleet.load": ({ boxes: F }: LiveInputs) => {
+    const withLoad = (F?.boxes ?? []).filter((b) => b.sample?.loadPerCpu !== null && b.sample);
+    if (!withLoad.length) return null;
+    const meters: Meter[] = [...withLoad]
+      .sort((a, b) => (b.sample!.loadPerCpu ?? 0) - (a.sample!.loadPerCpu ?? 0))
+      .map((b) => ({
+        label: b.label,
+        /*
+          LOAD PER CPU AS A PERCENTAGE OF ONE RUNNABLE TASK PER CORE, which is
+          the only reading that means the same thing on a Pi and on a
+          sixteen-core box. 100% is exactly saturated, and a box above it shows
+          above it rather than being clamped — the bar stops at the end of the
+          track and the figure does not.
+        */
+        value: (b.sample!.loadPerCpu ?? 0) * 100,
+        warn: 100,
+        crit: 150,
+        note: `load ${b.sample!.load.one ?? "—"} over ${b.sample!.cpus ?? "?"} cores`,
+      }));
+    return { meters };
+  },
+
+  "fleet.containers": ({ boxes: F }: LiveInputs) => {
+    const rows = (F?.boxes ?? []).flatMap((b) =>
+      b.containers.map((ct) => [b.label, ct.name, ct.image ?? "—", ct.status ?? "—"]),
+    );
+    if (!rows.length) {
+      /* A box where docker is not installed is a different answer from a box
+         running nothing, and a box the probe never reached is a third. */
+      const asked = (F?.boxes ?? []).filter((b) => b.docker !== null);
+      if (!asked.length) return null;
+      return {
+        headers: ["Box", "Container", "Image", "Status"],
+        table: asked.map((b) => [
+          b.label,
+          b.docker!.installed ? "none running" : "docker not installed",
+          "—",
+          "—",
+        ]),
+      };
+    }
+    return { headers: ["Box", "Container", "Image", "Status"], table: rows };
+  },
+
+  "fleet.counters": ({ boxes: F }: LiveInputs) => {
+    const boxes = F?.boxes ?? [];
+    const rows: [string, string][] = [];
+    for (const b of boxes)
+      for (const c of b.counters) {
+        if (rows.length >= 10) break;
+        rows.push([
+          boxes.length > 1 ? `${b.label} · ${c.label}` : c.label,
+          /* NEVER ZERO for a counter with no reading: a command that has not
+             run and a command that printed 0 look identical on a chart, and
+             only one of them is a measurement. */
+          c.latest ? count(c.latest.value) : "no value yet — not zero",
+        ]);
+      }
+    if (!rows.length) return null;
+    return { rows };
+  },
+
+  "fleet.boxes": ({ boxes: F }: LiveInputs) => {
+    const boxes = F?.boxes ?? [];
+    if (!boxes.length) return null;
+    return {
+      headers: ["Box", "Host", "Memory", "Fullest disk", "Load/cpu", "Containers"],
+      table: boxes.map((b) => {
+        const disk = fullestMount(b);
+        return [
+          b.label,
+          b.hostname ?? b.target ?? "—",
+          b.sample?.memory ? pct(b.sample.memory.percent, 0) : "no sample",
+          disk ? `${disk.mount} ${pct(disk.meter!.percent, 0)}` : "—",
+          b.sample?.loadPerCpu === null || !b.sample ? "—" : String(b.sample.loadPerCpu),
+          b.docker === null ? "not reached" : String(b.docker.running),
+        ];
+      }),
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================= products ==
+   The owner's own endpoints, read with the owner's own mapping. A path that
+   resolves to nothing is an error with its reason on the row and never a zero,
+   and there is no total across endpoints: two products' "renders" share a word
+   somebody chose and nothing else.
+*/
+
+Object.assign(LIVE_BUILDERS, {
+  "products.metrics": ({ products: P }: LiveInputs) => {
+    const endpoints = P?.endpoints ?? [];
+    const many = endpoints.length > 1;
+    const rows: [string, string][] = [];
+    for (const e of endpoints)
+      for (const m of e.metrics) {
+        if (rows.length >= 10) break;
+        rows.push([
+          many ? `${e.label} · ${m.label}` : m.label,
+          m.error ? m.error.slice(0, 44) : count(m.value),
+        ]);
+      }
+    if (!rows.length) return null;
+    if (P!.mappingErrors.length)
+      rows.push([
+        `${P!.mappingErrors.length} path${P!.mappingErrors.length === 1 ? "" : "s"} match nothing`,
+        "the endpoint's own keys are on its panel",
+      ]);
+    return { rows };
+  },
+
+  "products.endpoints": ({ products: P }: LiveInputs) => {
+    const endpoints = P?.endpoints ?? [];
+    if (!endpoints.length) return null;
+    const statuses: [string, StatusTone][] = endpoints.map((e) => [
+      /* Three states and not two. `null` is never collected — nobody has asked
+         yet — which is not the same failure as an endpoint that refused. */
+      e.reachable === null
+        ? `${e.label} · never collected`
+        : e.reachable
+          ? `${e.label} · ${e.status ?? 200}${e.ms === null ? "" : ` in ${e.ms} ms`}`
+          : `${e.label} · ${e.error?.slice(0, 30) ?? "unreachable"}`,
+      e.reachable === null ? "warn" : e.reachable ? "ok" : "bad",
+    ]);
+    if (P!.summary.metrics)
+      statuses.push([
+        `${P!.summary.metrics} mapped figure${P!.summary.metrics === 1 ? "" : "s"}, never totalled`,
+        "ok",
+      ]);
+    return { statuses };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================ backlinks ==
+   Three sources that overlap, disagree and are each partial. Nothing below
+   adds two of them: a host both Bing and the verification crawler know about
+   would be counted twice, and neither is a census. Confidence rides on every
+   row so a reader can weight them by hand, which is the only honest way to
+   combine them.
+*/
+
+/** What a source's answer IS, in one phrase. Four states rather than two: a
+ *  refusal, a source nobody asked, a real measurement of nothing, and a count. */
+function backlinkState(s: {
+  ok: boolean | null;
+  asked: boolean;
+  error: string | null;
+  referringDomains: number | null;
+  backlinks: number | null;
+}): string {
+  if (s.ok === false) return s.error ? s.error.slice(0, 30) : "refused";
+  if (s.ok === null) return s.asked ? "asked, no answer" : "never asked";
+  /* ANSWERED IS NOT THE SAME AS COUNTED. Bing answers and still has no
+     referring-domain figure to give — it reports linked pages instead — and a
+     row saying "answered" beside an em dash invites the reader to fill the dash
+     in with a nought. Only one of the two is a measurement of nothing. */
+  return s.referringDomains === null && s.backlinks === null
+    ? "answered, no domain count"
+    : "answered";
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "backlinks.bySource": ({ backlinks: B }: LiveInputs) => {
+    const hosts = B?.hosts ?? [];
+    if (!hosts.length) return null;
+    return {
+      headers: ["Host", "Source", "Conf.", "Ref. domains", "Backlinks", "State"],
+      /* ONE ROW PER SOURCE PER HOST, deliberately — the alternative is a row
+         per host with the sources in columns, which invites the eye to add
+         along the row. There is no total column here and there never will be. */
+      table: hosts.flatMap((h) =>
+        h.sources.map((s) => [
+          h.host,
+          s.label,
+          s.confidence.toFixed(2),
+          count(s.referringDomains),
+          count(s.backlinks),
+          backlinkState(s),
+        ]),
+      ),
+    };
+  },
+
+  "backlinks.domains": ({ backlinks: B }: LiveInputs) => {
+    const hosts = B?.hosts ?? [];
+    if (!hosts.length) return null;
+    const many = hosts.length > 1;
+    const rows: [string, string][] = [];
+    for (const h of hosts)
+      for (const s of h.sources) {
+        if (rows.length >= 9) break;
+        rows.push([
+          many ? `${h.host} · ${s.label}` : s.label,
+          `${s.referringDomains === null ? backlinkState(s) : count(s.referringDomains)} · conf ${s.confidence.toFixed(2)}`,
+        ]);
+      }
+    /* The row that stops the column above being read down and added. */
+    rows.push(["Combined", "not summed — the sources overlap and disagree"]);
+    return { rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================= presence ==
+   Product × directory, with FOUR statuses that must not collapse to two. A
+   blocked cell means the source could not be asked — a 403, a rate limit, a
+   directory with no keyless lookup — and rendering it as a grey "no" would be
+   telling somebody to go and get listed where they may already be listed.
+*/
+
+/** One cell, in one character, with the word in the header row above it.
+ *  `·` is deliberately not a dash: a dash reads as "no". */
+function presenceMark(status: string | null, evidence: string | null): string {
+  switch (status) {
+    case "present":
+      return "yes";
+    case "absent":
+      /* AN ABSENT ROW THAT NAMED THE BRAND IS A CANDIDATE, not a no. The
+         source found something carrying the name and it did not point back
+         here — which is the owner's judgement to make, and rendering it as a
+         flat "no" is the dashboard making it for them. */
+      return evidence === "named" ? "no · candidate" : "no";
+    case "blocked":
+      return "BLOCKED";
+    case "error":
+      return "error";
+    default:
+      return "unchecked";
+  }
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "presence.matrix": ({ presence: P }: LiveInputs) => {
+    const products = P?.products ?? [];
+    if (!products.length || !P?.sources.length) return null;
+    return {
+      headers: ["Product", ...P.sources.map((s) => s.label)],
+      table: products.map((p) => [
+        p.product,
+        ...P.sources.map((s) => {
+          const cell = p.sources.find((c) => c.source === s.id);
+          return presenceMark(cell?.status ?? null, cell?.evidence ?? null);
+        }),
+      ]),
+    };
+  },
+
+  "presence.blocked": ({ presence: P }: LiveInputs) => {
+    const products = P?.products ?? [];
+    if (!products.length) return null;
+    const statuses: [string, StatusTone][] = [];
+    for (const p of products)
+      for (const c of p.sources) {
+        if (statuses.length >= 8) break;
+        if (c.status === "blocked" || c.status === "error")
+          statuses.push([
+            `${products.length > 1 ? `${p.product} · ` : ""}${c.label} · ${c.status === "blocked" ? "not checked" : "check failed"}`,
+            c.status === "blocked" ? "warn" : "bad",
+          ]);
+      }
+    if (!statuses.length) {
+      const unchecked = products.reduce((n, p) => n + p.summary.unchecked, 0);
+      statuses.push(
+        unchecked
+          ? [`${unchecked} cell${unchecked === 1 ? "" : "s"} not checked yet`, "warn"]
+          : ["Every source answered", "ok"],
+      );
+    }
+    /* The sentence the card exists for, on the card rather than in a tooltip. */
+    statuses.push(["blocked is NOT a report of not listed", "warn"]);
+    return { statuses };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

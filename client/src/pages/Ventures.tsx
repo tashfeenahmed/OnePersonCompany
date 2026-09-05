@@ -1,10 +1,11 @@
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
 import { useApi } from "@/hooks/useApi";
 import { api } from "@/lib/api";
+import { ventureApi } from "@/lib/api/ventures";
 import { useStore } from "@/lib/store";
 
 /**
@@ -34,6 +35,29 @@ export function Ventures() {
     an error banner about a work count would be louder than the fact deserves.
   */
   const { data: board } = useApi(() => api.board(), []);
+
+  /*
+    TWO MORE DOCUMENTS FOR THE WHOLE PAGE, AND BOTH FAIL QUIETLY. The map says
+    how many things each venture has claimed; the capture table says which of
+    them has a photograph. Neither is worth an error banner on a list of
+    ventures — a missing count and a missing picture are both visibly nothing,
+    which is what they are.
+  */
+  const { data: map } = useApi(() => ventureApi.map(), []);
+  const { data: shots } = useApi(() => ventureApi.capture(), []);
+
+  /* Null is "the map could not be read", which is not "nothing is linked". */
+  const linksFor = (id: string) =>
+    map ? map.edges.filter((e) => e.venture === id).length : null;
+  const pictureFor = (slug: string) =>
+    shots?.ventures.find((v) => v.slug === slug)?.picture ?? null;
+  /*
+    The strip appears on EVERY card or on none. Showing it only where a picture
+    exists makes a grid of ragged cards out of a fact about the capture table,
+    so a venture without one gets the space and a sentence saying why it is
+    empty.
+  */
+  const anyPicture = !!shots?.ventures.some((v) => v.picture);
 
   /** Open cards for one venture — everything it carries that is not in Done.
    *  Counted by COLUMN rather than by `doneAt`, the same way the board's own
@@ -66,12 +90,20 @@ export function Ventures() {
           </>
         }
         action={
-          <Button asChild>
-            <Link to="/ventures/new">
-              <Plus className="size-[15px]" strokeWidth={2} />
-              New venture
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline">
+              <Link to="/ventures/map">
+                <Waypoints className="size-[15px]" strokeWidth={1.8} />
+                How it all connects
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link to="/ventures/new">
+                <Plus className="size-[15px]" strokeWidth={2} />
+                New venture
+              </Link>
+            </Button>
+          </div>
         }
       >
         <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
@@ -79,12 +111,37 @@ export function Ventures() {
             const chats = sessionsFor(v.id);
             const boards = dashboardsIn(v.id);
             const open = openFor(v.id);
+            const links = linksFor(v.id);
+            const picture = pictureFor(v.slug);
             return (
               <Link
                 key={v.id}
                 to={`/ventures/${v.slug}`}
                 className="bg-card hover:border-line-strong flex min-h-[148px] flex-col rounded-[10px] border p-3.5 transition-colors"
               >
+                {/* The top of the page at 1280x800, not the whole page — so it
+                    is anchored to the top rather than centred, which is where
+                    the header of any site actually is. */}
+                {anyPicture && (
+                  <div className="mb-2.5 h-[88px] overflow-hidden rounded-[7px] border">
+                    {picture ? (
+                      <img
+                        src={picture.url}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover object-top"
+                      />
+                    ) : (
+                      <div
+                        className="text-muted-foreground grid h-full place-items-center text-[11.5px]"
+                        style={{ background: `${v.color}12` }}
+                      >
+                        {v.website ? "no picture yet" : "no website"}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2">
                   <VentureMark venture={v} size={18} />
                   <span className="truncate text-[13.5px] font-medium tracking-tight">
@@ -116,6 +173,14 @@ export function Ventures() {
                   {/* Null is "the board could not be read", which is not zero
                       open cards, so the clause is left out entirely. */}
                   {open !== null && <span>{open} open on the board</span>}
+                  {links !== null && (
+                    <span
+                      title="Things across the integrations that this venture has been linked to."
+                      className="ml-auto"
+                    >
+                      {links} linked
+                    </span>
+                  )}
                 </div>
               </Link>
             );

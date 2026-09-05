@@ -1,10 +1,11 @@
 import { Link, Navigate, useParams } from "react-router-dom";
-import { BarChart3, KanbanSquare, Mail } from "lucide-react";
+import { BarChart3, KanbanSquare, Mail, Sparkles } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import { useStore } from "@/lib/store";
 import { Board } from "@/pages/Board";
 import { EmailStats } from "@/pages/EmailStats";
 import { Mailbox } from "@/pages/Mailbox";
+import { Studio } from "@/pages/Studio";
 
 /**
  * APPS — one page, a tab per app, each app at its own address.
@@ -41,6 +42,14 @@ const APPS: { slug: string; name: string; icon: typeof Mail; page: () => React.J
   */
   { slug: "email", name: "Email", icon: Mail, page: Mailbox },
   { slug: "email-stats", name: "Email stats", icon: BarChart3, page: EmailStats },
+  /*
+    The studio is last and is the only app here that MAKES something rather
+    than showing something that already exists — a caption and a picture for
+    one venture, out of what the box already knows about it. It is an app and
+    not a venture tab because the venture is an input to it rather than its
+    address: the same page, the same two fields, whichever business is picked.
+  */
+  { slug: "studio", name: "Studio", icon: Sparkles, page: Studio },
 ];
 
 export function Apps() {

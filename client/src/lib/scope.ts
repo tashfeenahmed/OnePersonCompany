@@ -9,6 +9,17 @@ import type {
   Github,
   MailReport,
 } from "@/lib/api";
+import type {
+  BacklinksReport,
+  BlueskyReport,
+  FleetReport,
+  PresenceReport,
+  ProductsReport,
+  PypiReport,
+  UmamiReport,
+  UmamiWebsite,
+  UptimeReport,
+} from "@/lib/api/reports";
 import type { LiveData } from "@/lib/live";
 import { WIDGETS } from "@/data/widgets";
 import { LIVE_BUILDERS } from "@/lib/liveWidgets";
@@ -42,14 +53,53 @@ import { LIVE_BUILDERS } from "@/lib/liveWidgets";
  * WHAT THE PORTFOLIO CARDS READ IS THE UNSCOPED DATA, which is why the scope
  * carries `base`. A card tagged "portfolio" that drew from the narrowed
  * document would show a filtered figure under a label promising the opposite.
+ *
+ * A FOURTH RULE ARRIVED WITH THE LINK TABLE: A STATEMENT BEATS A GUESS.
+ *
+ * `scopeLive(base, hosts, entities)` now takes the venture's LINKS beside its
+ * hosts — the rows the owner wrote by pressing something, each one naming an
+ * integration and that integration's own identifier for a thing. Where a
+ * source has a link for this venture, the filter should use it and stop; the
+ * hostname test is what remains for sources with no link, and for the many
+ * ventures nobody has linked anything to yet.
+ *
+ * It matters most where a hostname cannot work at all. A fleet box has no host
+ * on it, so "which of these four machines is Example Support's" is a question ONLY
+ * a link can answer. It matters again where a hostname is nearly right and
+ * quietly wrong: `example.ie` and `neu.so` are two businesses here, and a repo
+ * whose homepage is one of them must not be counted under the other because
+ * `mentions()` is a containment test.
+ *
+ * `linkedTo(entities, plugin)` is the lookup every per-source filter should
+ * use. It returns that integration's entity ids, empty when there are none —
+ * and empty must mean "fall back to the host", never "narrow to nothing".
  */
 
-/** The venture's hosts, the label to say them by, and the unnarrowed data the
- *  portfolio-wide cards draw from. */
+/** One row of the venture's link table: an integration, and that integration's
+ *  own identifier for the thing — a Cloudflare zone id, `sc-domain:example.ie`, an
+ *  npm package name, an uptime host. Not a hostname; some of them have none. */
+export type LinkedEntity = { plugin: string; entity: string };
+
+/** The entity ids this venture has linked from one integration, lowercased for
+ *  comparison. Empty means nothing was linked FROM THAT SOURCE, which is not a
+ *  statement that nothing belongs to the venture — the caller falls back to the
+ *  hostname test rather than narrowing to nothing. */
+export function linkedTo(entities: LinkedEntity[], plugin: string): string[] {
+  return entities
+    .filter((e) => e.plugin === plugin)
+    .map((e) => e.entity.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** The venture's hosts, its links, the label to say them by, and the unnarrowed
+ *  data the portfolio-wide cards draw from. */
 export type LiveScope = {
   /** Lowercase, no leading "www.". Usually one; the shape is a list because
    *  a venture with two domains is a thing that will happen. */
   hosts: string[];
+  /** What the owner has said belongs to this venture, across every
+   *  integration. Empty on a venture nobody has linked anything to. */
+  entities: LinkedEntity[];
   /** How the cards name it: "support.example.test". */
   label: string;
   /** The whole portfolio, for the cards that cannot be narrowed. */
@@ -85,6 +135,25 @@ export const SCOPABLE_SOURCES = new Set([
   "spaceship",
   "github",
   "resend",
+  /*
+    THE SECOND WAVE. Eight of the nine carry per-row identity and can be
+    narrowed; the ninth is CALENDAR and is deliberately absent.
+
+    A calendar has no site on any row and never will. A Tuesday morning belongs
+    to the owner, and splitting three hours of calls between two ventures would
+    need an attribution nobody has written down — the same reason a Hetzner
+    bill and a Stripe book are portfolio-wide. Its cards therefore wear the
+    "portfolio" tag inside a venture rather than drawing an empty body, which
+    is the honest half of that trade.
+  */
+  "umami",
+  "pypi",
+  "bluesky",
+  "uptime",
+  "fleet",
+  "products",
+  "backlinks",
+  "presence",
 ]);
 
 /**
@@ -528,9 +597,16 @@ function scopeMail(M: MailReport | null, hosts: string[]): MailReport | null {
  * headline. The cards that exist to draw one are portfolio-wide and read the
  * unscoped document.
  */
-export function scopeLive(base: LiveData, hostList: string[]): LiveData {
+export function scopeLive(
+  base: LiveData,
+  hostList: string[],
+  /* The venture's LINKS — see the note on `LinkedEntity` above. Threaded in
+     here so each per-source filter below can prefer an explicit statement over
+     the hostname guess; a filter that has no use for one simply ignores it. */
+  entities: LinkedEntity[] = [],
+): LiveData {
   const hosts = hostList.map(host).filter(Boolean);
-  if (!hosts.length) return base;
+  if (!hosts.length && !entities.length) return base;
 
   const domains = base.domains.filter((d) => isHost(d.name, hosts));
 
@@ -544,6 +620,26 @@ export function scopeLive(base: LiveData, hostList: string[]): LiveData {
     cloudflare: scopeCloudflare(base.cloudflare, hosts),
     github: scopeGithub(base.github, hosts),
     mail: scopeMail(base.mail, hosts),
+    /*
+      THE SECOND WAVE. Each takes the links as well as the hosts, and prefers
+      them — see `linkedSet`. Two of the eight take no hosts at all: a Bluesky
+      handle that looks like the venture's domain is a coincidence of the
+      verification scheme, and an ssh box's hostname is where the machine is
+      rather than what it serves.
+
+      CALENDAR IS ABSENT AND STAYS ABSENT. It is not in SCOPABLE_SOURCES either,
+      so its cards read `base` and wear the portfolio tag; there is no site on
+      an event and splitting a morning between two ventures is an attribution
+      nobody has written down.
+    */
+    umami: scopeUmami(base.umami, hosts, entities),
+    pypi: scopePypi(base.pypi, hosts, entities),
+    bluesky: scopeBluesky(base.bluesky, entities),
+    uptime: scopeUptime(base.uptime, hosts, entities),
+    boxes: scopeFleet(base.boxes, entities),
+    products: scopeProducts(base.products, hosts, entities),
+    backlinks: scopeBacklinks(base.backlinks, hosts, entities),
+    presence: scopePresence(base.presence, hosts, entities),
   };
 
   const liveTypes = new Set<string>();
@@ -571,9 +667,476 @@ export function scopeLive(base: LiveData, hostList: string[]): LiveData {
       meta: scoped.meta,
       demand: scoped.demand,
       mail: scoped.mail,
+      umami: scoped.umami,
+      /* Passed unnarrowed on purpose: calendar is portfolio-wide, and the
+         builders are asked with it so the cards keep their live dot inside a
+         venture rather than reading as a source that stopped answering. */
+      calendar: scoped.calendar,
+      pypi: scoped.pypi,
+      bluesky: scoped.bluesky,
+      uptime: scoped.uptime,
+      boxes: scoped.boxes,
+      products: scoped.products,
+      backlinks: scoped.backlinks,
+      presence: scoped.presence,
     });
     if (patch) liveTypes.add(type);
   }
 
   return { ...scoped, liveTypes };
+}
+
+/* ------------------------------------------- the second wave, narrowed */
+
+/**
+ * A LINK BEATS A GUESS, EVERY TIME.
+ *
+ * The eight filters below all take the venture's links as well as its hosts,
+ * and the rule is the same in all of them: if the owner has linked ANY entity
+ * of this plugin to this venture, that list is the answer and the hostname
+ * heuristic is not consulted at all. Not "linked entities plus anything that
+ * looks right" — a link is a statement, and a heuristic that keeps adding rows
+ * after somebody has said which rows they meant is a heuristic overruling its
+ * owner.
+ *
+ * Only when there is no link for a plugin does the host test run, which is what
+ * makes a venture useful before anybody has opened the Connections tab.
+ *
+ * TWO OF THE EIGHT HAVE NO HEURISTIC AT ALL and fall back to nothing:
+ *
+ *   BLUESKY, because a handle is a domain and reading it as one is the trap.
+ *   `alice.bsky.social` is a name Bluesky issued, and a custom handle like
+ *   `example-app-1.example.test` is the same string as the venture's host by coincidence of
+ *   the verification scheme rather than because the account is the site — so
+ *   auto-matching would file a personal account under a business the day
+ *   somebody verified a handle with a company domain. The server's own
+ *   `/entities` returns `host: null` for exactly this reason.
+ *
+ *   FLEET, because a box is not a website. Its ssh hostname is where the
+ *   machine is reachable, not what it serves, and one box serves twenty
+ *   ventures — so matching a venture's host against a box would put a shared
+ *   server's memory meter under whichever venture happened to share its name.
+ *   The entity is the ACCOUNT ID, which is what survives a rename and a move.
+ *
+ * NULL AND NOT AN EMPTY SET is the return, and the difference is the whole
+ * fallback: an empty set would filter every row away, which is the one reading
+ * of "nothing linked" that is certainly wrong. Null means "nobody has said",
+ * and the caller then guesses by hostname — or, for the two above, declines to.
+ */
+function linkedSet(entities: LinkedEntity[], plugin: string): Set<string> | null {
+  const mine = linkedTo(entities, plugin);
+  return mine.length ? new Set(mine) : null;
+}
+
+/** A row's own id, compared the way `linkedTo` hands the linked ones over. */
+const sameId = (ids: Set<string>, id: string) => ids.has(id.trim().toLowerCase());
+
+/**
+ * Umami, narrowed to this venture's websites.
+ *
+ * EVERY PORTFOLIO FIGURE IS RECOMPUTED, which this source can do where
+ * Cloudflare and Search Console cannot: the per-site daily rows are on the wire
+ * beside the totals, so the portfolio's own line is rebuilt by adding the
+ * surviving sites' days rather than being emptied. Pageviews, visits, bounces
+ * and total time add across sites; the RATES are then computed from those sums
+ * rather than averaged, because an average of two percentages weights a site
+ * with four visits like one with four thousand.
+ *
+ * What is not recomputed, because it cannot be and must not be, is a combined
+ * visitor count. It is null on the portfolio for the same reason it is null on
+ * the whole document, and narrowing does not change the arithmetic.
+ */
+function scopeUmami(
+  U: UmamiReport | null,
+  hosts: string[],
+  entities: LinkedEntity[],
+): UmamiReport | null {
+  if (!U) return null;
+  const ids = linkedSet(entities, "umami");
+  const websites = U.websites.filter((w) =>
+    ids ? sameId(ids, w.entity) : isHost(w.domain, hosts) || mentions(w.name, hosts),
+  );
+  if (!websites.length) return null;
+
+  const withWindow = websites.filter((w) => w.window);
+  const pick = (f: (w: UmamiWebsite) => number | null) => {
+    const values = withWindow.map(f).filter((v): v is number => v !== null);
+    return values.length ? values.reduce((a, b) => a + b, 0) : null;
+  };
+  const pageviews = pick((w) => w.window!.pageviews);
+  const visits = pick((w) => w.window!.visits);
+  const bounces = pick((w) => w.window!.bounces);
+  const totaltime = pick((w) => w.window!.totaltime);
+  const prevPageviews = pick((w) => w.previous?.pageviews ?? null);
+  const prevVisits = pick((w) => w.previous?.visits ?? null);
+
+  const perDay = new Map<string, { pageviews: number; sessions: number }>();
+  for (const w of websites)
+    for (const d of w.days) {
+      const held = perDay.get(d.day) ?? { pageviews: 0, sessions: 0 };
+      held.pageviews += d.pageviews;
+      held.sessions += d.sessions;
+      perDay.set(d.day, held);
+    }
+
+  const rate = (a: number | null, b: number | null) =>
+    a === null || !b ? null : Number(((a / b) * 100).toFixed(1));
+  const per = (a: number | null, b: number | null) =>
+    a === null || !b ? null : Math.round(a / b);
+  const delta = (now: number | null, before: number | null) =>
+    now === null || !before ? null : Number((((now - before) / before) * 100).toFixed(1));
+
+  return {
+    ...U,
+    websites,
+    portfolio: {
+      ...U.portfolio,
+      websites: websites.length,
+      answering: withWindow.length,
+      days: [...perDay.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([day, v]) => ({ day, ...v })),
+      window: {
+        ...U.portfolio.window,
+        start: withWindow[0]?.window?.start ?? null,
+        end: withWindow[0]?.window?.end ?? null,
+        pageviews,
+        visits,
+        bounces,
+        totaltime,
+        bounceRate: rate(bounces, visits),
+        avgVisitSeconds: per(totaltime, visits),
+      },
+      previous: { pageviews: prevPageviews, visits: prevVisits },
+      deltas: {
+        pageviews: delta(pageviews, prevPageviews),
+        visits: delta(visits, prevVisits),
+      },
+      visitors: {
+        ...U.portfolio.visitors,
+        perSite: U.portfolio.visitors.perSite.filter((s) =>
+          websites.some((w) => w.entity === s.entity),
+        ),
+      },
+    },
+  };
+}
+
+/**
+ * PyPI, narrowed by link or by the package's own home page.
+ *
+ * The host on a package comes from its home page and project URLs with code
+ * forges skipped, which is the server's doing and the right call: github.com is
+ * where a hundred packages live and is about none of them, so matching on it
+ * would file every package under whichever venture happens to own a repo.
+ *
+ * The weeks and the daily line are rebuilt from the surviving packages, because
+ * they are nothing but sums over the per-package days that are already here.
+ * `partial` is carried from the whole-portfolio week of the same start, since
+ * whether a week is complete is a property of the calendar and not of a filter.
+ */
+function scopePypi(
+  P: PypiReport | null,
+  hosts: string[],
+  entities: LinkedEntity[],
+): PypiReport | null {
+  if (!P) return null;
+  const ids = linkedSet(entities, "pypi");
+  const packages = P.packages.filter((p) =>
+    ids ? sameId(ids, p.entity) : isHost(p.host, hosts),
+  );
+  if (!packages.length) return null;
+
+  const perDay = new Map<string, number>();
+  for (const p of packages)
+    for (const d of p.days) perDay.set(d.day, (perDay.get(d.day) ?? 0) + d.downloads);
+  const days = [...perDay.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([day, downloads]) => ({ day, downloads }));
+
+  const partialByStart = new Map(P.weeks.map((w) => [w.start, w.partial]));
+  const perWeek = new Map<string, { week: string; downloads: number }>();
+  for (const p of packages)
+    for (const w of p.weeks) {
+      const held = perWeek.get(w.start) ?? { week: w.week, downloads: 0 };
+      held.downloads += w.downloads;
+      perWeek.set(w.start, held);
+    }
+  const weeks = [...perWeek.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([start, v]) => ({
+      week: v.week,
+      start,
+      downloads: v.downloads,
+      partial: partialByStart.get(start) ?? true,
+    }));
+  const complete = weeks.filter((w) => !w.partial);
+
+  return {
+    ...P,
+    packages,
+    weeks,
+    days,
+    summary: {
+      ...P.summary,
+      configured: packages.length,
+      answering: packages.filter((p) => p.days.length && !p.lastError).length,
+      failing: packages.filter((p) => p.lastError).length,
+      lastCompleteWeek: complete.at(-1) ?? null,
+      currentWeek: weeks.at(-1)?.partial ? (weeks.at(-1) ?? null) : null,
+      last30: days.slice(-30).reduce((n, d) => n + d.downloads, 0),
+      total: days.reduce((n, d) => n + d.downloads, 0),
+      byPackage: Object.fromEntries(
+        packages.map((p) => [p.package, p.lastCompleteWeek?.downloads ?? 0]),
+      ),
+      from: days[0]?.day ?? null,
+      to: days.at(-1)?.day ?? null,
+    },
+  };
+}
+
+/** Bluesky, narrowed BY LINK ONLY — see `linkedTo` for why a handle that looks
+ *  like the venture's domain is not evidence of anything. The portfolio's
+ *  addable figures are rebuilt from the surviving handles; the follower count
+ *  stays null, because narrowing does not make it addable. */
+function scopeBluesky(
+  B: BlueskyReport | null,
+  entities: LinkedEntity[],
+): BlueskyReport | null {
+  if (!B) return null;
+  const ids = linkedSet(entities, "bluesky");
+  if (!ids) return null;
+  const handles = B.handles.filter((h) => sameId(ids, h.entity));
+  if (!handles.length) return null;
+
+  const w30 = (h: (typeof handles)[number]) => {
+    const w = h.windows.find((x) => x.days === 30);
+    return w && w.held ? w : null;
+  };
+  const pick = (f: (w: NonNullable<ReturnType<typeof w30>>) => number) => {
+    const values = handles.map(w30).filter((w) => w !== null).map((w) => f(w!));
+    return values.length ? values.reduce((a, b) => a + b, 0) : null;
+  };
+
+  return {
+    ...B,
+    handles,
+    portfolio: {
+      ...B.portfolio,
+      handles: handles.length,
+      answering: handles.filter((h) => h.profile.followers !== null).length,
+      failing: handles.filter((h) => h.lastError).length,
+      followers: {
+        ...B.portfolio.followers,
+        perHandle: Object.fromEntries(
+          handles.map((h) => [h.handle, h.profile.followers]),
+        ),
+      },
+      last30: {
+        posts: pick((w) => w.posts),
+        likes: pick((w) => w.likes),
+        reposts: pick((w) => w.reposts),
+        replies: pick((w) => w.replies),
+        anyTruncated: handles.some((h) => w30(h)?.truncated === true),
+      },
+    },
+  };
+}
+
+/** The uptime probe, narrowed to this venture's hosts. The entity IS the host
+ *  string, which makes this the simplest join in the file — and the summary is
+ *  a count over the rows, so all of it is recomputed. */
+function scopeUptime(
+  U: UptimeReport | null,
+  hosts: string[],
+  entities: LinkedEntity[],
+): UptimeReport | null {
+  if (!U) return null;
+  const ids = linkedSet(entities, "uptime");
+  const rows = U.hosts.filter((h) =>
+    ids ? sameId(ids, h.host) : isHost(h.host, hosts),
+  );
+  if (!rows.length) return null;
+  const measured = rows.filter((h) => h.current);
+  return {
+    ...U,
+    hosts: rows,
+    summary: {
+      ...U.summary,
+      configured: rows.length,
+      up: measured.filter((h) => h.current!.ok).length,
+      down: measured.filter((h) => !h.current!.ok).length,
+      unknown: rows.length - measured.length,
+      soonestTlsExpiry:
+        rows
+          .map((h) => h.tls.daysLeft)
+          .filter((d): d is number => d !== null)
+          .sort((a, b) => a - b)[0] ?? null,
+      lastCheckedAt:
+        rows
+          .map((h) => h.current?.ts)
+          .filter((t): t is string => !!t)
+          .sort()
+          .at(-1) ?? null,
+    },
+  };
+}
+
+/**
+ * The ssh fleet, narrowed BY LINK ONLY — see `linkedTo`. A box is not a
+ * website and its hostname is not a claim about what it serves.
+ *
+ * Memory is re-added over the surviving boxes because memory is the one figure
+ * on this document that adds. Disk and load stay null with their notes intact:
+ * they were not addable across the whole fleet and a smaller fleet does not
+ * make them addable.
+ */
+function scopeFleet(
+  F: FleetReport | null,
+  entities: LinkedEntity[],
+): FleetReport | null {
+  if (!F) return null;
+  const ids = linkedSet(entities, "fleet");
+  if (!ids) return null;
+  const boxes = F.boxes.filter((b) => sameId(ids, String(b.accountId)));
+  if (!boxes.length) return null;
+  const answering = boxes.filter((b) => b.sample);
+  return {
+    ...F,
+    boxes,
+    totals: {
+      ...F.totals,
+      boxes: boxes.length,
+      answering: answering.length,
+      memoryBytes: answering.length
+        ? {
+            total: sum(answering, (b) => b.sample?.memoryTotal),
+            used: sum(answering, (b) => b.sample?.memory?.used),
+          }
+        : null,
+      containers: boxes.reduce((n, b) => n + b.containers.length, 0),
+      load: {
+        ...F.totals.load,
+        boxesOverOnePerCpu: answering.filter((b) => (b.sample?.loadPerCpu ?? 0) > 1)
+          .length,
+      },
+      fullestDisk:
+        boxes
+          .flatMap((b) =>
+            b.disks.map((d) => ({
+              box: b.label,
+              mount: d.mount,
+              percent: d.meter?.percent ?? null,
+            })),
+          )
+          .filter((d) => d.percent !== null)
+          .sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))[0] ?? null,
+      seenAt:
+        boxes
+          .map((b) => b.seenAt)
+          .filter((t): t is string => !!t)
+          .sort()
+          .at(-1) ?? null,
+    },
+  };
+}
+
+/** Product endpoints, narrowed by link or by the URL's own host. The mapping
+ *  errors are filtered with them, because an error names the endpoint it came
+ *  from and a venture board listing another product's broken path is a board
+ *  telling somebody to go and fix something that is not theirs. */
+function scopeProducts(
+  P: ProductsReport | null,
+  hosts: string[],
+  entities: LinkedEntity[],
+): ProductsReport | null {
+  if (!P) return null;
+  const ids = linkedSet(entities, "product-stats");
+  const endpoints = P.endpoints.filter((e) =>
+    ids ? sameId(ids, String(e.accountId)) : mentions(e.url, hosts),
+  );
+  if (!endpoints.length) return null;
+  const labels = new Set(endpoints.map((e) => e.label));
+  return {
+    ...P,
+    endpoints,
+    mappingErrors: P.mappingErrors.filter((m) => labels.has(m.endpoint)),
+    summary: {
+      ...P.summary,
+      configured: endpoints.length,
+      reachable: endpoints.filter((e) => e.reachable === true).length,
+      failing: endpoints.filter((e) => e.reachable === false).length,
+      neverCollected: endpoints.filter((e) => e.reachable === null).length,
+      metrics: endpoints.reduce((n, e) => n + e.metrics.length, 0),
+      lastFetchedAt:
+        endpoints
+          .map((e) => e.lastFetchedAt)
+          .filter((t): t is string => !!t)
+          .sort()
+          .at(-1) ?? null,
+    },
+  };
+}
+
+/** Backlinks, narrowed to this venture's hosts. The host IS the entity here.
+ *  Nothing inside a host row is recomputed, because nothing inside one was ever
+ *  summed: every figure belongs to one source and stays with it. */
+function scopeBacklinks(
+  B: BacklinksReport | null,
+  hosts: string[],
+  entities: LinkedEntity[],
+): BacklinksReport | null {
+  if (!B) return null;
+  const ids = linkedSet(entities, "backlinks");
+  const rows = B.hosts.filter((h) =>
+    ids ? sameId(ids, h.host) : isHost(h.host, hosts),
+  );
+  if (!rows.length) return null;
+  return {
+    ...B,
+    hosts: rows,
+    summary: {
+      ...B.summary,
+      configured: rows.length,
+      collected: rows.filter((h) => h.collected).length,
+      pending: rows.filter((h) => !h.collected).map((h) => h.host),
+      seenAt:
+        rows
+          .map((h) => h.seenAt)
+          .filter((t): t is string => !!t)
+          .sort()
+          .at(-1) ?? null,
+    },
+  };
+}
+
+/** Presence, narrowed to this venture's products. The entity is the product's
+ *  host, so a link and the heuristic agree on the ordinary case and the link
+ *  wins on the one that matters: two products on subdomains of one name. */
+function scopePresence(
+  P: PresenceReport | null,
+  hosts: string[],
+  entities: LinkedEntity[],
+): PresenceReport | null {
+  if (!P) return null;
+  const ids = linkedSet(entities, "presence");
+  const products = P.products.filter((p) =>
+    ids ? sameId(ids, p.host) : isHost(p.host, hosts),
+  );
+  if (!products.length) return null;
+  return {
+    ...P,
+    products,
+    summary: {
+      ...P.summary,
+      configured: products.length,
+      checked: products.filter((p) => p.checkedAt).length,
+      checkedAt:
+        products
+          .map((p) => p.checkedAt)
+          .filter((t): t is string => !!t)
+          .sort()
+          .at(-1) ?? null,
+    },
+  };
 }

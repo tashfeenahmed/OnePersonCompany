@@ -150,6 +150,40 @@ export type Widget = {
      *  password reset are different kinds of thing, and no builder below adds
      *  one to the other. One fetch, one clock, two blocks. */
     mail?: boolean;
+    /** Umami: the websites, their last thirty complete days, and the daily
+     *  line. NO PORTFOLIO VISITOR FIGURE — see the source note. */
+    umami?: boolean;
+    /** Google Calendar: today, the week ahead, and merged busy hours. The one
+     *  source on this page with no site on any row, so it is never narrowed to
+     *  a venture: a morning belongs to the owner, not to a domain. */
+    calendar?: boolean;
+    /** PyPI: downloads by day and by ISO week for the configured packages. */
+    pypi?: boolean;
+    /** Bluesky: the handles, their followers and what their posts carry now.
+     *  Followers are never added across handles. */
+    bluesky?: boolean;
+    /** The uptime probe: what answered, how fast, and how long each
+     *  certificate has left. Measured from THIS box, at whatever cadence the
+     *  scheduler managed — which is why every percentage travels with its
+     *  check count. */
+    uptime?: boolean;
+    /** The ssh fleet: memory, disks, load per cpu, containers and the owner's
+     *  own counters. Memory adds across boxes; disk and load never do.
+     *
+     *  Called `boxes` and not `fleet`, because `fleet` above is already
+     *  Hetzner's server list and the two are different populations: a Hetzner
+     *  box with no ssh credential is in one and not the other, and half of
+     *  these machines are somebody else's hardware. */
+    boxes?: boolean;
+    /** Product endpoints: reachability and the figures the owner mapped out of
+     *  each one's JSON. Never totalled across endpoints. */
+    products?: boolean;
+    /** Inbound links, per source, with the confidence on each row and an
+     *  explicit refusal to add two sources together. */
+    backlinks?: boolean;
+    /** The off-site footprint as a matrix, product × directory — where
+     *  "blocked" means NOT CHECKED and never "not listed". */
+    presence?: boolean;
   };
   /** metric */
   value?: string;
@@ -347,6 +381,80 @@ export const SOURCES: Record<string, WidgetSource> = {
        these cards hold is literally the questions strangers asked. */
     mono: "?",
     tint: "#3f6b63",
+    connected: true,
+  },
+
+  /*
+    THE NINE THAT ARRIVED WITH THE SECOND WAVE OF INTEGRATIONS.
+
+    Every one of them takes a MONOGRAM rather than a brand mark, and that is a
+    statement about `data/brandIcons.ts` rather than about these services. That
+    file inlines path data so a tile can carry a real brand colour without a
+    network request; it holds the twenty-six marks the first wave needed and
+    nothing else. A slug here that the file has never heard of renders as the
+    monogram anyway — so naming one would be a promise the tile cannot keep,
+    and the honest thing is to say `null` and pick a letter.
+
+    TWO LETTERS RATHER THAN ONE, in six of the nine, because the initials have
+    run out: "U" is already the uptime probe's, "P" would serve PyPI, presence
+    and the product endpoints at once, and a board carrying three identical
+    grey P tiles is a board you have to read the label of every time. Calendar
+    takes "31" for the reason Google's own icon does.
+  */
+  umami: {
+    name: "Umami",
+    icon: null,
+    mono: "Um",
+    tint: "#2f6f6a",
+    connected: true,
+  },
+  calendar: {
+    name: "Google Calendar",
+    icon: null,
+    mono: "31",
+    tint: "#4285f4",
+    connected: true,
+  },
+  pypi: {
+    name: "PyPI",
+    icon: null,
+    mono: "py",
+    tint: "#3775a9",
+    connected: true,
+  },
+  bluesky: {
+    name: "Bluesky",
+    icon: null,
+    mono: "bs",
+    tint: "#0085ff",
+    connected: true,
+  },
+  fleet: {
+    name: "Fleet",
+    icon: null,
+    mono: "Fl",
+    tint: "#6b5f8a",
+    connected: true,
+  },
+  products: {
+    name: "Product endpoints",
+    icon: null,
+    mono: "Pr",
+    tint: "#8a6a3f",
+    connected: true,
+  },
+  backlinks: {
+    name: "Backlinks",
+    icon: null,
+    mono: "Bl",
+    tint: "#4a7c8a",
+    connected: true,
+  },
+  presence: {
+    name: "Presence",
+    icon: null,
+    mono: "Ps",
+    tint: "#7d5a6b",
     connected: true,
   },
 };
@@ -936,10 +1044,21 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { cloudflare: true },
   },
+  /*
+    THE ONE UPTIME CARD THAT PREDATES THE PROBE.
+
+    It shipped as a sample on the Morning check board when nothing was checking
+    anything. There is a probe now, so it reads it — same key, same board
+    position, same three dots, and the numbers behind them are measurements.
+    What it will not do any more is quote "99.97% · 30d": this probe checks
+    from one laptop every half hour, so a percentage is only offered once there
+    are enough checks to divide by, and the card says the count instead.
+  */
   "uptime.status": {
     src: "uptime",
     name: "Uptime",
     kind: "statuses",
+    live: { uptime: true },
   },
   /*
     THE META CARDS.
@@ -1905,6 +2024,371 @@ export const WIDGETS: Record<string, Widget> = {
     live: { demand: true },
     headers: ["Phrase", "Reddit", "Hacker News"],
   },
+
+  /* ------------------------------------------------------------------ umami
+     Self-hosted analytics: the websites, their last thirty COMPLETE days, and
+     the rankings underneath. Two rules run through every card below and both
+     come from the route's own header.
+
+     THERE IS NO PORTFOLIO VISITOR COUNT and there cannot be one. Umami
+     de-duplicates visitors per website, so a person who read the blog and then
+     the docs is one visitor on each and one person in the world; no endpoint
+     joins identity across sites. `umami.visitors` therefore quotes a figure
+     only when a single site is configured — the case where the portfolio IS
+     that site — and otherwise says what it will not add.
+
+     THE RANKINGS ARE RANKINGS. Top pages, referrers and events are the top
+     twenty of a list Umami truncated, so they sum to less than the window's
+     pageviews by an amount nobody can measure. No card below totals them.
+  */
+  "umami.pageviews": {
+    src: "umami",
+    name: "Pageviews · 30d",
+    kind: "metric",
+    live: { umami: true },
+  },
+  "umami.visitors": {
+    src: "umami",
+    name: "Visitors · 30d",
+    kind: "metric",
+    live: { umami: true },
+  },
+  "umami.bounce": {
+    src: "umami",
+    name: "Bounce rate · 30d",
+    kind: "metric",
+    live: { umami: true },
+    invert: true,
+  },
+  "umami.avgVisit": {
+    src: "umami",
+    name: "Average visit",
+    kind: "metric",
+    live: { umami: true },
+  },
+  "umami.daily": {
+    src: "umami",
+    name: "Pageviews and visits",
+    kind: "chart",
+    live: { umami: true },
+    unit: "count",
+  },
+  "umami.sites": {
+    src: "umami",
+    name: "Every website",
+    kind: "table",
+    live: { umami: true },
+    headers: ["Site", "Pageviews", "Visitors", "Visits", "Bounce", "Avg visit"],
+  },
+  "umami.pages": {
+    src: "umami",
+    name: "Top pages",
+    kind: "rows",
+    live: { umami: true },
+  },
+  "umami.referrers": {
+    src: "umami",
+    name: "Top referrers",
+    kind: "rows",
+    live: { umami: true },
+  },
+  "umami.events": {
+    src: "umami",
+    name: "Top events",
+    kind: "rows",
+    live: { umami: true },
+  },
+
+  /* --------------------------------------------------------------- calendar
+     The only source on this dashboard with no site on any row, which is why
+     none of these cards is ever narrowed to a venture: a Tuesday morning
+     belongs to the owner, not to a domain, and slicing it by host would need
+     an attribution nobody has written down.
+
+     BUSY HOURS MERGE RATHER THAN ADD. Two calls booked over the same hour are
+     one busy hour, and an all-day event contributes none at all — "Conference"
+     across three days is not twenty-four hours and not eight, so all-day
+     entries are counted apart and never converted into time.
+  */
+  "calendar.today": {
+    src: "calendar",
+    name: "Today",
+    kind: "rows",
+    live: { calendar: true },
+  },
+  "calendar.busy": {
+    src: "calendar",
+    name: "Busy hours",
+    kind: "bars",
+    live: { calendar: true },
+  },
+  "calendar.next": {
+    src: "calendar",
+    name: "Next 7 days",
+    kind: "rows",
+    live: { calendar: true },
+  },
+
+  /* ------------------------------------------------------------------- pypi
+     Downloads, never installs: these are CDN file requests, so a CI run, a
+     container build and a person are one each. Mirrors are excluded on every
+     request, which makes these figures SMALLER than pypistats' own default
+     view — a mirror warming its cache is not demand.
+
+     WEEKS ARE ISO WEEKS AND A PARTIAL ONE IS NEVER DRAWN beside a complete
+     one; three days of a week next to seven-day weeks is a collapse that did
+     not happen. The npm cards next door follow the same rule for the same
+     reason, and the two are never added: a tarball fetch and a wheel fetch are
+     different packages for different runtimes.
+  */
+  "pypi.downloads": {
+    src: "pypi",
+    name: "Downloads · last full week",
+    kind: "metric",
+    live: { pypi: true },
+  },
+  "pypi.last30": {
+    src: "pypi",
+    name: "Downloads · 30d",
+    kind: "metric",
+    live: { pypi: true },
+  },
+  "pypi.weekly": {
+    src: "pypi",
+    name: "Downloads by week",
+    kind: "chart",
+    live: { pypi: true },
+    unit: "count",
+  },
+  "pypi.packages": {
+    src: "pypi",
+    name: "Every package",
+    kind: "table",
+    live: { pypi: true },
+    headers: ["Package", "Last full week", "30d", "Version", "State"],
+  },
+
+  /* ---------------------------------------------------------------- bluesky
+     THE FOLLOWER COUNT IS PER HANDLE AND IS NEVER ADDED. One person following
+     two of these accounts is one person, and the public AppView offers no way
+     to de-duplicate them — so `bluesky.followers` quotes a number when a
+     single handle is configured, and says what it will not add when there are
+     more.
+
+     THE ENGAGEMENT FIGURES ARE WHAT THE POSTS CARRY NOW, not what they earned
+     inside the window: an old post gathering new likes moves them. And a
+     window computed from one page of the author feed is a FLOOR when it filled
+     that page — the cards say "at least" rather than quoting it as a count.
+  */
+  "bluesky.followers": {
+    src: "bluesky",
+    name: "Followers",
+    kind: "metric",
+    live: { bluesky: true },
+  },
+  "bluesky.engagement": {
+    src: "bluesky",
+    name: "Engagement · 30d",
+    kind: "rows",
+    live: { bluesky: true },
+  },
+  "bluesky.handles": {
+    src: "bluesky",
+    name: "Every handle",
+    kind: "table",
+    live: { bluesky: true },
+    headers: ["Handle", "Followers", "Posts 30d", "Likes", "Per post", "Growth"],
+  },
+
+  /* ----------------------------------------------------------------- uptime
+     WHAT THESE CARDS MEASURE IS NARROWER THAN THE WORD SUGGESTS. Availability
+     here is the share of THIS BOX'S checks that succeeded, from one machine on
+     one connection, roughly every half hour — so an outage shorter than the
+     gap between checks is invisible to every card below, and a laptop asleep
+     overnight is eight hours nobody asked. The check count therefore travels
+     with every percentage, and a window with fewer than six checks is marked
+     rather than drawn as a confident 100%.
+
+     LATENCY PERCENTILES ARE OVER SUCCESSFUL CHECKS ONLY. A ten-second timeout
+     folded into a p95 turns a connection refused — which took two
+     milliseconds — into a "slow site", and the failure is already reported as
+     a failure one card over.
+  */
+  "uptime.up": {
+    src: "uptime",
+    name: "Hosts up",
+    kind: "metric",
+    live: { uptime: true },
+  },
+  "uptime.availability": {
+    src: "uptime",
+    name: "Availability",
+    kind: "bars",
+    live: { uptime: true },
+  },
+  "uptime.latency": {
+    src: "uptime",
+    name: "Response time",
+    kind: "rows",
+    live: { uptime: true },
+  },
+  /*
+    CERTIFICATES ON THE SAME AXIS THE DOMAIN RENEWALS USE, and for the same
+    reason: "3 December" and "18 February" are not a distance until somebody
+    does the arithmetic, and a runway has already done it. A negative row is an
+    EXPIRED certificate and is the most urgent thing this dashboard can draw —
+    which is exactly why the countdown is never clamped at zero on the way in.
+  */
+  "uptime.tls": {
+    src: "uptime",
+    name: "Certificate expiry",
+    kind: "runway",
+    live: { uptime: true },
+    thresholds: { warn: 30, crit: 7 },
+    cap: 400,
+  },
+  "uptime.incidents": {
+    src: "uptime",
+    name: "Incidents",
+    kind: "rows",
+    live: { uptime: true },
+  },
+
+  /* ------------------------------------------------------------------ fleet
+     WHICH OF THESE FIGURES ADD IS THE WHOLE ARGUMENT, and only one of the
+     three does. MEMORY ADDS: fifty gigabytes on one box and eight on another
+     really is fifty-eight gigabytes of RAM somebody is paying for.
+
+     LOAD DOES NOT. A load average is already relative to a machine's cores, so
+     a fleet load average is a number in no unit. What every card below draws
+     instead is load PER CPU, as a percentage of one runnable task per core,
+     which is comparable between a Pi and a sixteen-core box.
+
+     DISK DOES NOT EITHER, which is less obvious. Filesystems share pools: a
+     Mac's `/` and `/System/Volumes/Data` report the same free space out of one
+     container, so adding mounts puts a terabyte and a half of free space on a
+     one-terabyte disk. There is no fleet disk total; there is a meter per box,
+     on that box's fullest mount, which is the figure the page is for.
+  */
+  "fleet.memory": {
+    src: "fleet",
+    name: "Memory by box",
+    kind: "meters",
+    live: { boxes: true },
+  },
+  "fleet.disk": {
+    src: "fleet",
+    name: "Disk by box",
+    kind: "meters",
+    live: { boxes: true },
+  },
+  "fleet.load": {
+    src: "fleet",
+    name: "Load per cpu",
+    kind: "meters",
+    live: { boxes: true },
+  },
+  "fleet.containers": {
+    src: "fleet",
+    name: "Containers",
+    kind: "table",
+    live: { boxes: true },
+    headers: ["Box", "Container", "Image", "Status"],
+  },
+  "fleet.counters": {
+    src: "fleet",
+    name: "Counters",
+    kind: "rows",
+    live: { boxes: true },
+  },
+  "fleet.boxes": {
+    src: "fleet",
+    name: "Every box",
+    kind: "table",
+    live: { boxes: true },
+    headers: ["Box", "Host", "Memory", "Fullest disk", "Load/cpu", "Containers"],
+  },
+
+  /* --------------------------------------------------------------- products
+     The owner's own products, asked for their own JSON and read with the
+     owner's own mapping. TWO KINDS OF NUMBER LIVE HERE and they are labelled
+     apart: the value is the mapped path resolved against the LAST document, so
+     it is as fresh as that document, and the series is what the collector
+     recorded at the time — a metric added this morning has a value and almost
+     no history, which is honest rather than broken.
+
+     A PATH THAT RESOLVES TO NOTHING IS AN ERROR WITH ITS REASON AND NEVER A
+     ZERO, and it appears on the row rather than being quietly dropped. There
+     is no total across endpoints: "renders" on one product and "renders" on
+     another share a word the owner chose and nothing else.
+  */
+  "products.metrics": {
+    src: "products",
+    name: "Mapped figures",
+    kind: "rows",
+    live: { products: true },
+  },
+  "products.endpoints": {
+    src: "products",
+    name: "Endpoints",
+    kind: "statuses",
+    live: { products: true },
+  },
+
+  /* -------------------------------------------------------------- backlinks
+     NOTHING ON THESE TWO CARDS IS EVER SUMMED ACROSS SOURCES, and that is the
+     point of drawing them as a table of sources rather than as a figure. The
+     three sources overlap and disagree — a host both Bing and the verification
+     crawler know about would be counted twice — and none of them is a census,
+     so a "referring domains" total would be a made-up number with a very
+     convincing shape. Each row carries the confidence the server assigns it.
+
+     THREE STATES, NOT TWO. `ok: false` is a source that refused, `ok: null` is
+     one that was never asked, and a zero with `ok: true` is a real measurement
+     of nothing. Host in-degree — how many distinct sites link to a domain
+     across the whole web — is not measured by anything here and is never
+     implied.
+  */
+  "backlinks.bySource": {
+    src: "backlinks",
+    name: "By source",
+    kind: "table",
+    live: { backlinks: true },
+    headers: ["Host", "Source", "Conf.", "Ref. domains", "Backlinks", "State"],
+  },
+  "backlinks.domains": {
+    src: "backlinks",
+    name: "Referring domains",
+    kind: "rows",
+    live: { backlinks: true },
+  },
+
+  /* --------------------------------------------------------------- presence
+     The off-site footprint as a matrix, product by directory. FOUR STATUSES
+     AND THEY MUST NOT COLLAPSE TO TWO: `present` and `absent` are answers,
+     `blocked` means the source could not be asked at all — a 403, a rate
+     limit, a directory with no keyless lookup — and `error` is the check
+     itself breaking. A blocked cell rendered as a grey "no" is a dashboard
+     telling somebody to go and get listed where they may already be listed,
+     which is why `presence.blocked` exists as a card of its own.
+
+     THERE IS NO SCORE HERE. Three quarters of the original score came from a
+     sweep this integration does not carry, and a score built from what is left
+     would be a different number wearing the same name.
+  */
+  "presence.matrix": {
+    src: "presence",
+    name: "Where each product is listed",
+    kind: "table",
+    live: { presence: true },
+    headers: ["Product"],
+  },
+  "presence.blocked": {
+    src: "presence",
+    name: "Could not be checked",
+    kind: "statuses",
+    live: { presence: true },
+  },
 };
 
 /** The presets offered when a new dashboard is created. */
@@ -2078,12 +2562,91 @@ export const DASHBOARD_PRESETS: {
       "github.paths",
       "npm.weeks",
       "npm.packages",
+      "pypi.downloads",
+      "pypi.weekly",
+      "pypi.packages",
       "github.commits",
       "github.prs",
       "github.languages",
       "github.rate",
       "github.repos",
       "npm.table",
+    ],
+  },
+  /*
+    ANALYTICS. What the sites themselves counted, which is a different question
+    from what a search engine showed — Search Console reports impressions on
+    result pages, Umami reports people who arrived. The two live on separate
+    boards for that reason and nothing here adds them.
+
+    Bluesky is on this board rather than on Growth because it is the only other
+    source whose numbers are counted by us about us: an account's own posts and
+    its own followers, read from the public AppView. The two refusals — no
+    portfolio visitor count, no combined follower count — are stated on the
+    cards that would otherwise carry them.
+  */
+  {
+    id: "analytics",
+    label: "Analytics",
+    note: "Umami's own counts, and the Bluesky accounts beside them",
+    widgets: [
+      "umami.pageviews",
+      "umami.visitors",
+      "umami.bounce",
+      "umami.avgVisit",
+      "umami.daily",
+      "umami.sites",
+      "umami.pages",
+      "umami.referrers",
+      "umami.events",
+      "bluesky.followers",
+      "bluesky.engagement",
+      "bluesky.handles",
+    ],
+  },
+  /*
+    THE BOXES THAT ARE NOT HETZNER'S, and the probe that says whether anything
+    is answering. Hetzner reports from the hypervisor and can therefore say
+    nothing about memory or filesystems; the ssh fleet reports from inside the
+    guest and can say nothing about the bill. Two halves of one machine, and
+    they are on one board because that is how a morning goes.
+  */
+  {
+    id: "boxes",
+    label: "Boxes & uptime",
+    note: "memory, disks and load from inside the guest — and what is answering",
+    widgets: [
+      "uptime.up",
+      "uptime.tls",
+      "fleet.memory",
+      "fleet.disk",
+      "fleet.load",
+      "uptime.availability",
+      "uptime.latency",
+      "uptime.incidents",
+      "fleet.counters",
+      "fleet.containers",
+      "fleet.boxes",
+    ],
+  },
+  /*
+    OFF-SITE. Everything about a product that is written down somewhere else:
+    who links to it, which directories carry it, and what its own endpoint says
+    about itself. Not one figure on this board is added to another — the
+    backlink sources overlap and disagree, and two products' metrics share only
+    a word the owner chose.
+  */
+  {
+    id: "offsite",
+    label: "Links & listings",
+    note: "inbound links, directory presence and each product's own endpoint",
+    widgets: [
+      "backlinks.bySource",
+      "backlinks.domains",
+      "presence.matrix",
+      "presence.blocked",
+      "products.endpoints",
+      "products.metrics",
     ],
   },
   {

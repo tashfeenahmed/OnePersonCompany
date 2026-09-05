@@ -91,6 +91,15 @@ export function WidgetCard({
         meta: live.meta,
         demand: live.demand,
         mail: live.mail,
+        umami: live.umami,
+        calendar: live.calendar,
+        pypi: live.pypi,
+        bluesky: live.bluesky,
+        uptime: live.uptime,
+        boxes: live.boxes,
+        products: live.products,
+        backlinks: live.backlinks,
+        presence: live.presence,
       })
     : null;
   const def: Widget = patch ? { ...base, ...patch } : base;

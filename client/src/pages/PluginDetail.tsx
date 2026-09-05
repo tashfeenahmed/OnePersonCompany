@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ComponentType } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Check, ExternalLink, Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,44 @@ import { AgentPanel } from "@/components/AgentPanel";
 import { SearxngPanel } from "@/components/SearxngPanel";
 import { FreeLlmApiPanel } from "@/components/FreeLlmApiPanel";
 import { LocalModelsPanel, ProviderPolicyPanel } from "@/components/LocalModelsPanel";
+import { UmamiPanel } from "@/components/integrations/UmamiPanel";
+import { CalendarPanel } from "@/components/integrations/CalendarPanel";
+import { PypiPanel } from "@/components/integrations/PypiPanel";
+import { BlueskyPanel } from "@/components/integrations/BlueskyPanel";
+import { UptimePanel } from "@/components/integrations/UptimePanel";
+import { FleetPanel } from "@/components/integrations/FleetPanel";
+import { ProductsPanel } from "@/components/integrations/ProductsPanel";
+import { BacklinksPanel } from "@/components/integrations/BacklinksPanel";
+import { PresencePanel } from "@/components/integrations/PresencePanel";
+import { VoicePanel } from "@/components/integrations/VoicePanel";
+
+/**
+ * The panels that follow a connection, one per plugin that has one.
+ *
+ * A MAP RATHER THAN TEN MORE `&&` LINES BELOW. The six panels this page grew
+ * first are each conditional on something of their own — an agent's panel
+ * ignores `connected`, SearXNG's has to sit ABOVE the credentials form — so
+ * they stay written out where their exceptions can be read. These ten have no
+ * exceptions: each draws what its integration last read, each is worth nothing
+ * before there is a credential or a list, and a table is the honest shape for
+ * ten identical rules.
+ *
+ * Every one of them draws its own empty state, because "connected and it found
+ * nothing" is a real answer that a blank space would read as a page that
+ * failed to load.
+ */
+const PANELS: Record<string, ComponentType<{ onCollected: () => void }>> = {
+  umami: UmamiPanel,
+  calendar: CalendarPanel,
+  pypi: PypiPanel,
+  bluesky: BlueskyPanel,
+  uptime: UptimePanel,
+  fleet: FleetPanel,
+  "product-stats": ProductsPanel,
+  backlinks: BacklinksPanel,
+  presence: PresencePanel,
+  voice: VoicePanel,
+};
 
 /** The vault name a field lands under: one field takes the base name, several
  *  take `base-fieldKey`. The same rule as agent/integrations.js. */
@@ -45,6 +83,17 @@ export function PluginDetail() {
   const [saved, setSaved] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState<string | null>(null);
+  /*
+    A PANEL CAN WRITE A SETTING, and the form above it has to notice.
+
+    "Suggest from ventures" on uptime, backlinks and presence appends to the
+    very list the settings form is showing, and that form holds what the owner
+    has typed — so it cannot simply re-fetch underneath them. Bumping this
+    remounts it instead, which drops a half-typed value the owner did not save
+    and shows the list that is actually stored. That is the right trade: the
+    button they just pressed is what they meant.
+  */
+  const [configNonce, setConfigNonce] = useState(0);
 
   const plugin = PLUGINS.find((p) => p.id === id);
 
@@ -132,6 +181,11 @@ export function PluginDetail() {
     : (state.plugins[plugin.id] ?? plugin.connected);
   const category = CATEGORIES.find((c) => c.id === plugin.cat)?.label;
   const accountCount = live ? (server.data?.accounts.length ?? 0) : 0;
+  /* Looked up as a COMPONENT rather than called as a function: every one of
+     these panels holds hooks of its own, and a called function would hand them
+     to this component's hook list — conditionally, which is the one thing hooks
+     cannot survive. */
+  const AreaPanel = live && connected ? PANELS[plugin.id] : undefined;
 
   /* The catalog-only path: nothing is verified and nothing is collected,
      because there is no route behind it. A live plugin's credentials go
@@ -387,7 +441,13 @@ export function PluginDetail() {
               )}
             </>
           )}
-          {live && <PluginSettings id={plugin.id} onSaved={() => server.reload()} />}
+          {live && (
+            <PluginSettings
+              key={`${plugin.id}-${configNonce}`}
+              id={plugin.id}
+              onSaved={() => server.reload()}
+            />
+          )}
 
           {live && connected && plugin.id === "hetzner" && (
             <HetznerPanel onCollected={() => server.reload()} />
@@ -424,6 +484,20 @@ export function PluginDetail() {
               exactly as it was. */}
           {live && connected && (plugin.id === "openai" || plugin.id === "openrouter") && (
             <ProviderPolicyPanel id={plugin.id} />
+          )}
+
+          {/* The ten manifest-area integrations. Gated on `connected` for the
+              same reason Hetzner's is: there is nothing for a panel to draw
+              before there is a credential or a list, and for five of these
+              "connected" IS the list — which is why pressing Save on the
+              settings form above is what makes one appear. */}
+          {AreaPanel && (
+            <AreaPanel
+              onCollected={() => {
+                server.reload();
+                setConfigNonce((n) => n + 1);
+              }}
+            />
           )}
 
           {live && !!server.data?.runs.length && (

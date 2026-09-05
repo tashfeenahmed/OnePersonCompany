@@ -11,6 +11,10 @@ import { cn } from "@/lib/utils";
 import { isStoreState, useStore } from "@/lib/store";
 import { useTheme, type Theme } from "@/lib/theme";
 import { ModelsSettings } from "@/components/ModelsSettings";
+import { Section } from "@/components/settings/Section";
+import { BackupsSettings } from "@/components/settings/BackupsSettings";
+import { CaptureSettings } from "@/components/settings/CaptureSettings";
+import { StudioSettings } from "@/components/settings/StudioSettings";
 
 const THEMES: { id: Theme; label: string; note: string; icon: typeof Sun }[] = [
   { id: "light", label: "Light", note: "Always the paper palette", icon: Sun },
@@ -22,31 +26,6 @@ const THEMES: { id: Theme; label: string; note: string; icon: typeof Sun }[] = [
     icon: Monitor,
   },
 ];
-
-/** A titled block with one line of context, repeated down every tab. */
-function Section({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid gap-2.5 py-5">
-      <div>
-        <div className="text-[13px] font-medium tracking-tight">{title}</div>
-        {hint && (
-          <p className="text-muted-foreground mt-0.5 max-w-[560px] text-[12.5px]">
-            {hint}
-          </p>
-        )}
-      </div>
-      {children}
-    </div>
-  );
-}
 
 export function Settings() {
   const { state, setWorkspace, importState, reset } = useStore();
@@ -86,7 +65,7 @@ export function Settings() {
       <TopBar label="Settings" />
       <PageShell
         title="Settings"
-        sub="Workspace, appearance and the data this browser is holding."
+        sub="Workspace, appearance, the data this browser is holding — and the three things the server does with its own disk."
       >
         <Tabs defaultValue="general">
           <TabsList>
@@ -99,6 +78,16 @@ export function Settings() {
                 in the Chat header instead and this is the page you read. */}
             <TabsTrigger value="models">Models</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
+            {/* THE BOX'S OWN SETTINGS, and not under Data — "Data" on this
+                page has always meant the workspace in this browser's
+                localStorage, and putting the server's nightly archive beside
+                an export button would blur the one distinction that page
+                makes. Backups, the screenshot browser and the image model are
+                three settings that change what the MACHINE does with its own
+                disk, which is a fourth kind of thing and gets a fourth tab.
+                Models is server-side too and stays where it is: it is a table
+                of four providers, not a form. */}
+            <TabsTrigger value="server">Server</TabsTrigger>
             <TabsTrigger value="data">Data</TabsTrigger>
           </TabsList>
 
@@ -217,6 +206,15 @@ export function Settings() {
                 <span>radius 10px</span>
               </div>
             </Section>
+          </TabsContent>
+
+          {/* ----------------------------------------------------- server */}
+          <TabsContent value="server" className="mt-2 divide-y">
+            {/* Backups first: it is the only one of the three whose absence
+                can cost anything that cannot be made again. */}
+            <BackupsSettings />
+            <CaptureSettings />
+            <StudioSettings />
           </TabsContent>
 
           {/* ------------------------------------------------------- data */}

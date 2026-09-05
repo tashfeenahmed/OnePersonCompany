@@ -28,11 +28,23 @@ import {
   type MailReport,
   type DemandReport,
 } from "@/lib/api";
+import {
+  reports,
+  type BacklinksReport,
+  type BlueskyReport,
+  type CalendarReport,
+  type FleetReport,
+  type PresenceReport,
+  type ProductsReport,
+  type PypiReport,
+  type UmamiReport,
+  type UptimeReport,
+} from "@/lib/api/reports";
 import { WIDGETS } from "@/data/widgets";
 import {
   LIVE_BUILDERS,
 } from "@/lib/liveWidgets";
-import { ScopeContext, scopeLive } from "@/lib/scope";
+import { ScopeContext, scopeLive, type LinkedEntity } from "@/lib/scope";
 
 /**
  * Real numbers for the widgets that have them.
@@ -110,6 +122,44 @@ export type LiveData = {
    *  transactional password reset are not the same KIND of thing, so there is
    *  no arithmetic anybody would be tempted to perform across them. */
   mail: MailReport | null;
+
+  /*
+    THE NINE SECOND-WAVE REPORTS, EACH ITS OWN FIELD.
+
+    Nothing is merged here. `demand` folds three sources into one field because
+    they answer one question off one fetch; these are nine fetches from nine
+    collectors on nine schedules, and a shared field would be half stale for
+    half the page. The pair it is most tempting to join — `uptime` and `boxes`,
+    both "is the machine well" — is the pair it would be worst to join: the
+    probe asks over the public internet and the fleet asks over ssh, so they
+    disagree about a box behind a broken proxy, and that disagreement is the
+    finding rather than a conflict for a type to smooth over.
+  */
+  /** Umami: the websites, their last thirty complete days, the daily line and
+   *  the truncated rankings. There is no portfolio visitor count in here and
+   *  there cannot be one. */
+  umami: UmamiReport | null;
+  /** Google Calendar: today, the week ahead, merged busy hours. The one source
+   *  on this page with no site on any row, so it is never narrowed. */
+  calendar: CalendarReport | null;
+  /** PyPI: downloads by day and by ISO week, mirrors excluded. */
+  pypi: PypiReport | null;
+  /** Bluesky: the handles and what their posts carry now. */
+  bluesky: BlueskyReport | null;
+  /** The uptime probe: what answered, how fast, and how long each certificate
+   *  has left — from this machine, at whatever cadence it managed. */
+  uptime: UptimeReport | null;
+  /** The ssh fleet. NOT called `fleet`: that field above is Hetzner's server
+   *  list, and these are two different populations — a Hetzner box with no ssh
+   *  credential is in one and not the other, and half of these are somebody
+   *  else's hardware. */
+  boxes: FleetReport | null;
+  /** Product endpoints and the figures mapped out of their own JSON. */
+  products: ProductsReport | null;
+  /** Inbound links per source, never summed across sources. */
+  backlinks: BacklinksReport | null;
+  /** The off-site footprint, product by directory. */
+  presence: PresenceReport | null;
   /** Which widget types are showing real data right now. */
   liveTypes: Set<string>;
   reload: () => void;
@@ -136,6 +186,15 @@ const LiveContext = createContext<LiveData>({
   meta: null,
   demand: null,
   mail: null,
+  umami: null,
+  calendar: null,
+  pypi: null,
+  bluesky: null,
+  uptime: null,
+  boxes: null,
+  products: null,
+  backlinks: null,
+  presence: null,
   liveTypes: new Set(),
   reload: () => {},
 });
@@ -171,6 +230,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [meta, setMeta] = useState<MetaReport | null>(null);
   const [demand, setDemand] = useState<DemandReport | null>(null);
   const [mail, setMail] = useState<MailReport | null>(null);
+  const [umami, setUmami] = useState<UmamiReport | null>(null);
+  const [calendar, setCalendar] = useState<CalendarReport | null>(null);
+  const [pypi, setPypi] = useState<PypiReport | null>(null);
+  const [bluesky, setBluesky] = useState<BlueskyReport | null>(null);
+  const [uptime, setUptime] = useState<UptimeReport | null>(null);
+  const [boxes, setBoxes] = useState<FleetReport | null>(null);
+  const [products, setProducts] = useState<ProductsReport | null>(null);
+  const [backlinks, setBacklinks] = useState<BacklinksReport | null>(null);
+  const [presence, setPresence] = useState<PresenceReport | null>(null);
   const [tick, setTick] = useState(0);
 
   const wanted = useMemo(() => {
@@ -193,6 +261,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsMeta = false;
     let needsDemand = false;
     let needsMail = false;
+    let needsUmami = false;
+    let needsCalendar = false;
+    let needsPypi = false;
+    let needsBluesky = false;
+    let needsUptime = false;
+    let needsBoxes = false;
+    let needsProducts = false;
+    let needsBacklinks = false;
+    let needsPresence = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -213,6 +290,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.meta) needsMeta = true;
       if (w.live?.demand) needsDemand = true;
       if (w.live?.mail) needsMail = true;
+      if (w.live?.umami) needsUmami = true;
+      if (w.live?.calendar) needsCalendar = true;
+      if (w.live?.pypi) needsPypi = true;
+      if (w.live?.bluesky) needsBluesky = true;
+      if (w.live?.uptime) needsUptime = true;
+      if (w.live?.boxes) needsBoxes = true;
+      if (w.live?.products) needsProducts = true;
+      if (w.live?.backlinks) needsBacklinks = true;
+      if (w.live?.presence) needsPresence = true;
     }
     return {
       series: [...series],
@@ -234,6 +320,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsMeta,
       needsDemand,
       needsMail,
+      needsUmami,
+      needsCalendar,
+      needsPypi,
+      needsBluesky,
+      needsUptime,
+      needsBoxes,
+      needsProducts,
+      needsBacklinks,
+      needsPresence,
     };
   }, []);
 
@@ -432,6 +527,73 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         setMail,
       );
 
+      /*
+        THE NINE SECOND-WAVE REPORTS.
+
+        ONE FETCH EACH, GATED ON ITS OWN PLUGIN, and none of them coupled to a
+        neighbour — the rule the whole block above follows, and the one that
+        matters most here because five of the nine have no credential at all.
+        "Connected" for PyPI, Bluesky, the uptime probe, the backlink sources
+        and the presence checks means A LIST HAS BEEN TYPED: no key exists to
+        paste, so a package list or a host list IS the configuration, and with
+        one they work immediately. Coupling those five to anything would mean a
+        dead Google token emptying a card about a certificate.
+
+        Each is asked for its own default window rather than for a window this
+        file chose, because two cards from one report have to be drawn over the
+        same span to be read beside each other — and a per-card range switch is
+        nine presses to compare two machines over the same evening.
+      */
+      await tryFetch(
+        connected.has("umami") && wanted.needsUmami,
+        () => reports.umami(),
+        setUmami,
+      );
+      await tryFetch(
+        connected.has("calendar") && wanted.needsCalendar,
+        () => reports.calendar(),
+        setCalendar,
+      );
+      await tryFetch(
+        connected.has("pypi") && wanted.needsPypi,
+        () => reports.pypi(),
+        setPypi,
+      );
+      await tryFetch(
+        connected.has("bluesky") && wanted.needsBluesky,
+        () => reports.bluesky(),
+        setBluesky,
+      );
+      await tryFetch(
+        connected.has("uptime") && wanted.needsUptime,
+        () => reports.uptime(),
+        setUptime,
+      );
+      await tryFetch(
+        connected.has("fleet") && wanted.needsBoxes,
+        () => reports.fleet(),
+        setBoxes,
+      );
+      /* The plugin id is `product-stats`; the field, the source and the widget
+         keys are all `products`. Written out here rather than renamed at either
+         end, because the server's id is the server's and a rename in this file
+         would be a rename that only this file knows about. */
+      await tryFetch(
+        connected.has("product-stats") && wanted.needsProducts,
+        () => reports.products(),
+        setProducts,
+      );
+      await tryFetch(
+        connected.has("backlinks") && wanted.needsBacklinks,
+        () => reports.backlinks(),
+        setBacklinks,
+      );
+      await tryFetch(
+        connected.has("presence") && wanted.needsPresence,
+        () => reports.presence(),
+        setPresence,
+      );
+
       const pairs = await Promise.all(
         wanted.series.map(async (m) => {
           try {
@@ -483,6 +645,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         meta,
         demand,
         mail,
+        umami,
+        calendar,
+        pypi,
+        bluesky,
+        uptime,
+        boxes,
+        products,
+        backlinks,
+        presence,
       });
       if (patch) liveTypes.add(type);
     }
@@ -507,6 +678,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       meta,
       demand,
       mail,
+      umami,
+      calendar,
+      pypi,
+      bluesky,
+      uptime,
+      boxes,
+      products,
+      backlinks,
+      presence,
       liveTypes,
       reload: () => setTick((t) => t + 1),
     };
@@ -531,6 +711,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     meta,
     demand,
     mail,
+    umami,
+    calendar,
+    pypi,
+    bluesky,
+    uptime,
+    boxes,
+    products,
+    backlinks,
+    presence,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
@@ -554,33 +743,64 @@ export const useLive = () => useContext(LiveContext);
  * draw from it and say "portfolio" in their header. See lib/scope.ts for which
  * those are and why.
  *
- * With no hosts (a venture with no website yet) this is a pass-through: the
- * board shows the whole portfolio and its header says so. Filtering everything
- * away because nobody has typed a URL would be an empty page pretending to be
- * a measurement.
+ * THE VENTURE'S LINKS COME IN BESIDE ITS HOSTS, and either of them is enough.
+ * A link is the owner having said "this Cloudflare zone is Example App 1's", which
+ * is a stronger statement than a hostname that happens to match — and the only
+ * statement there is for a thing with no hostname at all, like a fleet box. So
+ * a venture with links and no website narrows properly instead of falling
+ * through to the whole portfolio.
+ *
+ * With NEITHER (a venture with no website and nothing linked) this is a
+ * pass-through: the board shows the whole portfolio and its header says so.
+ * Filtering everything away because nobody has typed a URL would be an empty
+ * page pretending to be a measurement.
  */
 export function ScopeProvider({
   hosts,
+  entities = [],
   children,
 }: {
   hosts: string[];
+  /** The venture's link rows. Optional so a caller with none — and every
+   *  caller had none until the link table existed — stays valid. */
+  entities?: LinkedEntity[];
   children: ReactNode;
 }) {
   const base = useLive();
-  /* The hosts as a value rather than as an array: the page rebuilds the array
-     on every render and only its contents decide whether the narrowing has to
-     be done again. Narrowing is a pass over every report the page holds, so
-     doing it once per change rather than once per render is the difference
+  /* The hosts and links as VALUES rather than as arrays: the page rebuilds both
+     arrays on every render and only their contents decide whether the narrowing
+     has to be done again. Narrowing is a pass over every report the page holds,
+     so doing it once per change rather than once per render is the difference
      between a board that drags smoothly and one that does not. */
   const key = hosts.join(",");
+  const linkKey = entities.map((e) => `${e.plugin} ${e.entity}`).join(",");
   const value = useMemo(() => {
     const list = key ? key.split(",") : [];
-    if (!list.length) return null;
+    const links: LinkedEntity[] = linkKey
+      ? linkKey.split(",").map((pair) => {
+          /* Split on the FIRST space only: a plugin id never contains one and
+             an entity — a Bing site, a path — may. */
+          const at = pair.indexOf(" ");
+          return { plugin: pair.slice(0, at), entity: pair.slice(at + 1) };
+        })
+      : [];
+    if (!list.length && !links.length) return null;
     return {
-      scope: { hosts: list, label: list.join(", "), base },
-      live: scopeLive(base, list),
+      scope: {
+        hosts: list,
+        entities: links,
+        /* The hosts name the scope wherever there are any: "support.example.test" is
+           what the owner calls this, and "7 links" is a count the board's own
+           sub-line already carries. A venture with no website is named by the
+           only thing it has — what it has been linked to. */
+        label:
+          list.join(", ") ||
+          `${links.length} linked ${links.length === 1 ? "thing" : "things"}`,
+        base,
+      },
+      live: scopeLive(base, list, links),
     };
-  }, [base, key]);
+  }, [base, key, linkKey]);
 
   if (!value) return <>{children}</>;
   return (
@@ -714,6 +934,53 @@ export function collectedAt(src: string, live: LiveData): string | null {
          together here for the reason the two app stores are: one fetch behind
          them, and a second case would be a second thing to keep in step. */
       return live.mail?.seenAt ?? null;
+    /*
+      THE NINE SECOND-WAVE SOURCES, EACH QUOTING ITS OWN COLLECTOR.
+
+      Every one of these routes recomputes its figures on every request, so the
+      document's own timestamp would read "just now" over numbers collected six
+      hours ago. What each case returns is when the SOURCE was last read.
+    */
+    case "umami":
+      /* The newest reading across the websites: they are read in one pass, so
+         this is one clock rather than an average of several. */
+      return (
+        live.umami?.websites
+          .map((w) => w.seenAt)
+          .filter((at): at is string => !!at)
+          .sort()
+          .at(-1) ?? null
+      );
+    case "calendar":
+      return (
+        live.calendar?.accounts
+          .map((a) => a.lastReadAt ?? a.lastOkAt)
+          .filter((at): at is string => !!at)
+          .sort()
+          .at(-1) ?? null
+      );
+    case "pypi":
+      return live.pypi?.summary.seenAt ?? null;
+    case "bluesky":
+      return (
+        live.bluesky?.handles
+          .map((h) => h.profile.seenAt)
+          .filter((at): at is string => !!at)
+          .sort()
+          .at(-1) ?? null
+      );
+    case "uptime":
+      /* When the last CHECK was made, which is the only clock these cards
+         have: there is no collection pass behind them, only observations. */
+      return live.uptime?.summary.lastCheckedAt ?? null;
+    case "fleet":
+      return live.boxes?.totals.seenAt ?? null;
+    case "products":
+      return live.products?.summary.lastFetchedAt ?? null;
+    case "backlinks":
+      return live.backlinks?.summary.seenAt ?? null;
+    case "presence":
+      return live.presence?.summary.checkedAt ?? null;
     case "costs":
     case "openai":
     case "openrouter":

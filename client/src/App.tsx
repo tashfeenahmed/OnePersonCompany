@@ -17,6 +17,7 @@ import { Plugins } from "@/pages/Plugins";
 import { Ventures } from "@/pages/Ventures";
 import { Venture } from "@/pages/Venture";
 import { VentureForm } from "@/pages/VentureForm";
+import { VentureMap } from "@/pages/VentureMap";
 import { Settings } from "@/pages/Settings";
 import { Apps } from "@/pages/Apps";
 import { Subagents } from "@/pages/Subagents";
@@ -85,8 +86,28 @@ export default function App() {
                       be one routing change away from being unreachable.
                     */}
                     <Route path="/ventures/new" element={<VentureForm />} />
+                    {/* The connection map, BEFORE `:slug` for the same reason
+                        `new` is: it is a literal segment and a venture could
+                        one day be slugged "map". React Router ranks static
+                        above dynamic anyway; the order says the intent. */}
+                    <Route path="/ventures/map" element={<VentureMap />} />
                     <Route path="/ventures/:slug" element={<Venture />} />
                     <Route path="/ventures/:slug/edit" element={<VentureForm />} />
+                    {/*
+                      THE VENTURE'S OTHER TABS. Real addresses rather than
+                      state, the same rule the boards follow: "what is
+                      Example App 1 connected to" is a place somebody sends a link
+                      to. They render the same `<Venture />` element as the
+                      overview, so moving between tabs reconciles as one
+                      component instead of remounting the page under the
+                      header.
+                    */}
+                    <Route
+                      path="/ventures/:slug/connections"
+                      element={<Venture />}
+                    />
+                    <Route path="/ventures/:slug/site" element={<Venture />} />
+                    <Route path="/ventures/:slug/audit" element={<Venture />} />
                     {/* A venture's own dashboards. The same board component
                         the global page renders, narrowed to this venture's
                         host — see components/BoardView and lib/scope. */}

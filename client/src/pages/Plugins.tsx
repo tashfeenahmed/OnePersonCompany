@@ -21,10 +21,6 @@ export function Plugins() {
   // Server-backed plugins report their own truth; the rest fall back to the
   // local store. One map either way, so the grid does not have to care.
   const server = useApi(() => api.plugins(), []);
-  const liveIds = useMemo(
-    () => new Set(server.data?.configurable ?? []),
-    [server.data],
-  );
 
   /* One row per server-backed plugin, so the grid can say both "connected"
      and "connected, but one of its two accounts is refusing" — which are
@@ -34,21 +30,35 @@ export function Plugins() {
     [server.data],
   );
 
-  const connected = useMemo(() => {
-    const live = new Map(
-      (server.data?.plugins ?? []).map((p) => [p.id, p.connected]),
-    );
-    return Object.fromEntries(
-      PLUGINS.map((p) => [
-        p.id,
-        // A server-backed plugin with no row is not connected — the catalog's
-        // own `connected` is mock data and must not stand in for the API.
-        liveIds.has(p.id)
-          ? (live.get(p.id) ?? false)
-          : (state.plugins[p.id] ?? p.connected),
-      ]),
-    );
-  }, [state.plugins, server.data, liveIds]);
+  /*
+    A ROW IS WHAT MAKES A PLUGIN LIVE, not membership of `configurable`.
+
+    `configurable` is the CREDENTIAL registry — the plugins with a vault entry
+    to write — and keying off it meant every integration whose configuration is
+    a LIST rather than a key read its state out of this browser's own store.
+    npm, Hacker News and now PyPI, Bluesky, uptime, backlinks and presence: all
+    of them genuinely connected on the server, all of them drawn from a local
+    flag that nothing on the server has ever seen. That flag is mock data, and
+    the AdSense correction this file already carries is the same mistake — a
+    dot saying "Connected" about something nobody measured.
+
+    So: a plugin the server has a row for is answered by the server, whether
+    what it holds is a credential or a list. Everything else — the catalog
+    entries with no route behind them yet — keeps the local fallback, which is
+    all a mock has.
+  */
+  const connected = useMemo(
+    () =>
+      Object.fromEntries(
+        PLUGINS.map((p) => [
+          p.id,
+          rows.has(p.id)
+            ? rows.get(p.id)!.connected
+            : (state.plugins[p.id] ?? p.connected),
+        ]),
+      ),
+    [state.plugins, rows],
+  );
 
   const total = PLUGINS.length;
   const on = PLUGINS.filter((p) => connected[p.id]).length;
@@ -175,11 +185,15 @@ export function Plugins() {
                       {p.desc}
                     </p>
                     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                      {liveIds.has(p.id) && (
+                      {rows.has(p.id) && (
                         <Badge
                           variant="outline"
                           className="font-normal"
-                          title="Backed by the API — real credentials, real data"
+                          title={
+                            p.fields.length
+                              ? "Backed by the API — real credentials, real data"
+                              : "Backed by the API — no key to paste, but the state and the data are real"
+                          }
                         >
                           live
                         </Badge>
@@ -203,7 +217,7 @@ export function Plugins() {
                           been revoked is true and useless. A catalog-only
                           plugin has no accounts to count, so it keeps naming
                           the vault entry it would write. */}
-                      {liveIds.has(p.id)
+                      {rows.has(p.id)
                         ? (() => {
                             const row = rows.get(p.id);
                             if (!row?.accounts.length) return null;

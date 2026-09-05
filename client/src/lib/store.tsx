@@ -210,7 +210,33 @@ const KEY = "opc-state-v5";
   REPAIR rather than a gift (see `migrate`), because an older cache has to be
   readable whatever version stamp it carries.
 */
-export const SEED_VERSION = 11;
+/*
+  v12 lands the nine second-wave integrations on the boards that were already
+  asking their questions with nothing to answer them.
+
+  The Servers board had CPU, network and disk throughput from Hetzner's
+  hypervisor and no memory or filesystem meter at all — because a hypervisor
+  cannot see inside a guest and the board's own comment said so. There is an
+  ssh collector now, so the two meters it could not draw are drawn, with the
+  probe's "is it answering at all" and its certificate countdown beside them.
+
+  Morning check gains the day's calendar and the same up/down figure, which is
+  the pair of things somebody actually opens a dashboard at 8am to see.
+
+  Growth gains PyPI rather than getting a board of its own. Growth is already
+  the "where does attention come from" board, and for a library a download IS
+  that signal — it belongs beside the Hacker News mentions it competes with for
+  the same attention. A third starter board built from four package cards would
+  be padding, which is the argument the Growth board's own comment makes about
+  why there is no separate Social board.
+
+  ANALYTICS IS NEW, because Umami answers a question none of the existing
+  boards do: Search Console reports what Google SHOWED, and Umami reports who
+  actually arrived. Those are not two views of one number and they must not
+  share a board where somebody might read them as one. Bluesky rides along
+  because it is the only other source that counts us about us.
+*/
+export const SEED_VERSION = 12;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -574,6 +600,47 @@ const SEED: StoreState = {
         { id: "w16", type: "instagram.followers", w: 2 },
         { id: "w17", type: "meta.cannot", w: 2 },
         { id: "w18", type: "hn.mentions", w: 2 },
+        { id: "w19", type: "pypi.downloads", w: 1 },
+        { id: "w20", type: "pypi.last30", w: 1 },
+        { id: "w21", type: "pypi.weekly", w: 4 },
+        { id: "w22", type: "pypi.packages", w: 4 },
+      ],
+    },
+    /*
+      ANALYTICS. What the sites themselves counted.
+
+      A board of its own rather than four more cards on Search & traffic, and
+      the reason is that they are not the same measurement. Search Console
+      reports impressions on a results page — how often Google showed us —
+      and Umami reports arrivals. A reader with both on one board will read
+      one as a funnel into the other, and there is no such funnel here: the
+      windows differ, the days are bucketed in different timezones, and a
+      pageview from a bookmark never touched a search engine.
+
+      Two refusals are on this board rather than hidden behind it. Umami has
+      no portfolio visitor count and Bluesky has no combined follower count,
+      both because the same person counted on two properties is one person and
+      neither API can subtract them again. The two cards that would carry those
+      totals say so instead, with the per-site and per-handle figures on the
+      tables below them.
+    */
+    {
+      id: "d-analytics",
+      slug: "analytics",
+      name: "Analytics",
+      widgets: [
+        { id: "an1", type: "umami.pageviews", w: 1 },
+        { id: "an2", type: "umami.visitors", w: 1 },
+        { id: "an3", type: "umami.bounce", w: 1 },
+        { id: "an4", type: "umami.avgVisit", w: 1 },
+        { id: "an5", type: "umami.daily", w: 4 },
+        { id: "an6", type: "umami.pages", w: 2 },
+        { id: "an7", type: "umami.referrers", w: 2 },
+        { id: "an8", type: "umami.events", w: 2 },
+        { id: "an9", type: "bluesky.followers", w: 1 },
+        { id: "an10", type: "bluesky.engagement", w: 1 },
+        { id: "an11", type: "umami.sites", w: 4 },
+        { id: "an12", type: "bluesky.handles", w: 4 },
       ],
     },
   ],
@@ -896,7 +963,34 @@ const TOP_UPS: Record<string, string[]> = {
     "meta.pages",
     "instagram.followers",
     "meta.cannot",
+    /*
+      PyPI, folded in here rather than given a board. Growth asks where
+      attention comes from, and for a library the answer is partly "people
+      installed it" — the same question `hn.mentions` two cards up is asking
+      from the other end. Nothing on this board adds a download to an
+      impression; they are two counts of two different acts.
+    */
+    "pypi.downloads",
+    "pypi.last30",
+    "pypi.weekly",
+    "pypi.packages",
   ],
+  /*
+    The Servers board shipped saying, in its own comment, that it had no memory
+    or filesystem meter because Hetzner reports from the hypervisor and those
+    live inside the guest. There is an ssh collector inside the guest now, so
+    the two absent meters arrive — and the uptime probe with them, because "the
+    box is at 40% memory" and "the site it serves is not answering" are the two
+    halves of the same morning and only one of them is visible from Hetzner.
+  */
+  "d-servers": ["fleet.memory", "fleet.disk", "uptime.up", "uptime.tls"],
+  /*
+    Morning check gains the two things a morning actually turns on: what is in
+    the calendar today, and whether anything went down overnight. `uptime.status`
+    was already on this board as a sample and is a measurement now without being
+    listed here — it kept its key, so the top-up has nothing to append.
+  */
+  "d-morning": ["calendar.today", "uptime.up"],
 };
 
 /** The addresses already taken inside one scope — a venture's boards, or the
