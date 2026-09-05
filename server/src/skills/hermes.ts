@@ -16,6 +16,17 @@
  * whenever the connected set changes, and a pack whose plugin has gone is
  * DELETED rather than left to rot.
  *
+ * A FEW OF THEM NOW SAY HOW TO CHANGE SOMETHING, and where they do it is a
+ * section of its own called "Acting on it" — never a line folded into the
+ * reading instructions. The agent reads this file in one pass and then does
+ * something, so a `curl -X POST` sitting in a paragraph about how to fetch a
+ * figure is a write it can make while it believes it is looking something up.
+ * A heading is what makes the two halves distinguishable at the speed a model
+ * reads. The frontmatter's one line names the actions too, for a blunter
+ * reason: that line is all the agent sees until it decides to open the pack,
+ * and an agent asked to add a card that has not been told the board can be
+ * written to will explain that it cannot.
+ *
  * WHY THE PACKS ARE FILED BY SUBJECT, NOT BY VENDOR.
  *
  * They were one category called `opc` with an `opc-` prefix on every name,
@@ -64,8 +75,13 @@ const PLACEMENT: Record<string, { name: string; category: string }> = {
   github: { name: "github-traffic", category: "development" },
   npm: { name: "npm-downloads", category: "development" },
   mail: { name: "mailbox-stats", category: "communication" },
+  /* `mailbox` beside `mailbox-stats`, which is the point: one counts and one
+     reads, they answer different questions, and the pair being adjacent in the
+     index is how the agent notices there is a choice to make. */
+  mailbox: { name: "mailbox", category: "communication" },
   telegram: { name: "telegram-bridge", category: "communication" },
   board: { name: "kanban-board", category: "productivity" },
+  ventures: { name: "ventures", category: "productivity" },
   stock: { name: "stock-media-quota", category: "media" },
   search: { name: "web-search", category: "research" },
 };
@@ -102,8 +118,17 @@ function frontmatter(s: Skill): string {
     "---",
     `name: ${packName(s.id)}`,
     /* The ONE line the agent sees before it decides to load anything, so it
-       has to say what the data is and not merely name it. */
-    `description: ${y(`${s.title}. Read it live over HTTP from this machine's own dashboard, with the rules for reporting the figures honestly.`)}`,
+       has to say what the data is and not merely name it — and, where the skill
+       can write, that it can, with the action names. An agent asked to move a
+       card does not open a pack whose one line only offers to read. */
+    `description: ${y(
+      `${s.title}. Read it live over HTTP from this machine's own dashboard, with ` +
+        `the rules for reporting the figures honestly.` +
+        (s.actions?.length
+          ? ` It can also change it — ${s.actions.map((a) => a.key).join(", ")} — ` +
+            `under the rules the pack sets out.`
+          : ""),
+    )}`,
     "version: 1.0.0",
     "license: MIT",
     "platforms: [linux, macos, windows]",
@@ -156,11 +181,66 @@ function body(s: Skill): string {
       out.push("");
     }
   }
+  const actions = s.actions ?? [];
   out.push(
-    `It is a GET and nothing here writes. Pipe it through \`python3 -m json.tool\` ` +
-      `or \`jq\` if the document is long; \`${base}/api/skills\` lists every skill ` +
-      `this dashboard has, with its parameters.\n`,
+    `Those are GETs: reading changes nothing at all. ` +
+      (actions.length
+        ? `Changing something is the next section, and there is no other way to ` +
+          `write here — no other URL and no other verb. `
+        : `This skill has nothing that writes: there is no other URL here and no ` +
+          `other verb. `) +
+      `Pipe it through \`python3 -m json.tool\` or \`jq\` if the document is long; ` +
+      `\`${base}/api/skills\` lists every skill this dashboard has, with its ` +
+      `parameters.\n`,
   );
+
+  /*
+    THE WRITES, UNDER A HEADING OF THEIR OWN.
+
+    Every one of them is a POST from the caller's side whatever the route
+    behind it wants, and every parameter goes in the JSON body — including the
+    ones that end up in a URL segment, because the proxy is what knows where a
+    card id belongs. So the shape is one shape, and the example below is a
+    thing that can be pasted rather than a template to assemble.
+  */
+  if (actions.length) {
+    out.push("## Acting on it\n");
+    out.push(
+      `These CHANGE the owner's own data. Each is a POST with a JSON body to the ` +
+        `URL shown — never to the route behind it — and every parameter goes in ` +
+        `the body, including ids. The reply is the whole document as it now ` +
+        `stands, so read what you changed back out of it and tell him what you ` +
+        `did. Do none of these unless he asked for that exact change.\n`,
+    );
+    for (const a of actions) {
+      /* The required parameters, filled with a placeholder of the right JSON
+         type — a number stays a number, because a quoted "1" is refused by the
+         routes behind these and a copied example that is refused teaches the
+         wrong lesson about the parameter. */
+      const example = JSON.stringify(
+        Object.fromEntries(
+          a.params.filter((p) => p.required).map((p) => [p.name, p.type === "number" ? 1 : "…"]),
+        ),
+      );
+      out.push(`**${a.about}**${a.destructive ? " **There is no undo.**" : ""}\n`);
+      out.push("```bash");
+      out.push(
+        `curl -s -X POST -H 'content-type: application/json' \\\n` +
+          `  -d '${example}' \\\n` +
+          `  "${base}/api/skills/${s.id}/${a.key}"`,
+      );
+      out.push("```\n");
+      if (a.params.length) {
+        out.push("| parameter | required | what it means |");
+        out.push("| --- | --- | --- |");
+        for (const p of a.params)
+          out.push(
+            `| \`${p.name}\` | ${p.required ? "**yes**" : `no${p.fallback !== undefined ? ` (default \`${p.fallback}\`)` : ""}`} | ${p.about} |`,
+          );
+        out.push("");
+      }
+    }
+  }
 
   /* THE PART THAT IS THE POINT. It is last rather than first because the agent
      reads the whole file, and last is what it has most recently seen when it

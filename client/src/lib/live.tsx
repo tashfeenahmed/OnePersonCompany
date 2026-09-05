@@ -32,6 +32,7 @@ import { WIDGETS } from "@/data/widgets";
 import {
   LIVE_BUILDERS,
 } from "@/lib/liveWidgets";
+import { ScopeContext, scopeLive } from "@/lib/scope";
 
 /**
  * Real numbers for the widgets that have them.
@@ -49,7 +50,7 @@ import {
 
 export type Point = { ts: string; value: number };
 
-type LiveData = {
+export type LiveData = {
   metrics: Record<string, Point[]>;
   hetzner: HetznerSummary | null;
   fleet: HetznerServer[];
@@ -537,6 +538,57 @@ export function LiveProvider({ children }: { children: ReactNode }) {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useLive = () => useContext(LiveContext);
+
+/**
+ * ONE VENTURE'S SLICE OF ALL OF IT.
+ *
+ * Wrapped around a venture's dashboard, this re-provides the SAME context the
+ * cards already read, holding data narrowed to that venture's hosts — so no
+ * widget, no chart and no builder needs to know that scoping exists. That is
+ * the whole reason it is done here rather than by passing a filter down: there
+ * are ninety widgets, and a prop threaded through all of them would be
+ * forgotten by one of them within a week.
+ *
+ * The unscoped document goes into the scope beside the hosts, because the
+ * cards that CANNOT be narrowed — a Hetzner bill, a Cloudflare daily line —
+ * draw from it and say "portfolio" in their header. See lib/scope.ts for which
+ * those are and why.
+ *
+ * With no hosts (a venture with no website yet) this is a pass-through: the
+ * board shows the whole portfolio and its header says so. Filtering everything
+ * away because nobody has typed a URL would be an empty page pretending to be
+ * a measurement.
+ */
+export function ScopeProvider({
+  hosts,
+  children,
+}: {
+  hosts: string[];
+  children: ReactNode;
+}) {
+  const base = useLive();
+  /* The hosts as a value rather than as an array: the page rebuilds the array
+     on every render and only its contents decide whether the narrowing has to
+     be done again. Narrowing is a pass over every report the page holds, so
+     doing it once per change rather than once per render is the difference
+     between a board that drags smoothly and one that does not. */
+  const key = hosts.join(",");
+  const value = useMemo(() => {
+    const list = key ? key.split(",") : [];
+    if (!list.length) return null;
+    return {
+      scope: { hosts: list, label: list.join(", "), base },
+      live: scopeLive(base, list),
+    };
+  }, [base, key]);
+
+  if (!value) return <>{children}</>;
+  return (
+    <ScopeContext.Provider value={value.scope}>
+      <LiveContext.Provider value={value.live}>{children}</LiveContext.Provider>
+    </ScopeContext.Provider>
+  );
+}
 
 /**
  * A percentage change, or null when the window is too short to mean anything.

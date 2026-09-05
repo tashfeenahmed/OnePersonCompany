@@ -2993,6 +2993,150 @@ export type SentEmailDoc = {
  * page looks the id up in the store; one that resolves to nothing is drawn as
  * unfiled, which is the truth about a card whose venture was deleted.
  */
+/* -------------------------------------------------------------- ventures */
+
+/**
+ * THE VENTURES LIVE ON THE SERVER NOW, and this is their wire shape.
+ *
+ * They were a list in localStorage — four names, four colours — for as long as
+ * nothing but this browser needed them. Two things ended that. The agent has
+ * to be able to read them (a venture's STAGE is the whole reason it can give
+ * advice worth having, and an idea and a launched product want opposite
+ * answers), and the board already stores a `venture_id` on every card, so half
+ * the fact was on the server and half of it was in one browser.
+ *
+ * The seeded ids are preserved across that move — `v-example-support` and its three
+ * siblings — because cards and chats already name them.
+ */
+export type VentureStage = "idea" | "pre-launch" | "launched";
+
+/**
+ * WHAT WAS MEASURED FROM THE SITE, and what could not be.
+ *
+ * Every field is nullable and `notes` carries the reasons, because this is a
+ * reading of somebody else's HTML: a site with no icon link, a stylesheet on
+ * another origin, a favicon too big to store. A null favicon means the site
+ * could not be read for one — never that it has none — and the pages say so
+ * in those words rather than drawing a blank square.
+ */
+export type VentureBrand = {
+  /** A data: URL, so it survives the site going down. Null when none was
+   *  found or it was too big to keep. */
+  favicon: string | null;
+  /** Where it was fetched from — the evidence behind the picture. */
+  faviconSource: string | null;
+  title: string | null;
+  description: string | null;
+  /** An absolute URL, deliberately NOT downloaded. */
+  ogImage: string | null;
+  themeColor: string | null;
+  lang: string | null;
+  palette: {
+    primary: string | null;
+    secondary: string | null;
+    accent: string | null;
+    background: string | null;
+    ink: string | null;
+    /** The top eight colours the roles above were assigned FROM, with the
+     *  weight each carried. Shown on the venture's Brand card so a reader can
+     *  see the evidence rather than the verdict. */
+    ranked: { hex: string; weight: number }[];
+  };
+  fonts: string[];
+  /** ISO. Null means the site has never been read. */
+  enrichedAt: string | null;
+  /** Why the last read failed OUTRIGHT — the site was unreachable. Null when
+   *  it worked, including when it worked and found nothing. */
+  error: string | null;
+  /** What could not be measured, and why. */
+  notes: string[];
+};
+
+export type Venture = {
+  id: string;
+  /**
+   * The URL segment: /ventures/<slug>. SET ONCE AT CREATION and never moved by
+   * a rename — the same rule a dashboard's slug follows, for the same reason.
+   */
+  slug: string;
+  name: string;
+  /** "What it is", in the owner's own words. "" when none — never null, so
+   *  nothing has to decide what an absent description means. */
+  description: string;
+  website: string | null;
+  /** The hostname without a leading "www.". This is what a venture dashboard
+   *  narrows its data to. */
+  host: string | null;
+  stage: VentureStage;
+  color: string;
+  /** Whether the colour was typed by the owner, measured from the site, or one
+   *  of the seven defaults. The Brand card says which. */
+  colorSource: "owner" | "site" | "default";
+  position: number;
+  brand: VentureBrand;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** What `GET /api/ventures` answers: the list in the owner's order, the counts
+ *  by stage, and the sentence each stage means — the server owns that copy so
+ *  the agent and this app cannot drift about what "pre-launch" is. */
+export type VentureList = {
+  ventures: Venture[];
+  counts: Record<VentureStage, number>;
+  stages: Record<VentureStage, string>;
+};
+
+/**
+ * The three stages and what each one means, as this client will say it when
+ * the server has not answered yet.
+ *
+ * A COPY OF THE SERVER'S SENTENCES, ON PURPOSE, and the form prefers the ones
+ * that arrive on the wire. The alternative is a "New venture" page that cannot
+ * describe its own choices until a fetch lands, which is the one moment those
+ * sentences are actually being read.
+ */
+export const VENTURE_STAGES: { id: VentureStage; label: string; note: string }[] = [
+  {
+    id: "idea",
+    label: "Idea",
+    note: "Not built yet. Validate demand, size it, decide whether to build.",
+  },
+  {
+    id: "pre-launch",
+    label: "Pre-launch",
+    note: "Being built or about to ship. Get to a first release: launch checklist, landing page, first users.",
+  },
+  {
+    id: "launched",
+    label: "Launched",
+    note: "Live and serving people. Grow it, keep it healthy, watch revenue and churn.",
+  },
+];
+
+/** A create body. Only the name is required — a venture typed in a hurry has
+ *  to be able to exist before it has a website. */
+export type VentureInput = {
+  name: string;
+  description?: string;
+  website?: string | null;
+  stage?: VentureStage;
+  color?: string | null;
+};
+
+/** A partial edit: a field left out is untouched, a field sent as `null` is
+ *  CLEARED. The same contract the board's card patch keeps, and what makes
+ *  "forget the website" an instruction rather than an omission. */
+export type VenturePatch = {
+  name?: string;
+  description?: string | null;
+  website?: string | null;
+  stage?: VentureStage;
+  /** A hex sets `colorSource: "owner"`; null reverts to the site's measured
+   *  primary, or a default when nothing was measured. */
+  color?: string | null;
+};
+
 export type BoardCard = {
   id: number;
   columnId: number;
@@ -3051,6 +3195,20 @@ export type BoardColumn = {
  */
 export type BoardDoc = {
   columns: BoardColumn[];
+  /**
+   * The ventures the cards on this board actually name, resolved at read time.
+   *
+   * OPTIONAL, because a server that has not shipped this yet is an ordinary
+   * thing for a page to meet and the store's own cache is the fallback. When
+   * it is here it WINS: it is resolved from the ventures table on the same
+   * request that returned the cards, where the store's copy is whatever this
+   * browser last fetched. A card whose venture was deleted resolves to nothing
+   * and is drawn unfiled, which is the behaviour that was already true.
+   */
+  ventures?: Record<
+    string,
+    { name: string; slug: string; color: string; stage: VentureStage }
+  >;
   totals: {
     cards: number;
     done: number;
@@ -3433,10 +3591,10 @@ export const api = {
    * live and carries the sentence to show; a 502 means the agent was reached
    * and failed.
    */
-  chatSend: (sessionId: string, message: string) =>
+  chatSend: (sessionId: string, message: string, ventureId?: string | null) =>
     call<ChatReply>("/chat", {
       method: "POST",
-      body: JSON.stringify({ sessionId, message }),
+      body: JSON.stringify({ sessionId, message, ventureId: ventureId ?? null }),
     }),
 
   /**
@@ -3462,11 +3620,23 @@ export const api = {
     message: string,
     handlers: ChatStreamHandlers,
     signal?: AbortSignal,
+    /**
+     * WHICH VENTURE THIS QUESTION IS ABOUT, when it is about one.
+     *
+     * Context rather than instruction: the server turns it into one system
+     * turn naming the venture, its stage and what the owner said it is, so
+     * "how is it doing this month" has a referent. It is not stored with the
+     * message — the venture a chat is filed under can change, and a transcript
+     * that carried last week's answer to that question would be wrong twice.
+     * An id the server does not recognise is ignored rather than refused: a
+     * stale id in this browser is not a reason to lose the message.
+     */
+    ventureId?: string | null,
   ): Promise<void> => {
     const res = await fetch(`${BASE}/chat/stream`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify({ sessionId, message }),
+      body: JSON.stringify({ sessionId, message, ventureId: ventureId ?? null }),
       signal,
     });
 
@@ -3705,6 +3875,60 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ mode }),
     }),
+
+  /* ---------------------------------------------------------- ventures */
+
+  /**
+   * The ventures, and the vocabulary that goes with them.
+   *
+   * NESTED RATHER THAN FLAT — the one object in this client that is — because
+   * this is a small CRUD surface over one resource and `api.ventures.update`
+   * reads as what it does where a seventh `updateVenture` in a list of ninety
+   * functions would not. Everything else here is a verb against a report.
+   */
+  ventures: {
+    list: () => call<VentureList>("/ventures"),
+
+    /** `key` is an id or a slug: the server resolves either, so a page that
+     *  has the URL segment does not have to look the id up first. */
+    get: (key: string) => call<Venture>(`/ventures/${encodeURIComponent(key)}`),
+
+    /**
+     * Make one. With a website this READS THE SITE before it answers —
+     * favicon, colours, title — which is why the form shows a busy state
+     * saying so. A site that cannot be read never fails the create: the
+     * reason lands in `brand.error` and the venture exists anyway.
+     */
+    create: (body: VentureInput) =>
+      call<Venture>("/ventures", { method: "POST", body: JSON.stringify(body) }),
+
+    update: (key: string, patch: VenturePatch) =>
+      call<Venture>(`/ventures/${encodeURIComponent(key)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+
+    /** The venture, and nothing else. Board cards keep their `ventureId` and
+     *  are drawn unfiled; this app deletes the venture's dashboards itself,
+     *  because they are its own state. */
+    remove: (key: string) =>
+      call<{ ok: true }>(`/ventures/${encodeURIComponent(key)}`, {
+        method: "DELETE",
+      }),
+
+    /** Read the site again. The one write whose whole purpose is to replace
+     *  measurements with fresher measurements. */
+    enrich: (key: string) =>
+      call<Venture>(`/ventures/${encodeURIComponent(key)}/enrich`, {
+        method: "POST",
+      }),
+
+    reorder: (ids: string[]) =>
+      call<{ ventures: Venture[] }>("/ventures/reorder", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+  },
 
   /* ------------------------------------------------------- the board app */
 

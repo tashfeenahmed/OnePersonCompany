@@ -105,6 +105,14 @@ import { noteOutcome } from "./models.ts";
 */
 import { readMode } from "../agents/instance.ts";
 import { preamble } from "../skills/registry.ts";
+/*
+  WHICH BUSINESS THIS CONVERSATION IS ABOUT, when the page said. Imported
+  from the route rather than read from the table here, because the STAGE
+  prose that goes in the turn belongs to /api/ventures and must have exactly
+  one author — the form the owner picked the stage on, the agent that acts
+  on it and this turn all quote the same sentence.
+*/
+import { ventureContext } from "./ventures.ts";
 
 export const chat = new Hono();
 
@@ -178,6 +186,75 @@ function withSkills(turns: ChatTurn[], live: ChatBackend | null): ChatTurn[] {
   if (!live) return turns;
   if (readMode(live.id) === "managed") return turns;
   return [{ role: "system", content: preamble() }, ...turns];
+}
+
+/**
+ * TELL WHOEVER IS ANSWERING WHICH BUSINESS THIS IS ABOUT.
+ *
+ * THIS ONE GOES TO EVERYBODY, and that is the difference from `withSkills`
+ * above — which is why the two are separate functions rather than one with a
+ * flag. The preamble stands down for a managed agent because the agent already
+ * has the same instructions as skill packs, and stands down for a raw provider
+ * because it would be telling a model with no tools to fetch a URL. Neither
+ * argument applies here: this is not an instruction about tools, it is the
+ * SUBJECT of the conversation. A managed Hermes could go and read
+ * /api/skills/ventures, but it would have to guess that it should, and a raw
+ * model cannot read anything at all — for both of them, "the owner is asking
+ * about Example App 1, which is launched" is the difference between advice about
+ * churn and advice about validating demand.
+ *
+ * THE STAGE IS THE PAYLOAD. Everything else in the turn is there to make the
+ * answer specific; the stage is what makes it CORRECT. So it arrives with the
+ * sentence that defines it rather than as a bare word, because "pre-launch"
+ * means something precise to the owner who picked it off a form that explained
+ * it, and nothing in particular to a model that has met the word in a thousand
+ * other contexts.
+ *
+ * THE URL IS MENTIONED ONLY TO SOMETHING THAT COULD FETCH IT. Any live agent
+ * can — a managed one through its own MCP tools and packs, a remote one
+ * through the preamble's base URL — so both are told where the full record is.
+ * The provider fallback is told nothing about URLs, for the reason
+ * `withSkills` gives at length: a model asked to fetch something it cannot
+ * fetch does not say so, it writes down what the answer would probably have
+ * been.
+ *
+ * NOT STORED, and prepended rather than appended, on the same rule the
+ * preamble keeps: it is context for one call rather than something anybody
+ * said, and a transcript read six weeks later must not have a paragraph in it
+ * the owner never typed. An id that names nothing is IGNORED — a client
+ * holding a venture deleted in another tab is a stale page, not a bad request.
+ */
+function withVenture(
+  turns: ChatTurn[],
+  ventureId: string | null,
+  live: ChatBackend | null,
+): ChatTurn[] {
+  if (!ventureId) return turns;
+  const ctx = ventureContext(ventureId);
+  if (!ctx) return turns;
+  const { venture, stageMeans } = ctx;
+
+  const lines = [
+    `This conversation is about one of the owner's ventures.`,
+    ``,
+    `Name: ${venture.name}`,
+    `Stage: ${venture.stage} — ${stageMeans}`,
+  ];
+  if (venture.website)
+    lines.push(`Website: ${venture.website}${venture.host ? ` (${venture.host})` : ""}`);
+  if (venture.description) lines.push(`What it is: ${venture.description}`);
+  lines.push(
+    ``,
+    `The stage is the owner's own declaration and it is what to tailor advice ` +
+      `to. The description is the owner's words about it.`,
+  );
+  if (live)
+    lines.push(
+      `The whole record — including the colours and the icon measured from the ` +
+        `site — is GET /api/skills/ventures.`,
+    );
+
+  return [{ role: "system", content: lines.join("\n") }, ...turns];
 }
 
 /* ------------------------------------------------------------------ shapes */
@@ -289,7 +366,18 @@ function backendState() {
  * grew a field.
  */
 type SendBody =
-  | { ok: true; sessionId: string; message: string; channel: "web" | "telegram" }
+  | {
+      ok: true;
+      sessionId: string;
+      message: string;
+      channel: "web" | "telegram";
+      /** Which venture the page had open when this was typed, or null. NOT
+       *  validated against the table here — an id that names nothing is
+       *  ignored downstream rather than refused, because a client holding a
+       *  venture somebody deleted in another tab has a stale list, not a bad
+       *  request, and refusing its message would be losing the message. */
+      ventureId: string | null;
+    }
   | { ok: false; status: 400 | 413; error: string };
 
 async function readSendBody(c: {
@@ -299,6 +387,7 @@ async function readSendBody(c: {
     sessionId?: string;
     message?: string;
     channel?: string;
+    ventureId?: string;
   } | null;
 
   const sessionId = (body?.sessionId ?? "").trim();
@@ -316,11 +405,13 @@ async function readSendBody(c: {
         `file rather than a message, and the agent would refuse it after a ` +
         `long wait and a token bill.`,
     };
+  const ventureId = (body?.ventureId ?? "").trim();
   return {
     ok: true,
     sessionId,
     message,
     channel: body?.channel === "telegram" ? "telegram" : "web",
+    ventureId: ventureId || null,
   };
 }
 
@@ -440,7 +531,7 @@ chat.delete("/:sessionId", (c) => {
 chat.post("/", async (c) => {
   const body = await readSendBody(c);
   if (!body.ok) return c.json({ error: body.error }, body.status);
-  const { sessionId, message, channel } = body;
+  const { sessionId, message, channel, ventureId } = body;
 
   /*
     WHO IS GOING TO ANSWER — AND THE FALLBACK, WHICH IS THE ONE REAL ADDITION
@@ -487,7 +578,15 @@ chat.post("/", async (c) => {
     disagreeing with the stored ones by an off-by-one.
   */
   const history = chatMessages(sessionId, CONTEXT_TURNS);
-  const turns: ChatTurn[] = history.map((m) => ({ role: m.role, content: m.content }));
+  /* The transcript, with the venture the page was on in front of it when there
+     was one. Built once and used on BOTH paths below — the agent's and the
+     provider fallback's — because a question about a business must not get a
+     different answer depending on which of them happened to be live. */
+  const turns: ChatTurn[] = withVenture(
+    history.map((m) => ({ role: m.role, content: m.content })),
+    ventureId,
+    live,
+  );
 
   try {
     /*
@@ -652,7 +751,7 @@ chat.post("/", async (c) => {
 chat.post("/stream", async (c) => {
   const body = await readSendBody(c);
   if (!body.ok) return c.json({ error: body.error }, body.status);
-  const { sessionId, message, channel } = body;
+  const { sessionId, message, channel, ventureId } = body;
 
   /*
     REFUSED AS A PLAIN HTTP ERROR, BEFORE THE STREAM OPENS. A 503 with a
@@ -671,7 +770,12 @@ chat.post("/stream", async (c) => {
      turn that falls over still leaves the question in the transcript. */
   const stored = appendChatMessage({ sessionId, role: "user", content: message, channel });
   const history = chatMessages(sessionId, CONTEXT_TURNS);
-  const turns: ChatTurn[] = history.map((m) => ({ role: m.role, content: m.content }));
+  /* Same as the non-streaming route, for the same reason. */
+  const turns: ChatTurn[] = withVenture(
+    history.map((m) => ({ role: m.role, content: m.content })),
+    ventureId,
+    live,
+  );
 
   const backendId: MessageBackendId = live
     ? live.id

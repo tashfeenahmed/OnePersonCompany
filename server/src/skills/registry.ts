@@ -31,13 +31,38 @@
  * moment one credential was removed and take the other half's data with it,
  * which is the opposite of what every one of these routes does on failure.
  *
- * WHAT IS DELIBERATELY NOT HERE. `/api/mailbox` reads live Gmail — subjects,
- * bodies, correspondents — and is the one route on this server whose whole
- * design is that nothing is stored and nothing is logged. Handing an agent a
- * tool onto it would widen a surface that was narrowed on purpose, and the
- * questions this feature exists to answer ("what is my MRR", "which domains
- * lapse") do not need it. `/api/plugins` and the agent routes are not here
- * either: they are how the dashboard is administered, not what it measured.
+ * SOME OF IT WRITES NOW, AND THE ENTRY IS WHERE THAT IS DECIDED. `views` are
+ * GETs and `actions` are not: an action names a POST, PATCH or DELETE on a
+ * route of this box, and the proxy will make that call. The owner asked for
+ * two things by name — an agent that can work his board, and an agent that can
+ * read his mail — so the honest place for the write is here, beside the rules
+ * that say when to make it, rather than in a chat message asking him to go and
+ * do it himself. An entry with no `actions` is exactly as read-only as it was
+ * before, and most of them have none.
+ *
+ * WHAT IS STILL DELIBERATELY NOT HERE, now that "nothing writes" is no longer
+ * the whole answer. There is no send, no forward and no reply: `/api/mailbox`
+ * has no such route to proxy — its one write flips the UNREAD label and is not
+ * published here — so an agent cannot send mail as the owner, and that is a
+ * fact about the code rather than a rule it might talk itself out of. There is
+ * no venture delete: a venture is the folder months of board cards, dashboards
+ * and chat sessions hang off, and removing one is a decision the owner makes in
+ * the page that can tell him what goes with it. `/api/plugins`, the credential
+ * store and the agent routes are not here at all — they are how the dashboard
+ * is administered, not what it measured, and an agent that could rewrite a
+ * credential could rewrite the door it came in through.
+ *
+ * `/api/mailbox` WAS EXCLUDED HERE AND NOW IS NOT, so the old note is replaced
+ * rather than quietly deleted. It said that handing an agent a tool onto live
+ * Gmail would widen a surface that was narrowed on purpose. The surface is the
+ * same width it always was; what changed is that the owner asked for it, and
+ * the questions he asks of it — "what did that client actually say" — cannot be
+ * answered out of any table on this box, because no table here has a column for
+ * a subject or a body. So the narrowing moved from "there is no tool" to the
+ * rules on the entry: nothing is stored, nothing is logged, nothing is marked
+ * read, quote only what was asked about, and read no more threads than the
+ * question needs. That is weaker than absence, it is what was asked for, and it
+ * is written down here so that it is at least visible.
  */
 import { PORT } from "../config.ts";
 import { getPlugin } from "../db.ts";
@@ -56,6 +81,16 @@ export type SkillParam = {
    *  answered a different question than the one asked, and an agent that did
    *  not know that will caption the answer with the number it sent. */
   about: string;
+  /**
+   * WHERE THE VALUE GOES ON THE WIRE, and it is here rather than inferred
+   * because two of these routes address a resource in the path — a thread is
+   * `/api/mailbox/threads/<id>`, a venture is `/api/ventures/<key>` — and a
+   * parameter that must be substituted into a path is a different thing from
+   * one that is appended to it. Left out it is `query` on a view and `body` on
+   * an action, which is what every other parameter here is; the proxy reads it
+   * out of the same place either way, so a caller never has to know.
+   */
+  in?: "query" | "path" | "body";
 };
 
 export type SkillView = {
@@ -66,6 +101,43 @@ export type SkillView = {
   path: string;
   about: string;
   params: SkillParam[];
+};
+
+/**
+ * A WRITE, NAMED AND BOUNDED.
+ *
+ * The difference between this and a view is not the verb, it is that calling
+ * one changes something the owner will find changed later. So an action names
+ * exactly one route, exactly one method and exactly the parameters that route
+ * reads — there is no passthrough, no `body` escape hatch and no way to reach a
+ * route nobody wrote an entry for. An agent handed these can create a card and
+ * cannot create a column, because there is no entry for a column and the proxy
+ * has nowhere else to send a request.
+ *
+ * `path` MAY CARRY `:name` SEGMENTS, filled from the parameters marked
+ * `in: "path"`. That is how "update THAT card" is expressed without letting the
+ * caller compose a URL: it sends an id, and this file decides where in the path
+ * an id goes.
+ *
+ * `destructive` IS A CLAIM AND NOT A MOOD. It means the change cannot be undone
+ * from here — deleting a card, where archiving the same card is reversible —
+ * and it is published as MCP's `destructiveHint`, a field a client is entitled
+ * to trust when it decides whether to ask a person first. Marking a reversible
+ * action destructive to be safe would train that client to ignore the field.
+ */
+export type SkillAction = {
+  /** The `<action>` in `POST /api/skills/<id>/<action>`. Snake case, a verb
+   *  first, and unique within its skill. */
+  key: string;
+  /** The method the REAL route wants. The proxy speaks it; the caller always
+   *  POSTs, because a caller that had to choose could choose wrong. */
+  method: "POST" | "PATCH" | "DELETE";
+  /** The real route, with `:name` segments where a path parameter goes. */
+  path: string;
+  about: string;
+  params: SkillParam[];
+  /** Irreversible from here. See the type header. */
+  destructive?: boolean;
 };
 
 export type Skill = {
@@ -86,6 +158,12 @@ export type Skill = {
    */
   rules: string[];
   views: SkillView[];
+  /**
+   * WHAT CALLING IT CAN CHANGE. Absent on every entry that only reads, which is
+   * most of them, and that absence is the thing to read first: a skill with no
+   * `actions` key cannot be made to write by any request the proxy will accept.
+   */
+  actions?: SkillAction[];
   /** One or two questions this actually answers, so an agent can recognise the
    *  shape of the question rather than matching on the noun. */
   asks: string[];
@@ -432,6 +510,176 @@ export const ENTRIES: Skill[] = [
     asks: [
       "How much mail is waiting on a reply?",
       "Is any sending domain's DNS broken, and what bounced this month?",
+      "For what a message actually SAYS, this is the wrong skill — use `mailbox`, " +
+        "which reads Gmail live. This one counts and never quotes.",
+    ],
+  },
+
+  /**
+   * THE ONE THAT READS THE MAIL ITSELF, and it is filed next to the one that
+   * counts it so that the difference is impossible to miss. `mail` above is a
+   * collector's tables and structurally cannot hold a subject; this is a live
+   * proxy onto Gmail that holds nothing at all.
+   */
+  {
+    id: "mailbox",
+    title: "Mailbox — the threads themselves, read live",
+    plugins: ["gmail"],
+    about:
+      "The actual mail: threads with their subjects, correspondents and message " +
+      "bodies, fetched from Gmail on the read and stored nowhere. One Gmail " +
+      "account receives every domain in this portfolio through Cloudflare " +
+      "forwarding, so a 'mailbox' here is a Gmail QUERY on the To line " +
+      "(`to:(@support.example.test)`) rather than a folder. `sent` is the other end: " +
+      "what the products themselves sent people, through Resend.",
+    rules: [
+      "NOTHING READ HERE IS STORED AND NOTHING IS LOGGED. The route holds no " +
+        "cache, writes no row and prints no line of any message. Whatever you " +
+        "carry out of a call is the only copy — so put in your answer what the " +
+        "owner asked about and not the rest of the thread.",
+      "READ NO MORE MAIL THAN THE QUESTION NEEDS. One thread answers \"what did " +
+        "she say\"; a page of twenty-five to answer it is twenty-four private " +
+        "conversations opened for nothing. Search with `q` before you page.",
+      "QUOTE NARROWLY AND ATTRIBUTE. Say who wrote it and when, quote the line " +
+        "that answers the question, and do not summarise a whole thread the owner " +
+        "did not ask you to summarise.",
+      "READING MARKS NOTHING AS READ. An unread thread stays unread; the route " +
+        "that flips that label is not published here. So the owner's inbox looks " +
+        "exactly as it did before you looked at it, and you must not tell him you " +
+        "have cleared anything.",
+      "THERE IS NO SEND, NO REPLY AND NO FORWARD. This skill has no actions at " +
+        "all — there is no route behind it that could write a message. Draft the " +
+        "reply in the conversation and let the owner send it himself.",
+      "`query` on the answer is the Gmail search that actually ran, verbatim. An " +
+        "empty result means that query found nothing, which is NOT the same as the " +
+        "correspondent having sent nothing — quote the query when you report a " +
+        "nil, and check `mailboxIgnored`, which names a mailbox filter that was " +
+        "dropped because no connected key covers it.",
+      "The `mailbox` a thread is attributed to is decided from the To, Cc and " +
+        "Delivered-To lines against the domains the Resend keys cover. It is an " +
+        "inference from headers a forwarder rewrote, so it is good enough to " +
+        "group by and not good enough to assert as fact about a customer.",
+    ],
+    views: [
+      {
+        key: "threads",
+        path: "/api/mailbox/threads",
+        about:
+          "A page of threads: subject, who wrote, when, the snippet, the labels, " +
+          "how many messages, and which mailbox it arrived at. Bodies are NOT here.",
+        params: [
+          {
+            name: "q",
+            type: "string",
+            required: false,
+            about:
+              "A Gmail search, in Gmail's own syntax (`from:`, `subject:`, " +
+              "`newer_than:7d`, `has:attachment`). Truncated at 500 characters. It is " +
+              "ANDed with the mailbox filter below rather than replacing it.",
+          },
+          {
+            name: "mailbox",
+            type: "string",
+            required: false,
+            fallback: "all",
+            about:
+              "Narrow to one venture domain (`support.example.test`), to `gmail` for mail " +
+              "addressed to the Google account itself, or `all`. A domain no " +
+              "connected key covers is IGNORED and named in `mailboxIgnored` — the " +
+              "answer widens rather than coming back empty.",
+          },
+          {
+            name: "limit",
+            type: "number",
+            required: false,
+            fallback: 25,
+            about:
+              "Threads on the page. Clamped to 1–50; anything unparseable becomes 25. " +
+              "Each row costs a separate fetch from Gmail, so a big page is slow as " +
+              "well as nosy.",
+          },
+          {
+            name: "page",
+            type: "string",
+            required: false,
+            about:
+              "Gmail's own opaque cursor, taken from `nextPage` on a previous answer. " +
+              "It is not an ordinal and there is no page 2.",
+          },
+          {
+            name: "account",
+            type: "number",
+            required: false,
+            about:
+              "Which connected Gmail account, by the id in the `mailboxes` view. " +
+              "Absent means the primary; an unparseable one also means the primary.",
+          },
+        ],
+      },
+      {
+        key: "thread",
+        path: "/api/mailbox/threads/:id",
+        about:
+          "One conversation, every message in it, with the bodies — sanitised HTML " +
+          "and a plain-text alternative. Remote images are stripped unless asked " +
+          "for by message id, because a remote image in mail is usually a tracking " +
+          "pixel and loading one tells the sender it was opened.",
+        params: [
+          {
+            name: "id",
+            type: "string",
+            required: true,
+            in: "path",
+            about: "The thread id, from a row in the `threads` view.",
+          },
+          {
+            name: "account",
+            type: "number",
+            required: false,
+            about: "The Gmail account the thread belongs to. Absent means the primary.",
+          },
+        ],
+      },
+      {
+        key: "mailboxes",
+        path: "/api/mailbox/mailboxes",
+        about:
+          "What can be filtered on: every connected sending domain, plus the Gmail " +
+          "account itself, and whether there is a mailbox to read at all.",
+        params: [],
+      },
+      {
+        key: "sent",
+        path: "/api/mailbox/sent",
+        about:
+          "What the PRODUCTS sent — password resets, receipts, notifications — " +
+          "through Resend, newest first, with what became of each. Without a " +
+          "`domain` it merges one page from each domain and has no next page.",
+        params: [
+          {
+            name: "domain",
+            type: "string",
+            required: false,
+            about:
+              "One sending domain. A domain no connected key covers answers 404 with " +
+              "the list of the ones that are covered. Naming a domain is also what " +
+              "turns paging on.",
+          },
+          {
+            name: "page",
+            type: "string",
+            required: false,
+            about:
+              "Resend's cursor, from `nextPage`. Only meaningful with a `domain` — " +
+              "the merged view has no cursor that could mean anything across ten " +
+              "independent lists.",
+          },
+        ],
+      },
+    ],
+    asks: [
+      "What did the customer who wrote about the refund actually say?",
+      "Is there anything in the support.example.test mailbox from this week I have not answered?",
     ],
   },
 
@@ -865,6 +1113,175 @@ export const ENTRIES: Skill[] = [
   },
 
   {
+    id: "ventures",
+    title: "Ventures — the businesses this is all about",
+    plugins: [],
+    about:
+      "The projects themselves: each one's name, what the owner says it is, its " +
+      "website, and the STAGE he has put it at — idea, pre-launch or launched. " +
+      "Beside that is what was measured FROM the site: its favicon, its title and " +
+      "description, its colour palette and its fonts. It needs no credential, so " +
+      "it is always available, and its ids are what every board card's " +
+      "`ventureId` and every venture-scoped question refers to.",
+    rules: [
+      "STAGE IS THE OWNER'S DECLARATION AND IT IS THE THING TO TAILOR ADVICE TO. " +
+        "`idea` — not built yet; validate demand, size it, decide whether to " +
+        "build. `pre-launch` — being built or about to ship; get to a first " +
+        "release: launch checklist, landing page, first users. `launched` — live " +
+        "and serving people; grow it, keep it healthy, watch revenue and churn. " +
+        "Growth advice for an idea, or validation advice for a launched product, " +
+        "is advice about a business he does not have.",
+      "THE DESCRIPTION IS THE OWNER'S OWN WORDS. Quote it; never rewrite, polish " +
+        "or 'improve' it through the update action unless he asked you to change " +
+        "exactly that.",
+      "EVERYTHING UNDER `brand` WAS MEASURED FROM THE SITE, not chosen by anybody. " +
+        "Say so when you quote it — \"the site's primary reads as #c1663f\" and not " +
+        "\"your brand colour is #c1663f\". `brand.palette.ranked` is what the roles " +
+        "were assigned from, and `brand.notes` says what could not be measured.",
+      "A NULL FAVICON OR AN EMPTY PALETTE MEANS THE SITE COULD NOT BE READ, not " +
+        "that the site has none. `brand.error` says the read failed outright and " +
+        "`brand.enrichedAt: null` means it has never been attempted — neither is a " +
+        "finding about the business.",
+      "CREATING A VENTURE IS CREATING A FOLDER the owner will see on his Ventures " +
+        "page forever. Only do it when he has asked for a new one by name, and " +
+        "report the id and the slug that came back.",
+      "THERE IS NO DELETE HERE, deliberately. A venture is what board cards, " +
+        "dashboards and chat sessions hang off, and removing one is a decision " +
+        "made in the page that can say what goes with it. If he asks you to delete " +
+        "a venture, say where the button is.",
+      "COLOUR IS NOT AN ACTION PARAMETER. It is either the owner's own choice or " +
+        "the one measured from the site, and an agent picking a brand colour is an " +
+        "agent making a decision nobody asked it to make.",
+    ],
+    views: [
+      {
+        key: "default",
+        path: "/api/ventures",
+        about:
+          "Every venture in the owner's own order, the count at each stage, and " +
+          "the sentence that says what each stage means.",
+        params: [],
+      },
+      {
+        key: "one",
+        path: "/api/ventures/:key",
+        about: "One venture, whole, including everything measured from its site.",
+        params: [
+          {
+            name: "key",
+            type: "string",
+            required: true,
+            in: "path",
+            about:
+              "Its id (`v-example-support`) or its slug (`example-support`). Both address the " +
+              "same record; the id is what board cards carry.",
+          },
+        ],
+      },
+    ],
+    actions: [
+      {
+        key: "create",
+        method: "POST",
+        path: "/api/ventures",
+        about:
+          "Write down a new venture. When a website is given the site is read " +
+          "there and then — favicon, title, colours — which takes a few seconds; a " +
+          "site that cannot be read still creates the venture and says why in " +
+          "`brand.error`. Answers with the venture, including the slug it was given.",
+        params: [
+          {
+            name: "name",
+            type: "string",
+            required: true,
+            about:
+              "What he calls it. At most 80 characters. The URL slug is made from " +
+              "this ONCE, at creation, and a later rename never changes it.",
+          },
+          {
+            name: "description",
+            type: "string",
+            required: false,
+            about:
+              "What it is, in his words — the sentence he would use, not a marketing " +
+              "line you wrote for him.",
+          },
+          {
+            name: "website",
+            type: "string",
+            required: false,
+            about:
+              "Its address. A bare `support.example.test` is accepted and normalised to " +
+              "https://. Anything that is not an http(s) URL is refused.",
+          },
+          {
+            name: "stage",
+            type: "string",
+            required: false,
+            fallback: "idea",
+            about:
+              "`idea`, `pre-launch` or `launched` — nothing else. Absent means " +
+              "`idea`. Ask which one rather than guessing from the website: a live " +
+              "landing page is a common thing for an idea to have.",
+          },
+        ],
+      },
+      {
+        key: "update",
+        method: "PATCH",
+        path: "/api/ventures/:key",
+        about:
+          "Change one thing about a venture. A field left out is untouched; a " +
+          "field sent as null is cleared. Changing the website re-reads the site.",
+        params: [
+          {
+            name: "key",
+            type: "string",
+            required: true,
+            in: "path",
+            about: "The venture's id or slug.",
+          },
+          {
+            name: "name",
+            type: "string",
+            required: false,
+            about: "A new name. The slug does not follow it — old links keep working.",
+          },
+          {
+            name: "description",
+            type: "string",
+            required: false,
+            about:
+              "New words for what it is, or null to clear them. His words, not " +
+              "yours — see the rules.",
+          },
+          {
+            name: "website",
+            type: "string",
+            required: false,
+            about:
+              "A new address, which re-reads the site, or null to remove it — which " +
+              "also drops everything measured from it.",
+          },
+          {
+            name: "stage",
+            type: "string",
+            required: false,
+            about:
+              "`idea`, `pre-launch` or `launched`. Moving a venture between stages " +
+              "is the owner's call about his own business; do it when he says so, " +
+              "not because a launch looked done to you.",
+          },
+        ],
+      },
+    ],
+    asks: [
+      "What am I working on, and which of them have actually launched?",
+      "Add a new venture called Ledgerpost — it's an idea, no site yet.",
+    ],
+  },
+
+  {
     id: "board",
     title: "The board — what the owner wrote down",
     plugins: [],
@@ -875,11 +1292,23 @@ export const ENTRIES: Skill[] = [
     rules: [
       "THESE ROWS ARE THE RECORD, not a collector's transcript. Every other skill " +
         "here is a window onto what a provider reported; these are the owner's own " +
-        "words and nothing collects them.",
-      "This skill is READ ONLY. Adding, moving, editing or archiving a card is a " +
-        "POST/PATCH/DELETE on /api/board and is not reachable through the skills " +
-        "proxy. Ask the owner rather than writing on his board.",
-      "A due date that has passed is a fact about the card, not a system failure.",
+        "words and nothing collects them. A card lost is work lost.",
+      "THIS ONE WRITES, through the five actions below and through nothing else. " +
+        "Never create, move, edit, archive or delete a card the owner did not ask " +
+        "you to. \"While I was in there I tidied the column\" is the failure this " +
+        "rule exists to prevent, and it is not recoverable from a chat transcript.",
+      "ASK BEFORE YOU ARCHIVE AND ASK AGAIN BEFORE YOU DELETE. Archiving hides a " +
+        "card from every read of the board; deleting removes the row and there is " +
+        "no undo anywhere in this app. Where either would do, archive.",
+      "SAY WHAT YOU DID AND NAME THE ID. Every one of these answers with the WHOLE " +
+        "board rather than with the card, so read the id back out of the reply and " +
+        "quote it — the owner has no other way to find what you touched.",
+      "`ventureId` is one of the ids from the `ventures` skill and nothing else. An " +
+        "invented one is accepted by the route and resolves to no venture, which " +
+        "draws the card as unfiled and looks like a bug in the page.",
+      "Urgency is 0 low, 1 normal, 2 high, 3 urgent — the numbers are the order and " +
+        "the words are the client's. A due date is a day, `YYYY-MM-DD`, and a due " +
+        "date that has passed is a fact about the card, not a system failure.",
     ],
     views: [
       {
@@ -889,8 +1318,190 @@ export const ENTRIES: Skill[] = [
         params: [],
       },
     ],
+    actions: [
+      {
+        key: "create_card",
+        method: "POST",
+        path: "/api/board/cards",
+        about:
+          "Write a new card down. It lands at the FOOT of its column. Answers with " +
+          "the whole board; the new card is the last one in that column.",
+        params: [
+          {
+            name: "title",
+            type: "string",
+            required: true,
+            about: "The one line the card is. Trimmed; at most 200 characters, refused above that.",
+          },
+          {
+            name: "body",
+            type: "string",
+            required: false,
+            about:
+              "The note under the title, or null for none. At most 8000 characters, " +
+              "refused above that rather than truncated.",
+          },
+          {
+            name: "column",
+            type: "string",
+            required: false,
+            fallback: "backlog",
+            about:
+              "Which column, by its key (`backlog`, `next`, `doing`, `blocked`, `done` " +
+              "on the seeded board) or by its numeric id. Absent means Backlog. A card " +
+              "created straight into Done is stamped finished on the way in.",
+          },
+          {
+            name: "urgency",
+            type: "number",
+            required: false,
+            fallback: 1,
+            about: "0 low, 1 normal, 2 high, 3 urgent. Anything else is refused.",
+          },
+          {
+            name: "due",
+            type: "string",
+            required: false,
+            about:
+              "The day it is due, as `YYYY-MM-DD`, or null for none. Only that format " +
+              "— \"next tuesday\" is refused, and a date that does not exist is refused.",
+          },
+          {
+            name: "ventureId",
+            type: "string",
+            required: false,
+            about: "The venture this is about — an id from the `ventures` skill — or null.",
+          },
+        ],
+      },
+      {
+        key: "update_card",
+        method: "PATCH",
+        path: "/api/board/cards/:id",
+        about:
+          "Change what a card says. A field you leave out is untouched; a field sent " +
+          "as null is CLEARED. Send only what changed — resending the whole card " +
+          "overwrites an edit the owner made a second ago. Send at least one field.",
+        params: [
+          {
+            name: "id",
+            type: "number",
+            required: true,
+            in: "path",
+            about: "The card's numeric id, from the board document.",
+          },
+          {
+            name: "title",
+            type: "string",
+            required: false,
+            about:
+              "The new title, at most 200 characters. It cannot be cleared: a card " +
+              "with no title is not a card.",
+          },
+          {
+            name: "body",
+            type: "string",
+            required: false,
+            about: "The new note, at most 8000 characters, or null to clear it.",
+          },
+          {
+            name: "urgency",
+            type: "number",
+            required: false,
+            about: "0 low, 1 normal, 2 high, 3 urgent.",
+          },
+          {
+            name: "due",
+            type: "string",
+            required: false,
+            about: "A new due date as `YYYY-MM-DD`, or null to remove the one it has.",
+          },
+          {
+            name: "ventureId",
+            type: "string",
+            required: false,
+            about: "A venture id from the `ventures` skill, or null to unfile the card.",
+          },
+        ],
+      },
+      {
+        key: "move_card",
+        method: "POST",
+        path: "/api/board/cards/:id/move",
+        about:
+          "Put a card in a column, above a named neighbour or at the foot of it. " +
+          "Arriving in Done stamps when it was finished; leaving Done clears that " +
+          "stamp, because a card back in Doing is not a finished card with a date.",
+        params: [
+          {
+            name: "id",
+            type: "number",
+            required: true,
+            in: "path",
+            about: "The card to move.",
+          },
+          {
+            name: "columnId",
+            type: "string",
+            required: true,
+            about:
+              "The column to move it into, by key (`backlog`, `next`, `doing`, " +
+              "`blocked`, `done`) or by numeric id.",
+          },
+          {
+            name: "before",
+            type: "number",
+            required: false,
+            about:
+              "The id of the card to land IMMEDIATELY ABOVE, or absent/null for the " +
+              "foot of the column. It is a neighbour and never an index — a position " +
+              "number from the document means nothing here and must never be sent. If " +
+              "that card is no longer in that column the move is refused with a 409 " +
+              "saying the board moved: read the board again rather than guessing.",
+          },
+        ],
+      },
+      {
+        key: "archive_card",
+        method: "POST",
+        path: "/api/board/cards/:id/archive",
+        about:
+          "Take a card out of the way without losing it. It keeps its column, its " +
+          "position and its done stamp, and every read of the board filters it out. " +
+          "Archiving an already archived card changes nothing and is not an error.",
+        params: [
+          {
+            name: "id",
+            type: "number",
+            required: true,
+            in: "path",
+            about: "The card to archive.",
+          },
+        ],
+      },
+      {
+        key: "delete_card",
+        method: "DELETE",
+        path: "/api/board/cards/:id",
+        about:
+          "Remove the row. THERE IS NO UNDO — not here, not in the page, not in a " +
+          "backup. Archive instead unless the owner has said, in this conversation, " +
+          "to delete this particular card.",
+        params: [
+          {
+            name: "id",
+            type: "number",
+            required: true,
+            in: "path",
+            about: "The card to delete.",
+          },
+        ],
+        destructive: true,
+      },
+    ],
     asks: [
       "What is on my board right now, and what is overdue?",
+      "Add a card to Next: chase the Stripe dispute, due Friday.",
     ],
   },
 
@@ -1023,21 +1634,36 @@ export function apiBase(): string {
  * loss than a truncated list of rules.
  *
  * The cap is a real cap rather than a hope — the lines are dropped from the end
- * until the whole thing fits — but with the shape below it has never had to
- * drop one.
+ * until the whole thing fits — and it was raised from 1500 to 1800 when actions
+ * arrived, because at 1500 it had begun to drop. Two entries were added and the
+ * head gained a sentence about writing, and what fell off the end was
+ * `ventures`, `board` and `search` — which is to say both of the ids that can
+ * CHANGE something and the only one that reaches the internet. The tail is
+ * dropped last-first because registry order is roughly importance order, and
+ * that stopped being true the moment the interesting entries were appended to
+ * the bottom of the list. Raising the number is the honest fix; reordering the
+ * registry to protect a character count would be arranging the source to suit
+ * a string.
  */
-export function preamble(limit = 1500): string {
+export function preamble(limit = 1800): string {
   const base = apiBase();
   const head =
     `You can read this dashboard's own live data over HTTP. ` +
     `GET ${base}/api/skills/<id> returns one JSON document; ` +
     `GET ${base}/api/skills says what each id is, its parameters and its own ` +
-    `reporting rules — read it before quoting a figure. GET only, nothing writes.` +
+    `reporting rules — read it before quoting a figure. Reads are GETs; the ids ` +
+    `marked +writes also take actions — POST JSON to ` +
+    `${base}/api/skills/<id>/<action>, listed there with their rules.` +
     `\n\nIds available now (parameters in brackets):\n`;
   const rules = `\nAlways:\n${UNIVERSAL_RULES.map((r) => `- ${r}`).join("\n")}\n`;
   const lines = skills().map((s) => {
     const params = s.views[0]?.params.map((p) => p.name).join(",");
-    return `- ${s.id}${params ? ` (${params})` : ""}`;
+    /* The marker is a flag and not a list. Naming the seven action keys here
+       would cost more than every parameter on every other line put together, to
+       say something `/api/skills` says in full a request later; what the agent
+       cannot work out for itself is WHICH ids have any. */
+    const writes = s.actions?.length ? " +writes" : "";
+    return `- ${s.id}${params ? ` (${params})` : ""}${writes}`;
   });
 
   let body = lines.join("\n");

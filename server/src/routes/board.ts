@@ -41,15 +41,35 @@
  * on the document as `structural: true`, because a delete route would refuse
  * on the key and the page hides an option it should never offer.
  *
- * NO VENTURES. A card carries `ventureId` and nothing else about a venture.
- * Ventures live in the browser's own store, and this server has never seen
- * one — so the document cannot carry a name or a colour, and does not pretend
- * to. A card whose venture has since been deleted keeps an id that resolves to
- * nothing, and the page draws it as unfiled. That is a real state and it is
- * better than a chip labelled with a business that no longer exists.
+ * THE VENTURES ARE HERE NOW, AND THE ID IS STILL NOT A FOREIGN KEY.
+ *
+ * This header used to say "NO VENTURES": a card carried `ventureId`, ventures
+ * lived in the browser's own store, and this server had never seen one, so the
+ * document could not carry a name or a colour and did not pretend to. Half of
+ * that is now false — `021_ventures` put them in a table beside these cards,
+ * because the agent has to be able to read a venture's STAGE — so `boardDoc()`
+ * resolves the ids the cards actually carry and hands over a `ventures` map of
+ * name, slug, colour and stage. The page no longer has to hold a second copy
+ * of the list to draw a chip.
+ *
+ * WHAT DID NOT CHANGE IS `venture_id` ITSELF: it is still a bare TEXT column
+ * with no REFERENCES on it, and that is now a decision rather than a
+ * consequence. A foreign key would force one of two behaviours on a delete and
+ * both are worse than the third. ON DELETE CASCADE takes the work with the
+ * business, and "I closed that venture" is not "delete the eleven cards about
+ * winding it up". ON DELETE SET NULL silently unfiles them, which loses the
+ * one fact worth keeping — that this card was about that thing. Leaving the id
+ * opaque keeps the third answer: the card is still there, its id resolves to
+ * nothing, the map has no entry for it and the page draws it unfiled. That is
+ * a real state, it is honest, and it is better than a chip labelled with a
+ * business that no longer exists.
+ *
+ * The map is built at READ TIME from the ids present, not stored and not
+ * joined into the card. A card holds one field about a venture; everything
+ * else about it belongs to /api/ventures and is only ever borrowed here.
  */
 import { Hono } from "hono";
-import { db, now } from "../db.ts";
+import { db, now, type VentureRow } from "../db.ts";
 
 export const boardRoutes = new Hono();
 
@@ -192,6 +212,45 @@ function shapeCard(r: CardRow) {
   };
 }
 
+/**
+ * The ventures these cards name, as much of each as a chip needs.
+ *
+ * FOUR FIELDS AND NOT THE WHOLE RECORD. A chip is a colour, a name and — on
+ * the Board page, where "what stage is this business at" changes how a card
+ * reads — a stage; the slug is there so the chip can be a link. The
+ * description, the website, the measured brand and the position are the
+ * Ventures page's business, and copying them onto every board read would make
+ * this document grow whenever that one did.
+ *
+ * ONE QUERY WITH THE IDS INLINED, rather than one per card or a join. The list
+ * is at most a few dozen and the ids come from rows this function was handed,
+ * so nothing here is user input reaching SQL as text: the placeholders are
+ * generated from the count and every id is still bound.
+ */
+function ventureChips(
+  cards: CardRow[],
+): Record<string, { name: string; slug: string; color: string; stage: string }> {
+  const ids = [...new Set(cards.map((c) => c.venture_id).filter((v): v is string => !!v))];
+  if (!ids.length) return {};
+  const rows = db
+    .prepare(
+      `SELECT id, name, slug, color, stage FROM ventures
+        WHERE id IN (${ids.map(() => "?").join(", ")})`,
+    )
+    .all(...ids) as unknown as Pick<
+    VentureRow,
+    "id" | "name" | "slug" | "color" | "stage"
+  >[];
+
+  const out: Record<string, { name: string; slug: string; color: string; stage: string }> = {};
+  for (const r of rows)
+    out[r.id] = { name: r.name, slug: r.slug, color: r.color, stage: r.stage };
+  /* Ids with no row are simply absent. See the file header: a card whose
+     venture was deleted is drawn unfiled, and an entry saying "unknown" would
+     be this document inventing a business. */
+  return out;
+}
+
 export type BoardDoc = ReturnType<typeof boardDoc>;
 
 /**
@@ -225,6 +284,18 @@ function boardDoc() {
     .get() as { n: number };
 
   return {
+    /*
+      WHAT THE IDS ON THESE CARDS MEAN — the four fields it takes to draw a
+      chip, for the ventures the cards actually name and no others.
+
+      Every venture would be the easier query and it would put businesses on a
+      board document that has nothing to do with them; the page has
+      /api/ventures for the list. An id with no entry here is a venture that
+      was deleted, which the page draws as unfiled — see the file header. Read
+      after the cards, from the same synchronous connection, so the map and the
+      ids it explains are the same instant.
+    */
+    ventures: ventureChips(cards),
     columns: columns.map((col) => {
       const own = byColumn.get(col.id) ?? [];
       return {

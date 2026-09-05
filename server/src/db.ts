@@ -2451,6 +2451,115 @@ const MIGRATIONS: { name: string; sql: string }[] = [
         ('done',    'Done',    4, NULL, strftime('%Y-%m-%dT%H:%M:%SZ','now'));
     `,
   },
+  {
+    name: "021_ventures",
+    sql: `
+      -- THE VENTURES: the businesses this dashboard is about.
+      --
+      -- They were client state until now — a list in lib/store.tsx, mirrored to
+      -- localStorage — and 020_board's own header says so at length, in the
+      -- paragraph that argues \`board_cards.venture_id\` cannot be a foreign key
+      -- because "ventures do not live on this server at all". That sentence is
+      -- no longer true and this table is why. What moved it was the AGENT: the
+      -- one field that changes what good advice looks like is the STAGE, and a
+      -- stage the agent cannot read is a stage that changes nothing. An idea
+      -- wants demand validated; a launched business wants churn watched; the
+      -- same question deserves two different answers and only the owner knows
+      -- which. Keeping that in a browser meant every conversation started by
+      -- being told, or by being guessed at.
+      --
+      -- THE FOUR SEEDED IDS ARE THE ONES THE BROWSER ALREADY USED, and they are
+      -- spelled out rather than generated for exactly that reason. Board cards
+      -- carry \`venture_id\` and chat sessions carry a venture id, both written
+      -- before this table existed; a fresh set of ids here would have orphaned
+      -- every one of them silently — the card would still draw, just unfiled,
+      -- which is the failure that looks like nothing went wrong.
+      --
+      -- \`venture_id\` ON board_cards IS STILL NOT A FOREIGN KEY, deliberately,
+      -- and routes/board.ts's header now carries the argument: a card outlives
+      -- the venture it was about. ON DELETE CASCADE would take work with it and
+      -- ON DELETE SET NULL would silently unfile it; leaving the id opaque
+      -- keeps the third answer, which is that the card is still there and
+      -- resolves to nothing.
+      CREATE TABLE ventures (
+        id          TEXT PRIMARY KEY,
+        -- The URL segment, unique, decided ONCE from the name at creation and
+        -- never touched by a rename. Two columns rather than one for the same
+        -- reason board_columns has \`key\` beside \`title\`: renaming a thing
+        -- must not change what it is addressed by, or every link anybody kept
+        -- to /ventures/example-support breaks the day it becomes "Example Support Ltd".
+        slug        TEXT NOT NULL UNIQUE,
+        name        TEXT NOT NULL,
+        -- "What it is", in the owner's own words. Empty string rather than
+        -- NULL: this one is always ASKED, so a blank is an answer given.
+        description TEXT NOT NULL DEFAULT '',
+        -- The absolute normalised URL, or NULL for a venture with no site yet
+        -- — which is the normal state of an idea and not a gap in the record.
+        website     TEXT,
+        -- The hostname without a leading "www.", stored rather than derived
+        -- because it is what everything JOINS on by eye: a Cloudflare zone, a
+        -- Search Console property, a sending domain. Derived at write time so
+        -- there is one parse of the URL rather than one per reader.
+        host        TEXT,
+        -- WHAT THE OWNER SAYS THIS IS TODAY, and the one column the agent
+        -- changes its advice on. A CHECK rather than a lookup table because
+        -- these three are a closed set that means something to the code: the
+        -- prose that explains each is on the wire, in routes/ventures.ts, so
+        -- the page and the agent read the same sentences.
+        stage       TEXT NOT NULL CHECK(stage IN ('idea','pre-launch','launched')),
+        color       TEXT NOT NULL,
+        -- WHERE THE COLOUR CAME FROM, kept because it decides who may change
+        -- it. 'owner' is a colour somebody chose and no measurement may
+        -- overwrite; 'site' was read off the live site and is replaced by the
+        -- next reading; 'default' is one of the seven and is replaced by the
+        -- first successful reading. Without this column a re-read would either
+        -- always clobber the owner's choice or never update anything.
+        color_source TEXT NOT NULL,
+        -- The owner's order on the Ventures page. Dense 0..n-1 rather than the
+        -- board's sparse scheme, and for the reason 020_board names: there are
+        -- four of these and they are reordered about once, so rewriting the
+        -- lot is cheaper than a scheme nobody can see the benefit of.
+        position    INTEGER NOT NULL,
+        -- WHAT WAS MEASURED FROM THE SITE, as JSON, and it is one column
+        -- rather than fifteen on purpose. Every field in it is EVIDENCE — a
+        -- favicon, a palette, a title, and the notes saying what could not be
+        -- read and why — none of it is queried, all of it is read together
+        -- with the row, and its shape is owned by ventures/enrich.ts, which is
+        -- free to learn a new field without a migration. The columns above are
+        -- the ones the owner typed and the ones anything filters on; this is
+        -- the reading beside them. '{}' means never read, which the wire
+        -- reports as \`enrichedAt: null\`.
+        brand       TEXT NOT NULL DEFAULT '{}',
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      );
+
+      INSERT INTO ventures
+        (id, slug, name, description, website, host, stage, color, color_source,
+         position, brand, created_at, updated_at)
+      VALUES
+        ('v-example-support', 'example-support', 'Example Support',
+         'Support chatbot sold as a drop-in widget. Engine, site and pricing.',
+         'https://support.example.test', 'support.example.test', 'launched', '#c1663f',
+         'owner', 0, '{}',
+         strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        ('v-example-video', 'example-video', 'Example Video',
+         'Long video in, short-form reels out. Mobile app, API and the marketing site.',
+         'https://video.example.test', 'video.example.test', 'launched', '#635bff',
+         'owner', 1, '{}',
+         strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        ('v-example-app-1', 'example-app-1', 'Example App 1',
+         'Planning-permission search for Ireland. Subscription, one market.',
+         'https://example-app-1.example.test', 'example-app-1.example.test', 'launched', '#2f7d4f',
+         'owner', 2, '{}',
+         strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        ('v-example-content', 'example-content', 'example.ie',
+         'The oldest one. Content site, ad revenue, almost no maintenance.',
+         'https://example.ie', 'example.ie', 'launched', '#3b7bd8',
+         'owner', 3, '{}',
+         strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now'));
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -6945,4 +7054,105 @@ export function deleteChatSession(sessionId: string): number {
   return Number(
     db.prepare("DELETE FROM chat_messages WHERE session_id = ?").run(sessionId).changes,
   );
+}
+
+/* ---------------------------------------------------------------- ventures */
+
+/**
+ * The businesses, as rows. See `021_ventures` for why they are here at all and
+ * routes/ventures.ts for the document they are shaped into.
+ *
+ * WHAT LIVES IN THIS FILE AND WHAT DOES NOT. These are reads, one write that
+ * only the enricher performs, and nothing else — every validation, every
+ * default and every decision about what a PATCH means stays in the route, the
+ * way the board's do. The one write is here because it has TWO callers (the
+ * enrich route and the background pass at boot) and it is the only place in
+ * the app where a measurement is allowed to change a row the owner typed. The
+ * rule it enforces — an owner's colour is never overwritten — is enforced by
+ * the caller passing it in, and the reason is stated at `writeVentureBrand`.
+ */
+export type VentureRow = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  website: string | null;
+  host: string | null;
+  stage: string;
+  color: string;
+  color_source: string;
+  position: number;
+  /** JSON, owned by ventures/enrich.ts. '{}' means never read. */
+  brand: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Every venture in the owner's own order. Ties broken on the id so the list
+ *  is stable — two rows can share a position for the instant between two
+ *  statements of a reorder, and a list that reshuffles under a refresh is a
+ *  list nobody trusts. */
+export function ventureRows(): VentureRow[] {
+  return db
+    .prepare("SELECT * FROM ventures ORDER BY position, id")
+    .all() as unknown as VentureRow[];
+}
+
+export function ventureRowById(id: string): VentureRow | undefined {
+  return db.prepare("SELECT * FROM ventures WHERE id = ?").get(id) as
+    | VentureRow
+    | undefined;
+}
+
+/**
+ * One venture, by whichever name the caller had to hand.
+ *
+ * An id — `v-example-support` — is what a board card and a chat session carry; a
+ * slug — `example-support` — is what the address bar carries. Both are accepted
+ * because a caller holding one has no reason to look up the other first, and
+ * they cannot collide: an id is a slug with a `v-` on the front, and the id is
+ * tried first, so a venture that somehow slugged to another's id still
+ * resolves to itself by id and to the other by slug, deterministically.
+ */
+export function ventureRow(key: string): VentureRow | undefined {
+  return (
+    ventureRowById(key) ??
+    (db.prepare("SELECT * FROM ventures WHERE slug = ?").get(key) as
+      | VentureRow
+      | undefined)
+  );
+}
+
+/**
+ * Write back what was READ OFF THE SITE, and nothing the owner typed.
+ *
+ * The columns this touches are the ones a measurement is entitled to: the
+ * brand blob, the host (which is derived from the website, not typed), and —
+ * only when the caller says so — the colour. `color` is null on every call
+ * where `color_source` is already 'owner', which is the whole of the rule and
+ * is decided by the caller rather than here, because the caller is also the
+ * one that knows whether a primary was measured at all. A venture whose colour
+ * the owner chose keeps it through every re-read, for ever; that is the point
+ * of storing where a colour came from.
+ *
+ * `updated_at` moves, because a re-read IS a change to the record — it is what
+ * the page's "read the site" button changes, and a stamp that did not move
+ * would make a successful re-read look like nothing happened.
+ */
+export function writeVentureBrand(
+  id: string,
+  patch: { host: string | null; brand: string; color: string | null },
+): VentureRow | undefined {
+  if (patch.color === null) {
+    db.prepare(
+      "UPDATE ventures SET host = ?, brand = ?, updated_at = ? WHERE id = ?",
+    ).run(patch.host, patch.brand, now(), id);
+  } else {
+    db.prepare(
+      `UPDATE ventures
+          SET host = ?, brand = ?, color = ?, color_source = 'site', updated_at = ?
+        WHERE id = ?`,
+    ).run(patch.host, patch.brand, patch.color, now(), id);
+  }
+  return ventureRowById(id);
 }

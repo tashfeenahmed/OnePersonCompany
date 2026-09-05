@@ -14,7 +14,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { COLLECT_MINUTES, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "./config.ts";
-import { allPlugins, prune } from "./db.ts";
+import { allPlugins, prune, ventureRows } from "./db.ts";
 import { COLLECTORS } from "./collector.ts";
 import { plugins } from "./routes/plugins.ts";
 import { hetznerRoutes } from "./routes/hetzner.ts";
@@ -94,6 +94,8 @@ import * as searxngInstance from "./searxng/instance.ts";
 import * as freellmapiInstance from "./freellmapi/instance.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { boardRoutes } from "./routes/board.ts";
+import { ventureRoutes } from "./routes/ventures.ts";
+import { enrichVenture, readBrand } from "./ventures/enrich.ts";
 import { skillRoutes } from "./routes/skills.ts";
 import * as agentInstances from "./agents/instance.ts";
 
@@ -242,6 +244,18 @@ app.route("/api/search", searchRoutes);
 */
 app.route("/api/board", boardRoutes);
 /*
+  THE VENTURES — the businesses every other route on this server is measuring
+  something about, and the second thing here that stores what the OWNER typed.
+  Mounted beside the board for the reason the board is mounted last: it depends
+  on no credential, no provider registry and no import order.
+
+  It is the route that makes `venture_id` on a board card mean something, and
+  the one the agent reads to find out what STAGE a business is at — which is
+  the field that decides whether "how is it doing" is a question about demand
+  or about churn. See routes/ventures.ts for why that moved off the browser.
+*/
+app.route("/api/ventures", ventureRoutes);
+/*
   THE SKILLS SURFACE — the same data every route above already serves, in the
   one shape an AGENT can learn. It is mounted last, beside the board, because
   it depends on nothing here: it holds a registry of paths in code and reaches
@@ -376,3 +390,53 @@ serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {
       (COLLECT_MINUTES > 0 ? ` · every ${COLLECT_MINUTES}m` : " · scheduler off"),
   );
 });
+
+/* ------------------------------------------------------------- ventures */
+
+/**
+ * READ THE SITES OF ANY VENTURES THAT HAVE NEVER BEEN READ — after the server
+ * is listening, and never before it.
+ *
+ * The four seeded ventures arrive from `021_ventures` with an empty `brand`,
+ * because a migration cannot fetch a website: it runs inside a transaction, at
+ * import, on a process that has not opened a port yet. So the reading happens
+ * here, once, and only for rows whose brand has no `enrichedAt` — which means
+ * a restart costs nothing, a site that failed is retried on the NEXT restart
+ * (its brand carries an `error` and no timestamp), and a site that was read is
+ * never re-read on a schedule. Re-reading is the owner's button.
+ *
+ * SEQUENTIAL, AND THAT IS THE POINT RATHER THAN A SIMPLIFICATION. Four sites
+ * at ten seconds each is forty seconds of one socket at a time; four at once
+ * is four DNS lookups, four TLS handshakes and four icon downloads competing
+ * with whatever the collectors are doing on a Pi, to save half a minute of
+ * something nobody is waiting for.
+ *
+ * NOTHING HERE MAY THROW. `enrichVenture` catches its own failures into the
+ * record, and the catch below is for everything else — a database locked by a
+ * collector, an id deleted between the query and the fetch. A boot pass that
+ * took the process down would be a dashboard that will not start because
+ * somebody else's web server is having a bad morning.
+ */
+void (async () => {
+  const pending = ventureRows().filter(
+    (r) => r.website && !readBrand(r.brand).enrichedAt,
+  );
+  for (const row of pending) {
+    try {
+      const after = await enrichVenture(row.id);
+      const brand = readBrand(after?.brand ?? null);
+      console.log(
+        `[ventures] read ${row.host ?? row.website}` +
+          (brand.error
+            ? ` — failed: ${brand.error}`
+            : ` — ${brand.favicon ? "icon" : "no icon"}, ` +
+              `${brand.palette.primary ?? "no primary colour"}` +
+              (brand.notes.length ? `, ${brand.notes.length} note(s)` : "")),
+      );
+    } catch (err) {
+      console.error(
+        `[ventures] ${row.id} could not be read — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+})();

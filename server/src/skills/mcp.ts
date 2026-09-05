@@ -27,10 +27,16 @@
  * connected: it has no database handle, and giving it one would put a second
  * writer near a SQLite file whose whole design says there is one.
  *
- * EVERY TOOL IS A GET. `tools/call` builds a query string and fetches; there is
- * no method parameter and no body, so an agent cannot reach a write through
- * here even if it invented one — the same structural claim routes/skills.ts
- * makes one layer up.
+ * MOST TOOLS ARE A GET AND A FEW ARE NOT, and the ones that are not say so in
+ * the field a client reads to decide. `opc_<id>` is the read: a query string
+ * and a fetch, as it always was. `opc_<id>_<action>` is a write, and it is a
+ * POST to `/api/skills/<id>/<action>` — never to the route behind it, because
+ * this process has no opinion about which verb that route wants and no way to
+ * reach one the registry has not named. The set of writes reachable from here
+ * is therefore exactly the set `/api/skills` publishes, which is a list a
+ * person can read, and the annotations on each one — `readOnlyHint: false`,
+ * `destructiveHint` where there is no undo — are how a client is told to ask
+ * first. There is no method parameter and no raw body anywhere in this file.
  *
  * Run it by hand:
  *   OPC_API=http://127.0.0.1:8787 node --experimental-strip-types src/skills/mcp.ts
@@ -72,15 +78,30 @@ type CatalogParam = {
   type: "number" | "string";
   required: boolean;
   default: number | string | null;
+  /** Where the proxy puts it. Read here only to know that a `path` parameter is
+   *  still SENT like any other — see `call`. */
+  in: "query" | "path" | "body";
   about: string;
 };
 type CatalogView = { key: string; route: string; about: string; params: CatalogParam[] };
+type CatalogAction = {
+  key: string;
+  method: string;
+  route: string;
+  call: string;
+  about: string;
+  destructive: boolean;
+  params: CatalogParam[];
+};
 type CatalogSkill = {
   id: string;
   title: string;
   about: string;
   rules: string[];
   views: CatalogView[];
+  /** Always present, empty on the skills that only read. An older server that
+   *  did not publish it is handled by the `?? []` at every use. */
+  actions?: CatalogAction[];
   asks: string[];
   openWorld: boolean;
 };
@@ -128,18 +149,40 @@ function toolFor(s: CatalogSkill) {
       description: s.views.map((v) => `${v.key}: ${v.about}`).join(" | "),
     };
 
+  /* Parameters are unioned across views — MCP has one schema per tool and no
+     way to express a per-view one — so a NAME that appears in two views keeps
+     BOTH sentences, joined, rather than whichever view was rendered last.
+     `page` on the mailbox is a Gmail cursor in one view and a Resend cursor in
+     another, and a model handed only the second description while paging
+     threads has been told something untrue about the parameter it is sending. */
+  const said = new Map<string, string[]>();
   for (const v of s.views)
     for (const p of v.params) {
-      /* Parameters are unioned across views, and the description says which
-         view a parameter belongs to when the skill has several — the alternative
-         is a per-view schema, which MCP has no way to express. */
-      const scope = s.views.length > 1 ? ` (view: ${v.key})` : "";
-      properties[p.name] = {
-        type: p.type,
-        description: `${p.about}${scope}${p.default !== null ? ` Default ${p.default}.` : ""}`,
-      };
-      if (p.required && !required.includes(p.name)) required.push(p.name);
+      const scope =
+        s.views.length > 1 ? ` (${p.required ? "required for view" : "view"}: ${v.key})` : "";
+      const line = `${p.about}${scope}${p.default !== null ? ` Default ${p.default}.` : ""}`;
+      const already = said.get(p.name);
+      if (already) {
+        if (!already.includes(line)) already.push(line);
+      } else {
+        said.set(p.name, [line]);
+        properties[p.name] = { type: p.type };
+      }
+      /*
+        REQUIRED ONLY WHERE IT IS REQUIRED OF EVERY VIEW, and this is the half
+        of the union that cannot be done the obvious way. `mailbox` needs an
+        `id` to open one thread and needs nothing at all to list them; a schema
+        that unioned the requirement would tell a model listing threads that it
+        must send a thread id, and a model that must send one will make one up.
+        So the schema requires what is required no matter which view is chosen,
+        and the per-view requirement is said in the description above — which is
+        where MCP leaves anything conditional.
+      */
+      const always = s.views.every((x) => x.params.some((y) => y.name === p.name && y.required));
+      if (always && !required.includes(p.name)) required.push(p.name);
     }
+  for (const [name, lines] of said)
+    (properties[name] as { description?: string }).description = lines.join(" — or — ");
 
   const rules = s.rules.map((r) => `- ${r}`).join("\n");
   return {
@@ -176,30 +219,137 @@ function toolFor(s: CatalogSkill) {
 }
 
 /**
- * Run one tool: build the query string, GET the proxy, hand back the document.
+ * One tool per ACTION, named `opc_<skill>_<action>`.
+ *
+ * A SEPARATE TOOL RATHER THAN A `mode` PARAMETER ON THE READ. The annotations
+ * are per tool, and they are the whole point: a client that is told
+ * `readOnlyHint: true` may call a tool without asking anybody, so a single tool
+ * that both read the board and deleted from it could carry only the more
+ * alarming of the two claims — and then every read of the board would be a
+ * prompt somebody has to answer, which is the failure the annotations were
+ * added to fix. Split, each one tells the truth about itself and the client
+ * decides once per action rather than once per skill.
+ *
+ * THE SKILL'S RULES ARE IN EVERY ACTION'S DESCRIPTION TOO, in full, for the
+ * reason they are in the read tool's: the description is the only text the
+ * client is guaranteed to show the model, and an agent about to write on the
+ * owner's board is the one that most needs to have just read "never create a
+ * card the owner did not ask for".
+ */
+function actionTool(s: CatalogSkill, a: CatalogAction) {
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const p of a.params) {
+    properties[p.name] = {
+      type: p.type,
+      description: `${p.about}${p.default !== null ? ` Default ${p.default}.` : ""}`,
+    };
+    if (p.required) required.push(p.name);
+  }
+
+  const rules = s.rules.map((r) => `- ${r}`).join("\n");
+  return {
+    name: `opc_${s.id}_${a.key}`,
+    title: `${s.title} — ${a.key.replace(/_/g, " ")}`,
+    /*
+      THE ANNOTATIONS AGAIN, AND HERE THEY ARE A WARNING RATHER THAN A
+      REASSURANCE. `readOnlyHint: false` because this changes something the
+      owner will find changed; `destructiveHint` from the registry, which means
+      "there is no undo" and is true of exactly one of these today;
+      `idempotentHint: false` because calling create twice makes two cards and a
+      client must not retry one of these on its own; `openWorldHint: false`
+      because every action reaches a route on this machine.
+    */
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: a.destructive === true,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+    description:
+      `${a.about}\n\nThis CHANGES the owner's own data — ` +
+      `${a.method} ${a.route}${a.destructive ? ", and there is no undo" : ""}.\n\n` +
+      `RULES FOR USING THIS — they are not optional:\n${rules}`,
+    inputSchema: { type: "object", properties, required },
+  };
+}
+
+/**
+ * Which skill, and whether this is a read or a write.
+ *
+ * SPLIT AT THE FIRST UNDERSCORE, which works because a registry id has never
+ * had one: they are single lowercase words, and the one id with any punctuation
+ * in the whole app (`bing-webmaster`) is a PLUGIN id and not a skill's. Action
+ * keys are snake case and keep everything after the cut, so
+ * `opc_board_create_card` is the board's `create_card` and `opc_board` is the
+ * board itself. The alternative — holding the catalog between `tools/list` and
+ * `tools/call` to look the name up — would be this process keeping a second
+ * opinion about what exists, which the header above spends a paragraph
+ * refusing.
+ */
+function route(name: string): { id: string; action: string | null } {
+  const rest = name.replace(/^opc_/, "");
+  const cut = rest.indexOf("_");
+  return cut < 0
+    ? { id: rest, action: null }
+    : { id: rest.slice(0, cut), action: rest.slice(cut + 1) };
+}
+
+/**
+ * Run one tool: GET the proxy for a read, POST it for an action, hand back
+ * whatever it answered.
  *
  * The JSON is returned as TEXT rather than as structured content, because the
  * documents behind these routes are deep and irregular — Stripe's carries a
  * currency-keyed list of objects — and a client that flattens structured
  * content into a table would be flattening exactly the nesting the honesty
- * rules are about. Text is what the model reads anyway.
+ * rules are about. Text is what the model reads anyway. It is also why an
+ * action's answer travels whole: every board mutation replies with the entire
+ * board, and the id of what was just created is in there and nowhere else.
  */
 async function call(name: string, args: Record<string, unknown>) {
-  const id = name.replace(/^opc_/, "");
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(args ?? {})) {
-    if (v === undefined || v === null) continue;
-    qs.set(k, String(v));
-  }
-  const url = `${API}/api/skills/${encodeURIComponent(id)}${qs.size ? `?${qs}` : ""}`;
-  const res = await fetch(url, { method: "GET", signal: AbortSignal.timeout(60_000) });
+  const { id, action } = route(name);
+
+  const res = action
+    ? await fetch(
+        `${API}/api/skills/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          /*
+            THE ARGUMENTS VERBATIM, NULLS INCLUDED. A null is how a field is
+            CLEARED — see routes/board.ts on absent versus null — so dropping
+            them the way the query string below has to would turn "remove the
+            due date" into a call that changes nothing and reports success.
+            `JSON.stringify` drops `undefined` on its own, which is the same
+            thing as never having sent the key.
+          */
+          body: JSON.stringify(args ?? {}),
+          signal: AbortSignal.timeout(60_000),
+        },
+      )
+    : await (async () => {
+        const qs = new URLSearchParams();
+        for (const [k, v] of Object.entries(args ?? {})) {
+          if (v === undefined || v === null) continue;
+          qs.set(k, String(v));
+        }
+        /* A view's path parameter goes out as a query parameter here too: the
+           proxy is what knows it belongs in a segment. */
+        return fetch(`${API}/api/skills/${encodeURIComponent(id)}${qs.size ? `?${qs}` : ""}`, {
+          method: "GET",
+          signal: AbortSignal.timeout(60_000),
+        });
+      })();
+
   const text = await res.text();
   return {
     content: [{ type: "text", text }],
     /* A non-200 is reported as a tool ERROR rather than as content, so the model
        is told the call failed instead of being handed an error document to read
        as data. The body still travels, because these routes explain themselves:
-       a 409 here names the credential that is missing. */
+       a 409 here names the credential that is missing, or says the board moved
+       under the drag. */
     isError: !res.ok,
   };
 }
@@ -233,10 +383,15 @@ async function handle(msg: Request) {
           version: "1.0.0",
         },
         instructions:
-          "Every tool here reads this one-person company's own live dashboard data " +
-          "over loopback. They are all reads. Each tool's description carries the " +
-          "rules for reporting its figures honestly — follow them exactly, and say " +
-          "'not reported' rather than inventing a number the document does not carry.",
+          "Every tool here reaches this one-person company's own dashboard over " +
+          "loopback. Most of them READ: each one's description carries the rules for " +
+          "reporting its figures honestly — follow them exactly, and say 'not " +
+          "reported' rather than inventing a number the document does not carry. A " +
+          "few WRITE, and they are the ones whose annotations say readOnlyHint " +
+          "false: they change the owner's own board and his list of ventures. Never " +
+          "call one of those unless he asked for that exact change, prefer archiving " +
+          "to deleting, and tell him afterwards what you did and the id it happened " +
+          "to.",
       });
       return;
     }
@@ -260,7 +415,14 @@ async function handle(msg: Request) {
           reply(id, { tools: [] });
           return;
         }
-        reply(id, { tools: mine.map(toolFor) });
+        /* The read first and its actions after it, per skill, so a tool list
+           read by a person groups the way the registry does. */
+        reply(id, {
+          tools: mine.flatMap((sk) => [
+            toolFor(sk),
+            ...(sk.actions ?? []).map((a) => actionTool(sk, a)),
+          ]),
+        });
       } catch (err) {
         /* THE API BEING DOWN IS AN ERROR AND NOT AN EMPTY LIST. An empty list is
            indistinguishable from "nothing is connected", and an agent told that

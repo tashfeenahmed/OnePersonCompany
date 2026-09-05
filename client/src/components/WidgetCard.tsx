@@ -14,6 +14,7 @@ import { SOURCES, WIDGETS, type Widget } from "@/data/widgets";
 import type { PlacedWidget } from "@/lib/store";
 import { ago, collectedAt, deltaOver, useLive } from "@/lib/live";
 import { LIVE_BUILDERS } from "@/lib/liveWidgets";
+import { isScopedWidget, useScope } from "@/lib/scope";
 
 /**
  * ONE WIDGET, ON ONE CARD.
@@ -42,7 +43,21 @@ export function WidgetCard({
   dragging?: boolean;
 }) {
   const base = WIDGETS[placed.type];
-  const live = useLive();
+  const all = useLive();
+  /*
+    INSIDE A VENTURE, THIS CARD IS ONE OF TWO KINDS.
+
+    A SCOPED card draws numbers narrowed to the venture's hosts — the ones
+    already in `useLive()`, which the scope provider has replaced. A
+    PORTFOLIO-WIDE card draws a figure that cannot be split per site at all (a
+    Hetzner bill, a Cloudflare daily line summed across zones), so it reads the
+    unnarrowed document deliberately and wears a tag in its header saying so.
+    Silently showing a portfolio number under a venture's name is the failure
+    this pair exists to prevent; see lib/scope.ts for which cards are which.
+  */
+  const scope = useScope();
+  const narrowed = !!scope && isScopedWidget(placed.type);
+  const live = scope && !narrowed ? scope.base : all;
   if (!base) return null;
   const src = SOURCES[base.src];
 
@@ -87,6 +102,25 @@ export function WidgetCard({
 
   // Positive is not always good: churn, spend and latency read the other way.
   const good = trend ? (def.invert ? trend < 0 : trend > 0) : null;
+
+  /*
+    A SCOPED CARD WITH NOTHING BEHIND IT SAYS SO, INSTEAD OF SHOWING A SAMPLE.
+
+    On the global board a catalog sample is a placeholder for a provider that
+    is not connected yet, and everybody reads it as one. Under a venture's name
+    it is not a placeholder at all — it is "support.example.test had 60,912
+    impressions", in the same typeface as the cards that measured something.
+    So a narrowed card whose builder could not answer draws a sentence instead,
+    and the sentence separates the two reasons: the provider measured the
+    portfolio and none of it was this venture's, or the provider has never
+    reported anything to narrow.
+  */
+  const empty =
+    narrowed && !isLive && scope
+      ? scope.base.liveTypes.has(placed.type)
+        ? `Nothing for ${scope.label} in ${src.name}.`
+        : `Nothing collected from ${src.name} yet, so there is nothing to narrow.`
+      : null;
   const brand = src.icon ? BRAND_ICONS[src.icon]?.hex : src.tint;
 
   return (
@@ -113,6 +147,14 @@ export function WidgetCard({
           glyphClassName="size-[11px] text-[9px]"
         />
         <span className="text-[11.5px]">{def.name}</span>
+        {scope && !narrowed && (
+          <span
+            title={`This figure has no per-site breakdown, so it is the whole portfolio rather than ${scope.label}.`}
+            className="text-muted-foreground shrink-0 rounded-[5px] border px-1 py-px text-[9.5px] leading-[1.35]"
+          >
+            portfolio
+          </span>
+        )}
         {isLive && (
           <span
             className="bg-ok size-1.5 shrink-0 rounded-full"
@@ -152,7 +194,13 @@ export function WidgetCard({
           def.kind === "metric" || def.kind === "bars" ? "mt-auto" : "mt-2.5",
         )}
       >
-        {def.kind === "metric" && (
+        {empty && (
+          <p className="text-muted-foreground text-[11.5px] leading-snug">
+            {empty}
+          </p>
+        )}
+
+        {!empty && def.kind === "metric" && (
           <>
             <div className="text-[26px] leading-tight font-normal tracking-[-0.03em] tabular-nums">
               {def.value}
@@ -200,7 +248,7 @@ export function WidgetCard({
           </>
         )}
 
-        {def.kind === "bars" && def.bars && (
+        {!empty && def.kind === "bars" && def.bars && (
           <Bars
             values={def.bars}
             barLabels={def.barLabels}
@@ -209,7 +257,7 @@ export function WidgetCard({
           />
         )}
 
-        {def.kind === "rows" && def.rows && (
+        {!empty && def.kind === "rows" && def.rows && (
           <div className="mt-2 flex flex-col gap-1.5">
             {def.rows.map(([k, v]) => (
               <div key={k} className="flex items-baseline gap-2 text-[12px]">
@@ -222,7 +270,7 @@ export function WidgetCard({
           </div>
         )}
 
-        {def.kind === "chart" && (
+        {!empty && def.kind === "chart" && (
           <Chart
             series={def.chart ?? []}
             unit={def.unit ?? "percent"}
@@ -230,7 +278,7 @@ export function WidgetCard({
           />
         )}
 
-        {def.kind === "meters" &&
+        {!empty && def.kind === "meters" &&
           (def.meters?.length ? (
             <div className="mt-1 flex flex-col gap-1.5">
               {/* Tighter than the old gap-2.5 because the rows now carry
@@ -246,7 +294,7 @@ export function WidgetCard({
             </p>
           ))}
 
-        {def.kind === "runway" &&
+        {!empty && def.kind === "runway" &&
           (def.runway?.length ? (
             <Runway
               rows={def.runway}
@@ -260,7 +308,7 @@ export function WidgetCard({
             </p>
           ))}
 
-        {def.kind === "table" &&
+        {!empty && def.kind === "table" &&
           (def.table?.length ? (
             <Figures headers={def.headers ?? []} rows={def.table} />
           ) : (
@@ -269,7 +317,7 @@ export function WidgetCard({
             </p>
           ))}
 
-        {def.kind === "statuses" && def.statuses && (
+        {!empty && def.kind === "statuses" && def.statuses && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {def.statuses.map(([label, tone]) => (
               <span

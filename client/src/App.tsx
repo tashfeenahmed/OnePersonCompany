@@ -15,6 +15,8 @@ import { Dashboards } from "@/pages/Dashboards";
 import { PluginDetail } from "@/pages/PluginDetail";
 import { Plugins } from "@/pages/Plugins";
 import { Ventures } from "@/pages/Ventures";
+import { Venture } from "@/pages/Venture";
+import { VentureForm } from "@/pages/VentureForm";
 import { Settings } from "@/pages/Settings";
 import { Apps } from "@/pages/Apps";
 import { Subagents } from "@/pages/Subagents";
@@ -68,6 +70,34 @@ export default function App() {
                         for "no conversation" already has an address. */}
                     <Route path="/chat" element={<Navigate to="/" replace />} />
                     <Route path="/ventures" element={<Ventures />} />
+                    {/*
+                      A VENTURE IS A PLACE, so it has an address — and so does
+                      the form that makes one. /ventures/new is a PAGE rather
+                      than a dialog because what it asks for (what this is,
+                      where it lives, which stage it is at) is a form somebody
+                      thinks in, and because a stage nobody read is a stage the
+                      agent will give the wrong advice from.
+
+                      `new` is declared BEFORE `:slug` so the literal wins:
+                      React Router ranks static segments above dynamic ones, so
+                      the order is belt and braces rather than load-bearing —
+                      but a venture whose slug really is "new" would otherwise
+                      be one routing change away from being unreachable.
+                    */}
+                    <Route path="/ventures/new" element={<VentureForm />} />
+                    <Route path="/ventures/:slug" element={<Venture />} />
+                    <Route path="/ventures/:slug/edit" element={<VentureForm />} />
+                    {/* A venture's own dashboards. The same board component
+                        the global page renders, narrowed to this venture's
+                        host — see components/BoardView and lib/scope. */}
+                    <Route
+                      path="/ventures/:slug/dashboards/:board"
+                      element={<Venture />}
+                    />
+                    <Route
+                      path="/ventures/:slug/dashboards"
+                      element={<Venture />}
+                    />
                     <Route path="/subagents" element={<Subagents />} />
                     <Route path="/integrations" element={<Plugins />} />
                     <Route path="/integrations/:id" element={<PluginDetail />} />

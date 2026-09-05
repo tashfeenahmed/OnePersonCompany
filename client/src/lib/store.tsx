@@ -3,11 +3,19 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { PLUGINS } from "@/data/plugins";
 import { DASHBOARD_PRESETS, WIDGETS } from "@/data/widgets";
+import {
+  api,
+  type Venture,
+  type VentureBrand,
+  type VentureInput,
+  type VenturePatch,
+} from "@/lib/api";
 
 /**
  * Ventures, sessions and dashboards.
@@ -26,18 +34,27 @@ import { DASHBOARD_PRESETS, WIDGETS } from "@/data/widgets";
  * The one nesting that survives is real work rather than filing: a chat that
  * dispatched sub-agent runs owns those runs, so they hang off it.
  *
+ * THE VENTURES THEMSELVES ARE THE SERVER'S NOW, and what is held here is a
+ * CACHE of them. They were localStorage's until the agent needed to read them
+ * — a venture's stage is the whole reason it can give advice worth having —
+ * and until the board, which stores a `venture_id` on every card, meant half
+ * the fact lived on the server already. So `state.ventures` is what this
+ * browser last saw: the rail and the pages draw it immediately, a fetch
+ * replaces it wholesale through `reconcileVentures`, and a FAILED fetch leaves
+ * it exactly as it is. Not knowing whether a venture still exists is not a
+ * reason to delete it — the same rule the session reconcile follows one screen
+ * away.
+ *
  * Held in one place and mirrored to localStorage so the prototype behaves like
  * the real thing across reloads. Every mutation returns a new object rather
  * than editing in place — the sidebar and the page it sits beside read the same
  * state, and one of them mutating silently is how they end up disagreeing.
  */
 
-export type Venture = {
-  id: string;
-  name: string;
-  desc: string;
-  color: string;
-};
+/** The venture document, as the server defines it. Re-exported because half
+ *  this app imports it from here and a venture is still a store-shaped thing
+ *  from a page's point of view. */
+export type { Venture, VentureStage } from "@/lib/api";
 
 export type Session = {
   id: string;
@@ -96,6 +113,19 @@ export type Dashboard = {
    */
   slug: string;
   name: string;
+  /**
+   * THE VENTURE THIS BOARD BELONGS TO, or null/absent for the global set.
+   *
+   * A dashboard is either one of the owner's own boards — /dashboards/servers,
+   * about everything — or one venture's, at /ventures/<slug>/dashboards/<board>
+   * and narrowed to that venture's host. Absent on every board made before
+   * ventures had dashboards, which is why the pages read `!d.ventureId` rather
+   * than `d.ventureId === null`: an older board is a global board.
+   *
+   * SLUGS ARE UNIQUE PER SCOPE, not globally. Two ventures may both have a
+   * "Search" board, because they are two different addresses.
+   */
+  ventureId?: string | null;
   widgets: PlacedWidget[];
 };
 
@@ -172,7 +202,15 @@ const KEY = "opc-state-v5";
   See `Session.seeded` for why removing them takes two steps and a fetch rather
   than a `filter` here.
 */
-export const SEED_VERSION = 10;
+/*
+  v11 moves the ventures to the server. Nothing is given and nothing is taken
+  here: the four seeded ones keep their ids and are replaced, row for row, by
+  the server's copies on the first fetch. What the bump marks is that the seed
+  no longer ships them — see `SEED.ventures`. The shape change is handled as a
+  REPAIR rather than a gift (see `migrate`), because an older cache has to be
+  readable whatever version stamp it carries.
+*/
+export const SEED_VERSION = 11;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -210,32 +248,20 @@ const SEED: StoreState = {
 
   plugins: Object.fromEntries(PLUGINS.map((p) => [p.id, p.connected])),
 
-  ventures: [
-    {
-      id: "v-example-support",
-      name: "Example Support",
-      color: "#c1663f",
-      desc: "Support chatbot sold as a drop-in widget. Engine, site and pricing.",
-    },
-    {
-      id: "v-example-video",
-      name: "Example Video",
-      color: "#635bff",
-      desc: "Long video in, short-form reels out. Mobile app, API and the marketing site.",
-    },
-    {
-      id: "v-example-app-1",
-      name: "Example App 1",
-      color: "#2f7d4f",
-      desc: "Planning-permission search for Ireland. Subscription, one market.",
-    },
-    {
-      id: "v-example-content",
-      name: "example.ie",
-      color: "#3b7bd8",
-      desc: "The oldest one. Content site, ad revenue, almost no maintenance.",
-    },
-  ],
+  /*
+    NO VENTURES. The four that used to be here — Example Support, Example Video,
+    Example App 1, example.ie — are seeded by the SERVER now, under the same ids, and
+    the first fetch puts them in this cache. Seeding them here as well would
+    mean two copies of the same four rows written by two different builds, and
+    the moment one of them gained a website or changed stage they would
+    disagree — with the local copy winning until a fetch landed, which is the
+    worst way round.
+
+    The cost is one render on a first load with the API down: an empty
+    ventures page, which is the honest thing to show a browser that has never
+    successfully asked.
+  */
+  ventures: [],
 
   /*
     NO SESSIONS. The rail starts empty and fills with conversations that
@@ -568,8 +594,9 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
 
 /** A name as a URL segment. Anything that is not a letter, a digit or a dash
  *  becomes a dash, and a name with nothing usable in it still gets an address
- *  rather than an empty one. */
-export function slugify(name: string): string {
+ *  rather than an empty one — `fallback` is what it gets, and the server's
+ *  ventures use the same rule with "venture" in that slot. */
+export function slugify(name: string, fallback = "board"): string {
   const slug = name
     .toLowerCase()
     .normalize("NFKD")
@@ -577,7 +604,7 @@ export function slugify(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
-  return slug || "board";
+  return slug || fallback;
 }
 
 /** The same, with a numeric suffix when the address is already taken — two
@@ -608,6 +635,77 @@ export function isStoreState(v: unknown): v is StoreState {
   );
 }
 
+/**
+ * A brand nothing has been read into yet.
+ *
+ * Every field null and every list empty, which is the difference between "the
+ * site has not been read" and "the site has no icon". Only the cache-repair
+ * below uses it: a venture that reaches this browser from the server always
+ * arrives with a real one.
+ */
+const EMPTY_BRAND: VentureBrand = {
+  favicon: null,
+  faviconSource: null,
+  title: null,
+  description: null,
+  ogImage: null,
+  themeColor: null,
+  lang: null,
+  palette: {
+    primary: null,
+    secondary: null,
+    accent: null,
+    background: null,
+    ink: null,
+    ranked: [],
+  },
+  fonts: [],
+  enrichedAt: null,
+  error: null,
+  notes: [],
+};
+
+/**
+ * A CACHED VENTURE FROM AN OLDER BUILD, brought up to the server's shape.
+ *
+ * The old row was `{ id, name, desc, color }` and four of them are sitting in
+ * every existing browser. This is not a migration in the "improve it" sense —
+ * the server's copy replaces all of this the moment a fetch lands — it is
+ * about the RENDER BEFORE THAT, where a page reading `venture.description` or
+ * `venture.brand.favicon` off an old row would throw on a screen the owner is
+ * looking at. So: the owner's words become the description, the stage is
+ * `launched` because everything that was in that list was, the brand is empty
+ * rather than invented, and the slug comes from the name with the same rule
+ * the server uses.
+ */
+function reviveVenture(raw: unknown, index: number): Venture | null {
+  if (!raw || typeof raw !== "object") return null;
+  const v = raw as Partial<Venture> & { desc?: string };
+  if (!v.id || !v.name) return null;
+  /* Already the new shape: handed straight back, identity and all, so a
+     reconciled list is not rebuilt on every load. */
+  if (v.slug && v.brand && v.stage && typeof v.description === "string")
+    return v as Venture;
+  const epoch = new Date(0).toISOString();
+  return {
+    id: v.id,
+    slug: v.slug ?? slugify(v.name, "venture"),
+    name: v.name,
+    description: typeof v.description === "string" ? v.description : (v.desc ?? ""),
+    website: v.website ?? null,
+    host: v.host ?? null,
+    stage: v.stage ?? "launched",
+    color: v.color ?? VENTURE_COLORS[index % VENTURE_COLORS.length]!,
+    /* A colour that was in this store was one the owner picked from the seven,
+       so it is theirs — not something measured from a site nobody has read. */
+    colorSource: v.colorSource ?? "owner",
+    position: typeof v.position === "number" ? v.position : index,
+    brand: v.brand ?? structuredClone(EMPTY_BRAND),
+    createdAt: v.createdAt ?? epoch,
+    updatedAt: v.updatedAt ?? epoch,
+  };
+}
+
 function load(): StoreState {
   try {
     const raw = localStorage.getItem(KEY);
@@ -635,6 +733,16 @@ function load(): StoreState {
 function migrate(state: StoreState): StoreState {
   let dashboards = state.dashboards;
 
+  /* Repair: every cached venture in the shape the pages now read. Ungated by
+     `seedVersion` for the reason the slug repair below is — a state written by
+     an older build has to be readable whatever stamp it carries. */
+  const revived = state.ventures
+    .map((v, i) => reviveVenture(v, i))
+    .filter((v): v is Venture => !!v);
+  const ventures = revived.every((v, i) => v === state.ventures[i])
+    ? state.ventures
+    : revived;
+
   // Repair: an address for every board, unique across the set. Existing slugs
   // are claimed first so a board that already has one keeps it.
   if (dashboards.some((d) => !d.slug)) {
@@ -648,7 +756,9 @@ function migrate(state: StoreState): StoreState {
   }
 
   if ((state.seedVersion ?? 0) >= SEED_VERSION)
-    return dashboards === state.dashboards ? state : { ...state, dashboards };
+    return dashboards === state.dashboards && ventures === state.ventures
+      ? state
+      : { ...state, dashboards, ventures };
 
   /*
     MARK THE TWELVE INVENTED SESSIONS FOR REMOVAL — mark, not delete, and the
@@ -727,6 +837,7 @@ function migrate(state: StoreState): StoreState {
     ...state,
     seedVersion: SEED_VERSION,
     sessions,
+    ventures,
     dashboards: topped,
   };
 }
@@ -788,11 +899,72 @@ const TOP_UPS: Record<string, string[]> = {
   ],
 };
 
+/** The addresses already taken inside one scope — a venture's boards, or the
+ *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is
+ *  asked about rather than the whole list. */
+function slugsIn(dashboards: Dashboard[], ventureId: string | null): string[] {
+  return dashboards
+    .filter((d) => (d.ventureId ?? null) === ventureId)
+    .map((d) => d.slug);
+}
+
+/**
+ * The server's ventures into a state, or the same state back.
+ *
+ * Shared by the provider's load-time fetch and by `reconcileVentures`, so
+ * there is one rule for "what does the server's list do to this cache" rather
+ * than two that can drift. Identity is preserved when nothing moved, because
+ * every page that reads the store re-renders on a new array.
+ */
+function withVentures(s: StoreState, list: Venture[]): StoreState {
+  const next = [...list].sort((a, b) => a.position - b.position);
+  const same =
+    next.length === s.ventures.length &&
+    next.every((v, i) => {
+      const had = s.ventures[i];
+      return !!had && had.id === v.id && had.updatedAt === v.updatedAt;
+    });
+  return same ? s : { ...s, ventures: next };
+}
+
 type StoreApi = {
   state: StoreState;
-  addVenture: (v: { name: string; desc: string; color: string }) => Venture;
-  updateVenture: (id: string, patch: Partial<Omit<Venture, "id">>) => void;
-  deleteVenture: (id: string) => void;
+  /**
+   * THE VENTURE WRITES GO TO THE SERVER FIRST, then into the cache.
+   *
+   * All five are async, and the cache is only ever updated with the DOCUMENT
+   * THE SERVER ANSWERED WITH rather than with what was sent. That matters more
+   * than it looks: creating a venture with a website reads the site, so the
+   * row that comes back carries a favicon, a palette and possibly a different
+   * colour than the one that went up. Writing the request into the cache and
+   * calling it done would show the owner a venture that does not exist.
+   *
+   * A failure REJECTS and changes nothing here. The pages catch it and say so;
+   * a cache quietly holding a venture the server refused is the one outcome
+   * worth ruling out.
+   */
+  addVenture: (input: VentureInput) => Promise<Venture>;
+  updateVenture: (id: string, patch: VenturePatch) => Promise<Venture>;
+  /** Deletes the venture AND its dashboards — they are this app's state, not
+   *  the server's, so nothing else would ever collect them. Board cards keep
+   *  their `ventureId` and are drawn unfiled, and sessions stop naming it. */
+  deleteVenture: (id: string) => Promise<void>;
+  /** Read the site again and take whatever it says now. */
+  enrichVenture: (id: string) => Promise<Venture>;
+  reorderVentures: (ids: string[]) => Promise<void>;
+  /**
+   * The server's list, wholesale.
+   *
+   * WHOLESALE IS THE POINT, and it is the opposite of what `reconcileSessions`
+   * does one field away. A session can exist only in this browser — an empty
+   * draft nobody has spoken into — so that reconcile keeps what the server has
+   * never heard of. A venture cannot: every one of them was created through
+   * the API, so the server's list IS the list and anything else in this cache
+   * is a row that has been deleted somewhere else.
+   *
+   * A FAILED FETCH NEVER CALLS THIS. Not knowing is not a reason to delete.
+   */
+  reconcileVentures: (list: Venture[]) => void;
   /**
    * A session may name a venture or none at all. Newest lands first.
    *
@@ -850,7 +1022,26 @@ type StoreApi = {
    */
   streamingSessions: string[];
   setSessionStreaming: (id: string, streaming: boolean) => void;
-  addDashboard: (name: string, presetId: string) => Dashboard;
+  /** A board in one scope: the global set, or a venture's own. */
+  addDashboard: (name: string, presetId: string, ventureId?: string | null) => Dashboard;
+  /**
+   * THE CROSS-POLLINATION: one board's widgets, in another scope.
+   *
+   * Widgets are copied with FRESH IDS, so dragging a card on the copy cannot
+   * move one on the original — a placed widget's id is its identity within a
+   * board and two boards sharing one is a bug that only shows up under a
+   * reorder. The name defaults to the source's and the slug is made unique
+   * inside the TARGET scope, which is what lets "Search" exist once globally
+   * and once under every venture.
+   */
+  copyDashboard: (
+    sourceId: string,
+    into: { name?: string; ventureId: string | null },
+  ) => Dashboard | null;
+  /** The boards of one scope, in order: a venture's, or the global set with
+   *  `null`. One function so the two pages cannot disagree about what "this
+   *  venture's boards" means. */
+  dashboardsIn: (ventureId: string | null) => Dashboard[];
   renameDashboard: (id: string, name: string) => void;
   deleteDashboard: (id: string) => void;
   /** The strip's order, as a list of ids. Ids not in the list keep their
@@ -884,36 +1075,109 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [state]);
 
-  const api = useMemo<StoreApi>(() => {
-    const mapVentures = (fn: (v: Venture) => Venture) =>
-      setState((s) => ({ ...s, ventures: s.ventures.map(fn) }));
+  /**
+   * THE VENTURES, ASKED FOR ONCE, HERE.
+   *
+   * In the provider rather than on the Ventures page, because every screen
+   * reads them: the rail counts them, the chat picker lists them, the board
+   * colours its chips with them. A page-level fetch would mean the picker
+   * showing a stale name until somebody happened to visit /ventures.
+   *
+   * ONCE, AND THE REF IS WHY — the same guard the session reconcile uses one
+   * page away. Without it this writes state, gets a new render, and asks
+   * again forever.
+   *
+   * A FAILURE IS SILENT AND CHANGES NOTHING. The cache is what this browser
+   * last saw and it is still the best knowledge available; replacing it with
+   * an empty list because a local API is not running would delete the rail's
+   * ventures over a dropped request.
+   */
+  const asked = useRef(false);
+  useEffect(() => {
+    if (asked.current) return;
+    asked.current = true;
+    let alive = true;
+    void api.ventures
+      .list()
+      .then((doc) => {
+        if (alive) setState((s) => withVentures(s, doc.ventures));
+      })
+      .catch(() => {
+        /* not knowing is not a reason to delete */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
+  const store = useMemo<StoreApi>(() => {
     const mapDashboards = (fn: (d: Dashboard) => Dashboard) =>
       setState((s) => ({ ...s, dashboards: s.dashboards.map(fn) }));
+
+    /* The owner's order, which is the server's `position`. Applied on the way
+       into the cache so no page has to remember to sort. */
+    const byPosition = (a: Venture, b: Venture) => a.position - b.position;
+
+    /** One venture into the cache: replaced if it is already there, appended
+     *  if it is new, and the list re-sorted. */
+    const cache = (venture: Venture) =>
+      setState((s) => ({
+        ...s,
+        ventures: [...s.ventures.filter((v) => v.id !== venture.id), venture].sort(
+          byPosition,
+        ),
+      }));
 
     return {
       state,
 
-      addVenture({ name, desc, color }) {
-        const venture: Venture = { id: uid("v"), name, desc, color };
-        setState((s) => ({ ...s, ventures: [...s.ventures, venture] }));
+      async addVenture(input) {
+        const venture = await api.ventures.create(input);
+        cache(venture);
         return venture;
       },
 
-      updateVenture(id, patch) {
-        mapVentures((v) => (v.id === id ? { ...v, ...patch } : v));
+      async updateVenture(id, patch) {
+        const venture = await api.ventures.update(id, patch);
+        cache(venture);
+        return venture;
       },
 
-      /* A deleted venture does not take its chats with it. They stop naming it
-         and stay in the list, which is the whole point of the flat rail. */
-      deleteVenture(id) {
+      async enrichVenture(id) {
+        const venture = await api.ventures.enrich(id);
+        cache(venture);
+        return venture;
+      },
+
+      /*
+        A deleted venture does not take its chats with it. They stop naming it
+        and stay in the list, which is the whole point of the flat rail.
+
+        ITS DASHBOARDS DO GO, and they are the one thing here that would
+        otherwise be orphaned: a board at /ventures/<slug>/dashboards/<board>
+        has no address once the venture is gone, and nothing else would ever
+        find it to delete it. The confirm on the edit page counts them out loud
+        before this is called.
+      */
+      async deleteVenture(id) {
+        await api.ventures.remove(id);
         setState((s) => ({
           ...s,
           ventures: s.ventures.filter((v) => v.id !== id),
+          dashboards: s.dashboards.filter((d) => d.ventureId !== id),
           sessions: s.sessions.map((x) =>
             x.ventureId === id ? { ...x, ventureId: null } : x,
           ),
         }));
+      },
+
+      async reorderVentures(ids) {
+        const { ventures } = await api.ventures.reorder(ids);
+        setState((s) => ({ ...s, ventures: [...ventures].sort(byPosition) }));
+      },
+
+      reconcileVentures(list) {
+        setState((s) => withVentures(s, list));
       },
 
       addSession(title, ventureId) {
@@ -1029,15 +1293,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
 
-      addDashboard(name, presetId) {
+      addDashboard(name, presetId, ventureId = null) {
         const preset = DASHBOARD_PRESETS.find((p) => p.id === presetId);
         const board: Dashboard = {
           id: uid("d"),
-          slug: uniqueSlug(
-            name,
-            state.dashboards.map((d) => d.slug),
-          ),
+          /* Unique WITHIN THE SCOPE it is being made in. A venture's "Search"
+             board and the global one are two addresses, and forcing the second
+             of them to be "search-2" would be an apology for a collision that
+             does not exist. */
+          slug: uniqueSlug(name, slugsIn(state.dashboards, ventureId)),
           name,
+          ventureId,
           widgets: (preset?.widgets ?? []).map((type) => ({
             id: uid("w"),
             type,
@@ -1046,6 +1312,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         };
         setState((s) => ({ ...s, dashboards: [...s.dashboards, board] }));
         return board;
+      },
+
+      copyDashboard(sourceId, into) {
+        const source = state.dashboards.find((d) => d.id === sourceId);
+        if (!source) return null;
+        const name = into.name?.trim() || source.name;
+        const board: Dashboard = {
+          id: uid("d"),
+          slug: uniqueSlug(name, slugsIn(state.dashboards, into.ventureId)),
+          name,
+          ventureId: into.ventureId,
+          /* A DEEP COPY WITH NEW IDS. The types and the widths are the whole
+             point of copying a board; the ids are not, and sharing one would
+             make a reorder on the copy move a card on the original. */
+          widgets: source.widgets.map((w) => ({ ...w, id: uid("w") })),
+        };
+        setState((s) => ({ ...s, dashboards: [...s.dashboards, board] }));
+        return board;
+      },
+
+      dashboardsIn(ventureId) {
+        return state.dashboards.filter(
+          (d) => (d.ventureId ?? null) === ventureId,
+        );
       },
 
       renameDashboard(id, name) {
@@ -1097,7 +1387,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [state, streamingSessions]);
 
-  return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
+  return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

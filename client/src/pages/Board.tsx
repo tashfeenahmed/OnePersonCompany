@@ -20,8 +20,27 @@ import {
   type BoardColumn,
   type BoardDoc,
 } from "@/lib/api";
+import { VentureMark } from "@/components/VentureChrome";
 import { useStore, type Venture } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+/**
+ * WHAT THIS PAGE NEEDS TO DRAW A VENTURE, which is less than a venture is.
+ *
+ * The board resolves its cards' ventures on the server now and sends the names
+ * and colours down with the document — so a card filed under a venture this
+ * browser has not fetched yet still draws with its own name rather than as an
+ * id. The favicon is not on that map (the board has no business shipping a
+ * data: URL per card), so it comes from the store's cache when it is there.
+ * Hence a shape rather than the whole `Venture`: half of these are joined from
+ * two places and neither half is complete on its own.
+ */
+type VentureChip = {
+  id: string;
+  name: string;
+  color: string;
+  brand?: { favicon: string | null };
+};
 
 /**
  * THE BOARD — the work, laid out sideways.
@@ -111,7 +130,24 @@ export function Board() {
    *  the reply has already superseded. */
   const [opened, setOpened] = useState<number | null>(null);
 
-  const ventures = new Map(state.ventures.map((v) => [v.id, v]));
+  /*
+    THE BOARD'S OWN ANSWER WINS, THE CACHE FILLS IN THE REST.
+
+    `data.ventures` was resolved from the ventures table on the same request
+    that returned these cards, so it is the current name and colour; the store
+    is whatever this browser last fetched, which is where the favicon lives and
+    which is the only answer at all on a server that has not shipped the map
+    yet. Ventures the store knows and the board did not mention are kept, so
+    the filter chips are the full list rather than only the ventures that
+    happen to have work on them.
+  */
+  const ventures = new Map<string, VentureChip>(
+    state.ventures.map((v) => [v.id, v as VentureChip]),
+  );
+  for (const [id, v] of Object.entries(data?.ventures ?? {})) {
+    const cached = ventures.get(id);
+    ventures.set(id, { ...cached, id, name: v.name, color: v.color });
+  }
 
   /**
    * Every write on this page goes through here.
@@ -227,16 +263,13 @@ export function Board() {
           <Chip active={venture === null} onClick={() => setVenture(null)}>
             All
           </Chip>
-          {state.ventures.map((v) => (
+          {[...ventures.values()].map((v) => (
             <Chip
               key={v.id}
               active={venture === v.id}
               onClick={() => setVenture(venture === v.id ? null : v.id)}
             >
-              <span
-                className="size-[7px] shrink-0 rounded-[2px]"
-                style={{ background: v.color }}
-              />
+              <VentureMark venture={v} size={13} />
               {v.name}
             </Chip>
           ))}
@@ -424,7 +457,7 @@ function Column({
   onLimit,
 }: {
   column: BoardColumn;
-  ventures: Map<string, Venture>;
+  ventures: Map<string, VentureChip>;
   filter: string | null;
   boardEmpty: boolean;
   /** The card being carried, anywhere on the board. */
@@ -727,7 +760,7 @@ function CardTile({
   onDrop,
 }: {
   card: BoardCard;
-  venture: Venture | undefined;
+  venture: VentureChip | undefined;
   dragging: boolean;
   onOpen: () => void;
   onDragStart: () => void;
@@ -789,10 +822,7 @@ function CardTile({
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {venture && (
             <span className="text-muted-foreground flex items-center gap-1 text-[11px]">
-              <span
-                className="size-[7px] shrink-0 rounded-[2px]"
-                style={{ background: venture.color }}
-              />
+              <VentureMark venture={venture} size={13} />
               {venture.name}
             </span>
           )}

@@ -177,7 +177,7 @@
  * reporting an answer nobody is receiving.
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowUp,
   Bot,
@@ -209,7 +209,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { VentureDialog } from "@/components/VentureDialog";
+import { VentureMark } from "@/components/VentureChrome";
 import { Markdown } from "@/components/Markdown";
 import { ToolCallLine } from "@/components/ToolCallLine";
 import {
@@ -596,11 +596,39 @@ export function Chat() {
   const [targetId, setTargetId] = useState<string | null>(
     state.workspace.defaultVentureId,
   );
-  const [creating, setCreating] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const target = state.ventures.find((v) => v.id === targetId);
+
+  /**
+   * ARRIVING FROM A VENTURE: `?venture=<id>` picks the target, `?q=<text>`
+   * fills the composer, and both are then STRIPPED from the address.
+   *
+   * They are an instruction for this arrival, not a description of the page,
+   * and leaving them in the bar would make Back re-apply them and a bookmark
+   * of "the new chat screen" re-type somebody's question a fortnight later.
+   * Stripping with `replace` for the same reason the new session's address is
+   * replaced: this is one place, not two.
+   *
+   * The composer is filled rather than SENT. The openers on a venture page are
+   * a starting sentence, and sending one without giving the owner the chance to
+   * change a word would spend a turn on a question they did not finish asking.
+   */
+  useEffect(() => {
+    if (!location.search) return;
+    const params = new URLSearchParams(location.search);
+    const venture = params.get("venture");
+    const q = params.get("q");
+    if (!venture && !q) return;
+    if (venture) setTargetId(venture);
+    if (q) setText(q);
+    navigate(location.pathname, { replace: true });
+    /* Focused last, so the caret is where somebody who wants to edit the
+       opener would put it anyway. */
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [location.search, location.pathname, navigate]);
   /*
     THE ADDRESS IS THE SELECTION. `/chat/<id>` is a conversation, `/` is a new
     one — see the file header for what this replaced and why the store's own
@@ -1243,6 +1271,17 @@ export function Chat() {
           },
         },
         controller.signal,
+        /*
+          THE VENTURE GOES WITH THE QUESTION, not with the session.
+
+          It is read from the picker at the moment of sending rather than from
+          the session's stored `ventureId`, because the picker is what the
+          owner just looked at — changing it and asking is one gesture. The
+          server turns it into one system turn of context (name, stage, what
+          the owner said it is) and stores none of it, so a chat re-filed
+          tomorrow does not carry today's answer to "how is it doing".
+        */
+        target?.id ?? null,
       );
     } catch (e: unknown) {
       /*
@@ -1416,7 +1455,11 @@ export function Chat() {
   const picker = (
     <DropdownMenu>
       <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]">
-        <FolderClosed className="size-3.5" strokeWidth={1.6} />
+        {target ? (
+          <VentureMark venture={target} size={14} />
+        ) : (
+          <FolderClosed className="size-3.5" strokeWidth={1.6} />
+        )}
         {target?.name ?? "No venture"}
         <ChevronDown className="size-[13px]" strokeWidth={1.6} />
       </DropdownMenuTrigger>
@@ -1427,15 +1470,19 @@ export function Chat() {
         </DropdownMenuItem>
         {state.ventures.map((v) => (
           <DropdownMenuItem key={v.id} onSelect={() => setTargetId(v.id)}>
-            <span
-              className="size-[7px] shrink-0 rounded-[2px]"
-              style={{ background: v.color }}
-            />
+            {/* The site's own icon where there is one, the colour square where
+                there is not — the same mark this venture wears everywhere
+                else, so the row is recognised rather than read. */}
+            <VentureMark venture={v} size={14} />
             {v.name}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => setCreating(true)}>
+        {/* A PAGE, NOT A DIALOG, and it takes you off this screen on purpose:
+            a venture wants a stage and a website, and asking for those in a
+            box over a half-typed question was how the stage ended up being
+            whatever the dialog defaulted to. */}
+        <DropdownMenuItem onSelect={() => navigate("/ventures/new")}>
           <Plus className="size-4" strokeWidth={1.6} />
           New venture
         </DropdownMenuItem>
@@ -1998,8 +2045,6 @@ export function Chat() {
           </p>
         </div>
       </div>
-
-      <VentureDialog open={creating} onOpenChange={setCreating} />
     </>
   );
 }
