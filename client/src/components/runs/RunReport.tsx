@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { Download, FileText, Loader2, Square, Trash2 } from "lucide-react";
+import { Download, Loader2, Square, Trash2 } from "lucide-react";
 import { Markdown } from "@/components/Markdown";
+import { PaperFacts, PaperFrame, PaperLinks } from "@/components/runs/PaperView";
 import { RunCards } from "@/components/runs/RunCards";
 import { RunSteps } from "@/components/runs/RunSteps";
 import {
@@ -34,6 +35,13 @@ import { cn } from "@/lib/utils";
  * instead of it: half a research report and the sentence that says why it
  * stopped are both worth having, and throwing the text away because the run
  * ended badly is destroying the only thing the run produced.
+ *
+ * A PAPER RUN PUTS THE PAPER FIRST AND THE REPORT SECOND, which is the one
+ * place this panel is not the same for every kind — and it is not a fork on
+ * `kind`, it is a fork on whether the server sent a `paper`. For the other five
+ * kinds the report IS the work; for a paper the report is a note about a
+ * document, and a page that led with the note would be burying the thing the
+ * run exists to produce under a paragraph about how it was made.
  */
 export function RunReport({
   run,
@@ -80,7 +88,11 @@ export function RunReport({
               Stop
             </button>
           )}
-          {!live && run.output.trim() && (
+          {/* The paper's own three links replace this one when there is a
+              paper — `PaperLinks` already offers the markdown, and two
+              "Markdown" buttons side by side would be a page arguing with
+              itself about which file is the document. */}
+          {!live && !run.paper && run.output.trim() && (
             <a
               href={runFileUrl(run.id, "markdown")}
               download
@@ -90,22 +102,7 @@ export function RunReport({
               Markdown
             </a>
           )}
-          {run.kind === "papers" && run.status === "done" && (
-            /* Offered on every finished paper and 404s with a sentence when
-               Chrome never printed one. A link that is only drawn when the PDF
-               is known to exist would need the papers list loaded here to know
-               it — and the honest failure is one page saying why, not a
-               control that quietly is not there. */
-            <a
-              href={runFileUrl(run.id, "pdf")}
-              target="_blank"
-              rel="noreferrer"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px]"
-            >
-              <FileText className="size-3.5" strokeWidth={1.6} />
-              PDF
-            </a>
-          )}
+          {run.paper && <PaperLinks paper={run.paper} />}
           {!live && (
             <button
               onClick={onDelete}
@@ -126,6 +123,34 @@ export function RunReport({
       )}
 
       <RunSteps steps={run.steps} />
+
+      {/* --------------------------------------------------------- the paper */}
+      {run.paper && (
+        <div className="mb-4">
+          <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="text-[14px] leading-snug font-medium tracking-tight">
+              {run.paper.title}
+            </span>
+            <PaperFacts paper={run.paper} />
+          </div>
+          {run.paper.thesis && (
+            <p className="text-muted-foreground mb-2 text-[12.5px] leading-relaxed">
+              {run.paper.thesis}
+            </p>
+          )}
+          {run.paper.contributions.length > 0 && (
+            <ul className="text-muted-foreground mb-2.5 list-disc pl-4 text-[12.5px] leading-relaxed">
+              {run.paper.contributions.map((c, i) => (
+                <li key={i}>{c}</li>
+              ))}
+            </ul>
+          )}
+          <PaperFrame paper={run.paper} />
+          <div className="text-muted-foreground mt-3 mb-1 text-[11px] tracking-[0.06em] uppercase">
+            How it was made
+          </div>
+        </div>
+      )}
 
       {run.status === "queued" ? (
         <p className="text-muted-foreground text-[13px]">

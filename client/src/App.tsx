@@ -18,6 +18,8 @@ import { Ventures } from "@/pages/Ventures";
 import { Venture } from "@/pages/Venture";
 import { VentureForm } from "@/pages/VentureForm";
 import { VentureMap } from "@/pages/VentureMap";
+import { Org } from "@/pages/Org";
+import { Subagent } from "@/pages/Subagent";
 import { Settings } from "@/pages/Settings";
 import { Apps } from "@/pages/Apps";
 import { Subagents } from "@/pages/Subagents";
@@ -91,8 +93,31 @@ export default function App() {
                         one day be slugged "map". React Router ranks static
                         above dynamic anyway; the order says the intent. */}
                     <Route path="/ventures/map" element={<VentureMap />} />
+                    {/* The org chart, before `:slug` for the third time and
+                        the third identical reason: a literal segment that a
+                        venture could one day be slugged with. */}
+                    <Route path="/ventures/org" element={<Org />} />
                     <Route path="/ventures/:slug" element={<Venture />} />
                     <Route path="/ventures/:slug/edit" element={<VentureForm />} />
+                    {/*
+                      ONE OF A VENTURE'S SIX WORKERS. The address is the
+                      venture and the ROLE rather than the worker's id —
+                      /ventures/example-app-1/team/seo is a sentence and
+                      /subagents/sa-v-3f21-seo is a primary key — and the
+                      pairing is the thing that is guaranteed: every venture is
+                      provisioned with all six on every read.
+
+                      NOT the `<Venture />` element, unlike the tabs below. A
+                      worker's page is not a view of the venture; it has its
+                      own identity form, its own dispatch box and its own
+                      history, and rendering it inside the venture's tab strip
+                      would put a Save button under a strip that says
+                      "Overview".
+                    */}
+                    <Route
+                      path="/ventures/:slug/team/:role"
+                      element={<Subagent />}
+                    />
                     {/*
                       THE VENTURE'S OTHER TABS. Real addresses rather than
                       state, the same rule the boards follow: "what is

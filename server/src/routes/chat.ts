@@ -114,6 +114,14 @@ import { preamble } from "../skills/registry.ts";
 */
 import { ventureContext } from "./ventures.ts";
 
+/*
+  WHO WORKS FOR THE OWNER, and what has been filed under this conversation.
+  Imported from the org area rather than queried here, on the same rule the
+  line above keeps: the prose about a team, and the address of the page a run
+  is read at, have exactly one author, and it is the file that owns them.
+*/
+import { childrenBySession, ventureTeamLines } from "../integrations/subagents/store.ts";
+
 export const chat = new Hono();
 
 /**
@@ -254,6 +262,69 @@ function withVenture(
         `site — is GET /api/skills/ventures.`,
     );
 
+  return [{ role: "system", content: lines.join("\n") }, ...turns];
+}
+
+/**
+ * TELL THE CHIEF OF STAFF WHO IT CAN SEND, AND WHERE THE WORK WILL LAND.
+ *
+ * The chat agent is the Chief of Staff of this business: below it are the
+ * ventures, and below each of those are six named workers that do the six kinds
+ * of long run. It can dispatch one through the `subagents` skill — but two
+ * facts it needs to do that well are not in any document it can fetch.
+ *
+ * THE FIRST IS THIS CONVERSATION'S OWN ID, which is a thing only the request
+ * knows. Passed as `parentSessionId`, it files the run under this chat in the
+ * owner's rail, so the answer to "what came of that?" is one click below the
+ * question. Without it the run still happens and appears nowhere near the
+ * conversation that asked for it.
+ *
+ * THE SECOND IS THE TEAM'S NAMES, when the chat is filed under a venture. An
+ * agent that has been told "Example App 1 Researcher, Example App 1 SEO Analyst, …" can
+ * answer "ask the SEO analyst to look at pricing" directly; one that has not
+ * must first fetch the org to discover that such a worker exists, and the
+ * failure mode of that is not a slower answer, it is advice instead of work.
+ *
+ * THE TWO HALVES HAVE DIFFERENT AUDIENCES, which is why they are one function
+ * with two conditions rather than two functions. The dispatch sentence is an
+ * INSTRUCTION ABOUT A TOOL and goes only where a tool exists — a live agent,
+ * managed or remote. The provider fallback is a raw model with no way to call
+ * anything, and telling it to pass a parameter on a call it cannot make is the
+ * exact failure `withSkills` is written at length about. The team is not a
+ * tool, it is a fact about the business, so it goes to everybody: a raw model
+ * that knows the owner has an SEO analyst for this venture gives better advice
+ * about who should do a thing, even though it cannot ask them itself.
+ *
+ * NOT STORED, and prepended, on the rule the other two turns keep: it is
+ * context for one call rather than something anybody said.
+ */
+function withOrg(
+  turns: ChatTurn[],
+  sessionId: string,
+  ventureId: string | null,
+  live: ChatBackend | null,
+): ChatTurn[] {
+  const lines: string[] = [];
+  if (live)
+    lines.push(
+      `This conversation's id is \`${sessionId}\`; when you dispatch a sub-agent ` +
+        `pass it as parentSessionId so the work is filed under this chat.`,
+    );
+
+  const team = ventureId ? ventureTeamLines(ventureId) : null;
+  if (team) {
+    lines.push(``, `The sub-agents on this venture, one per kind of work:`, ...team);
+    lines.push(
+      ``,
+      `Each is a worker you can give a job to by venture and role. Dispatching ` +
+        `one queues minutes of real work and answers with no report — say that ` +
+        `it has been dispatched, and read what it wrote later.`,
+    );
+  }
+
+  /* Nothing to say is nothing said. An empty system turn would cost a message
+     and read as an instruction that was cut off. */
+  if (!lines.length) return turns;
   return [{ role: "system", content: lines.join("\n") }, ...turns];
 }
 
@@ -485,8 +556,23 @@ chat.put("/backend", async (c) => {
  */
 chat.get("/sessions", (c) => {
   const sessions = chatSessionSummaries();
+  /*
+    WHAT WAS DISPATCHED FROM EACH CONVERSATION, nested under it.
+
+    A run started by the Chief of Staff on this chat's behalf is not another
+    conversation and must not be listed as one — it is a piece of work this
+    conversation produced, which is exactly the shape the rail was already
+    drawn for. So it arrives as a CHILD, with the page it is read at (`to`)
+    written down here rather than composed by the client from the kind: a rail
+    that guessed would send `geo` runs to a page that does not exist.
+
+    Read in ONE statement for every session rather than one per session — see
+    `childrenBySession` — because the rail asks for this list on a poll and a
+    query per transcript would make that cost grow with the archive.
+  */
+  const children = childrenBySession();
   return c.json({
-    sessions,
+    sessions: sessions.map((s) => ({ ...s, children: children.get(s.sessionId) ?? [] })),
     /* The count is the server's own, not `sessions.length` read by the client
        after a filter — a page that shows fewer rows than exist should be able
        to tell that it is doing so. */
@@ -582,8 +668,13 @@ chat.post("/", async (c) => {
      was one. Built once and used on BOTH paths below — the agent's and the
      provider fallback's — because a question about a business must not get a
      different answer depending on which of them happened to be live. */
-  const turns: ChatTurn[] = withVenture(
-    history.map((m) => ({ role: m.role, content: m.content })),
+  const turns: ChatTurn[] = withOrg(
+    withVenture(
+      history.map((m) => ({ role: m.role, content: m.content })),
+      ventureId,
+      live,
+    ),
+    sessionId,
     ventureId,
     live,
   );
@@ -771,8 +862,13 @@ chat.post("/stream", async (c) => {
   const stored = appendChatMessage({ sessionId, role: "user", content: message, channel });
   const history = chatMessages(sessionId, CONTEXT_TURNS);
   /* Same as the non-streaming route, for the same reason. */
-  const turns: ChatTurn[] = withVenture(
-    history.map((m) => ({ role: m.role, content: m.content })),
+  const turns: ChatTurn[] = withOrg(
+    withVenture(
+      history.map((m) => ({ role: m.role, content: m.content })),
+      ventureId,
+      live,
+    ),
+    sessionId,
     ventureId,
     live,
   );

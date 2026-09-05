@@ -793,6 +793,10 @@ export function Chat() {
           reconcileSessions(
             doc.sessions.map((s) => ({
               id: s.sessionId,
+              /* Straight through, unshortened and unmerged: the children are
+                 the server's list of what this chat dispatched, and the store
+                 replaces rather than merges them. See `SessionChild`. */
+              children: s.children,
               /* The server sends the first thing that was said, up to 200
                  characters. Shortening it to a rail-width label is this side's
                  job — and it is the same function the composer uses to name a

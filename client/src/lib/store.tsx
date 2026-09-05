@@ -56,13 +56,46 @@ import {
  *  from a page's point of view. */
 export type { Venture, VentureStage } from "@/lib/api";
 
+/**
+ * ONE THING A CHAT SET IN MOTION. Not a chat: `to` sends the rail somewhere
+ * that is not /chat/<id>, and `status` is a run's status word rather than
+ * anything a conversation has.
+ */
+export type SessionChild = {
+  id: string;
+  title: string;
+  /** Where pressing it goes. Absent means "treat it as a chat", which is what
+   *  the rail did before anything wrote to this list. */
+  to?: string;
+  /** The server's own word — queued, running, done, failed, cancelled. Drawn
+   *  as a word rather than a dot, because a run under a chat is worth reading
+   *  the state of without hovering it. */
+  status?: string;
+};
+
 export type Session = {
   id: string;
   title: string;
   /** A venture this was about, when it was about one. */
   ventureId?: string | null;
-  /** Runs this chat dispatched — sub-agent work, mostly. */
-  children?: { id: string; title: string }[];
+  /**
+   * RUNS THIS CHAT DISPATCHED — sub-agent work, filed under the conversation
+   * that asked for it.
+   *
+   * THE SERVER OWNS THIS LIST ENTIRELY, which is the opposite of the rule
+   * every other field on a session follows. A title is the owner's and is
+   * never overwritten; a venture is the owner's; the children are `agent_runs`
+   * rows with `parent_session_id = this chat`, and there is no such thing as a
+   * child this browser knows about and the server does not. So the reconcile
+   * REPLACES rather than merges — a run cancelled and deleted from another tab
+   * has to be able to disappear from this rail.
+   *
+   * `to` is where the child actually lives, and it is usually NOT a chat: a
+   * dispatched run is read at /apps/<app>/<runId>. The field is optional
+   * because the rail predates the runs area and a child with no address falls
+   * back to being treated as a conversation.
+   */
+  children?: SessionChild[];
   /**
    * A SEEDED SESSION THAT HAS NOT YET BEEN CHECKED AGAINST THE SERVER.
    *
@@ -1438,7 +1471,9 @@ type StoreApi = {
    * of — the twelve invented ones, swept here rather than in `migrate()`
    * because this is the first moment anything knows whether they were real.
    */
-  reconcileSessions: (server: { id: string; title: string }[]) => void;
+  reconcileSessions: (
+    server: { id: string; title: string; children?: SessionChild[] }[],
+  ) => void;
   /**
    * WHICH CHATS ARE BEING ANSWERED RIGHT NOW, so the rail can say so.
    *
@@ -1493,6 +1528,33 @@ type StoreApi = {
 
 const StoreContext = createContext<StoreApi | null>(null);
 
+/**
+ * Whether two children lists say the same thing.
+ *
+ * BY VALUE, BECAUSE THE SERVER SENDS A NEW ARRAY EVERY POLL. The reconcile
+ * decides whether to keep a session's identity by comparing what changed, and
+ * a fresh array of identical rows is not a change — without this, every poll
+ * would hand the rail a new object for every chat that ever dispatched
+ * anything and re-render the whole list. Undefined and empty are the same
+ * answer: nothing was dispatched.
+ */
+function sameChildren(a?: SessionChild[], b?: SessionChild[]): boolean {
+  if (a === b) return true;
+  if (!a?.length || !b?.length) return !a?.length && !b?.length;
+  return (
+    a.length === b.length &&
+    a.every((c, i) => {
+      const d = b[i];
+      return (
+        c.id === d.id &&
+        c.title === d.title &&
+        c.to === d.to &&
+        c.status === d.status
+      );
+    })
+  );
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StoreState>(load);
 
@@ -1526,22 +1588,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * an empty list because a local API is not running would delete the rail's
    * ventures over a dropped request.
    */
-  const asked = useRef(false);
+  /*
+    THE GUARD AND THE CLEANUP USED TO CANCEL EACH OTHER OUT. Under React's
+    StrictMode the effect runs, is cleaned up, and runs again on the same
+    mount: the first run set the ref and started the fetch, the cleanup
+    flipped `alive` to false so the answer was thrown away, and the second run
+    saw the ref and returned — so a browser with an empty cache showed "0
+    ventures" until somebody visited /ventures. The ref now records that a
+    fetch has LANDED, not that one was started, and the in-flight one is
+    simply allowed to land: a second setState with the same list is a cheap
+    no-op, and a dropped answer is the failure this effect exists to avoid.
+  */
+  const landed = useRef(false);
   useEffect(() => {
-    if (asked.current) return;
-    asked.current = true;
-    let alive = true;
+    if (landed.current) return;
     void api.ventures
       .list()
       .then((doc) => {
-        if (alive) setState((s) => withVentures(s, doc.ventures));
+        landed.current = true;
+        setState((s) => withVentures(s, doc.ventures));
       })
       .catch(() => {
         /* not knowing is not a reason to delete */
       });
-    return () => {
-      alive = false;
-    };
   }, []);
 
   const store = useMemo<StoreApi>(() => {
@@ -1666,6 +1735,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const onServer = new Set(server.map((x) => x.id));
 
           const titles = new Map(server.map((x) => [x.id, x.title]));
+          /* The children are the server's, wholesale — see `SessionChild`.
+             A session the server did not mention keeps what it has, because
+             silence about a chat is not a statement that it dispatched
+             nothing. */
+          const kids = new Map(server.map((x) => [x.id, x.children]));
 
           /*
             Kept, minus the invented ones the server has never heard of. The
@@ -1685,17 +1759,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           */
           const kept = s.sessions
             .filter((x) => !x.seeded || onServer.has(x.id))
-            .map((x) =>
-              x.seeded
-                ? { ...x, title: titles.get(x.id) ?? x.title, seeded: undefined }
-                : x,
-            );
+            .map((x) => {
+              const children = onServer.has(x.id) ? kids.get(x.id) : x.children;
+              /* Identity is preserved when nothing about this session moved,
+                 because the whole list below is compared by reference to
+                 decide whether the rail re-renders at all. */
+              if (!x.seeded && sameChildren(x.children, children)) return x;
+              return {
+                ...x,
+                ...(x.seeded
+                  ? { title: titles.get(x.id) ?? x.title, seeded: undefined }
+                  : null),
+                children,
+              };
+            });
 
           /* New arrivals go on top, in the order the server gave them — which
              is newest activity first, the same order the rail reads in. */
           const added: Session[] = server
             .filter((x) => !known.has(x.id))
-            .map((x) => ({ id: x.id, title: x.title, ventureId: null }));
+            .map((x) => ({
+              id: x.id,
+              title: x.title,
+              ventureId: null,
+              children: x.children,
+            }));
 
           if (!added.length && kept.length === s.sessions.length) {
             /* Nothing changed except possibly the marks, and a new array with

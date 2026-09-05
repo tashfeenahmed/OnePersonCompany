@@ -15,6 +15,16 @@
  * measurement that goes stale on a cadence. The one background thing is the
  * queue, which is `onStart`'s.
  *
+ * THERE IS ONE `config` ENTRY, AND IT IS A PSEUDO-PLUGIN, exactly as `capture`
+ * and `studio` are on the ventures manifest and for the same reason: a paper
+ * needs three things that are decisions rather than credentials — where the
+ * typesetter is, how many columns a paper defaults to, and whose name goes on
+ * the author line. None of them is a secret, all three have to be readable
+ * back to be corrected, and a write-only field you can never check is a field
+ * that eventually holds a typo for ever. `typst` empty means "go and find one",
+ * which is what the box does on its own; it is filled in only to point at a
+ * binary the search cannot find.
+ *
  * TWO SKILLS AND NOT SIX. An agent does not need one entry per kind of run: the
  * kinds are DATA on `/api/runs` (`kinds[]`, with each one's inputs and its
  * counts), so an agent that reads the list can start any of them through one
@@ -37,6 +47,7 @@ import { startQueue } from "./executor.ts";
 import { KINDS } from "./kinds.ts";
 import { competitorRoutes, geoRoutes, paperRoutes, runRoutes } from "./routes.ts";
 import { failInterrupted } from "./store.ts";
+import { DEFAULT_AUTHOR, PAPERS_PLUGIN } from "./typst.ts";
 
 /* ------------------------------------------------------------------ skills */
 
@@ -78,6 +89,12 @@ const skills: Skill[] = [
       "A `failed` RUN WITH \"interrupted by a restart\" WAS NOT A BAD RUN. The " +
         "process stopped while it was working; whatever is in `output` is what " +
         "had been written by then.",
+      "A PAPER RUN'S `output` IS A NOTE ABOUT THE PAPER AND IS NOT THE PAPER. " +
+        "The paper is the PDF at /api/runs/:id/pdf and the Typst source it was " +
+        "set from at /api/runs/:id/typ; `paper.typeset` says which machine made " +
+        "it — `typst` is a typeset document, `chrome` is markdown printed by a " +
+        "browser, and null is a run that produced no PDF at all. Never describe " +
+        "a `chrome` paper as typeset, and never report `pages` when it is null.",
     ],
     views: [
       {
@@ -114,8 +131,10 @@ const skills: Skill[] = [
         path: "/api/runs/:id",
         about:
           "One run in full: the report as markdown (partial while it is running), " +
-          "the progress steps with their timings, the input it was given, and the " +
-          "parsed card suggestions.",
+          "the progress steps with their timings, the input it was given, the " +
+          "parsed card suggestions, and — on a paper run — a `paper` object with " +
+          "the title, thesis, contributions, which typesetter made it, how many " +
+          "columns, how many pages, and the urls of the PDF and the Typst source.",
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "The run id, like r-a1b2c3." },
         ],
@@ -253,8 +272,68 @@ const skills: Skill[] = [
 export const manifest: IntegrationManifest = {
   id: "runs",
 
+  config: {
+    [PAPERS_PLUGIN]: {
+      keys: {
+        typst: {
+          label: "Typesetter",
+          hint:
+            "The full path to the `typst` binary, which is what turns a planned " +
+            "paper into a typeset PDF — two columns, numbered headings and " +
+            "figures, a real bibliography. Leave it EMPTY and this looks for one " +
+            "itself: /opt/homebrew/bin/typst, /usr/local/bin/typst, then typst on " +
+            "PATH. Fill it in only to point at one the search cannot find. With " +
+            "no typesetter anywhere a paper is still written — as markdown " +
+            "printed by the same Chrome the screenshots use — and the paper says " +
+            "which of the two made it.",
+          ph: "/opt/homebrew/bin/typst",
+          check(value) {
+            if (!value) return null; // cleared means "find one yourself"
+            if (value.includes("\n")) return "One path, on one line.";
+            if (!value.startsWith("/"))
+              return "An absolute path, please — this is executed, and a relative one would depend on where the server happened to be started.";
+            return null;
+          },
+        },
+        columns: {
+          label: "Default columns",
+          hint:
+            "1 or 2, and it is only the FLOOR: each paper's plan chooses its own " +
+            "column count — two for a conventional systems paper, one for a short " +
+            "argumentative one — and that choice is honoured. This is what a plan " +
+            "that came back without a number falls through to. Empty means 2.",
+          ph: "2",
+          check(value) {
+            if (!value) return null;
+            if (value !== "1" && value !== "2")
+              return "A paper here is one column or two. Anything else is a layout nothing in this file knows how to set.";
+            return null;
+          },
+        },
+        author: {
+          label: "Author line",
+          hint:
+            "The name printed under the title of every paper this box writes. " +
+            `Empty means “${DEFAULT_AUTHOR}” — this server has no owner's name in ` +
+            "it and will not invent one, so the default is the box rather than a " +
+            "person it would be guessing at. Put your own name here if the papers " +
+            "are yours.",
+          ph: DEFAULT_AUTHOR,
+          check(value) {
+            if (!value) return null;
+            if (value.includes("\n")) return "One line — this is printed under the title.";
+            if (value.length > 120)
+              return "That is longer than an author line. It is set at ten points under the title, and it has to fit.";
+            return null;
+          },
+        },
+      },
+    },
+  },
+
   routes: [
-    /* The ledger, and the two file downloads that hang off a run. */
+    /* The ledger, and the three files that hang off a run: the report as
+       markdown, the paper as a PDF, and the Typst source it was set from. */
     { path: "/api/runs", app: runRoutes },
     /* What the sweeps accumulated. Mounted separately because the profiles are
        read constantly and the runs that wrote them hardly ever. */

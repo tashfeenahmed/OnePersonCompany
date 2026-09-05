@@ -1,18 +1,21 @@
 /**
  * MARKDOWN TO A PDF, WITH THE BROWSER THAT IS ALREADY ON THE BOX.
  *
- * TYPST IS NOT INSTALLED HERE AND THIS DOES NOT PRETEND OTHERWISE. The obvious
- * shape for a written paper is a typesetter: real figure numbering, real
- * bibliography styling, a document that looks like a paper because it was set
- * like one. That is not what this is. There is no Typst and no LaTeX on this
- * machine, installing either is a two-hundred-megabyte dependency the owner
- * did not ask for, and a run that shelled out to a binary that is not there
- * would fail every time on the one machine it runs on. So the honest shape is
- * the one the box can actually do: the paper is MARKDOWN, which is the real
- * artefact and the thing stored beside the row, and the PDF is that markdown
- * rendered by the same headless Chrome the screenshots already use. It is a
- * readable document with numbered citations. It is not a typeset paper and
- * nothing here calls it one.
+ * THIS IS NOW THE FALLBACK, AND IT IS KEPT RATHER THAN DELETED. typst.ts is
+ * the machine that sets a paper properly — columns, numbered headings and
+ * figures, a real bibliography — and where `typst` is installed that is what
+ * runs. This file is what happens on a box where it is not: the paper is
+ * MARKDOWN, which is the real artefact and the thing stored beside the row,
+ * and the PDF is that markdown rendered by the same headless Chrome the
+ * screenshots already use. It is a readable document with numbered citations.
+ * It is not a typeset paper, nothing here calls it one, and the row records
+ * `chrome` so nothing downstream can call it one either.
+ *
+ * DELETING IT WOULD HAVE MADE THE FEATURE DEPEND ON A BINARY, which is the
+ * trade this file was originally written to avoid: a run that shelled out to
+ * something that is not there fails every time on the machine it runs on. Two
+ * machines and an honest label is a better answer than one machine and a
+ * prerequisite.
  *
  * THE HTML IS BUILT BY FORTY LINES IN THIS FILE for the reason scout.ts gives
  * about its Atom parsing: this server has one dependency and a markdown

@@ -2732,6 +2732,29 @@ export type ChatSessionSummary = {
   firstAt: string;
   lastAt: string;
   channels: string[];
+  /**
+   * RUNS THIS CONVERSATION DISPATCHED — `agent_runs` rows whose
+   * `parent_session_id` is this session, newest first. The chief of staff
+   * sends a sub-agent to do something mid-chat and the work is filed under the
+   * chat that asked for it; the rail nests these under the conversation.
+   *
+   * OPTIONAL, and that is a statement about deployment rather than about the
+   * data. A server built before the sub-agents area simply does not send the
+   * field, and a rail that showed nothing is exactly right there — where a
+   * required field would have made this client refuse to typecheck against
+   * half the servers it has to talk to.
+   */
+  children?: {
+    /** `run:<runId>`, so it can never collide with a session id. */
+    id: string;
+    runId: string;
+    title: string;
+    kind: string;
+    app: string;
+    status: string;
+    /** /apps/<app>/<runId> — where the report is actually read. */
+    to: string;
+  }[];
 };
 
 export type ChatSessionsDoc = {

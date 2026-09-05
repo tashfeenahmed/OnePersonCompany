@@ -397,22 +397,31 @@ export function AppSidebar() {
               )}
 
               {/*
-                THE NESTING STAYS EXACTLY AS IT WAS, and nothing writes to it
-                yet. `Session.children` is where a chat's sub-agent runs will
-                hang — the rail is going to want to show that a conversation
-                dispatched work — and the indented rendering below is the shape
-                that will hold them. It is kept rather than deleted-and-rebuilt
-                because a layout that has been looked at and agreed is worth
-                more than the twenty lines it costs to carry.
+                WHAT A CHAT SET IN MOTION, NESTED UNDER IT.
+
+                The nesting itself is older than the thing it now holds: it was
+                built for sub-agent runs, carried unused through the sweep that
+                deleted the invented sessions, and this is the shape finally
+                being filled. A run dispatched by the chief of staff mid-chat
+                is filed under the conversation that asked for it — that is
+                what `parent_session_id` on the run means — so the rail shows
+                the conversation and the work hanging off it in one place.
+
+                A CHILD USUALLY IS NOT A CHAT, and that is the one change to
+                this block. `to` is where it actually lives, which for a run is
+                /apps/<app>/<runId>; without it the row falls back to being
+                treated as a conversation, which is what a child with no
+                address must be. Sending every child to /chat/<id> would open
+                an empty transcript at the id of a run.
               */}
               {!!s.children?.length && (
                 <div className="border-line-soft mt-px mb-1 ml-3 flex flex-col gap-px border-l pl-2.5">
-                  {s.children.map((c) => (
+                  {s.children.map((c) => {
                     /*
                       THE SAME ROW, ONE INDENT IN. Same container, same radius,
                       same tint, same truncation — the indent and the type size
-                      are the only differences, because a sub-run is a chat you
-                      open exactly like any other and a second row shape would
+                      are the only differences, because a child is opened
+                      exactly like any other row and a second row shape would
                       be a second thing to keep in step.
 
                       No ⋯ here, and that is not an omission: rename and delete
@@ -421,32 +430,48 @@ export function AppSidebar() {
                       offering two actions that quietly do nothing is worse
                       than no menu.
                     */
-                    <div
-                      key={c.id}
-                      className={cn(
-                        "relative flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-[7px] transition-colors",
-                        c.id === openSessionId
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                        "focus-within:bg-accent focus-within:text-foreground",
-                      )}
-                    >
-                      <Link
-                        to={`/chat/${encodeURIComponent(c.id)}`}
-                        aria-current={c.id === openSessionId ? "page" : undefined}
-                        className="block min-w-0 flex-1 truncate px-2 py-[5px] text-left text-[12px] outline-none"
+                    const to = c.to ?? `/chat/${encodeURIComponent(c.id)}`;
+                    /* Only a child that really is a chat can be the open one.
+                       A run's id is not a session id and could never match,
+                       but saying so here is cheaper than relying on it. */
+                    const here = !c.to && c.id === openSessionId;
+                    return (
+                      <div
+                        key={c.id}
+                        className={cn(
+                          "relative flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-[7px] transition-colors",
+                          here
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                          "focus-within:bg-accent focus-within:text-foreground",
+                        )}
                       >
-                        {c.title}
-                      </Link>
-                      {streaming.has(c.id) && (
-                        <span
-                          title="Still answering"
-                          aria-label="Still answering"
-                          className="bg-foreground/60 mr-2 size-1.5 shrink-0 animate-pulse rounded-full"
-                        />
-                      )}
-                    </div>
-                  ))}
+                        <Link
+                          to={to}
+                          aria-current={here ? "page" : undefined}
+                          className="block min-w-0 flex-1 truncate px-2 py-[5px] text-left text-[12px] outline-none"
+                        >
+                          {c.title}
+                        </Link>
+                        {/* The status as a WORD rather than a dot. A run under
+                            a chat is worth knowing the state of without
+                            hovering it, and "failed" is not a colour anybody
+                            should have to decode. */}
+                        {c.status && (
+                          <span className="text-muted-foreground mr-2 shrink-0 text-[10.5px]">
+                            {c.status}
+                          </span>
+                        )}
+                        {streaming.has(c.id) && (
+                          <span
+                            title="Still answering"
+                            aria-label="Still answering"
+                            className="bg-foreground/60 mr-2 size-1.5 shrink-0 animate-pulse rounded-full"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

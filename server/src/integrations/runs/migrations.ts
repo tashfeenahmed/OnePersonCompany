@@ -224,4 +224,39 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX papers_venture ON papers(venture_id, ts DESC);
     `,
   },
+
+  {
+    name: "075_papers_typeset",
+    sql: `
+      -- WHICH MACHINE SET THE PAPER, and what it produced.
+      --
+      -- \`typeset\` IS THE HONEST RECORD OF A BOX'S TOOLING and is the reason
+      -- this migration exists rather than the columns being back-filled with a
+      -- default. \`typst\` means the PDF was compiled from the source in
+      -- \`typ_path\` — two columns, numbered headings, an IEEE bibliography.
+      -- \`chrome\` means there was no typesetter installed when this paper was
+      -- written, so it is markdown printed by a browser, which is a readable
+      -- document and is not a typeset paper. NULL is every paper written before
+      -- the distinction existed, and every one that produced no PDF at all —
+      -- and a page must draw that as "not recorded", never as either engine.
+      --
+      -- \`columns\` IS THE PLAN'S OWN CHOICE, kept because it is the one
+      -- decision about the LOOK of the document that the model makes and this
+      -- server honours; a reader comparing two papers is entitled to know
+      -- which was asked for rather than inferring it from the PDF.
+      --
+      -- \`pages\` IS READ OFF THE FINISHED FILE and is NULL when it could not
+      -- be read. It is the only number on this row that says how much paper
+      -- there is, and a guess would be believed.
+      --
+      -- \`typ_path\` IS THE SOURCE AND IT IS THE ARTEFACT. The PDF is a
+      -- rendering of it; the .typ is what was written, what the repair pass
+      -- fixed, and the only thing that explains a compile that failed. A paper
+      -- with a source and no PDF is a real state and is kept as one.
+      ALTER TABLE papers ADD COLUMN typeset  TEXT;
+      ALTER TABLE papers ADD COLUMN columns  INTEGER;
+      ALTER TABLE papers ADD COLUMN pages    INTEGER;
+      ALTER TABLE papers ADD COLUMN typ_path TEXT;
+    `,
+  },
 ];

@@ -147,7 +147,7 @@ export const KINDS: KindDef[] = [
     kind: "papers",
     name: "Papers",
     what:
-      "Scouts OpenAlex and arXiv for the topic, builds a library, then writes a paper in Markdown whose citations come only from that library — net-new against every paper written here before — and prints it to PDF with the installed Chrome.",
+      "Scouts OpenAlex and arXiv for the topic, builds a library, plans a contribution that is net-new against every paper written here before, draws its figures, and TYPESETS it with Typst: one or two columns, numbered headings and figures, and an IEEE bibliography generated from the library entries the body actually cites. With no typesetter on the box it falls back to markdown printed by the installed Chrome and says so on the paper.",
     needsVenture: false,
     inputs: [
       {

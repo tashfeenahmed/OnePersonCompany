@@ -1,5 +1,7 @@
-import { Download, FileText } from "lucide-react";
+import { useState } from "react";
+import { BookOpen, X } from "lucide-react";
 import { Link } from "react-router-dom";
+import { PaperFacts, PaperFrame, PaperLinks } from "@/components/runs/PaperView";
 import { useApi } from "@/hooks/useApi";
 import { ago } from "@/lib/live";
 import { runsApi } from "@/lib/api/runs";
@@ -22,11 +24,17 @@ import type { Venture } from "@/lib/store";
  * from nothing — and so the "net-new against every paper written before" rule
  * has something to be net-new against.
  *
- * "OPEN PDF" IS A LINK AND NOT A BUTTON. The file was printed by the Chrome on
- * this box when the run finished; the route hands it over or 404s with a
- * sentence saying Chrome was not found. Typst is not installed here — the
- * shape is markdown rendered and printed, which is honest and is also why the
- * markdown download beside it is the more reliable of the two.
+ * "READ" OPENS THE PAPER IN PLACE, and that is the one control here that is a
+ * button rather than a link. A typeset paper is a thing to LOOK at — the
+ * columns, the figures, the numbered bibliography are the whole point of
+ * setting it — and a shelf that could only hand over a download would hide
+ * exactly what changed. One at a time, because two 70vh viewers on one page is
+ * a page nobody can scroll; opening a second closes the first.
+ *
+ * WHAT EACH ROW CLAIMS ABOUT ITSELF COMES FROM THE SERVER. `typeset` says
+ * whether the file was compiled by Typst or printed by a browser, and the row
+ * says which in those words — a browser print is not a typeset paper, and a
+ * shelf that drew both as "paper" would be the place that lie started.
  */
 export function PaperShelf({
   venture,
@@ -41,6 +49,10 @@ export function PaperShelf({
   refreshKey: string;
 }) {
   const key = venture?.id ?? null;
+  /* Which paper is open in the reader, by run id. Held here rather than per
+     row so that opening one closes the other without either row knowing about
+     the other — see the header. */
+  const [reading, setReading] = useState<string | null>(null);
   const papers = useApi(() => runsApi.papers(key), [key, refreshKey]);
   const library = useApi(
     () => runsApi.library({ venture: key, topic: topic.trim() || null }),
@@ -76,66 +88,64 @@ export function PaperShelf({
         </p>
       ) : (
         <div className="mb-7 flex flex-col gap-1.5">
-          {written.map((p) => (
-            <div key={p.runId} className="bg-card rounded-[10px] border p-3">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <Link
-                  to={`/apps/papers/${p.runId}`}
-                  className="text-[13px] leading-snug font-medium tracking-tight hover:underline"
-                >
-                  {p.title}
-                </Link>
-                <span className="text-muted-foreground text-[11.5px]">
-                  {p.topic} · {ago(p.ts)} ·{" "}
-                  {p.cited.length}{" "}
-                  {p.cited.length === 1 ? "citation" : "citations"}
-                </span>
-                {/* The url the SERVER hands over, not one built here — and
-                    absent rather than dead when there is no PDF, because the
-                    row beside it already offers the markdown, which is the
-                    artefact. `pdfOnDisk` false is a file that has gone missing
-                    under the row; the link stays and 404s with the reason,
-                    which is more use than hiding it. */}
-                <span className="ml-auto flex shrink-0 items-center gap-0.5">
-                  {p.pdf ? (
-                    <a
-                      href={p.pdf}
-                      target="_blank"
-                      rel="noreferrer"
+          {written.map((p) => {
+            const open = reading === p.runId;
+            return (
+              <div key={p.runId} className="bg-card rounded-[10px] border p-3">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <Link
+                    to={`/apps/papers/${p.runId}`}
+                    className="text-[13px] leading-snug font-medium tracking-tight hover:underline"
+                  >
+                    {p.title}
+                  </Link>
+                  <span className="text-muted-foreground text-[11.5px]">
+                    {p.topic} · {ago(p.ts)}
+                  </span>
+                  {/* The url the SERVER hands over, not one built here — and
+                      absent rather than dead when there is no PDF, because the
+                      links beside it already offer the source and the markdown.
+                      `pdfOnDisk` false is a file that has gone missing under
+                      the row; the link stays and 404s with the reason, which is
+                      more use than hiding it. */}
+                  <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                    <button
+                      onClick={() => setReading(open ? null : p.runId)}
                       className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px]"
                     >
-                      <FileText className="size-3.5" strokeWidth={1.6} />
-                      Open PDF
-                    </a>
-                  ) : (
-                    <span className="text-muted-foreground px-2 py-1 text-[11.5px]">
-                      no PDF
-                    </span>
-                  )}
-                  <a
-                    href={p.markdown}
-                    download
-                    className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px]"
-                  >
-                    <Download className="size-3.5" strokeWidth={1.6} />
-                    Markdown
-                  </a>
-                </span>
+                      {open ? (
+                        <X className="size-3.5" strokeWidth={1.6} />
+                      ) : (
+                        <BookOpen className="size-3.5" strokeWidth={1.6} />
+                      )}
+                      {open ? "Close" : "Read"}
+                    </button>
+                    <PaperLinks paper={p} />
+                  </span>
+                </div>
+                <div className="mt-0.5">
+                  <PaperFacts paper={p} />
+                </div>
+                {p.thesis && (
+                  <p className="text-muted-foreground mt-1 text-[12px] leading-relaxed">
+                    {p.thesis}
+                  </p>
+                )}
+                {p.contributions.length > 0 && (
+                  <ul className="text-muted-foreground mt-1 list-disc pl-4 text-[12px] leading-relaxed">
+                    {p.contributions.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                )}
+                {open && (
+                  <div className="mt-2.5">
+                    <PaperFrame paper={p} />
+                  </div>
+                )}
               </div>
-              {p.thesis && (
-                <p className="text-muted-foreground mt-1 text-[12px] leading-relaxed">
-                  {p.thesis}
-                </p>
-              )}
-              {p.contributions.length > 0 && (
-                <ul className="text-muted-foreground mt-1 list-disc pl-4 text-[12px] leading-relaxed">
-                  {p.contributions.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

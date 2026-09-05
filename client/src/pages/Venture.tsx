@@ -8,18 +8,22 @@ import {
   Plus,
   RefreshCw,
   Sparkles,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NewDashboardDialog, NoBoard } from "@/components/BoardView";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
+import { SubagentRow } from "@/components/org/SubagentRow";
+import { teamAddress } from "@/components/org/roleLook";
 import { Audit } from "@/components/ventures/Audit";
 import { Connections } from "@/components/ventures/Connections";
 import { Site } from "@/components/ventures/Site";
 import { useApi } from "@/hooks/useApi";
 import { api, VENTURE_STAGES, type Venture as VentureDoc } from "@/lib/api";
 import { ventureApi, type VentureLinks } from "@/lib/api/ventures";
+import { subagentApi } from "@/lib/api/subagents";
 import { ScopeProvider } from "@/lib/live";
 import { useStore } from "@/lib/store";
 
@@ -347,9 +351,20 @@ function Overview({
 }) {
   const { sessionsFor, dashboardsIn, enrichVenture } = useStore();
   const { data: board } = useApi(() => api.board(), []);
+  /*
+    THE WHOLE ORG FOR ONE VENTURE'S SIX, and that is on purpose rather than for
+    want of a narrower route. There is one org document — the chart, the roster
+    and this section all read it — and a `?venture=` variant of it would be a
+    second query to keep in step for a saving of a hundred and eight rows that
+    were counted anyway. A failure is silent: the section says nobody could be
+    read, which is not the same as saying nobody works here.
+  */
+  const org = useApi(() => subagentApi.org(), []);
   const [reading, setReading] = useState(false);
 
   const chats = sessionsFor(venture.id);
+  const team =
+    org.data?.ventures.find((v) => v.id === venture.id)?.subagents ?? [];
   const boards = dashboardsIn(venture.id);
   const stage = VENTURE_STAGES.find((s) => s.id === venture.stage);
 
@@ -437,6 +452,57 @@ function Overview({
             These queue long agent work rather than opening a chat — minutes,
             one at a time, and it carries on with this tab shut.
           </p>
+        </Section>
+
+        {/* --------------------------------------------------- team
+            WHO WORKS ON THIS ONE. Six of them, one per app, provisioned with
+            the venture rather than created by hand — so this section is never
+            empty on a venture the server has heard of, and an empty one means
+            the org could not be read.
+
+            EVERY ROW GOES TO THE SAME PLACE, and "Dispatch" is a hint about
+            what is behind the row rather than a second destination: the
+            worker's page is where a brief is typed, and a Dispatch button here
+            would either duplicate that box or start work without showing what
+            was about to be started — the same rule the run buttons above
+            follow. */}
+        <Section
+          icon={Users}
+          title="Team"
+          note="Six sub-agents, one per app, provisioned with the venture. A run of their kind filed under this venture is their work, whoever started it."
+          action={
+            <Link
+              to="/ventures/org"
+              className="text-muted-foreground hover:text-foreground text-[11.5px]"
+            >
+              The org chart
+            </Link>
+          }
+        >
+          {team.length ? (
+            <div className="flex flex-col gap-px">
+              {team.map((sa) => (
+                <SubagentRow
+                  key={sa.id}
+                  sa={sa}
+                  to={teamAddress(venture.slug, sa.role)}
+                  trailing={
+                    <span className="text-muted-foreground group-hover:text-foreground hidden w-[56px] shrink-0 text-right text-[11px] sm:block">
+                      Dispatch
+                    </span>
+                  }
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-[12.5px]">
+              {org.error
+                ? `Nobody could be read — ${org.error}`
+                : org.loading
+                  ? "Reading the org…"
+                  : "The server has provisioned nobody for this venture."}
+            </p>
+          )}
         </Section>
 
         {/* -------------------------------------------------- board */}

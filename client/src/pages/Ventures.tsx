@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Plus, Waypoints } from "lucide-react";
+import { Network, Plus, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
@@ -91,6 +91,17 @@ export function Ventures() {
         }
         action={
           <div className="flex items-center gap-2">
+            {/* TWO PICTURES OF THE SAME NINETEEN THINGS, and they answer
+                different questions. The map says what each venture OWNS —
+                zones, properties, hosts — and the org says who WORKS for it.
+                Neither is a tab of the other because a venture's staff has
+                nothing to do with its integrations. */}
+            <Button asChild variant="outline">
+              <Link to="/ventures/org">
+                <Network className="size-[15px]" strokeWidth={1.8} />
+                Org chart
+              </Link>
+            </Button>
             <Button asChild variant="outline">
               <Link to="/ventures/map">
                 <Waypoints className="size-[15px]" strokeWidth={1.8} />

@@ -114,6 +114,17 @@ export type RunDetail = RunSummary & {
    * Null means the run proposed none, which is not the same as an empty list.
    */
   cards: unknown[] | null;
+  /**
+   * THE PAPER THIS RUN WROTE, on the run that wrote it.
+   *
+   * Null for every kind but `papers`, and null for a paper run that has not
+   * written one yet — which is not the same as a paper with no PDF. It is here
+   * rather than being looked up in the shelf because the report panel has to
+   * know, before it draws anything, whether there is a document to show and
+   * which machine made it; fetching the whole shelf to answer that about one
+   * run would be a second request per poll.
+   */
+  paper: Paper | null;
 };
 
 /** One field a kind asks for before it will start. `kind` is how to draw it,
@@ -223,12 +234,30 @@ export type LibraryDoc = {
 };
 
 /**
+ * WHICH MACHINE SET THE PAPER.
+ *
+ * `typst` is a compiled document — columns, numbered headings and figures, an
+ * IEEE bibliography built from the library entries the body actually cites.
+ * `chrome` is markdown printed by a browser, which is a readable document and
+ * is NOT a typeset paper. `null` is a paper that produced no PDF, or one
+ * written before this server recorded the difference: it is not a third engine
+ * and it is not a value to resolve into one of the other two.
+ */
+export type Typeset = "typst" | "chrome" | null;
+
+/**
  * A paper this box wrote.
  *
- * `markdown` and `pdf` are URLS ON THIS SERVER, not paths on the disk — the
- * server deliberately does not hand a local path to a browser that could not
- * fetch it anyway. `pdf` is null when Chrome never printed one, and the
- * markdown is still the paper: the PDF is a rendering, not the artefact.
+ * `markdown`, `pdf` and `source` are URLS ON THIS SERVER, not paths on the
+ * disk — the server deliberately does not hand a local path to a browser that
+ * could not fetch it anyway.
+ *
+ * WHAT THE ARTEFACT IS DEPENDS ON `typeset`, and that is the whole reason the
+ * field is on the wire. For a `typst` paper the artefact is the PDF and the
+ * `source` it was set from; `markdown` is a note ABOUT the paper. For a
+ * `chrome` paper the markdown IS the paper and the PDF is a rendering of it.
+ * A page that drew the two the same way would be claiming something about the
+ * second that is only true of the first.
  */
 export type Paper = {
   runId: string;
@@ -238,8 +267,18 @@ export type Paper = {
   title: string;
   thesis: string;
   contributions: string[];
+  typeset: Typeset;
+  /** One or two, as the plan chose. Null on a paper that was not typeset —
+   *  a browser print has no column count and zero would read as one. */
+  columns: number | null;
+  /** Read off the finished PDF. Null when there is no PDF, or when the file
+   *  could not be counted — never a guess. */
+  pages: number | null;
   markdown: string;
   pdf: string | null;
+  /** The Typst source. Null on a paper that was never typeset — there is
+   *  nothing to show, which is different from a source that has gone missing. */
+  source: string | null;
   /** Whether the printed file is still where the row says. False with a `pdf`
    *  url present means the link will 404 with the reason. */
   pdfOnDisk: boolean;
@@ -312,10 +351,12 @@ const qs = (params: Record<string, string | number | null | undefined>) => {
   return parts.length ? `?${parts.join("&")}` : "";
 };
 
-/** The href a download link points at. Not `call` — these two routes answer
- *  with a file rather than JSON, and a browser fetches them better than this
- *  client ever could. */
-export const runFileUrl = (id: string, what: "markdown" | "pdf") =>
+/** The href a file link points at. Not `call` — these three routes answer with
+ *  a file rather than JSON, and a browser fetches them better than this client
+ *  ever could. `markdown` is served as an attachment; `pdf` and `typ` are
+ *  served inline, which is what lets the frame below show the paper instead of
+ *  offering to download it. */
+export const runFileUrl = (id: string, what: "markdown" | "pdf" | "typ") =>
   `/api/runs/${seg(id)}/${what}`;
 
 export const runsApi = {
