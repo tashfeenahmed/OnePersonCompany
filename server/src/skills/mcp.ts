@@ -50,6 +50,21 @@ const PROTOCOL = "2025-06-18";
 
 const API = (process.env.OPC_API ?? "http://127.0.0.1:8787").replace(/\/+$/, "");
 
+/**
+ * ONE SERVER PER INTEGRATION, BY DEFAULT.
+ *
+ * MCP's shape is "a server has tools", and the first cut registered ONE server
+ * carrying eighteen tools — correct MCP, and wrong for the owner, who opened
+ * the agent's tool list and saw a single entry called One Person Company where
+ * they expected Stripe, Hetzner, Domains… each as its own thing. That is a
+ * fair expectation: in every agent UI the SERVER is the unit a person sees,
+ * enables, trusts and disables. So each integration is registered as its own
+ * server, and this process, told `OPC_SKILL=<id>`, answers for that one skill
+ * only and names itself after it. Unset, it is the all-in-one server for any
+ * MCP client that would rather have one.
+ */
+const ONLY = (process.env.OPC_SKILL ?? "").trim() || null;
+
 /* ------------------------------------------------------------- the catalog */
 
 type CatalogParam = {
@@ -212,7 +227,11 @@ async function handle(msg: Request) {
       reply(id, {
         protocolVersion: /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : PROTOCOL,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "opc-skills", version: "1.0.0" },
+        serverInfo: {
+          name: ONLY ? `opc-${ONLY}` : "opc-skills",
+          title: ONLY ? `${ONLY} · One Person Company` : "One Person Company · all skills",
+          version: "1.0.0",
+        },
         instructions:
           "Every tool here reads this one-person company's own live dashboard data " +
           "over loopback. They are all reads. Each tool's description carries the " +
@@ -233,7 +252,15 @@ async function handle(msg: Request) {
     case "tools/list": {
       try {
         const doc = await catalog();
-        reply(id, { tools: doc.skills.map(toolFor) });
+        const mine = ONLY ? doc.skills.filter((sk) => sk.id === ONLY) : doc.skills;
+        if (ONLY && !mine.length) {
+          /* This server's integration is not connected right now. An empty list
+             here means exactly that, and only that — the aggregate server keeps
+             the "API down is an error" rule above. */
+          reply(id, { tools: [] });
+          return;
+        }
+        reply(id, { tools: mine.map(toolFor) });
       } catch (err) {
         /* THE API BEING DOWN IS AN ERROR AND NOT AN EMPTY LIST. An empty list is
            indistinguishable from "nothing is connected", and an agent told that

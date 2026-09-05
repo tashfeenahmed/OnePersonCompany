@@ -44,3 +44,10 @@ export function mcpCommand(): McpCommand {
     env: { OPC_API: apiBase() },
   };
 }
+
+/** The same command, pinned to one integration. `OPC_SKILL` is what makes the
+ *  child answer for that skill alone and name itself after it — see mcp.ts. */
+export function mcpCommandFor(skillId: string): McpCommand {
+  const base = mcpCommand();
+  return { ...base, env: { ...base.env, OPC_SKILL: skillId } };
+}

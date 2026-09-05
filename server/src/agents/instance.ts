@@ -104,7 +104,8 @@ import * as openclawAdapter from "../providers/openclaw.ts";
   disk before a child is spawned.
 */
 import { liveFingerprint, syncHermesSkills } from "../skills/hermes.ts";
-import { mcpCommand } from "../skills/spawn.ts";
+import { mcpCommandFor } from "../skills/spawn.ts";
+import { skills } from "../skills/registry.ts";
 
 /* ------------------------------------------------------------------- ids */
 
@@ -885,8 +886,6 @@ function configureHermes(s: Spec, pl: Plan) {
     is why both are rendered from the same registry and neither restates a rule
     in its own words.
   */
-  const mcp = mcpCommand();
-
   const yaml = [
     "# Written by the dashboard, whole, on every configure. Hermes' own",
     "# cli-config.yaml.example is the reference for everything not named here;",
@@ -898,14 +897,21 @@ function configureHermes(s: Spec, pl: Plan) {
     ...(pl.key ? [`  api_key: ${JSON.stringify(pl.key)}`] : []),
     `  default: ${JSON.stringify(pl.model)}`,
     "",
-    "# This dashboard's own data, as MCP tools. The skill packs under",
+    "# This dashboard's own data, as MCP tools — ONE SERVER PER INTEGRATION, so",
+    "# Stripe, Hetzner, Domains… each appear as their own entry in the tool list",
+    "# rather than one server called One Person Company. The skill packs under",
     "# skills/opc/ are the other half and say the same things in prose.",
     "mcp_servers:",
-    "  opc:",
-    `    command: ${JSON.stringify(mcp.command)}`,
-    `    args: [${mcp.args.map((a) => JSON.stringify(a)).join(", ")}]`,
-    "    env:",
-    ...Object.entries(mcp.env).map(([k, v]) => `      ${k}: ${JSON.stringify(v)}`),
+    ...skills().flatMap((sk) => {
+      const m = mcpCommandFor(sk.id);
+      return [
+        `  opc-${sk.id}:`,
+        `    command: ${JSON.stringify(m.command)}`,
+        `    args: [${m.args.map((a) => JSON.stringify(a)).join(", ")}]`,
+        "    env:",
+        ...Object.entries(m.env).map(([k, v]) => `      ${k}: ${JSON.stringify(v)}`),
+      ];
+    }),
     "",
   ].join("\n");
   const config = join(dir, "config.yaml");
@@ -1020,7 +1026,9 @@ function configureOpenClaw(s: Spec, pl: Plan) {
       scope, and `allow` would replace the built-in tool set rather than extend
       it: the agent would gain this dashboard and lose its shell.
     */
-    mcp: { servers: { opc: mcpCommand() } },
+    // One server per integration here too — the tool list is what the owner
+    // sees, and eighteen named entries beat one called "opc".
+    mcp: { servers: Object.fromEntries(skills().map((sk) => [`opc-${sk.id}`, mcpCommandFor(sk.id)])) },
     tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
     discovery: { mdns: { mode: "off" } },
     logging: { level: "info", file: join(logsDir(s), "gateway.log") },
