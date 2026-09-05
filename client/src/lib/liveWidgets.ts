@@ -30,15 +30,19 @@ import type {
   DemandSignal,
 } from "@/lib/api";
 import type {
+  AgentRun,
+  AuditOverview,
   BacklinksReport,
   BlueskyReport,
   CalendarEvent,
   CalendarReport,
+  CompetitorsReport,
   FleetBox,
   FleetReport,
   PresenceReport,
   ProductsReport,
   PypiReport,
+  RunsReport,
   UmamiReport,
   UmamiWebsite,
   UptimeReport,
@@ -181,6 +185,23 @@ export type LiveInputs = {
   products?: ProductsReport | null;
   backlinks?: BacklinksReport | null;
   presence?: PresenceReport | null;
+
+  /*
+    THE THREE THIS BOX PRODUCES ITSELF, AND THEY ARE STILL THREE FIELDS.
+
+    Every field above is somebody else's API. These are the audit crawler, the
+    run ledger and the competitor profiles those runs accumulated — all three
+    of them tables in the same database, read in the same second, and it is
+    tempting to hand them over as one object because of it. They stay apart for
+    the reason `gsc` and `bing` stay apart: the moment two things share a
+    field, something adds them. A run is a piece of work, a crawl is a
+    measurement of a website, and a rival is a company — and the only figure
+    that could be built across them is a "health score", which is the exact
+    number this dashboard refuses to invent.
+  */
+  audit?: AuditOverview | null;
+  runs?: RunsReport | null;
+  competitors?: CompetitorsReport | null;
 };
 
 /**
@@ -5993,5 +6014,407 @@ Object.assign(LIVE_BUILDERS, {
     /* The sentence the card exists for, on the card rather than in a tooltip. */
     statuses.push(["blocked is NOT a report of not listed", "warn"]);
     return { statuses };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================ audit ==
+   THE PORTFOLIO'S OWN SITES, one row each, from the crawl this box runs.
+
+   ONE RULE DECIDES EVERY CARD BELOW: A SITE NOBODY CRAWLED IS NOT A CLEAN SITE.
+   A venture with no audit has no error count, not a zero, so it is kept out of
+   every sum and named separately — because the alternative is a board whose
+   headline figure IMPROVES when a venture is added, which is the precise
+   opposite of what it is for.
+
+   THE THREE SEVERITIES ARE NEVER ADDED. An error is a page that would not
+   render or a link that goes nowhere; a notice is a missing meta description.
+   A single "issues" figure lets forty notices outrank a dead homepage, and the
+   ordering on `audit.worst` — the one thing somebody opens this board to
+   read — would then be wrong in exactly the case that matters.
+*/
+
+/**
+ * The ventures the crawler has actually reached, with their counts in hand.
+ *
+ * `ts` AND `issues` BOTH, because the wire is careful in a way that would be
+ * easy to throw away here: a venture nobody has crawled carries nulls rather
+ * than noughts, and a `?? 0` anywhere below would turn "never looked at" into
+ * "came back clean" — the single reading every card in this block is built to
+ * refuse.
+ */
+const audited = (A: AuditOverview | null | undefined) =>
+  (A?.ventures ?? []).filter(
+    (v): v is typeof v & { issues: NonNullable<typeof v.issues> } =>
+      !!v.ts && !!v.issues,
+  );
+
+/**
+ * The bare hostname inside whatever the audit answered with.
+ *
+ * `canonicalHost` is a URL — "https://support.example.test/" — because it is where
+ * the crawler's redirects ended up, and a venture's `host` is a bare name. A
+ * string comparison between the two is `false` for every venture on the
+ * portfolio, which would draw an apex/www warning on all of them and teach the
+ * reader to ignore the card.
+ */
+function hostOf(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value.includes("://") ? value : `https://${value}`);
+    return url.hostname.toLowerCase().replace(/^www\./, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the http → https test established, in three words rather than two.
+ *
+ * `null` is "could not be established" — the crawler asked and got no usable
+ * answer — and rendering it as "no" would report a fault nobody has found.
+ */
+const httpsWord = (v: boolean | null) =>
+  v === null ? "not established" : v ? "redirects to https" : "no https redirect";
+
+/** Whole days since a timestamp, or null when there is none. */
+function daysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const ms = Date.now() - Date.parse(iso);
+  return Number.isNaN(ms) ? null : Math.floor(ms / 86_400_000);
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "audit.issues": ({ audit: A }: LiveInputs) => {
+    const rows = audited(A);
+    if (!rows.length) return null;
+    const errors = rows.reduce((n, v) => n + v.issues.error, 0);
+    const warnings = rows.reduce((n, v) => n + v.issues.warning, 0);
+    const notices = rows.reduce((n, v) => n + v.issues.notice, 0);
+    const never = (A?.ventures.length ?? 0) - rows.length;
+    return {
+      value: count(errors),
+      tone: errors ? ("bad" as StatusTone) : ("ok" as StatusTone),
+      sub: also(
+        /* The other two severities ride along in the small print so nobody
+           reads the headline as "everything that is wrong" — but they are
+           written out separately, never summed into it. */
+        `${count(warnings)} warnings · ${count(notices)} notices, not added in · ${rows.length} site${rows.length === 1 ? "" : "s"} crawled`,
+        never ? `${never} never crawled` : "",
+      ),
+    };
+  },
+
+  "audit.ventures": ({ audit: A }: LiveInputs) => {
+    const ventures = A?.ventures ?? [];
+    if (!ventures.length) return null;
+    return {
+      headers: [
+        "Venture",
+        "Pages",
+        "Errors",
+        "Warnings",
+        "Notices",
+        "HTTPS",
+        "Sitemap",
+        "robots.txt",
+        "Crawled",
+      ],
+      /* THE UNCRAWLED ARE ON THE TABLE, with em dashes rather than noughts.
+         Leaving them off would make the portfolio look smaller than it is and
+         would hide the one row somebody can act on immediately. */
+      table: ventures.map((v) =>
+        v.ts && v.issues
+          ? [
+              v.name,
+              count(v.pages),
+              count(v.issues.error),
+              count(v.issues.warning),
+              count(v.issues.notice),
+              v.https === null ? "not established" : v.https ? "yes" : "no",
+              v.sitemap ? "found" : "none found",
+              /* A MISSING robots.txt IS NOT A CLOSED SITE — no rules means
+                 everything is allowed, which is the correct reading and the
+                 reason this column says "none" and not "missing". */
+              v.robots ? "yes" : "none",
+              sinceWord(v.ts),
+            ]
+          : [v.name, "—", "—", "—", "—", "—", "—", "—", "never"],
+      ),
+    };
+  },
+
+  "audit.worst": ({ audit: A }: LiveInputs) => {
+    const rows = audited(A);
+    if (!rows.length) return null;
+    /* Errors first and warnings only as the tie-break, which is the ordering
+       the severities exist for. A site with one broken page outranks a site
+       with thirty missing descriptions, and it should. */
+    const worst = [...rows]
+      .sort(
+        (a, b) =>
+          b.issues.error - a.issues.error || b.issues.warning - a.issues.warning,
+      )
+      .slice(0, 8);
+    const out: [string, string][] = worst.map((v) => [
+      /* The page count travels with the row, because three errors over four
+         pages and three over forty are different findings. */
+      `${v.name} · ${v.pages} page${v.pages === 1 ? "" : "s"}`,
+      v.issues.error || v.issues.warning
+        ? `${v.issues.error} error${v.issues.error === 1 ? "" : "s"} · ${v.issues.warning} warning${v.issues.warning === 1 ? "" : "s"}`
+        : v.issues.notice
+          ? `nothing above a notice · ${v.issues.notice} notice${v.issues.notice === 1 ? "" : "s"}`
+          : /* A REAL MEASUREMENT OF NOTHING, and it is worth the words: this
+               row and the "never crawled" row at the bottom of the card look
+               identical if both of them just say nought. */
+            `clean over ${v.pages ?? 0} page${v.pages === 1 ? "" : "s"}`,
+    ]);
+    const never = (A?.ventures.length ?? 0) - rows.length;
+    if (never)
+      out.push([
+        `${never} venture${never === 1 ? "" : "s"} never crawled`,
+        "unmeasured, which is not the same as clean",
+      ]);
+    return { rows: out };
+  },
+
+  "audit.https": ({ audit: A }: LiveInputs) => {
+    const rows = audited(A);
+    if (!rows.length) return null;
+    const statuses: [string, StatusTone][] = [];
+    for (const v of rows) {
+      if (statuses.length >= 8) break;
+      statuses.push([
+        `${v.name} · ${httpsWord(v.https)}`,
+        v.https === null ? "warn" : v.https ? "ok" : "bad",
+      ]);
+    }
+    /*
+      THE APEX/WWW QUESTION, and it is a WARNING rather than a fault.
+
+      A site asked for on one host and answering on another is normally a
+      redirect somebody set up on purpose. What makes it worth a line is that
+      every other measurement on this board — Search Console properties,
+      backlink hosts, the uptime probe — is keyed by the host somebody typed,
+      and a portfolio where half the ventures answer somewhere else is a
+      portfolio whose figures are filed under the wrong names.
+    */
+    for (const v of rows) {
+      if (statuses.length >= 11) break;
+      const answered = hostOf(v.canonicalHost);
+      const asked = v.host?.toLowerCase().replace(/^www\./, "") ?? null;
+      if (answered && asked && answered !== asked)
+        statuses.push([`${v.name} answers on ${answered}`, "warn"]);
+    }
+    const never = (A?.ventures.length ?? 0) - rows.length;
+    if (never)
+      statuses.push([
+        `${never} venture${never === 1 ? "" : "s"} never crawled — not tested`,
+        "warn",
+      ]);
+    return { statuses };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================= runs ==
+   WHAT THE AGENT WAS ASKED TO DO AND HOW FAR IT GOT.
+
+   ONE RUN EXECUTES AT A TIME, by design, so "how many are running" is a nought
+   or a one and the figure worth drawing beside it is the queue. Nothing here
+   adds `done` to `failed`: a failed run produced no report, and a bar that
+   stacked the two would say the agent had written twice what it has.
+*/
+
+/** A kind's own name, or the raw key if the server has not described it — a
+ *  ledger row for a kind the catalog has forgotten is still a real run. */
+const kindWord = (R: RunsReport | null | undefined, kind: string) =>
+  R?.kinds.find((k) => k.kind === kind)?.name ?? kind;
+
+/** How long a finished run took. Null `ms` is a run that has not finished, and
+ *  it says so rather than borrowing the elapsed time — a running row rendered
+ *  as "4m" reads as a run that is over. */
+function took(msTaken: number | null): string {
+  if (msTaken === null) return "still going";
+  const seconds = Math.round(msTaken / 1000);
+  if (seconds < 90) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 90 ? `${minutes}m` : `${(minutes / 60).toFixed(1)}h`;
+}
+
+/** What became of a run, in one phrase. Five statuses and none of them
+ *  collapses: a cancelled run is not a failure, and a queued one is not work. */
+function runOutcome(r: AgentRun): string {
+  switch (r.status) {
+    case "done":
+      return `done · ${took(r.ms)} · ${count(r.outputChars)} chars`;
+    case "failed":
+      return `failed · ${shorten(r.error ?? "no reason recorded", 34)}`;
+    case "running":
+      return `running · ${r.steps} step${r.steps === 1 ? "" : "s"} so far`;
+    case "queued":
+      return "queued";
+    case "cancelled":
+      return "cancelled";
+  }
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "runs.running": ({ runs: R }: LiveInputs) => {
+    if (!R) return null;
+    const r = R.running;
+    return {
+      /* A WORD RATHER THAN A NUMBER, because the number is always 0 or 1 and
+         says nothing. What somebody wants from across the room is WHICH piece
+         of work is in flight. */
+      value: r ? kindWord(R, r.kind) : "idle",
+      sub: r
+        ? `${r.ventureName ?? "no venture"} · started ${sinceWord(r.startedAt)}${R.queued ? ` · ${R.queued} queued` : ""}`
+        : R.queued
+          ? `${R.queued} queued, none started`
+          : /* NOT a count of the ledger. The route answers with the newest
+               `limit` runs, so `runs.length` is a page and printing it as
+               "14 runs" would be a truncation wearing a total's clothes. What
+               is true of the page is when its newest finished run finished. */
+            also(
+              "nothing queued",
+              (() => {
+                const last = R.runs.find((r) => r.finishedAt);
+                return last ? `last run ${sinceWord(last.finishedAt)}` : "";
+              })(),
+            ),
+    };
+  },
+
+  "runs.recent": ({ runs: R }: LiveInputs) => {
+    const runs = R?.runs ?? [];
+    if (!runs.length) return null;
+    return {
+      rows: runs.slice(0, 8).map(
+        (r) =>
+          [
+            `${kindWord(R, r.kind)} · ${r.ventureName ?? "no venture"}`,
+            runOutcome(r),
+          ] as [string, string],
+      ),
+    };
+  },
+
+  "runs.byKind": ({ runs: R }: LiveInputs) => {
+    const kinds = R?.kinds ?? [];
+    /* Reports WRITTEN, so only `done` is counted. A failed run and a queued one
+       are both real things that happened and neither of them is a report. */
+    const written = kinds.filter((k) => k.counts.done > 0);
+    if (!written.length) return null;
+    const failed = kinds.reduce((n, k) => n + k.counts.failed, 0);
+    return {
+      bars: written.map((k) => k.counts.done),
+      barLabels: written.map(
+        (k) => `${k.name} · ${k.counts.done} report${k.counts.done === 1 ? "" : "s"}`,
+      ),
+      labels: also(
+        written.map((k) => `${k.name} ${k.counts.done}`).join(" · "),
+        failed ? `${failed} failed, not counted` : "",
+      ),
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ========================================================== competitors ==
+   THE RIVALS THE SWEEPS ACCUMULATED, AND THE DATE EACH WAS LAST VERIFIED.
+
+   That date is the point of the table rather than a column on it. A sweep that
+   does not mention a company LEAVES ITS PROFILE ALONE — silence is not
+   verification — so without the date a reading from June is indistinguishable
+   from one taken this morning, and a positioning line nobody has re-checked in
+   a season is exactly the thing somebody would quote in a pitch.
+*/
+
+/** How stale a profile is, in words, with "never verified" kept apart from
+ *  "verified today": a row a sweep has never confirmed is not a fresh one. */
+function verifiedWord(iso: string | null): string {
+  const days = daysSince(iso);
+  if (days === null) return "never verified";
+  if (days <= 0) return "today";
+  return `${days}d ago`;
+}
+
+/** The line past which a profile is quoted at your own risk. Sixty days is the
+ *  brief's own number, and it is one place rather than three so the metric, the
+ *  table and the list cannot disagree about what stale means. */
+const STALE_DAYS = 60;
+
+Object.assign(LIVE_BUILDERS, {
+  "competitors.count": ({ competitors: C }: LiveInputs) => {
+    if (!C) return null;
+    const profiles = C.profiles;
+    if (!profiles.length && !C.runs) return null;
+    const ventures = new Set(profiles.map((p) => p.ventureId)).size;
+    return {
+      value: count(profiles.length),
+      sub: also(
+        `across ${ventures} venture${ventures === 1 ? "" : "s"} · ${C.runs} sweep${C.runs === 1 ? "" : "s"}`,
+        C.lastRun ? `last ${sinceWord(C.lastRun)}` : "",
+      ),
+    };
+  },
+
+  "competitors.table": ({ competitors: C }: LiveInputs) => {
+    const profiles = C?.profiles ?? [];
+    if (!profiles.length) return null;
+    return {
+      headers: [
+        "Rival",
+        "Venture",
+        "Positioning",
+        "Pricing",
+        "Last verified",
+        "First seen",
+      ],
+      table: [...profiles]
+        .sort(
+          (a, b) =>
+            (a.ventureName ?? "").localeCompare(b.ventureName ?? "") ||
+            a.name.localeCompare(b.name),
+        )
+        .map((p) => [
+          p.name,
+          p.ventureName ?? "—",
+          /* NOT ESTABLISHED, never an empty cell. A sweep that could not find
+             a price and a rival that publishes none are the same blank on a
+             table and are not the same finding — and the honest one of the two
+             is the one that does not claim to know. */
+          p.positioning ? shorten(p.positioning, 60) : "not established",
+          p.pricing ? shorten(p.pricing, 32) : "not established",
+          verifiedWord(p.lastVerified),
+          p.firstSeen ? sinceWord(p.firstSeen) : "—",
+        ]),
+    };
+  },
+
+  "competitors.stale": ({ competitors: C }: LiveInputs) => {
+    const profiles = C?.profiles ?? [];
+    if (!profiles.length) return null;
+    const stale = profiles
+      .map((p) => ({ p, days: daysSince(p.lastVerified) }))
+      /* Null sorts as stale rather than fresh: a profile no sweep has ever
+         confirmed is the least verified row on the table, not the most. */
+      .filter((r) => r.days === null || r.days >= STALE_DAYS)
+      .sort((a, b) => (b.days ?? Number.MAX_SAFE_INTEGER) - (a.days ?? Number.MAX_SAFE_INTEGER));
+    const rows: [string, string][] = stale
+      .slice(0, 8)
+      .map((r) => [
+        `${r.p.name} · ${r.p.ventureName ?? "no venture"}`,
+        verifiedWord(r.p.lastVerified),
+      ]);
+    if (!rows.length)
+      rows.push([
+        `All ${profiles.length} profile${profiles.length === 1 ? "" : "s"} verified inside ${STALE_DAYS} days`,
+        "—",
+      ]);
+    /* The sentence the card exists for, on the card. */
+    rows.push([
+      "A sweep that did not name a rival",
+      "left its date alone — silence is not verification",
+    ]);
+    return { rows };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

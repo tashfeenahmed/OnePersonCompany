@@ -10,8 +10,10 @@ import type {
   MailReport,
 } from "@/lib/api";
 import type {
+  AuditOverview,
   BacklinksReport,
   BlueskyReport,
+  CompetitorsReport,
   FleetReport,
   PresenceReport,
   ProductsReport,
@@ -154,6 +156,24 @@ export const SCOPABLE_SOURCES = new Set([
   "products",
   "backlinks",
   "presence",
+  /*
+    THE TWO THIS BOX PRODUCES THAT CARRY A VENTURE ON EVERY ROW.
+
+    An audit row IS a venture — it is a crawl of that venture's own website —
+    and a competitor profile names the venture whose market it was found in. So
+    both narrow exactly, and "3 errors" on a venture board means three errors
+    on that site.
+
+    RUNS IS DELIBERATELY ABSENT, and the reason is the queue rather than the
+    data. A run has a venture on it and could be filtered by one; what cannot
+    be filtered is the fact the cards are actually about — one run executes at
+    a time, ACROSS the whole box, so "nothing is running" on a venture board
+    would be a lie the moment another venture's paper was being written. The
+    queue is a property of the machine, not of a venture, and the cards say
+    "portfolio" for the same reason a Hetzner bill does.
+  */
+  "audit",
+  "competitors",
 ]);
 
 /**
@@ -640,6 +660,14 @@ export function scopeLive(
     products: scopeProducts(base.products, hosts, entities),
     backlinks: scopeBacklinks(base.backlinks, hosts, entities),
     presence: scopePresence(base.presence, hosts, entities),
+    /* The two this box produces that carry a venture on every row. `runs` is
+       absent on purpose and stays whole — see SCOPABLE_SOURCES. */
+    audit: scopeAudit(base.audit, hosts),
+    /* The AUDIT document goes in beside the hosts, because it is the map: a
+       profile names its venture by id and the scope is a set of hosts. See
+       `scopeCompetitors`. The UNNARROWED one, so the map is complete however
+       few of its rows survived the filter above. */
+    competitors: scopeCompetitors(base.competitors, hosts, base.audit),
   };
 
   const liveTypes = new Set<string>();
@@ -679,6 +707,11 @@ export function scopeLive(
       products: scoped.products,
       backlinks: scoped.backlinks,
       presence: scoped.presence,
+      audit: scoped.audit,
+      competitors: scoped.competitors,
+      /* Passed unnarrowed, like the calendar above and for the same shape of
+         reason: the queue belongs to the box rather than to a venture. */
+      runs: scoped.runs,
     });
     if (patch) liveTypes.add(type);
   }
@@ -1138,5 +1171,84 @@ function scopePresence(
           .sort()
           .at(-1) ?? null,
     },
+  };
+}
+
+/* ------------------------------------- the two this box produces, narrowed */
+
+/**
+ * The audit overview, narrowed to this venture's own sites.
+ *
+ * THE SIMPLEST JOIN IN THE FILE: a row IS a venture and carries its host, so
+ * there is nothing to recompute and nothing that could be recomputed wrongly.
+ * The `note` travels with it unchanged, because what it explains — that a
+ * venture with no crawl has no figures rather than clean ones — is as true of
+ * one row as of twelve.
+ *
+ * No matching venture returns null, and the cards then draw their honest empty
+ * body. That is the right answer for a venture nobody has ever crawled: the
+ * portfolio's error count under its name would be a claim about a site that
+ * has never been looked at.
+ */
+function scopeAudit(A: AuditOverview | null, hosts: string[]): AuditOverview | null {
+  if (!A) return null;
+  const ventures = A.ventures.filter((v) => isHost(v.host, hosts));
+  if (!ventures.length) return null;
+  return { ...A, ventures };
+}
+
+/**
+ * The competitor profiles, narrowed to the venture whose market they were
+ * found in.
+ *
+ * THE ONE FILTER IN THIS FILE THAT NEEDS A THIRD DOCUMENT, and it is worth
+ * saying why rather than hiding it in a parameter. A profile names its venture
+ * by ID; the scope a board hands its cards is a set of HOSTS and LINKS, and
+ * there is no venture id anywhere in it. Every other source here carries a
+ * hostname on its own rows and joins directly.
+ *
+ * THE AUDIT OVERVIEW IS THE MAP. It is a row per venture carrying both the id
+ * and the host — for EVERY venture, crawled or not, which is what makes it
+ * usable as a lookup rather than as a list of things that happen to have been
+ * audited. So the join is exact: hosts → venture ids → profiles. No hostname
+ * is matched against a company name and no venture NAME is treated as a
+ * domain, which is the guess this would otherwise have to make and would get
+ * wrong on `example.ie` and `neu.so` the first time it ran.
+ *
+ * WITH NO MAP THERE IS NO NARROWING, and the cards then draw their empty body.
+ * Both documents come off the same box in the same load, so one arriving
+ * without the other is a state that essentially does not happen — and if it
+ * did, "we cannot say which of these are yours" is the honest answer.
+ *
+ * THE TWO COUNTERS CHANGE MEANING AND SAY SO. On the whole document `runs` is
+ * how many sweeps have ever run and `lastRun` is when the last one did —
+ * figures about the box, with no venture on them, and there is no way to split
+ * them. What CAN be derived from the surviving rows is how many distinct
+ * sweeps left a mark on this venture and when one last verified anything of
+ * its market, so that is what they become here. It is a smaller claim than the
+ * portfolio's and it is the one these rows can actually support.
+ */
+function scopeCompetitors(
+  C: CompetitorsReport | null,
+  hosts: string[],
+  A: AuditOverview | null,
+): CompetitorsReport | null {
+  if (!C) return null;
+  const ids = new Set(
+    (A?.ventures ?? []).filter((v) => isHost(v.host, hosts)).map((v) => v.id),
+  );
+  if (!ids.size) return null;
+  const profiles = C.profiles.filter((p) => ids.has(p.ventureId));
+  if (!profiles.length) return null;
+  return {
+    ...C,
+    profiles,
+    runs: new Set(profiles.map((p) => p.runId).filter(Boolean)).size,
+    lastRun:
+      profiles
+        .map((p) => p.lastVerified)
+        .filter((ts): ts is string => !!ts)
+        .sort()
+        .at(-1) ?? null,
   };
 }

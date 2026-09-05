@@ -143,6 +143,15 @@ export default function App() {
                         first app and rewrites itself to that app's own URL. */}
                     <Route path="/apps" element={<Apps />} />
                     <Route path="/apps/:app" element={<Apps />} />
+                    {/* A RUN IS A PLACE TOO. The six run apps take minutes to
+                        produce a report worth sending somebody, so the report
+                        has an address: /apps/research/r-8f2a1c is the run, and
+                        it is linkable, refreshable and reachable with the back
+                        button while it is still being written. Same `<Apps />`
+                        element as the two above, so opening a run out of the
+                        history reconciles rather than remounting the page —
+                        which is what keeps the poll in flight. */}
+                    <Route path="/apps/:app/:runId" element={<Apps />} />
                   </Routes>
                 </main>
               </div>

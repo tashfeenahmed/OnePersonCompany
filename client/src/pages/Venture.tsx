@@ -391,6 +391,52 @@ function Overview({
               </Link>
             ))}
           </div>
+
+          {/*
+            THE SECOND ROW IS NOT MORE QUESTIONS — IT IS WORK.
+
+            Everything above opens a chat: an answer in a minute, out of what
+            the box already holds. Everything below queues a RUN: minutes of
+            the agent investigating with its tools, on the server, surviving
+            this tab, ending in a report that is kept and a set of cards this
+            venture's board can be offered.
+
+            That is a big enough difference to be worth a visual break rather
+            than four more chips in the same grid — pressing one of these is a
+            decision to spend real time and, on a paid provider, real money.
+            They are smaller and quieter than the questions for the same
+            reason: the cheap thing should be the easy thing to reach for.
+
+            They carry `?venture=` and nothing else. The app on the other end
+            preselects this venture and then waits, because the inputs and the
+            history belong to the app and duplicating its Run button here would
+            mean a press from this page could start work without ever showing
+            what was about to be started.
+          */}
+          <div className="border-line-soft mt-3 flex flex-wrap gap-1.5 border-t pt-3">
+            {(
+              [
+                ["research", "Run research"],
+                ["competitors", "Sweep competitors"],
+                ["seo", "SEO review"],
+                ["demand", "Read demand"],
+                ["visibility", "Ask the models"],
+                ["papers", "Write a paper"],
+              ] as const
+            ).map(([slug, label]) => (
+              <Link
+                key={slug}
+                to={`/apps/${slug}?venture=${encodeURIComponent(venture.id)}`}
+                className="text-muted-foreground hover:border-line-strong hover:text-foreground rounded-[9px] border px-2.5 py-1.5 text-[12px] transition-colors"
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+          <p className="text-muted-foreground mt-1.5 text-[11.5px]">
+            These queue long agent work rather than opening a chat — minutes,
+            one at a time, and it carries on with this tab shut.
+          </p>
         </Section>
 
         {/* -------------------------------------------------- board */}

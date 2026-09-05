@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "check:catalog": "node --experimental-strip-types scripts/catalog-check.ts",
     "preview": "vite preview"
   },
   "dependencies": {

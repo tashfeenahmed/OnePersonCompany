@@ -99,9 +99,18 @@ export type AskOptions = {
    *  state (OpenClaw can) continues the right one. Optional: a one-off ask
    *  has no session. */
   sessionId?: string;
-  /** Where the message came from — the page, or a Telegram chat. Passed to
-   *  the backend as context, and used in logs. */
-  channel?: "web" | "telegram";
+  /**
+   * Where the message came from — the page, a Telegram chat, or a RUN.
+   *
+   * `"run"` is not a door a person is standing at, and that is why it is worth
+   * a third value rather than being folded into `"web"`. A run is one long
+   * turn started from an app and executed on the server with nobody watching
+   * the socket: nothing is waiting for a reply, the session id is `run:<id>`
+   * rather than a conversation, and a backend that logs or rate-limits by
+   * channel should be able to tell it apart from a person typing. Every
+   * adapter that ignores this field — both of them, today — is unaffected.
+   */
+  channel?: "web" | "telegram" | "run";
   signal?: AbortSignal;
 };
 

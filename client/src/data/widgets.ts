@@ -184,6 +184,26 @@ export type Widget = {
     /** The off-site footprint as a matrix, product × directory — where
      *  "blocked" means NOT CHECKED and never "not listed". */
     presence?: boolean;
+
+    /*
+      THE THREE THAT ARE NOT PROVIDERS.
+
+      Every flag above names somebody else's API and comes with a plugin that
+      is connected or is not. These three name THIS BOX'S OWN TABLES — the
+      crawler it runs against its ventures, the agent runs it executes, and the
+      rivals those runs accumulated — so there is no credential behind them and
+      nothing to connect. A card of theirs showing samples is not an
+      unconfigured integration; it is work that has not been done yet, and the
+      cards say so in those words.
+    */
+    /** Every venture's last crawl, one row each. Never the crawl itself: the
+     *  full document is a megabyte and this is a column of counts. */
+    audit?: boolean;
+    /** The run ledger — what is executing, what is queued, what finished. */
+    runs?: boolean;
+    /** The competitor profiles the sweeps have accumulated, with the date each
+     *  one was last VERIFIED rather than last written. */
+    competitors?: boolean;
   };
   /** metric */
   value?: string;
@@ -455,6 +475,46 @@ export const SOURCES: Record<string, WidgetSource> = {
     icon: null,
     mono: "Ps",
     tint: "#7d5a6b",
+    connected: true,
+  },
+
+  /*
+    THE THREE THIS BOX PRODUCES ITSELF.
+
+    Every source above is somebody else's service, and `connected` on it is a
+    real question with a real answer — is there a token, did anybody paste it.
+    These three have no service behind them: the audit is a crawler that runs
+    here, a run is agent work that executes here, and a competitor profile is
+    what a run wrote into this box's own table. There is nothing to connect, so
+    `connected` is true for all three and means only "this exists" — the cards
+    fall back to samples when the WORK has not been done rather than when a
+    credential is missing, and each one says which in its own words.
+
+    Monograms, because `data/brandIcons.ts` has no mark for a thing that is not
+    a brand and never will. "Au" rather than "A", which the app stores hold;
+    "Rn" rather than "R", which the registrars hold; "Cp" rather than "C",
+    which nothing holds yet and which would be the third grey C-tile the day
+    something else wanted it.
+  */
+  audit: {
+    name: "Site audit",
+    icon: null,
+    mono: "Au",
+    tint: "#8a4a4a",
+    connected: true,
+  },
+  runs: {
+    name: "Agent runs",
+    icon: null,
+    mono: "Rn",
+    tint: "#5a5f8a",
+    connected: true,
+  },
+  competitors: {
+    name: "Competitors",
+    icon: null,
+    mono: "Cp",
+    tint: "#6b7d4a",
     connected: true,
   },
 };
@@ -2389,6 +2449,121 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "statuses",
     live: { presence: true },
   },
+
+  /* ------------------------------------------------------------------ audit
+     THE PORTFOLIO'S OWN SITES, one row each, from the crawl this box runs.
+
+     A VENTURE THAT HAS NEVER BEEN AUDITED IS NOT A VENTURE WITH NO PROBLEMS,
+     and every card below is built to refuse that reading: the unaudited are
+     counted separately, named on their own line, and never folded into a
+     figure that would go down when a site is added.
+
+     THE THREE SEVERITIES ARE NEVER ADDED TOGETHER either. An error is a broken
+     link or a page that would not render; a notice is a missing meta
+     description. One number over the three would let forty notices outweigh a
+     dead homepage, and the ordering on `audit.worst` would then be wrong in
+     exactly the case somebody opened the board for.
+  */
+  "audit.issues": {
+    src: "audit",
+    name: "Errors across the portfolio",
+    kind: "metric",
+    live: { audit: true },
+  },
+  "audit.ventures": {
+    src: "audit",
+    name: "Every venture's last crawl",
+    kind: "table",
+    live: { audit: true },
+    headers: [
+      "Venture",
+      "Pages",
+      "Errors",
+      "Warnings",
+      "Notices",
+      "HTTPS",
+      "Sitemap",
+      "robots.txt",
+      "Crawled",
+    ],
+  },
+  "audit.worst": {
+    src: "audit",
+    name: "Worst first",
+    kind: "rows",
+    live: { audit: true },
+  },
+  "audit.https": {
+    src: "audit",
+    name: "HTTPS and the canonical host",
+    kind: "statuses",
+    live: { audit: true },
+  },
+
+  /* ------------------------------------------------------------------- runs
+     WHAT THE AGENT HAS BEEN ASKED TO DO, and how far it got.
+
+     ONE RUN EXECUTES AT A TIME, so "running" is a nought or a one and the
+     interesting figure beside it is the queue. Nothing here counts a queued
+     run as work done, and nothing adds `done` to `failed`: a failed run wrote
+     no report, and a bar chart that stacked the two would say the agent had
+     produced twice what it has.
+  */
+  "runs.running": {
+    src: "runs",
+    name: "Running now",
+    kind: "metric",
+    live: { runs: true },
+  },
+  "runs.recent": {
+    src: "runs",
+    name: "Recent runs",
+    kind: "rows",
+    live: { runs: true },
+  },
+  "runs.byKind": {
+    src: "runs",
+    name: "Reports written, by kind",
+    kind: "bars",
+    live: { runs: true },
+  },
+
+  /* ------------------------------------------------------------ competitors
+     THE RIVALS THE SWEEPS HAVE ACCUMULATED, and — on every row — the date the
+     sweep last managed to VERIFY one.
+
+     That date is the card, not decoration. A sweep that does not mention a
+     company leaves its profile alone rather than re-stamping it, because
+     silence is not verification; so a table with no dates on it would quietly
+     present a June reading as this morning's. `competitors.stale` exists to
+     make that visible from across the room.
+  */
+  "competitors.count": {
+    src: "competitors",
+    name: "Rivals profiled",
+    kind: "metric",
+    live: { competitors: true },
+  },
+  "competitors.table": {
+    src: "competitors",
+    name: "Every rival",
+    kind: "table",
+    live: { competitors: true },
+    headers: [
+      "Rival",
+      "Venture",
+      "Positioning",
+      "Pricing",
+      "Last verified",
+      "First seen",
+    ],
+  },
+  "competitors.stale": {
+    src: "competitors",
+    name: "Not verified in 60 days",
+    kind: "rows",
+    live: { competitors: true },
+  },
 };
 
 /** The presets offered when a new dashboard is created. */
@@ -2647,6 +2822,36 @@ export const DASHBOARD_PRESETS: {
       "presence.blocked",
       "products.endpoints",
       "products.metrics",
+    ],
+  },
+  /*
+    WHAT THE AGENT DID, AND WHAT IT FOUND OUT THERE.
+
+    A preset rather than a starter board, and the distinction is the point: a
+    board is a gift handed to every install, and these cards are empty until
+    somebody has actually run something. The three runs cards are about the
+    machine — one run at a time, whose turn it is, how many reports exist — and
+    the three competitor cards are what the sweeps accumulated. They share a
+    preset because they share a cause, not a figure: nothing here adds a run to
+    a rival, and the only thing the two halves have in common is that a run
+    wrote the profile.
+
+    The queue first, because "is it busy" is the question somebody has while
+    waiting. Then the rivals, and the staleness list LAST — which is where a
+    reader arrives after reading a positioning line and wondering when anybody
+    last checked it.
+  */
+  {
+    id: "agent",
+    label: "Agent runs & rivals",
+    note: "the run queue, and the competitor profiles those runs accumulated",
+    widgets: [
+      "runs.running",
+      "competitors.count",
+      "runs.byKind",
+      "runs.recent",
+      "competitors.table",
+      "competitors.stale",
     ],
   },
   {

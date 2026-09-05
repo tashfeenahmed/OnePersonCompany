@@ -236,7 +236,37 @@ const KEY = "opc-state-v5";
   share a board where somebody might read them as one. Bluesky rides along
   because it is the only other source that counts us about us.
 */
-export const SEED_VERSION = 12;
+/*
+  v13 fills in the eight boards the catalog could already answer and nobody had
+  been given.
+
+  THE GAP WAS NEVER A MISSING INTEGRATION. Meta, both app stores, the two
+  registries, the ssh fleet, the uptime probe, the calendar and the three demand
+  sources were all connected and all being drawn — on four boards, three of
+  which had been asked to carry a question they were not built for. Growth was
+  search demand AND paid ads AND Pages AND package downloads, which is four
+  boards wearing one name; Servers was Hetzner's hypervisor with two ssh meters
+  appended by a top-up; Search had no card about our own pages at all.
+
+  So: SEO, Social, Ads, Demand, Development, Apps, Uptime & fleet and Week.
+  Nothing is taken from the boards that already exist — the gift only adds ids
+  a state has never been offered, and a board somebody has reshaped stays
+  reshaped. Growth and Servers keep every card they have, and the overlap is
+  deliberate: a card is not a possession, and the same Meta spend belongs on
+  both the board about attention and the board about money out.
+
+  THREE NEW SOURCES ARRIVE WITH THEM, and they are the first three on this
+  dashboard that are not somebody else's API: the site audit this box crawls,
+  the agent runs it executes, and the competitor profiles those runs
+  accumulated. There is nothing to connect, so a card of theirs showing samples
+  means the WORK has not been done rather than that a token is missing — see
+  `SOURCES` in data/widgets.ts.
+
+  Morning check gains `runs.recent` and Search gains `audit.issues` as top-ups,
+  which is the whole of what the two existing boards were missing: what the
+  agent did overnight, and how our own pages are.
+*/
+export const SEED_VERSION = 13;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -643,6 +673,304 @@ const SEED: StoreState = {
         { id: "an12", type: "bluesky.handles", w: 4 },
       ],
     },
+    /*
+      SEO. Everything that decides whether a stranger ever reaches one of these
+      sites, from the four sources that can actually say something about it.
+
+      THE CRAWL LEADS, because it is the only thing on this board we control:
+      an error on our own page is a fault with an owner and a fix, where a
+      ranking is a report of somebody else's decision. Google's verdict sits
+      beside it, and then the three wide tables that are the evidence — who
+      links in, which directories carry us, and every venture's own crawl. They
+      are at full width because not one of them fits in a column: a source per
+      row, a directory per column, a venture per line.
+
+      THEN THE NARROW CARDS, and they are the ones with something to do in
+      them: the queries a nudge would move, the pages, what Bing has indexed
+      and what it could not crawl, the referring-domain counts and the checks
+      that were blocked. The board CLOSES on worst-first, which is the only
+      card here that is a list of instructions.
+
+      NOTHING ON THIS BOARD IS ADDED TO ANYTHING ELSE ON IT. The audit counts
+      faults on pages, Search Console counts impressions on a results page, the
+      backlink sources count referring domains and disagree with each other by
+      design, and the presence matrix counts directory listings. Four counts of
+      four different acts, and the only figure that could span them would be a
+      score — which is the number this dashboard exists to refuse.
+
+      A VENTURE WITH NO CRAWL IS NOT A VENTURE WITH NO PROBLEMS, and both audit
+      cards are built to say so rather than let an empty column read as a clean
+      one.
+    */
+    {
+      id: "d-seo",
+      slug: "seo",
+      name: "SEO",
+      widgets: [
+        { id: "seo1", type: "audit.issues", w: 1 },
+        { id: "seo2", type: "gsc.position", w: 1 },
+        { id: "seo3", type: "backlinks.bySource", w: 4 },
+        { id: "seo4", type: "presence.matrix", w: 4 },
+        { id: "seo5", type: "audit.ventures", w: 4 },
+        { id: "seo6", type: "gsc.striking", w: 2 },
+        { id: "seo7", type: "gsc.pages", w: 2 },
+        { id: "seo8", type: "bing.index", w: 1 },
+        { id: "seo9", type: "bing.crawl", w: 2 },
+        { id: "seo10", type: "backlinks.domains", w: 2 },
+        { id: "seo11", type: "presence.blocked", w: 2 },
+        { id: "seo12", type: "audit.worst", w: 2 },
+      ],
+    },
+    /*
+      SOCIAL. The accounts, and what is actually knowable about them.
+
+      A BOARD OF ITS OWN AT LAST, and the argument that kept it off the Growth
+      board is the argument for the shape of this one: three Pages with a few
+      hundred followers between them do not fill a page with numbers. So this
+      board is not built to be full — it is seven cards, it ends on the card
+      that says what the APIs will not answer, and it is honest at that size.
+
+      THE PAGES COME FIRST because a follower count is meaningless without
+      knowing how many accounts it is spread across. NOTHING ADDS ACROSS
+      NETWORKS or across handles: a Bluesky follower and a Facebook follower
+      are different people doing different things, and the same person on two
+      handles is one person and two rows. `meta.cannot` closes the board for
+      the same reason the Costs board ends on Replicate's refusal — a social
+      board that quietly omitted organic reach would be read as the whole
+      picture.
+    */
+    {
+      id: "d-social",
+      slug: "social",
+      name: "Social",
+      widgets: [
+        { id: "so1", type: "meta.pages", w: 2 },
+        { id: "so2", type: "instagram.followers", w: 2 },
+        { id: "so3", type: "bluesky.followers", w: 1 },
+        { id: "so4", type: "meta.reach", w: 1 },
+        { id: "so5", type: "bluesky.engagement", w: 2 },
+        { id: "so6", type: "bluesky.handles", w: 4 },
+        { id: "so7", type: "meta.cannot", w: 2 },
+      ],
+    },
+    /*
+      ADS. Money out and money in, and they are not the same trade.
+
+      Meta is what advertising COSTS — one account, a spend, the leads it
+      bought. AdSense is what advertising EARNS — somebody else's ads on our
+      own pages. Two directions of one business, which is why they are on one
+      board and why not one figure crosses between them: a return on ad spend
+      and a page RPM share the word "ads" and nothing else.
+
+      SPEND FIRST, THEN WHAT IT BOUGHT, then the daily line and the campaigns
+      underneath — because "was this worth it" is answered by the first three
+      cards and the rest is where the answer came from. The access card is last
+      and stays there even when the earnings are live: if the consent screen is
+      still in Testing the token dies in a week, and this is the card that says
+      so rather than the earnings quietly going flat.
+    */
+    {
+      id: "d-ads",
+      slug: "ads",
+      name: "Ads",
+      widgets: [
+        { id: "ad1", type: "meta.spend", w: 1 },
+        { id: "ad2", type: "meta.leads", w: 1 },
+        { id: "ad3", type: "meta.roas", w: 2 },
+        { id: "ad4", type: "adsense.earnings", w: 1 },
+        { id: "ad5", type: "meta.daily", w: 2 },
+        { id: "ad6", type: "meta.campaigns", w: 4 },
+        { id: "ad7", type: "adsense.rpm", w: 2 },
+        { id: "ad8", type: "adsense.access", w: 2 },
+      ],
+    },
+    /*
+      DEMAND. What strangers asked for, and how well we were able to hear it.
+
+      THE SECOND HALF OF THIS BOARD IS ABOUT THE MICROPHONE, and that is
+      deliberate rather than padding. Reddit's Atom feed refuses more than it
+      answers, and when it does the search node is the tier that replies
+      instead — so "how was Reddit read" and "is the node well" are not
+      infrastructure trivia here, they are the confidence interval on every
+      thread above them. A demand board without them invites somebody to read a
+      quiet week as a quiet market.
+
+      THREADS ADD ACROSS THE SOURCES AND NOTHING ELSE DOES. A thread is a
+      thread whether it was posted on Reddit or Hacker News; an upvote and a
+      point are two sites' scoring rules and are never added. Bing's keyword
+      volumes sit here rather than on SEO because they measure a MARKET —
+      people searching a phrase nothing of ours ranks for — which is demand and
+      not traffic.
+    */
+    {
+      id: "d-demand",
+      slug: "demand",
+      name: "Demand",
+      widgets: [
+        { id: "de1", type: "demand.new", w: 1 },
+        { id: "de2", type: "searxng.latency", w: 1 },
+        { id: "de3", type: "reddit.signals", w: 2 },
+        { id: "de4", type: "hn.mentions", w: 2 },
+        { id: "de5", type: "reddit.subs", w: 2 },
+        { id: "de6", type: "bing.keywords", w: 2 },
+        { id: "de7", type: "demand.coverage", w: 4 },
+        { id: "de8", type: "hn.stories", w: 4 },
+        { id: "de9", type: "reddit.tier", w: 2 },
+        { id: "de10", type: "searxng.queries", w: 2 },
+        { id: "de11", type: "searxng.engines", w: 2 },
+      ],
+    },
+    /*
+      DEVELOPMENT. The shop window and the two registries it ships to.
+
+      GitHub says how many people LOOKED; npm and PyPI say how many tarballs
+      and wheels went out afterwards. Nothing here turns that into a conversion
+      rate and nothing ever should: a view is a person and a download is a
+      fetch — a CI job pulling a package four hundred times a day is four
+      hundred downloads and nobody at all.
+
+      THE FOUR HEADLINES, THEN THE THREE LINES, THEN THE TABLES BEHIND THEM.
+      The three download charts stay as three rather than being merged: npm
+      weeks and PyPI weeks are counted by two registries with two definitions
+      of a week, and one line holding both would be a line in no unit.
+
+      THE API BUDGET IS THE LAST CARD, and it is not decoration either. A board
+      that stops updating should be able to say why, and on this one the reason
+      is almost always the same hourly ceiling.
+    */
+    {
+      id: "d-dev",
+      slug: "development",
+      name: "Development",
+      widgets: [
+        { id: "dv1", type: "github.stars", w: 1 },
+        { id: "dv2", type: "github.views", w: 1 },
+        { id: "dv3", type: "npm.downloads", w: 1 },
+        { id: "dv4", type: "pypi.downloads", w: 1 },
+        { id: "dv5", type: "github.traffic", w: 4 },
+        { id: "dv6", type: "npm.weeks", w: 4 },
+        { id: "dv7", type: "pypi.weekly", w: 4 },
+        { id: "dv8", type: "github.top", w: 2 },
+        { id: "dv9", type: "github.referrers", w: 2 },
+        { id: "dv10", type: "npm.table", w: 4 },
+        { id: "dv11", type: "pypi.packages", w: 4 },
+        { id: "dv12", type: "github.rate", w: 2 },
+      ],
+    },
+    /*
+      APPS. Presence, installs and ratings — and NOT the money.
+
+      THE MONEY STAYS ON REVENUE, on purpose. Apple's estimate and Google's
+      payout are two figures the Revenue board already keeps side by side and
+      never adds, and a second copy of them here would be a second place for
+      that distinction to be got wrong. What is left is the question this board
+      is actually for: is each app on sale, is anybody installing it, and what
+      do they say about it afterwards.
+
+      THE TWO STORES ARE MIRRORED ROW FOR ROW — Apple's figure beside Google's,
+      never summed — because an install on one store and an install on the
+      other are counted by two companies with two definitions of an install and
+      two windows to count it in. `mobile.presence` is the one card that spans
+      them, and it counts SHOPS an app is in rather than adding anything.
+
+      IT ENDS ON THE TWO REFUSALS. Both stores are asked things they will not
+      answer, and a board that omitted them would be read as everything the
+      stores know.
+    */
+    {
+      id: "d-mobile",
+      slug: "apps",
+      name: "Apps",
+      widgets: [
+        { id: "ap1", type: "appstore.installs", w: 1 },
+        { id: "ap2", type: "play.installs", w: 1 },
+        { id: "ap3", type: "appstore.rating", w: 1 },
+        { id: "ap4", type: "play.rating", w: 1 },
+        { id: "ap5", type: "mobile.presence", w: 1 },
+        { id: "ap6", type: "appstore.daily", w: 4 },
+        { id: "ap7", type: "play.daily", w: 4 },
+        { id: "ap8", type: "appstore.store", w: 2 },
+        { id: "ap9", type: "appstore.apps", w: 4 },
+        { id: "ap10", type: "play.apps", w: 4 },
+        { id: "ap11", type: "appstore.limits", w: 2 },
+        { id: "ap12", type: "play.limits", w: 2 },
+      ],
+    },
+    /*
+      UPTIME & FLEET. Two answers to "is it well", from two sides of the wall.
+
+      THE PROBE ASKS OVER THE PUBLIC INTERNET and the fleet asks over ssh, so
+      they can disagree — a box at 12% memory behind a broken reverse proxy is
+      healthy to one and dead to the other. THAT DISAGREEMENT IS THE FINDING,
+      which is why they share a board and why nothing here reconciles them into
+      a single green tick.
+
+      OUTSIDE FIRST, INSIDE SECOND. What answered, how fast, how long the
+      certificates have — then memory, disks and load per cpu from within the
+      guest, then Hetzner's own hypervisor line beneath them for the boxes it
+      bills for. The order is a morning: you find out something is down before
+      you find out why.
+
+      MEMORY ADDS ACROSS BOXES AND NOTHING ELSE DOES. Load averages are already
+      per machine, and filesystems share pools — so there is a meter per box on
+      its fullest mount and no fleet disk total, because adding mounts puts a
+      terabyte of free space on a one-terabyte disk.
+    */
+    {
+      id: "d-fleet",
+      slug: "uptime-fleet",
+      name: "Uptime & fleet",
+      widgets: [
+        { id: "fl1", type: "uptime.up", w: 1 },
+        { id: "fl2", type: "uptime.status", w: 2 },
+        { id: "fl3", type: "uptime.availability", w: 2 },
+        { id: "fl4", type: "uptime.latency", w: 2 },
+        { id: "fl5", type: "uptime.tls", w: 4 },
+        { id: "fl6", type: "uptime.incidents", w: 2 },
+        { id: "fl7", type: "fleet.memory", w: 2 },
+        { id: "fl8", type: "fleet.disk", w: 2 },
+        { id: "fl9", type: "fleet.load", w: 2 },
+        { id: "fl10", type: "hetzner.load", w: 4 },
+        { id: "fl11", type: "fleet.counters", w: 2 },
+        { id: "fl12", type: "fleet.containers", w: 4 },
+        { id: "fl13", type: "fleet.boxes", w: 4 },
+      ],
+    },
+    /*
+      WEEK. The one board that is about the owner rather than about a business.
+
+      Every other board narrows to a venture. This one cannot and should not: a
+      Tuesday morning belongs to a person, an inbox thread is not filed under a
+      domain, and the agent's queue is one queue for the whole box. That is why
+      the calendar is not in SCOPABLE_SOURCES and why the runs cards are
+      portfolio-wide — see lib/scope.ts for the argument.
+
+      TODAY, THEN THE WEEK, THEN WHETHER ANYTHING BROKE OVERNIGHT, then what is
+      waiting to be answered, and last what the agent has been doing while
+      nobody watched. Two mail figures rather than one, because "unread" and
+      "waiting on a reply" are different piles and only one of them is work.
+
+      It ends on `mail.cannot` and `runs.recent` for the same reason: both are
+      cards about what is NOT knowable from here — Gmail cannot say whether a
+      thread was answered by phone, and a run that failed wrote no report.
+    */
+    {
+      id: "d-week",
+      slug: "week",
+      name: "Week",
+      widgets: [
+        { id: "wk1", type: "calendar.today", w: 2 },
+        { id: "wk2", type: "calendar.next", w: 2 },
+        { id: "wk3", type: "calendar.busy", w: 2 },
+        { id: "wk4", type: "uptime.up", w: 1 },
+        { id: "wk5", type: "gmail.unread", w: 1 },
+        { id: "wk6", type: "gmail.inbox", w: 1 },
+        { id: "wk7", type: "gmail.volume", w: 4 },
+        { id: "wk8", type: "gmail.mailbox", w: 2 },
+        { id: "wk9", type: "mail.cannot", w: 2 },
+        { id: "wk10", type: "runs.recent", w: 2 },
+      ],
+    },
   ],
 };
 
@@ -985,12 +1313,24 @@ const TOP_UPS: Record<string, string[]> = {
   */
   "d-servers": ["fleet.memory", "fleet.disk", "uptime.up", "uptime.tls"],
   /*
-    Morning check gains the two things a morning actually turns on: what is in
-    the calendar today, and whether anything went down overnight. `uptime.status`
-    was already on this board as a sample and is a measurement now without being
-    listed here — it kept its key, so the top-up has nothing to append.
+    Morning check gains the day's calendar and whether anything went down
+    overnight — and now the run ledger with them. A run survives the tab
+    closing and executes one at a time on the server, so "what did the agent
+    get through overnight" is a real question nobody was being shown an answer
+    to, and it belongs on the board somebody already opens at 8am rather than
+    on one they would have to remember to visit. `uptime.status` was already
+    here as a sample and is a measurement now without being listed: it kept its
+    key, so the top-up has nothing to append.
   */
-  "d-morning": ["calendar.today", "uptime.up"],
+  "d-morning": ["calendar.today", "uptime.up", "runs.recent"],
+  /*
+    Search shipped as Google beside Bing and nothing about our own pages. Both
+    engines report what THEY did with a site; the audit is the only source here
+    that reports what the site itself is like, and an error count belongs at the
+    top of the board where somebody is already asking why the impressions moved.
+    Just the one figure: the SEO board is where the rest of the crawl lives.
+  */
+  "d-search": ["audit.issues"],
 };
 
 /** The addresses already taken inside one scope — a venture's boards, or the

@@ -1,5 +1,5 @@
 /**
- * THE NINE REPORT DOCUMENTS, as the widgets read them.
+ * THE REPORT DOCUMENTS, as the widgets read them.
  *
  * A file of its own rather than nine more blocks in `lib/api.ts`, and the
  * reason is the same one the server gives for splitting its integrations into
@@ -19,6 +19,13 @@
  * NOTHING HERE NARROWS A SHAPE TO WHAT THE WIDGETS HAPPEN TO DRAW. A field the
  * cards do not use yet still gets a name, because the next card wants it and a
  * type that lags the wire is worse than one that is complete.
+ *
+ * NINE OF THESE ARE COLLECTORS AND THREE ARE NOT. The last three — the audit
+ * overview, the agent runs and the competitor profiles — are this box's own
+ * tables rather than somebody else's API, so they have no credential, no
+ * connected switch and nothing to gate a fetch on. They are in this file
+ * anyway, because what makes a document belong here is that the dashboard is
+ * its only reader, and that is as true of a run as it is of a Bluesky handle.
  */
 import { call } from "@/lib/api";
 
@@ -650,6 +657,174 @@ export type PresenceReport = {
   notes: string[];
 };
 
+/* ------------------------------------------------------------------ audit */
+
+/**
+ * THE PORTFOLIO OVERVIEW, which the per-venture audit route cannot give.
+ *
+ * `/api/audit/:key` answers with one crawl in full — every page, every finding,
+ * every URL behind it. That is the right document for one venture and the wrong
+ * one for a board: twelve of them is a megabyte to answer "which site is worst".
+ * So the index is one ROW per venture, and the row carries only what a column
+ * can hold.
+ *
+ * A VENTURE THAT HAS NEVER BEEN CRAWLED HAS `ts: null`, and every figure beside
+ * it is then meaningless rather than zero. Nothing below counts it as a site
+ * with no errors — an unaudited site is unmeasured, which is the one reading a
+ * clean-looking dashboard must never give it.
+ */
+export type AuditVentureRow = {
+  id: string;
+  name: string;
+  slug: string;
+  host: string | null;
+  /** When this venture was last crawled. Null is NEVER, not "long ago". */
+  ts: string | null;
+  /** How many pages that crawl actually reached. Every issue count below is
+   *  relative to it: three errors over four pages is not three over forty.
+   *
+   *  NULL RATHER THAN ZERO on a venture nobody has crawled, which is the wire
+   *  being careful in the way this file exists to preserve: a nought here
+   *  would be a measurement of a site that has never been looked at. */
+  pages: number | null;
+  /** The audit's own three severities, kept apart. A total across them would
+   *  weigh a missing meta description like a broken link. Null for the same
+   *  reason `pages` is. */
+  issues: { error: number; warning: number; notice: number } | null;
+  /** Whether plain http redirected to https when the crawler asked. Null is
+   *  "could not be established", never "no". */
+  https: boolean | null;
+  /** The sitemap the crawler found, or null for none found at any of the
+   *  addresses it tried. */
+  sitemap: string | null;
+  /** Whether robots.txt answered. A MISSING robots.txt IS NOT A CLOSED SITE —
+   *  the audit's own note says so — so `false` here is an absence and not a
+   *  fault, and no card below colours it red. */
+  robots: boolean | null;
+  /** WHERE THE SITE ACTUALLY ANSWERED, as a URL and not a hostname —
+   *  "https://support.example.test/" — because that is what the crawler followed the
+   *  redirects to. Anything comparing it to a venture's `host` has to take the
+   *  hostname out of it first; `hostOf` in lib/liveWidgets.ts is that. Null
+   *  when nothing answered. */
+  canonicalHost: string | null;
+};
+
+export type AuditOverview = {
+  ventures: AuditVentureRow[];
+  note: string;
+};
+
+/* ------------------------------------------------------------------- runs */
+
+export type AgentRunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+
+/**
+ * One piece of long agent work, as the ledger holds it.
+ *
+ * `AgentRun` and not `RunSummary`, which is what the wire calls it: the Runs
+ * app has its own client module for driving a run — starting one, polling it,
+ * cancelling it — and two modules exporting one name for two slightly different
+ * jobs is an import somebody eventually gets wrong. This shape is the board's:
+ * enough to draw a row, and nothing of the output.
+ */
+export type AgentRun = {
+  id: string;
+  kind: string;
+  ventureId: string | null;
+  ventureName: string | null;
+  title: string;
+  status: AgentRunStatus;
+  queuedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** How long it took. Null while it is still going — a run in flight has a
+   *  duration nobody can quote yet, and quoting the elapsed time as `ms` would
+   *  make a running row look finished. */
+  ms: number | null;
+  /** `hermes`, `openclaw`, `provider:<id>` — or null on a run that never got
+   *  as far as choosing one. The distinction matters on the card: a report
+   *  written by a raw provider had no tools and no web. */
+  backend: string | null;
+  model: string | null;
+  steps: number;
+  outputChars: number;
+  error: string | null;
+};
+
+export type RunKindInfo = {
+  kind: string;
+  name: string;
+  what: string;
+  needsVenture: boolean;
+  inputs: {
+    key: string;
+    label: string;
+    hint: string;
+    kind: "text" | "textarea" | "number";
+    required: boolean;
+    default: string;
+  }[];
+  /** Four counts, never added. A failed run wrote no report and a queued one
+   *  has not started; only `done` is a piece of work that exists. */
+  counts: { done: number; failed: number; running: number; queued: number };
+};
+
+export type RunsReport = {
+  runs: AgentRun[];
+  /** The one run executing right now, because the engine runs one at a time. */
+  running: AgentRun | null;
+  queued: number;
+  kinds: RunKindInfo[];
+};
+
+/* ------------------------------------------------------------ competitors */
+
+/**
+ * One rival, as the sweeps have accumulated it.
+ *
+ * THE DATE IS THE WHOLE POINT OF THIS ROW. A profile is not a fact, it is the
+ * last thing a sweep was able to establish — so `lastVerified` travels with
+ * every one, and a rival the newest sweep did not mention KEEPS ITS OLD DATE
+ * rather than being re-stamped. Silence is not verification, and a table that
+ * re-dated everything on every run would say the whole market was checked this
+ * morning when one company in it was checked in June.
+ */
+export type CompetitorProfile = {
+  ventureId: string;
+  /**
+   * Whose rival this is. A table of fourteen companies with no venture column
+   * is a list nobody can act on, so the name is on every row.
+   *
+   * THERE IS NO HOST HERE, and that is what makes narrowing this document to a
+   * venture board indirect. The scope a board hands its cards is a set of
+   * HOSTS; a profile names its venture by id. The audit overview above is a
+   * row per venture carrying both — for every venture, crawled or not — so it
+   * is the map between them. See `scopeCompetitors` in lib/scope.ts.
+   */
+  ventureName: string | null;
+  name: string;
+  url: string | null;
+  positioning: string | null;
+  pricing: string | null;
+  strengths: string[];
+  weaknesses: string[];
+  /** Null-tolerant on purpose. The column is written on every upsert today, so
+   *  the wire never sends a null — and typing it `string` would put a
+   *  `new Date(undefined)` and an "Invalid Date" on a card one schema change
+   *  from now, for a saving of nothing. */
+  lastVerified: string | null;
+  firstSeen: string | null;
+  runId: string | null;
+};
+
+export type CompetitorsReport = {
+  profiles: CompetitorProfile[];
+  /** How many sweeps have run. One sweep is a first impression; the profiles
+   *  are worth what the number of times they have been re-checked is worth. */
+  runs: number;
+  lastRun: string | null;
+};
+
 /* ------------------------------------------------------------------ calls */
 
 export const reports = {
@@ -666,4 +841,23 @@ export const reports = {
   products: (days = 30) => call<ProductsReport>(`/products?days=${days}`),
   backlinks: () => call<BacklinksReport>("/backlinks"),
   presence: () => call<PresenceReport>("/presence"),
+
+  /*
+    THE THREE THAT ARE NOT PLUGINS.
+
+    Everything above is a collector with a credential and a connected/not
+    switch behind it. These three are this box's own tables — the crawler it
+    runs, the agent runs it executes, the rivals those runs accumulated — so
+    there is nothing to connect and nothing to gate the fetch on. They are
+    asked for on every load, and an empty answer means the work has not been
+    done yet rather than that a provider is missing.
+  */
+  /** Every venture's last crawl as one row each — never the crawl itself. */
+  audit: () => call<AuditOverview>("/audit"),
+  /** The ledger, newest first, with what is running and what is waiting. */
+  runs: (limit = 50) => call<RunsReport>(`/runs?limit=${limit}`),
+  /** Every venture's rivals. The venture filter is the app's, not the board's:
+   *  a global board wants the portfolio and a venture board narrows what it
+   *  already holds, the way every other source here is narrowed. */
+  competitors: () => call<CompetitorsReport>("/competitors"),
 };

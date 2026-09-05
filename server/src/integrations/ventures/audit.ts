@@ -41,7 +41,7 @@
  * would eventually be a different rule.
  */
 import { Hono } from "hono";
-import { db, now, ventureRow } from "../../db.ts";
+import { db, now, ventureRow, ventureRows } from "../../db.ts";
 import { linkedEntities } from "./links.ts";
 
 export const auditRoutes = new Hono();
@@ -892,6 +892,106 @@ function canon(raw: string): string {
 }
 
 /* ------------------------------------------------------------------ routes */
+
+/**
+ * THE WHOLE PORTFOLIO, ONE ROW PER VENTURE — the overview an SEO board needs.
+ *
+ * REGISTERED BEFORE `/:ventureKey`, because Hono matches in the order routes
+ * are declared and a bare GET on this router would otherwise be a venture key.
+ * The same rule routes/ventures.ts keeps for `reorder`.
+ *
+ * IT READS AND NEVER CRAWLS. Every figure here comes out of the newest stored
+ * `venture_audits` document; nothing is fetched from anybody's website to
+ * answer it. That is what makes it safe to put on a dashboard that polls —
+ * `POST /api/audit/:key` is the thing that costs sixty requests to a site, and
+ * it stays a deliberate act.
+ *
+ * A VENTURE WITH NO AUDIT IS ON THE LIST WITH NULLS, not missing from it. The
+ * question this answers is "how do my sites look", and a site that has never
+ * been crawled is a real and interesting answer to it — dropping the row would
+ * make a portfolio of four look like a portfolio of two with no faults. `ts`
+ * null is the flag, and every measured field beside it is null for the same
+ * reason: null means asked and not told.
+ *
+ * THE THREE COUNTS ARE RECOMPUTED FROM THE STORED DOCUMENT rather than read
+ * off `venture_audits.issues`. That column is the SUM of every finding's count
+ * across all three severities — it exists so the history list can say "34
+ * issues" without parsing a hundred kilobytes — and splitting it into errors,
+ * warnings and notices is not something a total can be asked to do.
+ */
+auditRoutes.get("/", (c) => {
+  const rows = ventureRows();
+  const ventures = rows.map((v) => {
+    const row = db
+      .prepare("SELECT ts, doc FROM venture_audits WHERE venture_id = ? ORDER BY ts DESC LIMIT 1")
+      .get(v.id) as { ts: string; doc: string } | undefined;
+
+    const base = { id: v.id, name: v.name, slug: v.slug, host: v.host };
+    if (!row)
+      return {
+        ...base,
+        ts: null,
+        pages: null,
+        issues: null,
+        https: null,
+        sitemap: null,
+        robots: null,
+        canonicalHost: null,
+      };
+
+    let doc: AuditDoc;
+    try {
+      doc = JSON.parse(row.doc) as AuditDoc;
+    } catch {
+      /* A row that will not parse costs its figures and keeps its date, which
+         is the honest split: something was crawled then, and this cannot say
+         what it found. */
+      return {
+        ...base,
+        ts: row.ts,
+        pages: null,
+        issues: null,
+        https: null,
+        sitemap: null,
+        robots: null,
+        canonicalHost: null,
+      };
+    }
+
+    return {
+      ...base,
+      ts: doc.ts,
+      pages: doc.pages.length,
+      issues: {
+        error: doc.findings.filter((f) => f.severity === "error").reduce((n, f) => n + f.count, 0),
+        warning: doc.findings.filter((f) => f.severity === "warning").reduce((n, f) => n + f.count, 0),
+        notice: doc.findings.filter((f) => f.severity === "notice").reduce((n, f) => n + f.count, 0),
+      },
+      /* `https` AND `canonicalHost` ARE ALLOWED TO BE NULL AND `robots` IS
+         NOT, because they are different measurements. A null https means the
+         http:// address was never reached at all, and a dashboard that drew
+         that as a red cross would be reporting a fault nobody measured; a
+         missing robots.txt, on the other hand, IS a measurement — 404 means no
+         rules, which means everything is allowed, and `false` says exactly
+         that. `sitemap` carries the url that was found, or null for none. */
+      https: doc.https.httpRedirectsToHttps,
+      sitemap: doc.sitemap.found,
+      robots: doc.robots.present,
+      canonicalHost: doc.canonicalHost.answered,
+    };
+  });
+
+  return c.json({
+    ventures,
+    note:
+      "The newest STORED audit for each venture — nothing was crawled to answer " +
+      "this. `ts: null` is a venture that has never been audited, which is not " +
+      "the same as a site with no faults, and every figure beside it is null for " +
+      "that reason. The counts are sums of finding counts, so one bad template " +
+      "across sixty pages is sixty; they are a trend line beside `pages`, not a " +
+      "score. There is deliberately no score.",
+  });
+});
 
 auditRoutes.post("/:ventureKey", async (c) => {
   const res = await runAudit(c.req.param("ventureKey"));

@@ -100,6 +100,9 @@ export function WidgetCard({
         products: live.products,
         backlinks: live.backlinks,
         presence: live.presence,
+        audit: live.audit,
+        runs: live.runs,
+        competitors: live.competitors,
       })
     : null;
   const def: Widget = patch ? { ...base, ...patch } : base;

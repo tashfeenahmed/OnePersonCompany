@@ -1,11 +1,28 @@
 import { Link, Navigate, useParams } from "react-router-dom";
-import { BarChart3, KanbanSquare, Mail, Sparkles } from "lucide-react";
+import {
+  BarChart3,
+  Bot,
+  FileText,
+  KanbanSquare,
+  Mail,
+  MessageSquareText,
+  SearchCheck,
+  Sparkles,
+  Swords,
+  Telescope,
+} from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import { useStore } from "@/lib/store";
 import { Board } from "@/pages/Board";
 import { EmailStats } from "@/pages/EmailStats";
 import { Mailbox } from "@/pages/Mailbox";
 import { Studio } from "@/pages/Studio";
+import { Competitors } from "@/pages/runs/Competitors";
+import { Demand } from "@/pages/runs/Demand";
+import { Papers } from "@/pages/runs/Papers";
+import { Research } from "@/pages/runs/Research";
+import { Seo } from "@/pages/runs/Seo";
+import { Visibility } from "@/pages/runs/Visibility";
 
 /**
  * APPS — one page, a tab per app, each app at its own address.
@@ -50,6 +67,36 @@ const APPS: { slug: string; name: string; icon: typeof Mail; page: () => React.J
     address: the same page, the same two fields, whichever business is picked.
   */
   { slug: "studio", name: "Studio", icon: Sparkles, page: Studio },
+  /*
+    THE SIX RUN APPS, AND THEY ARE SIX TABS RATHER THAN ONE "RUNS" TAB WITH A
+    PICKER INSIDE IT.
+
+    They share almost all of their code — one `RunApp` parameterised by the
+    kind the server describes — which is exactly the argument for folding them
+    into a single app, and it is the wrong one. A tab is an ADDRESS and a
+    habit: "sweep the competitors" is a thing somebody goes and does, and it
+    should be one press from anywhere with its own URL and its own history,
+    not a dropdown inside a page called Runs whose selection nobody can link
+    to. The dashboards next door make the same trade for the same reason.
+
+    The order is the order the work happens in. Research is how you find out
+    what a market is; Competitors is who else is in it; SEO and Demand are the
+    two readings of whether anybody can find you and whether they want what you
+    have; AI visibility is the same question asked of the models rather than
+    the search engines; Papers is last because it is the only one that is not
+    about a venture at all — it will run on a typed topic with no business
+    attached.
+
+    They sit after Studio, so the four apps that were here keep their
+    positions. The owner's own `appOrder` overrides all of this anyway; this
+    list only decides where an app FIRST appears.
+  */
+  { slug: "research", name: "Research", icon: Telescope, page: Research },
+  { slug: "competitors", name: "Competitors", icon: Swords, page: Competitors },
+  { slug: "seo", name: "SEO", icon: SearchCheck, page: Seo },
+  { slug: "demand", name: "Demand", icon: MessageSquareText, page: Demand },
+  { slug: "visibility", name: "AI visibility", icon: Bot, page: Visibility },
+  { slug: "papers", name: "Papers", icon: FileText, page: Papers },
 ];
 
 export function Apps() {

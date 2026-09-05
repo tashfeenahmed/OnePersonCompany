@@ -30,13 +30,16 @@ import {
 } from "@/lib/api";
 import {
   reports,
+  type AuditOverview,
   type BacklinksReport,
   type BlueskyReport,
   type CalendarReport,
   type FleetReport,
   type PresenceReport,
   type ProductsReport,
+  type CompetitorsReport,
   type PypiReport,
+  type RunsReport,
   type UmamiReport,
   type UptimeReport,
 } from "@/lib/api/reports";
@@ -160,6 +163,25 @@ export type LiveData = {
   backlinks: BacklinksReport | null;
   /** The off-site footprint, product by directory. */
   presence: PresenceReport | null;
+
+  /*
+    THE THREE THIS BOX PRODUCES ITSELF.
+
+    Not integrations. There is no credential behind an audit, a run or a
+    competitor profile — the crawler runs here, the agent executes here, and
+    the profiles are what those runs wrote into this database. Which is why
+    they are fetched unconditionally below rather than gated on a plugin: there
+    is nothing to connect, so "not connected" is not one of the answers, and a
+    card of theirs showing samples means the WORK has not been done rather than
+    that a token is missing.
+  */
+  /** Every venture's last crawl, one row each — never the crawl itself. */
+  audit: AuditOverview | null;
+  /** The run ledger: what is executing, what is queued, what finished. */
+  runs: RunsReport | null;
+  /** The rivals the sweeps accumulated, each with the date it was last
+   *  VERIFIED rather than last written. */
+  competitors: CompetitorsReport | null;
   /** Which widget types are showing real data right now. */
   liveTypes: Set<string>;
   reload: () => void;
@@ -195,6 +217,9 @@ const LiveContext = createContext<LiveData>({
   products: null,
   backlinks: null,
   presence: null,
+  audit: null,
+  runs: null,
+  competitors: null,
   liveTypes: new Set(),
   reload: () => {},
 });
@@ -239,6 +264,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<ProductsReport | null>(null);
   const [backlinks, setBacklinks] = useState<BacklinksReport | null>(null);
   const [presence, setPresence] = useState<PresenceReport | null>(null);
+  const [audit, setAudit] = useState<AuditOverview | null>(null);
+  const [runs, setRuns] = useState<RunsReport | null>(null);
+  const [competitors, setCompetitors] = useState<CompetitorsReport | null>(null);
   const [tick, setTick] = useState(0);
 
   const wanted = useMemo(() => {
@@ -270,6 +298,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsProducts = false;
     let needsBacklinks = false;
     let needsPresence = false;
+    let needsAudit = false;
+    let needsRuns = false;
+    let needsCompetitors = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -299,6 +330,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.products) needsProducts = true;
       if (w.live?.backlinks) needsBacklinks = true;
       if (w.live?.presence) needsPresence = true;
+      if (w.live?.audit) needsAudit = true;
+      if (w.live?.runs) needsRuns = true;
+      if (w.live?.competitors) needsCompetitors = true;
     }
     return {
       series: [...series],
@@ -329,6 +363,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsProducts,
       needsBacklinks,
       needsPresence,
+      needsAudit,
+      needsRuns,
+      needsCompetitors,
     };
   }, []);
 
@@ -594,6 +631,31 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         setPresence,
       );
 
+      /*
+        THE THREE THAT ARE ASKED FOR UNCONDITIONALLY.
+
+        Every fetch above is gated on a plugin, because every one of them is
+        somebody else's API and asking a provider nobody has authorised is a
+        request that can only fail. These three are this box's own tables, so
+        there is no plugin id that would gate them and no state where the
+        question is unaskable. An empty answer is a real answer here: it means
+        nothing has been crawled, run or swept yet, which is a thing the cards
+        say in those words rather than falling back to a sample of somebody
+        else's numbers.
+
+        They still sit inside the plugins call above, which is deliberate: that
+        call is also the page's test for whether there is an API at the other
+        end at all. With the server down there is nothing to ask and the whole
+        board keeps its samples, which is the honest first screen.
+      */
+      await tryFetch(wanted.needsAudit, () => reports.audit(), setAudit);
+      await tryFetch(wanted.needsRuns, () => reports.runs(), setRuns);
+      await tryFetch(
+        wanted.needsCompetitors,
+        () => reports.competitors(),
+        setCompetitors,
+      );
+
       const pairs = await Promise.all(
         wanted.series.map(async (m) => {
           try {
@@ -654,6 +716,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         products,
         backlinks,
         presence,
+        audit,
+        runs,
+        competitors,
       });
       if (patch) liveTypes.add(type);
     }
@@ -687,6 +752,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       products,
       backlinks,
       presence,
+      audit,
+      runs,
+      competitors,
       liveTypes,
       reload: () => setTick((t) => t + 1),
     };
@@ -720,6 +788,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     products,
     backlinks,
     presence,
+    audit,
+    runs,
+    competitors,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
@@ -981,6 +1052,39 @@ export function collectedAt(src: string, live: LiveData): string | null {
       return live.backlinks?.summary.seenAt ?? null;
     case "presence":
       return live.presence?.summary.checkedAt ?? null;
+    /*
+      THE THREE THIS BOX PRODUCES, EACH QUOTING WHEN THE WORK WAS DONE.
+
+      There is no collector behind these and therefore no collection time. What
+      each returns is when the last piece of WORK finished — the newest crawl,
+      the newest run event, the newest sweep — which is the only clock they
+      have and the one a reader means by "how old is this". A route that
+      assembled its answer a second ago has not made the June sweep any newer.
+    */
+    case "audit":
+      return (
+        live.audit?.ventures
+          .map((v) => v.ts)
+          .filter((ts): ts is string => !!ts)
+          .sort()
+          .at(-1) ?? null
+      );
+    case "runs":
+      /* A run's own newest event, not the ledger's: a queued run is news, and
+         quoting the last FINISHED run would date the card to before the thing
+         that is happening now. */
+      return (
+        live.runs?.runs
+          .flatMap((r) => [r.finishedAt, r.startedAt, r.queuedAt])
+          .filter((ts): ts is string => !!ts)
+          .sort()
+          .at(-1) ?? null
+      );
+    case "competitors":
+      /* When a SWEEP last ran, which is not when any one profile was last
+         verified — a sweep that did not name a rival left that rival's date
+         alone, and the row carries its own. */
+      return live.competitors?.lastRun ?? null;
     case "costs":
     case "openai":
     case "openrouter":

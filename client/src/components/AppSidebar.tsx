@@ -34,7 +34,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useTheme, type Theme } from "@/lib/theme";
-import { SUBAGENTS } from "@/data/subagents";
+import { useRunQueue } from "@/hooks/useRunQueue";
 import { api } from "@/lib/api";
 
 const NAV = [
@@ -172,12 +172,17 @@ export function AppSidebar() {
     if (id === openSessionId) navigate("/");
   }
 
-  const working = SUBAGENTS.filter((a) => a.running).length;
+  /* THE BADGE IS THE QUEUE, NOT A ROSTER. It used to count `running: true`
+     out of a hand-written list of workers, which meant the rail said two runs
+     were in flight on a box that had never started one. `undefined` rather
+     than 0 when nothing is moving: no badge is the honest drawing of "nothing
+     to report", where a grey 0 is a number somebody has to read. */
+  const queue = useRunQueue();
 
   const counts: Record<string, number | undefined> = {
     "/ventures": state.ventures.length,
     "/dashboards": state.dashboards.length,
-    "/subagents": working || undefined,
+    "/subagents": queue.running + queue.queued || undefined,
   };
 
   return (
