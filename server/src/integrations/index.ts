@@ -8,8 +8,9 @@ import { manifest as analytics } from "./analytics/manifest.ts";
 import { manifest as ops } from "./ops/manifest.ts";
 import { manifest as signals } from "./signals/manifest.ts";
 import { manifest as ventures } from "./ventures/manifest.ts";
+import { manifest as runs } from "./runs/manifest.ts";
 
-export const MANIFESTS: IntegrationManifest[] = [analytics, ops, signals, ventures];
+export const MANIFESTS: IntegrationManifest[] = [analytics, ops, signals, ventures, runs];
 
 export function manifestPlugins(): Record<string, PluginRegistryEntry> {
   return Object.assign({}, ...MANIFESTS.map((m) => m.plugins ?? {}));

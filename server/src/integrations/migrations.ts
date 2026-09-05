@@ -3,5 +3,6 @@ import { MIGRATIONS as analytics } from "./analytics/migrations.ts";
 import { MIGRATIONS as ops } from "./ops/migrations.ts";
 import { MIGRATIONS as signals } from "./signals/migrations.ts";
 import { MIGRATIONS as ventures } from "./ventures/migrations.ts";
+import { MIGRATIONS as runs } from "./runs/migrations.ts";
 
-export const INTEGRATION_MIGRATIONS = [...analytics, ...ops, ...signals, ...ventures];
+export const INTEGRATION_MIGRATIONS = [...analytics, ...ops, ...signals, ...ventures, ...runs];
