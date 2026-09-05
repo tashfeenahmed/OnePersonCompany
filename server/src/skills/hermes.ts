@@ -16,24 +16,12 @@
  * whenever the connected set changes, and a pack whose plugin has gone is
  * DELETED rather than left to rot.
  *
- * WHY THE NAMES CARRY AN `opc-` PREFIX, WHICH THE OBVIOUS VERSION DOES NOT.
- * Hermes ships fifty-seven bundled skills and one of them is called `github`.
- * Two skills with the same name is not a warning here: `_locate_skill` refuses
- * to guess and answers "Ambiguous skill name 'github': 2 skills match", so the
- * bundled one and ours would BOTH stop loading by name. The prefix is also what
- * makes the set enumerable — `opc-` is exactly the packs this app owns, which
- * is what the pruning below needs in order to be safe to run.
+ * WHY THE PACKS ARE FILED BY SUBJECT, NOT BY VENDOR.
  *
- * WHY THE DIRECTORY NAME AND THE FRONTMATTER NAME ARE THE SAME STRING. Hermes'
- * index renders `frontmatter.name`, and its lookup collects candidates by
- * DIRECTORY name. Set them differently and the agent is shown a name it cannot
- * then load — a failure that costs a turn and reads as a broken tool.
- *
- * WHAT THE PACKS TELL THE AGENT TO DO. `curl` against this API, through
- * `/api/skills/<id>`, with the parameters the registry names — not the
- * underlying route. Hermes has a terminal and a web tool and needs no client
- * library, and pointing every pack at one URL shape means a route that moves is
- * an edit in registry.ts rather than in nineteen files on disk.
+ * They were one category called `opc` with an `opc-` prefix on every name,
+ * which made them enumerable — and made them a bundle. See PLACEMENT below for
+ * the layout that replaced it and the reasoning; the marker file is what keeps
+ * pruning safe now that our packs sit beside everyone else's.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -42,10 +30,61 @@ import { UNIVERSAL_RULES, apiBase, skills, type Skill } from "./registry.ts";
 /** The category directory these all live in, under `$HERMES_HOME/skills/`. One
  *  of its own so the agent's index groups them, and so the prune below has a
  *  directory it can be certain nothing else writes into. */
-export const CATEGORY = "opc";
+/**
+ * WHERE EACH PACK LIVES, AND WHAT IT IS CALLED.
+ *
+ * The first cut filed all eighteen under one category, `opc`, with a category
+ * description that began "This one-person company's own live data…" — and the
+ * model did exactly what that layout invited: asked what skills it had, it
+ * answered "the One Person Company skills" as one bundle. Hermes renders the
+ * index BY CATEGORY, category line first; a vendor-shaped category with a
+ * vendor-shaped sentence over it is a bundle by construction, whatever the
+ * eighteen lines under it say.
+ *
+ * So each pack is filed where a person would look for it — finance, infra,
+ * marketing — beside Hermes' own skills, with a name that says what it reads
+ * rather than who generated it. Nothing in the frontmatter names this app: the
+ * agent should know it has a Stripe skill, not that it has a dashboard.
+ *
+ * `github` keeps a suffix because Hermes ships a bundled skill of that name and
+ * a clash makes `_locate_skill` refuse both. Everything else is plain.
+ */
+const PLACEMENT: Record<string, { name: string; category: string }> = {
+  stripe: { name: "stripe-revenue", category: "finance" },
+  costs: { name: "llm-spend", category: "finance" },
+  mobile: { name: "app-store-revenue", category: "finance" },
+  adsense: { name: "adsense-earnings", category: "finance" },
+  hetzner: { name: "hetzner-fleet", category: "infrastructure" },
+  cloudflare: { name: "cloudflare-traffic", category: "infrastructure" },
+  domains: { name: "domain-portfolio", category: "infrastructure" },
+  gsc: { name: "search-console", category: "marketing" },
+  bing: { name: "bing-webmaster", category: "marketing" },
+  meta: { name: "meta-ads", category: "marketing" },
+  demand: { name: "demand-signals", category: "marketing" },
+  github: { name: "github-traffic", category: "development" },
+  npm: { name: "npm-downloads", category: "development" },
+  mail: { name: "mailbox-stats", category: "communication" },
+  telegram: { name: "telegram-bridge", category: "communication" },
+  board: { name: "kanban-board", category: "productivity" },
+  stock: { name: "stock-media-quota", category: "media" },
+  search: { name: "web-search", category: "research" },
+};
 
-/** Every pack this app writes is named `<PREFIX><id>` — see the header. */
-const PREFIX = "opc-";
+/** The pack name for a skill — the table above, or the id when it is not
+ *  listed (a new registry entry lands as itself rather than failing). */
+export function packName(id: string): string {
+  return PLACEMENT[id]?.name ?? id;
+}
+function packCategory(id: string): string {
+  return PLACEMENT[id]?.category ?? "general";
+}
+
+/** A file only this app's packs carry, so pruning can find what it wrote
+ *  without a name prefix and without ever touching a pack somebody else made. */
+const MARKER = ".opc-generated";
+
+/** The legacy layout, removed on first sync so the bundle cannot linger. */
+const LEGACY_CATEGORY = "opc";
 
 /* ---------------------------------------------------------------- rendering */
 
@@ -58,26 +97,22 @@ function frontmatter(s: Skill): string {
   /* Deduped, because a skill whose id IS its plugin id (stripe, github, meta)
      would otherwise carry the same tag twice and look like a generation bug in
      a file a person will read. */
-  const tags = [...new Set([s.id, ...s.plugins, "one-person-company", "dashboard"])];
+  const tags = [...new Set([s.id, ...s.plugins])];
   return [
     "---",
-    `name: ${PREFIX}${s.id}`,
+    `name: ${packName(s.id)}`,
     /* The ONE line the agent sees before it decides to load anything, so it
        has to say what the data is and not merely name it. */
     `description: ${y(`${s.title}. Read it live over HTTP from this machine's own dashboard, with the rules for reporting the figures honestly.`)}`,
     "version: 1.0.0",
-    'author: "One Person Company dashboard (generated)"',
     "license: MIT",
     "platforms: [linux, macos, windows]",
     "metadata:",
     "  hermes:",
     `    tags: [${tags.join(", ")}]`,
-    /* Every pack points at every other, because these questions are asked
-       together: "what did I earn and what did it cost" is two skills. */
-    `    related_skills: [${skills()
-      .filter((o) => o.id !== s.id)
-      .map((o) => `${PREFIX}${o.id}`)
-      .join(", ")}]`,
+    /* No related_skills list. Eighteen packs each naming the other seventeen is
+       the second way to say "these are one bundle", and the index already puts
+       the finance ones beside each other. */
     "---",
   ].join("\n");
 }
@@ -155,18 +190,6 @@ function render(s: Skill): string {
 /** The category's own description, which Hermes renders above the group in the
  *  agent's index. Cheap, and it is the one line that says these are about THIS
  *  business rather than about Stripe or GitHub in general. */
-function categoryDescription(): string {
-  return [
-    "---",
-    `description: ${y(
-      "This one-person company's own live data — revenue, infrastructure, domains, " +
-        "search, mail and spend — read over HTTP from the dashboard on this machine. " +
-        "Load one of these before answering any question about how the business is doing.",
-    )}`,
-    "---",
-    "",
-  ].join("\n");
-}
 
 /* ----------------------------------------------------------------- the sync */
 
@@ -195,42 +218,54 @@ export type SkillSync = {
  * "these are ours" a decidable question.
  */
 export function syncHermesSkills(skillsDir: string): SkillSync {
-  const dir = join(skillsDir, CATEGORY);
   const live = skills();
-  const wanted = new Map<string, Skill>(live.map((s) => [`${PREFIX}${s.id}`, s]));
-
   const written: string[] = [];
   const removed: string[] = [];
 
-  mkdirSync(dir, { recursive: true });
-
-  const descPath = join(dir, "DESCRIPTION.md");
-  const desc = categoryDescription();
-  if (readIfPresent(descPath) !== desc) {
-    writeFileSync(descPath, desc);
-    written.push("DESCRIPTION.md");
+  // The bundle layout, gone for good. Removing the whole directory is safe
+  // because nothing but this app ever wrote into a category called `opc`.
+  const legacy = join(skillsDir, LEGACY_CATEGORY);
+  if (existsSync(legacy)) {
+    rmSync(legacy, { recursive: true, force: true });
+    removed.push(`${LEGACY_CATEGORY}/`);
   }
 
-  for (const [name, s] of wanted) {
-    const packDir = join(dir, name);
+  const wanted = new Map<string, Skill>(
+    live.map((s) => [join(packCategory(s.id), packName(s.id)), s]),
+  );
+
+  for (const [rel, s] of wanted) {
+    const packDir = join(skillsDir, rel);
     const file = join(packDir, "SKILL.md");
     const next = render(s);
     /* Compared before writing, so a reconfigure that changed nothing leaves
        every mtime alone. Hermes decides whether its cached prompt snapshot is
        stale from a manifest of those mtimes, so a blind rewrite would make
        every configure look like a skill change and cost a restart. */
-    if (readIfPresent(file) === next) continue;
+    if (readIfPresent(file) === next && existsSync(join(packDir, MARKER))) continue;
     mkdirSync(packDir, { recursive: true });
     writeFileSync(file, next);
-    written.push(name);
+    writeFileSync(join(packDir, MARKER), "written by onepersoncompany; safe to delete\n");
+    written.push(rel);
   }
 
-  for (const found of readdirSync(dir, { withFileTypes: true })) {
-    if (!found.isDirectory()) continue;
-    if (!found.name.startsWith(PREFIX)) continue;
-    if (wanted.has(found.name)) continue;
-    rmSync(join(dir, found.name), { recursive: true, force: true });
-    removed.push(found.name);
+  /*
+    PRUNE BY MARKER, NOT BY NAME OR CATEGORY. The packs now sit in categories
+    Hermes also uses, beside skills the owner or Hermes wrote. The only thing
+    that distinguishes ours is the marker file, so that is the only thing
+    pruning trusts — a pack without it is somebody else's and is never touched.
+  */
+  for (const cat of readdirSync(skillsDir, { withFileTypes: true })) {
+    if (!cat.isDirectory() || cat.name.startsWith(".") || cat.name.startsWith("_")) continue;
+    const catDir = join(skillsDir, cat.name);
+    for (const found of readdirSync(catDir, { withFileTypes: true })) {
+      if (!found.isDirectory()) continue;
+      const rel = join(cat.name, found.name);
+      if (wanted.has(rel)) continue;
+      if (!existsSync(join(catDir, found.name, MARKER))) continue;
+      rmSync(join(catDir, found.name), { recursive: true, force: true });
+      removed.push(rel);
+    }
   }
 
   return { written, removed, changed: written.length > 0 || removed.length > 0 };
