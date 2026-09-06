@@ -8,7 +8,7 @@
  * measure what strangers said in public about a phrase somebody named, which
  * is the one input to a roadmap that cannot be derived from a dashboard.
  *
- * The rules are lifted from workdash's `collect_demand.py`, which is the
+ * The rules are lifted from the collector this replaces, which is the
  * version that has actually been run against these endpoints.
  *
  * NEITHER HAS A CREDENTIAL, AND THE TWO REASONS ARE DIFFERENT.
@@ -22,8 +22,8 @@
  *
  * Reddit has no credential because there is no longer one to get. Self-serve
  * API app registration closed on 2025-11-11, and the unauthenticated `.json`
- * endpoints were deprecated in May 2026 — measured from workdash's own Pi on a
- * residential connection with the exact user agent Reddit's rules ask for,
+ * endpoints were deprecated in May 2026 — measured on a residential
+ * connection with the exact user agent Reddit's rules ask for,
  * every `www.reddit.com/*.json` request answers 403 Blocked. So the endpoint
  * everybody's example code uses is shut, and the approval queue behind the
  * replacement declines read-only personal scripts by design.
@@ -50,7 +50,7 @@
  *
  *   1. ATOM FEED    the default. A real search: relevance-ordered threads with
  *                   the subreddit and the post date. Sort order is
- *                   load-bearing and was measured over in workdash — logged
+ *                   load-bearing and was measured previously — logged
  *                   out, `sort=new` ignores the query and returns the sitewide
  *                   firehose, which answers 200 and looks exactly like data.
  *   2. + THE TOKEN  the same feed with the account's own prefs/feeds
@@ -87,7 +87,7 @@
  * all — a card shows a title and a link, and the thread is one click away, so
  * a copy of somebody else's prose would be weight with no reader.
  *
- * WHAT IS DELIBERATELY NOT PORTED from collect_demand.py: its keyword
+ * WHAT IS DELIBERATELY NOT PORTED from the collector this replaces: its keyword
  * classifier (feature-request / complaint / question) and its cross-platform
  * convergence fold. Both are ranking machinery for a page that ranks, and both
  * make a claim about somebody's sentence that a card here has no room to show
@@ -105,7 +105,7 @@ const TIMEOUT_MS = 25_000;
  * Their API rules ask for `<platform>:<app id>:<version>`, and a string that
  * does not parse as one is refused 403 with no hint of the reason. The Atom
  * tier answers this string exactly as readily as it answers a browser's — it
- * was tested both ways over in workdash — so there is nothing to buy by
+ * was tested both ways previously — so there is nothing to buy by
  * pretending to be Chrome, and a collector that lies about what it is when it
  * does not have to is a collector nobody can hold to account.
  */
@@ -205,7 +205,7 @@ export type Signal = {
  *
  * FOUR STATUSES, BECAUSE FOUR THINGS HAPPEN AND ONLY ONE OF THEM IS ABOUT
  * DEMAND. This is bing_keyword_state's rule, arrived at independently by
- * collect_demand.py for the same reason: an empty answer and a refused
+ * the previous system for the same reason: an empty answer and a refused
  * question are indistinguishable in the response body, so the difference has
  * to be carried outside it.
  *
@@ -276,7 +276,7 @@ async function text(
  *
  * With the account's own feed token Reddit sends no counter at all and two
  * queries eight seconds apart were both served, so six is politeness rather
- * than arithmetic — the number workdash settled on for the same tier.
+ * than arithmetic — the number the previous system settled on for the same tier.
  */
 export const REDDIT_GAP_MS = 62_000;
 export const REDDIT_GAP_TOKEN_MS = 6_000;
@@ -492,8 +492,8 @@ export type FeedToken = { user: string; feed: string };
 /**
  * The prefs/feeds credential, from whatever the owner pasted.
  *
- * TWO SHAPES, BECAUSE THERE ARE TWO THINGS IN FRONT OF A PERSON. workdash
- * keeps `{"user": "…", "feed": "…"}` in a file, so a copy from the Pi is a
+ * TWO SHAPES, BECAUSE THERE ARE TWO THINGS IN FRONT OF A PERSON. The previous
+ * system keeps `{"user": "…", "feed": "…"}` in a file, so a copy from the Pi is a
  * paste of that JSON; reddit.com/prefs/feeds itself offers a whole URL with
  * the two parameters in its query string, so that is the other paste. Both are
  * the same credential and refusing either would be refusing a correct answer

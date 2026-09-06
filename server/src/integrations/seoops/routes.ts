@@ -366,12 +366,9 @@ seoopsRoutes.post("/followups/:id/run", async (c) => {
       409,
     );
   const diagnosed = new Set(diagnosisRows(row.id).map((d) => d.day_offset));
-  /* A SLOT WITH A READING AND NO DIAGNOSIS IS NOT FINISHED. A restart between
-     the two — which the dev server does on every save — used to leave the slot
-     filled and undiagnosable for ever, because `dueFollowUps` keys on readings.
-     Re-running it reuses the reading it already has and only asks for the
-     verdict, so nothing is measured twice and no second Search Console call is
-     spent. */
+  /* Same rule as `dueFollowUps` (see followup.ts): a slot with a reading and
+     no diagnosis is not finished, so re-running it here reuses the existing
+     reading and only asks for the verdict — no second Search Console call. */
   if (taken.has(slot) && diagnosed.has(slot))
     return c.json({ error: `The ${slot}-day reading has already been taken and diagnosed. It is not retaken.` }, 409);
 

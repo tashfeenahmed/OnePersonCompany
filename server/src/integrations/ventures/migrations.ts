@@ -9,7 +9,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- calls a thing: a Cloudflare zone id, a Search Console property string,
       -- an npm package name, an ssh account id. None of them knows what
       -- BUSINESS it belongs to, and none of them can — a zone named
-      -- example-app-1.example.test is a fact about DNS, not about a venture. This table is
+      -- acme.ie is a fact about DNS, not about a venture. This table is
       -- the join, and it is the only place the answer is written down.
       --
       -- (venture_id, plugin, entity) IS THE KEY AND \`entity\` IS THE

@@ -62,12 +62,12 @@ export function all(): string[] {
 /*
  * THE FRAME CARRIES THE RUN, NOT A RUMOUR OF IT.
  *
- * This used to be its own four-field shape with no `app` and no `to`, so the
- * rail could not draw a linkable child from it: it threw the payload away and
- * re-polled the whole session list to find out what it had just been told.
- * That is a typed event doing the work of a "something changed" ping, at the
- * cost of a request. It is a `RunChild` now — the same shape the polled list
- * publishes, from the same builder — so a live child draws exactly like a
+ * A thinner shape with no `app` and no `to` would leave the rail unable to
+ * draw a linkable child from it: it would have to throw the payload away and
+ * re-poll the whole session list to find out what it had just been told — a
+ * typed event doing the work of a "something changed" ping, at the cost of a
+ * request. So this is a `RunChild` — the same shape the polled list
+ * publishes, from the same builder — and a live child draws exactly like a
  * fetched one.
  *
  * A TYPE-ONLY IMPORT, so nothing of the subagents area is loaded to run a

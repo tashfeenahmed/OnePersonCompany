@@ -242,10 +242,9 @@ export async function readPosts(): Promise<ReadResult> {
       };
 
     /* The owner's mapping, page id → venture, out of the ONE accessor that
-       answers that question — see publishing/destinations.ts. This used to be
-       built inline from the same query, which is how a Page re-mapped to
-       another venture came to be filed two ways. Read once rather than per
-       post. */
+       answers that question — see publishing/destinations.ts. Read once here
+       rather than per post: building it inline per post is how a Page
+       re-mapped to another venture ends up filed under both. */
     const ventureOf = new Map(mapped.map((p) => [p.externalId, p.ventureId]));
 
     const { ready } = accounts.credentialed(META_PLUGIN, ["token"], "socialfeed_posts");

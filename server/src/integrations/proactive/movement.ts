@@ -1,12 +1,9 @@
 /**
  * WHAT ELSE MOVED — the flatten and the diff behind the narration.
  *
- * THE ADDRESS ITSELF NOW LIVES IN `shared/metrics-address.ts`. A dot path into
- * a document, `@count(...)`, the parameter reader, the URL builder and the
- * loopback read were written twice on this box, by this area and by the
- * outcomes tracker, and the two had already disagreed about `@count`. What is
- * left here is the half that is genuinely this area's: taking a whole document
- * apart into every number in it, and diffing two of those.
+ * THE ADDRESS ITSELF LIVES IN `shared/metrics-address.ts` (see `engine.ts` for
+ * why). What is left here is the half that is genuinely this area's: taking a
+ * whole document apart into every number in it, and diffing two of those.
  *
  * IT IS THE OTHER DIRECTION FROM AN ADDRESS. A rule NAMES a figure; the
  * narrator does not know what to name, so it walks everything and reports what

@@ -49,11 +49,11 @@ import { run, tail, type Ran } from "./tools.ts";
  * THE FRAME SHAPES THIS BOX RENDERS, and what they are in pixels.
  *
  * THE ONE LIST. Everything that accepts, validates, names or draws a shape
- * asks this map rather than repeating its keys: the motion-spec reader used to
- * hold its own copy and silently rendered 9:16 for anything not in it, and the
- * Studio's own format names are checked against these keys so a shape the
- * renderer supports cannot end up with no name. Adding a fourth entry here is
- * meant to be the whole change.
+ * asks this map rather than repeating its keys: a hardcoded copy in the
+ * motion-spec reader or the Studio's format list would drift from this one
+ * and silently render 9:16 for a shape it does not recognise, so both are
+ * checked against these keys instead. Adding a fourth entry here is meant to
+ * be the whole change.
  */
 export const ASPECTS: Record<string, { width: number; height: number; about: string }> = {
   "9:16": { width: 1080, height: 1920, about: "9:16 — a reel, a short, a TikTok. The default." },

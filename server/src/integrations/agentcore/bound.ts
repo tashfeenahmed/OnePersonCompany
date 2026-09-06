@@ -160,10 +160,11 @@ function serialise(value: unknown, pretty: boolean): string {
  * The marker appended to an array that lost rows. Its shape is the contract the
  * skills preamble documents, so it is built in exactly one place.
  *
- * IT CARRIES COUNTS AND NOTHING ELSE. It used to carry the whole "here is how
- * to ask for the rest" sentence as well, which made a marker cost more than the
- * rows it replaced — so a document of many small lists could not be fitted at
- * all. The sentence is written once, on `_bounded` at the root and in the note.
+ * IT CARRIES COUNTS AND NOTHING ELSE. Repeating the full "here is how to ask
+ * for the rest" sentence on every marker would cost more than the rows it
+ * replaced, so a document of many small lists could not be fitted at all —
+ * the sentence is written once instead, on `_bounded` at the root and in the
+ * note.
  */
 type Marker = { truncated: true; shown: number; total: number };
 
@@ -307,9 +308,9 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
   const unknownFields: string[] = [];
   let root = parsed;
   /** Did a field pick actually happen — as opposed to being asked for against
-   *  something with no top-level keys? The two used to be one flag, and the
-   *  second read back as "only the fields you asked for are here" over a
-   *  document that had not been filtered at all. */
+   *  something with no top-level keys? Kept as two separate flags: conflating
+   *  them reads as "only the fields you asked for are here" over a document
+   *  that had not been filtered at all. */
   let picked = false;
   let pickable = true;
   if (wanted.length) {
@@ -375,13 +376,8 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
   /* ------------------------------------------------------- the guidance, once */
 
   /*
-    `next` USED TO BE COPIED INTO EVERY MARKER, and that was the bug behind the
-    worst behaviour this function had. The sentence is around 150 bytes; a
-    marker carrying it costs more than the handful of rows it replaces, so a
-    document with many small arrays could not be made to fit however many rows
-    were dropped — and it fell through to a bail that answered with no data at
-    all. The markers are now four dozen bytes of counted fact, and the way out
-    is written ONCE, here.
+    THE WAY OUT (`next`) IS WRITTEN ONCE, HERE, AS `_bounded` — not copied into
+    every marker (see the `Marker` type above for why that costs too much).
 
     ONLY ONTO AN OBJECT ROOT. An array or a scalar has nowhere to put it without
     changing what the document IS, and a caller reading a bare list would rather

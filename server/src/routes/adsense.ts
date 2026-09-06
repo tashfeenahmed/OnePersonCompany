@@ -63,7 +63,7 @@ const rpm = (usd: number, impressions: number): number | null =>
 const CONNECT_STEPS = [
   "In Google Cloud, on the project you will use: APIs & Services → Library → enable the AdSense Management API.",
   "APIs & Services → Credentials → Create credentials → OAuth client ID → Desktop app. Keep the client ID and client secret.",
-  `Run an OAuth consent for scope ${SCOPE} with access_type=offline and prompt=consent, signed in as the AdSense account owner, and keep the refresh_token it returns. workdash's adsense_auth.py does exactly this in a terminal and prints the URL to open.`,
+  `Run an OAuth consent for scope ${SCOPE} with access_type=offline and prompt=consent, signed in as the AdSense account owner, and keep the refresh_token it returns. A terminal script that does exactly this and prints the URL to open has already been run successfully against this scope.`,
   "Publish the Cloud app. While it is in Testing, Google expires every refresh token after seven days, so an integration that works all week stops on the eighth day.",
   "Paste the client ID, client secret and refresh token into this plugin. Nothing else is needed — the collector refreshes its own access token from then on.",
 ] as const;
@@ -169,9 +169,9 @@ adsenseRoutes.get("/", (c) => {
       lastError: a.lastError,
     })),
     /*
-      `error` and `hint` exist ONLY in the states that are not authorised, and
-      they are the same two field names workdash's document uses — so a reader
-      who knows one knows the other.
+      `error` and `hint` exist ONLY in the states that are not authorised —
+      the same two field names `collect_adsense.py` writes, per the header
+      above.
     */
     ...(state === "authorised"
       ? {}

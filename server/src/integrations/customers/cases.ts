@@ -29,9 +29,9 @@
  * WHAT IS DELIBERATELY NOT A CASE. `incomplete_expired` subscriptions — a
  * checkout that expired before its first payment ever succeeded. They are the
  * majority of most accounts' dead rows, they never collected a cent, and
- * WorkDash's churn figure counted them until $415 of a reported $430 monthly
- * churn turned out to be cancelled free trials. Nobody was ever a customer,
- * so there is nobody to recover.
+ * counting them inflated a real account's churn figure until $415 of a
+ * reported $430 monthly churn turned out to be cancelled free trials. Nobody
+ * was ever a customer, so there is nobody to recover.
  */
 import type { StripeSubscriptionRecord } from "../../db.ts";
 import type { OpenInvoiceRow } from "../../providers/stripe.ts";

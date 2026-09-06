@@ -96,10 +96,7 @@ function whole(raw: string | null, fallback: number, min: number, max: number): 
 
 export function settings(): RoundSettings {
   /* The switch, the hour and the zone come from `shared/time.ts` — one reader
-     for every daily schedule on this box. It is also where the rule that an
-     out-of-range hour falls back rather than CLAMPS is written down: this file
-     used to clamp, turning a typed 25 into 23:00, an hour the owner never
-     chose presented as one they did. */
+     for every daily schedule on this box. */
   const daily = dailySchedule(ROUNDS_PLUGIN, { defaultHour: DEFAULT_HOUR });
   return {
     enabled: daily.enabled,

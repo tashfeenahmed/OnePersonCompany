@@ -98,7 +98,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- asks for ("snapshot the Pi") and the id is what is true.
       --
       -- \`reason\` IS FREE TEXT AND ALWAYS SAYS WHO ASKED. "asked for from the
-      -- page" and "uptime: example-app-1.example.test answered 502 at 03:11" are the two that
+      -- page" and "uptime: acme.ie answered 502 at 03:11" are the two that
       -- exist today; a snapshot with no reason would be a document nobody can
       -- date to an event.
       CREATE TABLE IF NOT EXISTS security_snapshots (

@@ -196,11 +196,10 @@ export function readSceneSpec(raw: unknown, limits: SpecLimits = DEFAULT_LIMITS)
     else problems.push(`\`accent\` must be a six-digit hex colour like #3b82f6. “${accentRaw}” is not one, so the venture's own colour is used.`);
   }
 
-  /* THE SHAPES ARE ASKED FOR RATHER THAN LISTED. This used to hold its own
-     copy of "9:16, 1:1, 16:9", so adding a fourth shape to ASPECTS gave a
-     video route that accepted it and a spec reader that rejected it and
-     rendered portrait instead — a motion spec in the wrong shape, with a
-     sentence blaming the model for asking. */
+  /* THE SHAPES ARE ASKED FOR RATHER THAN LISTED. A hardcoded copy here of
+     "9:16, 1:1, 16:9" would drift from ASPECTS the day a fourth shape is
+     added: a video route that accepts it and a spec reader that rejects it,
+     rendering portrait instead and blaming the model for asking. */
   const aspectRaw = str(o.aspect, 8) ?? DEFAULT_ASPECT;
   const aspect = aspectRaw in ASPECTS ? aspectRaw : DEFAULT_ASPECT;
   if (aspect !== aspectRaw)

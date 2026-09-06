@@ -11,13 +11,14 @@
  * question none of the specialists can answer, because each of them can only
  * see its own instrument.
  *
- * THE MODEL RANKS; THE CODE DECIDES. This is the whole architecture, and it is
- * WorkDash's `taskGate` argument restated: a model asked for actions will
- * always produce actions, including the one it produced last night and the one
- * already sitting on the owner's board. Whether a proposal becomes a card is
- * therefore not the model's call. `gate()` below is deterministic, exported,
- * and tested without a provider, a network or a clock — a rule that can only be
- * observed by running a nightly is a rule nobody checks.
+ * THE MODEL RANKS; THE CODE DECIDES. This is the whole architecture, and it
+ * is the previous system's `taskGate` argument restated: a model asked for
+ * actions will always produce actions, including the one it produced last
+ * night and the one already sitting on the owner's board. Whether a proposal
+ * becomes a card is therefore not the model's call. `gate()` below is
+ * deterministic, exported, and tested without a provider, a network or a
+ * clock — a rule that can only be observed by running a nightly is a rule
+ * nobody checks.
  *
  * SIX REFUSALS, IN THE ORDER THEY FIRE:
  *

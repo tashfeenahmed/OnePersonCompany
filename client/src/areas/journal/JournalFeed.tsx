@@ -7,8 +7,8 @@ import { useApi } from "@/hooks/useApi";
 import { useStore } from "@/lib/store";
 import { day } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { catalogueApi } from "@/lib/api/chief";
 import { journalApi, type JournalEntry, type Streak } from "@/lib/api/journal";
+import { alertsApi } from "@/lib/api/proactive";
 
 /**
  * THE JOURNAL, AS ONE COMPOSER AND ONE LIST.
@@ -81,10 +81,8 @@ export function JournalFeed({
   /** A venture slug pins the whole page to one venture: the composer files
    *  against it and the filter disappears. Absent is the portfolio view. */
   ventureSlug,
-  compact = false,
 }: {
   ventureSlug?: string;
-  compact?: boolean;
 }) {
   const { state } = useStore();
   const [kind, setKind] = useState<string>("");
@@ -191,7 +189,6 @@ export function JournalFeed({
             <Entry
               key={e.id}
               entry={e}
-              compact={compact}
               busy={busy}
               onDelete={() => act(e.id, journalApi.remove(e.id))}
               onResult={(text) => act(e.id, journalApi.setResult(e.id, text || null))}
@@ -392,14 +389,12 @@ function StreakBadge({ streak }: { streak: Streak | null }) {
 
 function Entry({
   entry,
-  compact,
   busy,
   onDelete,
   onResult,
   onTracked,
 }: {
   entry: JournalEntry;
-  compact: boolean;
   busy: string | null;
   onDelete: () => void;
   onResult: (text: string) => void;
@@ -441,37 +436,33 @@ function Entry({
         {entry.outcomeId && (
           <span className="text-ok">tracked as {entry.outcomeId}</span>
         )}
-        {!compact && (
-          <>
-            {entry.trackable && !tracking && (
-              <button
-                type="button"
-                onClick={() => setTracking(true)}
-                className="hover:text-foreground flex items-center gap-1 underline-offset-2 hover:underline"
-              >
-                <Target className="size-3" strokeWidth={1.6} /> track outcome
-              </button>
-            )}
-            {!editing && (
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="hover:text-foreground underline-offset-2 hover:underline"
-              >
-                {entry.result ? "edit result" : "add result"}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onDelete}
-              disabled={busy === entry.id}
-              className="hover:text-destructive ml-auto flex items-center gap-1"
-              aria-label="Delete this entry"
-            >
-              <Trash2 className="size-3" strokeWidth={1.6} />
-            </button>
-          </>
+        {entry.trackable && !tracking && (
+          <button
+            type="button"
+            onClick={() => setTracking(true)}
+            className="hover:text-foreground flex items-center gap-1 underline-offset-2 hover:underline"
+          >
+            <Target className="size-3" strokeWidth={1.6} /> track outcome
+          </button>
         )}
+        {!editing && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="hover:text-foreground underline-offset-2 hover:underline"
+          >
+            {entry.result ? "edit result" : "add result"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={busy === entry.id}
+          className="hover:text-destructive ml-auto flex items-center gap-1"
+          aria-label="Delete this entry"
+        >
+          <Trash2 className="size-3" strokeWidth={1.6} />
+        </button>
       </div>
 
       {entry.result && !editing && (
@@ -538,7 +529,7 @@ function TrackOutcome({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const cat = useApi(() => catalogueApi.skills(), []);
+  const cat = useApi(() => alertsApi.catalogue(), []);
   const [skill, setSkill] = useState("");
   const [view, setView] = useState("default");
   const [path, setPath] = useState("");

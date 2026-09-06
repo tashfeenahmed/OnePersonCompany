@@ -65,14 +65,9 @@ export function backlinkSources(): BacklinkSourceRow[] {
 }
 
 /**
- * REFERRING DOMAINS FOR ONE HOST, AS ONE ANSWER.
- *
- * Two surfaces used to answer this question and neither cited the other's
- * rule: the backlinks route published a per-source list with an explicit
- * refusal to total it, the authority estimate quietly took the largest single
- * source and fed it into a difficulty ceiling — with its own SQL against this
- * table, from another area. When a source's index moved, the two moved
- * differently and a reader had no way to see why.
+ * REFERRING DOMAINS FOR ONE HOST, AS ONE ANSWER — the single place this
+ * figure is computed, so a per-source list and an authority estimate elsewhere
+ * cannot each apply a different rule to the same table.
  *
  * BOTH RULES ARE TRUE AND BOTH ARE HERE. `combined` is null on principle —
  * the sources overlap by an unknown amount and neither is a census, so a sum

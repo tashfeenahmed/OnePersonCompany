@@ -581,7 +581,7 @@ const BUILTIN_ENTRIES: Skill[] = [
       "bodies, fetched from Gmail on the read and stored nowhere. One Gmail " +
       "account receives every domain in this portfolio through Cloudflare " +
       "forwarding, so a 'mailbox' here is a Gmail QUERY on the To line " +
-      "(`to:(@support.example.test)`) rather than a folder. `sent` is the other end: " +
+      "(`to:(@acme.com)`) rather than a folder. `sent` is the other end: " +
       "what the products themselves sent people, through Resend.",
     rules: [
       "NOTHING READ HERE IS STORED AND NOTHING IS LOGGED. The route holds no " +
@@ -634,7 +634,7 @@ const BUILTIN_ENTRIES: Skill[] = [
             required: false,
             fallback: "all",
             about:
-              "Narrow to one venture domain (`support.example.test`), to `gmail` for mail " +
+              "Narrow to one venture domain (`acme.com`), to `gmail` for mail " +
               "addressed to the Google account itself, or `all`. A domain no " +
               "connected key covers is IGNORED and named in `mailboxIgnored` — the " +
               "answer widens rather than coming back empty.",
@@ -730,7 +730,7 @@ const BUILTIN_ENTRIES: Skill[] = [
     ],
     asks: [
       "What did the customer who wrote about the refund actually say?",
-      "Is there anything in the support.example.test mailbox from this week I have not answered?",
+      "Is there anything in the acme.com mailbox from this week I have not answered?",
     ],
   },
 
@@ -854,7 +854,7 @@ const BUILTIN_ENTRIES: Skill[] = [
     ],
     asks: [
       "How much search traffic did my sites get, and which property grew?",
-      "What is my average position on example-app-3.example.test, and over what window?",
+      "What is my average position on acme.so, and over what window?",
     ],
   },
 
@@ -1226,8 +1226,8 @@ const BUILTIN_ENTRIES: Skill[] = [
             required: true,
             in: "path",
             about:
-              "Its id (`v-example-support`), its slug (`example-support`), or its name or host " +
-              "as the owner says it (`Example Support`, `support.example.test`), case " +
+              "Its id (`v-acme`), its slug (`acme`), or its name or host " +
+              "as the owner says it (`Acme`, `acme.com`), case " +
               "insensitively. All address the same record; the id is what board " +
               "cards carry.",
           },
@@ -1266,7 +1266,7 @@ const BUILTIN_ENTRIES: Skill[] = [
             type: "string",
             required: false,
             about:
-              "Its address. A bare `support.example.test` is accepted and normalised to " +
+              "Its address. A bare `acme.com` is accepted and normalised to " +
               "https://. Anything that is not an http(s) URL is refused.",
           },
           {

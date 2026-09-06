@@ -40,8 +40,8 @@
  *               inside it are not read as a price, because the address itself
  *               has already been checked as an address.
  *   LINKS       checked by HOST. A path this box never saw is allowed on a host
- *               it did — `example-app-1.example.test/pricing` off a fact carrying
- *               `example-app-1.example.test` — because a wrong path is a broken link and a
+ *               it did — `acme.ie/pricing` off a fact carrying
+ *               `acme.ie` — because a wrong path is a broken link and a
  *               wrong host is a phishing complaint. An unparseable link is
  *               refused outright.
  *   MONEY       an amount WITH its currency, normalised to `eur:29`. This is
@@ -223,7 +223,7 @@ function scanText(out: Allowed, text: string) {
       /* An unparseable link in the packet allows nothing. */
     }
   }
-  /* A bare host — `example-app-1.example.test`, as the ventures table stores it — is a link
+  /* A bare host — `acme.ie`, as the ventures table stores it — is a link
      the packet carries without a scheme, and a letter that writes it with one
      is quoting the same fact. */
   for (const m of text.match(/\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\b/gi) ?? [])
@@ -470,7 +470,7 @@ export function notAStyleRule(rule: string): string | null {
     const w = words[n]!.replace(/^[^A-Za-z'-]+|[^A-Za-z'-]+$/g, "");
     if (!w || w === "I" || /^I'[a-z]+$/.test(w)) continue;
     /* ANY capitalised word mid-rule, not just `Xxxx`. The narrower pattern let
-       `Example App 4`, `Jane-Smith` and `ACME` through — a product name and two
+       `AcmeTutor`, `Jane-Smith` and `ACME` through — a product name and two
        shapes of person's name, which are exactly what this is for. An acronym
        a rule might legitimately want ("use a clear CTA") is refused with them;
        that is the same trade the digit rule makes, made in the same direction. */

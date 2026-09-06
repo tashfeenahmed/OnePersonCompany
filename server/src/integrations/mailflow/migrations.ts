@@ -19,8 +19,8 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       --
       -- WHY thread_id IS NOT THE KEY ON ITS OWN. Gmail issues thread ids per
       -- mailbox, so two connected Google accounts CAN hand out the same id.
-      -- The key is (account_id, thread_id), which is workdash's account|id
-      -- written as a primary key instead of a string.
+      -- The key is (account_id, thread_id), which is the previous system's
+      -- account|id written as a primary key instead of a string.
       --
       -- at_ms IS THE THREAD'S LAST-MESSAGE TIME AS IT WAS WHEN THE SCORE WAS
       -- MADE, and it is stored so that a reply can INVALIDATE the score

@@ -393,8 +393,6 @@ export const KINDS: KindDef[] = [
 
 ];
 
-export const KIND_KEYS = KINDS.map((k) => k.kind);
-
 export function kindDef(kind: string): KindDef | null {
   return KINDS.find((k) => k.kind === kind) ?? null;
 }

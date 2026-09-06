@@ -55,9 +55,9 @@ import { isoDay, dayStart } from "../analytics/umami.ts";
  * very often sitting in the name as text. Both full URLs and bare hostnames
  * are found, because both forms appear.
  *
- * The reducer is `shared/host.ts`'s. It used to be a fifth private copy, with
- * a looser validating regex than the rest, which is how the same campaign name
- * produced a host on one page and nothing on another.
+ * The reducer is `shared/host.ts`'s rather than a private regex here: a
+ * looser validating regex than the rest is how the same campaign name would
+ * produce a host on one page and nothing on another.
  */
 export function hostsIn(text: string | null | undefined): string[] {
   if (!text) return [];
@@ -217,9 +217,8 @@ export function linkedUmamiSites(ventureId: string): string[] {
  * The links the owner confirmed first, because a confirmed link is a decision
  * and a host match is only evidence. Failing those, the sites whose own domain
  * is this venture's host — through `shared/host.ts`, so this asks the same
- * question the map, the listings check and the SEO property match ask, and
- * gets the same answer. It is ONE-DIRECTIONAL: a site at `blog.example.com`
- * belongs to a venture at `example.com` and never the other way round.
+ * (one-directional) question the map, the listings check and the SEO property
+ * match ask, and gets the same answer.
  */
 export function ventureSites(v: VentureRow): string[] {
   const linked = linkedUmamiSites(v.id);

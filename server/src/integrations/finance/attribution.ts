@@ -171,19 +171,14 @@ export function portfolioMrr(): Record<string, number> {
 /**
  * THE SETTLED STRIPE LEDGER, REDUCED ONCE.
  *
- * Two reductions of `stripe_ledger_days` used to exist — a rolling window on
- * the revenue route keyed “usd” at two places, and a calendar month here keyed
- * “USD” at four. Same five fields, same rows, two answers, and one currency
- * held under two keys so nothing downstream could join them.
- *
- * This is the only one. The WINDOW is the caller's — `from` and `to` are
- * inclusive `YYYY-MM-DD` days — because a rolling thirty days and a calendar
- * month are two legitimate questions; the ARITHMETIC and the currency spelling
- * are not the caller's, and that is the whole point.
+ * The WINDOW is the caller's — `from` and `to` are inclusive `YYYY-MM-DD`
+ * days — because a rolling thirty days and a calendar month are two
+ * legitimate questions; the ARITHMETIC and the currency spelling are not the
+ * caller's, and that is the whole point: no second reduction should key a
+ * currency code differently or round before summing.
  *
  * Rounding happens once, at the end. Every field is summed at full precision
- * first: rounding each row and then adding is how the two copies drifted apart
- * in the first place.
+ * first — rounding each row and then adding drifts off the true total.
  */
 export type SettledCurrency = {
   currency: string;

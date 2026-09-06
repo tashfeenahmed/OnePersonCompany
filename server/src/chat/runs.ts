@@ -1,13 +1,11 @@
 /**
  * A CHAT TURN IS THE SERVER'S WORK, NOT THE BROWSER'S.
  *
- * The old contract tied a turn to its HTTP response. `POST /chat/stream`
- * opened a stream, passed the request's own `AbortSignal` down to the agent,
- * and when the socket closed the agent stopped being paid to write an answer
- * nobody was reading. That was defensible — and the Chat page said so in its
- * header, at length and honestly: "A RELOAD CANNOT RE-ATTACH, AND THIS PAGE
- * DOES NOT PRETEND OTHERWISE." What was stored after a reload was the partial
- * row, labelled cut off.
+ * A turn tied to its HTTP response — `POST /chat/stream` opening a stream,
+ * passing the request's own `AbortSignal` down to the agent, and stopping
+ * when the socket closed because nobody was reading the answer — leaves a
+ * reload with no way to re-attach; what survives is the partial row, labelled
+ * cut off.
  *
  * It is the wrong shape for the work this agent actually does. A Chief of
  * Staff asked to look at four ventures' search positions runs tools for

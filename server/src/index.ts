@@ -348,17 +348,15 @@ app.onError((err, c) => {
 /* ------------------------------------------------------------- schedule */
 
 /**
- * A plain interval rather than cron. There is one process, the cadence is
- * "every so often" rather than "at 03:00", and a missed tick while the laptop
- * was asleep should just be the next tick — not a backlog to catch up on.
+ * A plain interval rather than cron, run from integrations/deploy/scheduler.ts.
+ * There is one process, the cadence is "every so often" rather than "at
+ * 03:00", and a missed tick while the laptop was asleep is just the next
+ * tick — not a backlog to catch up on. The scheduler's own tick is a minute;
+ * each source collects on ITS OWN cadence, a setting on that plugin's page
+ * defaulting to `COLLECT_MINUTES`. Registration happens even when the
+ * scheduler is off, so the Deployment page can still say what would be
+ * collected and how often.
  */
-/* THE LOOP ITSELF MOVED to integrations/deploy/scheduler.ts, and the reasoning
-   above moved with it. What changed there: the tick is a minute rather than
-   `COLLECT_MINUTES`, and each source is collected on ITS OWN cadence — a
-   setting on that plugin's page, defaulting to this number. A box that has set
-   none of them behaves exactly as this block did. Registration happens even
-   when the scheduler is off, so the Deployment page can still say what would
-   be collected and how often. */
 startCollectors(COLLECTORS, COLLECT_MINUTES, { readings: RETAIN_DAYS, load: LOAD_RETAIN_DAYS });
 
 /* ------------------------------------------------------------- telegram */

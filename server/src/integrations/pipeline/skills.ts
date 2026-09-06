@@ -131,11 +131,7 @@ export const SKILLS: Skill[] = [
             exampled: true,
           },
         ],
-        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
-           a row cannot be deleted afterwards. `destructive` is what a client is
-           entitled to trust when it decides whether to ask a person first, and
-           the thing that cannot be taken back here is the money, the message or
-           the power state rather than the record. It spends: the stage dispatches sub-agent runs and model calls. */
+        /* It spends: the stage dispatches sub-agent runs and model calls. */
         destructive: true,
       },
       {
@@ -276,11 +272,7 @@ export const SKILLS: Skill[] = [
           "and survivors of the gate become board cards in Backlog. There is no `dry` flag here and " +
           "sending one is refused — rehearsing is `plan_for_venture`, a separate route.",
         params: [{ name: "ventureId", type: "string", required: true, about: "The venture's id or slug." }],
-        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
-           a row cannot be deleted afterwards. `destructive` is what a client is
-           entitled to trust when it decides whether to ask a person first, and
-           the thing that cannot be taken back here is the money, the message or
-           the power state rather than the record. It spends: the pass dispatches sub-agent runs and model calls. */
+        /* It spends: the pass dispatches sub-agent runs and model calls. */
         destructive: true,
       },
       {
@@ -302,7 +294,7 @@ export const SKILLS: Skill[] = [
       },
     ],
     asks: [
-      "What should I do next for Example App 1?",
+      "What should I do next for Acme?",
       "Why was that proposal dropped?",
       "Which ventures have not had a synthesis pass yet?",
     ],

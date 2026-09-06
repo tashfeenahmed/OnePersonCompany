@@ -28,7 +28,7 @@
  * a ledger question and is only ever answered from the ledger.
  *
  * THE INCREMENTAL STRATEGY, WHICH IS THE WHOLE REASON THIS IS NOT A LOOP OVER
- * A YEAR. workdash's collector keeps a day ledger in a JSON file beside the
+ * A YEAR. The collector this replaces keeps a day ledger in a JSON file beside the
  * key: each run rewalks ninety days, rewrites those ninety rows, and leaves
  * everything older alone, because a settled day's gross cannot change — its
  * refund window has closed — so re-deriving three hundred of them every ten
@@ -37,7 +37,7 @@
  * rewrites the rolling ninety days by primary key, and older rows are never
  * touched again.
  *
- * WHERE THIS DELIBERATELY DIFFERS FROM WORKDASH: its first run against an
+ * WHERE THIS DELIBERATELY DIFFERS FROM THE SYSTEM IT REPLACES: its first run against an
  * empty ledger backfills the account's whole history in one walk. That is the
  * right trade for a systemd timer and the wrong one here, because the first
  * collection happens INSIDE the HTTP request that stores the credential — an
@@ -244,8 +244,8 @@ export type ChargeDay = {
  * derived from. `taxWithheld` is sales tax Stripe collects as merchant of
  * record and remits onward — real money off the top and not a cost, because it
  * is not the business's money at any point. Folding the two together is how a
- * 8.2% processing cost reads as 15.3%, which is a mistake workdash made and
- * documented; here they are two columns and `feesTotal` is the sum for the one
+ * 8.2% processing cost reads as 15.3%, which is a mistake the previous system
+ * made and documented; here they are two columns and `feesTotal` is the sum for the one
  * reader that needs it: net = gross - refunds - disputes - feesTotal + other.
  */
 export type LedgerDay = {
@@ -517,18 +517,16 @@ export async function verify(
 /**
  * Minor units to major units, for everything this collector stores.
  *
- * EXPORTED because `customers/events.ts` makes the same conversion for the
- * message it sends to a phone, and used to make it at two decimal places
- * under a comment claiming it was "the same conversion providers/stripe.ts
- * makes". It was not: for one failed invoice the figure on the phone and the
- * figure on the recovery case could differ in the last places, and the comment
- * asserting they matched was the reason nobody looked.
+ * EXPORTED, and `customers/events.ts` calls IT rather than converting again
+ * for the message it sends to a phone. A second conversion at a different
+ * precision means the figure on the phone and the figure on the recovery case
+ * differ in the last places for one failed invoice, and nothing says so.
  *
- * Four places rather than the six this used to use. Stripe's amounts are whole
- * minor units, so the two agree exactly on a single row; a monthly figure
- * normalised from a yearly price is where six places invented a tail longer
- * than any settled figure carries, and made two correctly-equal numbers
- * compare unequal on the last digit.
+ * Four decimal places, not six. Stripe's amounts are whole minor units, so the
+ * two agree exactly on a single row; six places invent a tail on a monthly
+ * figure normalised from a yearly price, longer than any settled figure
+ * carries, and make two correctly-equal numbers compare unequal on the last
+ * digit.
  */
 export const money = (cents: number) => fromMinorUnits(cents);
 
@@ -541,8 +539,8 @@ const iso = (seconds: number | null | undefined) =>
 /**
  * The start of the UTC day a timestamp falls in.
  *
- * THE WALK'S EDGE HAS TO BE A DAY BOUNDARY, and workdash's collector records
- * an afternoon lost to finding out why. The day tables are keyed by day and
+ * THE WALK'S EDGE HAS TO BE A DAY BOUNDARY — the collector this replaces lost
+ * an afternoon finding out why. The day tables are keyed by day and
  * every run REPLACES the days it covered; a walk starting at 11:00 on the
  * ninetieth day back reads only that day's afternoon and then overwrites the
  * whole day with it. One run later the day is outside the walk entirely, so
@@ -968,7 +966,7 @@ async function collectAccount(
 
     Whether any money ever changed hands is the question that decides whether a
     cancellation is churn at all, and it is not on the subscription object.
-    workdash learned this the expensive way: $415 of a reported $430 monthly
+    This was learned the expensive way: $415 of a reported $430 monthly
     churn turned out to be free trials that were cancelled — revenue that never
     existed — while the one real loss in the window was a three-year customer
     whose card finally died. A duration heuristic cannot tell those apart in
@@ -1536,8 +1534,8 @@ const EVENT_PAGE_CAP = 2000;
  * in that case skips them permanently — Stripe keeps events for thirty days
  * and nothing goes back for them. See collect.ts, which holds the cursor.
  *
- * `types[]` IS SENT TO STRIPE rather than filtered here. WorkDash's notifier
- * pulled every event and dropped what it did not want, which works and costs
+ * `types[]` IS SENT TO STRIPE rather than filtered here. The notifier this
+ * replaces pulled every event and dropped what it did not want, which works and costs
  * a page of JSON per unwatched burst; Stripe filters server-side for free and
  * the request then documents itself.
  *

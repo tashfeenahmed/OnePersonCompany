@@ -644,17 +644,10 @@ export const PIPELINE_SESSION = "pipeline";
 /**
  * CLOSE ANY NIGHT THE PROCESS DIED IN THE MIDDLE OF.
  *
- * `runNight`'s own `finally` closes the row on a thrown error, and cannot on a
- * KILLED PROCESS — which on this box is a routine event, because `node --watch`
- * restarts the server on every save and the owner's terminal is where it runs.
- * Two rows were left open in testing within a minute of each other for exactly
- * that reason, and an open row reads as "still walking", forever.
- *
- * Called at boot, before the timer is armed, so the ledger never carries a run
- * that started six weeks ago and is apparently still going. The row is closed
- * with a NOTE rather than deleted: a night that was interrupted is a fact about
- * what happened, and the stage results it did manage to file are still true.
- * `runs/manifest.ts`'s `failInterrupted` does the same thing for the run queue.
+ * The general rule is `shared/settle.ts`'s; `runNight`'s own `finally` cannot
+ * fire on a killed process, and two rows were left open in testing within a
+ * minute of each other for exactly that reason. `runs/manifest.ts`'s
+ * `failInterrupted` does the same thing for the run queue.
  */
 export function closeInterrupted(): number {
   return settleOpenRows({

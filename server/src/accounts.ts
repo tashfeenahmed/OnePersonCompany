@@ -83,7 +83,7 @@ export const entries = vault.entries;
  * The vault entry one field of one account lands in.
  *
  * THE FIRST ACCOUNT TAKES THE PLAIN NAME. `hetzner-token`, `dynadot-key`,
- * `spaceship-secret` — the names workdash's own vault uses, which is what
+ * `spaceship-secret` — the names the previous system's own vault uses, which is what
  * makes moving a credential between the two a copy rather than a translation,
  * and the names this project's README tells the owner to look for. Every
  * account after it is suffixed with its own ROW ID rather than with its label

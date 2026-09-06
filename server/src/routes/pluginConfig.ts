@@ -141,9 +141,9 @@ const BUILTIN: Record<
         label: "Packages",
         hint:
           "The npm names you publish, separated by commas. Scoped names keep " +
-          "their scope — @overbrilliant/ob1 and ob1 are different packages by " +
+          "their scope — @acme/api and api are different packages by " +
           "different people, and the scope is the whole identity of yours.",
-        ph: "@overbrilliant/ob1, clawsfund-mcp",
+        ph: "@acme/api, acme-cli",
         check(value) {
           const raw = value.split(/[\s,]+/).filter(Boolean);
           const bad = raw.filter((n) => !validName(n));
@@ -252,14 +252,15 @@ const BUILTIN: Record<
   },
 
   /*
-    SEARXNG'S URL, WHICH IS A SETTING BECAUSE THE NODE IS THE OWNER'S OWN BOX.
+    SEARXNG'S URL, WHICH IS A SETTING BECAUSE A REMOTE NODE IS SOMEBODY'S OWN
+    BOX.
 
-    The instance answers on a hostname that carries that box's IP address
-    (`178-105-187-189.sslip.io`), so a constant in the source would be a
-    dashboard that quietly stops searching the day the box moves — and the fix
-    would be an edit and a redeploy rather than a text field. The API KEY is
-    still a credential and still goes in the vault; this is the address, which
-    is not a secret and has to read back to be corrected.
+    A remote instance answers wherever its owner put it — often on a hostname
+    carrying that box's IP — so a constant in the source would be a dashboard
+    that quietly stops searching the day the box moves, and the fix would be an
+    edit and a redeploy rather than a text field. The API KEY is still a
+    credential and still goes in the vault; this is the address, which is not a
+    secret and has to read back to be corrected.
 
     IT IS ALSO THE SWITCH BETWEEN THE TWO KINDS OF INSTANCE, which is why this
     entry has an `after` hook and the npm one does not. There is a second
@@ -313,7 +314,7 @@ const BUILTIN: Record<
           "than swept up: “every org I belong to” would drag in every dormant " +
           "repository of an org you merely joined, and they would crowd out " +
           "the repos anybody is actually looking at.",
-        ph: "Overbrilliant",
+        ph: "Acme",
         check(value) {
           const bad = value
             .split(/[\s,]+/)

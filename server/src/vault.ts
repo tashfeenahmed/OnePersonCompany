@@ -1,8 +1,8 @@
 /**
  * Credentials at rest.
  *
- * The shape is deliberately the same as workdash's agent/secrets.js:
- * AES-256-GCM, a 12-byte IV, a 16-byte tag, and THE ENTRY NAME AS ASSOCIATED
+ * The shape is deliberately the same as the previous system's own secrets
+ * store: AES-256-GCM, a 12-byte IV, a 16-byte tag, and THE ENTRY NAME AS ASSOCIATED
  * DATA — so a ciphertext moved into another row fails to open rather than
  * opening as the wrong secret. The key is 32 random bytes in a file beside the
  * database, mode 0600, generated on first use.
@@ -19,12 +19,7 @@
  * from the LAN and "the settings page can show you the key" is how an open
  * dashboard becomes an open Hetzner account.
  */
-import {
-  createCipheriv,
-  createDecipheriv,
-  randomBytes,
-  timingSafeEqual,
-} from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { VAULT_KEY_FILE } from "./config.ts";
 import { db, now } from "./db.ts";
@@ -175,11 +170,4 @@ export function status(pluginId: string): { name: string; updatedAt: string }[] 
       .prepare("SELECT name, updated_at FROM secrets WHERE plugin_id = ? ORDER BY name")
       .all(pluginId) as unknown as { name: string; updated_at: string }[]
   ).map((r) => ({ name: r.name, updatedAt: r.updated_at }));
-}
-
-/** Constant-time compare, for the optional API token on the routes. */
-export function safeEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ba.length === bb.length && timingSafeEqual(ba, bb);
 }

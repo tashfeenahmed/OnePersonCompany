@@ -2,24 +2,24 @@
  * Resend — eleven keys, one per sending domain.
  *
  * THIS IS WHAT THE ACCOUNTS MODEL IS FOR, and it is the clearest example of it
- * on the board. Over in workdash the credential is ONE vault entry,
- * `resend-keys.json`, holding a JSON object keyed by domain:
+ * on the board. The previous system kept the credential as ONE vault entry,
+ * a JSON object keyed by domain:
  *
- *     { "example-app-4.example.test": "re_…", "example-app-1.example.test": "re_…", … }
+ *     { "acme.ie": "re_…", "acme.so": "re_…", … }
  *
  * — eleven keys in one document, which is precisely the shape `accounts.ts`
  * exists to undo. A blob has no per-key label, no per-key state and no per-key
- * error: one revoked key shows up as a warning on the plugin rather than as
- * "example-app-1.example.test stopped answering", and there is nowhere to put the fact that
+ * error: one revoked key shows up as a warning rather than as
+ * "acme.so stopped answering", and there is nowhere to put the fact that
  * one of these eleven is a send-only key that can never be read from. Here each
  * key is its own ACCOUNT, labelled with its domain, with its own connected
  * flag, its own last error and its own vault entry — the same split
  * `005_accounts_split` performed on the Hetzner token blob.
  *
  * A KEY IS SCOPED TO ITS DOMAIN, which is what makes eleven of them necessary
- * rather than tidy. Probed on 2026-09-05: the example-app-4.example.test key's `GET /domains`
- * returns example-app-4.example.test and nothing else, and its `GET /emails` returns
- * example-app-4.example.test's mail and nothing else. There is no key here that sees the
+ * rather than tidy. Probed on 2026-09-05: the acme.ie key's `GET /domains`
+ * returns acme.ie and nothing else, and its `GET /emails` returns
+ * acme.ie's mail and nothing else. There is no key here that sees the
  * whole account, so one account row could not have covered them even in
  * principle.
  *
@@ -47,7 +47,7 @@
  * WHAT IS STORED, AND WHAT IS THROWN AWAY IN THIS FILE. An email record carries
  * `to`, `subject` and `bcc`. None of them is returned by this function, none
  * reaches the database, and none can therefore reach the wire — the same rule
- * `collect_playstore.py` keeps for review authors and `providers/gmail.ts`
+ * the previous system's own collector keeps for review authors and `providers/gmail.ts`
  * keeps for correspondents. What is kept is the day, the sending address (which
  * is ours), and `last_event`.
  *
@@ -274,9 +274,8 @@ const sendOnlyMessage = (domain: string) =>
  * is refused WITH THE FIX, because the fix is one click in Resend and the key
  * that would work is a different key rather than a different service.
  *
- * On this account exactly one of the eleven keys is like that — example-app-12.example.test —
- * and it fails identically on every attempt, so it is a property of the key and
- * not a bad minute.
+ * Measured on a live account: one key in eleven was like that, and it failed
+ * identically on every attempt — a property of the key, not a bad minute.
  *
  * The domain the key can see comes back, because it is the natural NAME for the
  * account row: labelling these "Account 1 … Account 11" would throw away the
@@ -363,7 +362,7 @@ const shapeDomain = (d: ApiDomain, recordsRead: boolean): DomainRow => ({
 });
 
 /** The address between the angle brackets, or the whole string when there are
- *  none. `Example App 4 <hello@example-app-4.example.test>` is stored as `hello@example-app-4.example.test`:
+ *  none. `Acme <hello@acme.ie>` is stored as `hello@acme.ie`:
  *  the display name is a label somebody typed and the address is the fact. */
 function fromAddress(value: string | undefined): string | null {
   if (!value) return null;

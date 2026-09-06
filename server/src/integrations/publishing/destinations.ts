@@ -130,8 +130,8 @@ export function destinationRows(ventureId?: string | null): DestinationRow[] {
  * an enabled destination and fails at submit, and re-mapping a Page to another
  * venture leaves the old posts filed under the venture it used to be.
  *
- * THE TABLES ARE NOT MERGED HERE — that is a migration and this wave writes
- * none. What is settled is the CODE half: which venture a Page belongs to is
+ * THE TABLES ARE NOT MERGED HERE — that is a migration, and none is written
+ * here. What is settled is the CODE half: which venture a Page belongs to is
  * asked in one place, of the rows the owner actually mapped. The timeline
  * reader used to build this map inline from the same query, which is how the
  * two came to disagree at all.

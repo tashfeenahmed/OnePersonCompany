@@ -1,20 +1,16 @@
 /**
  * THE TWO RENDERINGS THAT ARE ONLY EVER ASKED FOR ON A PANEL.
  *
- * Everything else this file used to hold — the age, the count, the percentage,
- * the bytes, the duration — is in `@/lib/format` now, with the six to nine
- * other copies each of them had grown elsewhere. They are re-exported below so
- * a panel can keep importing its formatters from one place, and the re-exports
- * carry the two corrections that came with the merge:
+ * The age, the count, the percentage, the bytes and the duration all live in
+ * `@/lib/format` and are re-exported below, so a panel imports its formatters
+ * from one place. Two traps ride along with them:
  *
- *   - the old `num` is `count`, which groups in en-GB rather than en-IE. The
- *     two agree on every figure a panel draws, and one locale is one locale.
- *   - `pct` NOW TAKES A 0–1 FRACTION. This copy took an already-scaled percent
- *     and two other exported `pct`s took a fraction, all three with the
- *     signature `(number) => string`, so an editor's auto-import silently
- *     decided whether a page said 0.4% or 40%. A panel holding a percent the
- *     server already scaled divides at the call site, where a reviewer can see
- *     it happen.
+ *   - `count` groups in en-GB. One locale is one locale.
+ *   - `pct` TAKES A 0–1 FRACTION, and its signature is `(number) => string`
+ *     like every other formatter's, so nothing catches a percent the server
+ *     already scaled being passed straight in — the page says 0.4% instead of
+ *     40% and no tool complains. A panel holding a scaled percent divides at
+ *     the call site, where a reviewer can see it happen.
  *
  * `clock` and `dayLabel` stay because nothing else asks for them: they are the
  * calendar's two shapes, and a calendar is the only surface that wants a bare

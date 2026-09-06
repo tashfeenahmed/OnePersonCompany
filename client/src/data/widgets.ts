@@ -268,12 +268,11 @@ export type Widget = {
 export const SOURCES: Record<string, WidgetSource> = {
   stripe: { name: "Stripe", icon: "stripe", connected: true },
   /*
-    NOT CONNECTED, AND IT NEVER HAS BEEN. This said `true` because the catalog
-    was seeded from the integrations workdash INTENDS to have; there is no
-    adsense-token in any vault, no token file beside its collectors, and no
-    consent has ever been granted. A sample presented as a measurement is the
-    one thing this project refuses, so the flag now says what is true and the
-    earnings cards fall back to their samples with no live dot.
+    NOT CONNECTED, AND THERE IS NO COLLECTOR FOR IT. `connected` here means a
+    credential can exist and something reads it — not that the integration was
+    planned. A sample presented as a measurement is the one thing this project
+    refuses, so this stays false and the earnings cards fall back to their
+    samples with no live dot.
   */
   adsense: { name: "Google AdSense", icon: "googleadsense", connected: false },
   appstore: { name: "App Store Connect", icon: "appstore", connected: true },
@@ -1687,11 +1686,11 @@ export const WIDGETS: Record<string, Widget> = {
      The Costs API, grouped by project. Both cuts below sum over the SAME rows,
      so the day total and the project total agree to the cent.
 
-     `openai.models` USED TO BE HERE and was removed rather than wired up. The
-     Costs API groups by project or by line item and never both, and the
-     line-item cut is a billing taxonomy ("GPT-4o input tokens") rather than a
-     model list — so a card called "Spend by model" could only ever have been
-     filled with a guess. `openai.projects` is the split that exists.
+     THERE IS DELIBERATELY NO `openai.models` CARD. The Costs API groups by
+     project or by line item and never both, and the line-item cut is a billing
+     taxonomy ("GPT-4o input tokens") rather than a model list — so a card
+     called "Spend by model" could only ever be filled with a guess.
+     `openai.projects` is the split that exists.
   */
   "openai.cost": {
     src: "openai",
@@ -1758,13 +1757,13 @@ export const WIDGETS: Record<string, Widget> = {
   },
 
   /* ---------------------------------------------------------- replicate
-     `replicate.gpu` USED TO BE HERE — "GPU seconds · 7d, ≈ $19 at current
-     rates" — and was removed on both counts. Replicate does not report GPU
+     THERE IS DELIBERATELY NO `replicate.gpu` CARD — "GPU seconds · 7d, ≈ $19
+     at current rates" fails on both counts. Replicate does not report GPU
      seconds (it reports predict time, which is not the same thing and is not
      the billing unit for the per-output models this account runs), and it
-     publishes no rates at all, so the "≈ $19" was invented. What replaced it
-     is compute time in its own unit, and a card that says plainly what was
-     asked about money and what came back.
+     publishes no rates at all, so any "≈ $19" is invented. What is drawn
+     instead is compute time in its own unit, and a card that says plainly what
+     was asked about money and what came back.
   */
   "replicate.runs": {
     src: "replicate",

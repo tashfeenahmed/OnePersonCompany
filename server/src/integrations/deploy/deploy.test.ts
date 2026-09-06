@@ -433,11 +433,7 @@ test("the deploy and publishing writes are now IN the report that claims they ar
 /* ------------------------------------------------------------- retention */
 
 test("/api/health reports the retention registry, not a setting that describes some of it", async () => {
-  /* `retainDays: { readings, load }` out of config was what this used to
-     publish, and it was a claim about the box that was not true of it: it
-     described neither the uptime checks nor the fleet samples nor the
-     workstation states nor the job leases, each of which aged on a number no
-     setting could reach — and three tables were aging on nothing at all. */
+  /* See shared/retention.ts for why a registry replaced the old config value. */
   const doc = await healthFor(["fleet"], { locked: false, authenticated: true });
   assert.ok("retention" in doc, "the registry, verbatim");
   const byTable = new Map(doc.retention.map((r) => [r.table, r]));

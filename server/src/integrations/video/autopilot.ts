@@ -49,9 +49,8 @@
  * having — it makes a good topic more likely — but an instruction to a model
  * is not a constraint, and the gate is the constraint.
  *
- * AND `shorts` IS NO LONGER IMPOSSIBLE. This file used to say, in its own
- * settings hint, that a shorts job needs a source URL the autopilot has no way
- * to invent. It can now: integrations/socialfeed/sourcing.ts searches the
+ * A `shorts` JOB NEEDS A SOURCE URL, AND THE AUTOPILOT CAN FIND ONE.
+ * integrations/socialfeed/sourcing.ts searches the
  * owner's own SearXNG node's video category, ranks what comes back by duration,
  * recency and engine agreement, refuses anything already cut up, and hands back
  * one URL. With no SearXNG connected there is no source and the pass logs a
@@ -601,14 +600,10 @@ export async function runPass(trigger: "clock" | "manual"): Promise<PassResult> 
 /**
  * One Studio post.
  *
- * `createPost` IS THE STUDIO'S OWN FUNCTION, not a copy of it and no longer a
- * request built against its route. This used to go through
- * `studioRoutes.request("/posts")` — a real direct call, since Hono apps are
- * callable objects — because the post-making logic lived inside that handler
- * and a copy here would have been a second definition of what a post is. The
- * logic moved out beside the routes instead, so both this and the campaigns
- * pass call one function and neither has to unwrap an HTTP reply to find out
- * whether a post was made.
+ * `createPost` IS THE STUDIO'S OWN FUNCTION, called directly rather than
+ * through a request built against its route, so this and the campaigns pass
+ * both call one definition of what a post is and neither has to unwrap an
+ * HTTP reply to find out whether a post was made.
  */
 async function makePost(v: VentureRow, brief: string): Promise<{ id: string } | { error: string }> {
   const made = await createPost({ ventureId: v.id, brief, format: "square" });

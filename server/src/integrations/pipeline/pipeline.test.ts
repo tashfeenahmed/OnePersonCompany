@@ -423,10 +423,10 @@ test("a stale reader that throws is not a reason to stop the stage", () => {
 
 /*
   THE SKILLS PROXY SENDS EVERY PARAMETER AS A STRING. A route testing
-  `body.dry === true` reads `"true"` as FALSE, which in wave 1 of this build
-  published a real Facebook post while an agent believed it was rehearsing, and
-  which in this area meant `opc pipeline run_stage --dry true` walked a real
-  night. These are the tests that stop it coming back.
+  `body.dry === true` reads `"true"` as FALSE, which once published a real
+  Facebook post while an agent believed it was rehearsing, and which in this
+  area meant `opc pipeline run_stage --dry true` walked a real night. These
+  are the tests that stop it coming back.
 */
 test("readBool takes every spelling a proxy, a CLI or a JSON client sends", () => {
   for (const yes of [true, 1, "true", "TRUE", " True ", "yes", "on", "1"])

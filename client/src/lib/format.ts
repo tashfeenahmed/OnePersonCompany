@@ -1,24 +1,13 @@
 /**
  * EVERY WAY A NUMBER OR A TIME GETS WRITTEN ON THIS CLIENT, IN ONE PLACE.
  *
- * This file exists because the same eight renderings had been written between
- * two and nine times each, and copies of one rendering had drifted into copies
- * of a DIFFERENT rendering under the same name:
- *
- *   - three exported `pct(n)`, identical signature, two input conventions, so
- *     an auto-import drew 0.4% where 40% was meant;
- *   - two exported `duration(n)`, identical shape, a factor of 1000 apart, so
- *     a wrong import drew a four-second run as "1h 6m";
- *   - seven `ago`, split on whether days start at 24h or 48h, so one collected
- *     stamp read "36h ago" on one panel and "2d ago" on the next;
- *   - nine `when`, five answering "never" for a missing date and four an em
- *     dash, one of them with no NaN guard at all;
- *   - seven ways to write money, in four output conventions, on a codebase
- *     whose one universal rule is that money is never added across currencies;
- *   - bytes in base 1024 on four surfaces and base 1000 on four others, so the
- *     same disk read 5.0 GB and 5.4 GB on adjacent pages.
- *
- * None of those were type errors. All of them were wrong answers.
+ * WRITE A LOCAL FORMATTER AND IT WILL DISAGREE WITH THIS ONE, silently. Every
+ * function below has a convention that a plausible second implementation gets
+ * differently — whether `pct` takes a fraction or a scaled percent, whether a
+ * duration is seconds or milliseconds, whether days start at 24 hours or 48,
+ * whether a missing date is "never" or a dash, whether bytes are base 1024 or
+ * base 1000. None of those is a type error. All of them are wrong answers on
+ * the page, and each function's own note below says which way it went.
  *
  * NOTHING HERE INVENTS A VALUE. Every function takes null, undefined and NaN
  * and returns the em dash, because a missing figure means the server was asked
@@ -32,9 +21,9 @@
  * never run, a run that has not finished — passes that word as `nullText`. It
  * is never a zero, and it is never guessed here.
  *
- * NO IMPORTS, EVER. Half the copies above were written where they were because
- * importing the neighbour's one would have made a module cycle. A leaf with no
- * dependencies cannot be in a cycle, so there is no longer a reason to copy.
+ * NO IMPORTS, EVER. A leaf with no dependencies cannot be in a module cycle,
+ * and "importing it would have made a cycle" is the reason a formatter gets
+ * copied somewhere else instead. Keep this file importing nothing.
  */
 
 /** The one character a value nobody measured is drawn as. */
@@ -83,9 +72,9 @@ export function pct(fraction: Maybe, opts: Absent & { digits?: number } = {}): s
  * HOW LONG SOMETHING TOOK, FROM MILLISECONDS, in the largest unit still honest.
  *
  * Milliseconds because that is what the runs table stores. The seconds one is
- * `durationS`, named apart rather than overloaded: the pair used to be two
- * exports called `duration` a factor of 1000 apart, and the compiler had
- * nothing to say about picking the wrong one.
+ * `durationS`, NAMED APART rather than overloaded — two exports called
+ * `duration` a factor of 1000 apart is a wrong import the compiler has nothing
+ * to say about, and a four-second run drawn as "1h 6m".
  *
  * A run that has not finished HAS NO DURATION, and the callers that draw one
  * pass `{ nullText: "still going" }` rather than letting this file invent a
@@ -142,10 +131,9 @@ function at(value: string | number | Date | null | undefined): number | null {
  * A collected-at stamp is only useful as an age — nobody reads a panel to find
  * out that Hetzner was polled at 14:02.
  *
- * DAYS START AT 24 HOURS. Five of the seven copies switched there and one
- * switched at 48, which is why the same reading read "36h ago" on the
- * deployment panel and "2d ago" on the integrations panel. 24 is the one that
- * agrees with what "yesterday" means.
+ * DAYS START AT 24 HOURS, not 48 — the switch that makes one reading say
+ * "36h ago" on the deployment panel and "2d ago" on the integrations panel.
+ * 24 is the one that agrees with what "yesterday" means.
  *
  * A missing stamp is "never" rather than a dash: unlike a measurement, a
  * timestamp's absence has a plain meaning — this has not happened. A caller
@@ -169,16 +157,14 @@ export function ago(
 /**
  * A TIMESTAMP AS A DATE: "12 Sep, 14:02".
  *
- * MISSING IS THE DASH. Nine copies of this split five-to-four between "never"
- * and the em dash for the identical missing value, and the dash is the one
- * that cannot be false: a null `publishedAt` on a draft does not mean the
- * draft will never be published. The five surfaces where absence really does
- * mean never-happened — a backup, a scan, a deploy — pass
- * `{ nullText: "never" }` and say so on purpose.
+ * MISSING IS THE DASH, not "never". The dash is the one that cannot be false:
+ * a null `publishedAt` on a draft does not mean the draft will never be
+ * published. A surface where absence really does mean never-happened — a
+ * backup, a scan, a deploy — passes `{ nullText: "never" }` and says so on
+ * purpose.
  *
  * A string that will not parse is ECHOED rather than drawn as "Invalid Date".
- * Eight of the nine copies did this and the ninth did not; showing the raw
- * value is what lets somebody see WHICH field is malformed.
+ * Showing the raw value is what lets somebody see WHICH field is malformed.
  */
 export function when(
   value: string | number | Date | null | undefined,
@@ -262,9 +248,9 @@ export function inDays(days: Maybe, opts: Absent = {}): string {
  * dollars as "US$" rather than a bare "$" that also reads as Canadian and
  * Australian dollars on the same page.
  *
- * TWO DECIMAL PLACES BY DEFAULT, including above a thousand. Two of the seven
- * copies dropped the cents at ≥1000 and five did not, so the same Stripe
- * payout read "€1,240" and "€1,240.37" on two screens. An invoice has cents; a
+ * TWO DECIMAL PLACES BY DEFAULT, INCLUDING ABOVE A THOUSAND. Dropping the
+ * cents at ≥1000 is the easy variation, and it makes one Stripe payout read
+ * "€1,240" on one screen and "€1,240.37" on the next. An invoice has cents; a
  * headline tile that genuinely wants them gone passes `{ digits: 0 }` and owns
  * the rounding.
  *
@@ -304,8 +290,8 @@ export function money(
  * POWERS OF 1024 BY DEFAULT, because every source of these figures on this box
  * — free(1), df(1), the hypervisor, the backup tool — counts that way, and a
  * page that divides by 1000 reports a disk 7% emptier than the tool the owner
- * would run to check it. The same 5,368,709,120-byte disk read "5.0 GB" on
- * four surfaces and "5.4 GB" on four others with nothing to say which.
+ * would run to check it. One 5,368,709,120-byte disk is "5.0 GB" or "5.4 GB"
+ * depending purely on that choice, with nothing on the page to say which.
  *
  * THE CASING IS THE CLUE, and it is kept on purpose: base 1024 writes "KB",
  * base 1000 writes "kB". A caller reporting a figure a vendor states in base

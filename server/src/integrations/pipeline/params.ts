@@ -6,8 +6,8 @@
  * stringifies anything that is not a number; `skills/mcp.ts` publishes
  * `type: "string"` in the tool schema; `routes/skills.ts` forwards the value
  * verbatim. So a route that tests `body.dry === true` receives `"true"` and
- * reads it as FALSE — and in wave 1 of this build that exact line published a
- * real Facebook post while an agent believed it was rehearsing.
+ * reads it as FALSE — and that exact line once published a real Facebook post
+ * while an agent believed it was rehearsing.
  *
  * TWO RULES CAME OUT OF THAT, AND THIS FILE IS HALF OF THE SECOND ONE.
  *

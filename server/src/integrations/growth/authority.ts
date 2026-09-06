@@ -166,10 +166,7 @@ function demandFor(host: string): DemandInput {
     window_end: string | null;
   }[];
   for (const g of gsc) {
-    /* COVERAGE, NOT A SHARED REGISTRABLE DOMAIN. `hostMatch` says the property
-       is this host or sits above it; folding both to the registrable domain
-       also accepted a property for a sibling subdomain, which measures a
-       different site. */
+    /* `hostMatch`, not a shared registrable domain — see shared/host.ts. */
     if (!hostMatch(g.property, host) || g.total_impressions === null) continue;
     return {
       impressions: g.total_impressions,

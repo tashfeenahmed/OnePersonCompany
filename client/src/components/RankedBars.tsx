@@ -5,18 +5,13 @@ import { count, pct } from "@/lib/format";
 /**
  * A RANKED LIST WITH A SHARE BAR — top browsers, top sources, top spend.
  *
- * Two pages drew this with the same truncated label width, the same track and
- * fill classes and the same right-aligned figure, and had then diverged on the
- * only thing that matters here: WHAT "THE REST" MEANS. One added a change
- * column and a footnote saying how many values were not drawn; the other added
- * a remainder ROW inside the list. So two lists a reader would swear were the
- * same control were answering different questions about the same shape of
- * data, and neither said which.
- *
- * BOTH ANSWERS ARE REAL, so both are supported and both are explicit. A top-N
- * list that shows neither is a distribution with a hole in it: the shares add
- * up to less than everything and nothing on the screen admits it. Every caller
- * therefore says, in its props, which kind of "rest" it has.
+ * SAY WHAT "THE REST" IS. A top-N list that does not is a distribution with a
+ * hole in it: the shares add up to less than everything and nothing on the
+ * screen admits it. There are two honest ways to do it and a caller picks one
+ * — a `footnote` naming how many values were not drawn, or a final row in
+ * `rows` carrying the leftover (the mobile-health segments do that, with the
+ * figure the SERVER reports as un-ranked rather than one derived here, which
+ * would be wrong wherever the query was capped).
  *
  * A SHARE IS A 0–1 FRACTION, like everywhere else on this client. It is either
  * given per row — because the server computed it against a total this page
@@ -44,23 +39,15 @@ export type RankedRow = {
 export function RankedBars({
   rows,
   total,
-  remainder,
   showChange = false,
   format = (n) => count(n),
   footnote,
   className,
 }: {
   rows: readonly RankedRow[];
-  /** The whole the shares are of. Required for `remainder`, and used to derive
-   *  a share for any row that did not carry one. */
+  /** The whole the shares are of, used to derive a share for any row that did
+   *  not carry one. */
   total?: number | null;
-  /**
-   * The label for a final muted row holding `total` minus the rows above it —
-   * "everything else", "other versions". Drawn only when `total` is known and
-   * the leftover is positive. Pass nothing where the un-drawn rest is
-   * described in a `footnote` instead; pass nothing where there is no rest.
-   */
-  remainder?: string;
   /** Draw the change column. Off by default: a list with no previous window to
    *  compare against should not carry a column of dashes. */
   showChange?: boolean;
@@ -75,53 +62,30 @@ export function RankedBars({
   const shareOf = (row: RankedRow): number | null =>
     row.share !== undefined ? row.share : total ? row.value / total : null;
 
-  const drawn = rows.reduce((sum, r) => sum + r.value, 0);
-  const rest = remainder !== undefined && total !== null && total !== undefined ? total - drawn : 0;
-  const restRow: RankedRow | null =
-    remainder !== undefined && rest > 0 ? { label: remainder, value: rest } : null;
-
-  const all = restRow ? [...rows, restRow] : [...rows];
-  const max = Math.max(1, ...all.map((r) => Math.abs(r.value)));
-  const anyShare = all.some((r) => shareOf(r) !== null);
+  const max = Math.max(1, ...rows.map((r) => Math.abs(r.value)));
+  const anyShare = rows.some((r) => shareOf(r) !== null);
 
   return (
     <div className={className}>
       <div className="space-y-1">
-        {all.map((row) => {
-          const isRest = row === restRow;
+        {rows.map((row) => {
           return (
-            <div
-              key={isRest ? "rest-row" : row.label}
-              className="flex items-center gap-2 text-[12.5px]"
-            >
-              <span
-                className={cn("w-[150px] shrink-0 truncate", isRest && "text-muted-foreground")}
-                title={row.title ?? row.label}
-              >
+            <div key={row.label} className="flex items-center gap-2 text-[12.5px]">
+              <span className="w-[150px] shrink-0 truncate" title={row.title ?? row.label}>
                 {row.label}
                 {row.sub && <span className="text-muted-foreground text-[11px]"> {row.sub}</span>}
               </span>
 
               <span className="bg-accent relative h-3 flex-1 overflow-hidden rounded-sm">
                 <span
-                  className={cn(
-                    "absolute inset-y-0 left-0 rounded-sm",
-                    isRest ? "bg-line-strong" : "bg-ok",
-                  )}
+                  className="bg-ok absolute inset-y-0 left-0 rounded-sm"
                   /* At least 2%, so a row that is genuinely tiny still reads as
                      a row rather than as an empty track nobody measured. */
                   style={{ width: `${Math.max(2, (Math.abs(row.value) / max) * 100)}%` }}
                 />
               </span>
 
-              <span
-                className={cn(
-                  "w-[78px] shrink-0 text-right tabular-nums",
-                  isRest && "text-muted-foreground",
-                )}
-              >
-                {format(row.value)}
-              </span>
+              <span className="w-[78px] shrink-0 text-right tabular-nums">{format(row.value)}</span>
 
               {anyShare && (
                 <span className="text-muted-foreground w-[52px] shrink-0 text-right text-[11px] tabular-nums">

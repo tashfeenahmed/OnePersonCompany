@@ -38,9 +38,9 @@ import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { configValue } from "../../db.ts";
 import { VIDEO_PLUGIN, findFfmpeg, ffmpegFilters, run } from "./tools.ts";
-/* ONE typesetter, named once. It is the papers area's binary and this borrows
-   it; discovering it again here under a second settings key is what used to
-   leave every video captionless on a box that had typst installed. */
+/* ONE typesetter, named once — it is the papers area's binary and this
+   borrows it rather than discovering it again under a second settings key;
+   see runs/typst.ts for why there is only one. */
 import { findTypst } from "../runs/typst.ts";
 
 /* ------------------------------------------------------------------ fonts */

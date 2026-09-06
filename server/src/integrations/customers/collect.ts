@@ -220,15 +220,14 @@ export async function runPass(): Promise<PassResult> {
     */
     const invoiceWalkShort = new Set<number>();
     /*
-      THE ACCOUNTS WHOSE WALK ACTUALLY FAILED, as ids.
-
-      This used to be re-derived at the resolution step by asking which
-      warnings began with an account's label, which was wrong twice over: two
-      accounts called "Account 1" and "Account 10" match each other under
-      `startsWith`, and — since the truncation notes above are warnings too —
-      a short walk would have been read as a failed one and stopped every
-      resolution on that account, including the churn and dispute cases a
-      capped invoice page says nothing about. An id is not ambiguous.
+      THE ACCOUNTS WHOSE WALK ACTUALLY FAILED, as ids — not re-derived at the
+      resolution step by asking which warnings began with an account's label.
+      That reading is wrong twice over: two accounts called "Account 1" and
+      "Account 10" match each other under `startsWith`, and — since the
+      truncation notes above are warnings too — a short walk would be read as
+      a failed one and stop every resolution on that account, including the
+      churn and dispute cases a capped invoice page says nothing about. An id
+      is not ambiguous.
     */
     const failedAccounts = new Set<number>();
     let okAccounts = 0;
@@ -655,8 +654,8 @@ async function fillAddresses(
       if (!row.customer) setCaseCustomer(row.id, customerId);
       const c = await fetchCustomer(key, customerId);
       /* A deleted customer keeps its case. Dropping the row would quietly
-         shorten a list somebody is working through — WorkDash's rule, and the
-         right one. It simply has no address. */
+         shorten a list somebody is working through. It simply has no
+         address. */
       setCaseEmail(row.id, c.deleted ? null : c.email, contactAccess);
       done += 1;
     } catch {
@@ -692,8 +691,8 @@ export async function deliverPending(
     really "sixty minutes, or until the end of this pass, whichever comes
     first". A failure delivered at 09:00 leaves the pending set the moment it
     is marked; the retry at 09:40 then arrives in an empty set, opens its own
-    window and produces a second message for the same dying card — the exact
-    thing WorkDash's notifier README apologised for.
+    window and produces a second message for the same dying card — a known
+    failure mode this seed exists to avoid.
   */
   const { collapsed, standsFor } = collapseFailures(
     pending.map((e) => ({ id: e.id, type: e.type, at: e.at, customer: e.customer })),
@@ -709,9 +708,9 @@ export async function deliverPending(
     /*
       PUSHING IS OFF, AND THE ROWS SAY SO RATHER THAN QUEUEING.
 
-      They used to be left `pending` forever, which looked harmless and was
-      the loaded gun: the day the setting was switched on, the pass started
-      working through every event since the integration was installed at ten
+      Leaving them `pending` forever would look harmless and be a loaded gun:
+      the day the setting is switched on, the pass would start working
+      through every event since the integration was installed, at ten
       messages a pass. An event that arrived while the owner had notifications
       off was never going to be a notification, so it is written down as
       suppressed now, when that is true, rather than becoming a message months

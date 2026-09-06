@@ -5,18 +5,16 @@
  * THE TOKEN CAN WRITE, AND THIS FILE NOW EXERCISES THAT IN EXACTLY ONE PLACE.
  * THAT IS THE FIRST THING TO KNOW ABOUT IT, AND IT CHANGED.
  *
- * The refresh token in the vault was minted by workdash's `gmail_auth.py` with
- * `gmail.modify` and `calendar.readonly`. `gmail.modify` is a WRITE scope: it
+ * The refresh token in the vault was minted by the previous system's auth
+ * flow with `gmail.modify` and `calendar.readonly`. `gmail.modify` is a WRITE scope: it
  * can archive a thread, move a label, trash a message and mark a conversation
  * read. Google offers no way to narrow a token after the fact, and re-minting a
  * `gmail.readonly` one needs a human at a consent screen — so the credential
  * this dashboard holds is, and will stay, more powerful than the dashboard.
  *
- * This file used to answer that with "there is one function here and it hard-
- * codes GET", which made "this cannot archive your mail" a property of the
- * code rather than a promise. The mailbox app broke exactly one hole in that
- * and the hole is named, because an opened thread that stays bold is a mail
- * client nobody believes:
+ * SO THE LIMIT IS ENFORCED HERE, IN THE SHAPE OF THE CODE, and the one hole
+ * the mailbox app needs is named rather than left implicit — an opened thread
+ * that stays bold is a mail client nobody believes:
  *
  *   * there are now TWO functions in this file that talk to Gmail. `get` is
  *     unchanged: `method: "GET"` hard-coded, no body parameter, and every
@@ -67,10 +65,11 @@
  *     HMAC before it leaves this file. No route below can render a person's
  *     address or name, because no row anywhere holds one.
  *
- * That is the same contract workdash's `collect_inbox.py` holds ("this file
- * lands in dist/, so it carries counts and only counts"), tightened by one
- * step: `collect_contacts.py` deliberately publishes real names and addresses
- * because a contacts *page* without them is not a contacts page. This
+ * That is the same contract the previous system's inbox collector holds
+ * ("this file lands in dist/, so it carries counts and only counts"),
+ * tightened by one step: its contacts collector deliberately publishes real
+ * names and addresses because a contacts *page* without them is not a
+ * contacts page. This
  * dashboard has no contacts page — it has a number on a card — so it takes the
  * cheaper trade and keeps the identities out entirely.
  *
@@ -96,9 +95,10 @@ const TIMEOUT_MS = 45_000;
  * actually in the vault.
  *
  * `gmail.readonly` is what this code deserves; `gmail.modify` is what the
- * credential carries, because workdash's mail page sends replies with the same
- * token. Either is accepted and both behave identically here — the same
- * decision `collect_inbox.py` documents, for the same reason. Anything else is
+ * credential carries, because the previous system's mail page sends replies
+ * with the same token. Either is accepted and both behave identically here —
+ * the same decision that system's inbox collector documents, for the same
+ * reason. Anything else is
  * a credential minted for something that is not this, and is worth saying
  * before Google says it as a 403.
  */
@@ -133,7 +133,7 @@ export const OUTREACH_DAYS = 90;
  *
  * MAX_THREAD_FETCH is a WHOLE-RUN budget rather than a per-label one, spent
  * INBOX first, so adding a label divides the work rather than multiplying it —
- * the rule `collect_inbox.py` arrived at over the same mailbox. A label that
+ * the rule the previous system's collector arrived at over the same mailbox. A label that
  * ran out of budget says so and its count is reported as a FLOOR, never as a
  * measurement.
  */
@@ -226,11 +226,12 @@ const RATE_LIMITED = /rate ?limit|Quota exceeded|userRateLimitExceeded/i;
  *
  * CATEGORY_UPDATES IS DELIBERATELY ABSENT from the set. Receipts, delivery
  * notices, "your build failed" and password resets live there, and several of
- * them are the most time-sensitive mail in the box. `collect_inbox.py` makes
- * exactly this call and it is not this file's place to overturn it.
+ * them are the most time-sensitive mail in the box. The previous system's
+ * inbox collector makes exactly this call and it is not this file's place to
+ * overturn it.
  *
  * They are excluded IN THE QUERY rather than after the fetch, which is the one
- * place this improves on the collector it is modelled on: workdash fetches a
+ * place this improves on the collector it is modelled on: that collector fetches a
  * promotion, discovers it is a promotion, and has already spent the request.
  * Gmail applies `-category:` server-side, so the budget is spent only on mail
  * that could be waiting on a reply.
@@ -374,7 +375,7 @@ async function accessToken(
         reason =
           "Google has stopped accepting that refresh token. A Cloud app still " +
           "in Testing issues refresh tokens that expire after seven days — " +
-          "publish the app, then mint a new token with gmail_auth.py.";
+          "publish the app, then mint a new token and re-paste it.";
     } catch {
       /* not JSON; the body is all there is */
     }
@@ -511,8 +512,8 @@ export async function verify(values: {
       that rather than as a Gmail 403 three frames later. Present-and-wrong is
       refused; ABSENT is accepted, because Google omits `scope` from some
       refresh responses and breaking a working credential to enforce a field it
-      may not send is the wrong trade — the same tolerance collect_inbox.py
-      keeps for tokens minted before it recorded scopes.
+      may not send is the wrong trade — the same tolerance the previous
+      system's collector keeps for tokens minted before it recorded scopes.
     */
     if (scopes.length && !scopes.some((s) => USABLE_SCOPES.includes(s)))
       return {
@@ -522,7 +523,7 @@ export async function verify(values: {
             .map((s) => s.split("/").pop())
             .slice(0, 4)
             .join(", ")} and neither gmail.readonly nor gmail.modify. It was ` +
-          "minted for something that is not this — rerun gmail_auth.py.",
+          "minted for something that is not this — mint a fresh token with one of those scopes.",
       };
 
     const profile = await get<{
@@ -1046,8 +1047,8 @@ async function collectMailbox(
         if (h.value && (h.name === "To" || h.name === "Cc"))
           for (const a of addressesIn(h.value)) people.add(a);
       // The mailbox writing to itself is not a relationship — the load-bearing
-      // `is_self` rule collect_contacts.py names as the worst thing to get
-      // wrong, kept here in its one-mailbox form.
+      // `is_self` rule the previous system's contacts collector names as the worst
+      // thing to get wrong, kept here in its one-mailbox form.
       if (base.address) people.delete(base.address.toLowerCase());
       for (const address of people) {
         const fp = fingerprint(salt, address);

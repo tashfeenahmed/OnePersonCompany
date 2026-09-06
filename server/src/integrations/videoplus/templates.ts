@@ -1,12 +1,13 @@
 /**
  * THE MOTION TEMPLATES — five scene kinds as one self-contained HTML page.
  *
- * NO REMOTION AND NO RENDER TOOLCHAIN. Workdash renders these with Remotion,
- * which is React plus a bundler plus a headless Chrome plus a node_modules
- * tree, and it is a good answer on a box that already has one. This server has
- * no build step, no React on the server side and no npm dependency beyond
- * hono, and adding a React renderer to draw six words on a coloured background
- * would be a hundred megabytes of toolchain for a typeface and a fade. What is
+ * NO REMOTION AND NO RENDER TOOLCHAIN. The system this replaces renders these
+ * with Remotion, which is React plus a bundler plus a headless Chrome plus a
+ * node_modules tree, and it is a good answer on a box that already has one.
+ * This server has no build step, no React on the server side and no npm
+ * dependency beyond hono, and adding a React renderer to draw six words on
+ * a coloured background would be a hundred megabytes of toolchain for a
+ * typeface and a fade. What is
  * here instead is a page of hand-written CSS that the SAME headless Chrome
  * this box already uses for venture screenshots renders directly.
  *
@@ -41,7 +42,7 @@
  */
 import type { VentureRow } from "../../db.ts";
 import { readBrand } from "../../ventures/enrich.ts";
-import type { Scene, SceneSpec } from "./scenespec.ts";
+import type { Scene } from "./scenespec.ts";
 
 /** What a scene is drawn in. Derived, never stored — see the migration. */
 export type Look = {
@@ -323,8 +324,3 @@ function side(v: { label: string; value: string; points: string[] }, hot: boolea
     `</div>`
   );
 }
-
-/** Everything a spec would be narrated with, in order. Null entries are scenes
- *  with nothing to say, and they stay in the list so a caller can line the
- *  audio up with the scenes rather than with a filtered subset. */
-export const sayLines = (spec: SceneSpec): (string | null)[] => spec.scenes.map((s) => s.say);

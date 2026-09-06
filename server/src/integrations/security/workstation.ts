@@ -391,7 +391,7 @@ export async function readState(m: Machine): Promise<MachineState> {
  */
 export async function verify(values: Record<string, string>): Promise<string | null> {
   const raw = (values.host ?? "").trim();
-  if (!raw) return "Type the machine as user@host — for example user@workstation.example.test, or test@192.0.2.40:2222.";
+  if (!raw) return "Type the machine as user@host — for example you@desktop.local, or you@10.0.0.20:2222.";
   const t = parseSsh(raw);
   if (!t) return `“${raw}” is not an ssh target. It is user@host, optionally with :port — no scheme, no path.`;
 

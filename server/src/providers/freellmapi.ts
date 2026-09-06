@@ -2,8 +2,8 @@
  * FreeLLMAPI — one OpenAI-shaped key in front of about thirty free providers.
  *
  * WHAT IT IS, BECAUSE THE NAME MISLEADS. It is not a hosted service somebody
- * else runs. It is the owner's own open-source gateway
- * (github.com/tashfeenahmed/freellmapi): a Node server that holds keys for
+ * else runs. It is the owner's own open-source gateway, a separate project
+ * from this one: a Node server that holds keys for
  * ~34 providers that publish a free tier, aggregates their catalogs into one
  * `/v1/models`, and routes each completion to whichever of them can serve the
  * model right now — failing over when one is rate-limited. Every instance of
@@ -12,10 +12,8 @@
  * SO THERE ARE TWO WAYS TO HAVE ONE, AND THIS FILE SERVES BOTH:
  *
  *   HOSTED   an instance already running somewhere else, reached over the
- *            network with the unified key it issued. The owner has one on the
- *            Hetzner box, and workdash's agent/llmprovider.js completes
- *            against it — `https://freellm.178-105-187-189.sslip.io/v1`, which
- *            is where DEFAULT_BASE below comes from.
+ *            network with the unified key it issued — a box the owner keeps,
+ *            on whatever host they keep it.
  *   MANAGED  an instance installed into DATA_DIR/freellmapi/ and run as a
  *            child of this process on 127.0.0.1:3001, by freellmapi/instance.ts.
  *
@@ -40,8 +38,8 @@
  *
  * WHAT WAS MEASURED, against the owner's instance on 2026-09-05:
  *
- *     GET /v1/models          200, 631 ids, `auto` and `auto:workdash`
- *                             among them — the router's own aliases
+ *     GET /v1/models          200, 631 ids, `auto` and a system-specific
+ *                             alias among them — the router's own aliases
  *     GET /v1/models  no key  401 application/json. The key is real auth,
  *                             not decoration
  *     POST /v1/chat/completions
@@ -71,21 +69,21 @@ export const DISPLAY = "FreeLLMAPI";
 
 /** The vault stem. Two fields, so the first account's entries are exactly
  *  `freellmapi-base-url` and `freellmapi-key` — the second being the name
- *  workdash's own vault uses, which makes moving the credential a copy. */
+ *  the previous system's own vault uses, which makes moving the credential a copy. */
 export const SECRET_STEM = "freellmapi";
 export const FIELDS = ["base-url", "key"] as const;
 
 /**
  * Where the owner's existing instance answers.
  *
- * NOT A CONSTANT AND NOT A GUESS. It is lifted from workdash's
- * `agent/config.js` (`FREELLM_BASE_URL`), which is the value that box has
- * actually been completing against — and it carries the Hetzner box's IP in
- * its hostname (`178-105-187-189.sslip.io`), so the day the box moves a
- * hard-coded host is a dashboard that quietly stops answering. It is the
- * PLACEHOLDER the form offers, never something written on the owner's behalf.
+ * A PLACEHOLDER THE FORM OFFERS, never something written on the owner's
+ * behalf and never a URL this file will call. It shows the SHAPE a hosted
+ * instance's base takes — scheme, host, `/v1` — because the commonest way to
+ * get this wrong is to paste the marketing site or to leave the version
+ * segment off. A real address here would be one person's box shipped to
+ * everybody, and an example host cannot be reached by accident.
  */
-export const DEFAULT_BASE = "https://freellm.178-105-187-189.sslip.io/v1";
+export const DEFAULT_BASE = "https://llm.example.com/v1";
 
 /** The managed instance. 3001 is the repo's own default (`PORT` in its
  *  `.env.example`), and loopback is the bind this process gives it. */

@@ -1,9 +1,7 @@
 /**
  * The proactive area's skill entries.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph, and its header says why
- * that must not happen.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  *
  * BOTH ENTRIES HAVE `plugins: []`, which the registry reads as "always live".
  * That is right for both and for the same reason: neither needs a credential.
@@ -257,11 +255,7 @@ export const SKILLS: Skill[] = [
         about:
           "Build today's briefing now and deliver it — into the briefing chat, and to Telegram when that is switched on and a bot is paired. Rebuilds today rather than making a second one.",
         params: [],
-        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
-           a row cannot be deleted afterwards. `destructive` is what a client is
-           entitled to trust when it decides whether to ask a person first, and
-           the thing that cannot be taken back here is the money, the message or
-           the power state rather than the record. It sends: the briefing goes to the owner's Telegram when that is on. */
+        /* It sends: the briefing goes to the owner's Telegram when that is on. */
         destructive: true,
       },
     ],

@@ -9,7 +9,7 @@
  * year.
  *
  * THE ID MAP IS THE WHOLE MECHANISM. A row of `migrate_id_map` says "WorkDash's
- * project `example-app-1` became this box's venture `v-a1b2c3`, in batch `b-…`, and
+ * project `acme` became this box's venture `v-a1b2c3`, in batch `b-…`, and
  * this batch CREATED it". Three things fall out of that one row:
  *
  *   - the import is idempotent, because a second run finds the mapping and

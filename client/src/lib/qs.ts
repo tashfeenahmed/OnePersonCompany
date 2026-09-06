@@ -1,14 +1,12 @@
 /**
  * THE QUERY STRING A LIST ROUTE IS CALLED WITH.
  *
- * Seven copies of this had been written across the api modules, in two
- * behaviours. Four of them filtered `undefined` and the empty string but NOT
- * `null` — and the client's own idiom for "no venture selected" is `?? null`,
- * so those four sent the literal five characters `?venture=null` to a route
- * that then filtered a list by a venture named "null" and answered with
- * nothing. An empty page, no error, nothing in the console.
- *
- * NULL AND UNDEFINED AND "" ARE ALL "DO NOT SEND THIS PARAMETER". There is no
+ * NULL AND UNDEFINED AND "" ARE ALL "DO NOT SEND THIS PARAMETER". Dropping
+ * `undefined` and the empty string but not `null` is the bug this exists to
+ * stop: the client's idiom for "no venture selected" is `?? null`, so a filter
+ * that misses it sends the literal five characters `?venture=null`, and the
+ * route filters by a venture named "null" and answers with nothing. An empty
+ * page, no error, nothing in the console. There is no
  * value a caller can pass that means "send the word null", because no route
  * here wants one.
  *
@@ -16,11 +14,9 @@
  * server for something different from omitting `bots` — and a filter that
  * dropped it would silently turn every "off" into "whatever the default is".
  *
- * ENCODING IS URLSearchParams', so a space is `+` rather than `%20`. Five of
- * the seven copies were already URLSearchParams and two hand-rolled
- * `encodeURIComponent`; both forms decode identically on the server, and one
- * implementation that handles `&`, `#` and `=` correctly beats two that each
- * have to remember to.
+ * ENCODING IS URLSearchParams', so a space is `+` rather than `%20`. That
+ * decodes identically to a hand-rolled `encodeURIComponent` on the server, and
+ * gets `&`, `#` and `=` right without anybody having to remember to.
  */
 
 /** What a route parameter can be before it is written down. */

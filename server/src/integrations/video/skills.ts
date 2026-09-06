@@ -1,22 +1,17 @@
 /**
  * The video area's two skill entries.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph, and its header says why
- * that must not happen.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  *
  * `video` HAS NO ACTIONS AND `autopilot` HAS ONE. Starting a video is already
  * published: it is a run, and the `runs` skill's `start` action takes a kind.
  * A second door onto the same thing would be a second set of parameter
  * descriptions to keep in step with the kind's own inputs. What `autopilot`
  * adds is a thing that has no other door — running the scheduled pass now —
- * and it IS marked destructive. It used to say the opposite here, on the
- * grounds that a queued pass can be cancelled and obeys every limit the clock
- * does; both are true and neither is the question. A pass calls the model
- * provider for a caption, Replicate for a picture and Pexels for footage, and
- * `destructive` on this box covers the MONEY as well as the record — see
- * `skills/registry.ts` for the one definition and `runs/manifest.ts` for why
- * "it can be cancelled" was the wrong test.
+ * and it IS marked destructive: a pass calls the model provider for a caption,
+ * Replicate for a picture and Pexels for footage, and `destructive` covers the
+ * MONEY as well as the record — see `skills/registry.ts`. That a queued pass
+ * can be cancelled is true and is not the test.
  *
  * BOTH ENTRIES ARE ALWAYS LIVE (`plugins: []`), which is deliberate and is the
  * honest reading of an ANY-OF list. A faceless video needs Pexels; a shorts

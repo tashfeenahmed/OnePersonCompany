@@ -2,11 +2,11 @@
  * Link profile, from sources that cost nothing, with the confidence written
  * on every number.
  *
- * Ported from workdash's `collectors/collect_backlinks.py`, whose argument is
- * kept whole: the good backlink sources are all paid APIs, three free ones
- * exist, they disagree about how much they know, and the honest way to use
- * them is to say which one produced each figure and how much that source is
- * worth.
+ * Ported from the backlinks collector in the system this replaces, whose
+ * argument is kept whole: the good backlink sources are all paid APIs, three
+ * free ones exist, they disagree about how much they know, and the honest way
+ * to use them is to say which one produced each figure and how much that
+ * source is worth.
  *
  * THE THREE SOURCES AND WHAT EACH IS WORTH
  *   · THE VERIFICATION CRAWLER — 0.95. It fetches a page that is supposed to
@@ -95,13 +95,7 @@ export const MAX_ROWS = 60;
 
 /**
  * A host, reduced to the spelling everything downstream compares on —
- * `shared/host.ts`, which is now the only answer on this box.
- *
- * This area shipped TWO of the four copies, in sibling directories, and they
- * disagreed: this one stripped `www.` and nothing else, its neighbour folded
- * to a registrable domain off its own suffix list. So the two collectors in
- * one area could disagree about whether a backlink was ours. Keeping them
- * apart was never a decision, only a copy nobody noticed.
+ * `shared/host.ts`, which is the only answer on this box (see its header).
  */
 
 /** The configured list, from one text field. Commas or newlines, because both

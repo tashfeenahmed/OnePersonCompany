@@ -1,9 +1,7 @@
 /**
  * The publishing area's skill entries.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph, and its header says why
- * that must not happen.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  *
  * THREE ENTRIES, AND THE FIRST ONE IS THE ONLY PLACE ON THIS BOX WHERE AN
  * AGENT CAN CAUSE SOMETHING TO BE SEEN BY STRANGERS. Everything else an agent
@@ -12,11 +10,11 @@
  * exactly one thing: an agent must never be the reason a post went out that a
  * person had not read.
  *
- * WHAT IS DELIBERATELY NOT HERE. NO ACTION REACHES A LIVE SUBMISSION. Not
- * `publish`, and — since this pass — not `retry_item` either: both of those
- * routes are `requireBrowser`, so the action was a published promise that
- * could only ever return 403, telling an agent it could retry a failed post
- * and then refusing. The action is gone rather than the guard, because the
+ * WHAT IS DELIBERATELY NOT HERE. NO ACTION REACHES A LIVE SUBMISSION —
+ * neither `publish` nor `retry_item`. Both routes are `requireBrowser`, so an
+ * action for either would be a published promise that could only ever return
+ * 403, telling an agent it could retry a failed post and then refusing. The
+ * action is absent rather than the guard, because the
  * guard is the surface routes.ts spends thirty lines protecting and the
  * structural wall — no URL for the proxy to compose — is the one that does not
  * depend on a header being unforgeable. A failed item is retried by a person,
@@ -224,13 +222,11 @@ export const SKILLS: Skill[] = [
         key: "rehearse_item",
         method: "POST",
         /*
-          ITS OWN ROUTE, WITH NO FLAG. This action used to point at
-          `/publish` and carry `dry: "true"`, and the proxy sends every
-          parameter as a STRING — so the flag was compared against a boolean,
-          read false, and a rehearsal published a real post to a real Page.
-          A route that cannot publish is the only version of this that is
-          safe to hand an agent, and it is now the ONLY submission-shaped
-          action here: see this file's header for why `retry_item` went.
+          ITS OWN ROUTE, WITH NO FLAG — routes.ts explains the bug that shape
+          exists to close. A route that cannot publish is the only version of
+          this that is safe to hand an agent, and it is now the ONLY
+          submission-shaped action here: see this file's header for why
+          `retry_item` went.
         */
         path: "/api/publishing/items/:id/rehearse",
         about:

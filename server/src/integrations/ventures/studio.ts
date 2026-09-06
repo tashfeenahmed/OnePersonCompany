@@ -27,18 +27,11 @@
  * it is the cheapest thing on Replicate that produces something usable; the
  * model is a setting because "cheapest usable" is a judgement that changes.
  *
- * REPLICATE IS CALLED WITH `Prefer: wait`, which is the synchronous door onto
- * an API that is otherwise a poll loop. It holds the connection for up to a
- * minute and answers with the finished prediction — for a four-step model that
- * runs in a couple of seconds, that is the whole call.
- *
- * AND WHEN IT DOES NOT FINISH IN TIME, THE PREDICTION IS POLLED. This file
- * used to give up there and tell the owner to press the button again, which
- * was the worst of both outcomes: BY THE TIME A PREDICTION EXISTS IT HAS BEEN
- * PAID FOR, so abandoning it spends the money and throws the file away. The
- * other half of the same UGC job polled, so one run behaved two ways. The poll
- * is bounded much tighter here than for a video, because this route is one
- * somebody is waiting on in a browser — see `makeImage`.
+ * REPLICATE IS CALLED WITH `Prefer: wait` AND THEN POLLED IF IT DOES NOT
+ * FINISH IN TIME — see `tools/replicate-run.ts` for why abandoning it instead
+ * is the worse of the two outcomes. The poll here is bounded much tighter
+ * than for a video, because this route is one somebody is waiting on in a
+ * browser — see `makeImage`.
  *
  * NO COST IS REPORTED, and providers/replicate.ts's header explains at length
  * why there is none to report: Replicate publishes no price anywhere in its
@@ -113,10 +106,6 @@ export function setReferenceResolver(fn: ReferenceResolver) {
   referenceResolver = fn;
 }
 
-export function hasReferenceResolver(): boolean {
-  return referenceResolver !== null;
-}
-
 async function resolveReferences(
   ventureId: string,
   assetIds: string[],
@@ -158,11 +147,9 @@ const POLL_FOR_MS = 3 * 60_000;
  * `ratio` is a key of ASPECTS — video/assemble.ts's list of the shapes this
  * box renders — and it is checked against it below rather than typed twice.
  * The Studio's names ("story") and the renderer's shapes ("9:16") are two
- * vocabularies for one thing, and they had drifted into three places: this
- * map, a hardcoded list in the motion-spec reader, and an inline conditional
- * in the UGC pipeline that fell through to "story" for anything it did not
- * recognise. A fourth aspect would therefore have been accepted by the video
- * routes and silently rendered portrait here.
+ * vocabularies for one thing; typing this map's ratios by hand risks a
+ * fourth aspect being accepted by the video routes and silently rendered
+ * portrait here.
  */
 const FORMATS = {
   square: { ratio: "1:1", about: "1:1 — a feed post on Instagram, LinkedIn or X." },
@@ -593,14 +580,10 @@ export type CreatePostResult =
 /**
  * ONE STUDIO POST — the whole of what a post IS, in one callable place.
  *
- * TWO OTHER AREAS USED TO MAKE A POST BY CALLING THIS FILE'S OWN ROUTE
- * HANDLER. Hono apps are callable objects, so `studioRoutes.request("/posts")`
- * really does run the same code in this process with no port involved, and
- * both of them said in a comment that they did it that way because what a post
- * IS lives inside the handler. That was true and it was the reason to move it
- * out here instead: the two callers had drifted into different hardcoded
- * formats and different error unwrapping, and a change to the reply shape had
- * to be found in three files.
+ * CALLED DIRECTLY RATHER THAN THROUGH A REQUEST BUILT AGAINST THE ROUTE, so
+ * every caller shares one definition of what a post is, one format list and
+ * one way of unwrapping a failure, instead of each growing its own copy that
+ * a change to the reply shape would have to catch up with individually.
  *
  * IT NEVER THROWS. Every refusal is a `{ ok: false, error, status }` — the
  * status is there so the route can pass it straight through, and the sentence

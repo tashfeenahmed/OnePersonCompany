@@ -4,8 +4,8 @@
  * `job_leases` IS A REGISTRY OF CLAIMS, NOT A QUEUE. A row says "something is
  * using this machine, and it will still be true until `expires_at` unless
  * somebody says otherwise". Nothing here schedules, orders or blocks: the only
- * question it answers is the one WorkDash's dellsession.js answers with a
- * module-level Map — is anybody mid-job — and it answers it out of a table so
+ * question it answers — is anybody mid-job — is one the system this replaces
+ * answered with a module-level Map, and it answers it out of a table so
  * that the answer survives the restart that a `node --watch` save causes every
  * time this file's neighbours are edited. An in-memory flag on this box would
  * be cleared four times an afternoon while a forty-minute render was running.
@@ -17,8 +17,8 @@
  * afterwards, and a deleted row cannot answer it. `released_at` distinguishes a
  * clean hand-back from a lapse, and `release_reason` says which.
  *
- * `wake_ownership` IS ONE ROW PER RESOURCE AND IT IS ABOUT WHO PAYS. WorkDash
- * states the rule this table exists to keep: we power off exactly what we
+ * `wake_ownership` IS ONE ROW PER RESOURCE AND IT IS ABOUT WHO PAYS. The rule
+ * this table exists to keep: we power off exactly what we
  * powered on. If the machine was already up when this app first looked, it is
  * up for somebody else's reasons and this app is a guest. `found_state` records
  * what was true at the moment of the wake, so that record cannot be

@@ -1,11 +1,10 @@
 /**
  * THE LOCAL WALL CLOCK, AND THE DAILY SCHEDULE BUILT ON IT.
  *
- * Six areas each wrote their own copy of this: three formatters, three zone
- * fallbacks, two 48-step schedulers and one catch-up rule that only one of
- * them had. The owner set a timezone in three different plugin settings and
- * the box still ran the autopilot on one zone, the blackout window on another
- * and the briefing an hour off a third.
+ * Every area that runs something daily needs it, and each hand-rolled copy is
+ * a fresh chance to disagree: the owner sets a timezone in three plugin
+ * settings and the box still runs the autopilot on one zone, the blackout
+ * window on another and the briefing an hour off a third.
  *
  * WHAT THIS MODULE SETTLED ON
  *
@@ -17,8 +16,7 @@
  *
  *   2. `% 24`, ALWAYS. "24" is what some ICU builds call midnight in an
  *      `hour12: false` format. Read literally it never equals a configured
- *      hour, so a schedule set to midnight silently never fires. Every copy of
- *      this discovered that separately; it is written down once here.
+ *      hour, so a schedule set to midnight silently never fires.
  *
  *   3. THE SCHEDULER WALKS, IT DOES NOT COMPUTE. "02:00 in Europe/Berlin" is
  *      not an arithmetic offset from now: the offset changes twice a year, and
@@ -31,10 +29,9 @@
  *      more than 24 hours out.
  *
  *   4. AN UNSET ZONE RESOLVES TO THE MACHINE'S OWN, AT READ TIME, AND THE
- *      RESOLVED NAME IS WHAT CALLERS SEE. The three copies disagreed: two
- *      stored `null` and passed `undefined` to `Intl` (which quietly uses the
- *      machine zone), the third substituted the machine zone eagerly. They
- *      produce the SAME INSTANT and DIFFERENT DOCUMENTS — one page says
+ *      RESOLVED NAME IS WHAT CALLERS SEE. Storing `null` and passing
+ *      `undefined` to `Intl` (which quietly uses the machine zone) produces
+ *      the SAME INSTANT and a DIFFERENT DOCUMENT — one page says
  *      "Europe/Berlin", another says nothing at all for the same schedule. A
  *      zone that is set but not a real IANA name resolves the same way rather
  *      than throwing: a typo in a settings field must not take the scheduler
@@ -43,8 +40,7 @@
  *
  *   5. A MISSED DAY CATCHES UP ONCE. `dueDay` coalesces any number of missed
  *      days into a single run — a box that was asleep for a week owes one
- *      briefing, not seven. One of the copies skipped this entirely and so had
- *      no catch-up at all.
+ *      briefing, not seven.
  */
 
 import { configValue } from "../db.ts";

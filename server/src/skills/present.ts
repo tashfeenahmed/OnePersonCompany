@@ -42,7 +42,7 @@ const SCHEMAS = `\
 \`\`\`
 
 \`\`\`chart
-{"title": "Pageviews per day, example-app-1.example.test, last 14 days", "unit": "count",
+{"title": "Pageviews per day, acme.ie, last 14 days", "unit": "count",
  "series": [{"label": "pageviews", "points": [{"ts": "2026-08-23", "value": 61}, {"ts": "2026-08-24", "value": 74}]}],
  "caption": "Umami; a day with no row was not measured and is left out."}
 \`\`\`
@@ -54,13 +54,13 @@ const SCHEMAS = `\
 
 \`\`\`meters
 {"title": "Disk, now",
- "meters": [{"label": "ue-api /", "value": 81, "warn": 70, "crit": 90, "note": "62 GB of 76 GB"}]}
+ "meters": [{"label": "acme-api /", "value": 81, "warn": 70, "crit": 90, "note": "62 GB of 76 GB"}]}
 \`\`\`
 
 \`\`\`table
 {"title": "Domains expiring within 60 days",
  "columns": ["domain", "expires", "registrar", "auto-renew"],
- "rows": [["example.ie", "2026-10-02", "Dynadot", "on"], ["example-app-8.example.test", "2026-10-19", "Spaceship", "unknown"]]}
+ "rows": [["acme.so", "2026-10-02", "Dynadot", "on"], ["example-app-8.example.test", "2026-10-19", "Spaceship", "unknown"]]}
 \`\`\``;
 
 /**

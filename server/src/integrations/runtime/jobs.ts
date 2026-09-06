@@ -7,8 +7,8 @@
  * a scheduler of their own, both are running it (the gateway process is the
  * ticker), and until now nothing on this side could say what they had done.
  *
- * THIS FILE CREATES NO JOBS AND TICKS NOTHING. WorkDash's hermescron.js had to
- * tick, because that deployment ran no gateway and the cron loop lives inside
+ * THIS FILE CREATES NO JOBS AND TICKS NOTHING. The system this replaces had to
+ * tick, because that deployment ran no gateway and the cron loop lived inside
  * one; this one runs the gateway, so the jobs already fire. Adding a second
  * scheduler here would be two clocks disagreeing about whether a job is due —
  * the gap analysis says so in its own recommendation ("preserve successful

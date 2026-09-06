@@ -418,9 +418,9 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
 /**
  * ADDRESS A WORKER BY VENTURE AND ROLE.
  *
- * This door exists FOR THE SKILL. An agent that has just been told "Example App 1's
+ * This door exists FOR THE SKILL. An agent that has just been told "Acme's
  * SEO Analyst" holds a venture and a role, not an id, and making it read the
- * org first to turn those into `sa-v-example-app-1-seo` is a lookup that can fail
+ * org first to turn those into `sa-v-acme-seo` is a lookup that can fail
  * and a step that can be skipped. The ids are derivable — see store.ts — so
  * the derivation is done here once instead of by every caller.
  *

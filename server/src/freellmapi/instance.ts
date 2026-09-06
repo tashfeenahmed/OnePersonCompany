@@ -95,7 +95,6 @@ import {
   LOCAL_URL,
   PLUGIN,
   SECRET_STEM,
-  isLocal,
   setLocalHealth,
 } from "../providers/freellmapi.ts";
 
@@ -1115,12 +1114,6 @@ export function report(): InstanceReport {
  *  which account wins when the owner has not chosen one. */
 export function isRunning(): boolean {
   return state === "running" && child !== null;
-}
-
-/** Is the endpoint currently in use this instance's? Used by the panel to say
- *  "running, and not the one answering". */
-export function isInUse(baseUrl: string | null): boolean {
-  return baseUrl !== null && isLocal(baseUrl);
 }
 
 /* ---------------------------------------------------------------- lifecycle */

@@ -79,21 +79,11 @@ export function VentureMark({
  * The title carries the whole sentence, because the pill is a label and the
  * sentence is what actually changes the advice the agent gives.
  */
-export function StagePill({
-  stage,
-  note,
-  className,
-}: {
-  stage: VentureStage;
-  /** The server's own wording when the page has it; the client's copy of the
-   *  same sentence otherwise. */
-  note?: string;
-  className?: string;
-}) {
+export function StagePill({ stage, className }: { stage: VentureStage; className?: string }) {
   const spec = VENTURE_STAGES.find((s) => s.id === stage);
   return (
     <span
-      title={note ?? spec?.note}
+      title={spec?.note}
       className={cn(
         "shrink-0 rounded-[6px] border px-1.5 py-px text-[10.5px] leading-[1.5] whitespace-nowrap",
         stage === "idea" && "text-muted-foreground border-dashed",

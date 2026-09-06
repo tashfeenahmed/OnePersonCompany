@@ -13,8 +13,8 @@
  * that means something other than what it says. A long sentence is TRIMMED,
  * because losing the last few words of a note is a much smaller failure than
  * losing the record that the work happened at all. A URL is refused rather
- * than repaired, for the reason WorkDash's own log refuses one: a link is the
- * whole evidence of a post, and one quietly rewritten into something that
+ * than repaired, for the reason the previous system's own log refuses one: a
+ * link is the whole evidence of a post, and one quietly rewritten into something that
  * resolves against this dashboard's origin is worse than no link.
  *
  * THE STREAK IS ARITHMETIC OVER DAYS AND IS NOT A JUDGEMENT. It counts days on
@@ -34,8 +34,8 @@ import { db, now, ventureRowById, ventureRows, type VentureRow } from "../../db.
  * THE KINDS, AND WHY THERE ARE SIX.
  *
  * Five verbs a founder actually uses about a day plus a bucket, ported from
- * WorkDash's did/shipped/post set and widened by the three its own log kept
- * pushing into `did`: a meeting, a decision, and everything else. They are
+ * the previous system's did/shipped/post set and widened by the three its own
+ * log kept pushing into `did`: a meeting, a decision, and everything else. They are
  * deliberately COARSE — a taxonomy with twenty entries is a taxonomy nobody
  * fills in the same way twice, and the text carries the detail anyway.
  */

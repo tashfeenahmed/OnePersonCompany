@@ -1,14 +1,10 @@
 /**
  * The social feed area's three skill entries.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  *
  * THREE ACTIONS ARE MARKED `destructive`, AND NOT ONE OF THEM BECAUSE A ROW
- * CANNOT BE DELETED AFTERWARDS. The rule this build settled on is that an
- * action which SPENDS MONEY, SENDS SOMETHING, or CHANGES WHAT A GATE WILL LET
- * THROUGH is flagged, because `destructive` is the only signal a client gets
- * before it decides whether to ask a person first.
+ * CANNOT BE DELETED AFTERWARDS — see the field's own rule in skills/registry.ts:
  *
  *   `ugc.start`             an image prediction fires on every call and no
  *                           cancellation refunds it
@@ -231,11 +227,7 @@ export const SKILLS: Skill[] = [
         about:
           "Hand every finished autopilot video that has not been delivered to the paired Telegram chat — or to nobody, when the `deliverTo` setting is off — and file each as a DRAFT in the publishing queue. Idempotent; the draft is filed either way; nothing is published anywhere.",
         params: [],
-        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
-           a row cannot be deleted afterwards. `destructive` is what a client is
-           entitled to trust when it decides whether to ask a person first, and
-           the thing that cannot be taken back here is the money, the message or
-           the power state rather than the record. It sends: finished videos go out to the configured channel. */
+        /* It sends: finished videos go out to the configured channel. */
         destructive: true,
       },
     ],
@@ -311,11 +303,7 @@ export const SKILLS: Skill[] = [
           { name: "assets", type: "string", required: false, about: "Comma-separated asset ids to use as references. Empty uses the whole library, up to four." },
           { name: "aspect", type: "string", required: false, fallback: "9:16", about: "`9:16`, `1:1` or `16:9`." },
         ],
-        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
-           a row cannot be deleted afterwards. `destructive` is what a client is
-           entitled to trust when it decides whether to ask a person first, and
-           the thing that cannot be taken back here is the money, the message or
-           the power state rather than the record. It spends: one image-model prediction per picture. */
+        /* It spends: one image-model prediction per picture. */
         destructive: true,
       },
     ],

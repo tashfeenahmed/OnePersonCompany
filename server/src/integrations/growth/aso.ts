@@ -326,7 +326,7 @@ const alnum = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
  * field nineteen ventures have to fill in by hand:
  *
  *   1. the app's NAME, letters and digits only, equals or contains the
- *      venture's name the same way — "Example App 11" is aigroupcall,
+ *      venture's name the same way — "Acme Studio" is acmestudio,
  *   2. a SEGMENT of the bundle id or package equals the venture's host without
  *      its suffix — test.example.mobile against example-app-10.example.test,
  *   3. the whole bundle id contains it — com.acmeapp.app against acmeapp.

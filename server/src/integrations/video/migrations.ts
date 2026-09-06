@@ -101,7 +101,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- does. So every decision it takes is written down here, including the
       -- decisions to do NOTHING — a venture skipped for its stage, a cadence
       -- already met this week, a day's cap already spent. A log that only held
-      -- the successes would answer "why is there no video for Example App 1" with
+      -- the successes would answer "why is there no video for Acme" with
       -- silence, and silence is the one answer that sends somebody looking for
       -- a bug in a feature that is working exactly as configured.
       --

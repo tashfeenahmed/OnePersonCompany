@@ -289,18 +289,15 @@ function listing(cat: Catalog): string {
  * The document, as the dashboard answered it — inside the response budget.
  *
  * Indented when it is JSON and `--raw` was not asked for; byte for byte when it
- * was. Both halves of that hold at every size: the first cut applied the
- * budget's shaping only above the budget and handed back the route's own
- * compact bytes below it, so every small document printed as one long line and
- * `--raw` was a flag that did nothing until an answer got big. What is new here
- * is the SHAPE. This used to print whatever came back
- * and then, past 24 KB, write a note to stderr saying the terminal tool was
- * about to truncate it and the agent should ask for less. That note was
- * honest and useless: by the time it is read the document has already been cut
- * at a byte boundary somewhere the model cannot see, and a JSON document
- * ending mid-string is read as far as it parses and reported as complete.
+ * was. Both hold at every size: the budget's shaping applies only above the
+ * budget, and the route's own compact bytes come back untouched below it, so
+ * `--raw` is a meaningful flag even for a small answer.
  *
- * So the same threshold is now a BUDGET rather than a warning. `bound.ts`
+ * A note to stderr saying the terminal was about to truncate the output past
+ * 24 KB would be honest and useless: by the time it is read the document has
+ * already been cut at a byte boundary the model cannot see, and a JSON
+ * document ending mid-string is read as far as it parses and reported as
+ * complete. So the threshold is a BUDGET rather than a warning. `bound.ts`
  * keeps every scalar, shortens the longest lists, marks each one with the real
  * total and the way to get the rest, and never cuts a value in half. What goes
  * to stderr is what it did, which the terminal tool shows beside stdout.

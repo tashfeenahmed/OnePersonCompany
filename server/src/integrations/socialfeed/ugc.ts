@@ -7,10 +7,10 @@
  * into a scene; that still frame goes to a Replicate image-to-video model,
  * which animates it; the video area's captioner burns one line onto the
  * result; and the finished file becomes a DRAFT in the publishing queue. It is
- * the shape workdash's studio.js has — image, video, caption, delivery — with
- * the two things that box did not have: a model whose image-input capability
- * is MEASURED rather than assumed, and an animation step that refuses to spend
- * money nobody has configured.
+ * the shape the system this replaces used — image, video, caption, delivery —
+ * with the two things that system did not have: a model whose image-input
+ * capability is MEASURED rather than assumed, and an animation step that
+ * refuses to spend money nobody has configured.
  *
  * THE ANIMATION MODEL HAS NO DEFAULT AND THAT IS THE DESIGN. Image-to-video is
  * the most expensive thing on Replicate that this box could call — dollars a
@@ -41,7 +41,7 @@ import { configValue, db, now, type VentureRow } from "../../db.ts";
 import { tokenAccounts } from "../../providers/replicate.ts";
 import { download, firstUrl, predict } from "../../tools/replicate-run.ts";
 import { readBrand } from "../../ventures/enrich.ts";
-import { formatForAspect, imageModel, makeImage, STUDIO_DIR } from "../ventures/studio.ts";
+import { formatForAspect, imageModel, makeImage } from "../ventures/studio.ts";
 import { assetAsDataUrl, assetAsText, assetRows, markUsed, modelImageInput } from "../publishing/assets.ts";
 import { correctMediaKind, createItem, sniff } from "../publishing/items.ts";
 import { runDir, StepError, type RunSession } from "../video/faceless.ts";
@@ -662,7 +662,3 @@ function saveUgc(job: {
     value(job.error, existing?.error ?? null),
   );
 }
-
-/** Where the Studio writes its images, re-exported so a route can serve a UGC
- *  still without knowing that a UGC still is a Studio image. */
-export const UGC_IMAGE_DIR = STUDIO_DIR;

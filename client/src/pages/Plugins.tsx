@@ -25,7 +25,7 @@ export function Plugins() {
 
   /* One row per server-backed plugin, so the grid can say both "connected"
      and "connected, but one of its two accounts is refusing" — which are
-     different facts, and only the first one used to be sayable. */
+     different facts. */
   const rows = useMemo(
     () => new Map((server.data?.plugins ?? []).map((p) => [p.id, p])),
     [server.data],

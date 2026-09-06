@@ -1,9 +1,7 @@
 /**
  * The ops area's skill entries.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph, and its header says why
- * that must not happen.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  *
  * THREE ENTRIES AND NOT FOUR. Backups have no skill and will not get one:
  * nothing about them is a fact about the business, so there is nothing for an

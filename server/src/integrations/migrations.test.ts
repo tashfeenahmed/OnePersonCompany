@@ -14,10 +14,10 @@ import { DatabaseSync } from "node:sqlite";
 import { MIGRATIONS } from "../db.ts";
 import { INTEGRATION_MIGRATIONS } from "./migrations.ts";
 
-/* This pass's steps. Everything before them is "the box as it was". */
+/* The 400+ steps. Everything before them is "the box as it was". */
 const isNew = (m: { name: string }) => m.name >= "400";
 
-/** A database with every migration but this pass's, and a `migrations` table
+/** A database with every migration below 400, and a `migrations` table
  *  recording them — which one of the steps reads, to tell a first run apart
  *  from a box that has been going for months. */
 function boxAsItWas(appliedAt = "2026-01-01T00:00:00.000Z"): DatabaseSync {
@@ -270,15 +270,21 @@ test("402 keeps the seeds when anything has been linked to one", () => {
 test("403 and 404 add a column each without touching a row", () => {
   const db = boxAsItWas();
   db.prepare(
+    `INSERT INTO ventures (id, slug, name, description, website, host, stage, color,
+                           color_source, position, brand, created_at, updated_at)
+     VALUES ('v-mine','mine','Mine','','','','idea','#111','owner',4,'{}',
+             '2026-02-02T00:00:00.000Z','2026-02-02T00:00:00.000Z')`,
+  ).run();
+  db.prepare(
     `INSERT INTO publish_items (id, venture_id, source_kind, caption, status,
                                 approved_at, approved_by, idempotency_key, created_at, updated_at)
-     VALUES ('pi-1','v-example-content','manual','A caption somebody approved','approved',
+     VALUES ('pi-1','v-mine','manual','A caption somebody approved','approved',
              '2026-08-01T00:00:00.000Z','owner','k1',
              '2026-08-01T00:00:00.000Z','2026-08-01T00:00:00.000Z')`,
   ).run();
   db.prepare(
     `INSERT INTO venture_links (venture_id, plugin, entity, label, source, created_at)
-     VALUES ('v-example-content','dynadot','example.ie',NULL,'owner','2026-08-01T00:00:00.000Z')`,
+     VALUES ('v-mine','dynadot','acme.ie',NULL,'owner','2026-08-01T00:00:00.000Z')`,
   ).run();
 
   applyThisPass(db);
@@ -291,7 +297,7 @@ test("403 and 404 add a column each without touching a row", () => {
   assert.equal(item.approved_content, null);
 
   const link = db.prepare("SELECT * FROM venture_links").get() as Record<string, unknown>;
-  assert.equal(link.entity, "example.ie");
+  assert.equal(link.entity, "acme.ie");
   assert.equal(link.evidence, null);
   db.close();
 });

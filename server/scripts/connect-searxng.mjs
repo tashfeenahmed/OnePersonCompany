@@ -2,8 +2,7 @@
 /**
  * Connect the SearXNG node.
  *
- *     ssh pi@192.0.2.17 'cd /opt/workdash && node agent/secrets.js get searxng-key' \
- *       | node scripts/connect-searxng.mjs
+ *     ssh you@the-box 'print-the-searxng-key' | node scripts/connect-searxng.mjs
  *
  *     ssh … | node scripts/connect-searxng.mjs https://searxng.example.com/search
  *     ssh … | SEARXNG_URL=https://searxng.example.com node scripts/connect-searxng.mjs
@@ -54,8 +53,7 @@ const key = (
 if (!key) {
   console.error(
     "No key on stdin. Pipe it in:\n" +
-      "  ssh pi@192.0.2.17 'cd /opt/workdash && node agent/secrets.js get searxng-key' \\\n" +
-      "    | node scripts/connect-searxng.mjs [url]",
+      "  ssh you@the-box 'print-the-searxng-key' | node scripts/connect-searxng.mjs [url]",
   );
   process.exit(1);
 }

@@ -18,7 +18,7 @@
  * citations whether or not it read anything, so the only useful question is
  * whether the thing it cited exists, and that question has a mechanical answer.
  *
- * A SECOND GATE ON DIGITS, ported from WorkDash's soul.js and seo.js for its
+ * A SECOND GATE ON DIGITS, carried over from the previous system for its
  * stated reason: a proposed fact carrying a figure that is nowhere in the
  * material is a figure the model produced, and a price a model produced is the
  * single most expensive kind of wrong this feature could ship.
@@ -108,10 +108,6 @@ const FETCH_DEADLINE_MS = 90_000;
  *  named so that a reader of a citation cannot mistake it for one. */
 export const TREE_PATH = "<file tree>";
 
-/** The pseudo-plugin the one setting hangs off. See the manifest's header for
- *  why there is a setting here at all. */
-export const KNOWLEDGE_PLUGIN = "knowledge";
-
 /* ------------------------------------------------------------------ shapes */
 
 /** A run of lines that was actually put in front of the model. `startLine` is
@@ -179,7 +175,7 @@ export function materialNumbers(excerpts: Excerpt[]): Set<string> {
 }
 
 /**
- * WorkDash's `numbersResolve`, ported for its reason: a bullet carrying an
+ * Ported from the previous system for its reason: a bullet carrying an
  * invented figure is dropped individually rather than costing the whole answer.
  * Small integers up to twelve are allowed through — "three plans" is prose, not
  * a measurement, and refusing it would reject most honest sentences.
@@ -714,8 +710,8 @@ export function directFacts(m: Material): { kind: FactKind; statement: string; c
   const readme = find(/^readme(\.[a-z]+)?$/i);
   if (readme) {
     /* The first paragraph that is not a heading, a badge row or HTML — the
-       tagline. WorkDash's `firstProse`, and its thirty-character floor, which
-       was tuned against real READMEs. */
+       tagline. Ported from the previous system, along with its thirty-character
+       floor, which was tuned against real READMEs. */
     let i = 0;
     while (i < readme.lines.length) {
       const line = (readme.lines[i] ?? "").trim();

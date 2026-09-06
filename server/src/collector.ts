@@ -96,7 +96,7 @@ import {
   writeCloudflareTraffic,
 } from "./db.ts";
 /* Meta — the Pages and the ad account. One provider rather than two, because
-   one token reaches both and workdash's two collectors read the same file:
+   one token reaches both and the previous system's two collectors read the same file:
    splitting them here would be two credentials' worth of machinery for one
    credential. Instagram is not a provider at all and has no collector — it is
    a FIELD on a Page, and on this account that field is empty on every one. */
@@ -1595,8 +1595,8 @@ const EMPTY_ADSENSE = {
  * Hetzner token is pasted in ten seconds and a plugin with none is
  * misconfigured. AdSense is not like that. Connecting it needs a human to
  * approve a Google consent screen in a browser, as the AdSense account owner,
- * and until that happens there IS no credential to have. workdash's collector
- * writes `{"error": "not-authorised", "hint": …}` and exits ZERO for exactly
+ * and until that happens there IS no credential to have. The collector this
+ * replaces writes `{"error": "not-authorised", "hint": …}` and exits ZERO for exactly
  * this reason — a daily timer must never go red for a consent nobody has
  * given — and the same instinct applies here: the run finishes green with a
  * note saying what is missing and how to supply it.
@@ -3297,7 +3297,7 @@ export async function collectSearxng(): Promise<SearxngSummary> {
  * hundred requests — the label counters are cheap and the thread reads are not
  * — and redrawing a triage queue forty-eight times a day would spend an order
  * of magnitude more of Google's budget than the answer moves. Two hours is what
- * `collect_inbox.py` settled on over the same mailbox, and it is a figure that
+ * the previous system's collector settled on over the same mailbox, and it is a figure that
  * has actually been run.
  *
  * A skipped run says so — "Gmail not due — read 1h ago" — rather than looking

@@ -2,8 +2,8 @@
  * THE LEASE REGISTRY — who is using a shared machine, and therefore who must
  * not have it slept out from under them.
  *
- * WHAT PROBLEM THIS SOLVES, stated as WorkDash's dellsession.js states it: a
- * render finishes, schedules a ten-minute sleep, the owner starts a second job,
+ * WHAT PROBLEM THIS SOLVES: a render finishes, schedules a ten-minute sleep,
+ * the owner starts a second job,
  * and the first job's timer fires halfway through and powers off the machine
  * the second one is using. Two independent linger timers is a bug with one
  * clear failure. So ownership and busyness are ONE thing, shared, and every
@@ -316,8 +316,8 @@ export function recent(limit = 50): Lease[] {
  * IS ANYTHING USING THIS MACHINE. The one question the whole file exists for.
  *
  * `holders` is the list a refusal quotes verbatim, so the owner reads "video
- * is rendering for Neu" rather than "busy" — WorkDash's gpu.js makes the same
- * point about naming the claimant.
+ * is rendering for Acme" rather than "busy" — naming the claimant, not just
+ * the state.
  */
 export function busy(resource = LOCAL): { busy: boolean; holders: Lease[] } {
   const holders = live(resource);
@@ -497,7 +497,8 @@ export function releaseWake(resource: string): Wake | null {
  * Two independent reasons to refuse, and they are reported separately because
  * they are fixed differently. BUSY means a job is mid-flight: wait, or release
  * the lease. NOT OURS means the machine was already up when this app found it
- * — WorkDash's rule, kept — and the fix is that the owner sleeps it themselves,
+ * — kept as a rule from the system this replaces — and the fix is that the
+ * owner sleeps it themselves,
  * because nothing here can know whose work is on it.
  *
  * `force` EXISTS AND IS THE OWNER'S. An owner looking at the page and pressing

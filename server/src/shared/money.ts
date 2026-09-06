@@ -1,14 +1,12 @@
 /**
  * MONEY, ROUNDED ONCE AND SPELLED ONE WAY.
  *
- * Nine copies of `money` shipped across this box at three different
- * precisions — 2, 4 and 6 decimal places — so two documents about the same
- * month never tied out to the cent. Currency codes were upper-case in one area
- * and Stripe's lower-case in every other, so a map keyed by currency held the
- * same money twice under two spellings. And five hand-rolled slices converted
- * a `YYYYMM` report key to `YYYY-MM`, each with its own chance of getting the
- * offsets wrong — a key that fails to match yields a silent zero, not an
- * error.
+ * Rounding money at three different precisions — 2, 4 and 6 decimal places —
+ * means two documents about the same month never tie out to the cent. Mixing
+ * upper-case currency codes with Stripe's lower-case ones means a map keyed by
+ * currency holds the same money twice under two spellings. And hand-rolling
+ * the `YYYYMM`-to-`YYYY-MM` slice is a fresh chance to get the offsets wrong
+ * each time — a key that fails to match yields a silent zero, not an error.
  *
  * WHAT THIS MODULE SETTLED ON
  *
@@ -20,12 +18,13 @@
  *
  *   2. `dp` IS EXPLICIT WHERE A SURFACE HAS A REASON. Per-call model spend is
  *      genuinely sub-cent — a single completion can cost a hundredth of a
- *      cent — and rounds at 6. That is a documented exception, passed at the
- *      call site, not a second `money`.
+ *      cent — and rounds at 6, passed at the call site as `MODEL_SPEND_DP`
+ *      rather than becoming a second `money`. Several sub-cent surfaces still
+ *      hand-roll `.toFixed(6)`; they want this constant.
  *
  *   3. ROUNDING IS THE LAST STEP, NEVER AN INTERMEDIATE ONE. Sum at full
- *      precision, round the answer. Rounding each row and then adding is how
- *      the 2dp copies drifted from the 4dp ones in the first place.
+ *      precision, round the answer. Rounding each row and then adding drifts,
+ *      and drifts further the more rows there are.
  *
  *   4. TWO DECIMAL PLACES IS A RENDERING CONCERN. A page that wants "£12.34"
  *      formats it for display; it does not get a differently-rounded number

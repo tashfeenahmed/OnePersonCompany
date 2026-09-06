@@ -422,12 +422,9 @@ export type PipelineSettings = {
   enabled: boolean;
   hour: number;
   /**
-   * ALWAYS A REAL ZONE NAME. This used to be `string | null` beside a second
-   * `resolvedTimezone` field, and the pair said one thing twice: null meant
-   * "the machine's own", and the resolved name was the machine's own. Two
-   * fields for one fact is two chances to read the wrong one, and the copies
-   * in other areas each picked a different one of the two. `zoneWasSet` keeps
-   * the only information the null carried — whether the owner ever typed one.
+   * ALWAYS A REAL ZONE NAME, never `null` beside a second resolved-name field
+   * that would say the same fact twice. `zoneWasSet` keeps the only other
+   * information a null could carry — whether the owner ever typed one.
    */
   timezone: string;
   zoneWasSet: boolean;
@@ -459,10 +456,7 @@ export function settings(): PipelineSettings {
   const { blackouts, errors } = parseBlackouts(configValue(PIPELINE_PLUGIN, "blackouts"));
   const minutes = whole(configValue(PIPELINE_PLUGIN, "max-minutes"), DEFAULT_MAX_MINUTES, 0, 1440);
   /* The enabled flag, the hour and the zone all come from one reader now —
-     `shared/time.ts` — which is also where the rule that an out-of-range hour
-     falls back rather than CLAMPS is written down. This file used to clamp,
-     turning a typed 25 into 23:00: an hour the owner never chose, presented
-     as one they did. */
+     `shared/time.ts`, see `readHour` there for the out-of-range rule. */
   const daily = dailySchedule(PIPELINE_PLUGIN, { defaultHour: DEFAULT_HOUR });
   return {
     enabled: daily.enabled,

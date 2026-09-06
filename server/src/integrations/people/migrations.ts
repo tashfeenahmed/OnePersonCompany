@@ -17,9 +17,9 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- (providers/gmail.ts keeps its correspondent counts as HMAC
       -- fingerprints because its consumer is a number on a card and never
       -- needs the address back. This table is a contacts LIST — a page whose
-      -- whole job is to say who — so it keeps the address, the way workdash's
-      -- collect_contacts.py does, and takes the narrower promise instead:
-      -- headers only, nothing about content.)
+      -- whole job is to say who — so it keeps the address, the way the
+      -- previous system's own contacts collector does, and takes the
+      -- narrower promise instead: headers only, nothing about content.)
       --
       -- ONE ROW IS ONE PERSON AS SEEN THROUGH ONE MAILBOX. The key is
       -- (mailbox, address) rather than address alone because two connected

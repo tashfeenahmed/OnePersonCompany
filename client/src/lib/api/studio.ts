@@ -271,10 +271,9 @@ export const backupsApi = {
 };
 
 /*
-  THE CAPTURE ROUTE USED TO BE DESCRIBED HERE TOO, and the two descriptions had
-  already drifted: this copy's `CaptureVenture.rendered` had no `reading`, so
-  the brand colours the server sends with every rendered row were invisible to
-  anything typed against it, and its `CaptureRun` had no `path` while its
-  `CaptureResult` did. `/capture` is a venture's picture, so the shape lives in
-  `lib/api/ventures.ts` and only there.
+  DO NOT DESCRIBE `/capture` HERE. It is a venture's picture, so its shape lives
+  in `lib/api/ventures.ts` and only there — a second copy loses fields silently
+  (`CaptureVenture.rendered.reading` carries the brand colours the server sends
+  with every rendered row, and `CaptureRun.path` is easy to miss because
+  `CaptureResult` has one too).
 */

@@ -10,28 +10,28 @@
  * by the page, once by the DELETE).
  *
  * EVERY MUTATION ANSWERS WITH THE WHOLE BOARD, and that is the one contract
- * this file is built around. It is workdash's own pattern and it is worth
- * copying for a reason that only shows up under a drag: a move changes a
- * card's column, its position, its `updatedAt` and possibly its `doneAt`, and
- * — because positions are shared — it can change the numbers on cards nobody
- * touched. A reply of `{ ok: true }` would leave the page to guess at all of
- * that, and a reply of "the card as it now is" would leave it to guess at the
- * rest of the column. Handing back the document means the client's next state
- * is not derived from anything: it IS the server's answer, applied whole. The
- * board is five columns and a few dozen cards — a few kilobytes — so the cost
- * of that is nothing, and it buys away the entire class of bug where a page
- * and its server disagree about where a card is.
+ * this file is built around. It mirrors a pattern from the system this
+ * replaces, worth copying for a reason that only shows up under a drag: a move
+ * changes a card's column, its position, its `updatedAt` and possibly its
+ * `doneAt`, and — because positions are shared — it can change the numbers on
+ * cards nobody touched. A reply of `{ ok: true }` would leave the page to
+ * guess at all of that, and a reply of "the card as it now is" would leave it
+ * to guess at the rest of the column. Handing back the document means the
+ * client's next state is not derived from anything: it IS the server's answer,
+ * applied whole. The board is five columns and a few dozen cards — a few
+ * kilobytes — so the cost of that is nothing, and it buys away the entire
+ * class of bug where a page and its server disagree about where a card is.
  *
  * WHY THE MOVE TAKES A NEIGHBOUR RATHER THAN AN INDEX. `{ columnId, before }`
- * — "put it in that column, above that card" — where workdash sends
- * `{ column, index }`. Both keep the ORDER on the server, which is the part
- * that matters; the difference is what happens when the client's copy is a few
- * seconds old. An index of 3 means a different slot the moment anything else
- * has been inserted, and it silently means SOMETHING, so a stale drop lands in
- * the wrong place and looks like the drag misfired. A card id either still
- * names a card in that column or it does not, and if it does not this route
- * says so rather than guessing. `before: null` is the honest name for the end
- * of the column, and is what a drop past the last card sends.
+ * — "put it in that column, above that card" — where the system this replaces
+ * sends `{ column, index }`. Both keep the ORDER on the server, which is the
+ * part that matters; the difference is what happens when the client's copy is
+ * a few seconds old. An index of 3 means a different slot the moment anything
+ * else has been inserted, and it silently means SOMETHING, so a stale drop
+ * lands in the wrong place and looks like the drag misfired. A card id either
+ * still names a card in that column or it does not, and if it does not this
+ * route says so rather than guessing. `before: null` is the honest name for
+ * the end of the column, and is what a drop past the last card sends.
  *
  * WHAT IS NOT HERE. There is no route that creates or deletes a column: the
  * five seeded in `020_board` are the board. Adding that is a small change and
@@ -41,21 +41,18 @@
  * on the document as `structural: true`, because a delete route would refuse
  * on the key and the page hides an option it should never offer.
  *
- * THE VENTURES ARE HERE NOW, AND THE ID IS STILL NOT A FOREIGN KEY.
+ * THE VENTURES ARE HERE, AND THE ID IS STILL NOT A FOREIGN KEY.
  *
- * This header used to say "NO VENTURES": a card carried `ventureId`, ventures
- * lived in the browser's own store, and this server had never seen one, so the
- * document could not carry a name or a colour and did not pretend to. Half of
- * that is now false — `021_ventures` put them in a table beside these cards,
- * because the agent has to be able to read a venture's STAGE — so `boardDoc()`
- * resolves the ids the cards actually carry and hands over a `ventures` map of
- * name, slug, colour and stage. The page no longer has to hold a second copy
- * of the list to draw a chip.
+ * A card carries `ventureId`. `021_ventures` put ventures in a table beside
+ * these cards, because the agent has to be able to read a venture's STAGE —
+ * so `boardDoc()` resolves the ids the cards actually carry and hands over a
+ * `ventures` map of name, slug, colour and stage. The page does not have to
+ * hold a second copy of the list to draw a chip.
  *
- * WHAT DID NOT CHANGE IS `venture_id` ITSELF: it is still a bare TEXT column
- * with no REFERENCES on it, and that is now a decision rather than a
- * consequence. A foreign key would force one of two behaviours on a delete and
- * both are worse than the third. ON DELETE CASCADE takes the work with the
+ * `venture_id` IS STILL A BARE TEXT COLUMN WITH NO REFERENCES ON IT, and that
+ * is a decision rather than an oversight. A foreign key would force one of
+ * two behaviours on a delete and both are worse than the third. ON DELETE
+ * CASCADE takes the work with the
  * business, and "I closed that venture" is not "delete the eleven cards about
  * winding it up". ON DELETE SET NULL silently unfiles them, which loses the
  * one fact worth keeping — that this card was about that thing. Leaving the id

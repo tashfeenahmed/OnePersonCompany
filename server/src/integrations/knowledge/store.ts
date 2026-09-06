@@ -33,7 +33,7 @@
  * value changing ("installs" is one fact; 4,100 and 4,180 are two readings of
  * it). A correction files a NEW owner fact and marks the old one `corrected`
  * with a pointer to its replacement, so the disagreement is still on the
- * record — this is the thing WorkDash's soul.js got right and the reason its
+ * record — this is the thing the previous system got right and the reason its
  * documents could be trusted: picking a winner silently is the failure.
  */
 import { randomUUID } from "node:crypto";
@@ -83,8 +83,6 @@ export const MAX_STATEMENT = 500;
 /** How many facts one venture may hold. Past this the oldest-observed
  *  `proposed` are dropped first, then the oldest `retired`. */
 export const MAX_FACTS = 300;
-/** How many facts reach the agent's system turn. See `knowledgeLines`. */
-export const CONTEXT_FACTS = 18;
 
 /**
  * CONFIDENCE IS DERIVED, NEVER SUPPLIED. A caller that could send its own
@@ -163,13 +161,6 @@ const isTier = (v: string): v is FactTier => (TIERS as readonly string[]).includ
 /**
  * The IDENTITY of a fact, as opposed to its wording — `shared/textkey.ts`'s
  * digit-folding key, re-exported under the name this area's callers use.
- *
- * The digit rule is the interesting one: "Play listing has 4,100 installs" and
- * "Play listing has 4,180 installs" are ONE fact read twice, and a key that
- * kept the digits would file the second as a new fact every morning and leave
- * the store holding a hundred readings of the same sentence. Four areas each
- * wrote their own answer to "is this the same sentence" and they disagreed;
- * the shared module is now the only one.
  *
  * Measured facts do not use this at all — a deriver supplies its own stable
  * key, because two derivers may legitimately produce sentences that normalise

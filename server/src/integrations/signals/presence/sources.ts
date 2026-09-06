@@ -1,7 +1,7 @@
 /**
  * Off-site footprint: where each product exists on somebody else's website.
  *
- * Ported from workdash's `collectors/collect_presence.py`. Every other
+ * Ported from the presence collector in the system this replaces. Every other
  * measurement on this box is of something the owner owns — his servers, his
  * Stripe account, his own HTML. This one measures the opposite: whether
  * anybody ELSE has a page about a product, because that is what an answer
@@ -132,18 +132,9 @@ export function parseProducts(raw: string | null | undefined): Product[] {
 }
 
 /**
- * Is this url on one of the product's own hosts?
- *
- * `sameSite` out of `shared/host.ts`, and the change of rule is the point.
- * This used to fold both sides to a registrable domain and compare them, which
- * is BIDIRECTIONAL by construction: a directory record pointing at the parent
- * domain of somebody else's product on a shared registrable domain read as
- * ours. Ownership runs downward only — a link to a subdomain of the product's
- * host is the product's, a link to its parent is not.
- *
- * The sibling collector in this same area had a DIFFERENT host reducer under
- * the same name, so the two disagreed about whether a link was ours. One
- * module now answers for both.
+ * Is this url on one of the product's own hosts? Delegates to `sameSite`
+ * (`shared/host.ts`) — see that module's header for why ownership runs
+ * downward only rather than by registrable domain.
  */
 export function ours(url: string | null | undefined, product: Product): boolean {
   return product.hosts.some((h) => sameSite(h, url));
@@ -282,8 +273,8 @@ export async function wikipedia(product: Product): Promise<Finding> {
 }
 
 /** Wikidata's `wbsearchentities`, on an EXACT label match only: it is a
- *  prefix search and will happily return "Betamax" for "Betaware", and a
- *  footprint inflated by a coincidence is worse than one that is merely low. */
+ *  prefix search and will happily return "Acmetal Industries" for "Acme", and
+ *  a footprint inflated by a coincidence is worse than one merely low. */
 export async function wikidata(product: Product): Promise<Finding> {
   const q = new URLSearchParams({
     action: "wbsearchentities",

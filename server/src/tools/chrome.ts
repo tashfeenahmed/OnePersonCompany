@@ -203,10 +203,6 @@ export type ArgOpts = {
    *  rather than a constant, which is the sheet renderer's improvement over
    *  the capture's hardcoded 20 s. */
   timeoutMs?: number;
-  /** Device pixel ratio. 1 unless a caller genuinely wants a retina bitmap:
-   *  at anything else the file's dimensions are not the window's, and the
-   *  dimensions are read precisely to check that they match. */
-  scale?: number;
   /** Suppress the header and footer Chrome prints on a PDF. */
   printing?: boolean;
 };
@@ -234,7 +230,10 @@ export function baseArgs(opts: ArgOpts): string[] {
     "--disable-gpu",
     "--hide-scrollbars",
     `--window-size=${width},${height}`,
-    `--force-device-scale-factor=${opts.scale ?? 1}`,
+    /* Device pixel ratio 1: at anything else the file's dimensions are not
+       the window's, and the dimensions are read precisely to check they
+       match. */
+    "--force-device-scale-factor=1",
     "--no-first-run",
     "--no-default-browser-check",
     "--disable-extensions",
@@ -268,9 +267,6 @@ export type RunOpts = {
   /** Cancellation from the run that asked for this. A cancelled run must not
    *  wait out a twenty-five-second browser. */
   signal?: AbortSignal;
-  /** How much stdout is read before the page is called abusive. Only a DOM
-   *  dump produces any. */
-  maxBytes?: number;
 };
 
 /**
@@ -302,7 +298,9 @@ export async function dump(opts: RunOpts): Promise<DumpResult> {
 
 function runBrowser(opts: RunOpts, want: { file: string } | { dom: true }): Promise<ShotResult> {
   const budgetMs = opts.budgetMs ?? RUN_MS;
-  const maxBytes = opts.maxBytes ?? 32 * 1024 * 1024;
+  /* How much stdout is read before the page is called abusive. Only a DOM
+     dump produces any. */
+  const maxBytes = 32 * 1024 * 1024;
 
   return new Promise((done) => {
     let child: ReturnType<typeof spawn>;

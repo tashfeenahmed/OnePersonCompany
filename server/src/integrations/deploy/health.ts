@@ -244,20 +244,9 @@ export type Health = {
   status: Verdict;
   checks: Check[];
   /**
-   * HOW LONG HISTORY IS KEPT, TABLE BY TABLE, VERBATIM FROM THE REGISTRY.
-   *
-   * This used to be `retainDays: { readings, load }` read straight out of
-   * config, and it was a claim about the box that was not true of the box. It
-   * described neither the uptime checks, the fleet samples, the workstation
-   * states nor the job leases — each of which aged on a number no setting
-   * could reach — and it certainly did not describe `security_snapshots`,
-   * `security_shotsqa` and `backup_runs`, which at the time nothing anywhere
-   * pruned. A health endpoint naming a retention window it does not govern is
-   * worse than one naming none, because somebody plans around it.
-   *
-   * It is now the same list the sweep walks, so the two cannot disagree, and a
-   * table that is ABSENT from it is a table nothing prunes — which is a
-   * visible fact rather than an absence.
+   * HOW LONG HISTORY IS KEPT, TABLE BY TABLE, VERBATIM FROM THE REGISTRY —
+   * see `shared/retention.ts` for why this is a registry and not a config
+   * value. A table ABSENT from it is a table nothing prunes.
    */
   retention: RetentionEntry[];
   note: string;

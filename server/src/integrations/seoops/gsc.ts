@@ -66,11 +66,9 @@ export function resolveProperty(url: string, rows: PropertyRow[]): PropertyRow |
   for (const row of rows) {
     let score = -1;
     if (row.property.startsWith("sc-domain:")) {
-      /* ONE-DIRECTIONAL, and it is a correction. A domain property covers the
-         URL when the property IS the URL's host or the host sits UNDER it.
-         The rule this replaced matched in both directions, so a property for
-         `blog.example.com` claimed a URL on `example.com` — a different site,
-         whose figures would then be captioned with the wrong property. */
+      /* ONE-DIRECTIONAL by design (see `shared/host.ts`): a domain property
+         covers the URL when the property IS the URL's host or the host sits
+         UNDER it, never the reverse. */
       if (hostMatch(row.property, target.hostname)) score = 1;
     } else {
       /* A URL-prefix property is a string prefix in Search Console's own

@@ -1,29 +1,17 @@
 /**
  * VOICE, AND THE NAME THE INTEGRATION PANELS CALL EVERYTHING ELSE BY.
  *
- * This file used to be a second, hand-written client for the same ten report
- * routes `lib/api/reports.ts` already describes — 10 endpoints and 10
- * same-named types, transcribed twice from the same server. Both copies were
- * careful and both were maintained, and they had still drifted in three ways
- * that a reader of either one could not see:
- *
- *   - `verified.checked` was `number` here and `number | null` there, so one
- *     side invited a bare arithmetic on a figure the server declines to give;
- *   - `links[].fromDomain` was `string` here and `string | null` there, so a
- *     panel typed against this file rendered the word "null" as a domain;
- *   - `BacklinkSourceRow.source` widened to `string` here, so the `switch` a
- *     panel writes over it was exhaustive only when typed against the other.
- *
- * And the defaults disagreed on the SAME ROUTE — products 7 against 30,
- * bluesky 30 against 90, umami 30 against 90 — so one integration's card
- * quoted a different window on its panel than on the dashboard, with nothing
- * on either surface saying which span it was showing.
- *
- * `reports.ts` won because it is the stricter of the two everywhere they
- * differ: closed unions where this file had `| string`, `| null` where this
- * file had a bare number, and its default windows are the ones the server
- * itself uses when the query parameter is absent. It is now the only
- * description of those ten documents.
+ * DO NOT DESCRIBE A REPORT ROUTE HERE. `lib/api/reports.ts` is the only
+ * description of those ten documents, and a second transcription of the same
+ * server is not caught by anything: two careful, maintained copies still drift
+ * into a `number` against a `number | null` (inviting arithmetic on a figure
+ * the server declines to give), a `string` against a `string | null` (a panel
+ * rendering the word "null" as a domain), a widened union (a `switch` that is
+ * exhaustive against only one of them) — and into different DEFAULT WINDOWS on
+ * one route, so a card quotes 7 days on its panel and 30 on the dashboard with
+ * neither surface saying which. `reports.ts` is the stricter side everywhere:
+ * closed unions, `| null` where a figure can be absent, and default windows
+ * that are the server's own when the query parameter is missing.
  *
  * WHAT IS ACTUALLY DECLARED HERE IS VOICE, which no other module describes,
  * and the venture-link calls are aliased through from `lib/api/ventures.ts`,
@@ -96,10 +84,9 @@ export const integrations = {
 
   /* The venture-link calls belong to `lib/api/ventures.ts` and are only named
      again here so a panel can reach them without a second import. They are the
-     same functions, not second copies: the DELETE in particular used to be
-     typed `{ ok: true }` on this side, which threw away the fresh link list
-     the server answers with and left the only caller re-fetching a document it
-     had already been handed. */
+     SAME FUNCTIONS, not re-typed ones — the DELETE answers with the fresh link
+     list, and a local `{ ok: true }` would throw that away and leave the only
+     caller re-fetching a document it had already been handed. */
   ventureMap: ventureApi.map,
   linkVenture: ventureApi.link,
   unlinkVenture: ventureApi.unlink,

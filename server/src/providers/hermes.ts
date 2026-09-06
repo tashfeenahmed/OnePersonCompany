@@ -7,8 +7,8 @@
  * agent. The container runs `hold.sh` and listens on nothing. There is no HTTP
  * API sitting there waiting to be pointed at, and the address the catalog
  * shipped as its placeholder — `http://127.0.0.1:3011/v1` — is not Hermes at
- * all: on that Pi, 3011 is workdash's own read-only proxy handing the
- * container a GET-only window onto the dashboard. It answers `/v1/models` with
+ * all: on that Pi, 3011 is the previous system's own read-only proxy handing
+ * the container a GET-only window onto the dashboard. It answers `/v1/models` with
  * 200 and an `index.html`, which is exactly the failure `getJson` in
  * chat/wire.ts now names in one sentence.
  *
@@ -38,7 +38,7 @@
  * table, so no completion has ever been read back from `hermes proxy` itself.
  * What HAS been verified end to end, through this adapter and `POST
  * /api/chat`, is a real OpenAI-compatible endpoint on the same Pi — the model
- * door on 172.31.7.1:3013 that the Hermes container is itself pointed at. Same
+ * door on the LAN address that the Hermes container is itself pointed at. Same
  * wire, same request, same parser, a real answer. The gap is one process, and
  * it is named here rather than papered over.
  *

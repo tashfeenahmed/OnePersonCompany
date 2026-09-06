@@ -162,12 +162,12 @@ export function Pnl() {
         </div>
       </section>
 
-      {/* MODEL SPEND IS DRAWN WHETHER OR NOT A MACHINE HAS A POWER PROFILE.
-          It used to live inside the electricity block, so on a box with no
-          profile — the ordinary state — the figure was fetched and never
-          shown. The electricity cards sit beside it when there are any; the
-          point of the pairing is the comparison, and half of it is always
-          available. */}
+      {/* MODEL SPEND IS DRAWN WHETHER OR NOT A MACHINE HAS A POWER PROFILE,
+          so it must not be nested inside the electricity block — on a box with
+          no profile, which is the ordinary state, the figure would be fetched
+          and never shown. The electricity cards sit beside it when there are
+          any; the point of the pairing is the comparison, and half of it is
+          always available. */}
       <section className="mt-3">
         <div className="text-[12.5px] font-medium">Model spend, and what the local machines drew</div>
         <p className="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">

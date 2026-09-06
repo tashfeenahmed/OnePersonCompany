@@ -51,8 +51,8 @@ export type Schedule = {
   enabled: boolean;
   hour: number;
   /** ALWAYS A REAL ZONE — this machine's own where the owner never typed one.
-   *  It used to be `string | null` beside a second `resolvedTimezone`, two
-   *  fields for one fact. `zoneWasSet` carries the only thing the null said. */
+   *  Never null, so `zoneWasSet` is the only way to tell a chosen zone from an
+   *  inferred one. */
   timezone: string;
   zoneWasSet: boolean;
   today: string;
@@ -159,12 +159,12 @@ export const pipelineApi = {
       method: "POST",
       body: JSON.stringify(cancel ? { cancel: true } : {}),
     }),
-  /* The night's settings are SETTINGS and are written where every other one is,
-     through the plugin config door — one validator, on the server, and ONE
-     CLIENT FUNCTION. This used to rebuild the URL and the body itself, and its
-     hand-written return type dropped `connected` and `collected`, so the page
-     could not say whether saving a credential had actually reconnected the
-     plugin — the one question somebody pressing Save is asking. */
+  /* The night's settings are SETTINGS and go through the plugin config door
+     like every other one — one validator, on the server, and ONE CLIENT
+     FUNCTION. Rebuilding the URL and the body here means a hand-written return
+     type, and the fields it drops are `connected` and `collected`: whether
+     saving a credential actually reconnected the plugin is the one question
+     somebody pressing Save is asking. */
   save: (plugin: "pipeline" | "synthesis", config: Record<string, string>) =>
     api.savePluginConfig(plugin, config),
 };

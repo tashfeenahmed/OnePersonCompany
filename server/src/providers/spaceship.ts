@@ -11,9 +11,9 @@
  * and it cannot change anything.
  *
  * THE USER-AGENT IS LOAD-BEARING. Spaceship sits behind bot protection that
- * refuses a request on the strength of its agent string alone; workdash's
- * collector hit this with Python's default urllib name and the same request
- * under an honest tool name was answered. Node's fetch sends `node` by default,
+ * refuses a request on the strength of its agent string alone; the collector
+ * this replaces hit this with Python's default urllib name, and the same
+ * request under an honest tool name was answered. Node's fetch sends `node` by default,
  * which is the same shape of problem, so this names itself.
  *
  * Of the three registrar reads this codebase makes, Spaceship's carries the

@@ -21,7 +21,7 @@
  *
  * THE AGENT MAY READ THESE AND MAY WRITE THEM ONLY WHEN ASKED, which is a rule
  * and not a mechanism — there is a `set` action, because an owner saying "make
- * my goal for Example Support revenue not signups" should not have to go and type
+ * my goal for Acme revenue not signups" should not have to go and type
  * it. What the skill's rules forbid is the thing an eager assistant does
  * otherwise: tidying the wording, merging two goals, or "updating" a goal to
  * match what it has just observed. A goal that the agent has quietly edited to

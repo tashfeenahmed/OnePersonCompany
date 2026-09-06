@@ -42,28 +42,28 @@ const thread = (over: Partial<ThreadRow> = {}): ThreadRow => ({
 });
 
 const KEYS = [
-  { id: "v-example-app-1", name: "Example App 1", slug: "example-app-1", host: "example-app-1.example.test" },
-  { id: "v-example-content", name: "example.ie", slug: "neu", host: "example.ie" },
+  { id: "v-acme", name: "Acme", slug: "acme", host: "acme.ie" },
+  { id: "v-acme2", name: "Acme Two", slug: "acme2", host: "acme.so" },
   { id: "v-nohost", name: "Idea", slug: "idea", host: null },
 ];
 
 test("a venture matches on its own host, in the recipients or the sender", () => {
   assert.equal(
-    ventureByHost(thread({ recipients: ["hello@example-app-1.example.test"] }), KEYS),
-    "v-example-app-1",
+    ventureByHost(thread({ recipients: ["hello@acme.ie"] }), KEYS),
+    "v-acme",
   );
-  assert.equal(ventureByHost(thread({ from: "a@example.ie" }), KEYS), "v-example-content");
+  assert.equal(ventureByHost(thread({ from: "a@acme.so" }), KEYS), "v-acme2");
 });
 
 test("a subdomain matches and a lookalike domain does not", () => {
   assert.equal(
-    ventureByHost(thread({ recipients: ["x@mail.example-app-1.example.test"] }), KEYS),
-    "v-example-app-1",
+    ventureByHost(thread({ recipients: ["x@mail.acme.ie"] }), KEYS),
+    "v-acme",
   );
-  /* The failure this prevents: `notexample-app-1.example.test` is somebody else's business
+  /* The failure this prevents: `notacme.ie` is somebody else's business
      and a substring match would file their mail under this owner's. */
-  assert.equal(ventureByHost(thread({ recipients: ["x@notexample-app-1.example.test"] }), KEYS), null);
-  assert.equal(ventureByHost(thread({ recipients: ["x@example-app-1.example.test.evil.com"] }), KEYS), null);
+  assert.equal(ventureByHost(thread({ recipients: ["x@notacme.ie"] }), KEYS), null);
+  assert.equal(ventureByHost(thread({ recipients: ["x@acme.ie.evil.com"] }), KEYS), null);
 });
 
 test("a venture with no host matches nothing, and no match is null", () => {
@@ -73,12 +73,12 @@ test("a venture with no host matches nothing, and no match is null", () => {
 
 test("a fenced, chatty answer still parses", () => {
   const out = parseBatch(
-    '```json\n[{"id":1,"score":"needs_reply","urgency":"high","reason":"A customer asked.","venture":"example-app-1"}]\n```',
+    '```json\n[{"id":1,"score":"needs_reply","urgency":"high","reason":"A customer asked.","venture":"acme"}]\n```',
     2,
   );
   assert.equal(out.size, 1);
   assert.equal(out.get(1)!.score, "needs_reply");
-  assert.equal(out.get(1)!.venture, "example-app-1");
+  assert.equal(out.get(1)!.venture, "acme");
 });
 
 test("an invented category is dropped rather than kept", () => {

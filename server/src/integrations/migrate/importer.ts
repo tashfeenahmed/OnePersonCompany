@@ -88,9 +88,9 @@ const blank = (): KindCount => ({ read: 0, imported: 0, skipped: 0, conflicts: 0
  *
  * It exists because the two applications' idea of a project does not have to
  * line up, and guessing is the wrong way to resolve that: a WorkDash project
- * called `example.ie` and a venture here called `example-content` are obviously the same
- * business to a person and not to a string compare, and one called `betindex.ai`
- * is the same business as `example-app-12.example.test` only because somebody knows the
+ * called `acme.ie` and a venture here called `v-acme` are obviously the same
+ * business to a person and not to a string compare, and one called `acme.ai`
+ * is the same business as `acme.so` only because somebody knows the
  * rename happened. The automatic match — slug, then host — handles the easy
  * ones; this handles the rest, and it is a FILE rather than nineteen prompts
  * because an import is run more than once.

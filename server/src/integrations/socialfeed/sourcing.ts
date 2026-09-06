@@ -452,10 +452,10 @@ export type Discovery = {
  * Find something to cut up, for one venture.
  *
  * THE QUERY IS ABOUT THE PROBLEM AND NOT ABOUT THE PRODUCT, which is the one
- * judgement in this file and it is Workdash's: nobody has filmed this
- * business, so searching for its name finds nothing worth cutting. The topic
- * the autopilot derived is the subject, and the venture's own words are what
- * narrow it.
+ * judgement in this file and it carries over from the system this replaces:
+ * nobody has filmed this business, so searching for its name finds nothing
+ * worth cutting. The topic the autopilot derived is the subject, and the
+ * venture's own words are what narrow it.
  *
  * THE VENTURE'S OWN CHANNEL IS SEARCHED FIRST WHERE ONE IS NAMED, because a
  * business that publishes its own long videos should be cut from those before

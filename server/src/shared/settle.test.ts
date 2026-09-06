@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { db } from "../db.ts";
-import { INTERRUPTED, NOW, settleAll, settleOpenRows } from "./settle.ts";
+import { INTERRUPTED, NOW, settleOpenRows } from "./settle.ts";
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS settle_runs (
@@ -112,18 +112,4 @@ test("a table that is not there settles nothing rather than stopping the boot", 
     0,
   );
   assert.ok(db.prepare("SELECT COUNT(*) AS n FROM settle_runs").get(), "the table is still there");
-});
-
-test("settleAll names each table in its answer, which is what a boot report prints", () => {
-  db.exec("DELETE FROM settle_runs");
-  db.exec("DELETE FROM settle_rounds");
-  run("a", "running");
-  const out = settleAll([
-    { table: "settle_runs", openWhen: "status = 'running'", set: { status: "failed" } },
-    { table: "settle_rounds", openWhen: "finished_at IS NULL", set: { finished_at: NOW } },
-  ]);
-  assert.deepEqual(out, [
-    { table: "settle_runs", closed: 1 },
-    { table: "settle_rounds", closed: 0 },
-  ]);
 });

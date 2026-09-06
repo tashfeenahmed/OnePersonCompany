@@ -826,7 +826,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- NULL means "not asked yet" rather than zero. It is the fact that
       -- decides whether a cancellation is churn at all: a cancelled free trial
       -- and an expired checkout collected nothing and lost nothing, and
-      -- counting them cost workdash $415 of imaginary churn in a $430 month.
+      -- counting them cost the previous system $415 of imaginary churn in a $430 month.
       -- It costs one request per cancellation and is asked once, ever.
       CREATE TABLE stripe_subscriptions (
         id                  TEXT PRIMARY KEY,
@@ -1188,7 +1188,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- 2. THE QUERY ROWS DO NOT SUM TO THE PROPERTY TOTAL, EVER. Google
       --    withholds queries too rare to be anonymous and caps the rows it
       --    will return at all. Measured on this account on 2026-09-04, the two
-      --    hundred query rows of example-app-1.example.test carried 2% of that property's
+      --    hundred query rows of acme.ie carried 2% of that property's
       --    impressions and freellmapi.co's carried 77% — so a headline built
       --    by summing gsc_queries would be wrong by somewhere between a
       --    quarter and fifty times, depending on which property you asked.
@@ -1200,7 +1200,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- The daily rows are the exception that makes the totals cheap: measured
       -- against Google's own dimensionless answer, the ["date"] rows summed
       -- over the same window agreed EXACTLY (23,157 against 23,157 on
-      -- example-app-3.example.test), because a date is not a thing that can be
+      -- one property), because a date is not a thing that can be
       -- anonymised. So every window figure downstream is summed from gsc_days
       -- on the read, and no window total is stored anywhere to go stale.
 
@@ -2525,7 +2525,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
         -- never touched by a rename. Two columns rather than one for the same
         -- reason board_columns has \`key\` beside \`title\`: renaming a thing
         -- must not change what it is addressed by, or every link anybody kept
-        -- to /ventures/example-support breaks the day it becomes "Example Support Ltd".
+        -- to /ventures/acme breaks the day it becomes "Acme Ltd".
         slug        TEXT NOT NULL UNIQUE,
         name        TEXT NOT NULL,
         -- "What it is", in the owner's own words. Empty string rather than
@@ -2601,7 +2601,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
   /* The integration areas' own migrations — see integrations/manifest.ts. */
   ...INTEGRATION_MIGRATIONS,
 
-  /* ------------------------------------------------------- 400+, this pass.
+  /* ------------------------------------------------------------------- 400+.
      Steps that change a table THIS file owns. They sit after every area's
      migrations so that a step here may refer to an area's tables; an area's
      own 400s live in its own file. */
@@ -6406,12 +6406,6 @@ export function writeTelegramError(accountId: number, error: string | null) {
   ).run(error, error ? now() : null, now(), accountId);
 }
 
-export function telegramStates(): TelegramStateRow[] {
-  return db
-    .prepare("SELECT * FROM telegram_state ORDER BY account_id")
-    .all() as unknown as TelegramStateRow[];
-}
-
 export function telegramState(accountId: number): TelegramStateRow | undefined {
   return db
     .prepare("SELECT * FROM telegram_state WHERE account_id = ?")
@@ -7232,8 +7226,8 @@ export function ventureRowById(id: string): VentureRow | undefined {
 /**
  * One venture, by whichever name the caller had to hand.
  *
- * An id — `v-example-support` — is what a board card and a chat session carry; a
- * slug — `example-support` — is what the address bar carries. Both are accepted
+ * An id — `v-acme` — is what a board card and a chat session carry; a
+ * slug — `acme` — is what the address bar carries. Both are accepted
  * because a caller holding one has no reason to look up the other first, and
  * they cannot collide: an id is a slug with a `v-` on the front, and the id is
  * tried first, so a venture that somehow slugged to another's id still
@@ -7244,7 +7238,7 @@ export function ventureRow(key: string): VentureRow | undefined {
   return (
     ventureRowById(k) ??
     (db.prepare("SELECT * FROM ventures WHERE slug = ?").get(k) as VentureRow | undefined) ??
-    /* The name as the owner says it, or the host: an agent told "Overbrilliant
+    /* The name as the owner says it, or the host: an agent told "Acme
        is the venture" should be able to ask for it by that word rather than
        guess at a slug. Case-insensitive, whole-word, and only after the exact
        keys have missed, so an id can never be shadowed by a name. */

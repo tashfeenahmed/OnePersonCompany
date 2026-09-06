@@ -98,7 +98,7 @@ function planName(o: Obj): string | null {
  * One event, read.
  *
  * `customer.subscription.updated` IS FILTERED HERE and it is the only type
- * with logic, for WorkDash's reason: Stripe emits an update for every trivial
+ * with logic, because Stripe emits an update for every trivial
  * change — a card fingerprint, a metadata key — and a notifier that announced
  * all of them would be a notifier the owner mutes in a week. Only two updates
  * are worth a message: a cancellation being SCHEDULED, and the status
@@ -289,10 +289,10 @@ export type CollapseResult = {
  * N failed payments for one customer inside an hour become one message.
  *
  * Stripe emits `invoice.payment_failed` once per RETRY, so one card that has
- * expired produces four identical alarms over an afternoon. WorkDash's
- * notifier said so in its README and shipped without a fix; its other
- * notifier batched every failure for six hours instead, which is the opposite
- * error — a failure worth knowing about arrives at dinner time.
+ * expired produces four identical alarms over an afternoon if nothing folds
+ * them. The other easy mistake is batching every failure for six hours
+ * instead, which is the opposite error — a failure worth knowing about
+ * arrives at dinner time.
  *
  * The rule here is the middle one: the FIRST failure for a customer goes out
  * immediately and opens a sixty-minute window; every later failure for the
@@ -359,8 +359,8 @@ export function collapseFailures(
  * offset is not. The result is rounded UP to the top of an hour, so a
  * deferral never lands one minute inside the window it was waiting out.
  *
- * A CRITICAL EVENT DOES NOT PIERCE QUIET HOURS HERE, and that is a deliberate
- * difference from WorkDash's events.js, which lets `crit` through. Nothing in
+ * A CRITICAL EVENT DOES NOT PIERCE QUIET HOURS HERE, unlike some notifier
+ * designs that let a `crit` severity through regardless. Nothing in
  * this area is an outage: a dispute with a Thursday deadline and a card that
  * failed at two in the morning are both things a person handles after
  * breakfast, and there is no event in the watched list whose value decays
@@ -378,13 +378,13 @@ export function quietDeferral(
   /*
     THE STEP IS FIFTEEN MINUTES AND THE INSTANT RETURNED IS NOT ROUNDED.
 
-    This used to probe hourly and then round the winning probe to a UTC hour,
-    which was wrong twice. Rounding DOWN landed before the moment that had
-    been tested, and in a zone whose offset is not a whole number of hours
-    that is back inside the window — Asia/Kolkata is UTC+5:30, so an event at
-    22:15 local under 22-8 probed clear at 08:15 and the rounded answer was
-    07:30 local, still quiet. Rounding UP was safe but blunt: a message held
-    until nine when the owner's quiet hours ended at eight.
+    Probing hourly and then rounding the winning probe to a UTC hour is wrong
+    twice. Rounding DOWN can land before the moment that was actually tested,
+    and in a zone whose offset is not a whole number of hours that is back
+    inside the window — Asia/Kolkata is UTC+5:30, so an event at 22:15 local
+    under 22-8 probes clear at 08:15, but the rounded answer is 07:30 local,
+    still quiet. Rounding UP is safe but blunt: a message held until nine when
+    the owner's quiet hours ended at eight.
 
     Fifteen minutes is exact rather than merely safer. A quiet boundary is a
     LOCAL hour mark, and every IANA offset is a whole number of quarter hours,

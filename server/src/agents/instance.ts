@@ -884,16 +884,15 @@ function configureHermes(s: Spec, pl: Plan) {
   /*
     ONE DOOR, AND IT IS THE TERMINAL.
 
-    This used to register one MCP server per integration here as well, on the
-    argument that a model with no terminal needs a typed tool. Hermes has a
-    terminal, always, and the tools it was given turned out to be the worse of
-    the two doors: a subprocess per integration to keep alive, a tool list the
-    gateway caches for the life of the process, and a second vocabulary
-    (`opc_stripe`) beside the one in the packs (`stripe`). So the packs now say
-    `opc stripe --days 30` and nothing else, the wrapper below is what makes
-    that a command, and `mcp_servers` is not written. The MCP server itself
-    still exists — OpenClaw has no terminal and is configured with it — but
-    for Hermes the terminal is the tool.
+    A model with no terminal needs a typed MCP tool per integration; Hermes
+    has a terminal, always, so that door is the worse of the two available to
+    it: a subprocess per integration to keep alive, a tool list the gateway
+    caches for the life of the process, and a second vocabulary (`opc_stripe`)
+    beside the one in the packs (`stripe`). So the packs say `opc stripe
+    --days 30` and nothing else, the wrapper below is what makes that a
+    command, and `mcp_servers` is not written. The MCP server itself still
+    exists — OpenClaw has no terminal and is configured with it — but for
+    Hermes the terminal is the tool.
   */
   const yaml = [
     "# Written by the dashboard, whole, on every configure. Hermes' own",

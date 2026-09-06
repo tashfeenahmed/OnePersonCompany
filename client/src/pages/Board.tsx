@@ -1130,8 +1130,8 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/* THE DUE DAY AND THE CREATED STAMP BOTH GO THROUGH `day`. They used to be
-   two local helpers because one is a `YYYY-MM-DD` key that must be read in UTC
+/* THE DUE DAY AND THE CREATED STAMP BOTH GO THROUGH `day`, and they are not
+   the same kind of value: one is a `YYYY-MM-DD` key that must be read in UTC
    (anything else prints the day before, west of Greenwich) and the other is a
    real moment read in the reader's own zone. `day` tells them apart by shape,
    so the difference is kept without two functions to keep it in. */

@@ -85,15 +85,9 @@ export type ReadingRow = {
 /* ------------------------------------------------------------ the address */
 
 /**
- * THE METRIC ADDRESS LIVES IN `shared/metrics-address.ts`.
- *
- * This file used to hold its own path walker, its own parameter reader and its
- * own URL builder, and alert rules held a second set. They had already drifted:
- * the other one understood `@count(...)`, so a path copied from a working alert
- * rule read here as "nothing at that path" — a null reading with a plausible
- * reason, which is the worst kind of wrong answer. The shared one is the
- * superset, and it omits `?view=default` rather than sending a literal that
- * 404s on any skill whose first view is named something else.
+ * THE METRIC ADDRESS LIVES IN `shared/metrics-address.ts` — see it for the
+ * path syntax and the address-resolution rules. This file only shapes an
+ * `OutcomeRow` into that module's `Address`.
  */
 export type ReadOut = { value: number | null; error: string | null; raw: string | null };
 

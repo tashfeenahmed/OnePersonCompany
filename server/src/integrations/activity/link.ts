@@ -11,20 +11,11 @@
  *      account id), which is the same statement made on the venture map. Both
  *      doors exist because the owner arrives from both pages, and the map is
  *      where every other integration is linked.
- *   3. THE HOST. The endpoint's hostname against the ventures' own hosts,
- *      through `shared/host.ts`'s `ventureForHost`, so `api.example.com`
- *      finds `example.com`. This is a GUESS — evidence that two strings look
- *      alike — and it is reported as `matchedBy: "host"` so nothing quotes it
- *      as a decision.
- *
- *      IT USED TO KEY A MAP BY THE REGISTRABLE DOMAIN, which is a bug rather
- *      than a shortcut: folding to the registrable domain is BIDIRECTIONAL by
- *      construction, so a venture on `shop.example.com` and a venture on
- *      `example.com` collapse to one key and one of them silently wins the
- *      map — two businesses filed as one. `ventureForHost` runs the match
- *      downward only, prefers an exact host to a subdomain match however the
- *      roster is ordered, and among subdomain matches gives the host to the
- *      LONGEST venture host, which is the one it is most specifically under.
+ *   3. THE HOST. The endpoint's hostname against the ventures' own hosts, via
+ *      `ventureForHost` (see `shared/host.ts` for the match and tie-break
+ *      rules), so `api.example.com` finds `example.com`. This is a GUESS —
+ *      evidence that two strings look alike — and it is reported as
+ *      `matchedBy: "host"` so nothing quotes it as a decision.
  *
  * There is deliberately no fourth answer by NAME. Half these labels are two
  * ordinary English words and a venture called "Apps" would collect every

@@ -7,11 +7,10 @@
  * last error. That is the whole reason the plugin below this file holds a list.
  * Console → the project → Security → API tokens → Read.
  *
- * This used to be one entry holding a token per line. The tokens were real and
- * the bill was right, but nothing downstream could say WHICH project a server
- * belonged to or WHICH token had stopped answering, and the owner could not
- * name, replace or remove one of them without re-pasting all of them. The blob
- * is gone; the accounts it implied are what replaced it.
+ * ONE ACCOUNT PER TOKEN, never a blob of them: a single entry holding a token
+ * per line cannot say WHICH project a server belongs to or WHICH token stopped
+ * answering, and the owner cannot name, replace or remove one without
+ * re-pasting all of them.
  *
  * WHAT IT READS, and nothing else:
  *   GET /v1/pricing                    the current rate card, per location
@@ -92,14 +91,6 @@ export type MetricPoint = { ts: string; value: number };
 /** The five series kept, named for what they are rather than for Hetzner's
  *  interface-indexed keys. Bandwidth is bytes per second. */
 export type MetricName = "cpu" | "net.in" | "net.out" | "disk.read" | "disk.write";
-
-export const METRIC_NAMES: MetricName[] = [
-  "cpu",
-  "net.in",
-  "net.out",
-  "disk.read",
-  "disk.write",
-];
 
 /** Hetzner indexes its series by device — network.0, network.1 — because a box
  *  can have more than one card. Two cards are two halves of one answer, so the

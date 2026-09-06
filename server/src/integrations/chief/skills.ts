@@ -75,7 +75,7 @@ export const SKILLS: Skill[] = [
             type: "string",
             required: true,
             in: "path",
-            about: "The venture's id or slug — v-example-app-1 or example-app-1.",
+            about: "The venture's id or slug — v-acme or acme.",
           },
         ],
       },
@@ -116,7 +116,7 @@ export const SKILLS: Skill[] = [
       },
     ],
     asks: [
-      "What am I trying to do with Example Support this quarter?",
+      "What am I trying to do with Acme this quarter?",
       "Which of my ventures have no goals written for them?",
     ],
   },
@@ -303,7 +303,7 @@ export const SKILLS: Skill[] = [
     ],
     asks: [
       "Did anything run on its own last night, and on which ventures?",
-      "Why hasn't Example App 1 been looked at by a round?",
+      "Why hasn't Acme been looked at by a round?",
     ],
   },
 

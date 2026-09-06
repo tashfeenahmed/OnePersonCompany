@@ -26,15 +26,12 @@
  * `unchecked` with the reason, because Chrome does not write those and a file
  * that is one of them is a file worth being told about.
  *
- * NO MODEL IS CALLED FROM THIS FILE, AND A MODEL'S OPINION IS NOW CARRIED
- * BESIDE IT. This header used to say that asking a model whether a screenshot
- * looks broken needed a capability flag to exist first, because
- * `models/provider.ts` declared nothing about whether a provider could accept
- * an image. `integrations/seoops/vision.ts` now PROBES that — one 1x1 PNG,
- * cached per provider and model — and stores its verdicts in `shot_vision`.
- * What changed here is only that this file READS that table, so a reader sees
- * both; what did not change is that every CHECK below is still arithmetic over
- * a PNG and two tables, still runs for every venture, and still costs nothing.
+ * NO MODEL IS CALLED FROM THIS FILE, AND A MODEL'S OPINION IS CARRIED BESIDE
+ * IT. `integrations/seoops/vision.ts` PROBES whether a provider and model
+ * accept an image — one 1x1 PNG, cached per provider and model — and stores
+ * its verdicts in `shot_vision`. This file only READS that table: every CHECK
+ * below is still arithmetic over a PNG and two tables, still runs for every
+ * venture, and still costs nothing.
  *
  * THE TWO ARE NEVER MERGED INTO ONE VERDICT. A `visual` block sits apart from
  * `checks`, with its own words — ok, broken, unsure — and its own provenance.
@@ -655,10 +652,6 @@ export function judge(v: VentureRow): VentureQa {
 /* ---------------------------------------------------------------- the pass */
 
 export type QaPass = { ts: string; ventures: VentureQa[] };
-
-export function runQa(): QaPass {
-  return { ts: now(), ventures: ventureRows().map((v) => judge(v)) };
-}
 
 /**
  * The same pass, yielding between ventures.

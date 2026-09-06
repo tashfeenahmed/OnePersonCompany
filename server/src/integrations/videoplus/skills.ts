@@ -1,9 +1,7 @@
 /**
  * The videoplus area's one skill entry.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph, and its header says why
- * that must not happen.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  *
  * ONE SKILL AND NOT THREE. The reel and the smarter shorts are FORMATS of a
  * run kind that already has a door — `runs start --kind video --format reel` —

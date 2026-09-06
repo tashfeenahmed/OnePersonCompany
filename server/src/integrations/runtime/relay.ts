@@ -5,7 +5,7 @@
  * this box's Telegram pairing: the bot token lives in this app's vault, and it
  * is not going into an agent's home directory, because an agent that executes
  * model-written code with a bot token beside it is a bot anyone who can talk
- * to the agent can speak as. WorkDash's hermescron.js inverted delivery for
+ * to the agent can speak as. The system this replaces inverted delivery for
  * exactly that reason and this keeps the rule: the runtime writes results
  * where it writes them, and THIS side, which already holds the token, reads
  * them and pushes.
@@ -33,8 +33,8 @@
  *                 `manifestCollectors()` at module scope. A static import here
  *                 stops the server booting.
  *
- * SIX RULES, AND THEY ARE WORKDASH'S, because they were learned there first
- * and a relay that forgets them gets muted just as fast:
+ * SIX RULES, CARRIED OVER FROM THE SYSTEM THIS REPLACES, because they were
+ * learned there first and a relay that forgets them gets muted just as fast:
  *
  *   1. THE FIRST PASS SENDS NOTHING. A box that has been ticking for a week
  *      has a backlog on disk; on the first pass for a runtime every result is

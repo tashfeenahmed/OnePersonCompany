@@ -9,19 +9,15 @@
  * buffered with sequence numbers, and it keeps going whether or not anybody is
  * listening.
  *
- * So this file is the other end of that. Three calls and no state:
+ * So this file is the other end of that. Two calls and no state:
  *
  *   attachChatRun   subscribe to a run from sequence `since` — 0 for a page
  *                   with nothing on screen, N for a client that was reading and
  *                   lost its connection, so it gets the tail and not the answer
  *                   twice.
- *   cancelChatRun   the stop button. It is now an explicit request rather than
- *                   a side effect of closing a socket, because closing a socket
- *                   no longer stops anything.
- *   answeringSessions  which conversations the SERVER is answering, for the
- *                   rail after a reload — the browser's own marks died with the
- *                   page, and a mark restored from localStorage would be
- *                   reporting an answer nobody is receiving.
+ *   cancelChatRun   the stop button. An explicit request rather than a side
+ *                   effect of closing a socket, because closing a socket does
+ *                   not stop anything.
  *
  * THE PARSER IS A SECOND COPY AND THAT IS DELIBERATE. `api.chatStream` has one
  * of these for the POST door; this is the GET door, and the two differ in
@@ -216,9 +212,4 @@ export function cancelChatRun(runId: string) {
      still has a partial row to write. What actually happened arrives on the
      stream as the terminal frame — see the route's own comment. */
   return call<ChatCancelled>(`/chat/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
-}
-
-/** Which conversations the server is answering right now. */
-export function answeringSessions() {
-  return call<{ sessions: string[] }>("/chat/runs");
 }

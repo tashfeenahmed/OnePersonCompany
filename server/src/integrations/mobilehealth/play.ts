@@ -117,9 +117,9 @@ const isoDay = (offset: number) =>
   new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
 
 /** A list covering the window, newest last, in the bucket's own `YYYYMM`
- *  spelling. `compactMonth` rather than a hand-rolled slice: five of those
- *  existed, and a key whose offsets are wrong matches no object and yields a
- *  silent zero rather than an error. */
+ *  spelling — via `compactMonth`, not a hand-rolled slice (see
+ *  shared/money.ts for why: a wrong offset matches nothing and yields a
+ *  silent zero, not an error). */
 function monthsInWindow(days: number): string[] {
   const out = new Set<string>();
   for (let i = 0; i <= days; i += 1) out.add(compactMonth(monthOf(isoDay(i))));

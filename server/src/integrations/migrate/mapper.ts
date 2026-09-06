@@ -52,7 +52,7 @@ const str = (v: unknown, max: number): string | null => {
 
 /* -------------------------------------------------------------- ventures */
 
-/** `projects-info.json`'s slugs are DOMAINS — "example-app-1.example.test", "example-app-7.example.test".
+/** `projects-info.json`'s slugs are DOMAINS — "acme.ie", "acme.co".
  *  That is a gift: this box's ventures carry a `host` and a `website`, and a
  *  domain is both, so a project arrives with the one field every other
  *  integration joins on by eye. A slug that is not a domain is a name, and
@@ -81,7 +81,7 @@ export function ventureFrom(sourceSlug: string, entry: Record<string, unknown>):
     problems.push(`${sourceSlug} has neither a one-liner nor a summary in WorkDash, so its description is blank.`);
 
   /* THE SLUG IS NOT THE DOMAIN. A venture's slug is a URL segment on this box,
-     and the dots would make /ventures/example-app-1.example.test a path with an extension.
+     and the dots would make /ventures/acme.ie a path with an extension.
      The domain goes to `host` and `website`, which is where the joins happen. */
   const slug =
     (isDomain ? sourceSlug.split(".")[0]! : sourceSlug)

@@ -569,8 +569,8 @@ export async function reelVideo(opts: {
     if (captioner.id === "typst") {
       /* THE SPEAKER'S NAME IS NOT BURNED IN. It is metadata about the line and
          it is on the run page beside it; put on the frame it would be read as
-         part of the sentence. Workdash's reel writer strips the same prefix
-         for the same reason. */
+         part of the sentence. The system this replaces strips the same
+         prefix for the same reason. */
       const png = await captioner.strip(line.text, style, resolve(dir, `cap-${String(i + 1).padStart(2, "0")}.png`), signal);
       if (png) overlays.push({ png, from: null, to: null });
     }

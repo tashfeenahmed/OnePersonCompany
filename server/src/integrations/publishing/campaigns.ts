@@ -578,10 +578,8 @@ async function makeVariant(
   const format = channel === "tiktok" || channel === "ig" ? "story" : "square";
 
   /* THE STUDIO'S OWN `createPost`, which is where what a post IS lives — the
-     caption turn, the image call, the row. This used to compose an HTTP
-     request against that area's route handler and unwrap the reply; the
-     function never throws and carries its own `status`, so there is nothing
-     left to unwrap. */
+     caption turn, the image call, the row. It never throws and carries its
+     own `status`, so there is nothing to unwrap. */
   const made = await createPost({
     ventureId: venture.id,
     brief: brief.slice(0, 2_000),

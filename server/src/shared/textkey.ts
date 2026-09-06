@@ -1,12 +1,11 @@
 /**
  * IS THIS THE SAME SENTENCE WE ALREADY STORED.
  *
- * Four areas each wrote a normalisation under a different name, and each one
- * was the identity half of an idempotent write. Two were byte-identical, one
- * folded digits, one dropped stopwords — so the same statement stored twice
- * deduplicated in one store and created a second row in another. A fact
- * restated in the same words is one fact everywhere, or it is one fact
- * nowhere.
+ * This is the identity half of every idempotent write on the box, and it has
+ * to be ONE rule: a normalisation that folds digits in one store and keeps
+ * them in another deduplicates the same statement here and files a second row
+ * there. A fact restated in the same words is one fact everywhere, or it is
+ * one fact nowhere.
  *
  * TWO NORMALISATIONS, AND THE DIFFERENCE BETWEEN THEM MATTERS
  *
@@ -28,12 +27,11 @@
  * caller wanting "alike" wants token overlap, which is a different question
  * with a different failure mode.
  *
- * WHAT WAS REJECTED: dropping stopwords. One copy did, which makes "reply to
- * the reviews" and "reply to reviews" the same key — fine for clustering
- * proposed actions, wrong for a dedup key on something a person wrote, because
- * it silently discards a restatement that a person would read as different.
- * Stopword folding belongs with the similarity code that wanted it, not in the
- * identity key.
+ * WHAT WAS REJECTED: dropping stopwords. It makes "reply to the reviews" and
+ * "reply to reviews" the same key — fine for clustering proposed actions,
+ * wrong for a dedup key on something a person wrote, because it silently
+ * discards a restatement a person would read as different. Stopword folding
+ * belongs with the similarity code that wants it, not in the identity key.
  */
 
 /**

@@ -1,13 +1,6 @@
 /**
  * THE CHAT PAGE — the one place in this app that talks to an agent.
  *
- * It used to be a mock: a composer, four opener cards, and a `send` that put a
- * title in the session rail and threw the text away. Everything below the
- * composer is now real, and the shape of the page is deliberately unchanged —
- * the openers still sit under the greeting until there is a conversation, the
- * rail still gets a session on the first message, the venture picker still
- * does what it did.
- *
  * WHAT THE BROWSER DOES NOT HAVE, AND WILL NOT GET. No base URL, no key, no
  * token. It posts a session id and a sentence to `/api/chat` and reads back
  * what the agent said; which agent that was, where it lives and what it was
@@ -79,20 +72,11 @@
  * conversation and `/` is a new one; this component serves both routes and
  * reads the id out of `useParams`.
  *
- * WHAT THAT REPLACED. The selection was `store.activeSessionId` — a field, set
- * by the rail, read here. Two copies of one fact, and they came apart in the
- * ordinary way: pressing a session while on /ventures set the field and left
- * the owner on /ventures, so the only route back to the conversation they had
- * just asked for was New chat followed by the same click again. Everything
- * else that was wrong with it followed from the same root — a chat could not
- * be linked to, bookmarked, opened in a second tab, or reached with the back
- * button, because it had no address to put in any of those places.
- *
- * The field is gone rather than mirrored. A store field and a URL that must
- * agree is precisely the bug, and the way to be sure they never disagree is
- * for there to be one of them. The session id is now a route param on the way
- * in and `navigate` on the way out, and nothing persists it: a conversation
- * being open is a fact about where you are, not about the workspace.
+ * THE ADDRESS IS THE ONLY COPY, and it is not mirrored into the store. The
+ * session id is a route param on the way in and `navigate` on the way out, and
+ * nothing persists it: a conversation being open is a fact about where you
+ * are, not about the workspace. `StoreState` in lib/store.tsx carries the full
+ * argument and the bug that made it.
  *
  * A NEW CHAT REWRITES ITS OWN ADDRESS. `/` shows an empty composer, the first
  * message creates the session, and the URL is replaced — not pushed — with
@@ -134,13 +118,12 @@
  * LIVE buffer instead of a reload that would arrive without the sentence in
  * it.
  *
- * IT SITS OUTSIDE THE COMPONENT, AND THAT IS THE SECOND HALF OF THE ROUTING
- * CHANGE. It used to be a ref, and an unmount aborted every turn in it — which
- * was defensible when leaving this page meant leaving the conversation behind
- * for good. It is not defensible now. A chat has an address, the rail is a set
- * of links, and glancing at /integrations and coming back is an ordinary
- * motion rather than an exit; killing an answer because somebody looked at
- * another page for four seconds would be a new bug introduced by giving chats
+ * IT SITS OUTSIDE THE COMPONENT, AND NOT IN A REF. A ref would be aborted by
+ * an unmount, which is only defensible if leaving this page means leaving the
+ * conversation behind for good — and it does not. A chat has an address, the
+ * rail is a set of links, and glancing at /integrations and coming back is an
+ * ordinary motion rather than an exit; killing an answer because somebody
+ * looked at another page for four seconds would be a bug introduced by giving chats
  * URLs. So the map, the delta buffers and the frame are module state, they
  * outlive any one mount, and a page that mounts afterwards finds the turn
  * still running and draws it.
@@ -381,9 +364,8 @@ function AssistantBody({
 }) {
   const parts = splitByTools(text, tools ?? []);
   /*
-    BUNDLED. Seven tool lines between two paragraphs used to be seven rows,
-    each with its own disclosure, and the answer was somewhere under them.
-    Consecutive calls — every run with no words between — become ONE
+    BUNDLED. Seven tool lines between two paragraphs drawn as seven rows, each
+    with its own disclosure, buries the answer under them. Consecutive calls — every run with no words between — become ONE
     `Working` row: closed, it says how many steps and how long; open, it is
     the lines, each of which still opens into its own detail. Two clicks to
     the bottom, none to the answer.
@@ -524,9 +506,8 @@ type Flight = {
   /**
    * DETACHES THIS PAGE FROM THE STREAM — it does not stop the turn.
    *
-   * It used to be the stop button's other end, back when a closed socket
-   * cancelled the agent. The server owns the run now, so this only ends the
-   * reading; `runId` below is what stops the answer.
+   * ABORTING IT DOES NOT CANCEL THE AGENT. The server owns the run, so this
+   * only ends the reading; `runId` below is what stops the answer.
    */
   controller: AbortController;
   /**
@@ -1072,8 +1053,7 @@ export function Chat() {
         /*
           AND IF IT IS STILL BEING ANSWERED, PICK THE ANSWER BACK UP.
 
-          This is the reload the page used to say it could not survive. The
-          transcript above is what was STORED — the question, and any earlier
+          The transcript above is what was STORED — the question, and any earlier
           turns — and `doc.run` says whether the server is still writing the
           next one. When it is, the flight is rebuilt from the stored rows and
           the run is replayed from its first frame: `since=0`, because a page
@@ -1546,11 +1526,10 @@ export function Chat() {
     const trimmed = text.trim();
     /*
       A CHAT THAT IS ALREADY ANSWERING DOES NOT TAKE A SECOND QUESTION — and
-      that is now the ONLY thing being refused. The guard used to be a
-      page-wide `sending` flag, which also refused a question put to a
-      DIFFERENT chat while any answer anywhere was being written. With one
-      record per session there is no reason for that: the composer of a quiet
-      chat works while three others are streaming.
+      that is the ONLY thing refused. NOT a page-wide `sending` flag, which
+      would also refuse a question put to a DIFFERENT chat while any answer
+      anywhere was being written. There is one record per session, so the
+      composer of a quiet chat works while three others are streaming.
     */
     if (!trimmed || (sessionId && flights.has(sessionId))) return;
 
@@ -1674,10 +1653,9 @@ export function Chat() {
   /**
    * Stop the agent mid-answer — THIS chat's answer, and no other.
    *
-   * A REQUEST NOW, NOT AN ABORT. Closing the socket used to be the whole of
-   * this: the fetch body closed, the server saw a disconnect and cancelled its
-   * own call to the agent. That chain is deliberately broken — a turn is the
-   * server's work and survives a closed tab — so stopping is
+   * A REQUEST, NOT AN ABORT. Closing the socket does nothing: a turn is the
+   * server's work and survives a closed tab, so the disconnect-cancels-the-run
+   * chain is deliberately broken. Stopping is
    * `POST /chat/runs/<id>/cancel`, and aborting the fetch would now only mean
    * this page stopped watching an answer that kept being written.
    *

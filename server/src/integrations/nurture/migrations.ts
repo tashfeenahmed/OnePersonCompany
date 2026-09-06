@@ -9,7 +9,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- Until now the outbox had exactly one answer: the Gmail mailbox, whose
       -- address Google itself reported to the collector. That is honest and it
       -- is also the wrong return address for a product email — a note about
-      -- Example App 4 arriving from a personal gmail.com address is a note that
+      -- Acme arriving from a personal gmail.com address is a note that
       -- looks like a stranger wrote it, and the recipient's client has no way
       -- to tell it apart from one.
       --
@@ -39,7 +39,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
         -- of them may be its default.
         venture      TEXT,
         kind         TEXT    NOT NULL,
-        -- The display name on the From line — "Example App 4". Empty for none, in
+        -- The display name on the From line — "Acme". Empty for none, in
         -- which case the address stands alone.
         from_name    TEXT    NOT NULL DEFAULT '',
         -- Lower-cased. UNIQUE because two rows claiming one address is two

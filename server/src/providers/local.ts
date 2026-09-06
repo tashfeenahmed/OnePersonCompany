@@ -62,11 +62,6 @@ const SERVICE = "the local endpoint";
  *  read back, and the two have to agree. */
 export const FIELDS = ["base-url", "key"] as const;
 
-/** `base-url` is the credential; `key` is the half that may be left empty. The
- *  route's "every field must be filled" rule is relaxed for exactly this one,
- *  and the relaxation is declared rather than assumed. */
-export const OPTIONAL_FIELDS = ["key"] as const;
-
 /* -------------------------------------------------------------- the URL */
 
 /**

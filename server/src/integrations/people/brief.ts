@@ -9,8 +9,8 @@
  * thrown away whole if a validator finds a number, an address or a name in it
  * that the arithmetic does not carry. A refused paragraph is not repaired —
  * the brief is then the skeleton, which is a real brief and says so. This is
- * workdash's relations.js discipline and it is the reason the feature is
- * allowed to use a model at all.
+ * the same discipline the system this replaces used for its own relations
+ * brief, and it is the reason the feature is allowed to use a model at all.
  *
  * IDEMPOTENT PER ISO WEEK, AND THE WEEK IS THE PRIMARY KEY. The timer fires at
  * boot and every six hours; the second run of a week finds a row and does
@@ -365,9 +365,9 @@ export function skeletonLines(f: Figures): string[] {
  *   NAMES     every capitalised word must appear in the facts or be an
  *             ordinary English word from the short list below.
  *
- * The name gate is narrower than workdash's 450-word vocabulary and will
- * refuse more often. That is the safe direction, and the refusal is reported
- * rather than hidden.
+ * The name gate is narrower than the previous system's 450-word vocabulary and
+ * will refuse more often. That is the safe direction, and the refusal is
+ * reported rather than hidden.
  */
 /*
   THE ORDINARY-ENGLISH LIST, AND WHY IT IS LONGER THAN IT LOOKS LIKE IT NEEDS

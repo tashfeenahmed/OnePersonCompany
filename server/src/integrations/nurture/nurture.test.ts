@@ -53,7 +53,7 @@ const fact = (key: string, value: string | number, unit?: string): Fact => ({
 const PACKET: Fact[] = [
   fact("person.address", "mary@example.com"),
   fact("person.messages_from_them", 145, "messages"),
-  fact("venture.website", "https://example-app-1.example.test"),
+  fact("venture.website", "https://acme.ie"),
   fact("product.signed_up", "2026-08-12T09:00:00.000Z"),
   fact("pricing.month", 29, "EUR"),
 ];
@@ -64,7 +64,7 @@ test("a body carrying only what the facts carry is clean", () => {
   const allowed = allowedFrom(PACKET);
   assert.equal(
     ungrounded(
-      "Hello. You signed up on 2026-08-12 and have written 145 times. example-app-1.example.test is still there. It is €29 a month. mary@example.com is the address I have.",
+      "Hello. You signed up on 2026-08-12 and have written 145 times. acme.ie is still there. It is €29 a month. mary@example.com is the address I have.",
       allowed,
     ),
     null,
@@ -85,9 +85,9 @@ test("an invented address is refused before its digits are read as a price", () 
 
 test("a link is checked by host: a new path on a known host passes, a new host does not", () => {
   const allowed = allowedFrom(PACKET);
-  assert.equal(ungrounded("See https://example-app-1.example.test/pricing for more.", allowed), null);
-  const bad = ungrounded("See https://example-app-1.co/pricing for more.", allowed);
-  assert.ok(bad && bad.includes("example-app-1.co"), bad ?? "expected a refusal");
+  assert.equal(ungrounded("See https://acme.ie/pricing for more.", allowed), null);
+  const bad = ungrounded("See https://acme.co/pricing for more.", allowed);
+  assert.ok(bad && bad.includes("acme.co"), bad ?? "expected a refusal");
 });
 
 test("the currency has to match, not just the amount", () => {
@@ -140,9 +140,9 @@ test("an unparseable link is refused outright rather than allowed through", () =
 test("a style rule may not carry a fact wearing a rule's clothes", () => {
   assert.equal(notAStyleRule("keep the greeting to one word"), null);
   assert.ok(notAStyleRule("keep it under 4 sentences")!.includes("digit"));
-  assert.ok(notAStyleRule("sign off with hello@example-app-1.example.test")!.includes("email address"));
-  assert.ok(notAStyleRule("link to https://example-app-1.example.test")!.includes("link"));
-  assert.ok(notAStyleRule("mention example-app-1.example.test early")!.includes("domain"));
+  assert.ok(notAStyleRule("sign off with hello@acme.ie")!.includes("email address"));
+  assert.ok(notAStyleRule("link to https://acme.ie")!.includes("link"));
+  assert.ok(notAStyleRule("mention acme.ie early")!.includes("domain"));
   assert.ok(notAStyleRule("greet people the way you greet Mary")!.includes("name"));
   assert.ok(notAStyleRule("short")!.includes("too short"));
 });
@@ -319,10 +319,10 @@ test("a link with no scheme is checked like any other", () => {
   /* A host the packet carries passes with or without a scheme, and an address
      is not read as a link — it has already been checked as an address. */
   const allowed = allowedFrom([
-    { key: "w", value: "https://example-app-1.example.test", source: "t", observed_at: null },
+    { key: "w", value: "https://acme.ie", source: "t", observed_at: null },
     { key: "a", value: "mary@example.com", source: "t", observed_at: null },
   ]);
-  assert.equal(ungrounded("See example-app-1.example.test and example-app-1.example.test/pricing.", allowed), null);
+  assert.equal(ungrounded("See acme.ie and acme.ie/pricing.", allowed), null);
   assert.equal(ungrounded("Write to mary@example.com.", allowed), null);
 });
 
@@ -400,7 +400,7 @@ test("a purchase question that cannot be asked holds the enrolment", () => {
 /** P2-10. The name check only caught `Xxxx`, so a product name and two common
  *  shapes of a person's name reached the wording prompt. */
 test("a style rule refuses every shape of a capitalised name", () => {
-  assert.ok(notAStyleRule("sound more like Example App 4")!.includes("name"));
+  assert.ok(notAStyleRule("sound more like AcmeTutor")!.includes("name"));
   assert.ok(notAStyleRule("greet them the way you greet Jane-Smith")!.includes("name"));
   assert.ok(notAStyleRule("write the way ACME writes")!.includes("name"));
   assert.equal(notAStyleRule("keep the greeting to one word"), null);

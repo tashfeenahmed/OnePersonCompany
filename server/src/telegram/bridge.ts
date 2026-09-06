@@ -21,7 +21,7 @@
  * The dropped ones are COUNTED, because "somebody else found this bot" is a
  * fact the owner should be able to read off the plugin page.
  *
- * This mirrors what workdash's notifier does on the Pi — locked to one
+ * This mirrors what the previous system's notifier does on the Pi — locked to one
  * Telegram user id, everyone else logged and ignored — with one deliberate
  * difference: that bot's id is pasted into a .env by hand, and this one is
  * discovered, because the product this belongs to is a page where somebody
@@ -616,12 +616,11 @@ async function answer(
 /**
  * OUTBOUND: the other half of a bridge, for the rest of the server to call.
  *
- * IT HAS ONE CALLER NOW, and the condition the old note set is the one that
- * was met. It used to say nothing called this, deliberately: the alerts it
- * exists for are decisions about what is worth waking somebody for, and
- * inventing them here would have put messages on the owner's phone that the
- * owner never asked for. `integrations/customers` calls it for Stripe business
- * events, behind a setting that is OFF until switched on, and it imports this
+ * IT HAS ONE CALLER, AND THE BAR FOR A SECOND IS HIGH: what to wake somebody
+ * for is a decision, and inventing one here would put messages on the owner's
+ * phone that the owner never asked for. `integrations/customers` calls it for
+ * Stripe business events, behind a setting that is OFF until switched on, and
+ * it imports this
  * module lazily because this file's own import graph reaches
  * `routes/pluginConfig.ts` and a manifest cannot pull that in at load time.
  * What this file owes such callers is a function that cannot send to the wrong

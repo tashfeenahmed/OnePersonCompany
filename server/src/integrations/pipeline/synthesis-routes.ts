@@ -11,10 +11,9 @@
  * `POST /run` COSTS REAL MONEY and `POST /plan` cannot. One model call per
  * venture, against the whole evidence packet. `/run` refuses the word `dry`
  * outright and names `/plan`; `/plan` hard-codes it and reads nothing from the
- * request. Two routes rather than a boolean, because the skills proxy sends
- * every parameter as a STRING and a route testing `body.dry === true` reads
- * `"true"` as false — the bug that published a real Facebook post in wave 1 of
- * this build, and the bug this route had until it was reviewed.
+ * request. Two routes rather than a boolean — params.ts's header explains the
+ * string-boolean bug that shape exists to close, and this route had it until
+ * it was reviewed.
  *
  * `/run` is not marked destructive — filing a board card is reversible, and the
  * card says on its face that it is a proposal — but it is the only route here

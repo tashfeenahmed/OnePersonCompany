@@ -235,9 +235,8 @@ class Session {
   }
 
   /** A tool the AGENT reported, already merged by chat/consume.ts — two wire
-   *  events, one record, two timestamps. This file used to do that merge
-   *  itself, in a copy that had drifted from the chat's, and all it ever
-   *  needed was to file the result beside the steps the SERVER made. */
+   *  events, one record, two timestamps. All this does is file the result
+   *  beside the steps the SERVER made. */
   step(call: { toolCallId: string; tool: string; label: string | null; startedAt: string; finishedAt: string | null }) {
     const at = this.steps.findIndex((s) => s.toolCallId === call.toolCallId);
     const step: Step = {

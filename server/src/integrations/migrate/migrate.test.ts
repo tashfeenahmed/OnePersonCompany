@@ -23,8 +23,8 @@ import { validateSample } from "./adapters.ts";
 import { validate } from "../activity/users.ts";
 import { GOAL_KEY, TARGETS, closeBatch, goalTarget, mapRows, newBatchId, openBatch, remember, rollback } from "./store.ts";
 import { apply, parseKinds, parseVentureMap, plan, safeName } from "./importer.ts";
-import { denied, readSource } from "./workdash.ts";
-import { db, now } from "../../db.ts";
+import { adminTokenStems, denied, readSource } from "./workdash.ts";
+import { db, now, setConfig, upsertPlugin } from "../../db.ts";
 import { DATA_DIR } from "../../config.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,10 +47,10 @@ test("WorkDash's two clocks are both read, and neither is guessed wrong", () => 
 /* -------------------------------------------------------------- ventures */
 
 test("a WorkDash project keyed by a domain becomes a venture with a host and a website", () => {
-  const v = ventureFrom("example-app-1.example.test", { name: "Example App 1", oneLiner: "Planning, searchable." });
-  assert.equal(v.slug, "example-app-1", "the dots must not survive into a URL segment");
-  assert.equal(v.host, "example-app-1.example.test");
-  assert.equal(v.website, "https://example-app-1.example.test");
+  const v = ventureFrom("acme.ie", { name: "Acme", oneLiner: "Planning, searchable." });
+  assert.equal(v.slug, "acme", "the dots must not survive into a URL segment");
+  assert.equal(v.host, "acme.ie");
+  assert.equal(v.website, "https://acme.ie");
   assert.equal(v.description, "Planning, searchable.");
   assert.equal(v.problems.length, 0);
 });
@@ -143,9 +143,9 @@ test("a note longer than this box's cap is refused by name and never truncated",
 });
 
 test("a note with a project is venture-scoped and one without is global", () => {
-  const a = memoryFrom({ id: "m1x", text: "A fact.", project: "example-app-1.example.test", createdAt: 1750000000000, updatedAt: 1755000000000 });
+  const a = memoryFrom({ id: "m1x", text: "A fact.", project: "acme.ie", createdAt: 1750000000000, updatedAt: 1755000000000 });
   const b = memoryFrom({ id: "m2y", text: "Another.", createdAt: 1748000000000 });
-  assert.ok(a && !("skip" in a) && a.scope === "venture" && a.ventureSource === "example-app-1.example.test");
+  assert.ok(a && !("skip" in a) && a.scope === "venture" && a.ventureSource === "acme.ie");
   assert.ok(b && !("skip" in b) && b.scope === "global" && b.ventureSource === null);
   assert.ok(a && !("skip" in a) && a.id === "wd-m1x");
 });
@@ -168,7 +168,7 @@ test("WorkDash's structured goals render to markdown with every field kept", () 
 
 test("an outcome arrives closed, with its two readings, and says the windows were samples", () => {
   const o = outcomeFrom(
-    { actionId: "a1", at: 1752000000, project: "example-app-1.example.test", metric: "traffic", before: 120.5, after: 184.25, windowDays: { before: 14, after: 14 }, verdict: "up" },
+    { actionId: "a1", at: 1752000000, project: "acme.ie", metric: "traffic", before: 120.5, after: 184.25, windowDays: { before: 14, after: 14 }, verdict: "up" },
     "Added a county index",
   )!;
   assert.equal(o.id, "wd-a1-traffic");
@@ -187,9 +187,9 @@ test("a null before stays null and is not read as zero", () => {
 /* --------------------------------------------------------------- studio */
 
 test("a studio draft keeps its own timestamp-derived id under a wd- prefix", () => {
-  const s = studioFrom({ id: "example-app-1.example.test-1754000000", slug: "example-app-1.example.test", at: 1754000000, format: "single", caption: "c", prompt: "p", image: "x.webp" })!;
-  assert.equal(s.id, "wd-example-app-1.example.test-1754000000");
-  assert.equal(s.ventureSource, "example-app-1.example.test");
+  const s = studioFrom({ id: "acme.ie-1754000000", slug: "acme.ie", at: 1754000000, format: "single", caption: "c", prompt: "p", image: "x.webp" })!;
+  assert.equal(s.id, "wd-acme.ie-1754000000");
+  assert.equal(s.ventureSource, "acme.ie");
   assert.equal(s.imageFile, "x.webp");
 });
 
@@ -234,12 +234,12 @@ test("a rolling series is tagged rolling, so nothing downstream can sum two rows
 
 test("a NULL figure is dropped rather than stored as zero", () => {
   const traffic = SERIES.find((s) => s.series === "traffic")!;
-  const got = historyRows(traffic, [["2026-08-01", "example-app-1.example.test", 1200, null], ["2026-08-02", "example-app-1.example.test", 1210, 14]]);
+  const got = historyRows(traffic, [["2026-08-01", "acme.ie", 1200, null], ["2026-08-02", "acme.ie", 1210, 14]]);
   assert.equal(got.examined, 4, "two rows of two figures each");
   assert.equal(got.dropped, 1, "the null bots24");
   assert.equal(got.rows.length, 3);
   assert.ok(!got.rows.some((r) => r.metric === "bots24" && r.period === "2026-08-01"));
-  assert.equal(got.rows[0]!.subject, "example-app-1.example.test");
+  assert.equal(got.rows[0]!.subject, "acme.ie");
   assert.equal(got.rows[0]!.window, "rolling");
 });
 
@@ -254,9 +254,9 @@ test("--only refuses a kind it does not have rather than silently importing ever
 });
 
 test("the venture map reads mappings and skips, and names a line it cannot read", () => {
-  const got = parseVentureMap("# comment\nexample-app-1.example.test = example-app-1\nexample-app-13.example.test = skip\n\nnonsense\n");
-  assert.equal(got.map.get("example-app-1.example.test"), "example-app-1");
-  assert.equal(got.map.get("example-app-13.example.test"), "skip");
+  const got = parseVentureMap("# comment\nacme.ie = acme\nacme.so = skip\n\nnonsense\n");
+  assert.equal(got.map.get("acme.ie"), "acme");
+  assert.equal(got.map.get("acme.so"), "skip");
   assert.match(got.problems[0]!, /is not a mapping/);
 });
 
@@ -678,6 +678,44 @@ test("the mapping subset still reads what the worked examples are written in", a
     const doc = loadConfig(join(examples, name)) as { contract?: string; source?: Record<string, unknown> };
     assert.equal(doc.contract, "users", `${name} declares its contract`);
     assert.ok(doc.source?.driver, `${name} names a driver`);
+  }
+});
+
+test("adminTokenStems splits, lowercases and dedupes", () => {
+  assert.deepEqual(adminTokenStems("Acme, second-app\nacme"), ["acme", "second-app"]);
+  assert.deepEqual(adminTokenStems(null), []);
+  assert.deepEqual(adminTokenStems(""), []);
+});
+
+test("REGRESSION: the product-admin-token reconnect hint comes from config, not a baked-in name", () => {
+  /* This used to be a hardcoded pair of the owner's own product names. Now the
+     list lives in the `migrate` plugin's `admin-token-files` setting, and an
+     unconfigured install must not name anybody's product by guessing. */
+  const dir = mkdtempSync(join(tmpdir(), "opc-admin-token-"));
+  writeFileSync(join(dir, "acme-admin-token"), "secret");
+
+  /* setConfig requires a plugins row to satisfy plugin_config's foreign key —
+     routes/pluginConfig.ts's save handler upserts one before every write; a
+     direct test has to do the same thing by hand. */
+  upsertPlugin("migrate", false, null);
+  setConfig("migrate", "admin-token-files", "");
+  try {
+    const empty = readSource(dir);
+    assert.ok(
+      !empty.reconnect.some((p) => /product admin endpoints/.test(p)),
+      "with nothing configured, an arbitrary admin-token file is not called out by name",
+    );
+
+    setConfig("migrate", "admin-token-files", "acme");
+    const configured = readSource(dir);
+    assert.ok(
+      configured.reconnect.some((p) => /product admin endpoints/.test(p)),
+      "once 'acme' is configured, acme-admin-token is recognised",
+    );
+    assert.ok(configured.secrets.includes("acme-admin-token"), "and it is still never opened");
+  } finally {
+    setConfig("migrate", "admin-token-files", "");
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

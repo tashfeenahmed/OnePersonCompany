@@ -5,9 +5,9 @@
  * GETS BUILT. Hetzner, the registrars, GitHub, OpenAI and OpenRouter are
  * MEASUREMENT sources: you ask them what happened and they answer with a bill,
  * a fleet, a portfolio, a history. Pexels and Pixabay are CONSUMPTION APIs —
- * over in workdash they are called by `faceless-worker/materials.py` to search
- * for b-roll, Pexels first and Pixabay as the fallback when Pexels has no
- * match. Nothing over there records what came back, and neither service keeps
+ * the previous system called them to search for b-roll, Pexels first and
+ * Pixabay as the fallback when Pexels has no match. Nothing over there
+ * recorded what came back, and neither service keeps
  * an account history you can ask for later.
  *
  * So there is no spend to chart (both are free), no usage history (neither
@@ -44,7 +44,7 @@ const TIMEOUT_MS = 20_000;
  * An honest User-Agent.
  *
  * Pixabay sits behind Cloudflare, which answers an unrecognised client with a
- * challenge PAGE and an HTTP 200 — `materials.py` documents being caught by
+ * challenge PAGE and an HTTP 200 — the previous system documents being caught by
  * exactly this and reading the HTML as JSON. Naming the tool is both the polite
  * thing and the one that gets answered.
  */
@@ -169,11 +169,11 @@ const PIXABAY_API = "https://pixabay.com/api/videos/";
 /**
  * The same, for Pixabay.
  *
- * UNVERIFIED AGAINST A LIVE KEY. There is no `pixabay-key` in the vault on the
- * Pi — the name is declared in workdash's KNOWN_SECRETS and no value was ever
- * stored — so this is written from the published API and the shape
- * `materials.py` already handles, and it has never been run against a real
- * response. The quota reader above is deliberately tolerant for that reason:
+ * UNVERIFIED AGAINST A LIVE KEY. There is no `pixabay-key` in the vault — the
+ * name is declared in the previous system's known secrets and no value was
+ * ever stored — so this is written from the published API and the shape the
+ * system it replaces already handles, and it has never been run against a
+ * real response. The quota reader above is deliberately tolerant for that reason:
  * absent headers produce nulls, and the cards say "not reported" rather than
  * drawing a confident zero for a service nobody has actually asked.
  *

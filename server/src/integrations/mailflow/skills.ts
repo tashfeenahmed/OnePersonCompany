@@ -15,8 +15,7 @@
  * below say so in words as well, because a model that finds a route in a
  * document tends to try it.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  */
 import type { Skill } from "../../skills/registry.ts";
 
@@ -173,11 +172,7 @@ export const SKILLS: Skill[] = [
             about: "Which Gmail account. Absent means the first one.",
           },
         ],
-        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
-           a row cannot be deleted afterwards. `destructive` is what a client is
-           entitled to trust when it decides whether to ask a person first, and
-           the thing that cannot be taken back here is the money, the message or
-           the power state rather than the record. It spends: the pass makes model calls, and it moves mail the owner will find moved. */
+        /* It spends: the pass makes model calls, and it moves mail the owner will find moved. */
         destructive: true,
       },
     ],

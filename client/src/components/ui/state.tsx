@@ -5,20 +5,13 @@ import { cn } from "@/lib/utils";
 /**
  * THE THREE STATES EVERY DATA PAGE IS IN, AND THE ONE RULE THEY CARRY.
  *
- * Three area pages had copy-pasted this scaffold whole. A diff of two of them
- * came back with two hunks — `flex` against `flex flex-wrap`, and four words of
- * a comment — which is what a copy looks like just before it stops being one.
- * The two `Num` copies had already got there: one wrapped its figure in
- * `tabular-nums` and the other did not, so the same number was monospaced on
- * one analytics page and proportional on the page beside it, and each variant
- * re-decided its own rounding.
- *
- * `Num` IS THE POINT OF THIS FILE. The rule it carries — a figure the server
- * could not give is an em dash and NEVER a zero — is stated in prose in five
- * places in this codebase and was implemented in eight. It is implemented
- * here, once. A "0" where a measurement is missing is not a formatting
- * preference; it is the interface asserting something nobody measured, on
- * pages that exist to not do that.
+ * `Num` IS THE POINT OF THIS FILE, and the rule it carries is that a figure
+ * the server could not give is an em dash and NEVER a zero. A "0" where a
+ * measurement is missing is not a formatting preference; it is the interface
+ * asserting something nobody measured, on pages that exist to not do that.
+ * Draw a figure through `Num` rather than re-deciding the rounding and the
+ * `tabular-nums` locally — that is how the same number ends up monospaced on
+ * one analytics page and proportional on the page beside it.
  *
  * Components only, so the file keeps its fast refresh. The pure formatters are
  * in `@/lib/format`.
@@ -62,13 +55,11 @@ export function Failed({ error, className }: { error: ReactNode; className?: str
  */
 export function Num({
   value,
-  suffix,
   digits = 0,
   className,
 }: {
   value: number | null | undefined;
   /** A unit drawn small after the figure — "%", "ms", " reviews". */
-  suffix?: ReactNode;
   digits?: number;
   className?: string;
 }) {
@@ -77,7 +68,6 @@ export function Num({
   return (
     <span className={cn("tabular-nums", className)}>
       {value.toLocaleString(undefined, { maximumFractionDigits: digits })}
-      {suffix ? <span className="text-muted-foreground text-[11px]">{suffix}</span> : null}
     </span>
   );
 }
@@ -85,10 +75,9 @@ export function Num({
 /**
  * THE RULES A PANEL COUNTS BY, under the panel.
  *
- * Byte-identical in two area pages before this: the same list, the same middot,
- * the same sizes. It belongs with the other three states because it is one —
- * "here is the answer, and here is what the answer excludes". A page that drew
- * its own would be free to quietly drop a caveat the figures depend on.
+ * It belongs with the other three states because it is one — "here is the
+ * answer, and here is what the answer excludes". A page that drew its own
+ * would be free to quietly drop a caveat the figures depend on.
  */
 export function Rules({ rules }: { rules: string[] }) {
   return (

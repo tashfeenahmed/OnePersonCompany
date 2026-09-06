@@ -620,11 +620,12 @@ test("a deferral in a half-hour zone lands outside quiet hours, not back inside 
 });
 
 test("a payment letter quotes the invoice amount, which is not a normalisation", () => {
-  /* P2-13. The subscription rule withholds a price because `amount` is
-     monthly_usd; a payment case's amount is `amountRemaining` off the invoice
-     — the sum Stripe actually tried to take — so it is the one letter whose
-     figure the customer's statement will match. The branch used to be dead
-     because the invoice context carries no `interval`. */
+  /* The subscription rule withholds a price because `amount` is monthly_usd;
+     a payment case's amount is `amountRemaining` off the invoice — the sum
+     Stripe actually tried to take — so it is the one letter whose figure the
+     customer's statement will match. This is reachable only because the
+     invoice context carries no `interval` for the quotability check to
+     withhold on. */
   const row = caseOf({
     id: "payment_failed:in_1",
     kind: "payment_failed",

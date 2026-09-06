@@ -6,8 +6,8 @@
  * token is" endpoint — every post names its author explicitly and a token that
  * administers three pages could mean any of them.
  *
- * THERE IS NO OAUTH DANCE IN THIS APP, DELIBERATELY. workdash runs one: a
- * client id and secret in the vault, an authorise URL the owner opens, a
+ * THERE IS NO OAUTH DANCE IN THIS APP, DELIBERATELY. The system this replaces
+ * runs one: a client id and secret in the vault, an authorise URL the owner opens, a
  * callback on a public host, a state table with a ten-minute TTL. That needs a
  * redirect URI reachable from the internet, and this server binds to loopback.
  * A half-built sign-in that only works behind a tunnel would be worse than

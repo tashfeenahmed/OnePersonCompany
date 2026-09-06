@@ -203,12 +203,8 @@ export function pruneChatRuns(days = 30): number {
  *
  * The events were in memory and the agent call died with the process, so a row
  * still marked `running` is a claim nothing can make good on — and a page that
- * believed it would wait for a stream that will never open. Called once at
- * start-up, before anything can read the table.
- *
- * `failed` rather than `cancelled`: nobody pressed anything. The message names
- * the restart, because "the agent failed" and "the server was restarted while
- * it was writing" send an owner to two different places.
+ * believed it would wait for a stream that will never open. Settled via
+ * `shared/settle.ts` — see there for why `failed` and not `cancelled`.
  */
 export function failInterruptedChatRuns(): number {
   return settleOpenRows({

@@ -247,13 +247,9 @@ export function candidatesIn(body: string): Candidate[] {
 
 /**
  * One normalisation for three jobs — the dedup key, the grounding test and the
- * in-body duplicate test. `shared/textkey.ts`'s STRICT key, under this area's
- * name for it.
- *
- * Strict and not the digit-folding fingerprint, and the difference matters
- * here: a commitment that differs by a number is a different commitment. "I'll
- * send the 3 files" and "I'll send the 4 files" are two promises, and folding
- * their digits would silently dedupe the second away.
+ * in-body duplicate test. `shared/textkey.ts`'s STRICT key (digits kept, not
+ * its digit-folding `fingerprint`), under this area's name for it: "I'll send
+ * the 3 files" and "I'll send the 4 files" must stay two different promises.
  */
 export { normalise };
 

@@ -4,7 +4,7 @@
  *
  * THE SKILLS SURFACE ALREADY ANSWERS "WHAT IS THE NUMBER". Nothing on this box
  * held the other half: the durable facts nobody measures. That the owner will
- * not do paid ads. That Example Support's churn is mostly trials that never
+ * not do paid ads. That one venture's churn is mostly trials that never
  * activated. That a venture's host is behind a proxy and the uptime figure is
  * about the proxy. Those are learned once and then either written down or
  * relearned every conversation.
@@ -729,9 +729,10 @@ export function startConsolidation() {
  * from four months ago quoted without its date is a belief presented as
  * current.
  *
- * VENTURE NOTES ONLY FOR THE VENTURE IN HAND. A conversation about Example App 1
- * gets the global notes and Example App 1's; it does not get eighteen other
- * businesses' beliefs, which would be most of the turn and none of the answer.
+ * VENTURE NOTES ONLY FOR THE VENTURE IN HAND. A conversation about one
+ * venture gets the global notes and that venture's; it does not get eighteen
+ * other businesses' beliefs, which would be most of the turn and none of the
+ * answer.
  */
 export function memoryLines(ventureId: string | null): string[] {
   const all = notes();

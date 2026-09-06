@@ -66,7 +66,7 @@ export const manifest: IntegrationManifest = {
             "is exactly what is sent — a signature added invisibly at send time " +
             "would mean the document you read is not the one that went out. " +
             "Leave it empty for none.",
-          ph: "— Alexfeen",
+          ph: "— Sam",
           check(value) {
             if (value.length > 600)
               return "That is more than 600 characters. A signature, not a letterhead.";

@@ -30,11 +30,8 @@ export type Health = {
   checks: Check[];
   /**
    * HOW LONG HISTORY IS KEPT, TABLE BY TABLE, verbatim from the registry the
-   * prune itself walks. It replaces `retainDays: { readings, load }`, which
-   * was read out of config and described neither the uptime checks, the fleet
-   * samples, the workstation states nor the job leases — and certainly not the
-   * three tables nothing pruned at all. A table ABSENT from this list is a
-   * table nothing ages out, which is a fact rather than an absence.
+   * prune itself walks. A table ABSENT from this list is a table nothing ages
+   * out, which is a fact rather than an absence.
    */
   retention: Retention[];
   note: string;

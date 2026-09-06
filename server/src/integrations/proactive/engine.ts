@@ -56,18 +56,10 @@ const OBSERVATION_DAYS = 30;
  * A RULE IS AN ADDRESS, and the address lives in `shared/metrics-address.ts`.
  *
  * `skill` + `view` + `params` + `path` is how everything on this box names a
- * figure, and this area and the outcomes tracker had each written the whole
- * thing out — the parameter reader, the URL builder, the loopback fetch and
- * the dotted-path resolver — separately. They had already drifted: only this
- * side supported `@count(...)`, so a path copied from a working rule into an
- * outcome read as "nothing at that path".
- *
- * ONE BEHAVIOUR CHANGED HERE AND IT IS A FIX. This file used to send
- * `?view=default` whenever the column held that word. `default` is the
- * SENTINEL both features store for "the entry's own first view", and the
- * skills route resolves an ABSENT view to exactly that — while a literal
- * `?view=default` 404s on any skill whose first view is keyed something else.
- * The shared builder omits it.
+ * figure. The parameter reader, the URL builder, the loopback fetch and the
+ * dotted-path resolver are all that module's, alert rules and outcomes both —
+ * so `@count(...)` and the `?view=default` sentinel mean one thing here and
+ * one thing there. Its header has the rules and why each is what it is.
  */
 
 export { paramsOf as readParams } from "../../shared/metrics-address.ts";

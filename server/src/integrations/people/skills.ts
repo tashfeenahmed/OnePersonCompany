@@ -13,8 +13,7 @@
  * none is destructive — done, dismiss and scan are all reversible, and marking
  * them destructive to be safe would train a client to ignore the field.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  */
 import type { Skill } from "../../skills/registry.ts";
 import {
@@ -295,11 +294,7 @@ export const SKILLS: Skill[] = [
             about: `How far back to read sent mail. Clamped to 1–90, and at most ${MAX_MESSAGES} messages are opened.`,
           },
         ],
-        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
-           a row cannot be deleted afterwards. `destructive` is what a client is
-           entitled to trust when it decides whether to ask a person first, and
-           the thing that cannot be taken back here is the money, the message or
-           the power state rather than the record. It spends: the scan reads mail and makes model calls. */
+        /* It spends: the scan reads mail and makes model calls. */
         destructive: true,
       },
     ],

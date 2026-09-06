@@ -1,11 +1,10 @@
 /**
  * DO THESE TWO STRINGS NAME THE SAME SITE.
  *
- * Six copies of this question used to live in six areas, with three
- * incompatible semantics and two disagreeing public-suffix lists between them.
- * The consequences were not theoretical: the same domain was attributed to a
- * venture on one page and to nothing on another, and two collectors in one
- * area disagreed about whether a backlink was ours.
+ * Every area asks it, and answering it three incompatible ways was not a
+ * theoretical problem: the same domain was attributed to a venture on one page
+ * and to nothing on another, and two collectors in one area disagreed about
+ * whether a backlink was ours.
  *
  * WHAT THIS MODULE SETTLED ON
  *
@@ -14,15 +13,15 @@
  *      `www.` removed, the port removed and the trailing dot dropped, because
  *      the ventures table stores hosts that way and two spellings of one host
  *      is two things that never match. It returns `null` for anything that is
- *      not host-shaped; the copy that returned `""` made "no host" and "the
- *      empty host" read the same in a `Map` key.
+ *      not host-shaped — returning `""` would make "no host" and "the empty
+ *      host" read the same in a `Map` key.
  *
  *   2. `hostMatch` is ONE-DIRECTIONAL, and that is the whole point. A
- *      bidirectional rule (`a.endsWith(b) || b.endsWith(a)`) shipped in one
- *      area, which let `blog.example.com` swallow `example.com`: two different
- *      businesses filed under one name the moment somebody runs a blog on a
- *      subdomain of a domain somebody else's venture owns. REJECTED. Ownership
- *      runs downward only.
+ *      bidirectional rule (`a.endsWith(b) || b.endsWith(a)`) lets
+ *      `blog.example.com` swallow `example.com`: two different businesses
+ *      filed under one name the moment somebody runs a blog on a subdomain of
+ *      a domain somebody else's venture owns. REJECTED. Ownership runs
+ *      downward only.
  *
  *   3. `registrable` is for GROUPING, never for ownership. Reducing to the
  *      registrable domain is bidirectional by construction — `blog.x.com` and
@@ -34,10 +33,9 @@
  *
  * There is no public-suffix dependency: the server has no runtime dependencies
  * beyond hono, and a downloaded suffix list is a file that goes stale on a box
- * nobody is watching. The list below is the UNION of the four hand-written
- * lists this replaced, plus the label rule the fourth copy used instead of a
- * list. A suffix that is on neither folds to two labels, which is wrong in the
- * direction that costs a duplicate rather than a wrong comparison.
+ * nobody is watching. The hand-written list below is deliberately broad, and a
+ * suffix missing from it folds to two labels — wrong in the direction that
+ * costs a duplicate rather than a wrong comparison.
  */
 
 /* ------------------------------------------------------------------ hostOf */
@@ -45,10 +43,10 @@
 /**
  * A hostname out of anything host-shaped, or `null`.
  *
- * The validating regex is the strict one of the copies: labels of
- * `[a-z0-9]`/`-`, at least one dot, no leading or trailing hyphen. It rejects
- * `a..b`, `-x.com` and a bare word, all of which one of the looser copies
- * accepted and then compared against real hosts.
+ * The validating regex is strict on purpose: labels of `[a-z0-9]`/`-`, at
+ * least one dot, no leading or trailing hyphen. It rejects `a..b`, `-x.com`
+ * and a bare word, all of which a looser rule accepts and then compares
+ * against real hosts.
  */
 const HOST_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
 
@@ -80,10 +78,8 @@ export function hostOf(raw: string | null | undefined): string | null {
 /**
  * Multi-label public suffixes, explicitly.
  *
- * The union of the two lists that existed (`com.pk co.uk com.au co.nz com.br
- * co.za co.in co.jp` and `com.pk co.uk com.au co.nz com.br co.za org.uk
- * ie.com`). `ie.com` earns its place in the list rather than the label rule
- * below: its last label is `com`, so no ccTLD rule would ever catch it.
+ * `ie.com` earns its place in the list rather than the label rule below: its
+ * last label is `com`, so no ccTLD rule would ever catch it.
  */
 const MULTI_LABEL_SUFFIXES = new Set([
   "com.pk", "co.uk", "org.uk", "com.au", "co.nz", "com.br",
@@ -91,13 +87,11 @@ const MULTI_LABEL_SUFFIXES = new Set([
 ]);
 
 /**
- * The generic second-level labels, from the fourth copy — which used a label
- * set instead of a suffix list and was the only one that got `a.b.gov.br`
- * right.
+ * The generic second-level labels — a label set rather than a suffix list, and
+ * the only rule that gets `a.b.gov.br` right.
  *
  * Applied ONLY under a two-letter (country-code) TLD. Unconstrained, the label
- * rule reads `mail.net.com` as one registrable domain, which is why the copy
- * that shipped it disagreed with the two that shipped lists.
+ * rule reads `mail.net.com` as one registrable domain.
  */
 const SECOND_LEVEL_LABELS = new Set(["co", "com", "org", "net", "gov", "edu", "ac"]);
 

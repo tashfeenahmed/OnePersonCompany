@@ -216,7 +216,7 @@ const skills: Skill[] = [
       },
     ],
     asks: [
-      "Where is the funnel leaking for Example App 5, and what should I test first?",
+      "Where is the funnel leaking for Acme, and what should I test first?",
       "Start the pricing call-to-action experiment for that venture.",
     ],
   },

@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
-import { catalogueApi, outcomesApi, type Outcome } from "@/lib/api/chief";
+import { outcomesApi, type Outcome } from "@/lib/api/chief";
+import { alertsApi } from "@/lib/api/proactive";
 
 /**
  * DID THE THING HE DID ACTUALLY DO ANYTHING?
@@ -31,7 +32,7 @@ import { catalogueApi, outcomesApi, type Outcome } from "@/lib/api/chief";
  */
 export function OutcomesTab() {
   const doc = useApi(() => outcomesApi.all(), []);
-  const cat = useApi(() => catalogueApi.skills(), []);
+  const cat = useApi(() => alertsApi.catalogue(), []);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);

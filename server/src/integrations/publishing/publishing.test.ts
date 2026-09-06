@@ -256,11 +256,11 @@ test("a public base URL needs a scheme", () => {
 });
 
 test("auto-schedule lines parse, and a broken one is named", () => {
-  const { slots, bad } = parseAutoSchedule("* = 09:30\nexample-app-1 = 08:00\nrubbish");
+  const { slots, bad } = parseAutoSchedule("* = 09:30\nacme = 08:00\nrubbish");
   assert.deepEqual(bad, ["rubbish"]);
   assert.deepEqual(slots, [
     { slug: "*", hour: 9, minute: 30 },
-    { slug: "example-app-1", hour: 8, minute: 0 },
+    { slug: "acme", hour: 8, minute: 0 },
   ]);
 });
 
@@ -396,13 +396,8 @@ test("the pipeline reaches the Graph call with a mock transport and posts nothin
 /* ------------------------------------------------ the flag that published */
 
 /**
- * THE REGRESSION THIS FILE EXISTS FOR MOST.
- *
- * `rehearse_item` used to be `POST /items/:id/publish` with `dry: true`. The
- * skills proxy sends every parameter as a STRING, so `"true"` reached a strict
- * `=== true` comparison, read false, and a rehearsal published a real post to
- * a real Facebook Page. Nobody typed anything wrong; the endpoint was the
- * wrong shape.
+ * THE REGRESSION THIS FILE EXISTS FOR MOST — routes.ts's header on `/rehearse`
+ * has the incident.
  *
  * Two assertions, and they are two different guarantees:
  *   the rehearse route CANNOT publish, whatever is sent to it;

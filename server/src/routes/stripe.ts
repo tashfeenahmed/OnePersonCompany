@@ -165,9 +165,9 @@ function mrrSection(subs: StripeSubscriptionRecord[]) {
  * A CANCELLATION THAT NEVER COLLECTED A PENNY IS NOT CHURN, and this is the
  * distinction that matters most on this account. Of 336 dead subscriptions,
  * 182 are expired checkouts that never activated and more are cancelled free
- * trials; together they are worth $0 and losing them cost nothing. workdash
- * reported $415 of a $430 monthly churn from exactly this mistake — revenue
- * that had never existed — while the one real loss in the window was a
+ * trials; together they are worth $0 and losing them cost nothing. Counting
+ * them the naive way once produced $415 of imaginary churn in a $430 month —
+ * revenue that had never existed — while the one real loss in the window was a
  * three-year customer whose card died. They are counted here, in their own
  * two buckets, and kept out of `churnedMrr`, `churnedSubs`, `netMrr` and both
  * rates:

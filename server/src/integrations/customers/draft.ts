@@ -75,8 +75,7 @@ const cash = (amount: number | null, currency: string | null) =>
  *
  * There is no field on this box that holds what the customer was actually
  * charged per invoice, so the honest move is silence: the letter simply does
- * not mention a price, which is what WorkDash's own yearly template does and
- * for exactly this reason.
+ * not mention a price, for exactly this reason.
  */
 function quotablePrice(ctx: Ctx, amount: number | null, currency: string | null): string | null {
   const interval = s(ctx, "interval");

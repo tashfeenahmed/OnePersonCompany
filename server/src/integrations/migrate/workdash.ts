@@ -33,6 +33,7 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
+import { configValue } from "../../db.ts";
 
 /* ------------------------------------------------------------ deny list */
 
@@ -113,9 +114,46 @@ const RECONNECT: { file: RegExp; plugin: string }[] = [
   { file: /^gmail-(token|client)\.json$/i, plugin: "Gmail" },
   { file: /^resend-keys\.json$/i, plugin: "Resend" },
   { file: /^adsense-token\.json$/i, plugin: "AdSense" },
-  { file: /^(ob1|example-app-1)-admin-token$/i, plugin: "the product admin endpoints (as product endpoint accounts)" },
   { file: /^reddit-app\.json$/i, plugin: "Reddit" },
 ];
+
+/**
+ * Which `*-admin-token` filenames count as a product admin endpoint, from
+ * the `admin-token-files` setting under this area's own config (see
+ * manifest.ts) — comma- or newline-separated stems, none by default. There
+ * is nothing to bake in here: only the owner running this box knows what
+ * their own products are called.
+ */
+export function adminTokenStems(raw: string | null | undefined): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const piece of (raw ?? "").split(/[\s,]+/)) {
+    const t = piece.trim().toLowerCase();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** The RECONNECT entry for product admin tokens, built fresh from the
+ *  current setting so a change on the settings page takes effect on the
+ *  next import without a restart. Empty when the setting is empty — a stem
+ *  nobody configured matches nothing, rather than matching everything. */
+function adminTokenReconnect(): { file: RegExp; plugin: string }[] {
+  const stems = adminTokenStems(configValue("migrate", "admin-token-files"));
+  if (!stems.length) return [];
+  return [
+    {
+      file: new RegExp(`^(${stems.map(escapeRegExp).join("|")})-admin-token$`, "i"),
+      plugin: "the product admin endpoints (as product endpoint accounts)",
+    },
+  ];
+}
 
 /* ------------------------------------------------------------- the read */
 
@@ -222,7 +260,9 @@ export function readSource(dir: string): Source {
   if (entries.includes("gmail-accounts")) secrets.push("gmail-accounts/ (a directory of tokens)");
   const reconnect = [
     ...new Set(
-      RECONNECT.filter((r) => entries.some((e) => r.file.test(e))).map((r) => r.plugin),
+      [...RECONNECT, ...adminTokenReconnect()]
+        .filter((r) => entries.some((e) => r.file.test(e)))
+        .map((r) => r.plugin),
     ),
   ];
 

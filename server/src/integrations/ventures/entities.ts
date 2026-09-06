@@ -95,7 +95,7 @@ function squash(raw: string | null | undefined): string {
  * The shortest a squashed name may be before it is allowed to match by name
  * alone. Three characters matches half the noun phrases in a portfolio; at
  * five, a real squashed brand like "acmeie" still works and a three-letter one
- * like "ob1" no longer sweeps up every label with an o, a b and a 1 in it.
+ * like "abc" no longer sweeps up every label with an a, a b and a c in it.
  */
 const MIN_NAME = 5;
 
@@ -135,13 +135,11 @@ export function builtinEntities(): Entity[] {
   for (const z of cloudflareZones())
     out.push({ plugin: "cloudflare", entity: z.zone_id, label: z.name, host: hostOf(z.name) });
 
-  /* Cloudflare's registrar side used to be a second loop here, filing each
-     name as `registrar:<name>`. Migration `400_domains_cloudflare` moved those
-     rows into `domains` under `source = 'cloudflare'`, so the `allDomains()`
-     loop below already emits every one of them under plugin `cloudflare` with
-     the bare name as the entity. Keeping both would offer the owner two chips
-     for one domain, and a link made against either key would not resolve from
-     the other. The bare name is the survivor. */
+  /* Cloudflare's registrar side is NOT filed as a second entity here — the
+     `allDomains()` loop below already emits every one of those domains under
+     plugin `cloudflare` with the bare name as the entity. Filing both would
+     offer the owner two chips for one domain, and a link made against either
+     key would not resolve from the other. */
 
   /* The two registrars. `source` IS the plugin id — a domain row knows which
      door read it — so a link points at dynadot or spaceship rather than at a

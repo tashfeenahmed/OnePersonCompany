@@ -88,14 +88,9 @@ export function AppSidebar() {
   const streaming = new Set(streamingSessions);
 
   /**
-   * WHICH CHAT IS OPEN — READ OFF THE ADDRESS, NOT OUT OF THE STORE.
-   *
-   * It used to be `state.activeSessionId`, and the store field is gone. Two
-   * places holding the answer is two places that can disagree, and they did:
-   * pressing a row from /ventures set the field and left the owner on
-   * /ventures, so the rail lit a chat that was nowhere on screen. The URL is
-   * the one copy now, so a lit row and the page in front of you cannot come
-   * apart — there is nothing to keep in step.
+   * WHICH CHAT IS OPEN — READ OFF THE ADDRESS, NOT OUT OF THE STORE. The URL
+   * is the only copy, so a lit row and the page in front of you cannot come
+   * apart. Do not add a store field for this; see `StoreState` in lib/store.tsx.
    *
    * `useMatch` rather than picking the pathname apart by hand: it decodes the
    * segment, and a session id is arbitrary text that goes through

@@ -11,8 +11,7 @@
  * `source: "agent"` on anything that comes through here so a reader can always
  * tell.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  */
 import type { Skill } from "../../skills/registry.ts";
 import { AGENT_BACKDATE_DAYS, KINDS, MAX_RESULT, MAX_TEXT, OWNER_SOURCES, TRACKABLE } from "./entries.ts";

@@ -86,15 +86,9 @@ export type Settings = {
 };
 
 /**
- * THE WALL CLOCK LIVES IN `shared/time.ts` NOW, and these three names are kept
- * as re-exports because two other areas import them from here — which was
- * already the right instinct (re-export rather than copy) pointed at the wrong
- * file. Three areas had three copies of one formatter call, each re-deriving
- * the same two non-obvious rules in its own comment: `% 24`, because "24" is
- * what some ICU builds call midnight and a schedule set to midnight otherwise
- * never fires; and an unset zone resolving to the machine's own, because
- * guessing UTC builds the briefing at the wrong hour for everybody not in
- * London in winter.
+ * THE WALL CLOCK LIVES IN `shared/time.ts` NOW — see its header for the rules
+ * — and these three names are kept as re-exports because two other areas
+ * import them from here.
  */
 export { systemZone, validZone, zoned } from "../../shared/time.ts";
 

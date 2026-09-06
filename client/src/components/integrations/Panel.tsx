@@ -84,12 +84,11 @@ export type Tile = {
 /**
  * THE ROW OF BIG FIGURES.
  *
- * ONE GEOMETRY, and it is a decision rather than a default. Eight copies of
- * this row had drifted to four minimum widths (128, 130, 132, 150) and three
- * figure sizes (15, 19, 22), so tile rows on adjacent pages neither lined up
- * with each other nor wrapped at the same window width — and one copy had
- * quietly dropped `tabular-nums`, which is the only thing making a column of
- * figures readable as a column.
+ * ONE GEOMETRY, and it is a decision rather than a default. A tile row drawn
+ * locally picks its own minimum width and figure size, so rows on adjacent
+ * pages line up with neither each other nor the window they wrap at — and
+ * `tabular-nums` is the easiest of the three to drop, while being the only one
+ * making a column of figures readable as a column.
  *
  * `flex-1` WITH A MINIMUM rather than a grid: these rows carry between two and
  * six tiles depending on what the server could answer, and a fixed column

@@ -6,9 +6,9 @@
  * published at that URL and typing it a second time is data entry. So this
  * file fetches the page and MEASURES it.
  *
- * IT IS A PORT OF WORKDASH'S `agent/branddna.js`, WITHOUT THE BROWSER, AND THE
- * MISSING BROWSER IS THE WHOLE DIFFERENCE. WorkDash drives a Chromium, walks
- * the rendered DOM and asks for COMPUTED styles: it knows the body's actual
+ * IT IS A PORT OF THE PREVIOUS SYSTEM'S BROWSER-BASED BRAND EXTRACTOR, WITHOUT
+ * THE BROWSER, AND THE MISSING BROWSER IS THE WHOLE DIFFERENCE. The original
+ * drives a Chromium, walks the rendered DOM and asks for COMPUTED styles: it knows the body's actual
  * background, which colour is painted on how many elements, and what font the
  * headings really resolved to. That is better evidence than anything here and
  * it costs a hundred and fifty megabytes of runtime plus a page load per site.
@@ -174,7 +174,7 @@ const INFLATE_CAP = 16 * 1024 * 1024;
 const UA = "OnePersonCompany/0.1 (+brand reader)";
 
 /* ------------------------------------------------------ colour arithmetic */
-/* Ported from workdash agent/branddna.js. The thresholds are the only tuned
+/* Ported from the previous system's browser-based extractor. The thresholds are the only tuned
    numbers here and they were tuned against live sites; see the block comment
    on PALE for the one that was learned the hard way. */
 
@@ -277,11 +277,12 @@ export function isBrandable(hex: string): boolean {
  * again, at least 25 degrees from both.
  *
  * THE WEIGHTS ARE WHERE THIS DEPARTS FROM THE ORIGINAL, by exactly one row.
- * WorkDash weighted a custom property 3 and everything else 1 — three, chosen
- * by measurement, because below that the vars lost to a border grey used on
- * ninety rows. That stands. What is new is `icon` at 2: this port has evidence
- * WorkDash did not, the favicon's own pixels, and it sits above a stylesheet
- * literal and below a declaration for the reason given at `ColourKind`.
+ * The original weighted a custom property 3 and everything else 1 — three,
+ * chosen by measurement, because below that the vars lost to a border grey
+ * used on ninety rows. That stands. What is new is `icon` at 2: this port has
+ * evidence the original did not, the favicon's own pixels, and it sits above
+ * a stylesheet literal and below a declaration for the reason given at
+ * `ColourKind`.
  *
  * Every field can come back null. A site drawn entirely in greys HAS no
  * primary, and inventing one would be inventing the brand.

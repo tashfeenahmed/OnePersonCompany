@@ -8,9 +8,9 @@
  * one again in different words. When it does, the cost is not a duplicate row
  * — it is a Replicate charge, a few hundred megabytes of Pexels footage and
  * ten minutes of this laptop's CPU spent making a video that already exists.
- * Workdash learned this the same way and put a stem-overlap gate in code in
- * front of the model; this is that gate, made durable and made to explain
- * itself.
+ * The system this replaces learned this the same way and put a stem-overlap
+ * gate in code in front of the model; this is that gate, made durable and
+ * made to explain itself.
  *
  * IT RUNS BEFORE ANY PAID GENERATION AND IT IS PURE. Everything in this file
  * is arithmetic over rows: no model, no network, no clock beyond `now`. That
@@ -59,9 +59,9 @@ export const SOCIALFEED_PLUGIN = "socialfeed";
 export const DEFAULT_NOVELTY_DAYS = 30;
 
 /** The overlap at or above which two topics are the same piece of work.
- *  0.6 rather than Workdash's 0.5: this gate REFUSES rather than asking the
- *  model to try again, so it is set where a false refusal is rare and the
- *  caller can still ask for a second topic. */
+ *  0.6 rather than the previous system's 0.5: this gate REFUSES rather than
+ *  asking the model to try again, so it is set where a false refusal is rare
+ *  and the caller can still ask for a second topic. */
 export const DEFAULT_REPEAT_LIMIT = 0.6;
 
 /**

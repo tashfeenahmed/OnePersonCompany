@@ -322,7 +322,7 @@ hetznerRoutes.get("/volumes", (c) => {
     .prepare("SELECT * FROM hetzner_volumes ORDER BY name")
     .all() as unknown as (VolumeRow & { seen_at: string })[];
   // A volume names the server it is attached to, not its id — "the 40GB disk
-  // on ue-api" is the sentence anybody actually wants.
+  // on acme-api" is the sentence anybody actually wants.
   const names = new Map(
     (db.prepare("SELECT id, name FROM hetzner_servers").all() as unknown as {
       id: number;

@@ -30,12 +30,10 @@ import { DASHBOARD_PRESETS, SOURCES, WIDGETS } from "@/data/widgets";
 /**
  * ONE DASHBOARD, WHEREVER IT LIVES.
  *
- * This was the `Board` component inside pages/Dashboards.tsx, and it moved
- * here the day a venture got dashboards of its own. There are two pages now —
- * the global set at /dashboards/<board> and a venture's at
- * /ventures/<slug>/dashboards/<board> — and they are the SAME BOARD: the same
- * grid, the same edit panel, the same drag, the same delete. Two copies of
- * five hundred lines would have diverged on the first fix.
+ * Two pages draw a board — the global set at /dashboards/<board> and a
+ * venture's at /ventures/<slug>/dashboards/<board> — and they are the SAME
+ * BOARD: the same grid, the same edit panel, the same drag, the same delete.
+ * Five hundred lines is too many to keep two of in step.
  *
  * WHAT THE CALLER OWNS is the chrome above it: the tab strip (the global page's
  * is a strip of boards; a venture's is Overview plus its boards) and the

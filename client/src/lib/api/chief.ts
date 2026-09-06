@@ -1,5 +1,4 @@
 import { call } from "@/lib/api";
-import { alertsApi } from "@/lib/api/proactive";
 
 /**
  * THE CHIEF OF STAFF'S FOUR DOCUMENTS — goals, memory, rounds and outcomes.
@@ -295,23 +294,3 @@ export const outcomesApi = {
   remove: (id: string) =>
     call<{ deleted: Outcome }>(`/outcomes/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
-
-/* ------------------------------------------- the catalogue, for the picker */
-
-/*
-  GET /skills IS DESCRIBED IN `lib/api/proactive.ts`. It was described here as
-  well, and the two had drifted in the direction that costs a reader something:
-  this copy had no `about` and no `rules[]`, both of which the server has been
-  sending all along, so the page that picks a skill to track could not show the
-  sentence describing it or the honesty rules it publishes — and the next field
-  the server adds would have reached one consumer of two.
-
-  The alerts picker and the outcome picker read the same document for the same
-  reason, so they read the same type.
-*/
-
-/** DEPRECATED: import `CatalogueSkill` from @/lib/api/proactive */
-export type { CatalogueSkill as SkillSummary } from "@/lib/api/proactive";
-
-/** DEPRECATED: call `alertsApi.catalogue` from @/lib/api/proactive */
-export const catalogueApi = { skills: alertsApi.catalogue };

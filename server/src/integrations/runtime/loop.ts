@@ -461,15 +461,6 @@ export type DirectTurnOptions = {
   onOutcome?: (provider: ProviderId, endpoint: string) => void;
 };
 
-/** What the loop decided to do, before it does it. Exported for the settings
- *  page and the tests, which both want the reason rather than the outcome. */
-export function toolModeNow(): { tools: boolean; why: string } {
-  const s = settings();
-  if (!s.tools)
-    return { tools: false, why: "Tool use is switched off for direct model providers." };
-  return { tools: true, why: "Tool use is on where the chosen model has been measured to support it." };
-}
-
 /**
  * ONE TURN AGAINST A DIRECT PROVIDER — with tools where the model has them,
  * and exactly as before where it has not.
@@ -650,8 +641,8 @@ export async function* directTurn(
       THE NUDGE IS A USER TURN AND NOT A SYSTEM ONE. Several chat templates
       (Qwen's among them) raise "System message must be at the beginning" and
       the server answers 400 for the whole request — so the branch meant to
-      guarantee an answer would be the one thing that could not work. WorkDash
-      learned this the same way; see agent/agent.js.
+      guarantee an answer would be the one thing that could not work. The
+      system this replaces hit the same wall for the same reason.
     */
     const last = stopped !== null;
     const sent: ToolWireTurn[] = last

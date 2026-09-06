@@ -70,8 +70,8 @@ export const plugins = new Hono();
  * that an entry name can never change once a value is sealed under it.
  *
  * A field outside the registry below is refused. This is a CLOSED REGISTRY for
- * the same reason workdash's is: a route that can write any name into the vault
- * is a route that can overwrite the Hetzner token with a typo.
+ * the same reason the previous system's was: a route that can write any name
+ * into the vault is a route that can overwrite the Hetzner token with a typo.
  *
  * `verify` is called for EVERY account, every time credentials are stored,
  * including the second and the fifth. That is the load-bearing behaviour here:
@@ -115,8 +115,8 @@ const BUILTIN: Record<
     only the provider can say. The field keys are `key` and `secret`, so the
     naming scheme above writes exactly `dynadot-key` / `dynadot-secret` and
     `spaceship-key` / `spaceship-secret` for the first account — the same four
-    entry names workdash's own vault uses, which is what makes moving the
-    credentials across a copy rather than a migration.
+    entry names the previous system's own vault uses, which is what makes
+    moving the credentials across a copy rather than a migration.
   */
   dynadot: {
     secret: "dynadot",
@@ -156,9 +156,9 @@ const BUILTIN: Record<
 
     Each field key is the only one its plugin has, so the naming scheme above
     writes the plain names `openai-admin-key`, `openrouter-key` and
-    `replicate-token` for the first account: the same three names workdash's
-    own vault uses, which makes moving a credential across a copy rather than
-    a translation.
+    `replicate-token` for the first account: the same three names the previous
+    system's own vault uses, which makes moving a credential across a copy
+    rather than a translation.
   */
   /*
     OPENAI AND OPENROUTER EACH HOLD TWO KEYS NOW, AND THEY ARE NOT
@@ -391,7 +391,8 @@ const BUILTIN: Record<
     refresh grant that does not carry all three — which is why they are
     verified as a SET, exactly as the registrars' key-and-secret pairs are.
 
-    workdash keeps these as one `adsense-token.json` document in its vault.
+    The previous system keeps these as one `adsense-token.json` document in
+    its vault.
     Here they are three entries, because this vault stores FIELDS: a JSON blob
     in a secret is a document that has to be parsed before anything can be
     checked, and a typo inside it fails as "the grant was refused" rather than
@@ -460,8 +461,8 @@ const BUILTIN: Record<
       /*
         The field key is `key.p8` for one reason: with several fields the entry
         name is `<stem>-<field>`, so this writes `asc-key.p8` — the exact name
-        workdash's own vault uses, which makes moving the credential across a
-        copy rather than a translation.
+        the previous system's own vault uses, which makes moving the
+        credential across a copy rather than a translation.
       */
       const res = await appstore.verify({ keyId, issuerId, vendor, p8 });
       return res.ok ? null : res.error;
@@ -480,10 +481,10 @@ const BUILTIN: Record<
     reach, and refuses one that reaches nothing with the sentence that says
     where to go and what to add.
 
-    The entry names are `gsc-key.json` and `bing-key` — the names workdash's own
-    vault uses, which makes moving either credential a copy rather than a
-    translation. Each plugin has one field, so the naming scheme above writes
-    the plain stem.
+    The entry names are `gsc-key.json` and `bing-key` — the names the previous
+    system's own vault uses, which makes moving either credential a copy
+    rather than a translation. Each plugin has one field, so the naming
+    scheme above writes the plain stem.
   */
   gsc: {
     secret: "gsc-key.json",
@@ -564,8 +565,8 @@ const BUILTIN: Record<
 
     The stem is `meta` and the field keys are `token` and `app`, so the naming
     scheme above writes exactly `meta-token` and `meta-app` for the first
-    account — the two names workdash's own vault already uses, which makes
-    moving these a copy rather than a translation.
+    account — the two names the previous system's own vault already uses,
+    which makes moving these a copy rather than a translation.
 
     BOTH ENTRIES ARE COMMENT-ANNOTATED FILES over there, and that is the
     failure this verify exists to catch at the point it happens. Sealed whole
@@ -760,10 +761,10 @@ const BUILTIN: Record<
     sentence rather than sealed as one very long credential, exactly as
     Hetzner's is.
 
-    The entry name is `telegram-token` — the name workdash's own vault uses for
-    the notifier on the Pi, which makes moving the credential a copy rather
-    than a translation. Note that it is a DIFFERENT bot from the one that
-    notifier polls: Telegram allows one getUpdates per token, so two processes
+    The entry name is `telegram-token` — the name the previous system's own
+    vault uses for the notifier on the Pi, which makes moving the credential a
+    copy rather than a translation. Note that it is a DIFFERENT bot from the
+    one that notifier polls: Telegram allows one getUpdates per token, so two processes
     sharing one would each take half the messages. If that ever happens the
     plugin page says so in as many words, because 409 is the only way to find
     out.
@@ -785,9 +786,10 @@ const BUILTIN: Record<
   /*
     GMAIL — THREE FIELDS, AND A TOKEN MORE POWERFUL THAN THE CODE THAT HOLDS IT.
 
-    workdash keeps this as two vault documents, `gmail-client.json` and
-    `gmail-token.json`. The second one already contains the first: read off the
-    Pi, gmail-token.json carries `client_id`, `client_secret`, `refresh_token`,
+    The previous system keeps this as two vault documents,
+    `gmail-client.json` and `gmail-token.json`. The second one already
+    contains the first: read off the Pi, gmail-token.json carries
+    `client_id`, `client_secret`, `refresh_token`,
     `scopes`, `address` and `obtained` — so the client file is the same pair
     written down twice. One document is enough to connect, and it is split into
     three fields here for the reason `adsense` is: this vault stores FIELDS, and
@@ -796,8 +798,9 @@ const BUILTIN: Record<
     than as "the client secret is missing".
 
     THE SCOPE IS THE THING TO READ TWICE. That token was minted with
-    `gmail.modify`, which can archive, label, trash and mark read — workdash's
-    own mail page sends replies with it. This dashboard only reads, and that is
+    `gmail.modify`, which can archive, label, trash and mark read — the
+    previous system's own mail page sends replies with it. This dashboard
+    only reads, and that is
     enforced structurally rather than contractually: `providers/gmail.ts` has
     ONE function that talks to Gmail, it hard-codes GET, and it takes no body,
     so there is no argument anywhere that would make it write. The credential's
@@ -835,19 +838,19 @@ const BUILTIN: Record<
     RESEND — ONE KEY PER SENDING DOMAIN, WHICH IS ELEVEN ACCOUNTS ON THIS BOX.
 
     A Resend key is scoped to the domain it was minted for. Probed on
-    2026-09-05: the example-app-4.example.test key's `GET /domains` returns example-app-4.example.test and
-    nothing else, and its `GET /emails` returns example-app-4.example.test's mail and nothing
+    2026-09-05: one domain's key `GET /domains` returns that domain and
+    nothing else, and its `GET /emails` returns that domain's mail and nothing
     else. No key on this account sees all eleven, so one account row could not
-    have covered them even in principle — which is why workdash's single
-    `resend-keys.json` blob (a JSON object of eleven domain→key pairs) becomes
-    an account per domain here, exactly as `005_accounts_split` split the
-    Hetzner token blob into an account per project.
+    have covered them even in principle — which is why the previous system's
+    single `resend-keys.json` blob (a JSON object of eleven domain→key pairs)
+    becomes an account per domain here, exactly as `005_accounts_split` split
+    the Hetzner token blob into an account per project.
 
-    The entry stem is `resend-key` rather than workdash's `resend-keys.json`,
-    and this is the one place the "use the name workdash uses" rule is broken on
-    purpose: that name describes a document holding eleven keys, and an entry
-    here holds one. Naming a single key after the set would be a label that
-    lies about what is sealed under it.
+    The entry stem is `resend-key` rather than the previous system's
+    `resend-keys.json`, and this is the one place the "use the same name" rule
+    is broken on purpose: that name describes a document holding eleven keys,
+    and an entry here holds one. Naming a single key after the set would be a
+    label that lies about what is sealed under it.
 
     ONE OF THESE KEYS IS REFUSED AT THIS DOOR AND IT IS NOT A TYPO. Resend
     issues Sending-access keys that can POST an email and read nothing at all:
@@ -856,7 +859,7 @@ const BUILTIN: Record<
     connect and produce a permanently empty sending domain — the most expensive
     shape of failure here, because it looks like an answer. It is refused with
     Resend's own sentence and the fix, exactly as a Stripe test key and an
-    OpenRouter inference key are. On this account that key is example-app-12.example.test's.
+    OpenRouter inference key are. On this account that key is acme.example's.
   */
   resend: {
     secret: "resend-key",
@@ -981,14 +984,14 @@ const BUILTIN: Record<
 
     TWO ACCOUNTS ARE THE ORDINARY SHAPE HERE rather than the exception: one
     pointing at the instance already running on the owner's Hetzner box — the
-    same endpoint workdash's agent/llmprovider.js completes against — and one
-    at the instance freellmapi/instance.ts installs into DATA_DIR and runs on
-    127.0.0.1:3001. The second is created by the installer and never typed;
+    same endpoint the previous system's own agent used to complete chat turns
+    against — and one at the instance freellmapi/instance.ts installs into
+    DATA_DIR and runs on 127.0.0.1:3001. The second is created by the installer and never typed;
     this door exists for the first.
 
     Two fields, so the naming scheme writes exactly `freellmapi-base-url` and
-    `freellmapi-key` for the first account — the second being the name
-    workdash's own vault uses, which makes moving the credential a copy.
+    `freellmapi-key` for the first account — the second being the name the
+    previous system's own vault uses, which makes moving the credential a copy.
 
     VERIFIED WITH ONE CALL, AND IT IS THE ONE THAT MATTERS. `/v1/models` on
     this gateway is authenticated (measured: 401 without a key), so a single

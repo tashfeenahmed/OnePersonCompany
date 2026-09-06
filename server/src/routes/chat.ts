@@ -33,14 +33,11 @@
  * both end the call. An agent that decides to think for an hour must not be
  * able to hold a socket, a page and a row lock while it does.
  *
- * STREAMING, AND THE PRICE THAT WAS PAID FOR IT.
+ * STREAMING, AND WHAT IT COSTS TO DO HONESTLY.
  *
- * This header used to say there was none, and gave the reason: "a stream that
- * dies half way has already put half an answer on screen and there is no
- * truthful way to store that as a message, so it needs a partial-message state
- * in the table, in the API and on the page. That is a feature, not a wire
- * change." That was right, and the feature has now been built — all three
- * parts of it, which is why it took a migration rather than a flag:
+ * A stream that dies half way has already put half an answer on screen, and
+ * there is no truthful way to store that as a message without a partial-
+ * message state in three places:
  *
  *   the table   019_chat_tools adds `partial` and `tools`
  *   the API     POST /chat/stream below, whose `error` event is emitted AFTER
@@ -235,7 +232,7 @@ function withSkills(turns: ChatTurn[], live: ChatBackend | null): ChatTurn[] {
  * SUBJECT of the conversation. A managed Hermes could go and read
  * /api/skills/ventures, but it would have to guess that it should, and a raw
  * model cannot read anything at all — for both of them, "the owner is asking
- * about Example App 1, which is launched" is the difference between advice about
+ * about Acme, which is launched" is the difference between advice about
  * churn and advice about validating demand.
  *
  * THE STAGE IS THE PAYLOAD. Everything else in the turn is there to make the
@@ -266,9 +263,9 @@ function withVenture(
 ): ChatTurn[] {
   /*
     NO VENTURE SELECTED IS NOT NO VENTURES. The conversation that asked for
-    "academic research for overbrilliant" had none selected, and the agent —
+    "academic research for acme" had none selected, and the agent —
     which knew nothing of the owner's businesses beyond a pack called
-    `ventures` it had not opened — asked what Overbrilliant was. So an
+    `ventures` it had not opened — asked what Acme was. So an
     unscoped conversation with a live agent gets the roster: one line per
     venture, name, slug and stage, which is twenty short lines and is what
     makes a business's name a word the agent recognises. The full record of
@@ -338,7 +335,7 @@ function withVenture(
  * conversation that asked for it.
  *
  * THE SECOND IS THE TEAM'S NAMES, when the chat is filed under a venture. An
- * agent that has been told "Example App 1 Researcher, Example App 1 SEO Analyst, …" can
+ * agent that has been told "Acme Researcher, Acme SEO Analyst, …" can
  * answer "ask the SEO analyst to look at pricing" directly; one that has not
  * must first fetch the org to discover that such a worker exists, and the
  * failure mode of that is not a slower answer, it is advice instead of work.
@@ -1036,10 +1033,9 @@ chat.post("/", async (c) => {
  * tool calls, write the assistant row — happens in `chat/runs.ts`, owned by
  * the process and keyed by a run id. This route composes the turn, starts the
  * run, and then does the only thing it was ever uniquely able to do:
- * SUBSCRIBE to it. Closing the tab now unsubscribes rather than cancelling,
- * and `GET /chat/runs/:id/events?since=` is how the next page attaches to the
- * same answer. The old header's paragraph — "a reload cannot re-attach" — was
- * true and is not any more; see chat/runs.ts for the argument.
+ * SUBSCRIBE to it. Closing the tab unsubscribes rather than cancelling, and
+ * `GET /chat/runs/:id/events?since=` is how the next page attaches to the same
+ * answer — see chat/runs.ts for why the run outlives the connection.
  *
  * THE EVENT CONTRACT, IN FULL, because a stream with an undocumented shape is
  * a stream nobody can write a second client for. Every event is an SSE frame

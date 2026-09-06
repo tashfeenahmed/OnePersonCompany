@@ -20,12 +20,11 @@
  * have. The shot is the fold at SHOT_VIEWPORT, which is what a thumbnail wants
  * anyway.
  *
- * HOW THE BROWSER IS FOUND AND RUN IS NOT HERE. It was copied into four files
- * and had drifted three ways; tools/chrome.ts is the one launcher now, and
- * everything this file used to say about ProcessSingleton locks, a browser
- * that does not exit and node's useless error message is written down there.
- * What is left here is what a CAPTURE is: which site, which row, which
- * failures are worth telling the owner about.
+ * HOW THE BROWSER IS FOUND AND RUN IS NOT HERE — see tools/chrome.ts, the one
+ * shared launcher, for ProcessSingleton locks, the browser that does not exit
+ * on its own, and node's useless error message. What is left here is what a
+ * CAPTURE is: which site, which row, which failures are worth telling the
+ * owner about.
  *
  * A FAILED CAPTURE IS A ROW. "There is no picture yet", "Chrome is not
  * installed", "the page took longer than 25 seconds" and "the venture has no
@@ -58,7 +57,7 @@ import {
   withProfile,
   type Browser,
 } from "../../tools/chrome.ts";
-import { assignRoles, readBrand, type ColourCount } from "../../ventures/enrich.ts";
+import { assignRoles, type ColourCount } from "../../ventures/enrich.ts";
 
 /* The browser lives in tools/chrome.ts now. These two are re-exported because
    other areas still ask this module for them and it is the venture capture
@@ -618,6 +617,3 @@ export function startCaptureTimer() {
   setTimeout(tick, 60_000).unref();
   setInterval(tick, 3_600_000).unref();
 }
-
-/** Used by the studio's prompt builder: the brand as the venture holds it. */
-export const ventureBrand = (v: VentureRow) => readBrand(v.brand);

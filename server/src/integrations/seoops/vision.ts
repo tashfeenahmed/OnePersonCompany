@@ -7,8 +7,8 @@
  * wrong thing passes everything here". A footer sitting on top of a paragraph,
  * a hero image that never loaded, a cookie wall covering the whole viewport —
  * all of those have a perfectly healthy standard deviation. A model looking at
- * the picture is the only thing that catches them, and this is that, with
- * every guard the old header said would have to exist first.
+ * the picture is the only thing that catches them, and this is that — behind
+ * every guard below.
  *
  * THE CAPABILITY IS PROBED, NEVER ASSUMED. `models/provider.ts` still declares
  * nothing about whether the model behind the active provider can see — it

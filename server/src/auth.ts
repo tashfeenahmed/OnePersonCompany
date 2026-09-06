@@ -263,9 +263,3 @@ export function keyScope(presented: string | null | undefined): KeyScope | null 
   const isAgent = sameKey(value, agentKey());
   return isOwner ? "owner" : isAgent ? "agent" : null;
 }
-
-/** The headers a child process is given. Never used in-process: everything on
- *  this side of the wire uses `serviceHeaders`. */
-export function agentHeaders(extra?: Record<string, string>): Record<string, string> {
-  return { [SERVICE_HEADER]: agentKey(), ...(extra ?? {}) };
-}

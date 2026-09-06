@@ -1,12 +1,11 @@
 /**
  * HOW LONG HISTORY IS KEPT — a registry, rather than one setting and a rumour.
  *
- * There was one global setting, `OPC_RETAIN_DAYS`, applied by the central
- * prune to about a dozen tables; four more windows hardcoded in four areas
- * that no setting could reach; and — because there was no single place that
- * listed them — three tables with no prune anywhere at all: whole JSON
- * documents, one per security incident, plus a QA table and a backup log,
- * growing for the life of the box.
+ * One global setting reaches the tables the central prune knows about and no
+ * others. Windows hardcoded in an area reach nothing else. And with no single
+ * place that lists them, a table gets no prune at all and nobody notices —
+ * which is how whole JSON documents, one per security incident, plus a QA
+ * table and a backup log, came to grow for the life of the box.
  *
  * WORSE THAN THE SIZE WAS THE CLAIM. `/api/health` reported `retainDays` out
  * of config, which reads as a description of the box and is not one: it did

@@ -72,8 +72,8 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       --
       -- The skills surface answers questions about MEASUREMENTS. Nothing on
       -- this box held the other half of an assistant's usefulness: the durable
-      -- facts nobody measures. "The owner will not do paid ads." "Example Support's
-      -- churn is mostly trials that never activated." "He works Tuesdays and
+      -- facts nobody measures. "The owner will not do paid ads." "This
+      -- venture's churn is mostly trials that never activated." "He works Tuesdays and
       -- Thursdays." Those are learned, they are stated once, and without
       -- somewhere to put them the agent relearns them every conversation or,
       -- worse, contradicts them.

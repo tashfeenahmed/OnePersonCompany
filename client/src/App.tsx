@@ -62,14 +62,10 @@ export default function App() {
                   <Routes>
                     {/*
                       A CHAT IS A PLACE, SO IT HAS AN ADDRESS — the same rule
-                      the boards follow, arrived at for the same reason. The
-                      selection used to be `store.activeSessionId`, which meant
-                      pressing a session in the rail from /ventures changed a
-                      field and left you on /ventures: the chat you asked for
-                      opened on a page you could not see it from. The store
-                      field is gone; `/chat/<id>` IS the open conversation, and
-                      it is linkable, middle-clickable and reachable with the
-                      back button because of it.
+                      the boards follow. `/chat/<id>` IS the open conversation,
+                      which is what makes it linkable, middle-clickable and
+                      reachable with the back button. Nothing in the store
+                      names it; see `StoreState` in lib/store.tsx for why.
 
                       `/` is a NEW chat and stays that way: an empty composer,
                       with the session created by the first message and the URL

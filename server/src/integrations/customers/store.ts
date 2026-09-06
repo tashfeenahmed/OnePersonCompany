@@ -34,8 +34,8 @@ export const DEFAULT_TRIAL_DAYS = 7;
 /** How far ahead a pending cancellation is worth chasing. The same sixty days
  *  /api/stripe uses for "ending soon", and for its reason: an annual plan that
  *  switched off auto-renew on day one stays paid for eleven months, and
- *  putting that beside a monthly one ending on Thursday was the pending-churn
- *  figure's lie in WorkDash. */
+ *  putting that beside a monthly one ending on Thursday is how a pending-churn
+ *  figure lies. */
 export const DEFAULT_HORIZON_DAYS = 60;
 
 export type Settings = {
@@ -68,8 +68,8 @@ const onOff = (v: string | null, fallback: boolean) => {
  * "22-8", "22 - 8", "off". Parsed here and nowhere else.
  *
  * `from === to` DISABLES rather than meaning twenty-four hours of silence,
- * which is WorkDash's reading and the safe one: a typo that muted every
- * notification forever would look exactly like a working configuration.
+ * the safe reading: a typo that muted every notification forever would look
+ * exactly like a working configuration.
  */
 export function parseQuiet(raw: string | null): { from: number; to: number } | null {
   const t = (raw ?? "").trim().toLowerCase();

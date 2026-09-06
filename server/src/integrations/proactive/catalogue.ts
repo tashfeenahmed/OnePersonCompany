@@ -32,9 +32,10 @@ export const NARRATION_SKILLS = 6;
 /**
  * TWO KINDS OF SKILL ARE NEVER SNAPSHOTTED, on purpose.
  *
- * Anything marked `openWorld` reaches off this machine — `search` is the one
- * today — and a background timer must not make a web search every half hour.
- * And `mailbox` reads live Gmail: its own skill rules promise that nothing is
+ * Anything marked `openWorld` reaches off this machine — a dozen entries do
+ * today — and a background timer must not reach off it every half hour. The
+ * filter is on the flag, so an entry that declares it is excluded the day it
+ * ships. And `mailbox` reads live Gmail: its own skill rules promise nothing is
  * stored and nothing is logged, and a snapshot table full of subject lines
  * would break that promise on this area's behalf.
  */

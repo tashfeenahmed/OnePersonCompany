@@ -118,7 +118,7 @@ const skills: Skill[] = [
             type: "string",
             required: true,
             in: "path",
-            about: "The sub-agent id, which is sa-<venture id>-<role>, like sa-v-example-app-1-seo.",
+            about: "The sub-agent id, which is sa-<venture id>-<role>, like sa-v-acme-seo.",
           },
         ],
       },
@@ -144,7 +144,7 @@ const skills: Skill[] = [
             name: "venture",
             type: "string",
             required: true,
-            about: "The venture's id or slug — v-example-app-1 or example-app-1.",
+            about: "The venture's id or slug — v-acme or acme.",
           },
           {
             name: "role",
@@ -211,8 +211,8 @@ const skills: Skill[] = [
       },
     ],
     asks: [
-      "Who works on Example App 1, and is any of them busy?",
-      "Ask Example Support's SEO Analyst to look at why the pricing page is not ranking.",
+      "Who works on Acme, and is any of them busy?",
+      "Ask Acme's SEO Analyst to look at why the pricing page is not ranking.",
     ],
   },
 ];

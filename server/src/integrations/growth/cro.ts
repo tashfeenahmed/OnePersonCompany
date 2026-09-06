@@ -144,11 +144,7 @@ function productFunnel(v: VentureRow): { steps: Step[]; label: string } | null {
     ts: string;
   }[];
   for (const r of rows) {
-    /* ONE-DIRECTIONAL, through `shared/host.ts`: an endpoint on
-       `api.example.com` is `example.com`'s, and an endpoint on `example.com`
-       is not `api.example.com`'s. Folding both to the registrable domain, as
-       this did, also handed one venture's funnel to a sibling subdomain
-       somebody else's venture owns. */
+    /* `sameSite` is one-directional through `shared/host.ts` — see its header. */
     if (!sameSite(v.host, r.url)) continue;
     let doc: unknown = null;
     try {

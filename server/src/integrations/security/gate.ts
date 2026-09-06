@@ -70,13 +70,10 @@ export type AuthHow = "cookie" | "service-key" | null;
  * anything that passes `session` passes `browser`, anything that passes
  * `browser` passes `proof`.
  *
- * THERE USED TO BE THREE UNRELATED RULES HERE INSTEAD OF THREE LEVELS, and
- * they disagreed about the same request. The deny list accepted an owner key
- * OR a browser shape OR a session; `requireOwner` demanded a password and a
- * live cookie and REFUSED the owner key; `requireBrowser` demanded neither and
- * — because it only ever refused headers it could see — let a request with no
- * headers at all through. One idea, three answers, and the weakest of them was
- * the only guard on installing a service and on publishing a post.
+ * THE NESTING IS THE POINT: three unrelated rules that can each answer the
+ * same request differently leave the weakest one as the only guard on the
+ * most sensitive routes — installing a service, publishing a post — the
+ * moment any caller reaches for the wrong one.
  */
 export type SurfaceLevel =
   /**
@@ -135,9 +132,9 @@ export type SurfaceLevel =
  * THE STRICTER ROWS ARE ALSO ENFORCED BY `requireBrowser` / `requireOwner` ON
  * THE ROUTE ITSELF, and that is belt and braces rather than an accident. This
  * table is the DECLARATION — it is what `agentRefusal`, the isolation report
- * and `npm run doctor` read, and before this pass those three told the owner
- * that `/api/deploy` and `/api/publishing` writes were agent-proof while the
- * gate had never heard of them. The middleware is the per-route belt for a
+ * and `npm run doctor` read, so a family missing from it makes all three claim
+ * a surface is agent-proof that the gate has never heard of. The middleware is
+ * the per-route belt for a
  * router mounted somewhere this table did not predict. If a route MOVES, the
  * belt still holds and only the report goes stale, which is the failure
  * direction to prefer.
@@ -345,8 +342,7 @@ export type Refusal = { error: string; status: 401 | 403; setup?: string };
  * DOES THIS REQUEST MEET THIS LEVEL? Null when it does.
  *
  * ONE FUNCTION, CALLED BOTH BY THE GATE AND BY THE PER-ROUTE MIDDLEWARE, so
- * the two cannot answer differently about one request — which is exactly what
- * they used to do.
+ * the two cannot answer differently about one request.
  *
  * `x-opc-via: skills` fails every level by construction, because
  * `browserShaped` refuses it and `keyScope` is never consulted for the two

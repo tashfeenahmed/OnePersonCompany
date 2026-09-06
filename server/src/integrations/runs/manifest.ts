@@ -33,19 +33,11 @@
  * them and are a thing to read on their own — which is the test for whether
  * something is its own skill.
  *
- * `start` IS DESTRUCTIVE, AND THIS PARAGRAPH USED TO ARGUE THAT IT WAS NOT.
- * The old argument was that starting a run cannot be un-made but nothing it
- * touches can be un-made either — it writes a row, and the row deletes. That is
- * true and it is beside the point, and worse, it stated a narrower definition
- * of `destructive` than the one the type itself carries. Two contradicting
- * documents is a worse defect than either of them being wrong.
- *
- * THE ONE DEFINITION IS IN `skills/registry.ts`, on `SkillAction`, and it has
- * four limbs: the RECORD it cannot take back, the MONEY it spends, the MESSAGE
- * it sends, the MACHINE it reaches. Any one is enough. Starting a run is the
- * second limb and always has been — its own text says so in the next screenful:
- * minutes of the single run slot and tokens on the owner's account. The tokens
- * are not refunded when the row is deleted.
+ * `start` IS DESTRUCTIVE BECAUSE IT SPENDS — the money limb of the one
+ * definition, which is on `SkillAction` in `skills/registry.ts`. It takes
+ * minutes of the single run slot and tokens on the owner's account, and the
+ * tokens are not refunded when the row is deleted. That the ROW deletes is
+ * true and beside the point.
  *
  * IT MATTERS BECAUSE OF WHAT THE FLAG IS WIRED TO rather than what it reads
  * like. The `opc` CLI prints it before an action, the client asks for a
@@ -234,7 +226,7 @@ const skills: Skill[] = [
     ],
     asks: [
       "What has the box been working on, and is anything running now?",
-      "Read me the SEO review it wrote for Example App 1.",
+      "Read me the SEO review it wrote for Acme.",
     ],
     /* A run reaches the internet on almost every kind: an agent's web search,
        OpenAlex and arXiv for a paper. */
@@ -282,7 +274,7 @@ const skills: Skill[] = [
       },
     ],
     asks: [
-      "Who are Example Support's competitors and what do they charge?",
+      "Who are Acme's competitors and what do they charge?",
       "Which competitor profiles have not been verified in months?",
     ],
   },

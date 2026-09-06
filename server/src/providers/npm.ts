@@ -17,7 +17,7 @@
  * callers keep it.
  *
  * The same honesty applies to SPIKES. A release week pulls mirrors and CI; the
- * week @overbrilliant/ob1 launched reads 1,738 against a floor nearer 45. This
+ * week one package launched reads 1,738 against a floor nearer 45. This
  * reports weeks raw and editorialises none of them.
  *
  * WEEKS ARE ISO, MONDAY TO SUNDAY. npm's own `last-week` endpoint returns a

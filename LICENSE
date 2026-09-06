@@ -1,0 +1,27 @@
+NO LICENCE HAS BEEN CHOSEN YET.
+
+This file is a placeholder. It is not a licence and it grants nothing.
+
+Until the owner of this repository replaces this file with an actual licence
+text, the legal default applies: all rights are reserved. Nobody other than the
+copyright holder has permission to use, copy, modify, merge, publish,
+distribute, sublicense or sell this software, and the absence of a stated
+licence is not permission.
+
+A LICENCE MUST BE SET BEFORE THIS REPOSITORY IS PUBLISHED.
+
+Choosing one is the owner's decision and nobody else's. It is not a formality:
+the choice determines whether anyone may run this, whether they may modify it
+privately, whether a modified copy they run as a network service must be shared
+back, and whether the owner keeps a patent claim. Those are business decisions,
+not engineering ones.
+
+To resolve this:
+
+  1. Choose a licence. https://choosealicense.com/ walks through the trade-offs.
+  2. Replace the whole of this file with that licence's exact, unmodified text.
+  3. Fill in the copyright line with the year and the copyright holder's name.
+  4. Add a `license` field to the root `package.json` naming its SPDX
+     identifier, and update the Licence section of README.md.
+
+Until all four are done, treat this repository as private.

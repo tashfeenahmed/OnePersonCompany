@@ -198,18 +198,9 @@ export const manifest: IntegrationManifest = {
   packs: PACKS,
 
   /*
-    THE ROUNDS LEDGER IS SETTLED FIRST, and it went years without being.
-
-    `chief_rounds`' own migration says an open row means a crash and is visible
-    as one — and nothing anywhere ever closed one. `runRound`'s `finally` does
-    it for a round that threw, and cannot for a round the PROCESS died inside;
-    on a development box that is routine, because a source save restarts the
-    server. So a round from weeks ago read as still walking, for ever, on a
-    page whose whole job is to say what the estate is doing.
-
-    Three other areas had each written this by hand and this was the fourth
-    table, forgotten precisely because the rule was copied as a pattern rather
-    than called as a helper. It is one line now.
+    THE ROUNDS LEDGER IS SETTLED FIRST, before the timers below are armed.
+    See `shared/settle.ts` for why every open-row ledger needs this at boot —
+    `runRound`'s `finally` cannot run for a round the process died inside.
   */
   onStart() {
     const stale = settleOpenRows({

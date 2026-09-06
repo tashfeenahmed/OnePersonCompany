@@ -2751,10 +2751,10 @@ export type ChatBackends = {
  */
 /** What a cancel answers. `cancelling` and NOT a run status: the run has been
  *  ASKED, it still has a partial row to write, and the authority on what
- *  actually happened is the terminal frame on the stream. The word used to be
- *  `stopping` on this path and `cancelling` on the other, with neither
- *  declared by a type; one participle for one state, and it is the one whose
- *  past tense is the status it leads to. */
+ *  actually happened is the terminal frame on the stream. One participle for
+ *  one state — `cancelling`, not `stopping`, because its past tense is the
+ *  status it leads to — and it is declared by a type so the two cancel paths
+ *  cannot pick different words. */
 export type ChatCancelled = { runId: string; status: Cancelling };
 
 export type ChatRunState = {

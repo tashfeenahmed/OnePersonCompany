@@ -1,11 +1,11 @@
 /**
  * THE ADDRESS OF A FIGURE, READ ON A SCHEDULE.
  *
- * Two areas independently invented the same four-column address. An alert rule
- * names a skill, a view, some parameters and a path into the document; an
- * outcome — "did the thing I did actually move anything?" — names exactly the
- * same four. Both then fetch `GET /api/skills/<id>` over loopback with the
- * service key, parse the JSON, and walk a dotted path to a number.
+ * A figure is addressed by four columns. An alert rule names a skill, a view,
+ * some parameters and a path into the document; an outcome — "did the thing I
+ * did actually move anything?" — names exactly the same four. Both fetch
+ * `GET /api/skills/<id>` over loopback with the service key, parse the JSON,
+ * and walk a dotted path to a number.
  *
  * WHY AN ADDRESS AND NOT A FUNCTION. `skill` + `view` + `params` + `path` is
  * how everything on this box addresses a figure: the skills proxy turns the
@@ -16,25 +16,18 @@
  * nameable in the answer, and it is the same document the owner would get from
  * curl.
  *
- * THE TWO COPIES HAD ALREADY DISAGREED, WHICH IS WHY THIS FILE EXISTS:
+ * THREE THINGS AN ADDRESS RESOLVER GETS WRONG:
  *
- *   - One resolver supported `@count(...)` and the other did not. A path
- *     copied from a working alert rule read as "nothing at that path" in an
- *     outcome — a null reading with a plausible-sounding reason, which is the
- *     worst kind of wrong answer because it looks like a finding.
- *   - The two `readParams` differed on what a parameter may be, so one stored
- *     address could produce two different query strings.
- *   - The two URL builders differed on the view. One sent `?view=default`
- *     whenever the column held that word; the other omitted it. `default` is
- *     the SENTINEL both features store for "the entry's own first view", and
- *     the skills route resolves an absent view to exactly that — while a
- *     literal `?view=default` 404s on any skill whose first view is called
- *     something else. So omitting it is not a preference, it is the correct
- *     one, and it is what this does.
- *
- * SUPERSET RATHER THAN INTERSECTION, everywhere the two differed: `@count`,
- * booleans as 1 and 0, numeric strings, and the fuller failure sentences.
- * Nothing that worked in either area stops working.
+ *   - `@count(...)` has to be understood everywhere, or a path copied from a
+ *     working alert rule reads as "nothing at that path" somewhere else — a
+ *     null reading with a plausible-sounding reason, which is the worst kind
+ *     of wrong answer because it looks like a finding.
+ *   - What a parameter may be has to be one rule, or one stored address
+ *     produces two different query strings.
+ *   - `?view=default` is NEVER sent. `default` is the SENTINEL stored for
+ *     "the entry's own first view", and the skills route resolves an ABSENT
+ *     view to exactly that — while a literal `?view=default` 404s on any skill
+ *     whose first view is called something else.
  *
  * A FIGURE THAT CANNOT BE READ IS NULL AND NEVER ZERO. This is the rule the
  * whole idea turns on. A disconnected plugin, a renamed field, a route that

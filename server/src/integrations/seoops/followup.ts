@@ -428,11 +428,11 @@ export function dueFollowUps(at = Date.now()): Due[] {
           .all(b.id) as unknown as { day_offset: number }[]
       ).map((r) => r.day_offset),
     );
-    /* A SLOT WITH A READING AND NO DIAGNOSIS IS NOT FINISHED. A restart between
-       the two — which this box's dev server does on every save — used to leave
-       the offset filled and undiagnosable for ever, because due-ness was asked
-       of the readings alone. `runFollowUp` reuses a reading it already has, so
-       coming back here costs no second Search Console call. */
+    /* A SLOT WITH A READING AND NO DIAGNOSIS IS NOT FINISHED — due-ness below
+       checks both sets, not the reading alone, so a restart between the two
+       (which this box's dev server does on every save) cannot leave an offset
+       stuck forever. `runFollowUp` reuses a reading it already has, so coming
+       back here costs no second Search Console call. */
     const diagnosed = new Set(
       (
         db

@@ -2,9 +2,8 @@
  * SearXNG — the self-hosted metasearch node the agents search through.
  *
  * THIS IS A CONSUMPTION API, THE WAY PEXELS AND PIXABAY ARE, and the same
- * reasoning decides what gets built. Over in workdash it is called by
- * `agent/websearch.js` for search_web and by `collect_demand.py` as the last
- * tier of the Reddit fallback: something asks it a question, reads the links
+ * reasoning decides what gets built. The previous system called it for
+ * web search and as the last tier of the Reddit fallback: something asks it a question, reads the links
  * and throws the answer away. It keeps no account history, it bills nothing,
  * and — this is the part that decides a whole card — IT DOES NOT COUNT THE
  * QUERIES PUT TO IT.
@@ -45,11 +44,10 @@
  * and it is the better one anyway — a key in a URL is a key in an access log,
  * a referrer and every error message that echoes the request.
  *
- * THE URL IS A SETTING AND NOT A CONSTANT. The instance is on the owner's own
- * box and its hostname carries that box's IP (`178-105-187-189.sslip.io`), so
- * the day the box moves, a hardcoded host is a dashboard that quietly stops
- * searching. The default below is where it lives today; `plugin_config` holds
- * the override, reads back, and is the value every call actually uses.
+ * THE URL IS A SETTING AND NOT A CONSTANT. A remote node lives wherever its
+ * owner put it, and the day that box moves a hardcoded host is a dashboard
+ * that quietly stops searching. `plugin_config` holds the value, reads back,
+ * and is what every call actually uses.
  *
  * ─────────────────────────────────────────────────────────────────────────
  *
@@ -93,16 +91,6 @@ const TIMEOUT_MS = 25_000;
  */
 export const USER_AGENT = "onepersoncompany-collector/1.0";
 
-/**
- * Where the node lives today.
- *
- * A DEFAULT, NEVER A CONSTANT — see the header. It is the same URL
- * `collect_demand.py` defaults to, which is what makes moving between the two
- * a copy rather than a translation.
- */
-export const DEFAULT_URL =
-  "https://searxng-api.178-105-187-189.sslip.io/search";
-
 /** The plugin id, written once because it is a foreign key value and two
  *  spellings of it would be two plugins. */
 export const PLUGIN = "searxng";
@@ -118,6 +106,24 @@ export const PLUGIN = "searxng";
  */
 export const LOCAL_PORT = 8888;
 export const LOCAL_URL = `http://127.0.0.1:${LOCAL_PORT}/search`;
+
+/**
+ * What an unconfigured box searches against: its own managed instance.
+ *
+ * THE DEFAULT MUST NEVER BE SOMEBODY ELSE'S NODE. It used to be a public
+ * host belonging to whoever wrote this, which meant every install that had
+ * not set the field sent its owner's searches — their topics, their timing —
+ * to a stranger's machine, and did it without saying so. A default that
+ * quietly reaches a third party is worse than one that fails.
+ *
+ * So the fallback is the loopback instance `searxng/instance.ts` installs.
+ * If it is running, search works with no configuration and no key, because
+ * `isLoopback` makes this managed mode and a loopback bind IS the auth. If it
+ * is not, the call is refused against 127.0.0.1 — a local failure the owner
+ * can see and fix, with nothing leaving the box. Pasting a remote node's URL
+ * into the setting overrides this and re-arms the `x-api-key` header.
+ */
+export const DEFAULT_URL = LOCAL_URL;
 
 /**
  * Is this URL on this machine?
@@ -240,7 +246,7 @@ const str = (v: unknown): string | null =>
  * two copies of "a page rather than JSON means the URL is wrong" is one copy
  * that eventually stops being true.
  *
- * `language=en-US` for the reason collect_presence.py sets it: without it the
+ * `language=en-US` for the reason the previous system sets it: without it the
  * node answers in the locale of whatever IP asked, and the remote box is in
  * Nuremberg — so the same query would quietly return German results from a
  * German datacentre and English ones from here. The caller may override it,

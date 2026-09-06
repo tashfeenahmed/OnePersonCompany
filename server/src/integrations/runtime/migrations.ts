@@ -1,8 +1,8 @@
 /**
  * RUNTIME — three tables, and none of them holds a schedule.
  *
- * The area exists for two absences (WORKDASH_GAP_ANALYSIS rows 2 and 8), and
- * the schema is deliberately small because most of what this area knows is
+ * The area exists to fill two gaps identified in the pre-launch gap analysis,
+ * and the schema is deliberately small because most of what this area knows is
  * owned somewhere else:
  *
  *   WHAT A MODEL CAN DO is measured, not declared, so it is cached rather than

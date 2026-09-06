@@ -48,13 +48,11 @@ import type {
   UptimeReport,
 } from "@/lib/api/reports";
 import type { Meter, RunwayRow, StatusTone, Widget } from "@/data/widgets";
-/* EVERY FIGURE ON THESE CARDS IS DRAWN BY `@/lib/format`. This file had grown
-   thirteen private formatters — two spellings of a count, three of money, two
-   of bytes, its own age and its own duration — and the copies had already
-   drifted from each other and from the panels showing the same numbers: 1.5M
-   here, 1.5m there, 1,500,000 on a third card. The adapters that remain below
-   only bridge a calling convention (a percent the server already scaled, a
-   currency this box always quotes in); none of them computes a rendering. */
+/* EVERY FIGURE ON THESE CARDS IS DRAWN BY `@/lib/format`. A private formatter
+   here drifts from the panel showing the same number — 1.5M on this card, 1.5m
+   on that one, 1,500,000 on a third — and nothing catches it. The adapters
+   below only bridge a calling convention (a percent the server already scaled,
+   a currency this box always quotes in); none of them computes a rendering. */
 /* RELATIVE, AND WITH THE EXTENSION, unlike the `@/` alias the rest of this
    client uses. `scripts/catalog-check.ts` imports this module under bare node
    to join the widget catalog to its builders, and node resolves the specifier
@@ -2005,10 +2003,10 @@ function whereItIs(state: string | null, onStore: boolean | null): string {
 }
 
 /** A package id with its reverse-domain prefix dropped, which is the half that
- *  identifies the app: `com.tashfene.BetIndexAI` becomes `tashfene.BetIndexAI`
- *  and `co.freellmapi.app` becomes `freellmapi.app`. Only the first segment
- *  goes — taking the last one instead turns two of these four packages into
- *  "app" and "android", which name nothing. */
+ *  identifies the app: `com.acme.BetIndex` becomes `acme.BetIndex` and
+ *  `co.acme.app` becomes `acme.app`. Only the FIRST segment goes — taking the
+ *  last one instead collapses `co.acme.app` and `com.acme.android` to "app"
+ *  and "android", which name nothing. */
 const shortPackage = (pkg: string) =>
   /^(com|co|io|net|org|dev|app)\./.test(pkg) ? pkg.slice(pkg.indexOf(".") + 1) : pkg;
 
@@ -3804,7 +3802,7 @@ function windowSpan(from: string | null | undefined, to: string | null | undefin
 }
 
 /** A campaign name Meta generated. Its auto-named campaigns are a date stamp
- *  and a whole URL — "[8/4/2026] Promoting https://freellmapi.co/?utm_source=…"
+ *  and a whole URL — "[8/4/2026] Promoting https://acme.example/?utm_source=…"
  *  — which is forty wasted characters before the only distinguishing part. The
  *  stamp goes, the URL loses its scheme and its query, and a name somebody
  *  actually typed is left exactly as they typed it. */

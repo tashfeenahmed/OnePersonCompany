@@ -125,13 +125,11 @@ leakageRoutes.get("/", (c) => {
     const { disputes, disputeFees } =
       disputeDebits.get(currencyCode(currency)) ?? { disputes: 0, disputeFees: 0 };
 
-    /* THE CASES, WHICH THIS DOCUMENT USED TO SAY IT DID NOT HAVE.
-       The comment on the `disputes` bucket below read "the COUNT is 0 because
-       there is no dispute-level table on this box". There is one now —
-       stripe_disputes, walked by the customers area — so the count is real.
-       The ledger figure stays exactly where it was, because the two measure
-       different things and replacing one with the other would silently change
-       what every reader of this bucket has been quoting. */
+    /* THE CASE COUNT IS REAL, and comes from stripe_disputes — the
+       dispute-level table the customers area walks. The LEDGER figure in the
+       `disputes` bucket below stays beside it rather than being replaced by
+       it: the two measure different things, and swapping one for the other
+       would silently change what every reader of that bucket quotes. */
     const cs = allCases.filter((d) => d.currency === currency);
     const csWindow = cs.filter((d) => d.created_at >= fromIso);
     const csOpen = cs.filter((d) => d.outcome === null && OPEN_DISPUTE_STATUSES.has(d.status));

@@ -34,7 +34,7 @@
  *
  * A HOST IS STORED AS THE OWNER TYPED IT, lower-cased. It is the entity key
  * venture_links points at, so it has to survive a redirect moving: normalising
- * `example.ie` to `https://www.example.ie/` the day a redirect changed would orphan
+ * `acme.ie` to `https://www.acme.ie/` the day a redirect changed would orphan
  * every link that named it.
  */
 import { configValue, db, finishRun, startRun, upsertPlugin } from "../../db.ts";
@@ -164,7 +164,7 @@ function reason(err: unknown): string {
  *
  * `redirect: "manual"` rather than fetch's own following, for two reasons that
  * are both about honesty: the cap is five hops and fetch's is twenty, and the
- * chain itself is a measurement — "http://example.ie answers 200 without ever
+ * chain itself is a measurement — "http://acme.ie answers 200 without ever
  * reaching https" is the whole point of listing an http:// host.
  */
 async function walk(

@@ -1,7 +1,9 @@
-# The shared modules Wave 1 built
+# The shared modules
 
-Wave 2 rewires callers onto these and DELETES the copies they replace. Every
-module below exists and is tested; `npm run check` is green with them in place.
+Both halves of the app import from a shared layer rather than each keeping its
+own copy of a rule. This is the reference for what lives there, what each
+function promises, and the traps that are easy to reintroduce by picking the
+wrong one.
 
 Import paths: server files use the `.ts` extension (`../../shared/host.ts`);
 client files omit it. Repo-root `shared/` is reachable from both.

@@ -7,7 +7,7 @@
  * interface — so a webhook would mean a tunnel, a domain, a certificate and a
  * publicly reachable door into the box that reads the bill. `getUpdates` needs
  * none of that: the connection is outbound, it works behind any NAT, and it is
- * what workdash's own notifier has been doing on the Pi for a year.
+ * what the previous system's own notifier has been doing on the Pi for a year.
  *
  * WHY IT LIVES IN THE API PROCESS. The alternative was a second service with
  * its own systemd unit. It would need the vault key, the database and the chat

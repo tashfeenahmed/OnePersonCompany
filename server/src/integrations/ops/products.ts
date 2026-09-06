@@ -96,8 +96,8 @@ export function parseMetrics(raw: string | null | undefined): Metric[] {
 }
 
 /** The lines that apply to one endpoint: the unprefixed ones, plus the ones
- *  naming it. Case-insensitive on the label, because "Example App 1" and
- *  "example-app-1" are the same account to everyone except a string compare. */
+ *  naming it. Case-insensitive on the label, because "Acme" and
+ *  "acme" are the same account to everyone except a string compare. */
 export function metricsFor(all: Metric[], accountLabel: string): Metric[] {
   const want = accountLabel.trim().toLowerCase();
   return all.filter((m) => m.account === null || m.account.toLowerCase() === want);

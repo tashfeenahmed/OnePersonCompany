@@ -226,86 +226,20 @@ export const VENTURE_COLORS = [
   "#4a4842",
 ];
 
-// v5: plugin connection state moved out of the Plugins page and into here, so
-// the index and a plugin's own page cannot disagree about it.
+/* A plugin's connection state lives in this store rather than on the Plugins
+   page, so the index and a plugin's own page cannot disagree about it. */
 const KEY = "opc-state-v5";
 
 /*
-  v5 adds the Costs board. Bumped rather than edited in place because the
-  starter dashboards are a GIFT and not a template: migrate() hands over the
-  boards a state has never been offered, exactly once, so a board the owner
-  deleted stays deleted and one they have reshaped stays reshaped.
-*/
-/*
-  v10 retires the twelve invented sessions. They were the last mock left in the
-  rail: titles with no conversation behind them, sitting beside real
-  transcripts on the server and indistinguishable from them until you clicked.
-  See `Session.seeded` for why removing them takes two steps and a fetch rather
-  than a `filter` here.
-*/
-/*
-  v11 moves the ventures to the server. Nothing is given and nothing is taken
-  here: the four seeded ones keep their ids and are replaced, row for row, by
-  the server's copies on the first fetch. What the bump marks is that the seed
-  no longer ships them — see `SEED.ventures`. The shape change is handled as a
-  REPAIR rather than a gift (see `migrate`), because an older cache has to be
-  readable whatever version stamp it carries.
-*/
-/*
-  v12 lands the nine second-wave integrations on the boards that were already
-  asking their questions with nothing to answer them.
+  BUMP THIS RATHER THAN EDITING A SEED IN PLACE. The starter dashboards are a
+  GIFT and not a template: `migrate()` hands a state the boards it has never
+  been offered, exactly once, so a board the owner deleted stays deleted and
+  one they have reshaped stays reshaped. A bump is how a new board reaches a
+  state that already exists; editing an existing seed reaches nobody.
 
-  The Servers board had CPU, network and disk throughput from Hetzner's
-  hypervisor and no memory or filesystem meter at all — because a hypervisor
-  cannot see inside a guest and the board's own comment said so. There is an
-  ssh collector now, so the two meters it could not draw are drawn, with the
-  probe's "is it answering at all" and its certificate countdown beside them.
-
-  Morning check gains the day's calendar and the same up/down figure, which is
-  the pair of things somebody actually opens a dashboard at 8am to see.
-
-  Growth gains PyPI rather than getting a board of its own. Growth is already
-  the "where does attention come from" board, and for a library a download IS
-  that signal — it belongs beside the Hacker News mentions it competes with for
-  the same attention. A third starter board built from four package cards would
-  be padding, which is the argument the Growth board's own comment makes about
-  why there is no separate Social board.
-
-  ANALYTICS IS NEW, because Umami answers a question none of the existing
-  boards do: Search Console reports what Google SHOWED, and Umami reports who
-  actually arrived. Those are not two views of one number and they must not
-  share a board where somebody might read them as one. Bluesky rides along
-  because it is the only other source that counts us about us.
-*/
-/*
-  v13 fills in the eight boards the catalog could already answer and nobody had
-  been given.
-
-  THE GAP WAS NEVER A MISSING INTEGRATION. Meta, both app stores, the two
-  registries, the ssh fleet, the uptime probe, the calendar and the three demand
-  sources were all connected and all being drawn — on four boards, three of
-  which had been asked to carry a question they were not built for. Growth was
-  search demand AND paid ads AND Pages AND package downloads, which is four
-  boards wearing one name; Servers was Hetzner's hypervisor with two ssh meters
-  appended by a top-up; Search had no card about our own pages at all.
-
-  So: SEO, Social, Ads, Demand, Development, Apps, Uptime & fleet and Week.
-  Nothing is taken from the boards that already exist — the gift only adds ids
-  a state has never been offered, and a board somebody has reshaped stays
-  reshaped. Growth and Servers keep every card they have, and the overlap is
-  deliberate: a card is not a possession, and the same Meta spend belongs on
-  both the board about attention and the board about money out.
-
-  THREE NEW SOURCES ARRIVE WITH THEM, and they are the first three on this
-  dashboard that are not somebody else's API: the site audit this box crawls,
-  the agent runs it executes, and the competitor profiles those runs
-  accumulated. There is nothing to connect, so a card of theirs showing samples
-  means the WORK has not been done rather than that a token is missing — see
-  `SOURCES` in data/widgets.ts.
-
-  Morning check gains `runs.recent` and Search gains `audit.issues` as top-ups,
-  which is the whole of what the two existing boards were missing: what the
-  agent did overnight, and how our own pages are.
+  Not every bump is a gift. A shape change is a REPAIR — see `migrate()` — and
+  runs whatever version stamp the cached state carries, because an older cache
+  has to stay readable.
 */
 export const SEED_VERSION = 13;
 
@@ -1440,12 +1374,11 @@ type StoreApi = {
   /**
    * A session may name a venture or none at all. Newest lands first.
    *
-   * IT DOES NOT OPEN THE CHAT, and there is no longer anything here that
-   * could: opening one is `navigate("/chat/<id>")`, and the caller that made
-   * the session is the caller that knows whether it wants to go there. There
-   * used to be a `setActiveSession` beside this and it is gone — see
-   * `StoreState` for what it was and why one copy of "which chat is open"
-   * beats two.
+   * IT DOES NOT OPEN THE CHAT, and there is nothing here that could: opening
+   * one is `navigate("/chat/<id>")`, and the caller that made the session is
+   * the caller that knows whether it wants to go there. There is deliberately
+   * no `setActiveSession` beside it — see `StoreState` for why
+   * one copy of "which chat is open" beats two.
    */
   addSession: (title: string, ventureId?: string | null) => Session;
   sessionsFor: (ventureId: string) => Session[];

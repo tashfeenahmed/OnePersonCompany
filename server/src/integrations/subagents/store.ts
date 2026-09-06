@@ -22,7 +22,7 @@ import { appForKind, runPage } from "../../../../shared/runRoutes.ts";
  * A RUN IS A WORKER'S WORK BECAUSE OF ITS KIND AND ITS VENTURE, and not
  * because of a column. `agent_runs.subagent_id` exists and says something
  * narrower — that this run was DISPATCHED rather than started by hand — but
- * attribution never reads it: an SEO review of Example App 1 is the Example App 1 SEO
+ * attribution never reads it: an SEO review of Acme is the Acme SEO
  * Analyst's work whether the owner started it from the app or asked the Chief
  * of Staff for it, and a roster that only counted the second would show six
  * idle workers beside a ledger full of their output.
@@ -71,10 +71,6 @@ export const ROLES: RoleDef[] = [
 
 export function roleDef(role: string): RoleDef | null {
   return ROLES.find((r) => r.role === role) ?? null;
-}
-
-export function roleForKind(kind: string): RoleDef | null {
-  return ROLES.find((r) => r.kind === kind) ?? null;
 }
 
 /* `appForKind` is NOT declared here any more. It was a third table of

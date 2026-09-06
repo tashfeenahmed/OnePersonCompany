@@ -169,7 +169,7 @@ migrateRoutes.get("/adapters", (c) =>
 /**
  * A sample payload against the live contract.
  *
- * `{ "endpoint": "Example App 1", "payload": { … } }`, or the document itself as
+ * `{ "endpoint": "Acme", "payload": { … } }`, or the document itself as
  * the body. It calls the collector's own validator — see adapters.ts — so the
  * sentences here are the sentences that would be stored, not a second opinion.
  */

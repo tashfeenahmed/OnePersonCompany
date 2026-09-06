@@ -83,11 +83,7 @@ export type PickedQuery = {
  *  and a venture with no matching property gets none rather than the first one
  *  in the table.
  *
- *  ONE-DIRECTIONAL, through `shared/host.ts`. A property covers a host when it
- *  IS that host or the host sits under it. Folding both sides to the
- *  registrable domain — which is what this did — also matched a property for
- *  `blog.example.com` against a venture at `example.com`, which is a property
- *  that measures a different site. */
+ *  `hostMatch`, one-directional through `shared/host.ts` — see its header. */
 export function propertyFor(host: string | null): string | null {
   if (!host) return null;
   const rows = db.prepare("SELECT property FROM gsc_sites").all() as unknown as { property: string }[];
@@ -107,13 +103,9 @@ export function propertyFor(host: string | null): string | null {
  * impressions with no floor means the best candidate on a quiet site wins by
  * default rather than on merit.
  *
- * THERE USED TO BE TWO DEFINITIONS OF THIS ONE RECOMMENDATION and they
- * published different lists over the same rows: the dashboard took 11–20 with
- * no impressions floor, this took 5–20 with one. A query at position 7 was a
- * target for the teardown and invisible on the dashboard; a query at 15 with a
- * single impression was on the dashboard and excluded from the teardown. The
- * band below is the one with the reasons written down, and both surfaces read
- * it.
+ * DEFINED ONCE so that the dashboard and the teardown never publish two
+ * different lists over the same rows: both surfaces read the band below
+ * rather than picking their own bounds or floor.
  *
  * `property` narrows it to one Search Console property; `null` means every
  * property this box holds, which is what a portfolio-wide board wants.

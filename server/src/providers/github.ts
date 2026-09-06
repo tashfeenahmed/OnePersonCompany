@@ -7,9 +7,9 @@
  * and its own last error — the same shape a Hetzner project has, for the same
  * reason.
  *
- * TWO TIERS, AND THE SPLIT IS THE WHOLE DESIGN. It is lifted from workdash's
- * collect_github.py, which is the version that has actually been run against
- * this account:
+ * TWO TIERS, AND THE SPLIT IS THE WHOLE DESIGN. It is lifted from the
+ * collector this replaces, which is the version that has actually been run
+ * against this account:
  *
  *   UNAUTHENTICATED — the public repo list: stars, forks, open issues, last
  *   push, language. One call for the whole account, sixty an hour shared
@@ -65,7 +65,7 @@ const MAX_PAGES = 3;
 /**
  * How many repos get a traffic call, and what counts as still alive.
  *
- * Both numbers come from workdash's collector and the reasoning is worth
+ * Both numbers come from the collector this replaces and the reasoning is worth
  * repeating: sorting by stars alone spent thirteen of thirty slots on repos
  * last pushed between 2015 and 2022, several of them showing zero views for
  * the entire fourteen-day window, while a Homebrew tap for a product being
@@ -298,7 +298,7 @@ async function ghGet<T>(
  * Called before a token is stored, so a typo is refused at the point it was
  * made rather than becoming a silently empty dashboard an hour later. It
  * returns the LOGIN as well as the yes, because that is the natural name for
- * the account row: "Account 2" says nothing, "tashfeenahmed" says everything.
+ * the account row: "Account 2" says nothing, the actual GitHub login does.
  */
 export async function verify(
   token: string,
@@ -497,7 +497,7 @@ const pushedMs = (r: Repo) => (r.pushedAt ? Date.parse(r.pushedAt) : NaN);
  *
  * PUBLIC FIRST is the one that surprises, and it is the whole point: this data
  * exists to answer "who is looking at the repos", and a private repo cannot be
- * looked at. Every private row in workdash's last run carried views 0 and
+ * looked at. Every private row in the previous system's last run carried views 0 and
  * clones 0 except the two the owner's own CI touches. Stars stay the second
  * key rather than the first because they are still the right answer to "which
  * of these is the channel"; what they were never able to say is which are

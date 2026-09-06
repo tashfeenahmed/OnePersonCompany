@@ -1,9 +1,7 @@
 /**
  * The security area's skill entries.
  *
- * Types only from skills/registry.ts — importing it at value level would put
- * the registry inside the seam's own import graph, and its header says why that
- * must not happen.
+ * Types only from skills/registry.ts: a value-level import would cycle.
  *
  * FOUR ENTRIES, AND ONE OF THEM IS ABOUT THE AGENT'S OWN DOOR. `security` is
  * unusual for this box: every other skill describes something MEASURED, and
@@ -275,11 +273,7 @@ export const SKILLS: Skill[] = [
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "The workstation account's label or id." },
         ],
-        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
-           a row cannot be deleted afterwards. `destructive` is what a client is
-           entitled to trust when it decides whether to ask a person first, and
-           the thing that cannot be taken back here is the money, the message or
-           the power state rather than the record. It reaches a physical machine over the network and changes its power state. */
+        /* It reaches a physical machine over the network and changes its power state. */
         destructive: true,
       },
       {
@@ -293,11 +287,7 @@ export const SKILLS: Skill[] = [
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "The workstation account's label or id." },
         ],
-        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
-           a row cannot be deleted afterwards. `destructive` is what a client is
-           entitled to trust when it decides whether to ask a person first, and
-           the thing that cannot be taken back here is the money, the message or
-           the power state rather than the record. It reaches a physical machine over the network and changes its power state. */
+        /* It reaches a physical machine over the network and changes its power state. */
         destructive: true,
       },
     ],

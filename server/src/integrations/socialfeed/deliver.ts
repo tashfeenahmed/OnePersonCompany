@@ -3,8 +3,8 @@
  *
  * THE GAP THIS CLOSES. The autopilot queues a video run and then forgets about
  * it: the run finishes half an hour later, the file lands on a run page, and
- * unless somebody goes looking, nothing tells them it exists. Workdash's
- * autopilot sends every finished item to Telegram the moment it exists, and
+ * unless somebody goes looking, nothing tells them it exists. The system this
+ * replaces sent every finished item to Telegram the moment it existed, and
  * that is the half that made an unattended loop worth running.
  *
  * A SWEEP RATHER THAN A HOOK IN THE EXECUTOR, and the reason is ownership. A
@@ -41,11 +41,9 @@ import { SOCIALFEED_PLUGIN } from "./novelty.ts";
 /**
  * WHERE A FINISHED ASSET IS ANNOUNCED, as a setting rather than as a fact.
  *
- * The skill entry used to say "the configured channel" when there was no such
- * setting: delivery was hard-wired to the paired Telegram chat with no way to
- * turn it off, so installing this area started pushing to somebody's phone
- * unconditionally. There is one channel on this box and this names it, and
- * `off` is a real answer.
+ * There is one channel on this box and this setting names it, so installing
+ * the area cannot start pushing to somebody's phone unconditionally. `off` is
+ * a real answer.
  *
  * `off` STILL FILES THE DRAFT. The two halves of a delivery are not the same
  * promise: the draft is the thing that makes an asset usable and is silent,

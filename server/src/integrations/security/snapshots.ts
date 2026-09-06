@@ -561,8 +561,8 @@ export function newFailures(sinceMs = FRESH_MS): NewFailure[] {
  * Which boxes a failing HOST is about.
  *
  * THE JOIN IS THE OWNER'S OWN LINKS AND NOTHING CLEVERER. `venture_links` holds
- * "this uptime host belongs to Example App 1" and "this fleet box belongs to
- * Example App 1", both written by the owner or suggested on the venture map. A host
+ * "this uptime host belongs to Acme" and "this fleet box belongs to
+ * Acme", both written by the owner or suggested on the venture map. A host
  * and a box that share a venture are related; anything else — matching
  * hostnames, resolving DNS and comparing addresses — would be this file
  * guessing at an architecture it cannot see, and guessing wrongly means ssh'ing

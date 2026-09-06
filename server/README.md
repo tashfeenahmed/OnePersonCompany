@@ -1,6 +1,6 @@
 # server
 
-Start with the [root README](../README.md) for current setup, production startup, recovery and job controls. The [fix matrix](../FIX_PROGRESS.md) records the September 2026 review changes.
+Start with the [root README](../README.md) for setup, the security model, production startup and recovery. [`docs/shared-modules.md`](../docs/shared-modules.md) describes the shared layer every area builds on, and the traps in it.
 
 The half of the app that is allowed to hold a credential. TypeScript on Node 24,
 run directly with `--experimental-strip-types` — no build step, no bundler.
@@ -38,9 +38,10 @@ Postgres was the real alternative and was declined on weight: a daemon to keep
 running, a connection pool, a separate backup story, and a second thing that can
 be down — bought for a dataset that fits in a file. DuckDB is an analytics
 engine and the wrong shape for configuration reads. Plain JSON files were what
-WorkDash does today, and its own collectors document the pain: `seo.json` is
-988K, and a document that has to be read whole to answer a question about one
-row is a document that eventually will not fit in the thing reading it.
+the system this replaces does today, and its own collectors document the pain:
+one such file is 988K, and a document that has to be read whole to answer a
+question about one row is a document that eventually will not fit in the thing
+reading it.
 
 `node:sqlite` in particular rather than `better-sqlite3`, because it ships with
 Node 22.5+ and needs no native build. That matters more than it sounds: this is
@@ -174,8 +175,9 @@ both — doubling the bill and silently dropping the rows are both worse.
 ### Entry names
 
 The first account of a plugin takes the plain name — `hetzner-token`,
-`dynadot-key`, `spaceship-secret` — which are the names workdash's own vault
-uses and the ones this file tells you to look for. Every account after it is
+`dynadot-key`, `spaceship-secret` — which are the names the system this
+replaces uses in its own vault, and the ones this file tells you to look for.
+Every account after it is
 suffixed with its own row id: `hetzner-token#4`. Not with its label and not
 with its position, because the entry name is the ciphertext's associated data
 and has to be stable for the life of the row; a label can be renamed and a
@@ -184,7 +186,8 @@ therefore does **not** rename its vault entry.
 
 ## Credentials at rest
 
-`src/vault.ts` mirrors WorkDash's `agent/secrets.js`: AES-256-GCM, a 12-byte IV,
+`src/vault.ts` mirrors the design the system this replaces used for its own
+secrets store: AES-256-GCM, a 12-byte IV,
 a 16-byte tag, and **the entry name as associated data** — so a ciphertext moved
 into another row fails to open rather than opening as the wrong secret. The key
 is 32 random bytes in `data/vault.key`, mode 0600, generated on first use.
@@ -269,7 +272,8 @@ with entry names and timestamps only.
 | `GET /api/skills/:id?<params>` | **a GET-only proxy** onto that integration's own route — one base URL for the whole board |
 
 Every write goes through a **closed registry** (`src/routes/plugins.ts`), for
-the reason WorkDash's is closed: a route that can write any name into the vault
+the same reason the previous system's own registry is closed too: a route that
+can write any name into the vault
 is a route that can overwrite `hetzner-token` with a typo. An id or field
 outside the registry is refused, and the provider verifies the credential
 before it is stored — for the fifth account exactly as for the first.
@@ -314,7 +318,7 @@ it knows exactly four things about a machine: how much CPU it is burning, and ho
 many bytes a second are crossing its network cards and its disks. It does not
 know how much memory is in use, and it does not know how full the filesystem is.
 Both of those live inside the operating system and need something running in
-there — which is what WorkDash's own collectors are.
+there — which is what the collectors on the previous system are.
 
 That limit is not papered over anywhere downstream. The Servers dashboard has CPU
 meters and no memory meter, and the disk card is titled for throughput rather
@@ -343,9 +347,9 @@ sends epoch milliseconds, `"yes"`/`"no"` strings and the name of its privacy
 product; Spaceship sends ISO instants, real booleans, and the EPP statuses the
 registry holds rather than a lock flag. `src/providers/domains.ts` is where both
 fold onto one shape, so nothing downstream has to know which registrar a row
-came from in order to read it. The rules are lifted from workdash's
-`collect_domains.py`, which is the version that has actually been run against
-these two accounts.
+came from in order to read it. The rules are lifted from the domain collector
+in the system this replaces, which is the version that has actually been run
+against these two accounts.
 
 **Dynadot signs every request.** The v2 surface wants the key as a bearer token
 and an `X-Signature` over
@@ -368,8 +372,9 @@ refuses a request on the strength of its agent string alone. Node's fetch sends
 Both are verified as a PAIR before storage — neither half proves anything alone,
 and "the key is fine but the secret is not" is a sentence only the provider can
 say. The first account of each writes `dynadot-key`, `dynadot-secret`,
-`spaceship-key` and `spaceship-secret`: the same names workdash's own vault
-uses, which makes moving the credentials across a copy rather than a migration.
+`spaceship-key` and `spaceship-secret`: the same names the system this replaces
+uses in its own vault, which makes moving the credentials across a copy rather
+than a migration.
 A second login at either registrar is a second account, and its entries are
 suffixed with that account's row id.
 
@@ -662,7 +667,8 @@ identifier the credential does not carry.
 
 The entry names are `asc-key.p8`, `asc-key-id`, `asc-issuer-id`, `asc-vendor`,
 `play-key.json` and `play-developer-id`. The first of each pair is the name
-workdash's own vault uses, which makes moving a credential across a copy.
+the system this replaces uses in its own vault, which makes moving a credential
+across a copy.
 
 ### Two implementation notes worth keeping
 
@@ -693,9 +699,10 @@ Pexels and Pixabay are not like the others, and the difference decides what got
 built. Hetzner, the registrars, GitHub and the LLM providers are **measurement**
 sources: you ask them what happened and they answer with a bill, a fleet, a
 portfolio, a history. Pexels and Pixabay are **consumption** APIs — over in
-workdash they are called by `faceless-worker/materials.py` to search for b-roll,
-Pexels first and Pixabay as the fallback. Nothing over there records what came
-back, and neither service keeps an account history you can ask for later.
+the system this replaces they are called by its video-production worker to
+search for b-roll, Pexels first and Pixabay as the fallback. Nothing over
+there records what came back, and neither service keeps an account history
+you can ask for later.
 
 So there is no spend to chart (both are free at this tier), no usage history
 (neither publishes one), and **no "clips used" card** — nothing on this box
@@ -725,8 +732,8 @@ falling segments of the series — when the allowance refills the counter jumps
 
 ### Pixabay is registered and not connected
 
-`pixabay-key` is declared in workdash's `KNOWN_SECRETS` but **no value was ever
-stored** for it, on the Pi or here. The provider, the registry entry and the
+`pixabay-key` is declared in the previous system's own list of known secrets
+but **no value was ever stored** for it, on the Pi or here. The provider, the registry entry and the
 widgets are all built and will work the moment a key is pasted; until then the
 plugin reads "not connected" and `pixabay.quota` falls back to its placeholder.
 Its quota reader has therefore never been run against a live response, which is
@@ -783,8 +790,8 @@ in a headcount and nothing alike in money.
 
 **A cancellation that never collected a penny is not churn**, and on this
 account that is most of them: 182 of 336 dead subscriptions are checkouts that
-expired before their first payment. workdash reported $415 of a $430 monthly
-churn from exactly this mistake — revenue that had never existed. Whether a
+expired before their first payment. The system this replaces reported $415 of
+a $430 monthly churn from exactly this mistake — revenue that had never existed. Whether a
 subscription ever billed is not on the subscription object, so it costs one
 invoice lookup each; the answer never changes, so it is stored per subscription
 and asked at most sixty times a run, newest cancellation first. Until a row is
@@ -810,8 +817,8 @@ card that promised one has been changed rather than filled with a guess.
 **A year without walking a year.** Each run rewalks ninety days — the span in
 which a refund or a dispute can still move a day — and rewrites exactly those
 rows by primary key. Older days are settled history and are read **once**.
-workdash backfills the whole account on its first run, which is right for a
-systemd timer and wrong here, because the first collection happens inside the
+The previous system backfills the whole account on its first run, which is
+right for a systemd timer and wrong here, because the first collection happens inside the
 HTTP request that stores the credential. So history is filled BACKWARDS,
 `HISTORY_CHUNK_DAYS` at a time, and the run that finds nothing older marks the
 account complete and stops asking. Connecting costs one window; the year arrives
@@ -821,7 +828,7 @@ actually reach so a wide window is read as a floor rather than as a total.
 ### AdSense is built and unauthorised
 
 **There is no credential and there never has been.** No `adsense-token` in the
-vault on the Pi, no `adsense-token.json` beside workdash's collectors, no
+vault on the Pi, no equivalent file beside the collectors it replaced, no
 consent ever granted. The catalog said "Connected"; that was a mock value
 presented as a measurement, and it now says what is true.
 
@@ -830,13 +837,14 @@ AdSense account owner, which no process can do. So everything on the other side
 of that consent is built — provider, registry entry, collector, route, widgets —
 and it works on the next collection after three fields are pasted:
 `adsense-client-id`, `adsense-client-secret`, `adsense-refresh-token`. Three
-entries rather than workdash's one `adsense-token.json`, because this vault
-stores fields: a JSON blob in a secret is a document that has to be parsed
+entries rather than the single JSON blob the previous system used, because
+this vault stores fields: a JSON blob in a secret is a document that has to be parsed
 before anything can be checked, and a typo inside it fails as "the grant was
 refused" rather than as "the client secret is missing".
 
-**Not authorised is a state, not a failure.** `collect_adsense.py` writes
-`{"error": "not-authorised", …}` and exits ZERO, because a daily timer must not
+**Not authorised is a state, not a failure.** The previous system's own AdSense
+collector writes `{"error": "not-authorised", …}` and exits ZERO, because a
+daily timer must not
 go red for a consent nobody has given. `collectAdSense` is therefore the one
 collector here that does not treat "no account" as a failed run, and a refresh
 grant Google refuses is recorded against its own account with Google's sentence
@@ -877,8 +885,8 @@ empty board for a reason nothing on the page could state.
 
 ### Four sources, each degrading on its own
 
-The shape is lifted from workdash's `collect_domains.py`, which is the version
-that has actually been run against this account.
+The shape is lifted from the domain collector in the system this replaces,
+which is the version that has actually been run against this account.
 
 | | | |
 | --- | --- | --- |
@@ -1001,7 +1009,8 @@ add them, and there is no figure anywhere in this codebase that spans the two.
 **One credential**, a Cloud service account added as a user on each property,
 scoped to `webmasters.readonly` — a token that cannot submit a sitemap, request
 indexing, or add a user, because Google refuses those calls to this scope. The
-entry name is `gsc-key.json`, which is what workdash's own vault calls it.
+entry name is `gsc-key.json`, chosen to match what the previous system's own
+vault calls it.
 
 `searchAnalytics.query` **is a POST and it is a read**, which is worth naming
 because every other provider here is GET-only by construction. Google made it a
@@ -1022,14 +1031,14 @@ saying "28d" and letting a reader assume it means "ending now".
 queries too rare to keep a searcher anonymous and caps the rows it will return.
 Measured across all nineteen properties on 2026-09-04, the ranked query rows
 carried between **0% and 77%** of their own property's impressions — 2% on
-example-app-1.example.test, where two hundred rows out of a long tail is a rounding error, and
+acme.ie, where two hundred rows out of a long tail is a rounding error, and
 19% across the portfolio. So the property's total is asked for **separately**,
 as a dimensionless query, `queryCoverage` states the fraction per property, and
 no card anywhere sums the query column into a headline.
 
 The daily rows are the happy exception, and they are what makes the totals
 cheap: summed over the same window they matched Google's own dimensionless
-answer **exactly** (23,157 against 23,157 on example-app-3.example.test), because a
+answer **exactly** (23,157 against 23,157 on acme.so), because a
 date is not a thing that can be anonymised. Every window figure on the route is
 therefore summed from `gsc_days` on the read, and no window total is stored
 anywhere to go stale.
@@ -1069,8 +1078,9 @@ the **user** rather than a site — one key covers everything that account has
 ## Meta, and the Instagram account that is not there
 
 `GET /api/meta` is one route for the Pages and the ads, the way `/api/mobile`
-is one route for both app stores: one token reaches both, workdash's two
-collectors read the same credential file, and a page that had to fetch two
+is one route for both app stores: one token reaches both, the previous
+system's two collectors read the same credential file, and a page that had to
+fetch two
 documents and join them is a page that eventually joins them wrongly.
 **Instagram is in this document and has no route of its own**, because
 Instagram is not an API this box talks to — an Instagram Business account is a
@@ -1078,8 +1088,9 @@ FIELD on a Facebook Page, read in the same call, with the same token.
 
 ### Two credential entries, both of them comment-annotated files
 
-`meta-token` and `meta-app` — the names workdash's own vault uses, which makes
-moving them a copy. Over there both are files with a `#` note above the secret,
+`meta-token` and `meta-app` — the names the previous system's own vault uses,
+which makes moving them a copy. Over there both are files with a `#` note
+above the secret,
 and **sealing one whole and sending it as a bearer token produces
 `OAuthException 190 "Bad signature"`** — which is indistinguishable from a
 revoked credential and sends you to mint a replacement for a token that was
@@ -1089,7 +1100,8 @@ arrive is copied verbatim from the Pi.
 
 **`meta-app` is not an app id**, despite the field once being labelled one. It
 is `app_id:app_secret` — a sixteen-digit id and a thirty-two-character hex
-secret joined by a colon, the shape `collect_social.py` partitions on. So it is
+secret joined by a colon, the shape the previous system's own social collector
+partitions on. So it is
 a secret, and what it buys is `appsecret_proof`: an HMAC-SHA256 of the access
 token under the app secret, sent with every call and verified by Meta (a wrong
 one comes back as "Invalid appsecret_proof provided in the API argument"). It
@@ -1100,15 +1112,15 @@ ignored: storing a bare app id would leave the owner believing the calls are
 proofed while every one goes out unsigned.
 
 The token is a **system user token with `expires_at: 0`** — Meta for never — so
-the sixty-day exchange `collect_social.py` performs is something this side never
-does, and it therefore never writes to the vault.
+the sixty-day exchange the previous system's own social collector performs is
+something this side never does, and it therefore never writes to the vault.
 
 ### What it read, and what it could not, probed 2026-09-04
 
 ```
 GET /me                                200, system user "pi-collector"
 GET /me/accounts                       200, 3 Pages: Free LLM API (1 follower),
-                                       Example App 4.io (9), Example App 3 (350)
+                                       Acme (9), Beacon (350)
 GET /me/adaccounts                     200, ONE account, EUR, active
 GET /act_…/insights last_30d           200, spend, impressions, clicks, reach,
                                        frequency, actions, cost per action
@@ -1236,8 +1248,8 @@ portfolio, a book of subscriptions. These answer the question that comes
 before that one — what do people actually want built — and that answer only
 exists outside, in threads nobody on this account wrote.
 
-The rules are lifted from workdash's `collect_demand.py`, which is the version
-that has actually been run against these endpoints.
+The rules are lifted from the demand collector in the system this replaces,
+which is the version that has actually been run against these endpoints.
 
 **One route rather than three, and it passes the test the search engines
 fail.** Google's impressions and Bing's may never be added, so they are two
@@ -1275,8 +1287,8 @@ throttle; the feed answers without one.
 ### Reddit: three tiers, and which one answered is part of the measurement
 
 There is no key to be had. Self-serve app registration closed on 2025-11-11 and
-the anonymous `.json` endpoints answer 403 — measured over in workdash from a
-residential connection with the exact user agent Reddit's rules ask for, which
+the anonymous `.json` endpoints answer 403 — measured on the previous system
+from a residential connection with the exact user agent Reddit's rules ask for, which
 rules out both usual explanations at once. What is still open is the Atom search
 feed. Probed from this box on 2026-09-04:
 
@@ -1358,8 +1370,8 @@ different windows.
 `demand_queries` holds four statuses per phrase per source because four things
 happen and only one of them is about demand: `ok` (the source answered, and
 `items: 0` is a real finding), `throttled`, `failed`, `skipped`. This is
-`bing_keyword_state`'s rule, arrived at independently by `collect_demand.py`
-for the same reason — an empty answer and a refused question are
+`bing_keyword_state`'s rule, arrived at independently by the previous system's
+own demand collector for the same reason — an empty answer and a refused question are
 indistinguishable in the response body, so the difference has to be carried
 outside it.
 
@@ -1411,7 +1423,7 @@ a property of whichever phrase the probe spent itself on.
 ### Connecting it: `scripts/connect-searxng.mjs`
 
 ```bash
-ssh pi@192.0.2.17 'cd /opt/workdash && node agent/secrets.js get searxng-key' \
+ssh you@the-box 'print-the-searxng-key' \
   | node scripts/connect-searxng.mjs                      # the default node
   | node scripts/connect-searxng.mjs https://host/search  # or another one
 ```
@@ -1596,14 +1608,16 @@ state row records the URL it probed; a different one is always due.
 
 ### What is deliberately not here
 
-**No classifier and no convergence fold.** `collect_demand.py` labels each
-item feature-request / complaint / question from keyword cues and merges
+**No classifier and no convergence fold.** The previous system's own demand
+collector labels each item feature-request / complaint / question from
+keyword cues and merges
 near-identical titles across platforms. Both are ranking machinery for a page
 that ranks, and both make a claim about somebody's sentence that a card here
 has no room to show its working for. These cards rank by engagement and
 recency, which are figures the sources published themselves.
 
-**No GitHub issue search**, which is `collect_demand.py`'s third source. It
+**No GitHub issue search**, which is a third source for the previous system's
+own demand collector. It
 needs the GitHub plugin's token and its own rate budget, and it is a different
 plugin's collector rather than a silent omission of this one.
 
@@ -1616,8 +1630,8 @@ this is the only data on the box that arrives from strangers.
 Everything else here asks a service what happened. This one hands a stranger's
 message to an agent that can act, and that difference decides the whole design.
 
-**One bot token per account**, `telegram-token` — the name workdash's own vault
-uses for the notifier on the Pi. `getMe` is the entire verification available:
+**One bot token per account**, `telegram-token` — the name the system this
+replaces uses for its own notifier on the Pi. `getMe` is the entire verification available:
 a bot token carries no scopes, and the chat it will serve does not exist until
 a human sends it a message. So "connected" is only half the answer here, and
 `GET /api/telegram` reports the other half — whether the loop is actually
@@ -1753,9 +1767,10 @@ entirely). Thread reads add `format=minimal` on top of that. And the one call
 that reads headers at all asks for `To` and `Cc` on your OWN sent mail and turns
 each address into an HMAC before it leaves the provider.
 
-This is the contract `collect_inbox.py` keeps ("this file lands in dist/, so it
-carries counts and only counts"), tightened by one step. `collect_contacts.py`
-deliberately publishes real names and addresses because a contacts *page*
+This is the contract the previous system's own inbox collector keeps ("this
+file lands in dist/, so it carries counts and only counts"), tightened by one
+step. Its contacts collector deliberately publishes real names and addresses
+because a contacts *page*
 without them is not a contacts page; this dashboard has a number on a card
 rather than a contacts page, so it takes the cheaper trade and keeps the
 identities out entirely. The HMAC's salt is a `randomblob(32)` the migration
@@ -1764,8 +1779,8 @@ SHA-256 of an email address is reversible with a word list.
 
 ### Gmail: a token that can write, held by code that cannot
 
-The refresh token in the vault was minted by workdash's `gmail_auth.py` with
-**`gmail.modify`** and `calendar.readonly`. `gmail.modify` is a WRITE scope: it
+The refresh token in the vault was minted by the previous system's own OAuth
+script with **`gmail.modify`** and `calendar.readonly`. `gmail.modify` is a WRITE scope: it
 can archive a thread, move a label, trash a message. Google offers no way to
 narrow a token after the fact and a `gmail.readonly` one needs a human at a
 consent screen, so the credential this dashboard holds is, and will stay, more
@@ -1784,7 +1799,7 @@ already removed. The scopes are on the wire and on a card, read off the refresh
 response rather than off the file — the file's own `scopes` list is what
 somebody wrote down; the grant is what it actually is.
 
-**Three fields rather than two JSON documents.** workdash keeps
+**Three fields rather than two JSON documents.** The previous system keeps
 `gmail-client.json` and `gmail-token.json`; the second already contains the
 first (`client_id`, `client_secret`, `refresh_token`, plus `scopes`, `address`
 and `obtained`), so the client file is the same pair written down twice. One
@@ -1813,11 +1828,13 @@ from another mailbox, still reads as waiting. Threads whose last message sits in
 Gmail's **Promotions, Social or Forums** are excluded — 24,901 of the 83,299
 messages in this inbox are promotions, and counting them is how "263 waiting"
 stops meaning anything. `CATEGORY_UPDATES` is deliberately **not** excluded:
-receipts, alerts and "your build failed" are real work, which is the call
-`collect_inbox.py` makes and it is not this file's place to overturn it. The
+receipts, alerts and "your build failed" are real work, which is the call the
+previous system's own inbox collector makes and it is not this file's place to
+overturn it. The
 exclusion happens **in the query** rather than after the fetch, which is the one
-place this improves on the collector it is modelled on — workdash fetches a
-promotion, discovers it is a promotion, and has already spent the request.
+place this improves on the collector it is modelled on — the previous system
+fetches a promotion, discovers it is a promotion, and has already spent the
+request.
 
 **The queue is a floor when the budget bites, and says so.** The per-thread read
 is the only way to learn who wrote last, so `MAX_THREAD_FETCH` is a whole-run
@@ -1829,7 +1846,8 @@ quietly capped at 250 is a queue somebody stops trusting the day they find out.
 replaced with one that exists.** "First-time" is a claim about every sender the
 mailbox has ever had — 97,472 messages of history — and counting senders at all
 makes a mailing-list census out of an inbox that is a third promotions, the
-exact failure `collect_contacts.py` refuses with its two-way test. Sent mail
+exact failure the previous system's own contacts collector refuses with its
+two-way test. Sent mail
 answers the neighbouring question cleanly and for a hundredth of the requests:
 nobody was ever subscribed to a newsletter by writing to it. It is 141 sent
 messages over ninety days here, against 1,343 received in thirty. `first_at` accumulates
@@ -1873,31 +1891,31 @@ fixed it, and would have handed Gmail permission to return message snippets.
 
 ### Resend: eleven keys, ten accounts, and the eleventh is the finding
 
-workdash keeps this as ONE vault entry, `resend-keys.json`, holding a JSON
-object of eleven domain→key pairs. That is precisely the shape `accounts.ts`
+The previous system keeps this as ONE vault entry, `resend-keys.json`, holding
+a JSON object of eleven domain→key pairs. That is precisely the shape `accounts.ts`
 exists to undo: a blob has no per-key label, no per-key state and no per-key
 error, so one revoked key shows up as a warning on the plugin rather than as
-"example-app-1.example.test stopped answering". Here each key is an **account**, labelled with
+"acme.ie stopped answering". Here each key is an **account**, labelled with
 its domain — the same split `005_accounts_split` performed on the Hetzner token
 blob.
 
 It is not tidiness. **A Resend key is scoped to its domain**: probed on
-2026-09-05, the example-app-4.example.test key's `GET /domains` returns example-app-4.example.test and
-nothing else, and its `GET /emails` returns example-app-4.example.test's mail and nothing else.
+2026-09-05, the acme.so key's `GET /domains` returns acme.so and
+nothing else, and its `GET /emails` returns acme.so's mail and nothing else.
 No key on this account sees all eleven, so one account row could not have covered
 them even in principle. The entry stem is `resend-key` rather than
-`resend-keys.json` — the one place the "use the name workdash uses" rule is
-broken on purpose, because that name describes a document holding eleven keys
+`resend-keys.json` — the one place the "use the name the previous system uses"
+rule is broken on purpose, because that name describes a document holding eleven keys
 and an entry here holds one.
 
 **Ten of the eleven connected. The eleventh is a Sending-access key** and it is
-refused at the door: `example-app-12.example.test`'s key answers `401 "This API key is
+refused at the door: `acme.example`'s key answers `401 "This API key is
 restricted to only send emails"` to every endpoint this reads, deterministically,
 on every attempt. Such a key can POST an email and read nothing at all, so
 storing it would produce a permanently empty sending domain — the most expensive
 shape of failure here, because it looks like an answer. It is refused with
 Resend's own sentence and the fix, exactly as a Stripe test key and an OpenRouter
-inference key are. The consequence is honest and worth stating: **example-app-12.example.test is
+inference key are. The consequence is honest and worth stating: **acme.example is
 not on the board, because nothing here can read it.**
 
 ### What Resend will and will not say, probed 2026-09-05
@@ -1969,8 +1987,8 @@ read at breakfast is worth nothing by eleven. The same is true of a bounce:
 `last_event` changes within minutes of a send. It is not the half-hourly default
 either, because a full Gmail pass is a few hundred requests and redrawing a
 triage queue forty-eight times a day would spend an order of magnitude more of
-Google's budget than the answer moves. Two hours is what `collect_inbox.py`
-settled on over the same mailbox.
+Google's budget than the answer moves. Two hours is what the previous system's
+own inbox collector settled on over the same mailbox.
 
 **The clock also notices an account it has never read**, which no other
 collector here does and Resend is what forced it. Eleven keys are added one at a
@@ -2143,7 +2161,7 @@ FreeLLMAPI is an OpenAI-compatible **gateway**: it holds keys for the ~34
 providers that publish a free tier, aggregates their catalogs into one
 `/v1/models`, and routes each completion to whichever of them can serve the
 model right now, failing over when one is throttled. It is the owner's own
-open-source project (`github.com/tashfeenahmed/freellmapi`).
+open-source project (`github.com/acme-org/freellmapi`).
 
 **There is no hosted FreeLLMAPI, and establishing that shaped the whole
 integration.** Probed on 2026-09-05: `freellmapi.co` is a static site on
@@ -2162,7 +2180,7 @@ which one answers a click rather than a re-paste.
 
 | | |
 | --- | --- |
-| **hosted** | an instance running elsewhere. The owner's is on the Hetzner box at `https://freellm.178-105-187-189.sslip.io/v1` — the same endpoint workdash's `agent/llmprovider.js` completes against, which is where that placeholder comes from. Its key is the `freellmapi-key` already in the Pi's vault |
+| **hosted** | an instance running elsewhere. The owner's is on the Hetzner box at `https://freellm.178-105-187-189.sslip.io/v1` — the same endpoint the previous system's own completion client completes against, which is where that placeholder comes from. Its key is the `freellmapi-key` already in the Pi's vault |
 | **managed** | cloned into `data/freellmapi/`, built, and run as a child of this process on `127.0.0.1:3001`. Nothing is pasted: it mints its own key |
 
 ### Three facts that are constantly confused, and are kept apart
@@ -2758,9 +2776,9 @@ scope and `allow` replaces the built-in tool set: the agent would gain this
 dashboard and lose its shell.
 
 **A conversation with no venture selected gets the roster.** The first
-question in a session — "can you run academic research for overbrilliant?" —
+question in a session — "can you run academic research for beacon?" —
 was asked with no venture selected, and the agent, which knew of a pack called
-`ventures` it had not opened, asked what Overbrilliant was. So `withVenture`
+`ventures` it had not opened, asked what Beacon was. So `withVenture`
 now gives an unscoped conversation with a live agent one line per venture:
 name, slug, stage and host, twenty short lines, plus the one command that
 reads any of them in full. A business's name is then a word the agent
@@ -2778,7 +2796,7 @@ out (`--raw | jq`), and never calls `process.exit` after writing — on macOS a
 piped stdout is asynchronous and an exit right after a write dropped everything
 past 64 KB, which is how a 135 KB document ended mid-string at exactly 65,536
 bytes. `ventures one --key` also accepts the name or the host, case
-insensitively, so "Overbrilliant" is an address and not a slug to guess at.
+insensitively, so "Beacon" is an address and not a slug to guess at.
 
 **A dispatch files itself under the conversation that made it.** The
 sub-agents skill takes a `parentSessionId`, the system turn names the id, and
@@ -2890,8 +2908,9 @@ typed one command.
 ## LinkedIn and TikTok are registered, unset, and not built
 
 `linkedin-client-id`, `linkedin-client-secret`, `tiktok-client-key` and
-`tiktok-client-secret` are **declared names in workdash's `KNOWN_SECRETS` with
-no value ever stored** — checked on the Pi on 2026-09-04. The catalog said
+`tiktok-client-secret` are **declared names in the previous system's own list
+of known secrets, with no value ever stored** — checked on the Pi on
+2026-09-04. The catalog said
 "Credentials stored, flow not shipped"; the first half was false, and it now
 says what is true, the same correction the AdSense entry took before it.
 
@@ -2948,9 +2967,9 @@ shape `product-stats` has one integration over and for the same reason.
 `{"users": []}` is a product saying it has no users. `{"counts": {"total":
 158}}` is a product saying it has 158 and cannot name them. Those are opposite
 facts, and a schema that could only express the first would have made the
-second invisible — which is the mistake workdash's users page was built around
-avoiding, where counting one product's local table would have reported **1
-user** for what was its largest customer base.
+second invisible — which is the mistake the previous system's users page was
+built around avoiding, where counting one product's local table would have
+reported **1 user** for what was its largest customer base.
 
 **Addresses are hashed and the salt is per install.** `activity_users` stores
 `sha256(salt + ":" + lowercased address)` and the mail domain, and nothing
@@ -3387,8 +3406,8 @@ NULL would be the schema inventing the model's opinion.
 
 A venture matched by domain (`ventureBy: "host"`) is a fact; one the model
 named (`"model"`) is a guess, and the page prints "guess" beside it. The match
-is on the venture's own `host`, whole-label — `mail.example-app-1.example.test` matches,
-`notexample-app-1.example.test` does not.
+is on the venture's own `host`, whole-label — `mail.acme.ie` matches,
+`notacme.ie` does not.
 
 `stale: true` means a reply has arrived since the score was made. The category
 is still shown, because it is the last thing anybody read, and it is flagged.
@@ -4271,7 +4290,7 @@ Every other money route here reports what a provider said. This one is a
 MODEL — a rate card joined against what is actually running — and the whole
 area is shaped by that one difference. `/api/costs` answers "what did OpenAI
 bill me", `/api/stripe` answers "what settled". Neither of them answers "what
-does it cost to run Example App 1", because nothing on this box previously wrote
+does it cost to run Acme", because nothing on this box previously wrote
 down the €7.09 control-plane box, the domain that renews in ninety days, or
 the accountant. The ledger is where those live, and the P&L is what happens
 when you subtract them from the revenue routes.
@@ -4356,8 +4375,8 @@ leaving it to be inferred from an absent field.
 ### Whose revenue is whose
 
 The join is `venture_links` and nothing else — a Stripe product, an App Store
-app id, a Play package. Nothing matches on a similar-looking name: `example.ie` and
-`neu.so` are two businesses in this database.
+app id, a Play package. Nothing matches on a similar-looking name: `acme.ie` and
+`acme.so` are two businesses in this database.
 
 - **App stores** answer per app per report month per currency. Measured,
   settled, dated.
@@ -5310,7 +5329,7 @@ null, and a zero for any of them is a measurement that never happened.
 
 ### The id map is the whole mechanism
 
-`migrate_id_map` says "the predecessor's project `example-app-1.example.test` became venture
+`migrate_id_map` says "the predecessor's project `acme.ie` became venture
 `v-a1b2c3`, in batch `b-…`, and this batch CREATED it". Three things fall out of
 that one row: the import is idempotent, because a second run finds the mapping
 and updates; it is referential, because a card naming a project resolves through
@@ -5406,7 +5425,7 @@ population breakdown and which mapped paths currently resolve.
 Every other section of this file describes something this box MEASURES. This one
 is the exception, and the exception is the point.
 
-Ask the chat agent "does Example App 5 support webhooks" and, before this existed,
+Ask the chat agent "does Beacon support webhooks" and, before this existed,
 it had three things to reason from: a one-line description the owner typed when
 he created the venture, a palette measured off the home page by
 `ventures/enrich.ts`, and whatever the model remembers about the word. None of
@@ -5787,7 +5806,7 @@ own, and the response says so.
 
 **Telegram.** `/did <text>` files from a phone, which is where this work
 actually happens. The grammar is one word and a sentence: an optional leading
-kind (`/did shipped …`), an optional leading venture (`/did example-app-1 shipped
+kind (`/did shipped …`), an optional leading venture (`/did acme shipped
 …`) or `none`, a link anywhere in the sentence becoming the entry's URL. The
 venture is otherwise inferred from a venture's name or slug appearing as a word
 in the sentence, or taken automatically on a box with one venture. **It is
@@ -5893,9 +5912,9 @@ them.
 schedule work of their own, both are firing it (the gateway process is the
 ticker), and nothing on this side could say what they had done — nor could
 their results reach a phone, because the Telegram token deliberately does not
-live inside an agent's home. So delivery is inverted, exactly as WorkDash's
-`hermescron.js` inverted it: the runtime writes results where it writes them,
-and this side, which holds the pairing, reads and pushes.
+live inside an agent's home. So delivery is inverted, exactly as it was
+inverted in the system this replaces: the runtime writes results where it
+writes them, and this side, which holds the pairing, reads and pushes.
 
 ### The tool loop
 
@@ -6061,7 +6080,7 @@ each agent's plugin page beneath the install/start panel.
 
 ## Social feed: what went out, what not to make again, and one product shot
 
-Three gaps against Workdash, in one area because they are one loop. Something
+Three gaps against the system this replaces, in one area because they are one loop. Something
 is made (the autopilot), it is published (the publishing area), and until now
 nothing on this box could see how it did — so nothing could decide what to make
 next except by asking a model to remember. `integrations/socialfeed/` closes the
@@ -6296,8 +6315,9 @@ averaging at most 1.3 pageviews a visit), `country-surge` and `referrer-surge`
 (five times the same value's previous week, past an absolute and a share bar,
 excluding only the EXCESS), and `flat-single-view`, which excludes nothing at
 all by design. Each publishes how it can be wrong. They are deliberately weaker
-than workdash's, and the reason is written into the code: workdash reads Umami's
-Postgres and can cross-tab a screen against a session's pageviews and against a
+than the previous system's, and the reason is written into the code: the
+previous system reads Umami's Postgres directly and can cross-tab a screen
+against a session's pageviews and against a
 country; this API answers one dimension at a time, so the pages-per-visit gate
 is site-wide and says so in its own evidence. **Exclusions are never added.**
 The populations overlap by an amount this API cannot measure, so the adjusted
@@ -6419,8 +6439,8 @@ may move a row to `detected` and to nowhere else, and only from `not_listed`,
 products that never submitted — and only `confirmed` means a person looked.
 `submitted_at` and `confirmed_at` are stamped once and never restamped.
 `skipped` is a first-class answer, and `donePct` is computed over the rows that
-are not skipped. Workdash's broad `site:` search sweep is deliberately NOT
-ported: its own header records that every metasearch backend but one lost to
+are not skipped. The previous system's broad `site:` search sweep is
+deliberately NOT ported: its own header records that every metasearch backend but one lost to
 CAPTCHAs and the one that answered returned Polish news for a `site:github.com`
 query.
 
@@ -6583,7 +6603,7 @@ it, and there is no provider behind it.
 
 `GET /api/board` answers with columns, each carrying its own cards in order and
 its own count — and **so does every mutation**. That is the whole contract, and
-it is workdash's own. The reason shows up under a drag: a move changes a card's
+it is the same one the previous system used. The reason shows up under a drag: a move changes a card's
 column, its position, its `updated_at` and possibly its `done_at`, and, because
 positions are shared, it can change cards nobody touched. `{ ok: true }` would
 leave the page to work all of that out; "the card as it now is" would leave it
@@ -6619,7 +6639,7 @@ where the writes are, dense where they are not.
 ### A move names a neighbour, not an index
 
 `{ columnId, before }` — "that column, above that card", with `before: null`
-meaning the foot of it. Workdash sends `{ column, index }`; both keep the order
+meaning the foot of it. The previous system sends `{ column, index }`; both keep the order
 on the server, which is the part that matters, and the difference is what
 happens when the client's copy is a few seconds old. An index of 3 means a
 different slot the moment anything has been inserted, and it silently means
@@ -6674,7 +6694,7 @@ unique index is what would make an automatic filer idempotent: a sweep that
 runs twice leaves one card rather than two. `fileCard()` in `routes/board.ts`
 is the twenty lines that would use it, exported and called by nothing.
 
-That is the entire seam. Workdash's board has a backlog filer, an issue ranking
+That is the entire seam. The previous system's board has a backlog filer, an issue ranking
 and a gardening sweep writing into it; none of that is ported, because those
 cards are derived from collectors reading other people's systems and **these
 cards are the owner's**. A board that fills itself is a different product
@@ -6742,6 +6762,13 @@ OPTIONAL owner password, and the important property is the word optional:
 request through untouched — not "an empty allow list", not "a check that always
 passes". A box that never opens the Security tab behaves in every respect
 exactly as it did before this existed, which was verified first and last.
+
+**Running this behind a reverse proxy?** A proxy in front of the dashboard
+**must forward the `Origin` header** — without it the owner cannot log in or
+change the password, and there is no CLI fallback. See the repo root
+`README.md`'s "Deploying behind a reverse proxy" section for the two
+conditions and the recovery command (`DELETE FROM security_owner WHERE id = 1`
+and a restart).
 
 **IT IS ONE PASSWORD, ONE OWNER, AND IT IS NOT A USER SYSTEM.** No accounts, no
 roles, no per-venture permissions, no record of who did what — because there is
@@ -6939,7 +6966,7 @@ machine underneath: whether the process is supervised, whether it is healthy,
 how often each source is collected, how separated the agent is from the
 credentials this process holds, and who is using a shared GPU.
 
-It closes three gaps from the WorkDash comparison — unattended installation and
+It closes three gaps from the comparison against the system this replaces — unattended installation and
 service supervision (#42), OS isolation for agents (#1), and shared GPU/power
 ownership across jobs (#45). It has **no credential and no collector**: nothing
 here talks to a vendor, so there is nobody to hold a key for.
@@ -7010,10 +7037,9 @@ state and what the doctor and the dashboard see.
 
 ### The collection schedule
 
-The `setInterval` that used to live in `index.ts` moved to
-`deploy/scheduler.ts` and the reasoning moved with it (a plain interval rather
-than cron; a missed tick while the laptop was asleep is the next tick and not a
-backlog). What changed: the timer fires every **minute**, and each source is
+The collection scheduler lives in `deploy/scheduler.ts` as a plain interval
+rather than cron, because a missed tick while the laptop was asleep is then
+the next tick and not a backlog. The timer fires every **minute**, and each source is
 collected on **its own cadence** — `collect_interval_minutes`, one setting added
 to every plugin that has a collector, from one line in `routes/pluginConfig.ts`.
 Empty means the box default (`OPC_COLLECT_MINUTES`); `0` means never on a
@@ -7067,8 +7093,7 @@ agent's `opc` wrapper reads it, and at `separate-user` those are two uids), and
 owner's**: the owner key, a live session, or a browser-shaped request (a
 loopback `Origin`, or `Sec-Fetch-Site: same-origin`).
 
-THE INVERSION MATTERS AND IT IS WHY THIS PARAGRAPH IS NOT THE ONE IT REPLACES.
-The first version refused a caller that *presented the agent key*, which left
+**The inversion matters.** The first version refused a caller that *presented the agent key*, which left
 the case the boundary exists for wide open: an agent with a shell simply omits
 the header, and on a passwordless box — the shipped state — walked through. So
 the question is now "prove you are the owner" rather than "did you volunteer a
@@ -7096,8 +7121,8 @@ registry cannot cover, which is that an agent has a shell and a shell can curl.
 
 ### Leases: who is using a shared machine
 
-`deploy/leases.ts` is WorkDash's `dellsession.js` as a table rather than a Map,
-because this process restarts several times an afternoon and an in-memory busy
+`deploy/leases.ts` redoes the previous system's own session-lease tracker as a
+table rather than a Map, because this process restarts several times an afternoon and an in-memory busy
 flag would be cleared under a forty-minute render. The price is that a lease
 **expires**: every one carries a deadline, a long job pushes it forward with a
 heartbeat, and a crashed job stops holding the machine after at most the TTL

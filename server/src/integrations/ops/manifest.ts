@@ -84,7 +84,7 @@ export const manifest: IntegrationManifest = {
             "redirects to https. Each is checked on every collection — about " +
             "every thirty minutes — from THIS machine, so what you get is a " +
             "trend from your own connection rather than a service level.",
-          ph: "support.example.test, example-app-1.example.test, http://example.ie",
+          ph: "acme.com, acme.ie, http://acme.so",
           check(value) {
             const bad = parseHosts(value).filter((h) => !validHost(h));
             if (bad.length)
@@ -134,7 +134,7 @@ export const manifest: IntegrationManifest = {
             "a colon. A path that matches nothing is reported as a mapping " +
             "error with the keys the document actually has — it is never " +
             "recorded as zero.",
-          ph: "renders today = stats.today.renders\nopen jobs = @count(queue.jobs)\nExample App 1: applications = index.count",
+          ph: "renders today = stats.today.renders\nopen jobs = @count(queue.jobs)\nAcme: applications = index.count",
           check: checkMetrics,
         },
       },

@@ -1,32 +1,26 @@
 /**
  * READING A STREAMED TURN TO ITS END — once, for both doors.
  *
- * Two loops over `ChatStreamEvent` existed: the chat run's, and the run
- * executor's. They were the same switch statement, and every place they
- * differed was a place one of them was wrong:
+ * Chat and the run executor read the same stream and want different things
+ * from it. Four of those differences are the SINK's to decide, not this
+ * loop's:
  *
- *   REASONING. Chat kept the frames and drew them folded; the executor dropped
- *   them. BOTH ARE RIGHT, and it is the SINK's decision — a report is not a
- *   place for the model's scratchpad, a live answer is. So this loop passes
- *   them on and a sink that does not want them says nothing.
+ *   REASONING. A report is not a place for the model's scratchpad; a live
+ *   answer is. This loop passes the frames on and a sink that does not want
+ *   them says nothing.
  *
- *   USAGE. Chat recorded the last `done`'s numbers; the executor SUMMED across
- *   the turns of one run. Both are right too, for the same reason: one stream
- *   is one turn, and a run makes several. This returns one turn's numbers and
- *   the caller adds them up if it has several to add.
+ *   USAGE. One stream is one turn and a run makes several, so this returns one
+ *   turn's numbers and the caller adds them up if it has several to add.
  *
- *   THE SETTLING GUARD. The flag that stops a cancel arriving in the last
+ *   THE SETTLING GUARD. The hook that stops a cancel arriving in the last
  *   instant from reporting "cancelled" for an answer that then lands as `done`
- *   existed only on the chat side; the run queue had the same race and nothing
- *   to stop it. The hook is here, fired the instant `done` is seen, which is
- *   the earliest point at which stopping would be a lie for a ONE-TURN answer.
- *   A run that makes several turns and then prints and judges between them
- *   shuts its door at the run's tail instead — see runs/executor.ts, which
- *   explains why a per-turn flag would be the wrong one there.
+ *   fires the instant `done` is seen, which is the earliest point at which
+ *   stopping would be a lie for a ONE-TURN answer. A run that makes several
+ *   turns and then prints and judges between them shuts its door at the run's
+ *   tail instead — see runs/executor.ts for why a per-turn flag is wrong there.
  *
- *   THE TOOL MERGE. Both copies merged the two wire events per call into one
- *   record with two timestamps, in near-identical code, and the run's copy had
- *   drifted: it did not carry the emoji or the offset. One merge now.
+ *   THE TOOL MERGE. The two wire events per call become one record with two
+ *   timestamps, carrying the emoji and the offset. Merged once, here.
  *
  * `done.text` REPLACES THE ACCUMULATOR and does not append to it. The adapter
  * counted the answer as it read it and may have applied a rule this loop

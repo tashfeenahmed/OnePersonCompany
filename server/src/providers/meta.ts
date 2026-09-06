@@ -21,7 +21,7 @@
  * WHAT `meta-app` TURNED OUT TO BE. Not an app id, despite the catalog field
  * once calling it one — it is `app_id:app_secret`, a sixteen-digit id and a
  * thirty-two-character hex secret joined by a colon, which is the shape
- * `collect_social.py` partitions on when it exchanges an expiring token. So it
+ * the previous system's collector partitions on when it exchanges an expiring token. So it
  * is a SECRET and is stored as one, and what it buys here is
  * `appsecret_proof`: an HMAC-SHA256 of the access token under the app secret,
  * sent with every call, which Meta verifies (a wrong one is refused with
@@ -35,7 +35,7 @@
  *
  * THE TOKEN IS NOT AN EXPIRING USER TOKEN. `debug_token` reports it as a
  * SYSTEM_USER token with `expires_at: 0` — Meta for "never" — so the
- * sixty-day exchange dance `collect_social.py` performs is not something this
+ * sixty-day exchange dance the previous system's collector performs is not something this
  * file ever needs to do, and it therefore never writes to the vault. That is
  * worth stating rather than leaving implicit: a collector that can rewrite a
  * credential is a collector that can lose one.
@@ -100,7 +100,7 @@ export const ATTRIBUTION_LABEL = "7-day click, 1-day view";
 /**
  * The lead action, under every name Meta has given it — first found wins.
  *
- * Lifted from `collect_ads.py`, which is the version that has run against this
+ * Lifted from the collector this replaces, which is the version that has run against this
  * account. `actions` carries several spellings of the SAME lead — this account
  * returns `onsite_conversion.lead_grouped`, `lead` and
  * `offsite_complete_registration_add_meta_leads` all reading 12 — so adding
@@ -139,7 +139,7 @@ const LEAD_ACTIONS = [
  *   value must be a valid insights metric" in v21.0, as do `page_impressions`
  *   and `page_fans`. That is metric DEATH rather than a permission problem:
  *   Meta retired the `impressions` family on 15 November 2025, which
- *   `collect_social.py` documents finding the corpses of. The metrics that ARE
+ *   the previous system's collector documents finding the corpses of. The metrics that ARE
  *   still valid names (`page_views_total`, `page_post_engagements`,
  *   `page_follows`, `page_daily_follows_unique`) answer 400 "(#190) This
  *   method must be called with a Page Access Token" — so they fail on the
@@ -319,7 +319,7 @@ function actionValue(rows: unknown, names: readonly string[]): number | null {
 /**
  * Leads from one insights row, or null when the question could not be asked.
  *
- * The zero is deliberate and narrow, and it is `collect_ads.py`'s rule: a row
+ * The zero is deliberate and narrow, and it is the previous system's rule: a row
  * that DELIVERED and whose `actions` list came back with no lead in it produced
  * no leads, which is the single most actionable fact this integration has —
  * money spent with nothing to show for it. A row that did not deliver, or whose
@@ -1629,7 +1629,7 @@ function isMetricError(message: string, code: number | null): boolean {
  * of the three Pages this token administers answered
  * `instagram_business_account: null` on 2026-09-06, so there was no IG account
  * to read and this function has never been run against a live one. Its field
- * list is the one `collect_social.py` has run for months and the code path is
+ * list is the one the previous system's collector has run for months and the code path is
  * here so that connecting an account is all that is needed — but a document
  * built on it must say "not measured here" rather than "zero".
  *

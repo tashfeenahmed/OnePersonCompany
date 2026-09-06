@@ -7,14 +7,10 @@
  * rather than a disaster: `node --watch` restarts the server on every source
  * save. An open row reads as "still going", for ever.
  *
- * THIS WAS COPIED AS A PATTERN RATHER THAN CALLED AS A HELPER, AND SO THE
- * FOURTH TABLE WAS FORGOTTEN. Three areas each wrote their own `UPDATE … WHERE
- * status = 'running'` at boot. The fourth — the chief's rounds — has a
- * migration that says in as many words that an open row means a crash and is
- * visible as one, and nothing anywhere ever closed it. A round from weeks ago
- * still read as walking. That is what a helper is for: the next area gets one
- * line and inherits the rule, instead of getting it right from memory or not
- * at all.
+ * A LEDGER WITH NO SETTLE IS INVISIBLE UNTIL SOMEBODY READS IT. The chief's
+ * rounds went unsettled long enough for a round from weeks earlier to still
+ * read as walking. Every table that opens a row calls this at boot; a table
+ * that does not is a table with that hole still in it.
  *
  * THE ROW IS CLOSED AND NEVER DELETED. A night that was interrupted is a fact
  * about what happened, and the work it did manage to file is still true. What
@@ -63,8 +59,7 @@ export type SettleSpec = {
   note?: { column: string; text: string };
 };
 
-/** The sentence three of the four copies were each writing separately. Passed
- *  rather than assumed, so a table with a better one keeps it. */
+/** Passed rather than assumed, so a table with a better sentence keeps it. */
 export const INTERRUPTED =
   "The process stopped while this was still going — a restart, a crash or a closed lid. " +
   "Whatever had already finished is recorded; the rest never started.";
@@ -118,10 +113,4 @@ export function settleOpenRows(spec: SettleSpec): number {
     /* See the header: this runs at boot with nobody to catch it. */
     return 0;
   }
-}
-
-/** Several tables at once, each named in the answer. For an area with more
- *  than one ledger, and for a boot report that wants to say which. */
-export function settleAll(specs: SettleSpec[]): { table: string; closed: number }[] {
-  return specs.map((spec) => ({ table: spec.table, closed: settleOpenRows(spec) }));
 }

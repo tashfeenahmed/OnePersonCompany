@@ -61,7 +61,6 @@ const TERMINAL = ["succeeded", "failed", "canceled"];
 export type PollOptions = {
   forMs?: number;
   everyMs?: number;
-  timeoutMs?: number;
   failuresAllowed?: number;
 };
 
@@ -188,7 +187,7 @@ export async function predict(opts: PredictOptions): Promise<PredictResult> {
     const p = typeof opts.poll === "object" ? opts.poll : {};
     const until = Date.now() + (p.forMs ?? POLL_FOR_MS);
     const every = p.everyMs ?? POLL_EVERY_MS;
-    const timeout = p.timeoutMs ?? POLL_TIMEOUT_MS;
+    const timeout = POLL_TIMEOUT_MS;
     const allowed = p.failuresAllowed ?? POLL_FAILURES_ALLOWED;
     let failures = 0;
 

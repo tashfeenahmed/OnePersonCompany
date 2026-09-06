@@ -225,7 +225,7 @@ export const SKILLS: Skill[] = [
     ],
     asks: [
       "Which of my ventures actually made money last month, after its share of the servers?",
-      "What is Example App 1's margin this month so far, and what would it be at this rate?",
+      "What is Acme's margin this month so far, and what would it be at this rate?",
     ],
   },
 ];

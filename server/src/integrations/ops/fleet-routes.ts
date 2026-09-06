@@ -207,16 +207,8 @@ fleetRoutes.get("/", (c) => {
       /** THIS ADDS. A byte of RAM on one box and a byte on another are two
        *  bytes of RAM the owner is paying for. */
       memoryBytes: answering.length ? { total: memTotal, used: memUsed } : null,
-      /**
-       * DISK DOES NOT ADD, and that is not a limitation of this code.
-       * Filesystems share pools: a Mac's `/` and `/System/Volumes/Data` each
-       * report the same 359 GB free out of one APFS container, an ext4
-       * snapshot mount reports its parent's usage again, and adding them
-       * would put a terabyte and a half of "free space" on a one-terabyte
-       * disk. It is the de-duplicated-figure rule wearing a different hat.
-       * What IS true is per mount, and `fullestDisk` is the figure the page
-       * is actually for.
-       */
+      /** DISK DOES NOT ADD — see this file's header for why. `fullestDisk`,
+       *  below, is the figure the page is actually for. */
       diskBytes: {
         combined: null,
         note: "Filesystems share pools, so their sizes are not addable — see fullestDisk and each box's own mounts.",

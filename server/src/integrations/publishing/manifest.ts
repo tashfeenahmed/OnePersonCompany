@@ -223,7 +223,7 @@ export const manifest: IntegrationManifest = {
             "the next such local time. It is still a draft: nothing is published until you " +
             "approve it and schedule it. Empty — the default — files Autopilot posts as drafts " +
             "with no date.",
-          ph: "* = 09:30\nexample-app-1 = 08:00",
+          ph: "* = 09:30\nacme = 08:00",
           check(value) {
             const { bad } = parseAutoSchedule(value);
             return bad.length

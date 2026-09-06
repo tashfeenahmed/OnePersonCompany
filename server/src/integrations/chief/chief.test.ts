@@ -21,7 +21,7 @@ test("the numbers gate lets a dated decision through", () => {
     looksLikeAMeasurement("In March 2026 he decided against paid acquisition for every venture."),
     false,
   );
-  assert.equal(looksLikeAMeasurement("Example Support's churn is mostly trials that never activated."), false);
+  assert.equal(looksLikeAMeasurement("Acme's churn is mostly trials that never activated."), false);
   /* A single figure in a sentence about a decision is not a snapshot — "one
      run slot" and "two founders" are facts that do not move. */
   assert.equal(looksLikeAMeasurement("He works on this 2 days a week."), false);

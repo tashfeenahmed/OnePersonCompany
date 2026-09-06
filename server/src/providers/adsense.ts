@@ -2,17 +2,17 @@
  * Google AdSense — earnings per site, per day.
  *
  * NOTHING HAS EVER AUTHORISED THIS, AND THAT IS THE FIRST THING TO KNOW.
- * There is no `adsense-token` in the vault on the Pi, no `adsense-token.json`
- * beside workdash's collectors, and no consent has ever been granted for this
+ * There is no `adsense-token` in the vault, no `adsense-token.json`
+ * beside the previous system's collectors, and no consent has ever been granted for this
  * dashboard. The plugin catalog said "Connected" because it was seeded from a
- * list of integrations workdash INTENDS to have, and that entry was a mock
+ * list of integrations the previous system INTENDED to have, and that entry was a mock
  * value presented as a measurement — the one thing this codebase refuses. It
  * now says not connected, and every widget below it falls back to its sample
  * and wears no live dot.
  *
- * So this file is written from the published API and from workdash's
- * `collect_adsense.py`, which is the version that has actually run against a
- * live publisher account (pub-6120735587215325, example-app-13.example.test). It has NEVER
+ * So this file is written from the published API and from the collector this
+ * replaces, which is the version that has actually run against a
+ * live publisher account. It has NEVER
  * been run against a live grant from here. That is why every reader below is
  * tolerant: a missing header, an absent row and an unexpected shape produce
  * nulls and empty lists rather than confident zeros, and the route says
@@ -38,7 +38,7 @@
  * `adsense.readonly` — a credential that cannot change an ad unit is a
  * credential that cannot be made to.
  *
- * NOT AUTHORISED IS A STATE, NOT A FAILURE. `collect_adsense.py` writes
+ * NOT AUTHORISED IS A STATE, NOT A FAILURE. The previous system's collector writes
  * `{"error": "not-authorised", "hint": …}` and EXITS 0 for exactly this
  * reason: a daily timer must never go red for a consent nobody has given. The
  * same instinct is carried across here — a refusal comes back as a `Refusal`
@@ -405,7 +405,7 @@ function readReport(doc: Report) {
  * per-site total are the same arithmetic over the same rows.
  * IMPRESSIONS_RPM is not: it is earnings per thousand impressions, and adding
  * or averaging thirty daily RPMs gives a figure no report of Google's would
- * agree with. workdash's collector stores it per row; this does not, and the
+ * agree with. The previous system's collector stores it per row; this does not, and the
  * route divides earnings by impressions when somebody asks for an RPM. Same
  * rule as every other derived figure here — computed on the read, so it cannot
  * be a stale number that no longer matches the two figures beside it.
@@ -504,7 +504,7 @@ export async function collect(reader = "collect_adsense"): Promise<CollectResult
         it is read — never stored as a flag, which would be true on the day it
         was written and wrong on the first of the next month. A part month
         printed as a monthly figure silently halves it, which is the trap
-        workdash's own `latestPlayMonth` documents.
+        the previous system's own equivalent field documents.
       */
       const now = new Date();
       const firstMonth = new Date(

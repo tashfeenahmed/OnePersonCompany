@@ -17,13 +17,12 @@
  * hard-codes `dry: true` and reads nothing about it from the request. Sending
  * `dry` to `/run` is a 400 naming `/plan`.
  *
- * That split is not fastidiousness. The skills proxy sends every parameter as a
- * STRING, so a route testing `body.dry === true` reads `"true"` as FALSE — the
- * bug that published a real Facebook post in wave 1 of this build, and the bug
- * this route had until it was reviewed. With two routes there is no boolean
- * anywhere near the decision that spends money, and no typo can turn one into
- * the other. Every other boolean here goes through `readBool` in params.ts,
- * which refuses what it cannot parse instead of defaulting to false.
+ * That split is not fastidiousness: params.ts's header explains the
+ * string-boolean bug it exists to close, and this route had it until it was
+ * reviewed. With two routes there is no boolean anywhere near the decision
+ * that spends money, and no typo can turn one into the other. Every other
+ * boolean here goes through `readBool` in params.ts, which refuses what it
+ * cannot parse instead of defaulting to false.
  */
 import { Hono, type Context } from "hono";
 import { nextRunAt, wall } from "../../shared/time.ts";
