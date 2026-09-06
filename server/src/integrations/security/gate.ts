@@ -66,8 +66,8 @@ const OPEN = new Set([
 export type AuthHow = "cookie" | "service-key" | null;
 
 /**
- * THE OWNER SURFACE — the routes an AGENT-scoped key may not write to, even
- * though it is a perfectly good service key.
+ * THE OWNER SURFACE — the routes reachable only from the owner's own browser
+ * or with the owner's own key, whatever else a caller presents.
  *
  * WHY THIS LIST EXISTS. Everything here changes what the box IS rather than
  * what it has measured: which credentials it holds, which archive its database
@@ -81,9 +81,11 @@ export type AuthHow = "cookie" | "service-key" | null;
  * that the allow list already exists somewhere better: skills/registry.ts,
  * which names every path an agent may reach and refuses to compose a URL for
  * anything else. This is the second lock for the case that registry cannot
- * cover — the agent has a shell, and a shell can curl. So it guards the small
- * set of prefixes that must never be reachable that way, and a route added to
- * this app tomorrow is reachable by an agent exactly as it was yesterday.
+ * cover — the agent has a shell, and a shell can curl WITHOUT sending the key
+ * it was handed. So the check below does not ask what key arrived; it asks
+ * whether the caller can show it is the owner, and refuses otherwise. A route
+ * added to this app tomorrow is reachable by an agent exactly as it was
+ * yesterday, which is the price of a deny list and is paid knowingly.
  *
  * READS ARE LEFT ALONE. A GET of the plugin list or the agent panel tells an
  * agent what is connected, which is the same thing the skills catalogue
@@ -102,23 +104,134 @@ const OWNER_SURFACE: { prefix: string; methods: "write" | "all"; why: string }[]
   { prefix: "/api/searxng", methods: "write", why: "the search node is a process on this machine" },
   { prefix: "/api/workspace", methods: "write", why: "the workspace layout is what the owner sees" },
   { prefix: "/api/setup", methods: "write", why: "setup writes the box's own configuration" },
+  { prefix: "/api/runtime", methods: "write", why: "one of these spends a completion and the other puts a message on the owner's phone" },
 ];
 
-/** Would an agent-scoped key be refused this request? Exported for the
- *  deployment page and the doctor, which both report the boundary rather than
- *  asking anybody to take it on trust. */
-export function agentRefusal(method: string, path: string): string | null {
+/** Which rule, if any, covers this method and path. */
+function ownerSurfaceRule(method: string, path: string) {
   const write = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   for (const rule of OWNER_SURFACE) {
     if (path !== rule.prefix && !path.startsWith(`${rule.prefix}/`)) continue;
     if (rule.methods === "write" && !write) continue;
-    return (
-      `${method} ${path} is an owner control — ${rule.why}. The key you sent is the AGENT key, which the skills ` +
-      `surface uses and which is deliberately refused here. Owner controls are the dashboard in a signed-in ` +
-      `browser, or the owner key at server/data/service-key.`
-    );
+    return rule;
   }
   return null;
+}
+
+/** Is this method and path on the owner surface at all? Exported for the
+ *  deployment page and the doctor, which report the boundary rather than
+ *  asking anybody to take it on trust. */
+export function agentRefusal(method: string, path: string): string | null {
+  const rule = ownerSurfaceRule(method, path);
+  return rule
+    ? `${method} ${path} is an owner control — ${rule.why}. It is reachable from the dashboard in your own ` +
+      `browser, or with the owner key at server/data/service-key. It is not reachable with the agent key, ` +
+      `through the skills proxy, or from a bare request with no credential at all.`
+    : null;
+}
+
+/**
+ * DOES THIS REQUEST LOOK LIKE IT CAME FROM THE OWNER'S BROWSER?
+ *
+ * IT IS A HEURISTIC AND THIS COMMENT IS WHERE THAT IS ADMITTED. Any process
+ * that can open a socket to this port can set these headers, so this is not a
+ * cryptographic boundary and must never be described as one. What it does is
+ * raise the bar from "no header at all" to "you must deliberately impersonate
+ * a browser" — and the thing on the other side of the bar, at the
+ * `separate-user` and container levels, is a process that cannot read the
+ * owner key and would have to be written to lie.
+ *
+ * TWO SIGNALS, BECAUSE A BROWSER GET SENDS NO `Origin`. A same-origin `fetch`
+ * sends `Origin` only for methods that are not GET/HEAD, so an Origin-only
+ * test would 403 the dashboard's own read of `/api/backups`. `Sec-Fetch-Site`
+ * is sent by every current browser on every fetch and by no shell tool, which
+ * is exactly the distinction wanted here.
+ *
+ * A REQUEST CARRYING `x-opc-via: skills` IS NEVER THE BROWSER whatever else it
+ * carries. The skills proxy re-issues an agent's call over loopback with the
+ * OWNER key — it has to, because most skill routes are not on this surface —
+ * and without this line a skill entry pointed at an owner-surface path would
+ * launder an agent's request into an owner one. This is that seam closed at
+ * the door rather than in the proxy.
+ */
+function browserShaped(c: Context): boolean {
+  if (c.req.header("x-opc-via") === "skills") return false;
+
+  const site = (c.req.header("sec-fetch-site") ?? "").toLowerCase();
+  if (site === "same-origin") return true;
+
+  const origin = c.req.header("origin");
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    const ports = new Set([String(PORT), process.env.OPC_UI_PORT || "5180", "5173"]);
+    return url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname) && ports.has(url.port || "80");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * THE OWNER-SURFACE CHECK, and it binds EVERY caller rather than only one that
+ * volunteered a key.
+ *
+ * The first version of this refused a request that presented the AGENT key and
+ * nothing else — which meant that on a passwordless box, the shipped state,
+ * sending no header at all walked straight through. That is precisely the case
+ * the boundary exists for: an agent with a shell does not have to send the key
+ * it was given.
+ *
+ * So the question is inverted. A request on the owner surface is refused
+ * unless it proves it is the owner, and there are three proofs:
+ *
+ *   THE OWNER KEY. Anything that can read `server/data/service-key` already
+ *   has this box — it sits beside the vault key — so presenting it is not a
+ *   privilege this check can meaningfully withhold.
+ *   A LIVE SESSION COOKIE. A person who typed the password.
+ *   A BROWSER-SHAPED REQUEST. The heuristic above, which is what makes the
+ *   dashboard work on a box with no password — the shipped state.
+ *
+ * `x-opc-via: skills` fails all three by construction.
+ */
+export function ownerSurfaceRefusal(c: Context): string | null {
+  const refusal = agentRefusal(c.req.method, c.req.path);
+  if (!refusal) return null;
+
+  if (c.req.header("x-opc-via") !== "skills" && keyScope(presentedKey(c.req.raw.headers)) === "owner") return null;
+  if (browserShaped(c)) return null;
+  try {
+    if (liveSession(cookieValue(c.req.header("cookie")))) return null;
+  } catch {
+    /* An unreadable session table must not turn this into a 500. The other two
+       proofs still stand and a refusal is the safe direction. */
+  }
+  return refusal;
+}
+
+/** Is this request an AGENT's, however it arrived? True for the agent key and
+ *  for anything the skills proxy re-issued. Read by routes that offer an
+ *  override a person may use and an agent may not. */
+export function isAgentCall(c: Context): boolean {
+  if (c.req.header("x-opc-via") === "skills") return true;
+  return keyScope(presentedKey(c.req.raw.headers)) === "agent";
+}
+
+/** Is this request authenticated at all — a live session or either key? Read
+ *  by /api/health, which is open with no credential and therefore must not
+ *  describe the machine to an unauthenticated caller. */
+export function authenticatedRequest(c: Context): boolean {
+  if (keyScope(presentedKey(c.req.raw.headers))) return true;
+  try {
+    /* `Boolean(...)`, NOT `!== null`. `liveSession` answers `undefined` for a
+       request with no cookie — it is a `.get()` on a prepared statement — so
+       `!== null` was true for every anonymous request, which handed the full
+       health document to exactly the caller it was meant to withhold it from.
+       Caught by curling a locked box rather than by the type, which is happy
+       either way. */
+    return Boolean(liveSession(cookieValue(c.req.header("cookie"))));
+  } catch {
+    return false;
+  }
 }
 
 /** The prefixes, for the page. */
@@ -131,27 +244,23 @@ export const OWNER_SURFACE_PREFIXES = OWNER_SURFACE.map((r) => ({ prefix: r.pref
  */
 export async function ownerGate(c: Context, next: Next) {
   /*
-    THE AGENT SCOPE IS CHECKED BEFORE THE PASSWORD, AND THAT ORDER IS THE
+    THE OWNER SURFACE IS CHECKED BEFORE THE PASSWORD, AND THAT ORDER IS THE
     WHOLE POINT.
 
     Everything below this block is about the OWNER's lock and does nothing
-    until a password exists. The agent boundary is not that lock: it is the
-    answer to "the thing holding this key is a child process I started, and it
-    may not restore a backup", which is true on a box with no password at all —
-    which is the shipped state and the state most boxes stay in. A boundary
-    that only appeared once somebody typed a password would be a boundary
-    almost nobody has.
+    until a password exists. This is not that lock: it is the answer to "the
+    thing making this call is a child process I started, and it may not restore
+    a backup", which is true on a box with no password at all — the shipped
+    state, and the state most boxes stay in. A boundary that only appeared once
+    somebody typed a password would be a boundary almost nobody has.
 
-    Nothing but a spawned agent ever presents this key: it is written to a
-    separate file, in a separate directory, handed only to the `opc` wrapper
-    and the MCP subprocess. A request carrying it is an agent request by
-    construction, and this is where an agent request is told no.
+    It refuses a request that cannot show it is the owner's, rather than one
+    that volunteered the agent key — see `ownerSurfaceRefusal`, which says what
+    each of the three proofs is worth.
   */
+  const surfaceRefusal = ownerSurfaceRefusal(c);
+  if (surfaceRefusal) return c.json({ error: surfaceRefusal }, 403);
   const presentedScope = keyScope(presentedKey(c.req.raw.headers));
-  if (presentedScope === "agent") {
-    const refusal = agentRefusal(c.req.method, c.req.path);
-    if (refusal) return c.json({ error: refusal }, 403);
-  }
 
   /* THE FIRST AND LAST QUESTION. No password, no gate — not "an empty
      allow-list", not "a check that always passes": the request goes straight

@@ -89,7 +89,10 @@ output:
   # THE COUNTS FORM: a total, and nobody named. Different from {"users": []},
   # which would say this product has no users at all.
   shape: counts
-  path: /var/www/example.com/public/opc/users.json
+  # A counts-only document names nobody, so this one is the rare case where a
+  # web root would be defensible — it is still not there, because the mapping
+  # above could grow a users form next month and the path would not move.
+  path: /var/lib/opc-adapter/users.json
 
 # NO population BLOCK, because a counts-only document cannot carry one — there
 # are no rows to classify. If this product can count its admins separately, it

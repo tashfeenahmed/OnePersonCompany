@@ -332,7 +332,12 @@ export function powerLine(p: ProfileRow, month: string, nowIso = now()): PowerLi
     amount: perKwh === null ? null : money(kwh * perKwh),
     kwh: Number(kwh.toFixed(3)),
     confidence: observed ? "metered" : "estimated",
-    hours: { awake: hrs(awakeS), busy: hrs(busyS), covered: hrs(observed?.coveredS ?? monthHours * 3600), inMonth: monthHours },
+    /* `covered` IS ZERO ON AN ALWAYS-ON LINE, not the length of the month. It
+       is the hours actually WATCHED, and an always-on line watched none: it
+       reported `samples: 0` while claiming the whole month had been observed,
+       which is the one number on this object that could turn a modelled figure
+       into a measured-looking one. */
+    hours: { awake: hrs(awakeS), busy: hrs(busyS), covered: hrs(observed?.coveredS ?? 0), inMonth: monthHours },
     samples: observed?.samples ?? 0,
     source: observed?.source ?? "always-on",
     note:
@@ -352,13 +357,27 @@ export function powerLines(month: string, nowIso = now()): PowerLine[] {
  * whether or not it has one yet. The client draws the "add a profile" row off
  * this, so the owner never has to know an account id.
  */
-export function machinesAvailable(): { machineId: string; label: string; hasProfile: boolean }[] {
+export type MachineChoice = { machineId: string; label: string; hasProfile: boolean; gone?: true };
+
+export function machinesAvailable(): MachineChoice[] {
+  const known = accounts.list(WORKSTATION_PLUGIN);
+  const ids = new Set(known.map((a) => String(a.id)));
   const have = new Set(profiles().map((p) => p.machine_id));
-  return accounts.list(WORKSTATION_PLUGIN).map((a) => ({
+  const rows: MachineChoice[] = known.map((a) => ({
     machineId: String(a.id),
     label: a.label,
     hasProfile: have.has(String(a.id)),
   }));
+  /* A PROFILE WHOSE MACHINE HAS GONE IS LISTED, MARKED, AND NOT DELETED.
+     Deleting the workstation account does not delete the wattage somebody
+     measured with a plug meter, and a profile that vanished from the list
+     while `powerLines()` still priced it would be a ledger row the page had
+     no control over. It is shown so it can be removed on purpose. */
+  for (const p of profiles()) {
+    if (ids.has(p.machine_id)) continue;
+    rows.push({ machineId: p.machine_id, label: p.label ?? `Machine ${p.machine_id}`, hasProfile: true, gone: true });
+  }
+  return rows;
 }
 
 /* --------------------------------------------------- into the ledger */

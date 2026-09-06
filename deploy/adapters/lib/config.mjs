@@ -19,7 +19,11 @@
  * and nothing else. No anchors, no flow mappings, no multi-document files, no
  * tags. Anything it cannot read is an ERROR NAMING THE LINE, never a silent
  * omission — a mapping file half-read is a users document with a field missing,
- * which is exactly the failure this whole contract exists to make loud.
+ * which is exactly the failure this whole contract exists to make loud. That
+ * promise is why a repeated key throws rather than taking the last one, why a
+ * flow list splits on commas OUTSIDE quotes rather than all of them, and why
+ * `__proto__` is refused instead of quietly rewriting the object it is read
+ * into.
  *
  * A `.json` file skips all of it and is parsed by JSON.parse. If the subset
  * annoys you, write JSON.
@@ -64,7 +68,31 @@ function scalar(raw, where) {
       throw new Error(`${where}: “${t}” is a flow list this cannot read. Only a single-line list of plain values — [1, "t", yes] — is supported; anything nested goes on indented lines or into a .json file.`);
     const body = t.slice(1, -1).trim();
     if (!body) return [];
-    return body.split(",").map((part) => scalar(part, where));
+    /* SPLIT ON COMMAS THAT ARE NOT INSIDE QUOTES. A naive split turns
+       `["a,b", 1]` into `'"a'`, `'b"'`, `1` — three items, two of them
+       nonsense, silently. That matters most on `true_values`, which is the
+       CONSENT list: an item that quietly became `"a` matches nothing, and a
+       consent column that matches nothing is a column read as "nobody agreed",
+       which is at least the safe direction and is still a lie about the data.
+       An unterminated quote is an error naming the line, never a best guess. */
+    const parts = [];
+    let current = "";
+    let quote = null;
+    for (let i = 0; i < body.length; i++) {
+      const c = body[i];
+      if (quote) {
+        current += c;
+        if (c === "\\" && quote === '"') { current += body[++i] ?? ""; continue; }
+        if (c === quote) quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'") { quote = c; current += c; continue; }
+      if (c === ",") { parts.push(current); current = ""; continue; }
+      current += c;
+    }
+    if (quote) throw new Error(`${where}: “${t}” has an unclosed ${quote === '"' ? "double" : "single"} quote in it.`);
+    parts.push(current);
+    return parts.map((part) => scalar(part, where));
   }
   if (t.startsWith("{"))
     throw new Error(`${where}: flow mappings ({…}) are not supported. Use indented lines, or write the file as JSON.`);
@@ -105,7 +133,15 @@ function parseBlock(lines, i, indent) {
     return [out, i];
   }
 
-  const out = {};
+  /* A NULL-PROTOTYPE OBJECT, because a mapping file is untrusted input the
+     moment it is a file at all. `{}` inherits Object.prototype, so a line
+     reading `__proto__:` with a nested map under it does not add a key — it
+     REPLACES the prototype, and `config.driver` then answers with a value that
+     appears nowhere in the file. `Object.create(null)` makes that assignment an
+     ordinary own property; the two names are refused below as well, because a
+     mapping with a key called `constructor` is a mistake either way. */
+  const out = Object.create(null);
+  const seen = new Set();
   while (i < lines.length && lines[i].indent === indent) {
     const { n, text } = lines[i];
     const at = `line ${n}`;
@@ -113,6 +149,15 @@ function parseBlock(lines, i, indent) {
     if (colon < 1) throw new Error(`${at}: “${text}” is not “key: value”.`);
     const key = text.slice(0, colon).trim();
     const rest = text.slice(colon + 1).trim();
+
+    if (key === "__proto__" || key === "constructor" || key === "prototype")
+      throw new Error(`${at}: “${key}” is not a key this will read. It names part of the object machinery rather than part of your mapping.`);
+    /* A REPEATED KEY IS AN ERROR AND NOT LAST-WINS. Two `population:` blocks in
+       one file is somebody editing the second copy and reading the first, and
+       silently keeping one of them is how a mapping is wrong for a month. */
+    if (seen.has(key))
+      throw new Error(`${at}: “${key}” is set twice at this level. One of the two is being ignored; delete it rather than leave both.`);
+    seen.add(key);
 
     if (rest === "|" || rest === "|-") {
       /* A block scalar: every following line indented past this key, verbatim,

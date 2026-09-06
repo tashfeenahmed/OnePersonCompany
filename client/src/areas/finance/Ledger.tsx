@@ -3,7 +3,7 @@ import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { finance, type Expense } from "@/lib/api/finance";
-import { amount, currencies } from "./format";
+import { amount, currencies, parseAmount } from "./format";
 
 /**
  * THE LEDGER TABLE — every recurring cost, editable in place.
@@ -117,7 +117,16 @@ function Row({ e, onChange }: { e: Expense; onChange: () => void }) {
             value={e.amount === null ? "" : String(e.amount)}
             placeholder="— set a price"
             owned={owned.has("amount")}
-            onSave={(v) => patch({ amount: v.trim() === "" ? null : Number(v) })}
+            /* A typo must not look like "the price is unknown" — see
+               `parseAmount`, which carries the reason and the test. */
+            onSave={async (v) => {
+              const parsed = parseAmount(v);
+              if ("error" in parsed) {
+                setError(parsed.error);
+                return;
+              }
+              return patch({ amount: parsed.amount });
+            }}
           />
         </td>
         <td className="py-1.5 pr-3">

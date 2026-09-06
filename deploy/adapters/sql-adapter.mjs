@@ -18,7 +18,9 @@
  *               the document would be refused.
  *   --check F   validate the sample file F against the contract and exit. No
  *               database is touched, which is what makes this runnable on a
- *               laptop against a payload somebody pasted from production.
+ *               laptop against a payload somebody pasted from production. F has
+ *               to end in .json — so `--check mapping.yaml` is read as "check
+ *               this mapping", which is what somebody typing it meant.
  *
  * WHY --check WRITES NOTHING. The file this produces is read by a collector
  * every half hour, and a half-written or half-mapped document is worse than a
@@ -31,12 +33,28 @@
  * and a mapping broken by a schema change stops updating the file rather than
  * replacing four thousand users with an error message.
  *
- * WHAT IT NEVER DOES. It never writes to the product's database. It never puts
- * an address anywhere except the document, which the dashboard hashes on
- * arrival. And it never sets contactPermitted true without a contact_mapping
- * block carrying a consent_note — see lib/build.mjs.
+ * WHAT IT NEVER DOES. It never writes to the product's database. It never sets
+ * contactPermitted true without a contact_mapping block carrying a consent_note
+ * — see lib/build.mjs.
+ *
+ * WHERE THIS FILE GOES, AND IT IS NOT A DETAIL. The document this writes
+ * contains EVERY CUSTOMER'S RAW EMAIL ADDRESS. The dashboard hashes them on
+ * arrival; this file, on the product's own disk, does not. So:
+ *
+ *   - it is written 0640, owned by the user that runs the cron, group-readable
+ *     by whatever serves it and readable by nobody else;
+ *   - it does NOT go in a directory a web server publishes unauthenticated. A
+ *     static file cannot check the bearer token the dashboard is perfectly
+ *     willing to send, so "it is under a long random path" is the WEAKEST
+ *     acceptable answer and "it is behind the same auth as the admin API" is
+ *     the right one;
+ *   - if neither is convenient, that is exactly what http-adapter.mjs is for:
+ *     it requires a token, on every request, by construction.
+ *
+ * With no --out the document goes to STDOUT, which under a cron becomes a mail
+ * containing those addresses. Pass --out, or --quiet with a redirect you chose.
  */
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { loadConfig } from "./lib/config.mjs";
 import { validateUsers } from "./lib/contract.mjs";
@@ -57,13 +75,25 @@ if (!argv.length || argv[0] === "-h" || argv[0] === "--help") {
  * and never touch a database". Those are different enough to be worth the
  * twelve lines.
  */
+/* A MAPPING FILE IS NOT A SAMPLE FILE, and `--check mapping.yaml` is the
+   command everybody types. Without this, `--check` swallows the mapping as its
+   optional sample value and the program dies with "could not be read as JSON",
+   which is true and is the wrong sentence entirely. A value for --check has to
+   look like a JSON payload; anything else is the positional argument. */
+const looksLikeSample = (a) => /\.json$/i.test(a);
+const VALUE_LOOKS_WRONG = (flag, value) => flag === "--check" && !looksLikeSample(value);
+
 const VALUED = new Set(["--out", "--limit", "--check"]);
 const flags = new Map();
 const bare = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (!a.startsWith("--")) { bare.push(a); continue; }
-  if (VALUED.has(a) && argv[i + 1] && !argv[i + 1].startsWith("--")) { flags.set(a, argv[++i]); continue; }
+  const next = argv[i + 1];
+  if (VALUED.has(a) && next && !next.startsWith("--") && !VALUE_LOOKS_WRONG(a, next)) {
+    flags.set(a, argv[++i]);
+    continue;
+  }
   flags.set(a, "");
 }
 const flag = (name) => (flags.has(name) ? flags.get(name) : null);
@@ -198,7 +228,13 @@ if (!out) {
   const target = resolve(out);
   mkdirSync(dirname(target), { recursive: true });
   const tmp = `${target}.tmp-${process.pid}`;
-  writeFileSync(tmp, text, { mode: 0o644 });
+  /* 0640 AND NOT 0644, and `chmodSync` after the write because `writeFileSync`
+     applies `mode` only on CREATE and only through the process umask. This file
+     is every customer's raw address; it is not world-readable, and where it is
+     served at all it is served behind the same authentication as the admin API
+     it replaced. See the WHERE THIS FILE GOES block at the top. */
+  writeFileSync(tmp, text, { mode: 0o640 });
+  chmodSync(tmp, 0o640);
   renameSync(tmp, target);
   say(`  wrote ${target} · ${check.shape === "counts" ? `total ${check.total}` : `${check.users.length} row(s)`} · ${text.length} bytes`);
 }

@@ -4,7 +4,7 @@
  * There are two, and the number is small on purpose: a stage moves in here
  * only when its own timer has been made to stand down, because the one failure
  * this whole area exists to avoid is doing a night's work twice. See
- * builtins.ts for the twelve that keep their timers and are listed rather than
+ * builtins.ts for the thirteen that keep their timers and are listed rather than
  * called.
  *
  * ROUNDS. `runRound` in chief/rounds.ts is imported and called directly — not
@@ -23,7 +23,7 @@
  * how many roles, under what cap. That is the honest half of the answer, and
  * it is a smaller lie than a plan derived from a copy of the rules.
  */
-import { configValue } from "../../db.ts";
+import { configValue, db } from "../../db.ts";
 import { ROUNDS_PLUGIN, runRound, settings as roundSettings } from "../chief/rounds.ts";
 import { PIPELINE_PLUGIN, prefs, registerStage, settled, stage, type StageResult } from "./registry.ts";
 
@@ -32,13 +32,23 @@ import { PIPELINE_PLUGIN, prefs, registerStage, settled, stage, type StageResult
  *
  * Read by BOTH the rounds timer (which returns immediately when this is true)
  * and the nightly walk (which skips the stage when it is false, naming the
- * reason). Three conditions, all of which the owner can see on a page:
+ * reason). One predicate, so the two cannot disagree about who is driving.
  *
- *   — the pipeline is switched on at all,
- *   — the `rounds` stage exists and is enabled,
- *   — and rounds themselves are switched on, because the rounds settings are
- *     still the authority on whether a round may happen. The pipeline decides
- *     WHEN work runs; it does not overrule a feature the owner turned off.
+ * FOUR CONDITIONS, and the fourth is the one a review had to find. The obvious
+ * three are that the pipeline is on, the `rounds` stage exists and is enabled,
+ * and rounds themselves are on in their own settings — because those settings
+ * are still the authority on whether a round may happen at all; the pipeline
+ * decides WHEN work runs and does not overrule a feature the owner turned off.
+ *
+ * THE FOURTH IS THAT THE STAGE IS DUE DAILY. A handing-over is only safe while
+ * both sides mean the same thing by "tonight". Set the stage to `weekly` and
+ * the pipeline walks the rounds once a week while their own timer, standing
+ * down every night for a pipeline that mostly is not going to run them, quietly
+ * turns a daily feature into a weekly one — with nothing anywhere saying so.
+ * A stage on a slower cadence than the timer it replaced does not get to
+ * replace it: the pipeline runs the stage on the nights it is due, the timer
+ * keeps the rest, and the round's own per-venture cadence stops the two
+ * doubling up.
  *
  * It reads config rather than holding a flag, so a settings change takes effect
  * on the next tick of either timer without a restart.
@@ -47,7 +57,9 @@ export function pipelineOwnsRounds(): boolean {
   if ((configValue(PIPELINE_PLUGIN, "enabled") ?? "").trim().toLowerCase() !== "on") return false;
   const s = stage("rounds");
   if (!s) return false;
-  if (!settled(s, prefs().get("rounds")).enabled) return false;
+  const conf = settled(s, prefs().get("rounds"));
+  if (!conf.enabled) return false;
+  if (conf.cadence !== "daily") return false;
   return (configValue(ROUNDS_PLUGIN, "enabled") ?? "").trim().toLowerCase() === "on";
 }
 
@@ -90,6 +102,40 @@ export function registerCalledStages(): void {
         };
       const out = await runRound("schedule");
       if (!out.ran) return { outcome: "skipped", reason: out.why ?? "the round declined to walk" };
+
+      /*
+        ADVANCE THE ROUNDS' OWN WATERMARK.
+
+        `chief/rounds.ts` keeps `rounds-last-due` — the calendar day its own
+        timer last walked — and stands that timer down while the pipeline owns
+        the stage. It does not, however, forget: switch the pipeline off later
+        the same day and the timer reads a watermark from before this round,
+        decides today is still due, and walks a second time. The per-venture
+        cadence means it mostly dispatches nothing, but it can still spend up to
+        `maxRuns` on ventures the first round capped out on, and it writes a
+        second round row and a second chat post either way.
+
+        So the stage that did the work writes the watermark the timer reads. It
+        is the round's own day in the round's own zone — asked of that module's
+        settings, not of the pipeline's, because the two zones can differ and
+        the watermark belongs to the reader.
+      */
+      try {
+        const day = new Intl.DateTimeFormat("en-CA", {
+          timeZone: s.timezone ?? undefined,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(new Date());
+        db.prepare(
+          "INSERT INTO runtime_settings (key,value) VALUES ('rounds-last-due',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        ).run(day);
+      } catch {
+        /* A watermark that could not be written costs at worst one duplicated
+           round after the pipeline is switched off. It must not cost the round
+           that just succeeded. */
+      }
+
       const r = out.round!;
       return {
         outcome: "completed",

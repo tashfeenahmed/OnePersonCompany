@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { CalendarClock, Compass, Brain, Target, Workflow } from "lucide-react";
+import { CalendarClock, Compass, Brain, LineChart, Target, Workflow } from "lucide-react";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { TabStrip, type Tab } from "@/components/TabStrip";
 import { GoalsTab } from "./GoalsTab";
@@ -12,6 +12,10 @@ import { RoundsTab } from "./RoundsTab";
    already exists to answer — what the estate does when nobody is looking —
    only one level up from the rounds, which are now one of its stages. */
 import { PipelineTab } from "@/areas/pipeline/PipelineTab";
+/* The URL-level half of "did that work": outcomes reads a field in a document,
+   this reads one page in Search Console. Same question, different address, so
+   it is a tab here rather than a rail row of its own. */
+import { SeoFollowUpsTab } from "@/areas/seoops/SeoFollowUpsTab";
 
 /**
  * THE CHIEF OF STAFF'S OWN PAGE.
@@ -34,6 +38,7 @@ const TABS: { key: string; label: string; icon: typeof Compass }[] = [
   { key: "goals", label: "Goals", icon: Target },
   { key: "memory", label: "Memory", icon: Brain },
   { key: "outcomes", label: "Outcomes", icon: Compass },
+  { key: "seo", label: "SEO follow-ups", icon: LineChart },
 ];
 
 const SUB: Record<string, string> = {
@@ -43,6 +48,7 @@ const SUB: Record<string, string> = {
   goals: "What you are trying to do — read into every conversation, and into every scheduled brief.",
   memory: "What the assistant knows about you, dated, and yours to correct.",
   outcomes: "Whether a thing you did moved a number. Correlation, never cause.",
+  seo: "Whether a page you changed moved in Search Console. A page absent from a report is unmeasured, never zero.",
 };
 
 export function Workflows() {
@@ -71,6 +77,7 @@ export function Workflows() {
         {tab === "goals" && <GoalsTab />}
         {tab === "memory" && <MemoryTab />}
         {tab === "outcomes" && <OutcomesTab />}
+        {tab === "seo" && <SeoFollowUpsTab />}
       </PageShell>
     </>
   );

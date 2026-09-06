@@ -18,6 +18,15 @@
  * again. Putting them on one page would make the owner scroll past six timing
  * fields to change how many cards land on his board.
  *
+ * NEITHER APPEARS UNDER INTEGRATIONS, and that is worth saying because the
+ * settings registry usually implies it does. That page renders from
+ * `client/src/data/plugins.ts`, a catalog of things you CONNECT, and neither of
+ * these holds a credential to connect. Both sets of dials therefore live on the
+ * Pipeline tab, next to the schedule and the proposals they govern — which is
+ * where somebody changing them is already looking. The config registry is still
+ * the right home for the values themselves: it is the one place they are
+ * validated before they are stored.
+ *
  * ONE TIMER, AND IT IS IDLE UNTIL IT IS SWITCHED ON. `startPipeline` wakes
  * every ten minutes and returns immediately unless the owner has set
  * `enabled = on`. On a fresh install it is a no-op for ever, which is the
@@ -25,12 +34,16 @@
  * because the alternative is a box that starts spending money on its second
  * night without anybody asking it to.
  *
- * THE STAGES ARE REGISTERED IN `onStart` AND NOT AT MODULE LOAD. Registration
- * reads nothing and writes nothing, but it imports chief/rounds.ts, and doing
- * that at the top of a manifest that `integrations/index.ts` imports would put
- * an area's module graph inside the skill registry's. `onStart` runs after the
- * port is open, which is late enough that every area's module is already
- * resolved.
+ * THE STAGES ARE REGISTERED IN `onStart` AND NOT AT MODULE LOAD, and the reason
+ * is ORDER rather than imports. An earlier version of this comment claimed the
+ * deferral kept `chief/rounds.ts` out of the manifest's module graph; that was
+ * simply false — `./stages-called.ts` is imported statically two lines below
+ * and imports rounds itself, harmlessly, since chief's own manifest already
+ * does. What the deferral actually buys is that registration happens once, after
+ * every area's module has been evaluated, so a stage another area registers on
+ * this registry (seoops, say) cannot be overwritten by a re-registration during
+ * import, and so `registerStage` is never called before the migrations that
+ * create the tables its prefs live in have run.
  */
 import type { IntegrationManifest } from "../manifest.ts";
 import { registerBuiltins } from "./builtins.ts";

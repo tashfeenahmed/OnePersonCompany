@@ -184,6 +184,34 @@ export function fromLine(from: string, name: string): string {
   return /[,;<>@]/.test(clean) ? `"${clean}" <${from}>` : `${clean} <${from}>`;
 }
 
+/**
+ * WHAT RESEND'S STORED WORD MEANS FOR SENDING, or null when it says nothing
+ * worrying.
+ *
+ * NOT PART OF `transportFor`, deliberately. A status is a reading taken at a
+ * moment, and refusing on it would mean a domain mid-DNS-propagation
+ * ("pending") could not be drafted for at all, and a stale "failed" from before
+ * the owner fixed his records would block a domain that now works. It is a
+ * WARNING, surfaced on the sequence's `problems` and on the outbox card's
+ * `fromError`, so the owner sees it while the draft is being read rather than
+ * as a 4xx after he has pressed Send.
+ *
+ * NULL `verified` — nobody has asked — is its own sentence and not silence: an
+ * identity that has never been checked is exactly the one whose first use would
+ * be its first test, and its first use is a real email.
+ */
+export function verificationWarning(identity: IdentityRow): string | null {
+  if (identity.kind !== "resend") return null;
+  const status = (identity.verified ?? "").trim().toLowerCase();
+  if (status === "verified") return null;
+  if (!status)
+    return `Resend has not been asked about ${domainOf(identity.from_address)} yet, so whether it can send is unknown here. Press “Ask Resend again”.`;
+  return (
+    `Resend reports ${domainOf(identity.from_address)} as “${identity.verified}”, not “verified”` +
+    `${identity.verify_note ? ` — ${identity.verify_note}` : ""}. A send may be refused.`
+  );
+}
+
 /* ------------------------------------------------------------- verification */
 
 /**

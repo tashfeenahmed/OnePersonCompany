@@ -123,7 +123,8 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       --   present      rows arrived and were ingested
       --   absent       the report is not in the bucket / Apple lists no such report
       --   empty        the report exists and carried no rows for the window
-      --   requested    an ONGOING analytics request exists, nothing generated yet
+      --   not_requested NO ongoing analytics request exists on Apple's side, so
+      --                nothing will ever be generated until one is made
       --   processing   Apple lists the report, no instance has been produced
       --   available    instances exist and were downloaded
       --   delayed      instances exist but none newer than the expected lag
@@ -335,6 +336,30 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
         seen_at     TEXT NOT NULL,
         PRIMARY KEY (account_id, app, report, instance_id)
       ) WITHOUT ROWID;
+    `,
+  },
+
+  {
+    name: "267_mobilehealth_reunit_apple",
+    sql: `
+      -- A ONE-TIME RE-INGEST, because the UNIT of some already-stored rows was
+      -- wrong rather than missing.
+      --
+      -- Apple's analytics rows were first written with the REPORT's unit
+      -- stamped on every metric in it, so \`Unique Devices\` out of App Sessions
+      -- was stored as "sessions" and out of App Crashes as "crashes", and the
+      -- unique counts were marked summable when they are distinct within a day.
+      -- The collector now takes the unit and the kind from the METRIC. But an
+      -- instance's CSV is downloaded once and never again — that is what
+      -- mobile_analytics_instances is for — so the corrected code would never
+      -- revisit the rows it corrected.
+      --
+      -- Deleting both makes the next pass re-download and rewrite them. Nothing
+      -- is lost: every row here is a copy of a report Apple still holds, and
+      -- the download is bounded by the per-pass budget. Play's rows are not
+      -- touched — its slices are cleared and rewritten on every pass already.
+      DELETE FROM mobile_dimensions WHERE store = 'appstore';
+      DELETE FROM mobile_analytics_instances;
     `,
   },
 ];

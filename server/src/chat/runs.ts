@@ -53,7 +53,8 @@
 import type { ChatMessageRow, ChatToolCall } from "../db.ts";
 import { appendChatMessage } from "../db.ts";
 import type { ChatStreamEvent, MessageBackendId } from "./backend.ts";
-import { subscribe } from "./inflight.ts";
+import { all as inflightSessions, subscribe } from "./inflight.ts";
+import { byteLength } from "../integrations/agentcore/bound.ts";
 import {
   chatRun,
   insertChatRun,
@@ -68,12 +69,22 @@ import {
 export type RunFrame = { seq: number; event: string; data: unknown };
 
 /**
- * A runaway backstop and nothing more. A reasoning model legitimately emits
- * thousands of deltas in one turn, and dropping the OLDEST would tear the
- * replay a reattaching page depends on — so the cap is high and hitting it
- * ENDS the run rather than corrupting its history.
+ * TWO CAPS, BECAUSE A COUNT IS NOT A SIZE.
+ *
+ * The first cut bounded FRAMES only, and the frames' payloads are unbounded: a
+ * backend with no streaming path emits the whole answer as one delta and then
+ * repeats it in `done` (see routes/chat.ts's `oneShot`), so a single run holds
+ * roughly twice the answer in two frames and would never come near a
+ * forty-thousand-frame ceiling. With no global limit on concurrent runs and a
+ * two-minute retention past the end, "bounded" has to mean bounded in bytes.
+ *
+ * A reasoning model legitimately emits thousands of deltas in one turn, and
+ * dropping the OLDEST would tear the replay a reattaching page depends on — so
+ * both caps are high, and hitting either ENDS the run rather than corrupting
+ * its history.
  */
 const MAX_FRAMES = 40_000;
+const MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 /**
  * How long a finished run's buffer outlives it.
@@ -91,6 +102,14 @@ type Run = {
   sessionId: string;
   status: ChatRunStatus;
   frames: RunFrame[];
+  /** What the buffered frames cost, so the cap above can be about memory. */
+  bytes: number;
+  /** The generator has yielded `done`; the turn is landing and a cancel that
+   *  arrives now is too late to change what happens. See `cancelChatRun`. */
+  settling: boolean;
+  /** A cap was hit and frames were refused. Reported on the terminal frame, so
+   *  a reader is told its transcript has a hole rather than left to infer it. */
+  overflowed: boolean;
   seq: number;
   subscribers: Set<(f: RunFrame) => void>;
   ac: AbortController;
@@ -120,6 +139,9 @@ export type ChatRunPlan = {
   channel: string;
   ventureId: string | null;
   backend: MessageBackendId;
+  /** The account label behind that id ("Hermes · Nous Portal"). Carried on the
+   *  plan rather than derived here, for a caller that wants to name the
+   *  answering backend in its own `start` payload or its own report. */
   backendLabel: string | null;
   /** The owner's message, already stored. The run does not write it: the route
    *  does, before deciding anything, so a turn that is refused here still
@@ -138,9 +160,16 @@ export type ChatRunPlan = {
    *  the credential that stopped working — see routes/chat.ts, which is where
    *  the adapters that know which account answered live. */
   onError?: (message: string) => void;
-  /** Told what the run did, once, after the row is written. The Telegram
-   *  bridge and the briefing use the non-streaming route and never need this;
-   *  it exists for a caller that wants the answer without subscribing. */
+  /**
+   * Told what the run did, once, after the row is written.
+   *
+   * CONTRACT SURFACE WITH NO READER IN THIS FILE'S OWN CALLER, and deliberately
+   * so: `routes/chat.ts` subscribes to the stream and learns the outcome from
+   * the terminal frame, but a caller that starts a turn and does NOT subscribe
+   * — a scheduled job, another area driving its own tool loop through
+   * `open(signal)` — has no other way to be told. Called inside the run's own
+   * try/catch, so a throw here fails the run rather than the process.
+   */
   onEnd?: (r: { status: ChatRunStatus; text: string; error: string | null }) => void;
 };
 
@@ -189,6 +218,9 @@ export function startChatRun(plan: ChatRunPlan): ChatRunRow {
     sessionId: plan.sessionId,
     status: "running",
     frames: [],
+    bytes: 0,
+    settling: false,
+    overflowed: false,
     seq: 0,
     subscribers: new Set(),
     ac: new AbortController(),
@@ -198,18 +230,31 @@ export function startChatRun(plan: ChatRunPlan): ChatRunRow {
   };
   runs.set(id, run);
   bySession.set(plan.sessionId, id);
-  updateChatRun(id, { status: "running" });
 
-  const emit = (event: string, data: unknown) => {
-    if (run.frames.length >= MAX_FRAMES) {
-      /* Ending the run is the honest failure. Dropping frames would leave a
-         reattaching page with a transcript that has a hole in it and no way to
-         know. */
+  /**
+   * Buffer a frame and hand it to everybody listening.
+   *
+   * `force` IS FOR THE TERMINAL FRAME AND FOR NOTHING ELSE. The caps below
+   * refuse ordinary frames — that is what a cap is — but the first version
+   * refused the closing `done`/`error` too, which is the one frame a reader
+   * cannot do without: a live subscriber saw the socket close with no ending,
+   * and a reattacher replayed forty thousand frames and still found none. So
+   * the ending is always buffered and always delivered, whatever the caps say,
+   * and `overflowed` is how the reader is told the middle is incomplete.
+   */
+  const emit = (event: string, data: unknown, force = false) => {
+    const cost = byteLength(JSON.stringify(data ?? null));
+    if (!force && (run.frames.length >= MAX_FRAMES || run.bytes + cost > MAX_BUFFER_BYTES)) {
+      /* Ending the run is the honest failure. Dropping frames silently would
+         leave a reattaching page with a hole in its transcript and no way to
+         know there was one. */
+      run.overflowed = true;
       run.ac.abort();
       return;
     }
     const frame: RunFrame = { seq: ++run.seq, event, data };
     run.frames.push(frame);
+    run.bytes += cost;
     for (const cb of [...run.subscribers]) {
       try {
         cb(frame);
@@ -219,8 +264,48 @@ export function startChatRun(plan: ChatRunPlan): ChatRunRow {
     }
   };
 
-  emit("run", { runId: id, sessionId: plan.sessionId, status: "running" });
-  emit("start", { ...plan.start, runId: id });
+  /**
+   * THE ONE LANDING, WHATEVER THE FLIGHT WAS.
+   *
+   * Idempotent, and called from a `finally` that nothing can skip. Before this
+   * existed the tail of the run — the assistant row, the terminal frame, the
+   * status write — sat outside any `try`, so a `SQLITE_BUSY` on the write took
+   * down an unhandled rejection AND left `bySession` pointing at a run that
+   * would never resolve its `ended` promise: every later turn on that
+   * conversation 409'd for the life of the process, and every subscriber waited
+   * for ever. The rule now is that the maps and the promise are released on
+   * every exit path, including the ones nobody thought of.
+   */
+  let landed = false;
+  const land = (status: ChatRunStatus) => {
+    if (landed) return;
+    landed = true;
+    run.status = status;
+    if (bySession.get(plan.sessionId) === id) bySession.delete(plan.sessionId);
+    run.finish();
+    run.cleanup = setTimeout(() => {
+      if (runs.get(id) === run) runs.delete(id);
+    }, RETAIN_MS);
+    /* A box shutting down should not wait two minutes for this. */
+    run.cleanup.unref?.();
+  };
+
+  try {
+    emit("run", { runId: id, sessionId: plan.sessionId, status: "running" });
+    emit("start", { ...plan.start, runId: id });
+  } catch (err) {
+    /* A plan whose `start` payload cannot be serialised, or a caller that threw
+       from a subscriber the engine has not got yet. The row exists and the
+       question is stored, so the honest end is a failed run rather than a
+       conversation that can never be asked anything again. */
+    land("failed");
+    try {
+      updateChatRun(id, { status: "failed", error: errorText(err), lastSeq: run.seq, finished: true });
+    } catch {
+      /* the row is beyond reach; the maps are already released */
+    }
+    throw err;
+  }
 
   /* Deliberately not awaited — this IS the background. */
   void (async () => {
@@ -305,6 +390,11 @@ export function startChatRun(plan: ChatRunPlan): ChatRunRow {
             usage = event.usage;
             ms = event.ms;
             finished = true;
+            /* FROM HERE A CANCEL IS TOO LATE, and saying so is the whole point
+               of the flag: the answer is complete and about to be stored, and
+               a stop button that reported "cancelled" for a turn that then
+               lands as `done` is the one thing that control must never do. */
+            run.settling = true;
             break;
           }
         }
@@ -316,89 +406,147 @@ export function startChatRun(plan: ChatRunPlan): ChatRunRow {
       unsubscribe();
     }
 
-    const cancelled = run.ac.signal.aborted;
+    /* AN OVERFLOW IS NOT A CANCEL. Both abort the same controller, and the
+       owner did not press anything when the buffer filled — reporting it as a
+       stop would put the fault on the person watching. */
+    const cancelled = run.ac.signal.aborted && !finished && !run.overflowed;
+    let status: ChatRunStatus = finished ? "done" : cancelled ? "cancelled" : "failed";
 
     /*
-      THE WRITE, ON EVERY PATH THAT PRODUCED WORDS. Three outcomes and each has
-      one row, or none:
-        finished              a complete assistant row
-        stopped, text so far  the same row with partial = 1
-        stopped, nothing said no row at all
-      The third is the rule the non-streaming route keeps: a failed turn writes
-      no "error" message, because a transcript is what was SAID and an error is
-      something the interface reports.
+      EVERYTHING FROM HERE IS INSIDE A TRY, AND THE `finally` IS THE POINT.
+
+      The write, the terminal frame and the status update all reach outside this
+      module — SQLite, a caller's `shape`, a caller's `onEnd` — and any of them
+      can throw. When they did, the throw escaped a `void`-ed async function as
+      an unhandled rejection (which ends the process on this Node) and, worse,
+      skipped the two lines that release the conversation: `bySession` kept
+      pointing at a run nobody would ever finish, so every later turn on that
+      chat was refused as busy and every subscriber waited on a promise that
+      never resolved. The turn is allowed to fail; the conversation is not
+      allowed to be lost with it.
     */
-    const list = [...tools.values()];
-    let assistant: ChatMessageRow | null = null;
-    if (finished || text) {
-      assistant = appendChatMessage({
-        sessionId: plan.sessionId,
-        role: "assistant",
-        content: text,
-        channel: plan.channel,
-        backend: plan.backend,
-        model,
-        promptTokens: usage?.prompt ?? null,
-        completionTokens: usage?.completion ?? null,
-        /* Null rather than 0 on a broken turn: a stream that stopped has not
-           told us how long the answer took, only how long we waited. */
-        ms: finished ? ms : null,
-        tools: list,
-        partial: !finished,
+    try {
+      /*
+        THE WRITE, ON EVERY PATH THAT PRODUCED WORDS. Three outcomes and each has
+        one row, or none:
+          finished              a complete assistant row
+          stopped, text so far  the same row with partial = 1
+          stopped, nothing said no row at all
+        The third is the rule the non-streaming route keeps: a failed turn writes
+        no "error" message, because a transcript is what was SAID and an error is
+        something the interface reports.
+      */
+      const list = [...tools.values()];
+      let assistant: ChatMessageRow | null = null;
+      if (finished || text) {
+        assistant = appendChatMessage({
+          sessionId: plan.sessionId,
+          role: "assistant",
+          content: text,
+          channel: plan.channel,
+          backend: plan.backend,
+          model,
+          promptTokens: usage?.prompt ?? null,
+          completionTokens: usage?.completion ?? null,
+          /* Null rather than 0 on a broken turn: a stream that stopped has not
+             told us how long the answer took, only how long we waited. */
+          ms: finished ? ms : null,
+          tools: list,
+          partial: !finished,
+        });
+      }
+
+      if (finished && assistant) {
+        /* FORCED, like every terminal frame: a run that hit its buffer cap must
+           still be able to say it is over. */
+        emit(
+          "done",
+          {
+            messageId: assistant.id,
+            message: plan.shape(assistant),
+            text,
+            model,
+            usage,
+            ms,
+            tools: list,
+            queuedMs,
+            /* True when the caps refused frames in the middle. The words are
+               whole — they are read from the accumulator, not from the buffer —
+               but a reattacher's replay is not. */
+            incomplete: run.overflowed,
+          },
+          true,
+        );
+      } else {
+        emit(
+          "error",
+          {
+            message:
+              failure ??
+              (run.overflowed
+                ? "That answer was longer than this server will hold in memory, so it was stopped."
+                : cancelled
+                  ? "Stopped by the owner."
+                  : "The stream ended without an answer."),
+            messageId: assistant?.id ?? null,
+            /* Whether anything was kept. The page draws what is on screen as a
+               partial answer when this is true and drops it when it is not. */
+            partial: assistant !== null,
+            /* A stop is not a failure and must not be reported as one. The page
+               shows no banner for a button the owner pressed themselves. */
+            cancelled,
+            incomplete: run.overflowed,
+          },
+          true,
+        );
+      }
+
+      updateChatRun(id, {
+        status,
+        assistantMessageId: assistant?.id ?? null,
+        error: status === "failed" ? (failure ?? "The stream ended without an answer.") : null,
+        lastSeq: run.seq,
+        finished: true,
       });
+
+      plan.onEnd?.({ status, text, error: failure });
+    } catch (err) {
+      /*
+        THE LANDING ITSELF FAILED. The answer may or may not be in the
+        transcript — that is exactly what could not be established — so the run
+        is reported failed with the reason, on a best-effort basis: the frame
+        first, because a reader waiting on a socket is the party that suffers
+        most from silence, and then the row.
+      */
+      status = "failed";
+      const why = errorText(err);
+      console.error(`[chat/runs] ${id} could not be landed — ${why}`);
+      try {
+        emit("error", { message: why, messageId: null, partial: false, cancelled: false, incomplete: true }, true);
+      } catch {
+        /* nothing left to tell */
+      }
+      try {
+        updateChatRun(id, { status: "failed", error: why, lastSeq: run.seq, finished: true });
+      } catch {
+        /* the row is beyond reach; the maps are released below regardless */
+      }
+    } finally {
+      /* Every live subscriber has been told the stream is over by the frame
+         above; the ones that arrive within the retention window read it out of
+         the buffer. This releases the conversation either way. */
+      land(status);
     }
-
-    const status: ChatRunStatus = finished ? "done" : cancelled ? "cancelled" : "failed";
-    run.status = status;
-
-    if (finished && assistant) {
-      emit("done", {
-        messageId: assistant.id,
-        message: plan.shape(assistant),
-        text,
-        model,
-        usage,
-        ms,
-        tools: list,
-        queuedMs,
-      });
-    } else {
-      emit("error", {
-        message:
-          failure ??
-          (cancelled
-            ? "Stopped by the owner."
-            : "The stream ended without an answer."),
-        messageId: assistant?.id ?? null,
-        /* Whether anything was kept. The page draws what is on screen as a
-           partial answer when this is true and drops it when it is not. */
-        partial: assistant !== null,
-        /* A stop is not a failure and must not be reported as one. The page
-           shows no banner for a button the owner pressed themselves. */
-        cancelled,
-      });
-    }
-
-    updateChatRun(id, {
-      status,
-      assistantMessageId: assistant?.id ?? null,
-      error: status === "failed" ? (failure ?? "The stream ended without an answer.") : null,
-      lastSeq: run.seq,
-      finished: true,
-    });
-
-    plan.onEnd?.({ status, text, error: failure });
-
-    /* Every live subscriber is told the stream is over by the frame above; the
-       ones that arrive within the retention window read it out of the buffer. */
-    run.finish();
-    if (bySession.get(plan.sessionId) === id) bySession.delete(plan.sessionId);
-    run.cleanup = setTimeout(() => {
-      if (runs.get(id) === run) runs.delete(id);
-    }, RETAIN_MS);
-    /* A box shutting down should not wait two minutes for this. */
-    run.cleanup.unref?.();
-  })();
+  })().catch((err: unknown) => {
+    /*
+      NOTHING SHOULD REACH HERE — the body's own `finally` lands the run — but a
+      `void`-ed async function with no catch is a process-ending unhandled
+      rejection on this Node, and "the API died while answering a chat" is not
+      an acceptable way to learn about a bug in the paragraph above.
+    */
+    console.error(`[chat/runs] ${id} ended unexpectedly — ${errorText(err)}`);
+    land("failed");
+  });
 
   return chatRun(id) ?? row;
 }
@@ -467,7 +615,9 @@ export function runHandle(id: string): RunHandle | null {
  */
 export function cancelChatRun(id: string): {
   ok: boolean;
-  status: ChatRunStatus;
+  /** What the run IS, not what it will become. A successful cancel answers
+   *  `stopping`, because the run has been asked and has not yet landed. */
+  status: ChatRunStatus | "stopping";
   error?: string;
   /** Told apart from "already over" so the route can answer 404 rather than
    *  409: a run that never existed is a mistake in the id, and a run that has
@@ -483,8 +633,47 @@ export function cancelChatRun(id: string): {
   }
   if (run.status !== "running")
     return { ok: false, status: run.status, error: `That run is already ${run.status}.` };
+  /*
+    THE ANSWER ARRIVED WHILE THE BUTTON WAS BEING PRESSED. `status` is not
+    written until the tail runs, so gating on it alone accepted a cancel for a
+    turn whose generator had already yielded `done` — and then reported
+    "cancelled" for a run that landed as `done`. The flag is set the moment the
+    answer is complete, which is the earliest point at which stopping is a lie.
+  */
+  if (run.settling)
+    return {
+      ok: false,
+      status: "running",
+      error: "That answer has already finished; there is nothing left to stop.",
+    };
   run.ac.abort();
-  return { ok: true, status: "cancelled" };
+  /*
+    `stopping`, NOT `cancelled`. Aborting is a request the run honours in its
+    own `finally` — it still has a partial row to write — and the authority on
+    what happened is the terminal frame, not this reply. Reporting the outcome
+    here would be reporting it before it happened.
+  */
+  return { ok: true, status: "stopping" };
+}
+
+/**
+ * IS THIS CONVERSATION ALREADY BEING ANSWERED, BY ANY DOOR?
+ *
+ * `activeRun` knows about runs, which is the streaming door. It is not the only
+ * door: the non-streaming `POST /chat` and the Telegram bridge both go straight
+ * through `ask()`, which registers the session in chat/inflight.ts for the
+ * length of the answer. A guard that consulted only the runs would let a phone
+ * and a browser answer one transcript at once — two assistant rows for a
+ * history that only ever contained one question.
+ *
+ * Answers the run id when there is one, so a caller can point a client at the
+ * stream it should be watching; null `runId` with `busy: true` is the other
+ * door, which has no stream to offer.
+ */
+export function sessionBusy(sessionId: string): { busy: boolean; runId: string | null } {
+  const run = activeRun(sessionId);
+  if (run) return { busy: true, runId: run.id };
+  return { busy: inflightSessions().includes(sessionId), runId: null };
 }
 
 /** What a page asks when it opens a conversation: is there anything to

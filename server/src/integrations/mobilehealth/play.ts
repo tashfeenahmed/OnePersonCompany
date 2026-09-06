@@ -236,6 +236,12 @@ async function ingestSlices(
       });
       continue;
     }
+    /* THE WINDOW IS CLEARED BEFORE IT IS REWRITTEN. Only non-zero event rows
+       are stored, so without this a day Google revises DOWN to zero — or a
+       slice it stops reporting — would keep its old figure for ever and the
+       table would be a high-water mark rather than a copy of the report. */
+    const dimension = slice === "overview" ? "(all)" : slice;
+    store.clearDimensions({ store: "play", accountId, app: pkg, dimension, since });
     let rows = 0;
     let failure: string | null = null;
     for (const file of files) {
@@ -247,11 +253,7 @@ async function ingestSlices(
         continue;
       }
       if (!raw) continue;
-      const parsed = parseDimension(decodeReport(raw), {
-        dimension: slice === "overview" ? "(all)" : slice,
-        metrics,
-        since,
-      });
+      const parsed = parseDimension(decodeReport(raw), { dimension, metrics, since });
       const writes = parsed
         .filter((p) => keepRow(p.metric, metrics, p.amount))
         .map((p) => ({
@@ -259,7 +261,7 @@ async function ingestSlices(
           accountId,
           app: pkg,
           day: p.day,
-          dimension: slice === "overview" ? "(all)" : slice,
+          dimension,
           value: p.value,
           metric: p.metric,
           amount: p.amount,
@@ -311,6 +313,9 @@ async function ingestPerformance(
       });
       continue;
     }
+    // Same rule as the install slices: cleared before rewritten, so a slice
+    // Google stops reporting stops being reported here too.
+    store.clearPerformance({ accountId, app: pkg, dimension: slice, since });
     let rows = 0;
     for (const file of files) {
       const raw = await fetchObject(token, bucket, file.object).catch(() => null);
@@ -375,6 +380,7 @@ async function ingestRetention(
     });
     return;
   }
+  store.clearRetention({ accountId, app: pkg, since });
   let rows = 0;
   for (const file of files) {
     const raw = await fetchObject(token, bucket, file.object).catch(() => null);
@@ -432,12 +438,21 @@ async function ingestCrashCounts(
       });
       continue;
     }
+    const dimension = slice === "overview" ? "(all)" : slice;
+    store.clearStability({
+      store: "play",
+      accountId,
+      app: pkg,
+      source: "play-bucket",
+      dimension,
+      since,
+    });
     let rows = 0;
     for (const file of files) {
       const raw = await fetchObject(token, bucket, file.object).catch(() => null);
       if (!raw) continue;
       const parsed = parseDimension(decodeReport(raw), {
-        dimension: slice === "overview" ? "(all)" : slice,
+        dimension,
         metrics: CRASH_METRICS,
         since,
       });
@@ -449,7 +464,7 @@ async function ingestCrashCounts(
           day: p.day,
           source: "play-bucket",
           metric: p.metric,
-          dimension: slice === "overview" ? "(all)" : slice,
+          dimension,
           value: p.value,
           amount: p.amount,
           unit: p.unit,
@@ -567,6 +582,17 @@ async function ingestVitals(
       continue;
     }
 
+    /* Cleared before rewritten, for the reason the bucket slices are: a
+       version code that stops reporting would otherwise keep its last rate
+       for ever and go on being the worst one on the card. */
+    store.clearStability({
+      store: "play",
+      accountId,
+      app: pkg,
+      source: "play-reporting",
+      dimension: "app_version_code",
+      since: startDay,
+    });
     const parsed = parseReportingRows(query.doc as Parameters<typeof parseReportingRows>[0]);
     const writes = parsed.flatMap((r) => {
       const out: Parameters<typeof store.writeStability>[0] = [];

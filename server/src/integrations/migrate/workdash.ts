@@ -57,9 +57,21 @@ export const DENY: RegExp[] = [
   /-token$/i,
   /-token\.json$/i,
   /-secret$/i,
+  /-secret\.json$/i,
+  /* THE OAUTH APP PAIRS: `meta-app`, `linkedin-client-id`,
+     `linkedin-client-secret`, `tiktok-client-key`. Three of those already match
+     the `-key`/`-secret` rules above, and `meta-app` and `-client-id` match
+     nothing — which made the CLI's "N credential files found and NOT opened"
+     line undercount by two. Nothing was ever opened either way (only
+     STATE_FILES are read), but a count that is quietly short is a count nobody
+     can check the deny list against. */
+  /^meta-app$/i,
+  /-client-id$/i,
+  /-client-key$/i,
+  /-client-secret$/i,
+  /-app\.json$/i,
   /^gmail-.*\.json$/i,
   /^resend-keys\.json$/i,
-  /^reddit-app\.json$/i,
   /\.(p8|pem|key|env)$/i,
   /^\.env/i,
 ];

@@ -57,6 +57,19 @@
  *               to two places, because 29.0 and 29 are the same number and a
  *               packet that says one licenses the other.
  *
+ * WHAT THE NUMBER CHECK IS AND IS NOT, because the difference is easy to
+ * overstate and every surface that quotes this file was quoting it too warmly.
+ * The number set is POOLED AND UNIT-BLIND: every figure anywhere in the packet
+ * — inside a verbatim commitment sentence, inside a venture description, the
+ * day, month and year of every date — joins ONE set, and membership of that set
+ * is the whole test. So a packet carrying "31 days quiet" licenses "31% growth"
+ * and "we have 31 customers". The honest sentence is "every number in the
+ * message appears somewhere in the facts", not "every number was checked
+ * against the fact it belongs to". MONEY is the one class checked with its
+ * unit, which is why it is a separate class at all. This is a floor on
+ * fabrication rather than a proof of correctness, and the routes, the skill
+ * rules and the card all say it that way.
+ *
  * WHAT THIS COSTS, STATED RATHER THAN HIDDEN. "I have three questions" is
  * refused for the word "three" written as a digit. That is the trade being made
  * deliberately: the alternative is a validator that decides which numbers are
@@ -110,13 +123,62 @@ export const MONTHS = [
  *  packet carrying US$29 licenses "$29" and nothing narrower. */
 const SYMBOL: Record<string, string> = { "€": "eur", "£": "gbp", "$": "usd", "¥": "jpy" };
 
-const CODE = /^(usd|eur|gbp|jpy|cad|aud|chf|sek|nok|dkk|pln|inr|nzd|sgd|brl|mxn|zar)$/i;
+/**
+ * THE CURRENCY CODES, AND WHY THE MONEY REGEX IS BUILT OUT OF THEM RATHER THAN
+ * OUT OF `[A-Za-z]{3}`.
+ *
+ * It used to match any three letters beside a number and then discard the
+ * non-currency matches in the loop below. That was wrong twice over, and the
+ * second way was the dangerous one:
+ *
+ *   1. THE STRIP RAN ANYWAY. Every `<number> <three letters>` was removed from
+ *      the text before the date and number checks, so "We saved you 500 per
+ *      month", "You have 300 new users" and "The trial ends 12 Sep" all passed
+ *      an EMPTY fact packet. In ordinary English prose most numbers and every
+ *      abbreviated date sit next to a three-letter word, which made the gate
+ *      this file exists to be largely inoperative.
+ *   2. A NON-CURRENCY MATCH ATE THE REAL ONE. `String.matchAll` continues from
+ *      the end of each match, so in "we refunded you 4000 usd" the engine
+ *      consumed "you 4000", skipped it as not-a-currency, and never saw
+ *      "4000 usd" at all — the currency check silently did not happen.
+ *
+ * Narrowing the pattern to the actual codes fixes both by construction: there
+ * is no spurious match to discard and none to be eaten by. The strip below is
+ * ALSO written as a conditional callback, so that a future widening of this
+ * pattern cannot quietly reintroduce (1).
+ */
+const CODES = [
+  "usd", "eur", "gbp", "jpy", "cad", "aud", "chf", "sek", "nok", "dkk",
+  "pln", "inr", "nzd", "sgd", "brl", "mxn", "zar",
+];
+const CODE = new RegExp(`^(?:${CODES.join("|")})$`, "i");
 
 const EMAIL_RE = /[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]+/g;
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
+/**
+ * A HOST WRITTEN WITHOUT A SCHEME, which is how a link usually appears in
+ * prose and which every mail client autolinks.
+ *
+ * Without this, `URL_RE` above was the only host check and
+ * "read more at competitor-phish.com/deal" passed an empty packet — while
+ * `allowedFrom` was already collecting bare hosts on the FACT side, so the
+ * gate was open in exactly one direction.
+ *
+ * THE FALSE POSITIVE IS ACCEPTED DELIBERATELY, the way the digit rule is. A
+ * missing space after a full stop — "that is helpful.We also…" — reads as the
+ * host `helpful.we`, and the draft falls back to the deterministic template
+ * with the refusal printed on the card. That is a comprehensible outcome on
+ * the safe side; the alternative is a TLD allow-list that goes stale and lets
+ * a real domain through the day somebody registers a new suffix.
+ */
+const BARE_HOST_RE =
+  /(?<![\w@./-])((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,24})(?![\w@-])/gi;
 /** `€29`, `€ 29.50`, `29 EUR`, `EUR 29`. */
 const MONEY_SYMBOL_RE = /([€£$¥])\s?(\d[\d,]*(?:\.\d+)?)/g;
-const MONEY_CODE_RE = /\b(?:(\d[\d,]*(?:\.\d+)?)\s?([A-Za-z]{3})|([A-Za-z]{3})\s?(\d[\d,]*(?:\.\d+)?))\b/g;
+const MONEY_CODE_RE = new RegExp(
+  `\\b(?:(\\d[\\d,]*(?:\\.\\d+)?)\\s?(${CODES.join("|")})|(${CODES.join("|")})\\s?(\\d[\\d,]*(?:\\.\\d+)?))\\b`,
+  "gi",
+);
 const ISO_DAY_RE = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
 const NUMBER_RE = /\d[\d,]*(?:\.\d+)?/g;
 
@@ -254,6 +316,18 @@ export function ungrounded(body: string, allowed: Allowed): string | null {
   }
   text = text.replace(URL_RE, " ");
 
+  /* THE SAME CHECK FOR A HOST WITH NO SCHEME, after the addresses and the
+     schemed links have gone — `mary@example.com` must not be read as a link to
+     example.com, because it has already been checked as an address. Stripped
+     as well as checked, so the digits in a host like `web3.io` are not read a
+     second time as a naked number. */
+  for (const m of text.matchAll(BARE_HOST_RE)) {
+    const host = m[1]!.toLowerCase();
+    if (!allowed.hosts.has(host))
+      return `it wrote a link to ${host}, and no fact here carries that host`;
+  }
+  text = text.replace(BARE_HOST_RE, " ");
+
   for (const m of text.matchAll(MONEY_SYMBOL_RE)) {
     const code = SYMBOL[m[1]!];
     const amount = round2(Number(m[2]!.replace(/,/g, "")));
@@ -267,7 +341,17 @@ export function ungrounded(body: string, allowed: Allowed): string | null {
     if (!allowed.money.has(`${code}:${round2(Number(amount.replace(/,/g, "")))}`))
       return `it wrote the amount ${m[0]}, and no fact here carries that figure in that currency`;
   }
-  text = text.replace(MONEY_SYMBOL_RE, " ").replace(MONEY_CODE_RE, " ");
+  /* THE STRIP IS CONDITIONAL, and it is written this way even though
+     `MONEY_CODE_RE` can no longer match a non-currency triple. It is the second
+     wall around the bug described at CODES above: if somebody ever widens that
+     pattern back to `[A-Za-z]{3}`, a match that is not a currency stays in the
+     text and is caught by the date and number checks below instead of
+     vanishing before them. */
+  text = text
+    .replace(MONEY_SYMBOL_RE, " ")
+    .replace(MONEY_CODE_RE, (whole, _a1, c1, c2) =>
+      CODE.test(String(c1 ?? c2 ?? "")) ? " " : String(whole),
+    );
 
   for (const m of text.matchAll(ISO_DAY_RE)) {
     const day = `${m[1]}-${m[2]}-${m[3]}`;
@@ -302,6 +386,57 @@ export function checkAgainstFacts(body: string, facts: Fact[]): string | null {
   return ungrounded(body, allowedFrom(facts));
 }
 
+/* --------------------------------------------------------------- booleans */
+
+/**
+ * A FLAG AS IT ACTUALLY ARRIVES, WHICH IS OFTEN A STRING.
+ *
+ * `routes/skills.ts` forwards an action's arguments verbatim, and the CLI and
+ * the pack both hand it what the caller typed — so a parameter published as a
+ * string arrives as `"true"`, never as `true`. A `=== true` check on such a
+ * parameter is not a strict check, it is a check that never fires: `dryRun`
+ * read that way meant an action documented as "prepare everything and file
+ * nothing" filed a real outbox row, which then held that address down for the
+ * whole per-address floor and refused the real draft afterwards.
+ *
+ * ANYTHING UNRECOGNISED IS FALSE, and that is the safe direction for both
+ * callers of this: an unreadable `dryRun` writes the draft the caller asked
+ * for, and an unreadable `force` declines to run a second pass in a day.
+ */
+export function truthy(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "number") return value === 1;
+  if (typeof value !== "string") return false;
+  return ["true", "yes", "on", "1"].includes(value.trim().toLowerCase());
+}
+
+/* ------------------------------------------------- the purchase question */
+
+/**
+ * Can the purchase question even be ASKED, for a sequence that stops on it?
+ *
+ * Returns the hold sentence when it cannot, or null. This exists because
+ * `paying: null` has two meanings and only one of them is safe to carry on
+ * from: "this address is not in a connected product's users document" is a
+ * fact about the person, while "no product on this install publishes a users
+ * document at all" is the question being unanswerable. Folding them together
+ * meant a sequence subscribed to `purchased` kept drafting when nothing on the
+ * box could tell whether the recipient had already bought — the exact failure
+ * `verdict`'s header says must not happen, and which the reply check next door
+ * already gets right.
+ *
+ * `reason` is `productUser().reason` verbatim; the marker is the phrase that
+ * function uses for the unanswerable case, checked rather than re-derived so
+ * the two cannot drift into agreeing about nothing.
+ */
+export const NO_USERS_DOCUMENT = "no product on this install publishes a users document";
+
+export function purchaseUnreachable(stopOn: readonly string[], reason: string | null): string | null {
+  if (!stopOn.includes("purchased")) return null;
+  if (!reason || !reason.startsWith(NO_USERS_DOCUMENT)) return null;
+  return `cannot check whether they have bought — ${reason}`;
+}
+
 /* ---------------------------------------------------------- style rules */
 
 /**
@@ -332,9 +467,14 @@ export function notAStyleRule(rule: string): string | null {
   if (/\b[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/|\b)/i.test(t)) return "it contains a domain name";
   const words = t.split(/\s+/);
   for (let n = 1; n < words.length; n++) {
-    const w = words[n]!.replace(/^[^A-Za-z']+|[^A-Za-z']+$/g, "");
+    const w = words[n]!.replace(/^[^A-Za-z'-]+|[^A-Za-z'-]+$/g, "");
     if (!w || w === "I" || /^I'[a-z]+$/.test(w)) continue;
-    if (/^[A-Z][a-z']+$/.test(w))
+    /* ANY capitalised word mid-rule, not just `Xxxx`. The narrower pattern let
+       `Example App 4`, `Jane-Smith` and `ACME` through — a product name and two
+       shapes of person's name, which are exactly what this is for. An acronym
+       a rule might legitimately want ("use a clear CTA") is refused with them;
+       that is the same trade the digit rule makes, made in the same direction. */
+    if (/^[A-Z][A-Za-z'-]*$/.test(w))
       return `it names “${w}”, and a style rule must not carry anybody's name`;
   }
   return null;

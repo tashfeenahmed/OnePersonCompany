@@ -48,6 +48,9 @@
 import { inflateSync } from "node:zlib";
 import { ventureRowById, writeVentureBrand, type VentureRow } from "../db.ts";
 import { startKnowledgeRead } from "../integrations/knowledge/first-read.ts";
+/* The house answer for "is this address on the inside". Reused rather than
+   re-derived; see isInternalHost below for the two blocks it does not carry. */
+import { isPrivateHost } from "../chat/wire.ts";
 
 /* ------------------------------------------------------------------ shapes */
 
@@ -944,6 +947,48 @@ function svgColours(text: string): string[] {
  * http(s) is accepted: `mailto:` and `javascript:` parse perfectly well and
  * are not websites.
  */
+/**
+ * IS THIS ADDRESS ON THE INSIDE?
+ *
+ * A venture's website is a string the owner types, and everything that reads
+ * one — this file's fetch, and now a headless browser with JavaScript enabled —
+ * goes out from the machine the dashboard runs on. That machine can reach
+ * things nobody else can: its own API on loopback with no auth on /api, a
+ * router at 192.168.1.1, a Kubernetes service, and — the one that is a
+ * published attack rather than a hypothetical — the cloud metadata endpoint at
+ * 169.254.169.254, which hands out instance credentials to anything that asks.
+ *
+ * `isPrivateHost` in chat/wire.ts is the house answer for loopback, RFC1918,
+ * CGNAT and unique-local v6, and it is reused rather than re-derived. What it
+ * does not carry, because its own callers did not need it, is LINK-LOCAL —
+ * 169.254/16 and fe80::/10 — which is exactly where the metadata address
+ * lives, plus the unspecified addresses that resolve to the local host.
+ *
+ * A HOST WITH NO DOT was already refused, so `localhost` never reached here;
+ * this is about the numeric forms, which have plenty of dots.
+ */
+export function isInternalHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (isPrivateHost(h)) return true;
+  /* Link-local v4 — the cloud metadata endpoint's own block — and v6. */
+  if (/^169\.254\./.test(h)) return true;
+  if (/^fe[89ab][0-9a-f]:/.test(h)) return true;
+  /* "This host", in both families. */
+  if (/^0\./.test(h) || h === "::" || h === "0.0.0.0") return true;
+  return false;
+}
+
+/**
+ * A typed website, folded to something worth fetching — or null.
+ *
+ * REFUSES AN ADDRESS ON THE INSIDE, and that refusal is here rather than at
+ * each caller because this is the one function every reader of a venture
+ * website goes through. The static reader below merely FETCHES such a URL,
+ * which was already wrong; the rendered reader in integrations/seoops runs a
+ * browser at it with script enabled, which is worse. Both are closed by one
+ * check, and a venture whose site really is on the LAN gets a null and a
+ * sentence rather than a silent read of the owner's own router.
+ */
 export function normaliseWebsite(raw: string): { website: string; host: string } | null {
   const text = raw.trim();
   if (!text) return null;
@@ -955,6 +1000,7 @@ export function normaliseWebsite(raw: string): { website: string; host: string }
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   if (!url.hostname || !url.hostname.includes(".")) return null;
+  if (isInternalHost(url.hostname)) return null;
   return { website: url.toString(), host: hostOf(url) };
 }
 
@@ -1243,6 +1289,23 @@ export async function enrichVenture(id: string): Promise<VentureRow | undefined>
         onto the knowledge row, where the Knowledge tab draws them.
   */
   startKnowledgeRead(id);
+  /*
+    AND THE SAME SITE, READ THROUGH A BROWSER, FOR THE VENTURES THAT ASKED.
+
+    The three constraints above apply unchanged and for the same reasons: it is
+    opt-in per venture (empty by default), it is not awaited, and it cannot
+    throw in here. What it adds is the one thing this file's own header says it
+    cannot do — computed styles out of a live document, which is where a site
+    whose palette arrives from a bundled framework actually keeps its colours.
+
+    A DYNAMIC IMPORT because the module on the other end imports this one for
+    `assignRoles` and `normaliseWebsite`: sharing the tuned colour arithmetic
+    rather than growing a second copy of it is worth an `await import()` here.
+    The static reading below is untouched either way and remains the fallback.
+  */
+  void import("../integrations/seoops/brand.ts")
+    .then((m) => m.startRenderedRead(id))
+    .catch(() => undefined);
   const { brand, host } = await enrich(row.website);
   return writeVentureBrand(id, {
     host: host ?? row.host,

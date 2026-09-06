@@ -21,7 +21,10 @@ import { synthesisApi } from "./api";
  * can delete. Nothing here does the work.
  */
 export function VentureProposals({ ventureId }: { ventureId: string }) {
-  const doc = useApi(() => synthesisApi.all({ ventureId, limit: 12 }), [ventureId]);
+  /* Six rows and no stored packets. Each packet is the whole evidence document
+     the model saw; twelve of them arrived on every Overview render, on a page
+     that draws one line from each. The evidence LINE is on the row either way. */
+  const doc = useApi(() => synthesisApi.all({ ventureId, limit: 6 }), [ventureId]);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);

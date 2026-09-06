@@ -168,18 +168,34 @@ export function compose(row: CaseRecord): Composed | null {
     }
 
     case "payment_failed": {
+      /*
+        THE ONE CASE WHOSE AMOUNT MAY ALWAYS BE QUOTED.
+
+        `quotablePrice` exists because a subscription case's `amount` is
+        `monthly_usd` — a normalisation this dashboard performs that the
+        customer has never seen — and it decides by reading `interval` out of
+        the context. An invoice context has no `interval`, so running it here
+        returned null every time and the one letter whose figure is REAL never
+        printed it. `amount` on a payment case is `amountRemaining` off the
+        invoice: the actual sum Stripe tried to take, in the currency Stripe
+        billed it in. That is what the customer's statement will say.
+      */
+      const invoiceAmount = cash(row.amount, row.currency);
       const attempts = n(ctx, "attemptCount");
       const next = longDate(s(ctx, "nextPaymentAttempt") ?? row.deadline);
       const number = s(ctx, "invoiceNumber");
       used.attemptCount = attempts;
       used.nextPaymentAttempt = s(ctx, "nextPaymentAttempt") ?? row.deadline;
       used.invoiceNumber = number;
+      /* Overrides the subscription rule's null: this figure is an invoice
+         total, not a normalisation, so it is quoted and recorded as quoted. */
+      used.priceQuoted = invoiceAmount;
       return {
         subject: `A payment did not go through${number ? ` (invoice ${number})` : ""}`,
         body: [
           "Hello,",
           "",
-          `A payment on your account did not go through${price ? ` — ${price}` : ""}${
+          `A payment on your account did not go through${invoiceAmount ? ` — ${invoiceAmount}` : ""}${
             attempts !== null ? `, after ${attempts} attempt${attempts === 1 ? "" : "s"}` : ""
           }.`,
           "",

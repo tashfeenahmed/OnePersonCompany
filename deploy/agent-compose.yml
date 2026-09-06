@@ -15,12 +15,32 @@
 #   every interface, and the gateway's bearer is operator access to the whole
 #   of it. The dashboard is on loopback for the same reason.
 #
-#   THE API IS REACHED THROUGH host.docker.internal, WITH THE SCOPED KEY. Paste
-#   the contents of server/data/agent-home/service-key.agent into OPC_KEY below,
-#   or put it in an env file beside this one. It is NOT the owner key at
-#   server/data/service-key — that one opens the credential routes, the backups
-#   and the restore, and handing it to a container would undo the point of the
-#   container.
+#   THE API IS REACHED WITH THE SCOPED KEY. Paste the contents of
+#   server/data/agent-home/service-key.agent into OPC_KEY below, or put it in an
+#   env file beside this one. It is NOT the owner key at server/data/service-key
+#   — that one opens the credential routes, the backups and the restore, and
+#   handing it to a container would undo the point of the container.
+#
+# THE ONE THING YOU HAVE TO DO YOURSELF, STATED BEFORE THE FILE RATHER THAN
+# DISCOVERED AFTERWARDS: **this API is not reachable from a container as
+# shipped.** server/src/index.ts binds 127.0.0.1 deliberately — "a service that
+# can read the bill should not be listening on every interface because a default
+# said so" — so `host.docker.internal:8787` connects to nothing. Pick one:
+#
+#   1. A loopback forwarder on the host, which keeps the bind where it is:
+#        socat TCP-LISTEN:8788,bind=127.0.0.1,fork TCP:127.0.0.1:8787
+#      …no, that does not help either; the container cannot reach 127.0.0.1.
+#      What does work on Linux is `network_mode: host` on this service, which
+#      puts the gateway on the host's loopback — commented out below, because
+#      it also drops the network isolation this file is otherwise buying.
+#   2. Bind the API to the docker bridge address as well and firewall it:
+#      an `OPC_BIND` setting does not exist today, so this means editing
+#      `serve({ ... hostname: "127.0.0.1" })` in server/src/index.ts. Do that
+#      knowingly: it is the one line standing between this dashboard and your
+#      LAN.
+#
+# There is no third option that this file can arrange for you, and pretending
+# otherwise is how somebody ends up with an API on 0.0.0.0.
 #
 # On Linux, `host.docker.internal` needs the extra_hosts line below; on macOS
 # and Windows Docker Desktop provides it and the line is harmless.
@@ -36,12 +56,22 @@ services:
       - "127.0.0.1:18789:18789"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Linux only, and it undoes the network isolation: the gateway lands on the
+    # host's own loopback, where the API already is. Uncomment ONE of this or
+    # the ports/extra_hosts pair above, never both.
+    # network_mode: host
     environment:
       OPC_API: "http://host.docker.internal:8787"
       # Paste the SCOPED key here — server/data/agent-home/service-key.agent.
       OPC_KEY: ""
-    # A container that only talks to an API needs no privilege at all.
-    read_only: true
+    # NOT `read_only: true`, and the absence is deliberate. The gateway writes
+    # its own config to $OPENCLAW_HOME/.openclaw/openclaw.json on first run; a
+    # read-only root filesystem means it cannot start, and the obvious fix —
+    # mounting a config directory from the host — is exactly the mount this
+    # whole file exists to avoid. So the container's own filesystem is
+    # writable and disposable: whatever it remembers goes when it does, and the
+    # things worth keeping are in the dashboard's database on the other side of
+    # the API.
     tmpfs:
       - /tmp
     security_opt:

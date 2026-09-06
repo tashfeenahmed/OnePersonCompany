@@ -40,6 +40,7 @@ import { pinKey, sidebarPins, type SidebarPin } from "../../../shared/sidebarPin
 const NAV = [
   { to: "/action-inbox", label: "Action inbox" },
   { to: "/board", label: "Board" },
+  { to: "/journal", label: "Journal" },
   { to: "/outputs", label: "Sub-agent outputs" },
   /* The rail's order: the business (ventures, its workers, the org), what
      is happening (activity, alerts, people), what runs on its own (workflows),
@@ -61,7 +62,7 @@ const NAV = [
 ];
 
 const NAV_GROUPS = [
-  { name: "Work", paths: ["/action-inbox", "/board", "/outputs", "/ventures", "/people", "/workflows"], expanded: true },
+  { name: "Work", paths: ["/action-inbox", "/board", "/journal", "/outputs", "/ventures", "/people", "/workflows"], expanded: true },
   { name: "Mail", paths: MAIL_PAGES.map(page => page.to), expanded: true },
   { name: "Social media", paths: SOCIAL_PAGES.map(page => page.to), expanded: true },
   { name: "SEO & growth", paths: GROWTH_PAGES.map(page => page.to), expanded: true },

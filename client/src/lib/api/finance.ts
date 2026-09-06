@@ -79,7 +79,9 @@ export type FinanceSummary = {
   annual: Amounts;
   converted: { currency: string; amount: number; approximate: true; rates: Rate[]; note: string } | { error: string } | null;
   fx: { displayCurrency: string | null; rates: Rate[]; errors: string[] };
-  renewals: { within90Days: number; undecided: number };
+  /** `within90Days` counts only renewals still ahead; a date that has
+   *  already passed is counted apart, in `overdue`. */
+  renewals: { within90Days: number; undecided: number; overdue: number };
   defaultAllocation: "none" | "equal";
   tariff: { perKwh: number | null; currency: string };
   note: string;
@@ -237,7 +239,10 @@ export type PowerDoc = {
     ratePerKwh: number | null; currency: string; timezone: string | null; alwaysOn: boolean; updatedAt: string;
   }[];
   lines: PowerLine[];
-  machines: { machineId: string; label: string; hasProfile: boolean }[];
+  /** `gone` marks a profile whose workstation account was deleted: it is
+   *  still priced and still in the ledger, so it is listed to be removed on
+   *  purpose rather than hidden. */
+  machines: { machineId: string; label: string; hasProfile: boolean; gone?: true }[];
   note: string;
 };
 

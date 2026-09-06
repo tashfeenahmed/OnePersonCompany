@@ -200,21 +200,25 @@ export const SKILLS: Skill[] = [
       "TWO BUCKETS CARRY `amount: null` AND IT IS NOT ZERO. Declines have no " +
         "amount because the charge-day table records attempts as counts; " +
         "abandoned checkouts have none because nothing was ever invoiced. While " +
-        "`noAmount` is non-empty every total is a FLOOR.",
+        "`noAmount` is non-empty every total is a FLOOR. `count: null` is the " +
+        "mirror of the same rule — the source that produced the amount cannot " +
+        "count what it is made of — and is never reported as none.",
       "THERE IS NO DISPUTE RATE ON THIS DOCUMENT AND YOU MUST NOT COMPUTE ONE. " +
         "Stripe measures disputes against lifetime successful transactions and " +
         "this box holds no lifetime charge count. Any ratio you could build " +
         "here has the wrong denominator and is exactly the figure a risk " +
         "reviewer would be quoted. `wrongFigures` lists this and three others " +
         "the route refuses; read it before dividing anything.",
-      "THE DISPUTE BUCKET NOW CARRIES TWO MEASUREMENTS AND THEY ARE NOT THE " +
-        "SAME NUMBER. Its `amount` is the LEDGER's — money that moved, dated by " +
-        "the balance posting, with Stripe's dispute fee in it. Its `count` and " +
-        "everything under `disputeCases` are CASES from stripe_disputes, dated " +
-        "by when the bank opened them, with no fee. Say which you used. " +
-        "`disputeCases.openNow` is current state and has no window; " +
-        "`coverage.disputeCases: 0` means none was ingested, which is not " +
-        "the same as an account with none.",
+      "THE DISPUTE BUCKET'S `count` IS NULL ON PURPOSE AND MUST STAY THAT WAY " +
+        "IN ANYTHING YOU SAY. Its `amount` is the LEDGER's — money that moved, " +
+        "dated by the balance posting, with Stripe's dispute fee in it — and " +
+        "the ledger has no notion of a case to count. The CASE figures are " +
+        "under `disputeCases`, from stripe_disputes, dated by when the bank " +
+        "opened them and excluding the fee. Never divide one by the other: " +
+        "amount ÷ any count there is a “mean chargeback” that is wrong in both " +
+        "directions at once. `disputeCases.openNow` is current state and has " +
+        "no window, and `coverage.disputeCases: 0` means none was ingested — " +
+        "which is not the same as an account with none.",
       "`listedIfBilled` IS A HYPOTHETICAL and is in no total: what the " +
         "abandoned checkouts would be worth at list price if every one of them " +
         "had paid. It is not money that was lost.",

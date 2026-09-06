@@ -93,8 +93,20 @@ export type ContradictionDoc = {
   note: string;
 };
 
+export type DeriveResult = {
+  ventureId: string;
+  added: number;
+  refreshed: number;
+  retired: number;
+  /** Derivers that threw. Their facts are deliberately NOT retired — see
+   *  `deriveVenture`: "no Stripe facts" and "the Stripe deriver failed" are
+   *  different answers and only the first one may retire anything. */
+  skipped: string[];
+};
+
 export type RefreshResult = {
   ok: boolean;
+  derived?: DeriveResult;
   repo: string | null;
   kind: "github" | "local" | null;
   via: string | null;
@@ -129,8 +141,15 @@ export const knowledgeApi = {
     call<ContradictionDoc>(`/knowledge/contradictions?venture=${encodeURIComponent(venture)}`),
   add: (venture: string, kind: FactKind, statement: string) =>
     call<{ ok: true; id: string }>("/knowledge/facts", body({ venture, kind, statement })),
+  /* `inPlace` is true when the owner edited HIS OWN sentence into something
+     that says the same thing about the same subject — a number changed, say.
+     Nothing is superseded then, because a sentence cannot disagree with itself;
+     the server sends the note that says so and the tab shows it. */
   correct: (id: string, statement: string) =>
-    call<{ ok: true }>(`/knowledge/facts/${id}/correct`, body({ statement })),
+    call<{ ok: true; inPlace: boolean; note: string; corrected: Fact; replacement: Fact }>(
+      `/knowledge/facts/${id}/correct`,
+      body({ statement }),
+    ),
   retire: (id: string, why?: string) =>
     call<{ ok: true }>(`/knowledge/facts/${id}/retire`, body({ why })),
   confirm: (id: string) => call<{ ok: true }>(`/knowledge/facts/${id}/confirm`, body({})),

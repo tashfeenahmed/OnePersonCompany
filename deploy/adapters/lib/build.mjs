@@ -31,12 +31,12 @@ import { expandEnv } from "./config.mjs";
 
 /* --------------------------------------------------------------- running */
 
-function run(cmd, args, input) {
+function run(cmd, args, input, extraEnv = {}) {
   const r = spawnSync(cmd, args, {
     encoding: "utf8",
     input,
     maxBuffer: 256 * 1024 * 1024,
-    env: process.env,
+    env: { ...process.env, ...extraEnv },
   });
   if (r.error && r.error.code === "ENOENT")
     throw new Error(`\`${cmd}\` is not on this machine's PATH. The adapter runs where the database's own client lives; install it or set driver: command.`);
@@ -46,13 +46,26 @@ function run(cmd, args, input) {
   return r.stdout;
 }
 
-/** `ssh -o BatchMode=yes …` in front of a command, when the mapping asks for
- *  it. BatchMode because an adapter on a cron that waits at a password prompt
- *  is an adapter that has silently stopped. */
-function overSsh(source, cmd, args) {
+/**
+ * `ssh -o BatchMode=yes …` in front of a command, when the mapping asks for it.
+ * BatchMode because an adapter on a cron that waits at a password prompt is an
+ * adapter that has silently stopped.
+ *
+ * THE PASSWORD CROSSES AS AN ENVIRONMENT ASSIGNMENT AND NOT AS AN ARGUMENT.
+ * `ssh host 'PGPASSWORD=x psql …'` puts the assignment in the remote shell's
+ * command, where it is part of `argv` for the SHELL and then inherited by psql
+ * — so `ps` on the remote box shows the psql process without it. That is
+ * strictly better than a password inside the DSN argument, which every `ps`
+ * on both machines can read for the length of the query, and it is still not
+ * as good as a ~/.pgpass on the remote box, which is what the README
+ * recommends and what this cannot do on the owner's behalf.
+ */
+function overSsh(source, cmd, args, extraEnv = {}) {
   const host = expandEnv(source.ssh);
   const key = source.ssh_key ? expandEnv(source.ssh_key) : null;
-  const quoted = [cmd, ...args].map((a) => `'${String(a).replaceAll("'", `'\\''`)}'`).join(" ");
+  const q = (a) => `'${String(a).replaceAll("'", `'\\''`)}'`;
+  const assignments = Object.entries(extraEnv).map(([k, v]) => `${k}=${q(v)}`);
+  const quoted = [...assignments, ...[cmd, ...args].map(q)].join(" ");
   return [
     "ssh",
     [
@@ -80,9 +93,17 @@ export function fetchRows(source, sql, limit = null) {
   let args;
   let post = (out) => JSON.parse(out.trim() || "[]");
 
+  /* THE PASSWORD NEVER BECOMES AN ARGV ELEMENT. psql and mysql both take their
+     connection string as an argument, so a password inside `dsn:` is readable
+     in `ps` by any other user on the box for the length of the query — and over
+     ssh, on the remote box too. `password:` goes through the child's
+     environment instead. See the README beside the mode-600 advice. */
+  let env = {};
+
   if (driver === "postgres" || driver === "postgresql") {
     const dsn = expandEnv(source.dsn ?? "");
     if (!dsn) throw new Error("source.dsn is required for the postgres driver — a libpq connection string, usually ${SOMETHING_DSN} out of the environment.");
+    if (source.password) env = { PGPASSWORD: expandEnv(source.password) };
     cmd = "psql";
     args = ["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", dsn, "-c",
       `SELECT COALESCE(json_agg(opc_t), '[]'::json)::text FROM (${bounded}) AS opc_t`];
@@ -104,6 +125,7 @@ export function fetchRows(source, sql, limit = null) {
           "Either use the `columns:` form, or list the query's aliases under `source.json_columns`.",
       );
     const object = fields.map((f) => `'${f}', opc_t.\`${f}\``).join(", ");
+    if (source.password) env = { MYSQL_PWD: expandEnv(source.password) };
     cmd = "mysql";
     args = ["--batch", "--raw", "--skip-column-names", ...(dsn ? [dsn] : []), "-e",
       `SELECT IFNULL(JSON_ARRAYAGG(JSON_OBJECT(${object})), '[]') FROM (${bounded}) AS opc_t`];
@@ -120,11 +142,17 @@ export function fetchRows(source, sql, limit = null) {
     throw new Error(`source.driver is “${driver || "missing"}”. It is one of: postgres, mysql, sqlite, command.`);
   }
 
-  if (source.ssh) [cmd, args] = overSsh(source, cmd, args);
+  if (source.ssh) {
+    [cmd, args] = overSsh(source, cmd, args, env);
+    /* The assignment travels inside the remote command line, so it must not
+       also be set locally — `ssh` would not forward it and it would only be
+       one more place the value lives. */
+    env = {};
+  }
 
   let out;
   try {
-    out = run(cmd, args);
+    out = run(cmd, args, undefined, env);
   } catch (err) {
     throw new Error(`The query did not run. ${err.message}`);
   }

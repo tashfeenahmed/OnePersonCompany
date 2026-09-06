@@ -19,7 +19,7 @@
  * hands back the same seven days however often it is asked. A half-hour clock
  * would be thirty times the requests for the same answer.
  */
-import { finishRun, getPlugin, startRun } from "../../db.ts";
+import { finishRun, getPlugin, recentRuns, startRun } from "../../db.ts";
 import { collectPlayHealth } from "./play.ts";
 import { collectAppStoreHealth } from "./appstore.ts";
 
@@ -105,6 +105,41 @@ let lastAt = 0;
 let running = false;
 
 /**
+ * When a pass last STARTED, asked of the runs table rather than of a variable.
+ *
+ * THIS IS THE WHOLE OF WHY THE CLOCK SURVIVES A RESTART, and it is not a
+ * refinement: `server/src` is edited under `node --watch`, so the process
+ * restarts on every save. With the interval held in memory alone, `lastAt`
+ * went back to 0 on each boot and the next tick fifteen minutes later ran a
+ * full pass — dozens of GCS objects and up to forty Apple downloads, about
+ * seventy-six seconds — for every editing session that lasted a quarter of an
+ * hour. `ops/backups.ts` asks its table the same question ("has one run
+ * today") for the same reason.
+ */
+export function lastPassAt(): number {
+  const started = recentRuns(PLUGIN, 1)[0]?.started_at;
+  return started ? Date.parse(started) || 0 : 0;
+}
+
+/**
+ * When the next pass is due, read off the LEDGER rather than off the timer.
+ *
+ * Published on /readiness so the six-hour clock is a fact somebody can check
+ * rather than a claim in a comment — and so a restart that quietly re-armed
+ * the interval would be visible as a due time that jumped.
+ */
+export function nextPassDue(): { lastAt: string | null; dueAt: string | null; dueNow: boolean } {
+  const last = lastPassAt();
+  if (!last) return { lastAt: null, dueAt: null, dueNow: true };
+  const due = last + EVERY_HOURS * 3_600_000;
+  return {
+    lastAt: new Date(last).toISOString(),
+    dueAt: new Date(due).toISOString(),
+    dueNow: Date.now() >= due,
+  };
+}
+
+/**
  * Wakes every fifteen minutes and does nothing until six hours have passed.
  *
  * A timer that slept for six hours would skip the night on a laptop that was
@@ -114,6 +149,9 @@ let running = false;
  */
 export function startMobileHealthTimer() {
   if (timer) clearInterval(timer);
+  // Seeded from the ledger, so a restart inherits the real clock rather than
+  // starting one. A box that has never collected reads 0 and is due at once.
+  lastAt = lastPassAt();
   timer = setInterval(() => {
     void (async () => {
       if (running) return;

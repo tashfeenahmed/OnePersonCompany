@@ -25,7 +25,6 @@
  * profit.ts — and the ledger stays a list of things that recur.
  */
 import { db, allDomains, now, ventureRowById } from "../../db.ts";
-import { linksOf } from "../ventures/links.ts";
 import {
   CATEGORIES,
   DECISIONS,
@@ -67,10 +66,15 @@ export type ExpenseRow = {
 
 /** The columns a refresh may rewrite, and therefore the only names that can
  *  usefully appear in `owner_fields`. `label` is here because a server rename
- *  at Hetzner should reach the ledger; `notes` is not, because nothing
- *  measured writes a note. */
+ *  at Hetzner should reach the ledger.
+ *
+ *  `notes` IS HERE AND USED NOT TO BE, which was a real hole: the seeder
+ *  rewrites the note on every row it touches, so an owner who wrote "cancel
+ *  this after the migration" on a server lost it the next time Hetzner moved
+ *  a price. It is a refreshable column like any other now, so writing one
+ *  claims it. */
 export const REFRESHABLE = [
-  "label", "amount", "currency", "period", "renewal_on", "venture_id", "confidence", "ends_on",
+  "label", "amount", "currency", "period", "renewal_on", "venture_id", "confidence", "ends_on", "notes",
 ] as const;
 
 export const ownerFields = (r: ExpenseRow): string[] => {
@@ -128,15 +132,38 @@ export function shapeExpense(r: ExpenseRow) {
   };
 }
 
-/** Is this row owed in `month`? A row that had not started, or had already
- *  ended, is not a cost of that month — which is the whole reason the two
- *  dates are on the table. */
+/**
+ * Is this row owed in `month`?
+ *
+ * THE DATES DECIDE, AND `archived` DOES NOT. This used to short-circuit on
+ * `archived === 1`, which quietly made every P&L a statement about the ledger
+ * as it stands TODAY rather than about the month asked for: a Hetzner box
+ * deleted in September vanished from August's costs too, and four ventures'
+ * August margins improved retrospectively because a server was cancelled a
+ * month later. Archiving stamps `ends_on` (see `archiveMissing` and
+ * `removeExpense`), and `ends_on` is what takes the row out of the months
+ * AFTER it stopped being owed — which is the only thing archiving should mean
+ * to a closed month.
+ *
+ * A row that ends INSIDE the month is still a cost of that month. A monthly
+ * bill cancelled on the 12th was owed for that cycle, and this file has no
+ * per-day proration to offer instead.
+ */
 export function activeIn(r: ExpenseRow, month: string): boolean {
-  if (r.archived === 1) return false;
   if (r.starts_on && r.starts_on.slice(0, 7) > month) return false;
   if (r.ends_on && r.ends_on.slice(0, 7) < month) return false;
   return true;
 }
+
+/**
+ * The rows a MONTH-SCOPED reader must start from: everything, archived
+ * included, because whether a row belongs to that month is `activeIn`'s
+ * decision and not the archive flag's. The current-state views (the ledger
+ * table, the renewal list, the allocation editor) still use `allExpenses()`
+ * and still exclude the archived, because those describe what is owed NOW.
+ */
+export const expensesForMonth = (month: string): ExpenseRow[] =>
+  allExpenses(true).filter((r) => activeIn(r, month));
 
 /** The monthly run rate of a set of rows, per currency. */
 export function monthlyTotals(rows: ExpenseRow[]): CurrencyTotals {
@@ -247,7 +274,15 @@ export function removeExpense(id: string): "deleted" | "archived" | null {
     db.prepare("DELETE FROM finance_allocations WHERE expense_id = ?").run(id);
     return "deleted";
   }
-  db.prepare("UPDATE finance_expenses SET archived = 1, updated_at = ? WHERE id = ?").run(now(), id);
+  /* `ends_on` IS STAMPED HERE AND NOT ONLY IN `archiveMissing`, because
+     `activeIn` decides a row's months from the dates alone. Without it an
+     archived row would go on being a cost of every future month for ever —
+     the exact opposite of the bug that used to be here, and the reason both
+     archive paths must write the same two columns. COALESCE so an end date
+     the owner already typed is not moved to today. */
+  db.prepare(
+    "UPDATE finance_expenses SET archived = 1, ends_on = COALESCE(ends_on, ?), updated_at = ? WHERE id = ?",
+  ).run(now().slice(0, 10), now(), id);
   return "archived";
 }
 
@@ -312,10 +347,17 @@ export function upsertSeed(source: string, s: Seed): "added" | "refreshed" | "un
   }
   /* `notes` carries the sentence explaining where the figure came from, and it
      is rewritten whenever the row is otherwise touched so it cannot describe a
-     measurement that has since changed. */
+     measurement that has since changed — UNLESS the owner has written their
+     own note on this row, in which case it is theirs like any other claimed
+     column. Losing "cancel this after the migration" to a price change was
+     the reason that exception exists. */
   if (!sets.length) return "unchanged";
-  sets.push("notes = ?", "updated_at = ?");
-  args.push(s.notes, ts, existing.id);
+  if (!owned.has("notes")) {
+    sets.push("notes = ?");
+    args.push(s.notes);
+  }
+  sets.push("updated_at = ?");
+  args.push(ts, existing.id);
   db.prepare(`UPDATE finance_expenses SET ${sets.join(", ")} WHERE id = ?`).run(...args);
   return "refreshed";
 }
@@ -324,6 +366,18 @@ export function upsertSeed(source: string, s: Seed): "added" | "refreshed" | "un
  *  evidence that the cost existed, and a closed month's margin was computed
  *  from it. */
 export function archiveMissing(source: string, keep: Set<string>): number {
+  /*
+    AN EMPTY `keep` ARCHIVES NOTHING, and that guard is load-bearing rather
+    than defensive. `domains` and `hetzner_servers` cascade on a
+    `plugin_accounts` delete, so disconnecting Dynadot empties the table this
+    seeder reads — and the next pass, thirty minutes later, would archive all
+    twenty-three domain rows and take the renewal prices the owner typed with
+    them. A source that answers with nothing has told us nothing about what
+    still exists; it is a disconnection, not a mass deletion. The cost of the
+    guard is that genuinely deleting your last server leaves one stale row,
+    which the owner can archive by hand from the ledger.
+  */
+  if (!keep.size) return 0;
   const rows = db
     .prepare("SELECT id, source_ref FROM finance_expenses WHERE source = ? AND archived = 0")
     .all(source) as { id: string; source_ref: string | null }[];
@@ -468,8 +522,3 @@ export function relinkDomains(): number {
   return moved;
 }
 
-/** Every venture this ledger can allocate to, in the owner's own order. Used
- *  by the equal-split basis and by the P&L. */
-export function ventureLinkCount(ventureId: string): number {
-  return linksOf(ventureId).length;
-}

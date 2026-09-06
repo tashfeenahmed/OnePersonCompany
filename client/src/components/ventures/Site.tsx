@@ -3,6 +3,7 @@ import { Camera, ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
 import type { Venture } from "@/lib/api";
+import { BrandMeasuredSection } from "@/areas/seoops/BrandMeasuredSection";
 import {
   ventureApi,
   type CaptureVenture,
@@ -277,6 +278,16 @@ export function Site({ venture }: { venture: Venture }) {
                     : "The brand block — the favicon, the title, the ranked palette — is read from the raw HTML by the venture’s own enrichment and is never touched by a rendered reading."}
                 </p>
               </div>
+
+              {/* A THIRD READING, AND THE ONLY ONE TAKEN IN A LIVE DOCUMENT.
+                  The two above are both parses of text — one of the HTML that
+                  was shipped, one of the DOM after the browser ran. Neither
+                  can ask what a colour RESOLVED to or how much of the page is
+                  painted with it. This one does, through the DevTools
+                  protocol, and it says on every field which of the three (or
+                  the owner) produced it. It is opt-in per venture and never
+                  overwrites either reading above. */}
+              <BrandMeasuredSection venture={venture.slug} />
             </section>
           </>
         )}

@@ -216,14 +216,37 @@ recoveryRoutes.post("/:id/prepare", async (c) => {
       { error: `Case ${id} is ${row.status}. A resolved or dismissed case is not drafted for.` },
       409,
     );
-  if (row.outbox_id)
-    return c.json(
-      {
-        error: `Case ${id} already has outbox draft ${row.outbox_id}. Edit it there, or dismiss it, rather than writing a second message to the same person.`,
-        outboxId: row.outbox_id,
-      },
-      409,
-    );
+  /*
+    THE 409 KEYS ON A DRAFT THAT STILL EXISTS, not on the column alone.
+
+    A case pointing at a row the owner has since deleted from the Outbox was
+    permanently un-preparable: the refusal named an id nothing could be edited
+    at. So the row is looked up, and a link to a draft that is gone — or one
+    the owner dismissed, which is "not this message" rather than "not this
+    case" — is cleared here rather than standing in the way. The outbox's own
+    per-address floor still decides whether a second message to the same
+    person is fair, and it counts dismissed rows.
+  */
+  if (row.outbox_id) {
+    const existing = db
+      .prepare("SELECT id, status FROM mailflow_outbox WHERE id = ?")
+      .get(row.outbox_id) as { id: number; status: string } | undefined;
+    if (existing && existing.status !== "dismissed")
+      return c.json(
+        {
+          error: `Case ${id} already has outbox draft ${row.outbox_id} (${existing.status}). Edit it there, or dismiss it, rather than writing a second message to the same person.`,
+          outboxId: row.outbox_id,
+        },
+        409,
+      );
+    /* The status goes back with the link. A case left `drafted` with nothing
+       to point at is a state no reader can act on, and `reconcileDrafts` on
+       the pass only looks at rows that still have an outbox_id — so it would
+       never be tidied up either. */
+    db.prepare(
+      "UPDATE customer_cases SET outbox_id = NULL, status = 'open', updated_at = ? WHERE id = ?",
+    ).run(now(), id);
+  }
 
   const s = settings();
   if (!s.contactAccess)

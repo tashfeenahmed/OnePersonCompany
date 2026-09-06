@@ -9,9 +9,12 @@
  *   CASE RESOLUTION — "resolves when Stripe shows it fixed" is a claim, and
  *   the only way to know it is true is to run it.
  *
- * Everything under test is a pure function over rows. There is no database
- * here, no clock and no key: `node --experimental-strip-types --test` runs it
- * in a few milliseconds and it fails for exactly one reason.
+ * Every function under test is PURE — a function of the rows and the clock it
+ * is handed, with no query, no network and no key of its own. The module graph
+ * does reach `db.ts` (store.ts is imported for its types and its two settings
+ * parsers), so this file runs under `npm test`, where the suite has a database
+ * open, and is refused standalone by db.ts's own guard. Nothing below reads or
+ * writes a row.
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
@@ -26,6 +29,7 @@ import {
 } from "./events.ts";
 import { inQuiet, parseQuiet } from "./store.ts";
 import { deriveCases, resolutionFor, ENDED_WINDOW_DAYS } from "./cases.ts";
+import { OPEN_DISPUTE_STATUSES } from "../../providers/stripe.ts";
 import { compose, longDate } from "./draft.ts";
 import type { CaseRecord } from "./store.ts";
 import type { StripeSubscriptionRecord } from "../../db.ts";
@@ -387,6 +391,286 @@ test("a dispute case resolves on the outcome, and `warning_closed` is not a win"
 test("a case that is not this pass's business is left alone", () => {
   assert.equal(resolutionFor(caseOf(), { subscription: null, nowMs: T0 }), null);
 });
+
+/* --------------------------------------------- regressions from the review */
+
+/**
+ * P1-1. THE EVENT CURSOR MUST NOT STEP OVER EVENTS THE WALK NEVER READ.
+ *
+ * `/v1/events` answers newest-first and `starting_after` pages BACKWARDS in
+ * time, so a capped walk keeps the newest N and drops the older ones — the
+ * opposite of every other walk in the provider. The pass's rule is therefore
+ * "advance to the newest row seen, unless the walk was truncated, in which
+ * case hold at `since`". That rule is what this asserts, against the same
+ * shape `collect.ts` computes it from.
+ */
+function nextEventCursor(
+  since: number,
+  events: { created: number }[],
+  truncated: Set<string>,
+): number {
+  if (truncated.size) return since;
+  return Math.max(events.length ? events[events.length - 1]!.created : since, 0);
+}
+
+test("a truncated event walk holds the cursor, so the middle of a window is never skipped", () => {
+  const since = 1_000;
+  /* The walk returned the NEWEST rows; everything between `since` and 9_000
+     was dropped by the cap and is still unread at Stripe. */
+  const read = [{ created: 9_000 }, { created: 9_500 }];
+
+  assert.equal(
+    nextEventCursor(since, read, new Set(["events"])),
+    since,
+    "a capped walk must leave the cursor where it was",
+  );
+  assert.equal(
+    nextEventCursor(since, read, new Set()),
+    9_500,
+    "a complete walk advances to the newest row it saw",
+  );
+  assert.equal(
+    nextEventCursor(since, [], new Set()),
+    since,
+    "a complete walk that found nothing leaves the cursor at `since`",
+  );
+});
+
+/**
+ * P1-2. A SHORT INVOICE WALK MUST NOT CLOSE A LIVE PAYMENT CASE.
+ *
+ * `resolutionFor` reads ABSENCE from the open-invoice list as "Stripe no
+ * longer lists this invoice as open". On a truncated walk absence means "not
+ * read", the sentence is false, and `upsertCase`'s status guard then refuses
+ * to re-open the case — one short walk permanently loses it. The pass's guard
+ * is a `continue` before `resolutionFor` is ever called; this asserts both
+ * halves, so the test fails if either the guard or the sentence goes away.
+ */
+function wouldResolve(row: CaseRecord, invoiceWalkShort: boolean, openIds: Set<string>) {
+  if (row.kind === "payment_failed" && invoiceWalkShort) return null;
+  return resolutionFor(row, {
+    invoiceStillOpen: openIds.has(row.subject_ref),
+    invoicePaid: false,
+    nowMs: T0,
+  });
+}
+
+test("a payment case is never closed on a truncated invoice walk", () => {
+  const row = caseOf({ id: "payment_failed:in_1", kind: "payment_failed", subject_ref: "in_1" });
+  const missing = new Set<string>(); // the walk was capped before reaching in_1
+
+  assert.equal(
+    wouldResolve(row, true, missing),
+    null,
+    "absence from a short list is not evidence the invoice was settled",
+  );
+  const closed = wouldResolve(row, false, missing);
+  assert.match(
+    closed!,
+    /no longer lists this invoice as open/,
+    "absence from a COMPLETE list still closes it, with the honest sentence",
+  );
+});
+
+/**
+ * P1-3. TURNING PUSHING ON MUST NOT DRAIN MONTHS OF BACKLOG.
+ *
+ * Two independent fences, and this asserts the arithmetic of the second: an
+ * event is measured from when the ROW became eligible, not from its own
+ * timestamp, so quiet hours cannot starve a message it was holding.
+ */
+const MAX_EVENT_AGE_HOURS = 24;
+function pastAgeFence(at: string, deferredUntil: string | null, nowMs: number): boolean {
+  const eligibleFrom = Date.parse(deferredUntil ?? at);
+  return (
+    Number.isFinite(eligibleFrom) && nowMs - eligibleFrom > MAX_EVENT_AGE_HOURS * 3_600_000
+  );
+}
+
+test("the age fence drops a stale event and spares one quiet hours was holding", () => {
+  const now = Date.parse("2026-09-06T09:00:00.000Z");
+
+  assert.equal(
+    pastAgeFence("2026-07-01T12:00:00.000Z", null, now),
+    true,
+    "an invoice paid in July is not worth a message in September",
+  );
+  assert.equal(
+    pastAgeFence("2026-09-06T08:00:00.000Z", null, now),
+    false,
+    "an hour old is exactly what this is for",
+  );
+  /* The event is eleven hours old, which is older than a quiet window and
+     well inside the fence — but it only became deliverable an hour ago, and
+     measuring it from `at` would throw away the message quiet hours existed
+     to preserve. */
+  assert.equal(
+    pastAgeFence("2026-09-05T22:00:00.000Z", "2026-09-06T08:00:00.000Z", now),
+    false,
+    "a row released by quiet hours is measured from its release",
+  );
+  /* And a deferral that was never picked up for a day and a half is stale on
+     the same terms as anything else. */
+  assert.equal(
+    pastAgeFence("2026-09-01T22:00:00.000Z", "2026-09-04T08:00:00.000Z", now),
+    true,
+  );
+});
+
+test("closed_at is stamped on a transition out of open, never on a settled history", () => {
+  /* The column is documented as the first moment THIS BOX saw a case settle.
+     Derived from "is terminal now" it stamped every dispute in the account's
+     whole history with the day the integration was installed — and re-stamped
+     them on the next rewalk, because a corrected NULL just let COALESCE take
+     the new value. The pass's rule is the transition. */
+  const stampClosedAt = (id: string, status: string, wasOpen: Set<string>) =>
+    wasOpen.has(id) && !OPEN_DISPUTE_STATUSES.has(status);
+
+  const held = new Set(["du_open"]);
+  assert.equal(
+    stampClosedAt("du_open", "lost", held),
+    true,
+    "a case this box held open and Stripe now calls lost closed while we watched",
+  );
+  assert.equal(
+    stampClosedAt("du_open", "under_review", held),
+    false,
+    "still open — nothing to stamp",
+  );
+  assert.equal(
+    stampClosedAt("du_history", "won", held),
+    false,
+    "a case that was already settled the first time we saw it was closed before we looked",
+  );
+  assert.equal(
+    stampClosedAt("du_history", "warning_closed", new Set()),
+    false,
+    "and the seeding walk, which holds nothing open, stamps nothing at all",
+  );
+});
+
+test("a failed account is identified by id, not by matching a warning prefix", () => {
+  /* Two regressions in one line of the original code. `Account 1` is a prefix
+     of `Account 10`, so a warning about one silenced resolution for the
+     other; and once truncation notes became warnings too, a merely SHORT walk
+     read as a FAILED one and stopped every resolution on that account —
+     including churn and dispute cases, which a capped invoice page says
+     nothing about. */
+  const warnings = [
+    "Account 1: Stripe refused that key.",
+    "Account 2: the open-invoice walk hit its row cap and Stripe had more.",
+  ];
+  const byPrefix = (label: string) => warnings.some((w) => w.startsWith(`${label}:`));
+
+  assert.equal(byPrefix("Account 1"), true);
+  assert.equal(byPrefix("Account 10"), false, "…but only because the colon happens to save it");
+  assert.equal(
+    byPrefix("Account 2"),
+    true,
+    "the prefix test cannot tell a short walk from a failed one — which is why the pass keeps ids",
+  );
+
+  /* What the pass does now: only a thrown walk adds an id, and truncation
+     goes in its own set. */
+  const failedAccounts = new Set<number>([1]);
+  const invoiceWalkShort = new Set<number>([2]);
+  assert.equal(failedAccounts.has(2), false, "a short walk is not a failed account");
+  assert.equal(invoiceWalkShort.has(1), false);
+});
+
+test("the collapse window is a property of the feed, not of one pass", () => {
+  /* P2-5. The 09:00 failure has already been delivered and has left the
+     pending set; without seeding it back in, the 09:40 retry opens a window of
+     its own and the owner is told twice about one dying card. */
+  const delivered: Collapsible[] = [
+    { id: "evt_1", type: "invoice.payment_failed", at: "2026-09-06T09:00:00.000Z", customer: "cus_a" },
+  ];
+  const pending: Collapsible[] = [
+    { id: "evt_2", type: "invoice.payment_failed", at: "2026-09-06T09:40:00.000Z", customer: "cus_a" },
+  ];
+
+  assert.equal(
+    collapseFailures(pending, 60).collapsed.size,
+    0,
+    "without the seed the retry looks like a first failure",
+  );
+  const seeded = collapseFailures(pending, 60, delivered);
+  assert.equal(seeded.collapsed.get("evt_2"), "evt_1");
+  /* The seed is never itself suppressed — its message has already gone. */
+  assert.equal(seeded.collapsed.has("evt_1"), false);
+});
+
+test("a deferral in a half-hour zone lands outside quiet hours, not back inside them", () => {
+  /* P2-6. Asia/Kolkata is UTC+5:30, so rounding the probe down to a UTC hour
+     puts it at :30 local — and for quiet 22-8 that is 07:30, still inside. */
+  const at = new Date("2026-09-06T16:45:00.000Z"); // 22:15 in Kolkata
+  const quiet = { from: 22, to: 8 };
+  const until = quietDeferral(at, "Asia/Kolkata", quiet);
+  assert.ok(until);
+  assert.equal(
+    inQuiet(zonedHour(until!, "Asia/Kolkata"), quiet),
+    false,
+    "the moment a deferral names must itself be outside quiet hours",
+  );
+  /* And it is EXACT rather than merely safe. 22:15 on the 6th in Kolkata is
+     16:45 UTC; the next 08:00 local is the morning of the 7th, which is
+     02:30 UTC — the first quarter-hour mark outside the window, with no
+     rounding either way. */
+  assert.equal(until, "2026-09-07T02:30:00.000Z");
+});
+
+test("a payment letter quotes the invoice amount, which is not a normalisation", () => {
+  /* P2-13. The subscription rule withholds a price because `amount` is
+     monthly_usd; a payment case's amount is `amountRemaining` off the invoice
+     — the sum Stripe actually tried to take — so it is the one letter whose
+     figure the customer's statement will match. The branch used to be dead
+     because the invoice context carries no `interval`. */
+  const row = caseOf({
+    id: "payment_failed:in_1",
+    kind: "payment_failed",
+    subject_ref: "in_1",
+    amount: 468,
+    currency: "usd",
+    deadline: "2026-09-09T00:00:00.000Z",
+    context: JSON.stringify({
+      state: "invoice open after a failed attempt",
+      invoiceNumber: "A-17",
+      attemptCount: 3,
+      nextPaymentAttempt: "2026-09-09T00:00:00.000Z",
+    }),
+  });
+  const composed = compose(row);
+  assert.ok(composed);
+  assert.match(composed!.body, /did not go through — USD 468\.00, after 3 attempts/);
+  assert.match(composed!.body, /try the card again on 9 September 2026 \(UTC\)/);
+  assert.equal(composed!.usedFacts.priceQuoted, "USD 468.00");
+  /* Still no promise about what will happen to their money beyond the retry
+     Stripe itself scheduled. */
+  for (const forbidden of [/refund/i, /discount/i, /we have charged/i])
+    assert.ok(!forbidden.test(composed!.body));
+});
+
+test("a payment case with no further attempt says nothing will retry", () => {
+  const row = caseOf({
+    id: "payment_failed:in_2",
+    kind: "payment_failed",
+    subject_ref: "in_2",
+    amount: 19,
+    deadline: null,
+    context: JSON.stringify({ state: "invoice open after a failed attempt", attemptCount: 4 }),
+  });
+  const composed = compose(row);
+  assert.match(composed!.body, /no further automatic attempt scheduled/);
+});
+
+/** The local hour of an ISO instant, for the assertion above. */
+function zonedHour(iso: string, timezone: string): number {
+  return Number(
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone, hour: "2-digit", hour12: false })
+      .formatToParts(new Date(iso))
+      .find((p) => p.type === "hour")?.value ?? "0",
+  ) % 24;
+}
 
 /* ------------------------------------------------------------- the draft */
 

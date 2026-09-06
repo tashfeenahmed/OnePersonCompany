@@ -68,12 +68,31 @@ export type Transport = {
 /** Query parameters whose values are credentials on one of these four APIs. */
 const SECRET_PARAMS = ["access_token", "appsecret_proof", "client_secret", "code"];
 
-/** A URL with its credential-shaped parameters blanked. Not a parser: a URL
- *  this cannot parse is truncated rather than logged whole, because an
- *  unparseable URL is exactly where a token ends up by accident. */
+/**
+ * A URL with its credentials blanked. Not a parser: a URL this cannot parse is
+ * truncated rather than logged whole, because an unparseable URL is exactly
+ * where a token ends up by accident.
+ *
+ * TWO RULES, BECAUSE THE FOUR APIS PUT THEIR SECRETS IN TWO PLACES. Meta names
+ * them (`access_token`, `appsecret_proof`), so those parameters are blanked by
+ * name. LinkedIn's Images API hands back a SIGNED UPLOAD URL whose whole query
+ * string is the credential, under names nobody documents and which change; a
+ * name-based rule blanks nothing there and the signed URL lands verbatim in
+ * `publish_attempts.calls`, which a skill view returns. So a URL that is not on
+ * a host whose parameters this file knows loses its query string entirely — the
+ * path is what makes a recorded call readable, and no query string on any of
+ * these APIs is worth keeping against the chance that it is a signature.
+ */
+const KNOWN_QUERY_HOSTS = ["graph.facebook.com", "open.tiktokapis.com", "api.linkedin.com"];
+
 export function redact(url: string): string {
   try {
     const u = new URL(url);
+    if (!KNOWN_QUERY_HOSTS.includes(u.hostname)) {
+      const had = u.search.length > 0;
+      u.search = "";
+      return u.toString() + (had ? "?REDACTED" : "");
+    }
     for (const p of SECRET_PARAMS) if (u.searchParams.has(p)) u.searchParams.set(p, "REDACTED");
     return u.toString();
   } catch {

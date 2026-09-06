@@ -1,0 +1,40 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { amount, currencies, parseAmount, shownShare } from "./format.ts";
+
+test("an untouched allocation field saves the share it is showing, not zero", () => {
+  const allocations = [
+    { ventureId: "v-a", share: 0.4 },
+    { ventureId: "v-b", share: 0.4 },
+    { ventureId: "v-c", share: 0.2 },
+  ];
+  // The owner edits one field and presses Save. The other two must go back as
+  // what the page was showing, or `PUT /allocations` replaces the set with 50/0/0.
+  assert.equal(shownShare("50", allocations, "v-a"), "50");
+  assert.equal(shownShare(undefined, allocations, "v-b"), "40");
+  assert.equal(shownShare(undefined, allocations, "v-c"), "20");
+  // A venture with no share shows nothing, and an emptied field stays empty.
+  assert.equal(shownShare(undefined, allocations, "v-d"), "");
+  assert.equal(shownShare("", allocations, "v-b"), "");
+});
+
+test("a mistyped price is refused, and only an empty field means the price is unknown", () => {
+  assert.deepEqual(parseAmount("12o"), {
+    error: "“12o” is not an amount. Type a number, or clear the field if you do not know the price.",
+  });
+  assert.ok("error" in parseAmount("-3"));
+  assert.deepEqual(parseAmount(""), { amount: null });
+  assert.deepEqual(parseAmount("  "), { amount: null });
+  assert.deepEqual(parseAmount(" 31.2 "), { amount: 31.2 });
+  assert.deepEqual(parseAmount("0"), { amount: 0 });
+});
+
+test("a null price renders as a dash and currencies are never joined by a plus", () => {
+  assert.equal(amount(null, "usd"), "—");
+  assert.equal(amount(0, "usd"), "0.00 USD");
+  assert.equal(
+    currencies([{ currency: "EUR", amount: 63.47 }, { currency: "USD", amount: 2.6 }]),
+    "63.47 EUR  ·  2.60 USD",
+  );
+  assert.equal(currencies([]), "—");
+});

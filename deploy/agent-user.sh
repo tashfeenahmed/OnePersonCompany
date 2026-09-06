@@ -62,9 +62,32 @@ fi
 
 # --------------------------------------------------------------- the plan ---
 
-GATEWAYS="$DATA_DIR/hermes/home/.local/bin/hermes $DATA_DIR/openclaw/node_modules/.bin/openclaw"
+HERMES_BIN="$DATA_DIR/hermes/home/.local/bin/hermes"
+OPENCLAW_BIN="$DATA_DIR/openclaw/node_modules/.bin/openclaw"
+GATEWAYS="$HERMES_BIN $OPENCLAW_BIN"
+AGENT_GROUP="${OPC_AGENT_GROUP:-opc-agent}"
 SUDOERS_FILE="/etc/sudoers.d/opc-agent"
-SUDOERS_LINE="$OWNER ALL=($AGENT_USER) NOPASSWD: $DATA_DIR/hermes/home/.local/bin/hermes, $DATA_DIR/openclaw/node_modules/.bin/openclaw, /usr/bin/env"
+
+# ---------------------------------------------------------------------------
+# THE SUDO RULE, AND WHY IT IS SHAPED LIKE THIS.
+#
+# It grants exactly two commands with exactly their arguments — `hermes gateway
+# run` and `openclaw gateway run` — as the agent user, with no password. It
+# does NOT grant `/usr/bin/env`. An earlier version did, because the spawn ran
+# `sudo -u agent env KEY=VALUE … <gateway>`, and `env` with unconstrained
+# arguments is "run any program as that user": the two gateway paths beside it
+# were decoration. server/src/agents/instance.ts now invokes the gateway
+# directly, so sudo can be held to it.
+#
+# env_keep is how the gateway still gets its environment. Six names and no
+# others; a variable this app adds later and forgets to list here arrives
+# absent rather than leaking, which is the right way for a filter to fail.
+# !secure_path is needed because sudo otherwise replaces PATH with its own, and
+# the gateway shells out to tools this app resolved on the owner's PATH.
+# ---------------------------------------------------------------------------
+SUDOERS_BODY="Defaults:$OWNER env_keep += \"PATH HOME LANG LC_ALL HERMES_HOME OPENCLAW_HOME TMPDIR\"
+Defaults:$OWNER !secure_path
+$OWNER ALL=($AGENT_USER) NOPASSWD: $HERMES_BIN gateway run, $OPENCLAW_BIN gateway run"
 
 say "  WHAT WOULD HAPPEN"
 say ""
@@ -73,11 +96,21 @@ if [ "$OS" = "Linux" ]; then
 else
   step "sudo dscl . -create /Users/$AGENT_USER  (a hidden service account, uid picked from the free range)"
 fi
-step "sudo chown -R $AGENT_USER $AGENT_HOME        # the agent owns its home and only its home"
+step "create the group $AGENT_GROUP with $OWNER and $AGENT_USER in it"
 step "chmod 0600 $DATA_DIR/vault.key $DATA_DIR/service-key $DATA_DIR/opc.db"
-step "chmod 0600 $AGENT_HOME/service-key.agent  then  sudo chown $AGENT_USER $AGENT_HOME/service-key.agent"
+step ""
+step "  THE SCOPED KEY STAYS YOURS. $AGENT_HOME/service-key.agent"
+step "  is chgrp'd to $AGENT_GROUP at 0640 and is NOT chown'd to the agent."
+step "  The API writes that file and the agent only reads it; an earlier"
+step "  version of this script chown'd it to the agent at 0600, which left"
+step "  the API unable to read OR rewrite its own key."
+step ""
+step "sudo chown $OWNER:$AGENT_GROUP $AGENT_HOME/service-key.agent && chmod 0640 …"
+step "sudo chown $AGENT_USER:$AGENT_GROUP $AGENT_HOME && chmod 0750 $AGENT_HOME"
 step "sudo chmod -R a+rX $DATA_DIR/hermes $DATA_DIR/openclaw   # the installs are readable, not writable"
-step "echo '$SUDOERS_LINE' | sudo tee $SUDOERS_FILE && sudo chmod 0440 $SUDOERS_FILE"
+step "write $SUDOERS_FILE (visudo-checked) with:"
+printf '%s\n' "$SUDOERS_BODY" | sed 's/^/      /'
+step "sudo chmod 0440 $SUDOERS_FILE"
 say ""
 say "  AND THEN, IN THE APP: Settings -> Deployment -> \"Run the agent as this OS"
 say "  user\" -> $AGENT_USER. Restart the agent from Settings -> Models."
@@ -89,6 +122,7 @@ step "  — every skill, every board write, the mailbox, the machines"
 step "  — refused on /api/plugins writes, /api/backups, /api/security writes,"
 step "    /api/agents writes, /api/models writes and /api/workspace writes"
 step "$AGENT_HOME  and the two gateway installations, read-only"
+step "and, through sudo, exactly two commands run AS ITSELF — nothing else"
 say ""
 say "  WHAT IT WILL NOT BE ABLE TO READ"
 say ""
@@ -125,18 +159,40 @@ else
   say "  created $AGENT_USER with uid $UID_NEXT"
 fi
 
+# The shared group. It is what lets the agent READ a file the owner still owns
+# and can still rewrite — the arrangement the scoped key needs and the one an
+# earlier version of this script got backwards.
+if [ "$OS" = "Linux" ]; then
+  getent group "$AGENT_GROUP" >/dev/null 2>&1 || sudo groupadd "$AGENT_GROUP"
+  sudo usermod -a -G "$AGENT_GROUP" "$AGENT_USER"
+  sudo usermod -a -G "$AGENT_GROUP" "$OWNER"
+else
+  if ! dscl . -read "/Groups/$AGENT_GROUP" >/dev/null 2>&1; then
+    GID_NEXT=$(dscl . -list /Groups PrimaryGroupID | awk '$2 > 300 && $2 < 500 { print $2 }' | sort -n | tail -1)
+    GID_NEXT=$((${GID_NEXT:-400} + 1))
+    sudo dscl . -create "/Groups/$AGENT_GROUP"
+    sudo dscl . -create "/Groups/$AGENT_GROUP" PrimaryGroupID "$GID_NEXT"
+  fi
+  sudo dseditgroup -o edit -a "$AGENT_USER" -t user "$AGENT_GROUP" 2>/dev/null || true
+  sudo dseditgroup -o edit -a "$OWNER" -t user "$AGENT_GROUP" 2>/dev/null || true
+fi
+say "  group $AGENT_GROUP holds $OWNER and $AGENT_USER"
+
 mkdir -p "$AGENT_HOME"
-sudo chown -R "$AGENT_USER" "$AGENT_HOME"
-say "  $AGENT_HOME now belongs to $AGENT_USER"
+sudo chown -R "$AGENT_USER:$AGENT_GROUP" "$AGENT_HOME"
+sudo chmod 0750 "$AGENT_HOME"
+say "  $AGENT_HOME now belongs to $AGENT_USER, group $AGENT_GROUP"
 
 for f in "$DATA_DIR/vault.key" "$DATA_DIR/service-key" "$DATA_DIR/opc.db"; do
   [ -e "$f" ] && chmod 0600 "$f" && say "  0600 $f"
 done
 
+# THE SCOPED KEY IS NOT CHOWN'd TO THE AGENT. The API writes it and rewrites it
+# when it is missing; the agent only reads it. Owner-owned, group-readable.
 if [ -e "$AGENT_HOME/service-key.agent" ]; then
-  chmod 0600 "$AGENT_HOME/service-key.agent"
-  sudo chown "$AGENT_USER" "$AGENT_HOME/service-key.agent"
-  say "  the scoped key belongs to $AGENT_USER"
+  sudo chown "$OWNER:$AGENT_GROUP" "$AGENT_HOME/service-key.agent"
+  chmod 0640 "$AGENT_HOME/service-key.agent"
+  say "  the scoped key stays $OWNER's, readable by group $AGENT_GROUP (0640)"
 else
   say "  NOTE: $AGENT_HOME/service-key.agent does not exist yet. Start the app"
   say "  once — it is minted at boot — then re-run this with --apply."
@@ -146,9 +202,20 @@ for g in $GATEWAYS; do
   [ -e "$g" ] && sudo chmod -R a+rX "$(dirname "$(dirname "$g")")" && say "  made $(dirname "$g") readable"
 done
 
-printf '%s\n' "$SUDOERS_LINE" | sudo tee "$SUDOERS_FILE" >/dev/null
-sudo chmod 0440 "$SUDOERS_FILE"
-say "  wrote $SUDOERS_FILE"
+# visudo -c ON A TEMPORARY FILE FIRST. A malformed file in /etc/sudoers.d can
+# break sudo for every command on the machine, and this script is the one thing
+# here with any business writing there.
+TMP_SUDOERS=$(mktemp)
+printf '%s\n' "$SUDOERS_BODY" > "$TMP_SUDOERS"
+if sudo visudo -c -f "$TMP_SUDOERS" >/dev/null 2>&1; then
+  sudo install -m 0440 -o root "$TMP_SUDOERS" "$SUDOERS_FILE"
+  say "  wrote $SUDOERS_FILE (visudo says it parses)"
+else
+  say "  REFUSED to write $SUDOERS_FILE — visudo will not parse it:"
+  sudo visudo -c -f "$TMP_SUDOERS" 2>&1 | sed 's/^/    /'
+  say "  Nothing was installed there. The rest of the setup stands."
+fi
+rm -f "$TMP_SUDOERS"
 
 say ""
 say "  Done. Now set the agent user in Settings -> Deployment and restart the"

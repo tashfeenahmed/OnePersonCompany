@@ -366,6 +366,28 @@ export const PLUGINS: Plugin[] = [
     ],
   },
   {
+    id: "webanalytics",
+    name: "Web analytics",
+    icon: null,
+    mono: "W",
+    tint: "#2F9E7E",
+    cat: "seo",
+    connected: false,
+    secret: null,
+    desc: "The depth under the Umami headline and the Meta ad account: audience segments, event participants, campaign joins and creative fatigue.",
+    help:
+      "NO CREDENTIAL OF ITS OWN — it reads the ones the Umami and Meta plugins already hold, and \u201cconnected\u201d means one of those has an account. It exists as its own plugin because collectors and settings merge by plugin id across the app: an entry under \u201cumami\u201d would silently replace the collector that keeps the headline figures current, and an entry under \u201cmeta\u201d would replace the one that reads the money. A FULL READ OF ONE WEBSITE IS ABOUT FIFTY REQUESTS to your own analytics server \u2014 seven dimensions over three windows, the query strings, the event list and two more per event name \u2014 so websites are read on a ROTATION whose size you set below, each one due again after twelve hours. The ad side is five requests per active ad account every six hours. Nothing here reduces any figure: the bot heuristics produce an ADJUSTED number that is published beside the raw one with the heuristic named and the excluded population stated, and /api/umami still reports exactly what Umami said.",
+    docs: "https://umami.is/docs/api",
+    fields: [],
+    usedBy: [
+      "collect_webanalytics (dimensions, events, event properties, UTM tags, then the Meta ad-level rows)",
+      "GET /api/webanalytics/segments/:websiteId \u2014 raw and adjusted together, with every heuristic's evidence",
+      "GET /api/webanalytics/events \u2014 occurrences beside participants, and numeric property aggregates with units",
+      "GET /api/webanalytics/campaigns \u2014 the campaign-to-venture map and a blended efficiency view",
+      "GET /api/webanalytics/creatives \u2014 ad-level fatigue over two matched weeks, and disapprovals",
+    ],
+  },
+  {
     id: "indexing",
     name: "IndexNow",
     icon: null,
@@ -690,6 +712,36 @@ export const PLUGINS: Plugin[] = [
     ],
   },
   {
+    /* SEO OPS IS SETTINGS AND NOT A CONNECTION, on `briefing`'s and
+       `agentcore`'s argument: no credential, no account and no collector —
+       `secret: null` and `fields: []` say so — and it is in this catalog
+       because this is the page that draws a plugin's settings, and the two
+       OPT-INS have to be somewhere the owner can reach. They are the reason
+       this entry is not optional: both paid passes are off until a venture is
+       named here, and a setting that can only be written with curl is a
+       feature nobody switches on. `connected: false` because the server owns
+       that flag and always reports it connected. */
+    id: "seoops",
+    name: "SEO Ops",
+    icon: null,
+    mono: "S",
+    tint: "#4E8C6A",
+    cat: "seo",
+    connected: false,
+    secret: null,
+    desc: "SEO follow-ups on finished cards, the directory ledger, visual QA and the rendered brand pass.",
+    help: "FOUR THINGS THAT NEVER SUM. When a board card carrying the SEO tag (#seo by default) is marked done and names a URL, that page's Search Console row is captured over the trailing 28 days and read again at 14, 28 and 56 days; the reading is a FILTERED query for that exact URL, so it is exact rather than capped, and a page Search Console has no row for is recorded as UNMEASURED with the reason — never as a zero. The verdict is arithmetic and no model touches it; a model may only choose which of nine closed diagnoses fits, from the same figures, and its answer is thrown away whole unless it is one of the nine and quotes a figure. THE DIRECTORY LEDGER is yours: a probe may only ratchet an untouched row forward to `detected`, which is evidence and not a tick, and only you can mark one confirmed, submitted or skipped. VISUAL QA and the RENDERED BRAND PASS are off until you name a venture below. A vision call posts the site's screenshot to your model provider and is billed; the rendered pass drives a headless browser and reads computed styles, and it never overwrites the brand read from the HTML.",
+    docs: null,
+    fields: [],
+    usedBy: [
+      "GET /api/seoops/followups — every tracked URL, its readings and its diagnoses",
+      "POST /api/seoops/sweep — capture baselines for finished SEO cards that have none",
+      "GET /api/seoops/listings — the venture x directory ledger",
+      "GET /api/seoops/vision — the visual verdicts, and whether the model accepts images",
+      "GET /api/seoops/brand/<venture> — the three brand readings side by side",
+    ],
+  },
+  {
     /* THE AGENT'S RUNTIME IS SETTINGS AND NOT A CONNECTION, on `briefing`'s
        argument: there is no credential, no account and no collector — `secret:
        null` and `fields: []` say so — and it is in this catalog because this is
@@ -713,6 +765,34 @@ export const PLUGINS: Plugin[] = [
       "GET /api/agentcore/runs — which chat turns this server is answering now",
       "GET /api/chat/runs/<id>/events?since=N — reattach to an answer in progress",
       "POST /api/chat/runs/<id>/cancel — stop one turn",
+    ],
+  },
+  {
+    /* AGENT TOOLS & JOBS IS SETTINGS AND NOT A CONNECTION, on `agentcore`'s
+       argument above: no credential, no account and no collector — `secret:
+       null` and `fields: []` say so. It is a SEPARATE entry from Agent runtime
+       because the two answer different questions: that one is how a turn is
+       owned and how big a tool answer may be, this one is whether a direct
+       model gets tools at all, how far it may go, and what happens to the
+       results of the runtime's own scheduler. `connected: false` here because
+       the server owns that flag and always reports it connected. */
+    id: "runtime",
+    name: "Agent tools & jobs",
+    icon: null,
+    mono: "T",
+    tint: "#7A6BB8",
+    cat: "ai",
+    connected: false,
+    secret: null,
+    desc: "Whether a direct model can use your integrations as tools, and what happens to your agent's scheduled results.",
+    help: "A MODEL KEY ALONE USED TO GIVE A CHAT THAT COULD TALK AND NOT LOOK ANYTHING UP. When no agent is live, a message goes straight to the provider chosen under Models; with tool use on, that model is handed your connected integrations as tools and can answer from the collected data instead of from its own head. It only takes effect for a model MEASURED to support function calling — the check is one small call, cached for a week, and the answer is printed under Settings → Models. One turn is bounded four ways: how many tools it may call, how long it may take, how many dollars it may spend, and how big one tool answer may be. Writing is OFF until you turn it on, and an IRREVERSIBLE action is refused either way — this chat has no way to ask you first, so the model is told to hand the job back to you. SCHEDULED JOBS BELONG TO THE RUNTIME THAT FIRES THEM. Hermes and OpenClaw each have a scheduler and each is already running it; this reads their jobs and their results and can relay new ones to your paired Telegram chat, because the bot token deliberately does not live inside an agent. It creates, edits and fires nothing. The first pass after switching the relay on sends nothing — everything already on disk is marked seen — a run the runtime marked silent is not pushed, and a run that FAILED is.",
+    docs: null,
+    fields: [],
+    usedBy: [
+      "GET /api/runtime/tools — what the chosen model connection gives: text, or tools",
+      "POST /api/runtime/tools/probe — measure it now",
+      "GET /api/runtime/jobs — every scheduled job in each managed runtime",
+      "GET /api/runtime/results — the scheduled results seen here, and whether you were told",
     ],
   },
   {
@@ -1437,6 +1517,75 @@ export const PLUGINS: Plugin[] = [
     usedBy: [
       "the `video` run kind — faceless videos and shorts",
       "GET /api/video — every video made here, its script and its footage credits",
+    ],
+  },
+  {
+    id: "knowledge",
+    name: "Product knowledge",
+    icon: null,
+    mono: "K",
+    tint: "#5C7FC4",
+    cat: "signals",
+    connected: false,
+    secret: null,
+    desc: "Which model reads a venture's repository into evidence-tiered facts.",
+    help: "NO CREDENTIAL. The repository is read with the GitHub plugin's own token, and the measured tier is derived from tables five other integrations already fill; there is nothing to paste here. THE ONE SETTING IS WHICH MODEL AN EXTRACTION IS SENT TO, on whichever provider is chosen on the Models page, and it is the one job on this box where the provider's own default is actively wrong. Reading a repository is a strict-JSON task under an output ceiling: the first real extraction here was routed by the gateway to a reasoning model, which spent its whole output allowance writing “We need to produce a JSON with at most 12 facts…” and was cut off before it emitted any, on repository after repository — while the same prompt at the same size answers with clean JSON on an instruction-following model. Blank means the provider's default and the extraction report quotes the first line of whatever came back, so the failure is legible either way. WHICH REPOSITORY BELONGS TO A VENTURE IS NOT SET HERE, deliberately: that is one value PER VENTURE and lives on the venture's own Knowledge tab, defaulting to whatever the GitHub link already says. A single “the repository” box would be a setting that is wrong for eighteen of nineteen businesses.",
+    docs: null,
+    fields: [],
+    usedBy: [
+      "GET /api/knowledge — every venture's product facts, with the tier, the file and the line under each",
+      "POST /api/knowledge/refresh — read a venture's repository now",
+    ],
+  },
+  {
+    /* CONFIG ONLY AND NO CREDENTIAL, on `autopilot`'s argument: every key this
+       area needs is already in the vault under somebody else's plugin — Meta's
+       token for the timelines, SearXNG's for the search, Replicate's for both
+       models — and a second copy would be a second thing to revoke. What is
+       here is the DECISIONS. */
+    id: "socialfeed",
+    name: "Social feed",
+    icon: null,
+    mono: "S",
+    tint: "#4E7CA8",
+    cat: "social",
+    connected: false,
+    secret: null,
+    desc: "Reading posts back, refusing repeats before they are paid for, and the UGC video model.",
+    help: "THREE THINGS IN ONE PAGE BECAUSE THEY ARE ONE LOOP. FIRST, READING POSTS BACK: mapped Facebook Pages and any linked Instagram accounts are read on a six-hour timer, so a draft this box generated can be judged on what it actually did. Only Pages you have mapped to a venture under Publishing are read — a Meta token can administer Pages belonging to businesses this box has never heard of. The metric names are META'S OWN: `post_media_view` counts RENDERS and Instagram's `reach` counts unique accounts, and they are never added or compared. The whole `post_impressions` family was RETIRED by Meta on 15 November 2025 and now answers 400, so it is not asked for. SECOND, THE NOVELTY GATE: before the autopilot generates anything it compares the topic against a durable history of everything already made for that venture in that format, on a normalised fingerprint — stop words dropped, five-character stems, word order ignored — and REFUSES a repeat inside the window. A refusal costs nothing and is the feature working. Source videos are compared by id and FOREVER, because a second short out of the same footage is the same footage. The window at zero switches the topic half off; sources are unaffected. THIRD, THE UGC VIDEO MODEL, WHICH HAS NO DEFAULT ON PURPOSE: image-to-video costs dollars a clip and prices differ by a hundredfold between models, so a default here would be a button that charges you the first time you press it. Blank means a UGC job makes a still image, skips the animation with a sentence, and spends nothing on video.",
+    docs: null,
+    fields: [],
+    usedBy: [
+      "GET /api/socialfeed/posts — the timeline read back, with each post's draft where it had one",
+      "GET /api/socialfeed/sourcing — candidates, the durable history and every gate verdict",
+      "GET /api/socialfeed/ugc — which ventures have reference pictures, and what a job would spend",
+      "POST /api/socialfeed/collect — read the timelines now (all GETs against Meta)",
+    ],
+  },
+  {
+    /*
+      THE VIDEO AREA'S THIRD AND FOURTH FORMATS, AND THE MEASUREMENTS THAT MAKE
+      THE SECOND ONE HONEST. It is a page of its own rather than more keys on
+      the Video page because the server merges settings BY PLUGIN ID: an entry
+      under `video` written by a different area would replace the video area's
+      own, and the encoder paths would quietly stop being settable.
+    */
+    id: "videoplus",
+    name: "Video extras",
+    icon: null,
+    mono: "M",
+    tint: "#5C7AC4",
+    cat: "media",
+    connected: false,
+    secret: null,
+    desc: "Motion-graphics limits, reel voices and page captures, and where whisper is.",
+    help: "NO CREDENTIAL. This is where the walkthrough reel, the motion-graphics format and the smarter shorts pipeline are told their limits. MOTION: how many frames a second the scenes are DRAWN at (the file is always 30 — this is a render cost, and every eight frames is one headless browser launch of about two and a half seconds), and the ceilings on scenes, scene length and total length. A spec over a ceiling is CLAMPED with a sentence, never silently. REEL: one voice name per speaking role — with fewer than two there is only ONE voice, and rather than pretend otherwise the guest's lines are the same voice pitched down a tone by ffmpeg and the run says so. How many of your own pages a reel may capture, and how tall each capture is, which is the whole of what the walkthrough can scroll: the page is drawn ONCE into a window that tall and ffmpeg pans a 1280×800 crop down it, so a page whose layout responds to viewport height is drawn as it would look in a very tall window. SHORTS: a local whisper binary and a ggml model give WORD-level timings on a video with no subtitles — nothing here downloads a model, so with the model path blank there are no word timings however many binaries are installed. The scene threshold is what ffmpeg calls a cut. Tracking lets a clip's crop follow the horizontal centre of MEASURED MOTION instead of sitting in the middle; it is not face detection, there is no vision model on this box, and every clip records which of the two it got.",
+    docs: null,
+    fields: [],
+    usedBy: [
+      "the `video` run kind's `reel` and `motion` formats",
+      "the `shorts` format's word timings, scene cuts and subject tracking",
+      "GET /api/motion — the saved scene specs, their cost and their preview",
     ],
   },
   {

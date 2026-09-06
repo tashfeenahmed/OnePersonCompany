@@ -246,4 +246,50 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       );
     `,
   },
+
+  {
+    name: "253_business_events_by_object",
+    sql: `
+      -- THE INDEX THE RESOLUTION STEP ACTUALLY ASKS FOR.
+      --
+      -- The pass answers "was this invoice ever PAID, as opposed to merely no
+      -- longer open" with
+      --     SELECT 1 FROM business_events WHERE object_id = ? AND type = 'invoice.paid'
+      -- once per open payment case, on every pass. 252 indexed \`at\`,
+      -- (delivered_at, muted, at) and (type, at) — none of which that query
+      -- can use — so it was a full scan per case, forty-five times every ten
+      -- minutes on the account this was built against. The comment above the
+      -- query claimed it was indexed; this is the index that makes the
+      -- comment true.
+      CREATE INDEX IF NOT EXISTS business_events_object
+        ON business_events(object_id, type);
+    `,
+  },
+
+  {
+    name: "254_dispute_closed_at_correction",
+    sql: `
+      -- closed_at MEANT TWO THINGS AND NOW MEANS ONE.
+      --
+      -- It is documented as the first moment THIS BOX saw a dispute settled,
+      -- which is the most precise honest answer available because Stripe
+      -- publishes no closed timestamp. The seeding walk broke that: the first
+      -- pass reads the account's whole history, every settled case in it
+      -- arrives already terminal, and stamping each one with "now" turned the
+      -- column into "the day the integration was installed" for every dispute
+      -- that had closed years earlier.
+      --
+      -- The writer no longer does that — a case that arrives terminal on the
+      -- SEEDING walk gets NULL, because nobody here watched it close — but the
+      -- rows already written cannot be told apart from ones legitimately
+      -- observed closing, since both carry a plausible timestamp. So they are
+      -- all set back to NULL: "closed before anybody here looked" is the true
+      -- statement for almost all of them, and unknown is a better answer than
+      -- a date somebody might quote. Anything that closes from now on gets a
+      -- real one on the pass that sees it.
+      --
+      -- A no-op on a fresh install, where the table is empty.
+      UPDATE stripe_disputes SET closed_at = NULL;
+    `,
+  },
 ];

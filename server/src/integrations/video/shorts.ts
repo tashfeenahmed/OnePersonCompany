@@ -42,7 +42,7 @@ import { resolve } from "node:path";
 import { configValue, type VentureRow } from "../../db.ts";
 import { readBrand } from "../../ventures/enrich.ts";
 import { settings as voiceSettings, transcribe } from "../signals/voice/provider.ts";
-import { ASPECTS, blurFilter, extractAudio, segment, type Fit } from "./assemble.ts";
+import { ASPECTS, blurFilter, extractAudio, segment, wavForSpeech, type Fit, type Track } from "./assemble.ts";
 import { pickCaptioner, type CaptionStyle } from "./captions.ts";
 import { StepError, runDir, type RunSession } from "./faceless.ts";
 import { pickWindows, type Window } from "./script.ts";
@@ -55,9 +55,22 @@ import {
   findFfprobe,
   findYtDlp,
   probeDuration,
+  probeSize,
   run,
   tail,
 } from "./tools.ts";
+import {
+  chooseMoments,
+  findWhisper,
+  linesFromWords,
+  sceneCuts,
+  tidyWindows,
+  whisperWords,
+  type Word,
+} from "../videoplus/moments.ts";
+import { cropXExpr, drift, motionCentroids, sampleGrey, smoothPath, visionModel } from "../videoplus/track.ts";
+import { trackingOn, visionModelPath } from "../videoplus/settings.ts";
+import { saveFraming } from "../videoplus/store.ts";
 
 /** How long a source may be before this refuses to download it, unless the
  *  owner has raised it. Ninety minutes of 1080p is a couple of gigabytes and
@@ -101,7 +114,7 @@ export async function shortsVideo(opts: {
      hint on that setting says why: what YouTube requires of a downloader
      changes every few months, the fix is always a flag, and a dashboard that
      needed a release to carry one would be broken for weeks at a time. */
-  const extra = (configValue(VIDEO_PLUGIN, "ytdlpArgs") ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 20);
+  const extra = readExtraArgs();
 
   /* --------------------------------------------------------- 1. the probe */
   const probeStep = s.startStep("probe", "asking what is at that address");
@@ -127,14 +140,24 @@ export async function shortsVideo(opts: {
     s.endStep(probeStep, "that is a live stream");
     throw new StepError("probe", "That is a live stream. There is no finished video to cut up.");
   }
-  if (sourceSeconds === null) {
-    s.endStep(probeStep, "no duration");
-    throw new StepError(
-      "probe",
-      "That address has no duration, so this cannot check it against the limit or choose windows inside it.",
-    );
-  }
-  if (sourceSeconds > maxMinutes * 60) {
+  /*
+    A DIRECT FILE HAS NO DURATION UNTIL SOMETHING READS IT.
+
+    yt-dlp's generic extractor — the one that handles a plain `.mp4` on
+    somebody's server — answers `duration: null`, because it has not opened the
+    file. The first version of this refused those outright, which made "cut up
+    this video I am hosting" impossible for the commonest possible source.
+
+    So an unknown duration is now allowed THROUGH THE PROBE and caught after
+    the download, where ffprobe can read it off the file for real. What
+    protects the machine in the meantime is a byte ceiling rather than a time
+    one: `--max-filesize` at a generous 30 MB a minute of the configured limit,
+    which yt-dlp enforces before it fetches. The minute limit itself is then
+    applied to the measured duration below, and a file over it is deleted
+    rather than cut up.
+  */
+  const unknownLength = sourceSeconds === null;
+  if (sourceSeconds !== null && sourceSeconds > maxMinutes * 60) {
     s.endStep(probeStep, `${Math.round(sourceSeconds / 60)} minutes — over the limit`);
     throw new StepError(
       "probe",
@@ -143,10 +166,15 @@ export async function shortsVideo(opts: {
         `download is a long download and nobody is watching.`,
     );
   }
-  s.endStep(probeStep, `${title.slice(0, 60)} · ${Math.round(sourceSeconds / 60)} min`);
+  s.endStep(probeStep, `${title.slice(0, 60)} · ${unknownLength ? "length not reported" : `${Math.round(sourceSeconds! / 60)} min`}`);
 
   /* ------------------------------------------------------ 2. the download */
-  const dlStep = s.startStep("download", `fetching ${Math.round(sourceSeconds / 60)} minutes`);
+  const dlStep = s.startStep(
+    "download",
+    unknownLength
+      ? `fetching — nothing said how long it is, so this is capped at ${Math.min(2048, Math.round(maxMinutes * 30))} MB (best-effort: a fragmented download ignores that) and checked against the ${maxMinutes}-minute limit afterwards`
+      : `fetching ${Math.round(sourceSeconds! / 60)} minutes`,
+  );
   const dl = await run(
     ytdlp.path,
     [
@@ -165,6 +193,20 @@ export async function shortsVideo(opts: {
       "--sub-langs", "en.*,en",
       "--convert-subs", "vtt",
       "-o", resolve(dir, "source.%(ext)s"),
+      /* Only when nothing said how long it is — a known-length source has
+         already been checked against the limit above, and a byte cap on top of
+         that would refuse a legitimately large short video.
+
+         THE CEILING IS CAPPED ABSOLUTELY as well as derived, because
+         `maxMinutes * 30 MB` is 2,700 MB at the default ninety minutes, which
+         is not a brake. Two gigabytes is.
+
+         AND IT IS BEST-EFFORT: yt-dlp does not apply `--max-filesize` to a
+         FRAGMENTED download (HLS, DASH), which is a fair share of what the
+         generic extractor returns. What actually bounds those is the thirty
+         minute process timeout and the duration check on the finished file
+         below, which deletes it. The step text says so. */
+      ...(unknownLength ? ["--max-filesize", `${Math.min(2048, Math.round(maxMinutes * 30))}M`] : []),
       ...extra,
       input.url,
     ],
@@ -177,13 +219,36 @@ export async function shortsVideo(opts: {
   }
   const actual = ffprobe.path ? await probeDuration(ffprobe.path, source, signal) : sourceSeconds;
   const duration = actual ?? sourceSeconds;
+  if (duration === null) {
+    s.endStep(dlStep, "length unknown");
+    rmSync(source, { force: true });
+    throw new StepError(
+      "download",
+      "Neither the site nor ffprobe could say how long that video is, so there is no way to choose a window inside it. " +
+        (ffprobe.path ? "The file was downloaded and deleted." : "There is no ffprobe on this box to read it with — set one under the Video settings."),
+    );
+  }
+  if (duration > maxMinutes * 60) {
+    s.endStep(dlStep, `${Math.round(duration / 60)} minutes — over the limit`);
+    rmSync(source, { force: true });
+    throw new StepError(
+      "download",
+      `That video turned out to be ${Math.round(duration / 60)} minutes and the limit is ${maxMinutes}. Nothing said how long it was before the download, so it was checked after. The file has been deleted.`,
+    );
+  }
   s.endStep(dlStep, `${((bytesOf(source) ?? 0) / 1024 / 1024).toFixed(0)} MB · ${Math.round(duration)}s`);
 
   /* ----------------------------------------------------- 3. the transcript */
   const trStep = s.startStep("transcript", "looking for what was said");
   let cues: Cue[] = [];
+  /* WORDS WITH THEIR OWN START AND END. Empty on every path except a local
+     whisper — the site's subtitles are timed per LINE and the transcription
+     endpoint is not timed at all — and what having them buys is on show in two
+     places below: a window can be trimmed to the last word that finished
+     inside it, and windows can be chosen by arithmetic when no model answers. */
+  let words: Word[] = [];
   let plain = "";
-  let source_of: "subtitles" | "speech" | "none" = "none";
+  let source_of: "subtitles" | "words" | "speech" | "none" = "none";
   let transcriptNote: string;
 
   const vtt = findFile(dir, /^source\..*\.vtt$/);
@@ -199,7 +264,46 @@ export async function shortsVideo(opts: {
     transcriptNote = "the site published no subtitles for this video.";
   }
 
+  /*
+    A LOCAL WHISPER, IF THIS BOX HAS ONE, BEFORE THE HTTP ENDPOINT.
+
+    The order is: the site's own subtitles (free and instant), then a local
+    whisper (slow, costs nothing, and returns WORD timings, which is the best
+    timing source there is), then the voice plugin's transcription endpoint
+    (fast, costs money, and returns one string with no times in it), then
+    nothing. Whisper is second rather than first because a subtitle file that
+    already exists is minutes of this laptop that nobody has to spend.
+
+    NO MODEL IS BUNDLED AND NONE IS DOWNLOADED. `findWhisper` wants a binary
+    AND a model file the owner pointed at, and the sentence it returns when
+    either is missing goes straight into the run's report.
+  */
   if (!cues.length) {
+    const whisper = findWhisper();
+    if (whisper.path && whisper.model) {
+      const wav = resolve(dir, "speech.wav");
+      const stripped = await wavForSpeech({
+        ffmpeg: ffmpeg.path,
+        source,
+        out: wav,
+        maxSeconds: Math.min(duration, maxMinutes * 60),
+        signal,
+      });
+      if (stripped.ok) {
+        const got = await whisperWords({ tool: whisper, wav, dir, timeoutMs: 1_800_000, signal });
+        words = got.words;
+        if (words.length) source_of = "words";
+        transcriptNote = `${transcriptNote} ${got.note}`;
+      } else {
+        transcriptNote = `${transcriptNote} The audio could not be stripped out for whisper: ${stripped.error}.`;
+      }
+      rmSync(wav, { force: true });
+    } else {
+      transcriptNote = `${transcriptNote} ${whisper.error}`;
+    }
+  }
+
+  if (!cues.length && !words.length) {
     const voice = voiceSettings();
     if (voice.sttUrl.trim()) {
       const audio = resolve(dir, "audio.mp3");
@@ -234,19 +338,93 @@ export async function shortsVideo(opts: {
   }
   s.endStep(
     trStep,
-    source_of === "subtitles" ? `${cues.length} subtitle lines` : source_of === "speech" ? "transcribed from the audio" : "no transcript",
+    source_of === "subtitles"
+      ? `${cues.length} subtitle lines`
+      : source_of === "words"
+        ? `${words.length} timed words`
+        : source_of === "speech"
+          ? "transcribed from the audio"
+          : "no transcript",
   );
 
+  /* --------------------------------------------------- 3b. the scene cuts */
+  /*
+    WHERE THE CAMERA CUT — AND ONLY WHEN IT IS WORTH THE DECODE.
+
+    A window that starts on a cut starts cleanly, so knowing the cuts improves
+    every path. What it costs is a FULL DECODE of the source: ffmpeg has to
+    look at every frame to score it against the one before, and on a
+    ninety-minute video that is minutes of the single run slot on this laptop.
+
+    So it is skipped when the site's own subtitles already timed the lines.
+    That is the commonest path by a long way, its windows are already anchored
+    to something measured, and snapping them onto a cut as well is a refinement
+    worth a fraction of a second — not minutes of a shared slot. Every other
+    path pays for it, because on those the cuts are either the only structure
+    there is (no transcript at all) or the difference between a clip that opens
+    on a shot and one that opens mid-gesture.
+
+    THE SKIP IS REPORTED IN THE SAME SENTENCE THE MEASUREMENT WOULD HAVE BEEN.
+    "No cuts were found" and "nobody looked" are different facts.
+  */
+  let cuts: number[] = [];
+  let cutNote: string;
+  if (source_of === "subtitles") {
+    cutNote =
+      "Scene detection was SKIPPED. It reads every frame of the source, which is minutes of this machine on a long video, and " +
+      "the site's own subtitles had already timed these lines — so the windows below were snapped to word boundaries rather than to camera cuts.";
+  } else {
+    const cutStepId = s.startStep("scenes", "finding the scene changes");
+    const found = await sceneCuts({ ffmpeg: ffmpeg.path, source, signal });
+    cuts = found.cuts;
+    cutNote = found.note;
+    s.endStep(cutStepId, cuts.length ? `${cuts.length} cuts` : "none found");
+  }
+
   /* ----------------------------------------------------- 4. the highlights */
+  /*
+    SIX WAYS A WINDOW CAN COME TO EXIST, and `chosenBy` on every clip row says
+    which one produced it. They are in descending order of how much they know:
+
+      transcript  the site's own timed subtitles, read by a model
+      words       word timings measured on this box by whisper, read by a model
+      speech      a transcription with NO timestamps, read by a model
+      density     word timings and arithmetic — no model answered, so the
+                  densest runs of speech that start at a cut were taken
+      scenes      no transcript at all, but the camera cuts were found, so the
+                  windows start where the picture changed
+      spacing     nothing was known, so the video was cut at even intervals
+
+    The last three are not highlight selection and nothing downstream is
+    allowed to draw them as though they were. The first three are a model's
+    opinion about words it was shown, which is a different thing again and is
+    also not a prediction of how a clip will perform.
+  */
   const pickStep = s.startStep("highlights", "choosing the moments");
   const want = Math.max(2, Math.min(4, Math.round(input.clips || 3)));
   const maxClip = Math.max(15, Math.min(MAX_CLIP_SECONDS, Math.round(input.seconds || 45)));
   let windows: Window[] = [];
-  let chosenBy: "transcript" | "speech" | "spacing" = "spacing";
+  let chosenBy: "transcript" | "words" | "speech" | "density" | "scenes" | "spacing" = "spacing";
   let pickNote: string;
 
+  /* What the SNAPPING is allowed to move a window onto. Real word starts when
+     whisper timed them; whole subtitle cues otherwise, which are a coarser but
+     still measured boundary. Never both — a mixture would let a window snap to
+     a boundary that was interpolated rather than measured. */
+  const timed: Word[] = words.length
+    ? words
+    : cues.map((c) => ({ start: c.start, end: c.end, text: c.text }));
+
   if (source_of !== "none") {
-    const text = source_of === "subtitles" ? renderCues(cues) : plain.slice(0, 40_000);
+    const text =
+      source_of === "subtitles"
+        ? renderCues(cues)
+        : source_of === "words"
+          ? linesFromWords(words)
+              .map((l) => `[${Math.floor(l.start)}] ${l.text}`)
+              .join("\n")
+              .slice(0, 60_000)
+          : plain.slice(0, 40_000);
     try {
       const picked = await pickWindows({
         transcript: text,
@@ -257,11 +435,56 @@ export async function shortsVideo(opts: {
         signal,
       });
       windows = picked.windows;
-      chosenBy = source_of === "subtitles" ? "transcript" : "speech";
+      chosenBy = source_of === "subtitles" ? "transcript" : source_of === "words" ? "words" : "speech";
     } catch (err) {
       pickNote = err instanceof Error ? err.message : String(err);
       windows = [];
     }
+  }
+
+  /* THE MODEL SAID ROUGHLY WHERE; THE MEASUREMENTS SAY EXACTLY. A window is
+     nudged at most a second and a half onto the nearest camera cut and then
+     onto the nearest word start, and its end is pulled back to the last word
+     that finished inside it. Nothing is MOVED further than that: a window
+     dragged half a minute to reach a cut would be a different clip. */
+  let moved = 0;
+  if (windows.length && (cuts.length || timed.length)) {
+    const tidied = tidyWindows({ windows, cuts, words: timed, duration, maxSeconds: maxClip });
+    windows = tidied.windows;
+    moved = tidied.moved;
+  }
+
+  if (!windows.length && words.length) {
+    /* NO MODEL ANSWERED, BUT THE WORDS ARE TIMED. Density is arithmetic and it
+       is labelled as arithmetic — it finds where somebody talked fastest,
+       which is often the good part and is sometimes the disclaimer. */
+    const found = chooseMoments({ words, cuts, duration, want, maxSeconds: maxClip });
+    if (found.length) {
+      windows = found;
+      chosenBy = "density";
+    }
+  }
+
+  if (!windows.length && cuts.length) {
+    /* NO WORDS AT ALL, BUT THE CAMERA CUTS ARE KNOWN. Starting each window at
+       a real cut is strictly better than starting it at an arbitrary second,
+       and it is still not highlight selection. The cuts are spread across the
+       video so three clips do not all come out of the first minute. */
+    const usable = cuts.filter((c) => c >= 5 && c + maxClip / 2 <= duration);
+    const step = Math.max(1, Math.floor(usable.length / want));
+    for (let i = 0; i < want && i * step < usable.length; i++) {
+      const from = usable[i * step]!;
+      const to = Math.min(duration - 1, from + maxClip);
+      if (to - from < maxClip / 2) continue;
+      if (windows.some((w) => from < w.end && to > w.start)) continue;
+      windows.push({
+        title: `${Math.floor(from / 60)}:${String(Math.floor(from % 60)).padStart(2, "0")} — from a scene change`,
+        reason: "",
+        start: Math.round(from * 100) / 100,
+        end: Math.round(to * 100) / 100,
+      });
+    }
+    if (windows.length) chosenBy = "scenes";
   }
 
   if (!windows.length) {
@@ -281,13 +504,23 @@ export async function shortsVideo(opts: {
         end: Math.round(Math.min(start + maxClip, duration - 1) * 100) / 100,
       });
     }
-    pickNote =
-      source_of === "none"
-        ? "No transcript existed, so no model was asked which moments are good ones. These windows are EVENLY SPACED through the video — they are cuts, not highlights, and nothing here claims otherwise."
-        : `The model was given the transcript and did not return usable windows${pickNote! ? ` (${pickNote!})` : ""}, so the video was cut at even intervals instead. These are cuts, not highlights.`;
-  } else {
-    pickNote = `The model read ${source_of === "subtitles" ? "the site's own timed subtitles" : "a transcript with no timestamps"} and chose these windows. The reason on each one is its own sentence, not a score — nothing here predicts how a clip will perform.`;
   }
+
+  pickNote =
+    chosenBy === "transcript"
+      ? `The model read the site's own timed subtitles and chose these windows.${moved ? ` ${moved} of them were then nudged onto a scene change or a word boundary — at most a second and a half.` : ""} The reason on each one is its own sentence, not a score.`
+      : chosenBy === "words"
+        ? `The model read a transcript this box timed WORD BY WORD with whisper, and chose these windows.${moved ? ` ${moved} of them were then nudged onto a scene change or a word boundary — at most a second and a half — and trimmed to the last word that finished inside them.` : ""} The reason on each one is its own sentence, not a score.`
+        : chosenBy === "speech"
+          ? `The model read a transcript with NO timestamps and chose these windows, which is the weakest of the ways this can go.${moved ? ` ${moved} of them were nudged onto a scene change.` : ""}`
+          : chosenBy === "density"
+            ? `No model answered${pickNote! ? ` (${pickNote!})` : ""}, so these windows were chosen by ARITHMETIC on the word timings: the densest runs of speech that begin at a scene change. That is not a judgement about what is interesting.`
+            : chosenBy === "scenes"
+              ? `There was no transcript${pickNote! ? `, and no model answered (${pickNote!})` : ""}, so nothing here knows what was said. The windows begin at real SCENE CHANGES spread through the video — they are cuts that start cleanly, not highlights.`
+              : source_of === "none"
+                ? "No transcript existed and no scene changes were found, so no model was asked which moments are good ones. These windows are EVENLY SPACED through the video — they are cuts, not highlights, and nothing here claims otherwise."
+                : `The model was given the transcript and did not return usable windows${pickNote! ? ` (${pickNote!})` : ""}, so the video was cut at even intervals instead. These are cuts, not highlights.`;
+
   s.endStep(pickStep, `${windows.length} windows · ${chosenBy}`);
 
   if (!windows.length) throw new StepError("highlights", `That video is ${Math.round(duration)}s — too short to cut ${want} clips of at least ${Math.round(maxClip / 2)}s out of.`);
@@ -301,17 +534,86 @@ export async function shortsVideo(opts: {
     font: v ? (readBrand(v.brand).fonts[0] ?? null) : null,
   };
 
+  /*
+    THE FRAMING, AND WHY IT IS MEASURED PER CLIP RATHER THAN ONCE.
+
+    A tracked crop follows the horizontal centre of MOTION, and where that is
+    depends entirely on which forty seconds of the video you are looking at.
+    So each clip gets its own sample, its own smoothed path and its own row in
+    videoplus_clip_framing — and a clip whose sample found nothing moving falls
+    back to the fixed centre crop with that written down beside it.
+
+    IT ONLY APPLIES TO A CENTRE CROP. A letterbox keeps the whole picture, so
+    there is nothing being thrown away for a tracker to choose between; asking
+    for one and getting a moving crop would be this box overriding what the
+    owner picked.
+  */
+  const vision = visionModel(visionModelPath());
+  const size = ffprobe.path ? await probeSize(ffprobe.path, source, signal) : { width: null, height: null };
+  const tracking = trackingOn() && input.fit === "cover";
+  /* The widest crop with the output's aspect ratio that still fits the source,
+     rounded to an even number because a yuv420p plane cannot be odd. */
+  const cropH = size.height ?? 0;
+  const cropW = cropH ? Math.max(2, Math.round((cropH * frame.width) / frame.height / 2) * 2) : 0;
+  const roomToPan = !!size.width && cropW > 0 && cropW <= size.width - 16;
+
   const cutStep = s.startStep("cut", `cutting ${windows.length} clips to ${frame.width}x${frame.height}`);
-  const made: { window: Window; path: string; seconds: number | null; bytes: number | null; captions: string }[] = [];
+  const made: { window: Window; path: string; seconds: number | null; bytes: number | null; captions: string; framing: string }[] = [];
   for (const [i, w] of windows.entries()) {
     if (signal?.aborted) throw new StepError("cut", "the run was cancelled");
     const seconds = Math.max(5, w.end - w.start);
+
+    let track: Track | null = null;
+    let framingMode = "fixed";
+    let detector = "none";
+    let samples: number | null = null;
+    let travelled: number | null = null;
+    let framingNote: string;
+    if (!tracking) {
+      framingNote =
+        input.fit === "letterbox"
+          ? "Letterbox keeps the whole picture, so there is nothing to follow — the frame shows everything the source showed."
+          : "Subject tracking is switched off under the Video extras settings, so this is a FIXED CENTRE CROP: anything outside the middle of the source is not in this clip.";
+    } else if (!roomToPan) {
+      framingNote = size.width
+        ? `The source is ${size.width}×${size.height}, which is barely wider than the output's own shape, so there is nothing to pan across and the crop is fixed.`
+        : "The source's dimensions could not be read, so the crop is the fixed centre one.";
+    } else {
+      const sample = await sampleGrey({ ffmpeg: ffmpeg.path, source, start: w.start, seconds, signal });
+      if ("error" in sample) {
+        framingNote = `The motion sample failed (${sample.error}), so this is a FIXED CENTRE CROP.`;
+      } else {
+        const centres = motionCentroids(sample.bytes, sample.frames);
+        const measured = centres.filter((c) => c !== null).length;
+        if (!measured) {
+          framingNote = `Nothing moved enough to measure across ${sample.frames} sampled frames, so this is a FIXED CENTRE CROP.`;
+        } else {
+          const path = smoothPath({ centroids: centres, srcWidth: size.width!, cropWidth: cropW });
+          const maxX = Math.max(0, size.width! - cropW);
+          track = { cropW, cropH, x: cropXExpr(path, maxX), y: "0" };
+          framingMode = "tracked";
+          detector = "motion";
+          samples = measured;
+          travelled = drift(path);
+          framingNote =
+            `The crop window followed the horizontal centre of MOTION, measured on ${measured} of ${centres.length} sampled frame pairs and smoothed; ` +
+            `it travelled ${travelled} source pixels. This is not face tracking — ${vision.found ? "a vision model is configured but this pipeline does not use it yet" : "there is no vision model on this box"}.`;
+        }
+      }
+    }
+
     /* THE CAPTIONS ARE THE SOURCE'S OWN WORDS AND ONLY WHERE THEY ARE TIMED.
        A transcript with no timestamps cannot be burned onto a clip at the
        right moment, and burning it at the wrong moment is worse than burning
        nothing — so the speech path produces clips with no captions and the
-       report says which path it took. */
-    const inWindow = source_of === "subtitles" ? groupCues(cues, w.start, w.end) : [];
+       report says which path it took. Word timings measured here are as
+       burnable as the site's own subtitles, and are grouped the same way. */
+    const inWindow =
+      source_of === "subtitles"
+        ? groupCues(cues, w.start, w.end)
+        : source_of === "words"
+          ? groupCues(linesFromWords(words), w.start, w.end)
+          : [];
     const overlays: { png: string; from: number; to: number }[] = [];
     if (captioner.id === "typst")
       for (const [j, g] of inWindow.entries()) {
@@ -336,6 +638,7 @@ export async function shortsVideo(opts: {
          graph nobody can debug, so on a drawtext box a clip carries the
          window's title rather than a rolling transcript. Stated in the note. */
       drawtext: captioner.id === "drawtext" ? captioner.expr(w.title, style) : null,
+      track,
       audio: null,
       silentTrack: false,
       signal,
@@ -345,9 +648,21 @@ export async function shortsVideo(opts: {
       throw new StepError("cut", `clip ${i + 1} (${w.title}) — ${res.error}`);
     }
     const cut = ffprobe.path ? await probeDuration(ffprobe.path, out, signal) : null;
-    const captions =
-      overlays.length ? `${overlays.length} lines from the subtitles, set by typst` : captioner.id === "drawtext" ? "the window's title, drawn by ffmpeg" : "none";
-    made.push({ window: w, path: out, seconds: cut, bytes: bytesOf(out), captions });
+    const captions = overlays.length
+      ? `${overlays.length} lines from ${source_of === "words" ? "the words this box timed" : "the subtitles"}, set by typst`
+      : captioner.id === "drawtext"
+        ? "the window's title, drawn by ffmpeg"
+        : "none";
+    made.push({ window: w, path: out, seconds: cut, bytes: bytesOf(out), captions, framing: framingNote });
+    saveFraming({
+      run_id: opts.runId,
+      idx: i + 1,
+      mode: framingMode,
+      detector,
+      samples,
+      drift_px: travelled,
+      note: framingNote,
+    });
     saveClip({
       runId: opts.runId,
       idx: i + 1,
@@ -377,7 +692,7 @@ export async function shortsVideo(opts: {
     aspect: input.aspect,
     width: frame.width,
     height: frame.height,
-    script: { source: input.url, title, sourceSeconds: duration, chosenBy, windows },
+    script: { source: input.url, title, sourceSeconds: duration, chosenBy, windows, cuts: cuts.length, wordTimed: words.length > 0 },
     assets: [],
     durationS: made.reduce((sum, m) => sum + (m.seconds ?? 0), 0) || null,
     bytes: made.reduce((sum, m) => sum + (m.bytes ?? 0), 0) || null,
@@ -387,7 +702,15 @@ export async function shortsVideo(opts: {
     path: null,
     captions: captioner.id,
     narration: "the source's own audio, kept as it was",
-    transcript: source_of === "subtitles" ? renderCues(cues).slice(0, 200_000) : plain.slice(0, 200_000) || null,
+    transcript:
+      source_of === "subtitles"
+        ? renderCues(cues).slice(0, 200_000)
+        : source_of === "words"
+          ? linesFromWords(words)
+              .map((l) => `[${Math.floor(l.start)}] ${l.text}`)
+              .join("\n")
+              .slice(0, 200_000)
+          : plain.slice(0, 200_000) || null,
     error: null,
   });
 
@@ -400,11 +723,35 @@ export async function shortsVideo(opts: {
       chosenBy,
       transcriptNote,
       pickNote,
+      cutNote,
+      visionNote: vision.note,
       captioner: captioner.note,
       frame,
     }),
   );
 }
+
+/**
+ * The owner's extra yt-dlp arguments, with the four command-running flags
+ * dropped.
+ *
+ * THE SAME DENY-LIST IS IN THE SETTING'S `check` and it is repeated here on
+ * purpose. The check runs when somebody saves; this runs when somebody
+ * downloads, and the two are not the same moment — a value written before the
+ * check existed, or restored from a backup, or edited into the database by
+ * hand, has never been through it. Filtering at the point of USE is the one
+ * that decides what actually reaches `execFile`.
+ *
+ * It is a guard rail rather than a boundary and the setting's hint says so:
+ * anything that can write this row can already write anything else here.
+ */
+export function filterYtdlpArgs(args: string[]): string[] {
+  const banned = ["--exec", "--exec-before-download", "--downloader", "--external-downloader"];
+  return args.filter((a) => !banned.includes(a.split("=")[0]!.toLowerCase()));
+}
+
+const readExtraArgs = () =>
+  filterYtdlpArgs((configValue(VIDEO_PLUGIN, "ytdlpArgs") ?? "").trim().split(/\s+/).filter(Boolean)).slice(0, 20);
 
 const numberSetting = (key: string, fallback: number, lo: number, hi: number) => {
   const raw = (configValue(VIDEO_PLUGIN, key) ?? "").trim();
@@ -516,10 +863,12 @@ function shortsReport(ctx: {
   title: string;
   url: string;
   duration: number;
-  made: { window: Window; seconds: number | null; bytes: number | null; captions: string }[];
+  made: { window: Window; seconds: number | null; bytes: number | null; captions: string; framing: string }[];
   chosenBy: string;
   transcriptNote: string;
   pickNote: string;
+  cutNote: string;
+  visionNote: string;
   captioner: string;
   frame: { width: number; height: number };
 }): string {
@@ -541,13 +890,24 @@ function shortsReport(ctx: {
     lines.push("");
     lines.push(`*Captions: ${m.captions}.*`);
     lines.push("");
+    lines.push(`*Framing: ${m.framing}*`);
+    lines.push("");
   }
   lines.push(`## How the windows were chosen`);
   lines.push("");
   lines.push(`- Transcript: ${ctx.transcriptNote}`);
+  lines.push(`- Scene changes: ${ctx.cutNote}`);
   lines.push(`- Windows: ${ctx.pickNote}`);
   lines.push(`- \`chosenBy\` on every clip row is **${ctx.chosenBy}**.`);
   lines.push(`- Captions: ${ctx.captioner}`);
+  lines.push("");
+  lines.push(`## How the frame was chosen`);
+  lines.push("");
+  lines.push(ctx.visionNote);
+  lines.push("");
+  lines.push(
+    `Each clip's own framing is written above it and on its row. A **fixed** crop is the middle of the source and nothing else — whatever was at the edges is not in the clip. A **tracked** crop moved with measured motion, which is a real improvement on a wide shot and is still not a face detector.`,
+  );
   lines.push("");
   lines.push(
     `## The source\n\nThe downloaded video was deleted as soon as the clips were cut. This dashboard does not keep a copy of somebody else's video, and it makes no claim about whether you are entitled to publish clips of it — that is a licensing question about the source, and it is yours.`,

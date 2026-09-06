@@ -13,14 +13,43 @@
  * separate reasons with the two separate words.
  */
 import { strict as assert } from "node:assert";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { COLLECT_MINUTES, LOAD_RETAIN_DAYS, RETAIN_DAYS } from "../../config.ts";
 import { test } from "node:test";
 import { db } from "../../db.ts";
 import * as leases from "./leases.ts";
 import { intervalMinutes, withCollectCadence, CADENCE_KEY } from "./cadence.ts";
 import { dueNow, schedules } from "./scheduler.ts";
 import { launchdPlist, systemdUnit, plan, envText } from "./service.ts";
-import { isolation } from "./isolation.ts";
+import { healthFor } from "./health.ts";
+import { isolation, levelFor } from "./isolation.ts";
+import { agentRefusal, authenticatedRequest, ownerSurfaceRefusal } from "../security/gate.ts";
+import { agentKey, serviceKey } from "../../auth.ts";
+import { foundState } from "../security/workstation.ts";
 import { setConfig, upsertPlugin } from "../../db.ts";
+
+/**
+ * A REQUEST, WITH ONLY THE FOUR THINGS THE GATE ACTUALLY READS.
+ *
+ * The alternative is standing a Hono app up and routing through it, which
+ * would test Hono. `ownerSurfaceRefusal` reads a method, a path and headers
+ * two ways (`c.req.header` and `c.req.raw.headers`), so that is what this
+ * builds — and the cast is narrow enough that a change to what the gate reads
+ * fails here rather than passing on a stub that no longer resembles a request.
+ */
+function request(method: string, path: string, headers: Record<string, string> = {}) {
+  const h = new Headers(headers);
+  return {
+    req: {
+      method,
+      path,
+      raw: { headers: h },
+      header: (name: string) => h.get(name) ?? undefined,
+    },
+  } as unknown as Parameters<typeof ownerSurfaceRefusal>[0];
+}
 
 /* ------------------------------------------------------------------ leases */
 
@@ -41,10 +70,14 @@ test("a lease is live until it expires, and then is not", () => {
 
 test("release is idempotent and a released lease cannot be heartbeated back", () => {
   const l = leases.acquire({ kind: "studio", resource: "test:2" });
-  const first = leases.release(l.id, "done");
-  assert.equal(first?.releasedAt !== null, true);
+  /* Forced, because a lease taken a millisecond ago is by definition still
+     beating and the unforced path now refuses it — which is its own test
+     below. */
+  const first = leases.release(l.id, "done", { force: true });
+  assert.equal(first.ok, true);
+  assert.equal(first.ok && first.lease.releasedAt !== null, true);
   const second = leases.release(l.id, "done again");
-  assert.equal(second?.releaseReason, "done", "the first reason stands; a second release does not rewrite it");
+  assert.equal(second.ok && second.lease.releaseReason, "done", "the first reason stands; a second release does not rewrite it");
   assert.equal(leases.heartbeat(l.id), null);
 });
 
@@ -54,20 +87,20 @@ test("a heartbeat pushes the deadline forward", () => {
   const after = leases.heartbeat(l.id, 30);
   assert.ok(after, "a live lease can be heartbeated");
   assert.ok(Date.parse(after.expiresAt) > before, "the deadline moved");
-  leases.release(l.id);
+  leases.release(l.id, "test cleanup", { force: true });
 });
 
 test("a TTL is clamped rather than refused", () => {
   const l = leases.acquire({ kind: "video", resource: "test:4", ttlMinutes: 100_000 });
   const minutes = (Date.parse(l.expiresAt) - Date.parse(l.acquiredAt)) / 60_000;
   assert.ok(minutes <= leases.MAX_TTL_MINUTES + 1, `clamped to ${leases.MAX_TTL_MINUTES} minutes, got ${minutes}`);
-  leases.release(l.id);
+  leases.release(l.id, "test cleanup", { force: true });
 });
 
 test("an unknown lease kind becomes `other` rather than being stored raw", () => {
   const l = leases.acquire({ kind: "mining-bitcoin", resource: "test:5" });
   assert.equal(l.kind, "other");
-  leases.release(l.id);
+  leases.release(l.id, "test cleanup", { force: true });
 });
 
 test("sleep is refused while a lease is live, and the refusal names the holder", () => {
@@ -77,7 +110,7 @@ test("sleep is refused while a lease is live, and the refusal names the holder",
   assert.equal(check.reason, "busy");
   assert.match(check.refusal ?? "", /video/);
   assert.match(check.refusal ?? "", /a render/);
-  leases.release(l.id);
+  leases.release(l.id, "test cleanup", { force: true });
   assert.equal(leases.sleepCheck("test:sleep").allowed, true);
 });
 
@@ -106,7 +139,7 @@ test("sweeping stale leases marks them released with a reason, and leaves live o
   assert.ok(released >= 1);
   assert.match(leases.read(dead.id)?.release_reason ?? "", /swept/);
   assert.equal(leases.read(alive.id)?.released_at, null);
-  leases.release(alive.id);
+  leases.release(alive.id, "test cleanup", { force: true });
 });
 
 /* ----------------------------------------------------------------- cadence */
@@ -181,6 +214,41 @@ test("the generated systemd unit restarts on failure and caps the retries", () =
   assert.ok(text.includes(p.outLog));
 });
 
+test("the generated environment carries the existing server/.env across rather than dropping it", () => {
+  /* THE BUG THIS PINS. `config.ts` reads OPC_ENV_FILE *or* server/.env, never
+     both, and the unit sets OPC_ENV_FILE — so a generated file that did not
+     carry the old one across would silently un-set everything in it the
+     moment the service was installed. */
+  const dir = mkdtempSync(join(tmpdir(), "opc-env-"));
+  const existing = join(dir, ".env");
+  writeFileSync(
+    existing,
+    ["# a comment", "", "PORT=9999", "OPC_COLLECT_MINUTES=10", "SOMETHING_ELSE=kept", "MALFORMED"].join("\n"),
+  );
+  const text = envText(existing);
+  const values = Object.fromEntries(
+    text.split("\n").filter((l) => /^[A-Z_]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
+  );
+  assert.equal(values.PORT, "9999", "an existing value wins over the generated default");
+  assert.equal(values.OPC_COLLECT_MINUTES, "10", "including the cadence, which was hard-coded to 30 before");
+  assert.equal(values.SOMETHING_ELSE, "kept", "a name this app does not define is carried across, not dropped");
+  assert.ok("OPC_DATA_DIR" in values, "and the ones it does define are still written");
+  assert.match(text, /THIS FILE REPLACES server\/\.env/, "and the file says so, because somebody will edit the wrong one");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("the generated environment reflects live config when there is no existing file", () => {
+  const values = Object.fromEntries(
+    envText(join(tmpdir(), "opc-no-such-env-file"))
+      .split("\n")
+      .filter((l) => /^[A-Z_]+=/.test(l))
+      .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
+  );
+  assert.equal(values.OPC_COLLECT_MINUTES, String(COLLECT_MINUTES), "from config.ts, not a constant");
+  assert.equal(values.OPC_RETAIN_DAYS, String(RETAIN_DAYS));
+  assert.equal(values.OPC_LOAD_RETAIN_DAYS, String(LOAD_RETAIN_DAYS));
+});
+
 test("the environment file carries paths and numbers and no credential", () => {
   const text = envText();
   assert.match(text, /^PORT=\d+$/m);
@@ -196,9 +264,157 @@ test("the environment file carries paths and numbers and no credential", () => {
 
 test("the isolation report measures rather than claims", () => {
   const iso = isolation();
-  assert.equal(iso.level, "same-user", "with no agent user configured this is the shipped state");
+  /* NOT `iso.level === "same-user"` — the first version of this asserted that
+     and would have failed on the very machine the feature is for, one with
+     OPC_AGENT_USER set. The level is asserted from explicit inputs below. */
   assert.ok(iso.summary.includes(iso.runningAs));
   assert.ok(iso.scopedKey.refusedPrefixes.some((r) => r.prefix === "/api/backups"), "restore is on the refused list");
   assert.ok(iso.scopedKey.refusedPrefixes.some((r) => r.prefix === "/api/plugins"), "credentials are on the refused list");
   assert.notEqual(iso.agentHome, iso.files[0]?.path, "the agent home is not a credential file");
+  assert.equal(iso.containerPath.observed, false, "nothing here can observe a container, and the type says so");
+});
+
+test("the isolation level is a pure function of the two account names", () => {
+  assert.equal(levelFor(null, "example-user").level, "same-user");
+  assert.equal(levelFor("", "example-user").level, "same-user");
+  const separate = levelFor("opc-agent", "example-user");
+  assert.equal(separate.level, "separate-user");
+  const sameName = levelFor("example-user", "example-user");
+  assert.equal(sameName.level, "same-user", "naming your own account is not isolation");
+  assert.match(sameName.problem ?? "", /not isolation/);
+});
+
+/* ------------------------------------------------- the owner-surface lock */
+
+test("the owner surface is refused to a request with NO credential at all", () => {
+  /* THE REGRESSION THIS FILE EXISTS FOR. The first version bound the refusal
+     to a caller that presented the agent key, so an agent with a shell simply
+     omitted the header and walked through on a passwordless box — the shipped
+     state. */
+  const bare = ownerSurfaceRefusal(request("POST", "/api/backups/restore"));
+  assert.ok(bare, "no header at all is refused");
+  assert.match(bare, /owner control/);
+
+  assert.ok(ownerSurfaceRefusal(request("GET", "/api/backups")), "the whole backups family, reads included");
+  assert.ok(ownerSurfaceRefusal(request("POST", "/api/plugins/stripe/accounts")), "credential writes");
+  assert.equal(ownerSurfaceRefusal(request("GET", "/api/plugins")), null, "reads of the plugin list are not on the surface");
+  assert.equal(ownerSurfaceRefusal(request("GET", "/api/board")), null, "an ordinary route is untouched");
+});
+
+test("the owner surface opens for the owner key, a browser-shaped request, and nothing else", () => {
+  const path = "/api/backups/restore";
+  assert.equal(ownerSurfaceRefusal(request("POST", path, { "x-opc-key": serviceKey() })), null, "the owner key");
+  assert.equal(ownerSurfaceRefusal(request("POST", path, { origin: "http://127.0.0.1:8787" })), null, "a same-origin browser");
+  assert.equal(ownerSurfaceRefusal(request("GET", "/api/backups", { "sec-fetch-site": "same-origin" })), null, "a browser GET, which sends no Origin");
+
+  assert.ok(ownerSurfaceRefusal(request("POST", path, { "x-opc-key": agentKey() })), "the agent key");
+  assert.ok(ownerSurfaceRefusal(request("POST", path, { origin: "https://evil.example" })), "somebody else's origin");
+  assert.ok(
+    ownerSurfaceRefusal(request("POST", path, { "x-opc-key": serviceKey(), "x-opc-via": "skills" })),
+    "the skills proxy carries the OWNER key and must still be refused — otherwise a skill entry pointed here would launder an agent's call",
+  );
+});
+
+test("an anonymous request is not authenticated, and either key is", () => {
+  /* THE BUG THIS PINS. `liveSession` answers `undefined` for a request with no
+     cookie, so the first version's `!== null` was true for every anonymous
+     caller — which handed the full health document, absolute paths and disk
+     figures included, to exactly the caller it was written to withhold it
+     from. The type was happy either way; only a curl against a locked box
+     found it. */
+  assert.equal(authenticatedRequest(request("GET", "/api/health")), false);
+  assert.equal(authenticatedRequest(request("GET", "/api/health", { "x-opc-key": serviceKey() })), true);
+  assert.equal(authenticatedRequest(request("GET", "/api/health", { "x-opc-key": agentKey() })), true);
+  assert.equal(authenticatedRequest(request("GET", "/api/health", { cookie: "unrelated=1" })), false);
+});
+
+test("the health probe answers liveness only to an unauthenticated caller on a locked box", async () => {
+  const anonymous = await healthFor([], { locked: true, authenticated: false });
+  assert.equal(anonymous.ok, true, "restore's probe still sees a live server");
+  assert.equal(anonymous.status, null, "`not run for you`, which is not `passed`");
+  assert.equal("checks" in anonymous, false);
+  assert.equal("collectors" in anonymous, false, "the collector names say which businesses this box is connected to");
+
+  const signedIn = await healthFor([], { locked: true, authenticated: true });
+  assert.ok("checks" in signedIn);
+  const noPassword = await healthFor([], { locked: false, authenticated: false });
+  assert.ok("checks" in noPassword, "with no password nothing is withheld — the shipped state");
+});
+
+test("agentRefusal describes the surface without needing a request", () => {
+  assert.ok(agentRefusal("POST", "/api/security/password"));
+  assert.equal(agentRefusal("GET", "/api/security/status"), null, "reads of the lock's own status are open");
+});
+
+/* --------------------------------------------- releasing a beating lease */
+
+test("a lease whose holder is still beating cannot be released without force", () => {
+  const l = leases.acquire({ kind: "video", resource: "test:beating", note: "a render" });
+  const refused = leases.release(l.id, "tidying up");
+  assert.equal(refused.ok, false);
+  assert.equal(refused.ok === false && refused.reason, "alive");
+  assert.match(refused.ok === false ? refused.error : "", /would NOT stop the job/);
+  assert.equal(leases.sleepCheck("test:beating").allowed, false, "and the machine is still protected");
+
+  const forced = leases.release(l.id, "the owner said so", { force: true });
+  assert.equal(forced.ok, true);
+  assert.equal(leases.sleepCheck("test:beating").allowed, true);
+});
+
+test("a lease whose holder has stopped beating is ordinary bookkeeping", () => {
+  const l = leases.acquire({ kind: "video", resource: "test:quiet" });
+  db.prepare("UPDATE job_leases SET heartbeat_at = ? WHERE id = ?").run(
+    new Date(Date.now() - leases.ALIVE_WITHIN_MS - 5_000).toISOString(),
+    l.id,
+  );
+  const res = leases.release(l.id, "the job went away");
+  assert.equal(res.ok, true, "no force needed once the heartbeat has stopped");
+});
+
+test("releaseOwn is the holder's own release and is never refused", () => {
+  const l = leases.acquire({ kind: "video", resource: "test:own" });
+  leases.releaseOwn(l.id, "the video run ended");
+  assert.notEqual(leases.read(l.id)?.released_at, null);
+});
+
+/* -------------------------------------------------- unreachable ≠ asleep */
+
+test("an ssh failure that is not silence is `unknown`, not `asleep`", () => {
+  const base = {
+    id: 1, label: "desk", target: "a@b", mac: null, broadcast: "255.255.255.255",
+    hostname: null, os: null, uptimeS: null, gpus: null, gpuNote: null, ms: 1, checkedAt: new Date().toISOString(),
+  };
+  assert.equal(foundState({ ...base, reachable: true, error: null, unreachable: null }), "awake");
+  assert.equal(foundState({ ...base, reachable: false, error: "timed out", unreachable: "silence" }), "asleep");
+  /* A rotated key, a changed host key, a wrong hostname, an sshd that answered
+     with RST — every one of those is compatible with a machine that is wide
+     awake and busy, and reading them as sleep is how this app came to claim it
+     may power off machines it never woke. */
+  assert.equal(foundState({ ...base, reachable: false, error: "permission denied", unreachable: "refused-or-broken" }), "unknown");
+});
+
+test("a wake whose state was unknown owns nothing, and says why in its own words", () => {
+  leases.recordWake({ resource: "test:unknown", by: "the test", foundState: "unknown" });
+  const check = leases.sleepCheck("test:unknown");
+  assert.equal(check.allowed, false);
+  assert.equal(check.reason, "not-ours");
+  assert.match(check.refusal ?? "", /could not tell what state/);
+  assert.doesNotMatch(check.refusal ?? "", /already awake/, "unknown is not the same sentence as awake");
+});
+
+test("wake ownership expires, and an expired claim says so rather than claiming the machine was awake", () => {
+  const wake = leases.recordWake({ resource: "test:stale-wake", by: "the test", foundState: "asleep" });
+  assert.equal(wake.owns, true);
+  assert.equal(leases.sleepCheck("test:stale-wake").allowed, true);
+
+  db.prepare("UPDATE wake_ownership SET woke_at = ? WHERE resource = ?").run(
+    new Date(Date.now() - (leases.WAKE_OWNERSHIP_HOURS + 1) * 3_600_000).toISOString(),
+    "test:stale-wake",
+  );
+  const aged = leases.wakeOwner("test:stale-wake")!;
+  assert.equal(aged.expired, true);
+  assert.equal(aged.owns, false, "a claim from yesterday is not a claim");
+  const check = leases.sleepCheck("test:stale-wake");
+  assert.equal(check.allowed, false);
+  assert.match(check.refusal ?? "", /more than 12 hours ago/);
 });

@@ -57,11 +57,12 @@ import {
   settings as outboxSettings,
 } from "../mailflow/outbox.ts";
 import { contactFor, productUser } from "./facts.ts";
-import { defaultIdentity, identityRow, transportFor } from "./identities.ts";
+import { defaultIdentity, identityRow, transportFor, verificationWarning } from "./identities.ts";
 import { planAndFacts, PlanRefused } from "./planner.ts";
 import { word } from "./wording.ts";
 import {
   dueStep,
+  purchaseUnreachable,
   verdict,
   STOP_CONDITIONS,
   type Observed,
@@ -243,13 +244,23 @@ function optedOutRow(address: string): boolean {
   return Boolean(db.prepare("SELECT address FROM nurture_optouts WHERE address = ?").get(address));
 }
 
-function dismissedFor(sequenceId: number, address: string): boolean {
+/**
+ * Was a draft this sequence wrote for this person dismissed?
+ *
+ * SCOPED TO DRAFTS WRITTEN SINCE THIS ENROLMENT BEGAN. Stopping an enrolment
+ * dismisses its outstanding drafts (see `stopEnrollment`), so an unscoped check
+ * would read the cascade's own work as fresh evidence: somebody re-enrolled
+ * after a manual stop would be stopped again on the next pass, "because a draft
+ * for this person was dismissed" — the draft the previous stop had dismissed.
+ * A new enrolment starts a new window.
+ */
+function dismissedFor(sequenceId: number, address: string, since: string): boolean {
   return Boolean(
     db
       .prepare(
-        "SELECT id FROM mailflow_outbox WHERE sequence_id = ? AND lower(to_address) = lower(?) AND status = 'dismissed' LIMIT 1",
+        "SELECT id FROM mailflow_outbox WHERE sequence_id = ? AND lower(to_address) = lower(?) AND status = 'dismissed' AND created_at >= ? LIMIT 1",
       )
-      .get(sequenceId, address),
+      .get(sequenceId, address, since),
   );
 }
 
@@ -267,17 +278,29 @@ async function observe(
   gmailAccount: number | null,
 ): Promise<Observed> {
   const optedOut = optedOutRow(enrollment.address);
-  const dismissedDraft = stopOn.includes("dismissed") && dismissedFor(enrollment.sequence_id, enrollment.address);
+  const dismissedDraft =
+    stopOn.includes("dismissed") &&
+    dismissedFor(enrollment.sequence_id, enrollment.address, enrollment.enrolled_at);
+
+  /* THE PURCHASE QUESTION HAS TWO KINDS OF SILENCE and only one of them is safe
+     to carry on from. "this address is not in a connected product's users
+     document" is a fact about the person; "no product here publishes one at
+     all" is the question being unanswerable, and a sequence that stops on a
+     purchase must HOLD rather than write a fourth note to somebody who may
+     already have bought. `purchaseUnreachable` reads `productUser`'s own two
+     reasons apart. */
   let paying: boolean | null = null;
+  let purchaseHold: string | null = null;
   if (stopOn.includes("purchased")) {
-    const { user } = productUser(enrollment.address);
+    const { user, reason } = productUser(enrollment.address);
     paying = user ? (user.paid === null ? null : user.paid === 1) : null;
+    purchaseHold = purchaseUnreachable(stopOn, reason);
   }
   if (optedOut || dismissedDraft || paying === true)
     return { repliedAt: null, paying, dismissedDraft, optedOut, unreachable: null };
 
   if (!stopOn.includes("replied"))
-    return { repliedAt: null, paying, dismissedDraft, optedOut, unreachable: null };
+    return { repliedAt: null, paying, dismissedDraft, optedOut, unreachable: purchaseHold };
   if (gmailAccount === null)
     return {
       repliedAt: null,
@@ -293,7 +316,10 @@ async function observe(
     paying,
     dismissedDraft,
     optedOut,
-    unreachable: reply.checked ? null : reply.why,
+    /* A reply that DID arrive stops the enrolment whatever the purchase check
+       could not say, so an unanswered purchase question only holds when nothing
+       else has already decided. */
+    unreachable: reply.replied ? null : (reply.checked ? purchaseHold : reply.why),
   };
 }
 
@@ -518,6 +544,14 @@ export function lastPasses(limit = 14): PassResult[] {
   }));
 }
 
+/** In-process overlap guard. `nurture_passes`' primary key serialises passes
+ *  ACROSS days and across restarts; this serialises two of them inside one
+ *  process — a `force` from the page landing while a long timer pass is still
+ *  walking fifty enrolments and their Gmail checks. Neither alone is enough:
+ *  the day row cannot stop a forced second pass, and a boolean cannot survive a
+ *  restart. */
+let passRunning = false;
+
 /**
  * ONE PASS. Stop what should stop, enrol what should enrol, draft what is due.
  *
@@ -525,14 +559,36 @@ export function lastPasses(limit = 14): PassResult[] {
  * day that has already had one. It exists because a sequence edited at noon
  * should not have to wait until tomorrow to be tried; it does not widen
  * anything, because a second pass writes drafts exactly like the first.
+ *
+ * THE DAY IS CLAIMED BEFORE ANY WORK, NOT RECORDED AFTER IT. This used to read
+ * the table at the top and insert at the bottom, which is not a claim at all:
+ * the timer fires every ten minutes, a pass over dozens of enrolments and their
+ * model calls can take longer than that, and `POST /api/nurture/run` can arrive
+ * mid-pass — so both runners saw no row for today and drafted concurrently. The
+ * `INSERT OR IGNORE` below is the claim, and "already ran" is now the second
+ * writer losing the race rather than a read that was true a minute ago. The
+ * counters are UPDATEd onto the claimed row at the end.
  */
 export async function runPass(trigger = "timer", force = false): Promise<PassResult> {
   const day = localDay();
   const ranAt = now();
-  const existing = db.prepare("SELECT day FROM nurture_passes WHERE day = ?").get(day) as { day: string } | undefined;
-  if (existing && !force)
+
+  if (passRunning)
+    return {
+      day, ranAt, ok: true, enrolled: 0, drafted: 0, stopped: 0, skipped: [], trigger,
+      error: null, alreadyRan: true,
+    };
+
+  const claimed = db
+    .prepare(
+      `INSERT OR IGNORE INTO nurture_passes (day, ran_at, ok, enrolled, drafted, stopped, skipped, trigger, error)
+       VALUES (?, ?, 1, 0, 0, 0, '[]', ?, NULL)`,
+    )
+    .run(day, ranAt, trigger);
+  if (!claimed.changes && !force)
     return { day, ranAt, ok: true, enrolled: 0, drafted: 0, stopped: 0, skipped: [], trigger, error: null, alreadyRan: true };
 
+  passRunning = true;
   const s = nurtureSettings();
   const gmailAccount = firstGmailAccount();
   const skipped: { address: string; why: string }[] = [];
@@ -609,17 +665,20 @@ export async function runPass(trigger = "timer", force = false): Promise<PassRes
     }
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
+  } finally {
+    passRunning = false;
   }
 
+  /* The claimed row, updated. The counters ACCUMULATE because a forced second
+     pass on the same day did its work on top of the first one's, and a day row
+     that reported only the last pass would understate what actually went into
+     the queue. */
   db.prepare(
-    `INSERT INTO nurture_passes (day, ran_at, ok, enrolled, drafted, stopped, skipped, trigger, error)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(day) DO UPDATE SET ran_at = excluded.ran_at, ok = excluded.ok,
-       enrolled = nurture_passes.enrolled + excluded.enrolled,
-       drafted = nurture_passes.drafted + excluded.drafted,
-       stopped = nurture_passes.stopped + excluded.stopped,
-       skipped = excluded.skipped, trigger = excluded.trigger, error = excluded.error`,
-  ).run(day, ranAt, error ? 0 : 1, enrolled, drafted, stopped, JSON.stringify(skipped.slice(0, 60)), trigger, error);
+    `UPDATE nurture_passes
+        SET ran_at = ?, ok = ?, enrolled = enrolled + ?, drafted = drafted + ?, stopped = stopped + ?,
+            skipped = ?, trigger = ?, error = ?
+      WHERE day = ?`,
+  ).run(ranAt, error ? 0 : 1, enrolled, drafted, stopped, JSON.stringify(skipped.slice(0, 60)), trigger, error, day);
 
   return { day, ranAt, ok: !error, enrolled, drafted, stopped, skipped, trigger, error };
 }
@@ -768,6 +827,11 @@ export function sequenceProblems(seq: SequenceRow): string[] {
     } catch (err) {
       out.push(err instanceof Error ? err.message : String(err));
     }
+    /* A WARNING RATHER THAN A REFUSAL — see verificationWarning. A domain
+       mid-propagation still drafts; the owner is told before he approves
+       instead of after Resend refuses. */
+    const warning = verificationWarning(identity);
+    if (warning) out.push(warning);
   }
   if (seq.enrol_kind !== "manual" && !accounts.list("users").some((a) => a.connected))
     out.push(

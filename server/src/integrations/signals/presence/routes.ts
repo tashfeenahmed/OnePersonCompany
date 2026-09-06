@@ -23,7 +23,7 @@ import { EVERY_HOURS } from "./collect.ts";
 
 export const presenceRoutes = new Hono();
 
-presenceRoutes.get("/", (c) => {
+presenceRoutes.get("/", async (c) => {
   const configured = parseProducts(configValue("presence", "products"));
   const rows = presenceRows();
 
@@ -76,6 +76,12 @@ presenceRoutes.get("/", (c) => {
       everyHours: EVERY_HOURS,
       checkedAt: products.map((p) => p.checkedAt).filter(Boolean).sort().at(-1) ?? null,
     },
+    /* THE OWNER'S OWN RECORD, BESIDE THE PROBES. Nothing here writes it and
+       nothing here can: detection may only ratchet a row forward to
+       `detected`, and every state past that means a person looked. The rows
+       themselves are at /api/seoops/listings, which is also where they are
+       set. */
+    listings: await ledgerSummary(),
     notes: [
       "`blocked` means the source could not be asked — a 403, a rate limit, a " +
         "timeout, or a directory with no keyless lookup. Read it as NOT CHECKED. " +
@@ -88,9 +94,57 @@ presenceRoutes.get("/", (c) => {
       "Nothing here is a submission and nothing here counts as done. A found " +
         "page is evidence for the owner to confirm.",
       `Checked once every ${EVERY_HOURS} hours per product.`,
+      "`listings` is the OWNER'S ledger, not this matrix. A `present` cell here " +
+        "may ratchet a ledger row forward to `detected`; nothing here can ever " +
+        "move one back, and only the owner can mark one confirmed, submitted or " +
+        "skipped. Set them at /api/seoops/listings.",
     ],
   });
 });
+
+
+/**
+ * THE LEDGER'S HEADLINE, THROUGH A GUARDED DYNAMIC IMPORT.
+ *
+ * A STATIC import of `integrations/seoops/listings.ts` made THIS area's boot
+ * depend on THAT area existing: the inner try/catch covered a missing table
+ * and could not cover a missing module, so a checkout without seoops would not
+ * have loaded presence at all. The areas are deliberately independent — this
+ * one measures the probes, that one holds the owner's record of what they did
+ * about them — and the dependency belongs at the call, where its absence is a
+ * `null` on one key rather than a server that will not start.
+ *
+ * Null means "the ledger is not on this box", which is a different answer from
+ * an empty ledger and is drawn as one.
+ */
+async function ledgerSummary(): Promise<unknown> {
+  try {
+    const { shapeLedger } = await import("../../seoops/listings.ts");
+    const ledger = shapeLedger();
+    return {
+      directories: ledger.catalogue.count,
+      detectable: ledger.catalogue.detectable,
+      confirmed: ledger.ventures.reduce((n, v) => n + v.summary.confirmed, 0),
+      submitted: ledger.ventures.reduce((n, v) => n + v.summary.submitted, 0),
+      detected: ledger.ventures.reduce((n, v) => n + v.summary.detected, 0),
+      skipped: ledger.ventures.reduce((n, v) => n + v.summary.skipped, 0),
+      notListed: ledger.ventures.reduce((n, v) => n + v.summary.notListed, 0),
+      /* ONLY THE VENTURES WITH A ROW SOMEBODY HAS TOUCHED. A portfolio of
+         twenty would otherwise put twenty identical all-zero summaries on a
+         document that is about the probes. The full matrix is at
+         /api/seoops/listings. */
+      worked: ledger.ventures
+        .filter((v) => v.summary.of - v.summary.notListed > 0)
+        .map((v) => ({ ventureId: v.ventureId, venture: v.venture, slug: v.slug, summary: v.summary })),
+      venturesWithNothingRecorded: ledger.ventures.filter((v) => v.summary.of === v.summary.notListed).length,
+      where: "/api/seoops/listings",
+    };
+  } catch {
+    /* No seoops area on this box, or its migrations have not run. Answered as
+       null rather than as a failure of this document, which is about probes. */
+    return null;
+  }
+}
 
 /** The host is the entity: a venture with that host is obviously about it. */
 presenceRoutes.get("/entities", (c) => {

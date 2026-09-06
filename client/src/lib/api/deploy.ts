@@ -82,11 +82,18 @@ export type FileFacts = {
   mode: string | null;
   uid: number | null;
   ownedByThisUser: boolean | null;
+  /** Wider than this file is meant to be. The agent key is group-readable by
+   *  design, so for that row this means a WORLD bit; for the rest it means any
+   *  group or world bit. `intended` says which. */
   readableByOthers: boolean | null;
+  intended: string;
 };
 
 export type Isolation = {
-  level: "same-user" | "separate-user" | "container";
+  /** TWO LEVELS, NOT THREE. A container is a real arrangement and the server
+   *  deliberately does not report it as a level, because nothing there can
+   *  observe one — see `containerPath`. */
+  level: "same-user" | "separate-user";
   summary: string;
   runningAs: string;
   configuredAgentUser: string | null;
@@ -95,7 +102,10 @@ export type Isolation = {
   files: FileFacts[];
   secretsLocked: boolean;
   scopedKey: { file: string; refusedPrefixes: { prefix: string; methods: string; why: string }[] };
-  containerRuntime: string | null;
+  /** The agent's key file could not be read or written. The agent is locked
+   *  out at the gate until somebody fixes it, and the page must say so. */
+  agentKeyProblem: string | null;
+  containerPath: { runtime: string | null; observed: false; note: string };
   nextStep: string;
   note: string;
 };
@@ -113,15 +123,26 @@ export type Lease = {
   releaseReason: string | null;
   live: boolean;
   expiresInS: number;
+  /** Something is demonstrably still working under it — a heartbeat inside the
+   *  server's own window. The SERVER decides this, so the button and the route
+   *  cannot disagree about which leases need a deliberate override. */
+  beating: boolean;
+  heartbeatAgeS: number;
 };
 
 export type Wake = {
   resource: string;
   wokeAt: string;
   wokeBy: string;
+  /** `unknown` is an ssh failure that could be sleep OR a rotated key OR a
+   *  firewall. It owns nothing, and it is not the same fact as `awake`. */
   foundState: "asleep" | "awake" | "unknown";
   owns: boolean;
   releasedAt: string | null;
+  /** The claim aged out. Reported apart from `owns` because "we woke it, and
+   *  that was yesterday" is a different sentence from "it was already awake". */
+  expired: boolean;
+  expiresAt: string;
 };
 
 export type DeployStatus = {
@@ -151,10 +172,20 @@ export const deployApi = {
   writePlan: () => call<{ ok: true; unit: string; env: string; note: string }>("/deploy/plan/write", { method: "POST" }),
   install: () => call<ActionResult>("/deploy/service/install", { method: "POST" }),
   uninstall: () => call<ActionResult>("/deploy/service/uninstall", { method: "POST" }),
-  releaseLease: (id: string) =>
+  /**
+   * `force` IS A REAL BOOLEAN AND IT IS THE OWNER'S.
+   *
+   * The server answers 409 for a lease whose holder beat within the last two
+   * minutes, because releasing it would not stop the job — it would only
+   * remove the reason nothing will sleep the machine under it. The page catches
+   * that 409, says which job, and offers this again with `force`. The agent has
+   * no such parameter: the route refuses it for anything the skills proxy
+   * re-issued or that carries the agent key.
+   */
+  releaseLease: (id: string, force = false) =>
     call<{ ok: true; lease: Lease }>(`/deploy/leases/${encodeURIComponent(id)}/release`, {
       method: "POST",
-      body: JSON.stringify({ reason: "released from Settings → Deployment" }),
+      body: JSON.stringify({ reason: "released from Settings → Deployment", ...(force ? { force: true } : {}) }),
     }),
   releaseStale: () => call<{ ok: true; released: number; note: string }>("/deploy/leases/release-stale", { method: "POST" }),
   releaseWake: (resource: string) =>

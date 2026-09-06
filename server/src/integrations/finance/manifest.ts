@@ -171,6 +171,13 @@ export const manifest: IntegrationManifest = {
      first time the page is opened rather than up to half an hour later. */
   onStart() {
     upsertPlugin(PLUGIN, true, null);
-    void collectFinance();
+    /* `.catch` AND NOT `void`. index.ts wraps `onStart()` in a try/catch,
+       which only ever sees a synchronous throw; a rejection from the seed —
+       and `startRun`/`finishRun`/`syncPlugin` sit outside the collector's own
+       try — would be an unhandled rejection at boot. The ledger being stale
+       for half an hour is not worth taking the process down for. */
+    collectFinance().catch((err: unknown) => {
+      console.error("[finance] the boot seed failed; the ledger is whatever the last collection left it:", err);
+    });
   },
 };

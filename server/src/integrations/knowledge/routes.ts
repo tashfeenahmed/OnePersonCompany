@@ -22,7 +22,7 @@
 import { Hono } from "hono";
 import { ventureRow } from "../../db.ts";
 import { deriveVenture } from "./derive.ts";
-import { refreshRepo, resolveRepo } from "./extract.ts";
+import { RefreshBusyError, checkLocalRepo, refreshRepo, resolveRepo } from "./extract.ts";
 import {
   CONFIDENCE,
   KINDS,
@@ -72,11 +72,19 @@ function resolve(key: string | undefined) {
 /**
  * The facts for one venture, or for the portfolio when none is named.
  *
- * MEASURED FACTS ARE DERIVED ON THE WAY IN when a venture is named. It is a
- * few indexed SELECTs and it means the page and the agent never read a figure
- * that a collector superseded twenty minutes ago — the alternative is a store
- * whose numbers are as old as the last timer, which is exactly the staleness
- * this feature is supposed to remove.
+ * IT DOES NOT DERIVE, AND THAT IS A CORRECTION. This route used to run the
+ * measured pass on the way in, so that a reader never saw a figure a collector
+ * had superseded. The cost of that was a GET that WROTE: every page load, every
+ * `doc.reload()` after a button, and every `opc knowledge` read rewrote rows and
+ * — before the per-deriver guard went in — could retire them. A read that
+ * changes the thing being read is not a read, and an agent cannot reason about
+ * a document whose contents depend on how often it was fetched.
+ *
+ * Freshness is kept by the three writers that are allowed to write: the
+ * half-hour timer in `derive.ts`, `POST /api/knowledge/derive`, and the
+ * repository refresh, which derives as part of the pass. A measured fact
+ * carries `observed_at` and `stale`, so a reader can always see how old the
+ * figure it is being given actually is.
  */
 knowledgeRoutes.get("/", (c) => {
   const key = c.req.query("venture");
@@ -88,7 +96,6 @@ knowledgeRoutes.get("/", (c) => {
     const r = resolve(key);
     if ("error" in r) return c.json({ error: r.error }, 404);
     ventureId = r.venture.id;
-    deriveVenture(ventureId);
     repo = repoRow(ventureId);
     via = resolveRepo(ventureId)?.via ?? null;
   }
@@ -288,9 +295,14 @@ knowledgeRoutes.post("/facts/:id/correct", async (c) => {
     ok: true,
     corrected: out.corrected,
     replacement: out.replacement,
-    note:
-      "The old sentence is kept and marked corrected, pointing at its " +
-      "replacement. Both are in the history; only the owner's is active.",
+    inPlace: out.inPlace,
+    note: out.inPlace
+      ? "That was the owner's own sentence and the correction says the same " +
+        "thing about the same subject, so it was edited in place rather than " +
+        "superseded. There is nothing to disagree with when a sentence replaces " +
+        "itself."
+      : "The old sentence is kept and marked corrected, pointing at its " +
+        "replacement. Both are in the history; only the owner's is active.",
   });
 });
 
@@ -303,7 +315,7 @@ knowledgeRoutes.post("/facts/:id/retire", async (c) => {
 
 knowledgeRoutes.post("/facts/:id/confirm", (c) => {
   const out = confirm(c.req.param("id"));
-  if (!out.ok) return c.json({ error: out.error }, 400);
+  if (!out.ok) return c.json({ error: out.error }, out.status);
   return c.json({ ok: true, fact: out.fact });
 });
 
@@ -335,6 +347,15 @@ knowledgeRoutes.put("/repo", async (c) => {
       },
       400,
     );
+  /* A LOCAL PATH IS CHECKED HERE AS WELL AS AT READ TIME, because a typo should
+     be refused at the moment it is made rather than becoming a confusing
+     failure the first time somebody presses Refresh. `checkLocalRepo` is the
+     same test the extractor applies — that the directory exists and is a git
+     checkout — see extract.ts for why that is the bound on a local path. */
+  if (kind === "local") {
+    const bad = await checkLocalRepo(repo);
+    if (bad) return c.json({ error: bad }, 400);
+  }
   return c.json({ ok: true, repo: setRepo(r.venture.id, repo, kind) });
 });
 
@@ -343,10 +364,24 @@ knowledgeRoutes.post("/refresh", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { venture?: unknown; force?: unknown };
   const r = resolve(typeof body.venture === "string" ? body.venture : undefined);
   if ("error" in r) return c.json({ error: r.error }, 404);
-  const out = await refreshRepo(r.venture.id, { force: body.force === true });
+  let out;
+  try {
+    out = await refreshRepo(r.venture.id, { force: body.force === true });
+  } catch (err) {
+    /* The per-venture lock. A second press while the first read is still
+       running is a 409 with the sentence rather than a second set of GitHub
+       calls racing the first over the same rows. */
+    if (err instanceof RefreshBusyError) return c.json({ error: err.message }, 409);
+    throw err;
+  }
   if (!out.ok && out.error) return c.json({ ...out, error: out.error }, 400);
+  /* The measured tier is re-derived as part of a refresh, which is where the
+     freshness the GET above gave up now comes from. It is deterministic SQL and
+     cannot fail the request. */
+  const derived = deriveVenture(r.venture.id);
   return c.json({
     ...out,
+    derived,
     facts: facts({ ventureId: r.venture.id, tier: "repo" }),
     note:
       "Every fact filed here cited a file and a line that was checked to exist " +

@@ -176,11 +176,18 @@ export function inBlackout(
        The second half is checked against the previous day's membership. */
     const wraps = w.to < w.from;
     const dayMatches = (d: number) => !w.days.length || w.days.includes(d);
+    /* INCLUSIVE OF THE CLOSING MINUTE. The documented example is
+       `Sat,Sun 00:00-23:59`, which anybody typing it means as "all of Saturday
+       and Sunday"; an exclusive end left 23:59 open, and a post going out in
+       the one minute a blackout was meant to cover is exactly the failure the
+       setting exists to prevent. A window is therefore [from, to]. The cost is
+       that two adjacent windows overlap on one minute, which changes nothing:
+       being inside either is being inside a blackout. */
     if (!wraps) {
-      if (dayMatches(at.weekday) && at.minutes >= w.from && at.minutes < w.to) return w;
+      if (dayMatches(at.weekday) && at.minutes >= w.from && at.minutes <= w.to) return w;
     } else {
       if (dayMatches(at.weekday) && at.minutes >= w.from) return w;
-      if (dayMatches((at.weekday + 6) % 7) && at.minutes < w.to) return w;
+      if (dayMatches((at.weekday + 6) % 7) && at.minutes <= w.to) return w;
     }
   }
   return null;

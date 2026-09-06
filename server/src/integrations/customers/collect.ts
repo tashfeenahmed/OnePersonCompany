@@ -31,7 +31,7 @@
  * itself returned rather than as an empty page.
  */
 import * as accounts from "../../accounts.ts";
-import { db, finishRun, getPlugin, startRun, stripeSubscriptions, upsertPlugin } from "../../db.ts";
+import { db, finishRun, getPlugin, now, startRun, stripeSubscriptions, upsertPlugin } from "../../db.ts";
 import {
   OPEN_DISPUTE_STATUSES,
   describeStripeError,
@@ -45,11 +45,13 @@ import {
 } from "../../providers/stripe.ts";
 import { deriveCases, resolutionFor } from "./cases.ts";
 import {
+  COLLAPSE_MINUTES,
   collapseFailures,
   coveredBy,
   parseEvent,
   quietDeferral,
   recentRevenueTrips,
+  type Collapsible,
 } from "./events.ts";
 import {
   cases,
@@ -103,6 +105,28 @@ export const MAX_DELIVERY_ATTEMPTS = 5;
 const MAX_SENDS_PER_PASS = 10;
 
 /**
+ * HOW STALE AN EVENT MAY BE AND STILL BE WORTH A MESSAGE.
+ *
+ * The burst this prevents: pushing is off, months of events accumulate, the
+ * owner switches the setting on one morning, and the pass begins working
+ * through the entire history at ten messages every ten minutes — hours of
+ * "Invoice paid" pings for invoices paid in July. The same thing happens to a
+ * laptop that was shut for a fortnight. A notification is a claim that
+ * something is worth interrupting somebody for NOW, and an event from July is
+ * not, however true it still is.
+ *
+ * TWENTY-FOUR HOURS, MEASURED FROM WHEN THE ROW BECAME ELIGIBLE rather than
+ * from the event's own timestamp. A row held by quiet hours became eligible at
+ * `deferred_until`, and measuring a 22:00 event that waited until 08:00
+ * against its own `at` would throw away exactly the message quiet hours
+ * existed to preserve.
+ *
+ * Nothing is deleted. The row keeps its sentence and stays in the feed and in
+ * the undelivered view; what it loses is the phone.
+ */
+const MAX_EVENT_AGE_HOURS = 24;
+
+/**
  * THE PSEUDO-PLUGIN'S CONNECTED FLAG, and why it is not `syncPlugin`.
  *
  * `syncPlugin` derives the flag from a plugin's own ACCOUNTS, and this plugin
@@ -128,6 +152,8 @@ export type PassResult = {
   newEvents: number;
   cases: number;
   resolved: number;
+  /** Cases whose linked outbox draft moved on: sent, or deleted. */
+  relinked: number;
   delivered: number;
   deferred: number;
   suppressed: number;
@@ -143,6 +169,7 @@ const EMPTY = (): PassResult => ({
   newEvents: 0,
   cases: 0,
   resolved: 0,
+  relinked: 0,
   delivered: 0,
   deferred: 0,
   suppressed: 0,
@@ -158,21 +185,52 @@ export async function runPass(): Promise<PassResult> {
   const out = EMPTY();
   try {
     const s = settings();
+
+    /* HOUSEKEEPING RUNS BEFORE THE EARLY RETURN, and that ordering is the
+       whole point of it being here. Turning contact access off has to delete
+       what is already stored or "off" only ever means "no new ones" — and the
+       one moment that matters most is the moment Stripe is DISCONNECTED,
+       which is exactly the pass that has no accounts to walk. The same goes
+       for the connected flag: leaving it at 1 after the key is removed would
+       keep this plugin on the scheduler and on the page forever. */
+    if (!s.contactAccess) forgetPlainAddresses();
+
     const pairs = keyAccounts("collect_customers");
     if (!pairs.length) {
       const error = "No Stripe account is connected, so there are no customers to read.";
       finishRun(runId, false, undefined, error);
+      markPlugin(error);
       return { ...out, error };
     }
-
-    /* Turning contact access OFF has to remove what is already stored, or
-       "off" would only ever mean "no new ones". */
-    if (!s.contactAccess) forgetPlainAddresses();
 
     const map = ventureMap();
     const nowMs = Date.now();
     const subs = stripeSubscriptions();
     const invoicesByAccount = new Map<number, OpenInvoiceRow[]>();
+    /*
+      THE ACCOUNTS WHOSE INVOICE WALK CAME BACK SHORT.
+
+      A truncated invoice walk is not a small answer, it is a wrong one: the
+      resolution step reads ABSENCE from `openInvoiceIds` as "Stripe no longer
+      lists this invoice as open" and closes the case with that sentence. On a
+      capped walk the missing invoices are still open, the sentence is false,
+      and `upsertCase`'s status guard then refuses to re-open the case on the
+      next pass — so one short walk permanently loses a payment case. Any
+      account in this set has its payment_failed resolutions skipped entirely.
+    */
+    const invoiceWalkShort = new Set<number>();
+    /*
+      THE ACCOUNTS WHOSE WALK ACTUALLY FAILED, as ids.
+
+      This used to be re-derived at the resolution step by asking which
+      warnings began with an account's label, which was wrong twice over: two
+      accounts called "Account 1" and "Account 10" match each other under
+      `startsWith`, and — since the truncation notes above are warnings too —
+      a short walk would have been read as a failed one and stopped every
+      resolution on that account, including the churn and dispute cases a
+      capped invoice page says nothing about. An id is not ambiguous.
+    */
+    const failedAccounts = new Set<number>();
     let okAccounts = 0;
 
     for (const { account, key } of pairs) {
@@ -182,6 +240,10 @@ export async function runPass(): Promise<PassResult> {
         const stillOpen = storedDisputes({ limit: 2000 }).filter(
           (d) => d.account_id === account.id && d.outcome === null && OPEN_DISPUTE_STATUSES.has(d.status),
         );
+        /* Which cases this box currently believes are LIVE. `closed_at` is
+           stamped on the transition out of this set and nowhere else — see
+           below. */
+        const wasOpen = new Set(stillOpen.map((d) => d.id));
         const seeded = cursor("disputes", account.id) === "seeded";
         const rewalkFrom = Math.floor(nowMs / 1000) - DISPUTE_REWALK_DAYS * 86_400;
         const oldestOpen = stillOpen
@@ -194,7 +256,8 @@ export async function runPass(): Promise<PassResult> {
            dispute history, which is a walk measured in dozens of rows on any
            account this queue is useful for. */
         const from = seeded ? Math.min(rewalkFrom, oldestOpen ?? rewalkFrom) : 0;
-        const walked = await walkDisputes(key, from);
+        const disputeTruncated = new Set<string>();
+        const walked = await walkDisputes(key, from, disputeTruncated);
         out.disputes += walked.length;
         if (walked.length)
           writeDisputes(
@@ -216,15 +279,48 @@ export async function runPass(): Promise<PassResult> {
               /* A dispute names a CHARGE, and a charge has no product on it.
                  Rule two only — see venture.ts. */
               ventureId: soleVenture(map),
-              terminal: !OPEN_DISPUTE_STATUSES.has(d.status),
+              /*
+                closed_at IS A TRANSITION, NOT A STATE, and this is the flag
+                that says one happened.
+
+                It is documented as the first moment THIS BOX saw a case
+                settle, so it may only be stamped when the box previously
+                believed the case was OPEN and now does not. Deriving it from
+                "is terminal now" instead stamped every dispute in the
+                account's history with the day the integration was installed —
+                and stamped them again on the next rewalk, because a corrected
+                NULL simply let COALESCE take the new value.
+
+                A case that has never been seen open — the whole settled
+                history the first walk reads — keeps NULL, which is the true
+                statement: it was closed before anybody here looked.
+              */
+              terminal: wasOpen.has(d.id) && !OPEN_DISPUTE_STATUSES.has(d.status),
             })),
           );
-        setCursor("disputes", account.id, "seeded");
+        /*
+          THE SEEDING CURSOR IS ONLY SET ON A COMPLETE FIRST WALK. Marking it
+          "seeded" after a capped walk would pin the floor at ninety days
+          forever, and the older history the cap dropped would never be read
+          by anything.
+        */
+        if (disputeTruncated.size)
+          out.warnings.push(
+            `${label}: the dispute walk hit its row cap and Stripe had more. The history was not fully read and will be re-walked next pass.`,
+          );
+        else setCursor("disputes", account.id, "seeded");
 
         /* ---- 2. open invoices -------------------------------------------- */
-        const invoices = await walkOpenInvoices(key);
+        const invoiceTruncated = new Set<string>();
+        const invoices = await walkOpenInvoices(key, invoiceTruncated);
         invoicesByAccount.set(account.id, invoices);
         out.openInvoices += invoices.length;
+        if (invoiceTruncated.size) {
+          invoiceWalkShort.add(account.id);
+          out.warnings.push(
+            `${label}: the open-invoice walk hit its row cap and Stripe had more, so no payment case on this account was closed this pass — absence from a short list is not evidence an invoice was settled.`,
+          );
+        }
 
         /* ---- 3. events --------------------------------------------------- */
         const evCursor = cursor("events", account.id);
@@ -232,7 +328,12 @@ export async function runPass(): Promise<PassResult> {
         const since = firstWalk
           ? Math.floor(nowMs / 1000) - FIRST_EVENT_HOURS * 3_600
           : Number(evCursor);
-        const events = await walkEvents(key, Number.isFinite(since) ? since : 0);
+        const eventTruncated = new Set<string>();
+        const events = await walkEvents(
+          key,
+          Number.isFinite(since) ? since : 0,
+          eventTruncated,
+        );
         out.events += events.length;
 
         const muted = new Set(mutedTypes());
@@ -267,17 +368,38 @@ export async function runPass(): Promise<PassResult> {
         out.newEvents += insertEvents(writes);
         out.suppressed += writes.filter((w) => w.muted).length;
 
-        /* The cursor advances to the newest event SEEN, and the walk overlaps
-           it next time because two events can share a second. The events
-           table's primary key makes the overlap free. */
-        const newest = events.length ? events[events.length - 1]!.created : since;
-        setCursor("events", account.id, String(Math.max(newest, 0)));
+        /*
+          THE CURSOR ADVANCES ONLY WHEN THE WALK WAS COMPLETE.
+
+          It normally moves to the newest event SEEN, and the next walk
+          overlaps it because two events can share a second — the table's
+          primary key makes that overlap free.
+
+          A TRUNCATED WALK MUST NOT MOVE IT AT ALL, and this is the one place
+          in the area where a cap changes an answer rather than shortening it.
+          `/v1/events` answers newest-first and pages backwards in time, so a
+          capped walk returns the NEWEST rows and drops the older ones;
+          advancing to the newest would step over the middle of the window,
+          and Stripe only keeps thirty days. Holding at `since` means the next
+          pass reads the same window again — the newest rows are already
+          stored and are ignored on re-insert — and the warning says the
+          window is bigger than one walk can carry.
+        */
+        if (eventTruncated.size) {
+          out.warnings.push(
+            `${label}: the event walk hit its row cap and Stripe had more. The cursor was NOT advanced, so nothing has been skipped, but this window holds more events than one pass can read.`,
+          );
+        } else {
+          const newest = events.length ? events[events.length - 1]!.created : since;
+          setCursor("events", account.id, String(Math.max(newest, 0)));
+        }
 
         accounts.markOk(account.id);
         okAccounts += 1;
       } catch (err) {
         const error = describeStripeError(err);
         out.warnings.push(`${label}: ${error}`);
+        failedAccounts.add(account.id);
         accounts.markFailed(account.id, error);
       }
     }
@@ -292,6 +414,14 @@ export async function runPass(): Promise<PassResult> {
     /* ---- 4 and 5. the queue ------------------------------------------- */
     const allDisputes = storedDisputes({ limit: 2000 });
     const openInvoiceIds = new Set<string>();
+    /* Every case id this pass's derivation still considers live, across all
+       accounts. A live row that is NOT in here no longer matches anything
+       Stripe reports — see the closing step below. */
+    const liveIds = new Set<string>();
+    /* Accounts this pass actually derived a queue for. A case belonging to an
+       account that was not walked cannot be judged by absence from `liveIds`,
+       because nothing looked. */
+    const derivedFor = new Set<number>();
     for (const { account } of pairs) {
       const invoices = invoicesByAccount.get(account.id);
       if (!invoices) continue;
@@ -308,20 +438,31 @@ export async function runPass(): Promise<PassResult> {
         trialDays: s.trialDays,
       });
       for (const c of derived.cases) upsertCase(c);
+      for (const id of derived.live) liveIds.add(id);
+      derivedFor.add(account.id);
       out.cases += derived.cases.length;
     }
+
+    /* The outbox rows this queue is pointing at, reconciled before anything
+       is closed — a case whose draft was sent is `sent` rather than still
+       `drafted`, and a case whose draft was deleted goes back to `open`. */
+    out.relinked = reconcileDrafts();
 
     /* Everything still live in the table, asked whether Stripe has fixed it.
        Only accounts that ANSWERED this pass are considered: a case whose
        account's key was refused must not be resolved as "no longer open",
        because nobody looked. */
-    const answered = new Set(
-      pairs.filter((p) => !out.warnings.some((w) => w.startsWith(`${p.account.label}:`))).map((p) => p.account.id),
-    );
     const subById = new Map(subs.map((x) => [x.id, x]));
     const disputeById = new Map(allDisputes.map((d) => [d.id, d]));
     for (const row of cases({ statuses: LIVE_STATUSES, limit: 1000 })) {
-      if (!answered.has(row.account_id)) continue;
+      if (failedAccounts.has(row.account_id)) continue;
+
+      /* THE ONE PLACE A SHORT WALK IS ALLOWED TO CHANGE THE ANSWER, so it is
+         refused here. `invoiceStillOpen` is a claim about absence, and on a
+         truncated walk absence means "not read" rather than "not open". */
+      const invoiceEvidenceIsSound = !invoiceWalkShort.has(row.account_id);
+      if (row.kind === "payment_failed" && !invoiceEvidenceIsSound) continue;
+
       const reason = resolutionFor(row, {
         subscription: subById.get(row.subject_ref) ?? null,
         dispute: disputeById.get(row.subject_ref) ?? null,
@@ -331,6 +472,33 @@ export async function runPass(): Promise<PassResult> {
       });
       if (reason) {
         setCaseStatus(row.id, "resolved", reason);
+        out.resolved += 1;
+        continue;
+      }
+
+      /*
+        THE CASE THAT STOPPED BEING DERIVED AND MATCHES NO RULE.
+
+        `resolutionFor` answers "has Stripe fixed this", which is a different
+        question from "does Stripe still report this at all". A trial whose
+        `trial_end` moved outside the warning window, a cancellation
+        un-scheduled while the subscription is still `trialing` (the churn
+        rule requires `active`), an ended subscription that aged past the
+        thirty-day window — none of them matches a rule, and without this they
+        stay open forever with a deadline that has stopped meaning anything.
+
+        It only fires for an account whose queue was actually DERIVED this
+        pass, and never on a truncated invoice walk, because both of those are
+        "nobody looked" wearing the same shape as "it is gone".
+      */
+      if (!derivedFor.has(row.account_id)) continue;
+      if (!invoiceEvidenceIsSound) continue;
+      if (!liveIds.has(row.id)) {
+        setCaseStatus(
+          row.id,
+          "resolved",
+          "This no longer matches anything Stripe reports: the condition that opened it — a scheduled cancellation, an open invoice, a trial inside the warning window, a live dispute — is not there on this pass. Nothing was recovered and nothing was lost; the case simply stopped being one.",
+        );
         out.resolved += 1;
       }
     }
@@ -347,7 +515,8 @@ export async function runPass(): Promise<PassResult> {
     const note =
       `${out.disputes} dispute(s) walked, ${out.openInvoices} open invoice(s), ` +
       `${out.newEvents} new event(s) of ${out.events} seen · ${out.cases} case(s) derived, ` +
-      `${out.resolved} resolved · ${out.delivered} delivered, ${out.deferred} deferred, ` +
+      `${out.resolved} resolved${out.relinked ? `, ${out.relinked} re-linked` : ""} · ` +
+      `${out.delivered} delivered, ${out.deferred} deferred, ` +
       `${out.suppressed} suppressed` +
       (pairs.length > 1 ? ` · ${okAccounts}/${pairs.length} accounts` : "");
     finishRun(runId, true, note, out.warnings.join("; ") || undefined);
@@ -361,6 +530,64 @@ export async function runPass(): Promise<PassResult> {
   } finally {
     running = false;
   }
+}
+
+/**
+ * THE PROMISE `sent` MAKES, KEPT HERE.
+ *
+ * Migration 251 says "sent is set when that outbox row leaves", `counts.sent`
+ * publishes it and `LIVE_STATUSES` includes it — and until this function
+ * existed nothing in the repo ever wrote it. A status a schema promises and no
+ * code produces is worse than an absent one, because every reader plans around
+ * a transition that cannot happen.
+ *
+ * IT IS A READ OF THE OUTBOX RATHER THAN A HOOK INSIDE IT. `mailflow/outbox.ts`
+ * exists to guarantee that `sendApproved` is the only door out, and its header
+ * counts the callers of `sendMessage` as the proof; adding a callback into that
+ * function would mean this area's bug could throw inside somebody's send. So
+ * the queue reconciles on its own pass instead: it asks what happened to the
+ * row it is pointing at and writes down the answer.
+ *
+ * THREE OUTCOMES, and the third is the one the review found. A row that was
+ * SENT moves the case to `sent`. A row that no longer exists — the owner
+ * deleted the draft — un-links the case and puts it back to `open`, so
+ * `prepare` can write a new one; without this the case would point forever at
+ * a row that is not there and refuse every future draft with a 409 naming it.
+ * A row that is dismissed does the same, because a dismissal is the owner
+ * saying "not this message", not "not this case" (the outbox's own per-address
+ * floor is what stops a second draft going to the same person too soon, and it
+ * counts dismissed rows).
+ */
+function reconcileDrafts(): number {
+  const linked = db
+    .prepare(
+      "SELECT id, outbox_id, status FROM customer_cases WHERE outbox_id IS NOT NULL AND status IN ('drafted','sent')",
+    )
+    .all() as unknown as { id: string; outbox_id: number; status: string }[];
+  if (!linked.length) return 0;
+
+  let changed = 0;
+  for (const row of linked) {
+    const draft = db
+      .prepare("SELECT status FROM mailflow_outbox WHERE id = ?")
+      .get(row.outbox_id) as { status: string } | undefined;
+
+    if (!draft || draft.status === "dismissed") {
+      db.prepare(
+        "UPDATE customer_cases SET outbox_id = NULL, status = 'open', updated_at = ? WHERE id = ?",
+      ).run(now(), row.id);
+      changed += 1;
+      continue;
+    }
+    if (draft.status === "sent" && row.status !== "sent") {
+      db.prepare("UPDATE customer_cases SET status = 'sent', updated_at = ? WHERE id = ?").run(
+        now(),
+        row.id,
+      );
+      changed += 1;
+    }
+  }
+  return changed;
 }
 
 /**
@@ -456,10 +683,22 @@ export async function deliverPending(
   let deferred = 0;
   let delivered = 0;
 
-  /* Collapse first, so a reconciliation or a deferral is never spent on an
-     event that was going to be folded away anyway. */
+  /*
+    COLLAPSE FIRST, so a reconciliation or a deferral is never spent on an
+    event that was going to be folded away anyway.
+
+    THE WINDOW IS SEEDED WITH WHAT WAS ALREADY DELIVERED, and without that
+    seed the sixty minutes the README and the `events` skill both promise are
+    really "sixty minutes, or until the end of this pass, whichever comes
+    first". A failure delivered at 09:00 leaves the pending set the moment it
+    is marked; the retry at 09:40 then arrives in an empty set, opens its own
+    window and produces a second message for the same dying card — the exact
+    thing WorkDash's notifier README apologised for.
+  */
   const { collapsed, standsFor } = collapseFailures(
     pending.map((e) => ({ id: e.id, type: e.type, at: e.at, customer: e.customer })),
+    COLLAPSE_MINUTES,
+    deliveredFailuresSince(COLLAPSE_MINUTES),
   );
   for (const [id, into] of collapsed) {
     suppress(id, `collapsed into ${into}`);
@@ -467,19 +706,49 @@ export async function deliverPending(
   }
 
   if (!s.telegram) {
-    /* Pushing is off. Events are still ingested, still collapsed and still
-       readable — what is not happening is a message, and the row says so
-       rather than pretending the queue is empty. */
+    /*
+      PUSHING IS OFF, AND THE ROWS SAY SO RATHER THAN QUEUEING.
+
+      They used to be left `pending` forever, which looked harmless and was
+      the loaded gun: the day the setting was switched on, the pass started
+      working through every event since the integration was installed at ten
+      messages a pass. An event that arrived while the owner had notifications
+      off was never going to be a notification, so it is written down as
+      suppressed now, when that is true, rather than becoming a message months
+      later when it is not. Turning the setting on tells you about what
+      happens NEXT, which is what turning it on means.
+    */
+    for (const e of pending) {
+      if (collapsed.has(e.id)) continue;
+      suppress(e.id, "pushing to Telegram is off");
+      suppressed += 1;
+    }
     return { delivered: 0, deferred: 0, suppressed };
   }
 
   const trips = recentRevenueTrips();
   const at = new Date();
+  const nowMs = at.getTime();
   let sent = 0;
 
   for (const e of pending) {
     if (collapsed.has(e.id)) continue;
     if (e.attempts >= MAX_DELIVERY_ATTEMPTS) continue;
+
+    /* THE AGE FENCE, measured from when this row became eligible rather than
+       from the event's own timestamp — see MAX_EVENT_AGE_HOURS. */
+    const eligibleFrom = Date.parse(e.deferred_until ?? e.at);
+    if (
+      Number.isFinite(eligibleFrom) &&
+      nowMs - eligibleFrom > MAX_EVENT_AGE_HOURS * 3_600_000
+    ) {
+      suppress(
+        e.id,
+        `older than the ${MAX_EVENT_AGE_HOURS}h delivery window — it is in the feed but was not worth a message this long after the fact`,
+      );
+      suppressed += 1;
+      continue;
+    }
 
     const cover = coveredBy(e.at, trips);
     if (cover) {
@@ -507,6 +776,26 @@ export async function deliverPending(
   }
 
   return { delivered, deferred, suppressed };
+}
+
+/**
+ * Failed-payment events already DELIVERED inside the collapse window.
+ *
+ * They are what makes the sixty minutes a property of the feed rather than of
+ * one pass. They seed the collapse as window-openers and can never themselves
+ * be collapsed — the message they stand for has already gone.
+ */
+function deliveredFailuresSince(minutes: number): Collapsible[] {
+  const cut = new Date(Date.now() - minutes * 60_000).toISOString();
+  return (
+    db
+      .prepare(
+        `SELECT id, type, at, customer FROM business_events
+          WHERE type = 'invoice.payment_failed' AND delivered_at IS NOT NULL AND at >= ?
+          ORDER BY at ASC`,
+      )
+      .all(cut) as unknown as { id: string; type: string; at: string; customer: string | null }[]
+  ).map((r) => ({ ...r, delivered: true }));
 }
 
 /**
@@ -567,6 +856,22 @@ export async function collectCustomers(): Promise<{ ok: boolean; error?: string 
  *  process open. */
 export const PASS_MINUTES = 10;
 
+/**
+ * Minutes since the last pass that FINISHED, or null if there has never been
+ * one. Read from the run ledger rather than kept in memory, because the thing
+ * this guards against is process restarts.
+ */
+function minutesSinceLastPass(): number | null {
+  const r = db
+    .prepare(
+      "SELECT finished_at FROM runs WHERE plugin_id = ? AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1",
+    )
+    .get(PLUGIN) as { finished_at: string } | undefined;
+  if (!r) return null;
+  const at = Date.parse(r.finished_at);
+  return Number.isFinite(at) ? (Date.now() - at) / 60_000 : null;
+}
+
 export function startCustomersTimer() {
   const tick = () => {
     void runPass().catch(() => {
@@ -574,10 +879,26 @@ export function startCustomersTimer() {
          escaping here would take the timer with it. */
     });
   };
-  /* A minute after boot rather than immediately: the Stripe collector may
-     still be filling the subscription book this pass derives cases from, and
-     a queue built from an empty table is a queue that resolves everything. */
-  setTimeout(tick, 60_000).unref?.();
+  /*
+    A MINUTE AFTER BOOT, BUT ONLY IF A PASS IS ACTUALLY DUE.
+    
+    A minute rather than immediately because the Stripe collector may still be
+    filling the subscription book this pass derives cases from, and a queue
+    built from an empty table is a queue that resolves everything.
+
+    The recency check is the other half, and it is about the development
+    machine rather than the server: this app runs under `node --watch`, so
+    every file any agent saves restarts the process, and an unguarded boot
+    tick turned that into a full Stripe pass — a dispute walk, an invoice
+    walk, an event walk and up to forty customer GETs — five times in nine
+    minutes. The clock is the run ledger, so it survives the restart that
+    caused the problem.
+  */
+  setTimeout(() => {
+    const since = minutesSinceLastPass();
+    if (since !== null && since < PASS_MINUTES) return;
+    tick();
+  }, 60_000).unref?.();
   setInterval(tick, PASS_MINUTES * 60_000).unref?.();
 }
 

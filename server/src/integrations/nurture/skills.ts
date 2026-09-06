@@ -45,6 +45,12 @@ export const SKILLS: Skill[] = [
         "not have. `validation.by` is `model` when the model's wording stood " +
         "and `template` when it was refused — `validation.why` says which token " +
         "it invented. Report that, do not paper over it.",
+      "THAT CHECK IS A FLOOR ON FABRICATION, NOT A PROOF OF CORRECTNESS, and " +
+        "you must not describe it as one. Apart from money, which is checked " +
+        "with its currency, it asks only whether a figure appears SOMEWHERE in " +
+        "the packet — so a number that belongs to one fact can legally be " +
+        "written about another. Read the facts beside a draft before you tell " +
+        "the owner it is right.",
       "`enrolKind` signup, trial and churned are answered ONLY from a product's " +
         "own users document (the `users` plugin). With none connected they " +
         "enrol nobody, and `problems` on the sequence says so. They are never " +

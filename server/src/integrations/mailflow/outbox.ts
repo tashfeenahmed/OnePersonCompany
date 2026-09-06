@@ -63,7 +63,7 @@ import * as accounts from "../../accounts.ts";
 import { gmailMailboxes } from "../../db.ts";
 import { GmailError, open } from "../../providers/gmail.ts";
 import { replyContext, sendMessage, validAddress } from "./gmail-send.ts";
-import { fromLine, identityRow, IdentityRefused, transportFor } from "../nurture/identities.ts";
+import { fromLine, identityRow, IdentityRefused, transportFor, verificationWarning } from "../nurture/identities.ts";
 import { resendSend } from "../nurture/resend-send.ts";
 import { captureEdit } from "../nurture/style.ts";
 
@@ -304,17 +304,32 @@ export function routeFor(r: Pick<OutboxRow, "account_id" | "identity_id">): Rout
   return { via: "gmail", accountId: r.account_id, address: addr, line: addr, replyTo: null, identityId: null };
 }
 
-/** The route, or null where resolving it refuses — for the READ path, which
- *  must be able to show a card whose identity has gone wrong rather than
- *  failing the whole listing. The refusal comes back as a sentence. */
+/**
+ * The route, or null where resolving it REFUSES — for the READ path, which must
+ * be able to show a card whose identity has gone wrong rather than failing the
+ * whole listing.
+ *
+ * `reason` AND `warning` ARE NOT THE SAME THING and are kept apart because one
+ * of them stops a send and the other does not. `reason` is a refusal: there is
+ * no honest From line, the route is null, and `approvalContent` freezes it so
+ * the send refuses too. `warning` is a resolved route that Resend has something
+ * to say about — "pending", "failed", or never asked. `transportFor`
+ * deliberately does not read the verification status (a domain mid-propagation
+ * must still be draftable, and a stale "failed" must not block a domain the
+ * owner has since fixed), so the warning is carried to the card instead and the
+ * owner reads it while he is reading the draft rather than as a 4xx after he
+ * has pressed Send.
+ */
 export function routeOrReason(
   r: Pick<OutboxRow, "account_id" | "identity_id">,
-): { route: Route | null; reason: string | null } {
+): { route: Route | null; reason: string | null; warning: string | null } {
   try {
-    return { route: routeFor(r), reason: null };
+    const route = routeFor(r);
+    const identity = r.identity_id ? identityRow(r.identity_id) : null;
+    return { route, reason: null, warning: identity ? verificationWarning(identity) : null };
   } catch (err) {
     if (err instanceof SendRefused || err instanceof IdentityRefused)
-      return { route: null, reason: err.message };
+      return { route: null, reason: err.message, warning: null };
     throw err;
   }
 }

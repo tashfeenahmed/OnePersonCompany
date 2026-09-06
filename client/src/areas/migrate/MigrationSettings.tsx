@@ -274,14 +274,18 @@ export function MigrationSettings() {
         }
       >
         <pre className="bg-muted text-muted-foreground overflow-x-auto rounded p-2.5 text-[11.5px] leading-relaxed">
-          {`npm run import-workdash -- /opt/workdash --dry-run
-npm run import-workdash -- /opt/workdash
+          {`npm run import-workdash -- <workdash-data-dir> --dry-run
+npm run import-workdash -- <workdash-data-dir>
 npm run import-workdash -- --rollback <batch>`}
         </pre>
         <p className="text-muted-foreground max-w-[560px] text-[12px]">
-          No credential is ever read. Files holding secrets are refused by name and the plugins they belong to
-          are printed as a list to reconnect by hand, in Integrations. A real run takes a full backup first and
-          refuses to proceed if that fails.
+          The data directory is the one holding <code className="text-[11.5px]">kanban.json</code>,{" "}
+          <code className="text-[11.5px]">chats.json</code> and the rest beside each other — it is flat, so
+          point at that directory and not at a parent; <code className="text-[11.5px]">--help</code> says where
+          it usually lives. No credential is ever read: files holding secrets are refused by name and the
+          plugins they belong to are printed as a list to reconnect by hand, in Integrations. A real run takes
+          a full backup first and refuses to proceed if that fails — the same backup the button takes, so a
+          configured remote gets a copy and the usual retention prune runs.
         </p>
 
         {batches.error && <div className="text-destructive text-[12.5px]">{batches.error}</div>}

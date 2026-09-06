@@ -492,13 +492,32 @@ export type OutboxDraft = {
   problems: string[];
 };
 
-/** WorkDash's statuses onto this box's. `stopped` has no counterpart — a
- *  sequence somebody halted is not a draft, not sent and not dismissed — and
- *  is mapped to `dismissed`, which is the closest true statement: it will not
- *  be sent. */
+/**
+ * WorkDash's statuses onto this box's.
+ *
+ * `approved` BECOMES `draft`, AND THAT IS NOT A DOWNGRADE — it is the only
+ * value that produces a usable row. An approval here is not a flag, it is a
+ * RECORD: `approved_at` and `approved_content`, the exact bytes that were
+ * agreed to. `sendApproved` re-checks the body against `approved_content`
+ * before it sends, and refuses when they differ; `approveDraft` refuses
+ * anything that is not `draft` or `failed`. So a row inserted as `approved`
+ * with neither column filled is stuck in the ready-to-send queue forever:
+ * it cannot be sent and it cannot be re-approved. Two existing migrations
+ * (122_outbox_delivery, and nurture's) reset approved rows to draft for exactly
+ * this reason.
+ *
+ * Importing it as a draft loses one click and keeps the mail sendable, and the
+ * click is one somebody should probably make again anyway — an approval given
+ * in another application, to a body this box has not shown them, is not consent
+ * to send from here.
+ *
+ * `stopped` has no counterpart — a sequence somebody halted is not a draft, not
+ * sent and not dismissed — and is `dismissed`, the closest true statement: it
+ * will not be sent.
+ */
 const OUTBOX_STATUS: Record<string, string> = {
   draft: "draft",
-  approved: "approved",
+  approved: "draft",
   sent: "sent",
   dismissed: "dismissed",
   stopped: "dismissed",
@@ -513,6 +532,10 @@ export function outboxFrom(raw: Record<string, unknown>): OutboxDraft | null {
   const source = typeof raw.status === "string" ? raw.status.trim().toLowerCase() : "draft";
   const status = OUTBOX_STATUS[source];
   if (!status) problems.push(`draft ${id} had a WorkDash status of “${raw.status}”, which has no counterpart here; it was imported as a draft.`);
+  if (source === "approved")
+    problems.push(
+      `draft ${id} was approved in WorkDash and arrives here as a DRAFT. An approval here carries the exact bytes that were agreed to, and a row marked approved without them can neither be sent nor re-approved — it would sit in the queue forever. Approve it again to send it.`,
+    );
   if (source === "stopped") problems.push(`draft ${id} was “stopped” in WorkDash — a halted sequence — and is “dismissed” here, which is the closest true statement.`);
   return {
     sourceId: id,

@@ -243,6 +243,17 @@ export function parseDimension(
     for (const [metric, i, spec] of found) {
       const amount = number(row[i]);
       if (amount === null) continue;
+      /*
+        ZERO STARS IS NOT THE AVERAGE OF NO RATINGS. Google writes `0.0` into
+        "Daily Average Rating" on a day nobody rated the app — the fixture in
+        parsers.test.ts has exactly that beside a running total of 4.5 — and a
+        star rating cannot be zero on a scale that starts at one. So a rating
+        of exactly zero is read as "nobody rated it" and produces no row at
+        all, which is what `providers/play.ts` does with the same column in
+        the overview export. This is the precise silent zero this area exists
+        to prevent: an agent handed `rating_daily: 0 stars` will quote it.
+      */
+      if (spec.unit === "stars" && amount === 0) continue;
       out.push({ day, value, metric, amount, unit: spec.unit });
     }
   }
@@ -403,45 +414,75 @@ export function parseRetention(text: string, since?: string): RetentionRow[] {
  */
 export const ANALYTICS_REPORTS: Record<
   string,
-  { key: string; metrics: readonly string[]; dims: readonly string[]; unit: string }
+  { key: string; metrics: Record<string, MetricSpec>; dims: readonly string[] }
 > = {
   "App Downloads Standard": {
     key: "downloads",
-    metrics: ["Counts"],
+    metrics: { Counts: { columns: ["Counts"], unit: "downloads", kind: "event" } },
     dims: ["Download Type", "Source Type", "Territory", "Device", "App Version"],
-    unit: "downloads",
   },
   "App Store Installation and Deletion Standard": {
     key: "installs",
-    metrics: ["Counts", "Unique Devices"],
+    metrics: {
+      Counts: { columns: ["Counts"], unit: "events", kind: "event" },
+      "Unique Devices": { columns: ["Unique Devices"], unit: "devices", kind: "level" },
+    },
     dims: ["Event", "Download Type", "Territory"],
-    unit: "events",
   },
   "App Store Discovery and Engagement Standard": {
     key: "engagement",
-    metrics: ["Counts", "Unique Counts"],
+    metrics: {
+      Counts: { columns: ["Counts"], unit: "events", kind: "event" },
+      "Unique Counts": { columns: ["Unique Counts"], unit: "unique users", kind: "level" },
+    },
     dims: ["Event", "Page Type", "Source Type", "Territory"],
-    unit: "events",
   },
   "App Store Purchases Standard": {
     key: "purchases",
-    metrics: ["Sales", "Purchases", "Paying Users"],
+    metrics: {
+      Sales: { columns: ["Sales"], unit: "sales", kind: "event" },
+      Purchases: { columns: ["Purchases"], unit: "purchases", kind: "event" },
+      "Paying Users": { columns: ["Paying Users"], unit: "users", kind: "level" },
+    },
     dims: ["Purchase Type", "Source Type", "Territory"],
-    unit: "purchases",
   },
   "App Sessions Standard": {
     key: "sessions",
-    metrics: ["Sessions", "Unique Devices"],
+    metrics: {
+      Sessions: { columns: ["Sessions"], unit: "sessions", kind: "event" },
+      "Unique Devices": { columns: ["Unique Devices"], unit: "devices", kind: "level" },
+    },
     dims: ["App Version", "Device"],
-    unit: "sessions",
   },
   "App Crashes": {
     key: "crashes",
-    metrics: ["Crashes", "Unique Devices"],
+    metrics: {
+      Crashes: { columns: ["Crashes"], unit: "crashes", kind: "event" },
+      "Unique Devices": { columns: ["Unique Devices"], unit: "devices", kind: "level" },
+    },
     dims: ["App Version", "Device"],
-    unit: "crashes",
   },
 };
+
+/** "Unique Devices" -> "unique_devices". The spelling `mobile_dimensions`
+ *  actually holds, so a route never has to guess whether Apple called a slice
+ *  `Territory` or `territory`. */
+export const snake = (s: string) =>
+  s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+
+/**
+ * Every Apple analytics metric this area stores, keyed exactly as the table
+ * holds it (`<report key>.<metric>`), with whether it may be summed over days.
+ *
+ * DERIVED FROM ANALYTICS_REPORTS rather than written out, so a metric added
+ * above cannot be forgotten here — which is how `engagement.unique_counts`
+ * came to be summed as an event in the first place.
+ */
+export const ANALYTICS_METRIC_KINDS: Record<string, MetricKind> = Object.fromEntries(
+  Object.values(ANALYTICS_REPORTS).flatMap((r) =>
+    Object.entries(r.metrics).map(([m, spec]) => [`${r.key}.${snake(m)}`, spec.kind] as const),
+  ),
+);
 
 /** Apple's analytics CSVs are tab separated with a header row. Headers are
  *  normalised the same way `providers/appstore.ts` normalises report headers,
@@ -474,6 +515,12 @@ export type AnalyticsFold = {
   value: string;
   metric: string;
   amount: number;
+  /** What one of these is — devices, sessions, downloads, users. Per METRIC,
+   *  never per report: one Apple report carries both a count of events and a
+   *  count of the distinct devices behind them. */
+  unit: string;
+  /** Whether it may be summed over days at all. See below. */
+  kind: MetricKind;
 };
 
 /**
@@ -485,14 +532,30 @@ export type AnalyticsFold = {
  * a dimension gives the day's total for that metric; summing ACROSS two
  * dimensions counts every row twice, and nothing in this area does it.
  *
+ * A UNIQUE COUNT IS A LEVEL AND MUST NOT BE ADDED ACROSS DAYS. Apple's
+ * `Unique Devices`, `Unique Counts` and `Paying Users` are distinct WITHIN A
+ * DAY: thirty of them added counts one device up to thirty times, which is
+ * exactly the arithmetic this area's own stability rule forbids for
+ * `distinctUsers`. So the metric declares its kind here and the routes read
+ * it; a report-wide unit would also have labelled `Unique Devices` as
+ * "sessions" or "crashes" depending on which file it came out of.
+ *
+ * WITHIN ONE DAY THEY DO ADD ACROSS A DIMENSION'S SLICES — which is Apple's
+ * own arithmetic and is not exact for a unique count (one device can appear in
+ * two territories). That is a property of a privacy-thresholded export and is
+ * why the `(all)` row is published beside the breakdown: it is Apple's own
+ * per-day figure, not our sum of its slices.
+ *
  * A row with no readable date is dropped: Apple's files carry a footer in some
  * eras and a dateless row cannot be filed anywhere honest.
  */
 export function foldAnalytics(
   rows: AnalyticsRow[],
-  spec: { metrics: readonly string[]; dims: readonly string[] },
+  spec: { metrics: Record<string, MetricSpec>; dims: readonly string[] },
 ): { folded: AnalyticsFold[]; missingColumns: string[] } {
-  const metricKeys = spec.metrics.map((m) => [normAnalytics(m), m] as const);
+  const metricKeys = Object.entries(spec.metrics).map(
+    ([m, s]) => [normAnalytics(s.columns[0] ?? m), m, s] as const,
+  );
   const dimKeys = spec.dims.map((d) => [normAnalytics(d), d] as const);
   const acc = new Map<string, AnalyticsFold>();
   const missing = new Set<string>();
@@ -500,7 +563,7 @@ export function foldAnalytics(
   for (const r of rows) {
     const day = (r.date ?? "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
-    for (const [mk, metric] of metricKeys) {
+    for (const [mk, metric, ms] of metricKeys) {
       if (!(mk in r)) {
         missing.add(metric);
         continue;
@@ -510,10 +573,10 @@ export function foldAnalytics(
       // The day's own total, under the synthetic "(all)" dimension, so a
       // series can be drawn without re-summing a breakdown that may have been
       // thresholded differently.
-      add(acc, day, "(all)", "(all)", metric, amount);
+      add(acc, day, "(all)", "(all)", metric, amount, ms);
       for (const [dk, dim] of dimKeys) {
         if (!(dk in r)) continue;
-        add(acc, day, dim, (r[dk] ?? "").trim() || "(blank)", metric, amount);
+        add(acc, day, dim, (r[dk] ?? "").trim() || "(blank)", metric, amount, ms);
       }
     }
   }
@@ -527,11 +590,12 @@ function add(
   value: string,
   metric: string,
   amount: number,
+  spec: MetricSpec,
 ) {
-  const key = `${day} ${dimension} ${value} ${metric}`;
+  const key = `${day} ${dimension} ${value} ${metric}`;
   const held = acc.get(key);
   if (held) held.amount = Number((held.amount + amount).toFixed(4));
-  else acc.set(key, { day, dimension, value, metric, amount });
+  else acc.set(key, { day, dimension, value, metric, amount, unit: spec.unit, kind: spec.kind });
 }
 
 /* ------------------------------------------------- Play Developer Reporting */

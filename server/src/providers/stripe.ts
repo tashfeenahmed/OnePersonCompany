@@ -1383,9 +1383,15 @@ type StripeInvoice = {
  *
  * `status=open` rather than a date window, because "is this invoice still
  * unpaid" is current state and an unpaid invoice from March is exactly the
- * one worth chasing. The cap is deliberate and reported: an account with more
- * than two thousand open invoices has a dunning problem this queue is the
- * wrong tool for.
+ * one worth chasing.
+ *
+ * THE CAP MATTERS MORE HERE THAN ANYWHERE ELSE IN THIS FILE, because the
+ * caller uses ABSENCE from this list as evidence: a case whose invoice is not
+ * returned is resolved as "Stripe no longer lists it as open". A truncated
+ * walk is therefore not a short answer, it is a WRONG one, and the caller is
+ * required to pass a Set and to skip that resolution when it fired. An account
+ * with more than two thousand open invoices has a dunning problem this queue
+ * is the wrong tool for.
  *
  * `subscription` MOVED ON NEWER API VERSIONS. It used to be a top-level field
  * and is now `parent.subscription_details.subscription`; both are read,
@@ -1490,7 +1496,28 @@ export type StripeEventRow = {
 };
 
 /**
+ * One event walk's ceiling.
+ *
+ * Two thousand rather than five hundred because of the direction Stripe pages
+ * in: `/v1/events` answers NEWEST FIRST and `starting_after` walks backwards
+ * in time, so a capped walk keeps the newest N and silently drops the OLDER
+ * ones — the opposite of every other walk in this file, where a cap drops the
+ * tail nobody was reading. A caller that advanced a cursor past a capped
+ * events walk would skip the middle of its own history. The cap is therefore
+ * high enough that no ordinary account reaches it, and the caller is REQUIRED
+ * to pass a truncation Set and hold its cursor when it fired.
+ */
+const EVENT_PAGE_CAP = 2000;
+
+/**
  * Events since a cursor, oldest first.
+ *
+ * THE CAP IS A CALLER'S PROBLEM AND IT IS NAMED HERE BECAUSE OF THE PAGING
+ * DIRECTION. When `truncated` gains "events", the rows returned are the NEWEST
+ * `cap` events after `sinceSeconds` and everything between `sinceSeconds` and
+ * the oldest returned row was never read. Advancing a cursor to the newest row
+ * in that case skips them permanently — Stripe keeps events for thirty days
+ * and nothing goes back for them. See collect.ts, which holds the cursor.
  *
  * `types[]` IS SENT TO STRIPE rather than filtered here. WorkDash's notifier
  * pulled every event and dropped what it did not want, which works and costs
@@ -1511,7 +1538,7 @@ export async function walkEvents(
   key: string,
   sinceSeconds: number,
   truncated: Set<string> = new Set(),
-  cap = 500,
+  cap = EVENT_PAGE_CAP,
 ): Promise<StripeEventRow[]> {
   const params: Params = { "created[gte]": sinceSeconds };
   WATCHED_EVENTS.forEach((t, i) => {

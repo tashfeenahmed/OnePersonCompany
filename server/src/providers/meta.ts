@@ -1300,3 +1300,779 @@ export async function postInstagramImage(
    and re-exported so a caller holding only this module can compose the same
    record — see providers/social.ts. */
 export { redact, describeBody };
+
+/* ==========================================================================
+ * ORGANIC READS — the posts that already exist, added by the socialfeed area,
+ * 2026-09-06.
+ *
+ * A SEPARATE SECTION FROM THE COLLECTOR ABOVE AND FROM THE PUBLISHING SECTION
+ * BELOW IT, and the separation is deliberate rather than tidy. The collector
+ * reads Page identity and ad spend with the SYSTEM USER token. The publishing
+ * section writes with a PAGE token. This reads a Page's own timeline, which
+ * needs the Page token and sends nothing but GETs — so it belongs to neither
+ * and shares only the Graph version, the proof and the error vocabulary.
+ *
+ * IT IS ALL GET. Every function here is a read; there is no write in this
+ * section and nothing here is reachable from the publishing pipeline.
+ *
+ * ─────────────────────── WHAT WAS MEASURED, 2026-09-06 ────────────────────
+ *
+ * Probed live against three connected Pages on this account, on v21.0, with
+ * Page tokens minted through `publishablePages`. The findings changed what
+ * this code asks for, so they are written down rather than summarised:
+ *
+ *   GET /{page}/posts?fields=…                200. The edge works with a Page
+ *                                             token. `CANNOT` above records a
+ *                                             403 (#210) from 2026-09-04, when
+ *                                             no Page token could be minted;
+ *                                             the system user has a Page role
+ *                                             now and both facts are true of
+ *                                             their own dates.
+ *   insights.metric(post_impressions)         400 (#100) — NOT A VALID METRIC
+ *   insights.metric(post_engaged_users)       400 (#100) — NOT A VALID METRIC
+ *   insights.metric(post_impressions_unique)  400 (#100) — NOT A VALID METRIC
+ *   insights.metric(post_impressions_organic) 400 (#100) — NOT A VALID METRIC
+ *   insights.metric(post_activity)            400 (#100) — NOT A VALID METRIC
+ *   insights.metric(post_negative_feedback)   400 (#100) — NOT A VALID METRIC
+ *   insights.metric(post_media_view)          200, period `lifetime`
+ *   insights.metric(post_clicks)              200, period `lifetime`
+ *   insights.metric(post_video_views)         200, `lifetime` and `day`
+ *   reactions/comments .summary(total_count)  200, and they need no insights
+ *                                             permission at all
+ *   shares                                    absent from the payload when the
+ *                                             count is zero — normal, not a gap
+ *
+ * THE WHOLE `impressions` FAMILY IS DEAD. Meta retired it on 15 November 2025.
+ * A request that asks for one of those names does not get a null back: it gets
+ * a 400 that takes the WHOLE PAGE OF POSTS with it. So the metric list is a
+ * measured constant here rather than a hopeful one, and anything added to it
+ * has to be probed first.
+ *
+ * ONE REQUEST PER PAGE, NOT ONE PER POST. Insights ride on the posts edge as
+ * a field expansion. Asking per post would be twenty-five requests to learn
+ * what one returns, against somebody's rate limit.
+ * ======================================================================= */
+
+/** The Facebook post insights that are still valid metric names in
+ *  GRAPH_VERSION, measured — see the section header. Every name here answered
+ *  200; every name that did not is listed above with its error. */
+export const POST_INSIGHT_METRICS = ["post_media_view", "post_clicks", "post_video_views"] as const;
+
+/** The metric names Meta RETIRED, kept so a document can say what is missing
+ *  and why rather than showing a gap. */
+export const RETIRED_POST_METRICS = [
+  "post_impressions",
+  "post_impressions_unique",
+  "post_impressions_organic",
+  "post_engaged_users",
+  "post_activity",
+  "post_negative_feedback",
+] as const;
+
+/** One post or one piece of Instagram media, in the platform's own vocabulary.
+ *  `metrics` keys are Meta's field paths and metric names, never a word chosen
+ *  here — see migration 340 for why that rule exists. */
+export type OrganicPost = {
+  id: string;
+  createdTime: string | null;
+  permalink: string | null;
+  mediaType: string | null;
+  imageUrl: string | null;
+  text: string | null;
+  metrics: Record<string, number>;
+  /** What was absent, in words. Null when everything asked for arrived. */
+  note: string | null;
+};
+
+export type OrganicRead = {
+  ok: boolean;
+  posts: OrganicPost[];
+  /** Meta's own sentence when the edge refused. Null on success. */
+  error: string | null;
+  /** Set when the POSTS arrived and their INSIGHTS did not — a permission
+   *  problem that must not read as "this Page has no posts". */
+  insightsError: string | null;
+};
+
+/** One insights metric out of an edge-expanded block, found BY NAME.
+ *  The order of `data` is not promised, so asking for element 0 works right up
+ *  until Meta adds a metric and every figure becomes a different one. */
+function insightValue(raw: Record<string, unknown>, metric: string): number | null {
+  const block = raw.insights as { data?: unknown[] } | undefined;
+  for (const entry of block?.data ?? []) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as { name?: unknown; period?: unknown; values?: unknown[] };
+    if (row.name !== metric) continue;
+    /* `lifetime` where there is one: `post_video_views` answers with both a
+       lifetime total and a per-day series, and summing the days would be a
+       second, smaller answer to the same question. */
+    if (row.period && row.period !== "lifetime") continue;
+    const first = row.values?.[0] as { value?: unknown } | undefined;
+    if (typeof first?.value === "number") return first.value;
+  }
+  return null;
+}
+
+const deep = (obj: unknown, ...path: (string | number)[]): unknown => {
+  let cur: unknown = obj;
+  for (const step of path) {
+    if (cur === null || cur === undefined) return null;
+    if (typeof step === "number") {
+      if (!Array.isArray(cur)) return null;
+      cur = cur[step];
+    } else {
+      if (typeof cur !== "object") return null;
+      cur = (cur as Record<string, unknown>)[step];
+    }
+  }
+  return cur ?? null;
+};
+
+const count = (v: unknown): number | null => (typeof v === "number" ? v : null);
+
+/**
+ * A Page's own timeline, newest first.
+ *
+ * `/posts` RATHER THAN `/feed`. Both answer 200 with a Page token and they are
+ * not the same edge: `feed` includes what other people posted to the Page and
+ * `posts` is what the Page itself published. This document is about what the
+ * business published, so anything a visitor wrote does not belong in it.
+ *
+ * `message` IS WHAT THE OWNER TYPED AND `story` IS WHAT FACEBOOK TYPED for
+ * them ("X updated their cover photo"). The story is a fallback and never a
+ * first choice: a Page whose posts all read as stories has published nothing,
+ * which is a different fact from having posted silently.
+ */
+export async function pagePosts(
+  pageId: string,
+  pageToken: string,
+  limit = 25,
+): Promise<OrganicRead> {
+  const base =
+    "id,message,story,created_time,permalink_url,full_picture," +
+    "attachments{media_type,type,description,media,url}," +
+    "reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares";
+  const insights = `insights.metric(${POST_INSIGHT_METRICS.join(",")})`;
+
+  const ask = (fields: string) =>
+    fetchPage(
+      `${GRAPH}/${pageId}/posts?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}` +
+        `&fields=${encodeURIComponent(fields)}`,
+      pageToken,
+    );
+
+  let attempt = await ask(`${base},${insights}`);
+  let metricsError: string | null = null;
+
+  /*
+    THE RETRY THAT KEEPS THE TIMELINE ALIVE WHEN A METRIC DIES.
+
+    Insights ride on the posts edge as ONE field expansion, so a single retired
+    metric name does not answer null — it answers 400 (#100) and takes the
+    WHOLE PAGE OF POSTS with it. That is exactly what happened to the
+    `post_impressions` family on 15 November 2025, and the only thing standing
+    between this file and that failure a second time is that the constant above
+    was probed on the day it was written. Meta will retire something else.
+
+    So a 400 whose message is about a metric is retried ONCE with the insights
+    clause removed. The posts survive, and `insightsError` carries Meta's own
+    sentence — which is the honest report: the timeline is current, and the
+    engagement figures on it are missing for a named reason. The alternative,
+    which this had before, was a Page that silently stopped updating.
+
+    ONLY A METRIC ERROR IS RETRIED. A 403 about a Page token or a 190 about the
+    wrong kind of token would fail identically without insights, and a second
+    request to learn that is a second request against somebody's rate limit.
+  */
+  if (!attempt.ok && isMetricError(attempt.error, attempt.code)) {
+    metricsError =
+      `${attempt.error} — the posts below are current; their engagement figures are not, because ` +
+      `at least one of ${POST_INSIGHT_METRICS.join(", ")} is no longer a valid metric name in ` +
+      `${GRAPH_VERSION}. Re-probe the list in providers/meta.ts.`;
+    attempt = await ask(base);
+  }
+
+  if (!attempt.ok)
+    return { ok: false, posts: [], error: attempt.error, insightsError: null };
+  const body = attempt.body;
+
+  const posts: OrganicPost[] = [];
+  let withoutInsights = 0;
+  for (const raw of body?.data ?? []) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const id = str(row.id);
+    if (!id) continue;
+
+    const metrics: Record<string, number> = {};
+    for (const m of POST_INSIGHT_METRICS) {
+      const v = insightValue(row, m);
+      if (v !== null) metrics[m] = v;
+    }
+    /* THE EDGE SUMMARIES ARE KEPT UNDER THEIR GRAPH PATHS. They are not
+       insights, they need no insights permission, and calling either of them
+       "engagement" here would be this file inventing a metric Meta does not
+       publish. Adding them up is the reader's decision and it is made where
+       the window and the units are known. */
+    const reactions = count(deep(row, "reactions", "summary", "total_count"));
+    const comments = count(deep(row, "comments", "summary", "total_count"));
+    const shares = count(deep(row, "shares", "count"));
+    if (reactions !== null) metrics["reactions.summary.total_count"] = reactions;
+    if (comments !== null) metrics["comments.summary.total_count"] = comments;
+    /* `shares` VANISHES WHEN THE COUNT IS ZERO, measured. Its absence is
+       normal and is not recorded as a gap. */
+    if (shares !== null) metrics["shares.count"] = shares;
+
+    const notes: string[] = [];
+    const hadInsights = row.insights !== undefined;
+    if (!hadInsights) {
+      withoutInsights += 1;
+      notes.push("no insights block came back for this post");
+    }
+    if (reactions === null && comments === null)
+      notes.push("neither the reactions nor the comments summary was in the response");
+
+    const attachment = deep(row, "attachments", "data", 0) as Record<string, unknown> | null;
+    const text =
+      str(row.message) ??
+      str(attachment?.description) ??
+      str(row.story);
+
+    posts.push({
+      id,
+      createdTime: str(row.created_time),
+      permalink: str(row.permalink_url),
+      mediaType: (str(attachment?.media_type) ?? str(attachment?.type))?.toLowerCase() ?? null,
+      /* `full_picture` is the render Meta serves in feed; the attachment's own
+         src is the fallback for link shares and some video posts. */
+      imageUrl: str(row.full_picture) ?? (str(deep(attachment, "media", "image", "src")) ?? null),
+      /* Truncated here rather than in the browser: this is polled by every
+         open tab and a page holding ten essays would pay for them each time. */
+      text: text ? text.slice(0, 600) : null,
+      metrics,
+      note: notes.join("; ") || null,
+    });
+  }
+
+  return {
+    ok: true,
+    posts,
+    error: null,
+    insightsError:
+      /* The metric death first, because it is the one with a fix in this
+         repository rather than in Meta's settings. */
+      metricsError ??
+      (posts.length && withoutInsights === posts.length
+        ? "The posts came back and none of them carried an insights block. That is a Page " +
+          "permission (read_insights on this Page's role), not an absence of activity."
+        : null),
+  };
+}
+
+/**
+ * One Graph GET with the token in the HEADER.
+ *
+ * THE TOKEN NEVER GOES IN THE QUERY STRING, which is this file's own rule
+ * stated at `get<T>()` above and is the reason that function exists: a
+ * credential in a URL is a credential in an access log, in a `Referer`, and in
+ * every error message that echoes the request. These two organic reads were
+ * written with `access_token=` in the URL and are not any more.
+ */
+async function fetchPage(
+  url: string,
+  pageToken: string,
+): Promise<
+  | { ok: true; body: { data?: unknown[] } | null }
+  | { ok: false; error: string; code: number | null }
+> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${pageToken}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    return { ok: false, error: describe(err), code: null };
+  }
+  const body = (await res.json().catch(() => null)) as
+    | { data?: unknown[]; error?: { message?: string; code?: number } }
+    | null;
+  if (!res.ok)
+    return {
+      ok: false,
+      error: (body?.error?.message ?? `HTTP ${res.status}`).slice(0, 300),
+      code: body?.error?.code ?? null,
+    };
+  return { ok: true, body };
+}
+
+/**
+ * Is this 400 about a metric NAME rather than about permission?
+ *
+ * Meta's (#100) is a general "bad parameter" and its message is the only thing
+ * that distinguishes "you asked for a metric that no longer exists" from "you
+ * asked for a field that never existed". Matched on the sentence Meta actually
+ * sends — "(#100) The value must be a valid insights metric", measured
+ * 2026-09-06 — with `insights` as the fallback signal, because a message this
+ * has not seen must not send a permission problem round the retry loop.
+ */
+function isMetricError(message: string, code: number | null): boolean {
+  const text = message.toLowerCase();
+  return (
+    (code === 100 || code === null) &&
+    (text.includes("valid insights metric") || text.includes("insights metric") || text.includes("must be a valid metric"))
+  );
+}
+
+/**
+ * An Instagram business account's media, newest first.
+ *
+ * NOT EXERCISED ON THIS INSTALL, and the honest thing is to say so: every one
+ * of the three Pages this token administers answered
+ * `instagram_business_account: null` on 2026-09-06, so there was no IG account
+ * to read and this function has never been run against a live one. Its field
+ * list is the one `collect_social.py` has run for months and the code path is
+ * here so that connecting an account is all that is needed — but a document
+ * built on it must say "not measured here" rather than "zero".
+ *
+ * `reach` IS INSTAGRAM'S OWN METRIC NAME and it means unique accounts, which
+ * is NOT what Facebook's surviving `post_media_view` counts. The two are kept
+ * under their own names for exactly that reason.
+ */
+export async function instagramMedia(
+  igUserId: string,
+  pageToken: string,
+  limit = 25,
+): Promise<OrganicRead> {
+  const fields =
+    "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp," +
+    "like_count,comments_count,insights.metric(reach)";
+  const url =
+    `${GRAPH}/${igUserId}/media?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}` +
+    `&fields=${encodeURIComponent(fields)}`;
+
+  /* Token in the header, same rule as the Page read above. */
+  const attempt = await fetchPage(url, pageToken);
+  if (!attempt.ok) return { ok: false, posts: [], error: attempt.error, insightsError: null };
+  const body = attempt.body;
+
+  const posts: OrganicPost[] = [];
+  let withoutInsights = 0;
+  for (const raw of body?.data ?? []) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const id = str(row.id);
+    if (!id) continue;
+    const metrics: Record<string, number> = {};
+    const reach = insightValue(row, "reach");
+    if (reach !== null) metrics["reach"] = reach;
+    const likes = count(row.like_count);
+    const comments = count(row.comments_count);
+    if (likes !== null) metrics["like_count"] = likes;
+    if (comments !== null) metrics["comments_count"] = comments;
+    if (row.insights === undefined) withoutInsights += 1;
+
+    const mediaType = str(row.media_type);
+    posts.push({
+      id,
+      createdTime: str(row.timestamp),
+      permalink: str(row.permalink),
+      mediaType: mediaType ? mediaType.toLowerCase() : null,
+      /* A video's `media_url` is the video file; only its thumbnail is
+         something an <img> can show. Photos have no thumbnail_url at all, so
+         the order matters in both directions. */
+      imageUrl: mediaType === "VIDEO" ? (str(row.thumbnail_url) ?? str(row.media_url)) : str(row.media_url),
+      text: str(row.caption)?.slice(0, 600) ?? null,
+      metrics,
+      note: row.insights === undefined ? "no insights block came back for this media" : null,
+    });
+  }
+
+  return {
+    ok: true,
+    posts,
+    error: null,
+    insightsError:
+      posts.length && withoutInsights === posts.length
+        ? "The media came back with no insights block on any of it — that is the " +
+          "instagram_manage_insights permission on this account, not an absence of activity."
+        : null,
+  };
+}
+
+/* ==========================================================================
+ * ADS READS — added by the webanalytics area, 2026-09-06, for gap row 35.
+ *
+ * A SEPARATE SECTION, AND SEPARATE FROM THE PUBLISHING ONE ABOVE IT. Every
+ * function below is a GET, in the sense the file header means: the collector's
+ * confinement is intact and this section adds nothing that can write. It is
+ * apart from the collector only because it is on a different clock and reads a
+ * different depth — the ad, the ad set, the creative and the per-ad day —
+ * which the account-level collector deliberately does not fetch.
+ *
+ * WHAT IT READS, verified live against act_740050057705514 on 2026-09-06,
+ * every one of them answering 200 with the fields asked for:
+ *
+ *   GET /act_<id>/ads?fields=id,name,adset_id,campaign_id,effective_status,
+ *       configured_status,created_time,updated_time,issues_info,creative{…}
+ *   GET /act_<id>/adsets?fields=id,name,campaign_id,effective_status,
+ *       daily_budget,lifetime_budget,optimization_goal,billing_event,
+ *       bid_strategy,start_time,end_time
+ *   GET /act_<id>/insights?level=ad&time_increment=1&date_preset=last_30d
+ *   GET /act_<id>/insights?level=ad&time_range={since,until}   ×2
+ *
+ * THE TWO WINDOW CALLS ARE THE WHOLE REASON THIS EXISTS RATHER THAN A SUM.
+ * Fatigue is frequency rising while click-through falls, and NEITHER REACH NOR
+ * FREQUENCY CAN BE DERIVED FROM DAILY ROWS: Meta de-duplicates reach over the
+ * row's own window, so seven daily reaches do not add to a week's reach and
+ * seven daily frequencies do not average into a week's frequency. So the week
+ * and the week before are two explicit `time_range` requests, and what Meta
+ * says is what is stored, with the dates it covered.
+ *
+ * WHAT IS DELIBERATELY NOT ASKED FOR, because asking would invite a claim:
+ * there is no targeting specification here and no delivery-insights call, so
+ * NOTHING in this section or downstream of it may say an ad set is in the
+ * learning phase or that two ad sets overlap. Those are the two sentences the
+ * ad-health module's limitations block already refuses to say, and having ad
+ * set ids does not license either of them.
+ * ======================================================================== */
+
+/**
+ * Rows per listing, and per insights page.
+ *
+ * An ad account with more advertisements than this has a problem this page
+ * cannot help with anyway; the cap is what stops one account's history from
+ * being a thousand requests. NOTHING HERE FOLLOWS `paging.next`, which is the
+ * rest of this file's convention — but at AD level it truncates far sooner
+ * than it does at account level, so every reader below REPORTS reaching its
+ * own cap rather than returning a short list silently. A caller that does not
+ * know a list was cut will delete the rows it could not see.
+ */
+export const MAX_ADS = 200;
+export const MAX_ADSETS = 200;
+/** Insight rows per request. A 30-day ad-level daily series is (ads × days)
+ *  rows, so 200 advertisements would be 6,000 — well past this, and the cap is
+ *  reported for exactly that reason. */
+export const MAX_INSIGHT_ROWS = 1000;
+
+/** The window the per-ad daily series covers, and the length of each of the
+ *  two matched windows the fatigue view compares. */
+export const AD_DAYS_WINDOW = 30;
+export const AD_COMPARE_DAYS = 7;
+
+/** The insight fields asked for at ad level. `actions` is included because a
+ *  conversion attributed to one advertisement is the only outcome figure this
+ *  depth has; `cost_per_action_type` is NOT, because a per-ad cost per action
+ *  divides one small number by another and the account-level figure is the one
+ *  Ads Manager shows. */
+const AD_INSIGHT_FIELDS =
+  "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name," +
+  "impressions,reach,frequency,clicks,spend,ctr,cpm,actions";
+
+const AD_FIELDS =
+  "id,name,adset_id,campaign_id,effective_status,configured_status," +
+  "created_time,updated_time,issues_info," +
+  "creative{id,name,title,body,image_url,thumbnail_url,object_story_spec,call_to_action_type}";
+
+const ADSET_FIELDS =
+  "id,name,campaign_id,effective_status,daily_budget,lifetime_budget," +
+  "optimization_goal,billing_event,bid_strategy,start_time,end_time";
+
+/** One advertisement, as this box stores it. */
+export type AdRow = {
+  id: string;
+  adAccountId: string;
+  adsetId: string | null;
+  campaignId: string | null;
+  name: string | null;
+  /** effective_status: the parents and Meta's own vetoes folded in. */
+  status: string | null;
+  configuredStatus: string | null;
+  creativeId: string | null;
+  creativeName: string | null;
+  title: string | null;
+  body: string | null;
+  callToAction: string | null;
+  /** The destination this advertisement sends people to, wherever Meta put it
+   *  — the creative's own link spec, the story spec's link data, or the child
+   *  attachment. It is what the campaign-to-venture matcher reads. */
+  linkUrl: string | null;
+  /** SIGNED AND EXPIRING. Meta stamps an `oe=` deadline a few days out; this
+   *  is only as good as the row is fresh and nothing may cache it. */
+  imageUrl: string | null;
+  thumbnailUrl: string | null;
+  /** Meta's own issues_info, unedited, as JSON. A disapproval is the
+   *  platform's sentence about the platform's own policy. */
+  issues: string | null;
+  createdTime: string | null;
+  updatedTime: string | null;
+};
+
+export type AdSetRow = {
+  id: string;
+  adAccountId: string;
+  campaignId: string | null;
+  name: string | null;
+  status: string | null;
+  optimizationGoal: string | null;
+  billingEvent: string | null;
+  bidStrategy: string | null;
+  /** MINOR UNITS of the account's currency, as Meta sent them. Nothing
+   *  divides by a hundred without saying so. */
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  startTime: string | null;
+  endTime: string | null;
+};
+
+/** One ad's figures for one span — a day or an explicit window. */
+export type AdInsight = {
+  adId: string;
+  adsetId: string | null;
+  campaignId: string | null;
+  day: string | null;
+  impressions: number | null;
+  reach: number | null;
+  frequency: number | null;
+  clicks: number | null;
+  spend: number | null;
+  ctr: number | null;
+  cpm: number | null;
+  /** `{action_type: value}` as Meta sent it, or null when it sent none. */
+  actions: Record<string, number> | null;
+};
+
+type RawAd = {
+  id?: string;
+  name?: string;
+  adset_id?: string;
+  campaign_id?: string;
+  effective_status?: string;
+  configured_status?: string;
+  created_time?: string;
+  updated_time?: string;
+  issues_info?: unknown;
+  creative?: {
+    id?: string;
+    name?: string;
+    title?: string;
+    body?: string;
+    image_url?: string;
+    thumbnail_url?: string;
+    call_to_action_type?: string;
+    object_story_spec?: unknown;
+  };
+};
+
+type RawAdSet = {
+  id?: string;
+  name?: string;
+  campaign_id?: string;
+  effective_status?: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
+  optimization_goal?: string;
+  billing_event?: string;
+  bid_strategy?: string;
+  start_time?: string;
+  end_time?: string;
+};
+
+/**
+ * The destination URL out of a creative, wherever Meta put it.
+ *
+ * There are four places and Meta uses whichever matches how the ad was built:
+ * `link_data.link` on a link ad, `video_data.call_to_action.value.link` on a
+ * video, the first child attachment's link on a carousel, and
+ * `template_data.link` on a dynamic one. Exported and pure so the matcher's
+ * test can feed it the four shapes without a network.
+ */
+export function creativeLink(spec: unknown): string | null {
+  if (!spec || typeof spec !== "object") return null;
+  const s = spec as Record<string, Record<string, unknown> | undefined>;
+  const candidates: unknown[] = [];
+  for (const block of ["link_data", "video_data", "template_data"] as const) {
+    const data = s[block];
+    if (!data) continue;
+    candidates.push(data.link);
+    const cta = data.call_to_action as { value?: { link?: unknown } } | undefined;
+    candidates.push(cta?.value?.link);
+    const children = data.child_attachments;
+    if (Array.isArray(children))
+      for (const child of children) candidates.push((child as { link?: unknown })?.link);
+  }
+  for (const c of candidates) if (typeof c === "string" && /^https?:\/\//i.test(c)) return c;
+  return null;
+}
+
+/** Every advertisement in one ad account. */
+export async function ads(
+  adAccountId: string,
+  g: <T>(path: string) => Promise<T>,
+): Promise<{ rows: AdRow[]; capped: boolean }> {
+  const doc = await g<{ data?: RawAd[] }>(
+    `${adAccountId}/ads?fields=${encodeURIComponent(AD_FIELDS)}&limit=${MAX_ADS}`,
+  );
+  const out: AdRow[] = [];
+  for (const raw of doc.data ?? []) {
+    if (!raw?.id) continue;
+    const creative = raw.creative ?? {};
+    out.push({
+      id: raw.id,
+      adAccountId,
+      adsetId: str(raw.adset_id),
+      campaignId: str(raw.campaign_id),
+      name: str(raw.name),
+      status: str(raw.effective_status),
+      configuredStatus: str(raw.configured_status),
+      creativeId: str(creative.id),
+      creativeName: str(creative.name),
+      title: str(creative.title),
+      body: str(creative.body),
+      callToAction: str(creative.call_to_action_type),
+      linkUrl: creativeLink(creative.object_story_spec),
+      imageUrl: str(creative.image_url),
+      thumbnailUrl: str(creative.thumbnail_url),
+      issues:
+        Array.isArray(raw.issues_info) && raw.issues_info.length
+          ? JSON.stringify(raw.issues_info).slice(0, 4000)
+          : null,
+      createdTime: str(raw.created_time),
+      updatedTime: str(raw.updated_time),
+    });
+  }
+  return { rows: out, capped: (doc.data ?? []).length >= MAX_ADS };
+}
+
+/** Every ad set in one ad account. */
+export async function adSets(
+  adAccountId: string,
+  g: <T>(path: string) => Promise<T>,
+): Promise<{ rows: AdSetRow[]; capped: boolean }> {
+  const doc = await g<{ data?: RawAdSet[] }>(
+    `${adAccountId}/adsets?fields=${encodeURIComponent(ADSET_FIELDS)}&limit=${MAX_ADSETS}`,
+  );
+  const out: AdSetRow[] = [];
+  for (const raw of doc.data ?? []) {
+    if (!raw?.id) continue;
+    out.push({
+      id: raw.id,
+      adAccountId,
+      campaignId: str(raw.campaign_id),
+      name: str(raw.name),
+      status: str(raw.effective_status),
+      optimizationGoal: str(raw.optimization_goal),
+      billingEvent: str(raw.billing_event),
+      bidStrategy: str(raw.bid_strategy),
+      dailyBudget: num(raw.daily_budget),
+      lifetimeBudget: num(raw.lifetime_budget),
+      startTime: str(raw.start_time),
+      endTime: str(raw.end_time),
+    });
+  }
+  return { rows: out, capped: (doc.data ?? []).length >= MAX_ADSETS };
+}
+
+/** Turn Meta's `actions` array into a plain map, or null when it sent none. */
+function actionMap(rows: unknown): Record<string, number> | null {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const out: Record<string, number> = {};
+  for (const raw of rows) {
+    const r = raw as ActionRow;
+    const value = num(r.value);
+    if (!r.action_type || value === null) continue;
+    out[r.action_type] = value;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function insight(r: InsightRow & { ad_id?: string; adset_id?: string }): AdInsight | null {
+  const adId = str(r.ad_id);
+  if (!adId) return null;
+  return {
+    adId,
+    adsetId: str(r.adset_id),
+    campaignId: str(r.campaign_id),
+    day: str(r.date_start),
+    impressions: int(r.impressions),
+    reach: int(r.reach),
+    frequency: num(r.frequency),
+    clicks: int(r.clicks),
+    spend: num(r.spend),
+    ctr: num(r.ctr),
+    cpm: num((r as { cpm?: unknown }).cpm),
+    actions: actionMap(r.actions),
+  };
+}
+
+/**
+ * The per-ad DAILY series.
+ *
+ * `day` is Meta's own `date_start` on a `time_increment=1` row, which is the
+ * ad account's day in the ad account's timezone — never this box's. A day Meta
+ * did not report is a day that is absent, not a day measured at zero.
+ */
+export async function adDays(
+  adAccountId: string,
+  g: <T>(path: string) => Promise<T>,
+  days = AD_DAYS_WINDOW,
+): Promise<{ rows: AdInsight[]; capped: boolean }> {
+  const doc = await g<{ data?: (InsightRow & { ad_id?: string })[] }>(
+    `${adAccountId}/insights?date_preset=last_${days}d&level=ad&time_increment=1` +
+      `&fields=${encodeURIComponent(AD_INSIGHT_FIELDS)}` +
+      `&action_attribution_windows=${encodeURIComponent(ATTRIBUTION_WINDOWS)}&limit=${MAX_INSIGHT_ROWS}`,
+  );
+  const out: AdInsight[] = [];
+  for (const r of doc.data ?? []) {
+    const row = insight(r);
+    if (row?.day) out.push(row);
+  }
+  return { rows: out, capped: (doc.data ?? []).length >= MAX_INSIGHT_ROWS };
+}
+
+/**
+ * The per-ad figures for ONE EXPLICIT WINDOW.
+ *
+ * `since` and `until` are inclusive dates in the ad account's own timezone,
+ * and both are complete days: today is never in one, for `windows()`'s reason.
+ * Meta's `reach` and `frequency` on this row are de-duplicated over exactly
+ * this span and are meaningful for no other.
+ */
+export async function adWindow(
+  adAccountId: string,
+  g: <T>(path: string) => Promise<T>,
+  since: string,
+  until: string,
+): Promise<{ rows: AdInsight[]; capped: boolean }> {
+  const range = encodeURIComponent(JSON.stringify({ since, until }));
+  const doc = await g<{ data?: (InsightRow & { ad_id?: string })[] }>(
+    `${adAccountId}/insights?time_range=${range}&level=ad` +
+      `&fields=${encodeURIComponent(AD_INSIGHT_FIELDS)}` +
+      `&action_attribution_windows=${encodeURIComponent(ATTRIBUTION_WINDOWS)}&limit=${MAX_INSIGHT_ROWS}`,
+  );
+  const out: AdInsight[] = [];
+  for (const r of doc.data ?? []) {
+    const row = insight(r);
+    if (row) out.push({ ...row, day: null });
+  }
+  return { rows: out, capped: (doc.data ?? []).length >= MAX_INSIGHT_ROWS };
+}
+
+/**
+ * A reader bound to one connected Meta account.
+ *
+ * The transport is built here rather than exported piecemeal so the token
+ * still never leaves this file: the caller gets a function that takes a path
+ * and gets JSON, exactly as `collect()` builds for itself, and cannot see the
+ * bearer or the proof.
+ */
+export function readerFor(values: Record<string, string>): {
+  g: <T>(path: string) => Promise<T>;
+  proofed: boolean;
+} | null {
+  const token = parseLines(values.token)[0] ?? "";
+  if (!token) return null;
+  const app = parseApp(values.app);
+  const proof = app ? appSecretProof(token, app) : null;
+  return { g: <T>(path: string) => get<T>(path, token, proof), proofed: Boolean(proof) };
+}

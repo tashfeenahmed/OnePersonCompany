@@ -477,3 +477,375 @@ export async function verify(
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/* ==========================================================================
+ * DIMENSIONS, EVENTS AND QUERY STRINGS — added by the webanalytics area,
+ * 2026-09-06, for gap rows 32 and 33.
+ *
+ * EVERYTHING ABOVE THIS LINE STAYS EXACTLY AS IT WAS. The collector in
+ * `analytics/collect.ts` calls `stats`, `pageviews` and `metrics` and calls
+ * nothing here; this section is read only by
+ * `integrations/webanalytics/umami-collect.ts`. Two collectors, two clocks,
+ * one session helper — which is the whole reason this lives in this file
+ * rather than in a second module that would re-learn the login, the two
+ * authentication paths, the version-tolerant accessors and the `type=path`
+ * versus `type=url` rename the hard way.
+ *
+ * WHAT THE CONNECTED INSTANCE ACTUALLY ANSWERS, probed live against
+ * Umami 2.x (self-hosted, login auth) on 2026-09-06. This is a MEASUREMENT of
+ * one instance, not a claim about the product, and every reader below records
+ * which endpoint answered it so a different build's absence reads as absence
+ * rather than as nought:
+ *
+ *   /metrics?type=…   country device browser os language screen city region
+ *                     path title referrer query event tag   ANSWERED 200
+ *                     host url                               REFUSED 400
+ *   /events?event=<name>        raw event rows, `count` is the OCCURRENCES
+ *   /sessions?event=<name>      session rows, `count` is the PARTICIPANTS
+ *   /event-data/fields          property names, types and totals for the site
+ *   /event-data/events?event=   per-event property VALUES with their totals
+ *   /event-data/stats           how many events and properties exist at all
+ *   /stats?event=<name>         answered 200 with FIVE ZEROS — the filter is
+ *                               not honoured on this build, and a zero that
+ *                               looks like a measurement is the worst answer
+ *                               available. Nothing here calls it.
+ *
+ * WHAT EACH `y` COUNTS, and it is not one thing. Measured on three live sites
+ * by summing every row of a metric and comparing with `/stats`:
+ *
+ *   country device browser os language screen   sums to VISITORS
+ *       (543/527, 1167/1164, 1883/1883 — the shortfall is rows Umami dropped
+ *        because the field was null on that session, and it is reported as
+ *        `unattributed` rather than hidden)
+ *   referrer query path title                   Umami's own count for a
+ *       pageview-keyed metric. It is NOT the window's pageview total and this
+ *       code does not claim it is; it is comparable with ITSELF across
+ *       windows, which is all the surge heuristics need.
+ *
+ * So every row this section stores carries the population it counted, in
+ * words, and nothing downstream adds a visitor-counted row to a view-counted
+ * one.
+ * ======================================================================== */
+
+/**
+ * The dimensions the webanalytics collector reads, and what each one counts.
+ *
+ * `screen` is here because it is the one field on this API that can catch a
+ * browser nobody is looking at — see `webanalytics/bots.ts`. `referrer` is
+ * here even though `analytics/collect.ts` already stores a 30-day top twenty,
+ * because a surge is a comparison of two windows and that table holds one.
+ */
+export const DIMENSIONS = [
+  "country",
+  "device",
+  "browser",
+  "os",
+  "language",
+  "screen",
+  "referrer",
+] as const;
+export type Dimension = (typeof DIMENSIONS)[number];
+
+/** Which population a dimension's `y` counts. Measured, not assumed — see the
+ *  section header. */
+export const DIMENSION_COUNTS: Record<Dimension, "visitors" | "views"> = {
+  country: "visitors",
+  device: "visitors",
+  browser: "visitors",
+  os: "visitors",
+  language: "visitors",
+  screen: "visitors",
+  referrer: "views",
+};
+
+/**
+ * How many rows a dimensional read asks for.
+ *
+ * Far above `TOP_LIMIT` because these rows are a DISTRIBUTION rather than a
+ * ranking: a share is only meaningful against the whole, and a truncated tail
+ * makes every share too big.
+ *
+ * IT IS NOT ENOUGH FOR EVERY SITE, and an earlier version of this comment
+ * claimed it was. freellmapi.co's `screen` dimension returns exactly 500 rows
+ * in all three windows — the cap, not the distribution — which made its screen
+ * shares wrong against a short denominator AND made the route publish the
+ * missing tail as "sessions with no screen". So the cap is now REPORTED:
+ * `breakdown` returns `capped`, the flag is stored on every row of the block,
+ * the route publishes the tail as missing rather than as a null field, and the
+ * bot heuristics refuse to fire on a capped dimension because a share against
+ * an unknown denominator is not a share.
+ *
+ * The number stays 500 rather than rising: raising it makes the cap rarer
+ * without making it detectable, which is the failure this is fixing.
+ */
+export const DIMENSION_LIMIT = 500;
+
+/** How many event names one site's collection looks at in detail. Twelve
+ *  because each one costs two further requests (participants, properties) and
+ *  an events list past twelve is instrumentation nobody reads. */
+export const EVENT_DETAIL_LIMIT = 12;
+
+/** How many distinct values of one string property are kept. */
+export const PROPERTY_VALUE_LIMIT = 12;
+
+/** A raw metric row, before it is named. */
+const metricRows = (doc: unknown): { x?: unknown; y?: unknown }[] =>
+  (Array.isArray(doc) ? doc : ((doc as { data?: unknown } | null)?.data as unknown[]) ?? []) as {
+    x?: unknown;
+    y?: unknown;
+  }[];
+
+/**
+ * One dimension's distribution over one window, AND whether it is the whole of
+ * one.
+ *
+ * A row whose `x` is absent is Umami's own "(none)" bucket and is KEPT under
+ * that label, exactly as `metrics` keeps it: dropping it would make every
+ * share below it too large, which is the specific error this whole section
+ * exists to avoid.
+ *
+ * `capped` IS THE SAME ERROR ARRIVING BY A DIFFERENT DOOR. Umami answers at
+ * most `limit` rows and says nothing about a tail, so a block that came back
+ * exactly `limit` long is a block whose total is a floor rather than a total.
+ * The flag travels with the rows so that nothing downstream computes a share
+ * against it without knowing.
+ */
+export async function breakdown(
+  session: Session,
+  websiteId: string,
+  dimension: Dimension,
+  startAt: number,
+  endAt: number,
+  limit = DIMENSION_LIMIT,
+): Promise<{ rows: TopRow[]; capped: boolean }> {
+  const doc = await get(
+    session,
+    `/api/websites/${encodeURIComponent(websiteId)}/metrics` +
+      `?startAt=${startAt}&endAt=${endAt}&type=${dimension}&limit=${limit}`,
+  );
+  const raw = metricRows(doc);
+  const out: TopRow[] = [];
+  for (const r of raw) {
+    const count = num(r.y);
+    if (count === null) continue;
+    out.push({ name: typeof r.x === "string" && r.x.trim() ? r.x : "(none)", count });
+  }
+  /* The CAP is measured on what Umami sent, not on what survived parsing: a
+     row dropped here for an unreadable count is still a row Umami counted
+     towards the limit. */
+  return { rows: out.sort((a, b) => b.count - a.count), capped: raw.length >= limit };
+}
+
+/** The custom events fired in a window, with their OCCURRENCE counts. Never
+ *  a count of people — see `participants` below, which is a different call
+ *  against a different table. */
+export async function eventNames(
+  session: Session,
+  websiteId: string,
+  startAt: number,
+  endAt: number,
+  limit = 50,
+): Promise<TopRow[]> {
+  const doc = await get(
+    session,
+    `/api/websites/${encodeURIComponent(websiteId)}/metrics` +
+      `?startAt=${startAt}&endAt=${endAt}&type=event&limit=${limit}`,
+  );
+  const out: TopRow[] = [];
+  for (const r of metricRows(doc)) {
+    const count = num(r.y);
+    if (count === null || typeof r.x !== "string" || !r.x.trim()) continue;
+    out.push({ name: r.x, count });
+  }
+  return out.sort((a, b) => b.count - a.count);
+}
+
+/**
+ * HOW MANY DISTINCT SESSIONS FIRED ONE EVENT — the figure gap row 33 is about.
+ *
+ * `/sessions?event=<name>` answers a page of session rows and a `count` of the
+ * whole filtered set, so ONE request with `pageSize=1` buys the number and
+ * none of the rows. Verified live: `payment-completed` 358 occurrences / 358
+ * sessions, `checkout-started` 5,978 occurrences / 4,434 sessions. Those two
+ * being different by a third IS the gap — an events ranking alone would have
+ * reported the larger figure as though it were people.
+ *
+ * IT IS SESSIONS, NOT PEOPLE, and the endpoint that answered is returned so
+ * the document can say so. Umami's session identity is a hash of the site, the
+ * address and the user agent: one person on a phone and a laptop is two, and
+ * one office behind one address may be one. `null` means the endpoint refused
+ * — it is not nought, and it is not the occurrence count.
+ */
+export async function participants(
+  session: Session,
+  websiteId: string,
+  eventName: string,
+  startAt: number,
+  endAt: number,
+): Promise<{ count: number | null; endpoint: string; error: string | null }> {
+  const endpoint = "/sessions?event=";
+  try {
+    const doc = (await get(
+      session,
+      `/api/websites/${encodeURIComponent(websiteId)}/sessions` +
+        `?startAt=${startAt}&endAt=${endAt}&event=${encodeURIComponent(eventName)}&pageSize=1`,
+    )) as { count?: unknown } | null;
+    return { count: num(doc?.count), endpoint, error: null };
+  } catch (err) {
+    return { count: null, endpoint, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** One property value of one event, as `/event-data/events` reports it.
+ *  `dataType` is Umami's own integer; the names are in `PROPERTY_TYPES`. */
+export type PropertyValue = {
+  property: string;
+  dataType: number;
+  value: string;
+  total: number;
+};
+
+/** Umami's `data_type` integers. 4 is a date and 5 an array on the builds
+ *  seen; both are carried through as themselves rather than coerced. */
+export const PROPERTY_TYPES: Record<number, string> = {
+  1: "string",
+  2: "number",
+  3: "boolean",
+  4: "date",
+  5: "array",
+};
+
+/**
+ * Every property VALUE one event carried in a window, with how often.
+ *
+ * Umami has no aggregate for a numeric property — it answers the value list
+ * and the count of each — so the sum, mean and range this area publishes are
+ * computed from these rows by `webanalytics/store.ts` and are exact rather
+ * than sampled, PROVIDED the value list was not truncated. The truncation is
+ * reported rather than assumed away.
+ */
+export async function eventProperties(
+  session: Session,
+  websiteId: string,
+  eventName: string,
+  startAt: number,
+  endAt: number,
+): Promise<PropertyValue[]> {
+  const doc = await get(
+    session,
+    `/api/websites/${encodeURIComponent(websiteId)}/event-data/events` +
+      `?startAt=${startAt}&endAt=${endAt}&event=${encodeURIComponent(eventName)}`,
+  );
+  const out: PropertyValue[] = [];
+  for (const raw of Array.isArray(doc) ? doc : []) {
+    const r = raw as {
+      propertyName?: unknown;
+      dataType?: unknown;
+      propertyValue?: unknown;
+      total?: unknown;
+    };
+    const property = typeof r.propertyName === "string" ? r.propertyName : null;
+    const total = num(r.total);
+    if (!property || total === null) continue;
+    out.push({
+      property,
+      dataType: num(r.dataType) ?? 0,
+      value: typeof r.propertyValue === "string" ? r.propertyValue : String(r.propertyValue ?? ""),
+      total,
+    });
+  }
+  return out;
+}
+
+/** Whether this site has any event properties at all. One cheap request that
+ *  saves twelve when the answer is no. */
+export async function eventDataStats(
+  session: Session,
+  websiteId: string,
+  startAt: number,
+  endAt: number,
+): Promise<{ events: number | null; properties: number | null }> {
+  const doc = (await get(
+    session,
+    `/api/websites/${encodeURIComponent(websiteId)}/event-data/stats?startAt=${startAt}&endAt=${endAt}`,
+  )) as { events?: unknown; properties?: unknown } | null;
+  return { events: num(doc?.events), properties: num(doc?.properties) };
+}
+
+/**
+ * The query strings pageviews arrived with, as Umami stores them: VERBATIM,
+ * never split. The campaign that paid for a visit is sitting in here as text
+ * and this is the only place on the HTTP API it appears.
+ */
+export async function queryStrings(
+  session: Session,
+  websiteId: string,
+  startAt: number,
+  endAt: number,
+  limit = DIMENSION_LIMIT,
+): Promise<TopRow[]> {
+  const doc = await get(
+    session,
+    `/api/websites/${encodeURIComponent(websiteId)}/metrics` +
+      `?startAt=${startAt}&endAt=${endAt}&type=query&limit=${limit}`,
+  );
+  const out: TopRow[] = [];
+  for (const r of metricRows(doc)) {
+    const count = num(r.y);
+    if (count === null || typeof r.x !== "string" || !r.x.trim()) continue;
+    out.push({ name: r.x, count });
+  }
+  return out.sort((a, b) => b.count - a.count);
+}
+
+export type Utm = {
+  source: string | null;
+  medium: string | null;
+  campaign: string | null;
+  content: string | null;
+  term: string | null;
+};
+
+/**
+ * The five UTM parameters out of one raw query string.
+ *
+ * LOWERCASED ON THE KEY AND ON THE VALUE, so `?utm_Source=Google` and
+ * `?utm_source=google` are one row rather than two — workdash's probe made the
+ * same call for the same reason. `URLSearchParams` does the percent-decoding
+ * and the `+`-for-space that a hand-rolled regex gets wrong.
+ *
+ * A string with no UTM at all returns five nulls, and the caller drops it: a
+ * row of five nulls is every organic visit on the site and carries nothing.
+ */
+export function parseUtm(query: string): Utm {
+  const params = new URLSearchParams(query.replace(/^\?/, ""));
+  const pick = (key: string): string | null => {
+    for (const [k, v] of params) {
+      if (k.trim().toLowerCase() !== key) continue;
+      const value = v.trim().toLowerCase();
+      if (value) return value.slice(0, 200);
+    }
+    return null;
+  };
+  return {
+    source: pick("utm_source"),
+    medium: pick("utm_medium"),
+    campaign: pick("utm_campaign"),
+    content: pick("utm_content"),
+    term: pick("utm_term"),
+  };
+}
+
+/**
+ * A window of `days` COMPLETE days, ending `offset` days before today.
+ *
+ * `offset: 0` is the last `days` finished days; `offset: days` is the `days`
+ * before those. Built on `dayStart` so it keeps the one rule the whole
+ * integration keeps: TODAY IS NEVER IN A WINDOW, because a partial day drawn
+ * beside finished ones is a cliff that appears every morning.
+ */
+export function windowAt(days: number, offset = 0, from = new Date()) {
+  const end = dayStart(offset, from) - 1;
+  const start = dayStart(offset + days, from);
+  return { start, end, startDay: isoDay(start), endDay: isoDay(end) };
+}

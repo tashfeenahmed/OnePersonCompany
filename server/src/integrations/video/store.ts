@@ -23,6 +23,7 @@ import { existsSync } from "node:fs";
 import { db, now, ventureRowById } from "../../db.ts";
 import type { Asset } from "./footage.ts";
 import type { Script } from "./script.ts";
+import { framingRows, shapeFraming, type FramingRow } from "../videoplus/store.ts";
 
 export type JobRow = {
   run_id: string;
@@ -208,8 +209,25 @@ export function shapeClip(r: ClipRow) {
   };
 }
 
-export function shapeJob(r: JobRow, clips?: ClipRow[]) {
+/**
+ * One job on the wire.
+ *
+ * NO CLIPS, NO FRAMING LOOKUP. How a clip was framed has to travel with it — a
+ * page that drew a tracked crop and a fixed centre crop identically would be
+ * claiming this box followed a subject it never looked for — but this was
+ * reading `videoplus_clip_framing` unconditionally, so `GET /api/video?limit=50`
+ * issued fifty extra selects to build fifty maps, and forty-odd of them were
+ * empty: only a shorts job has clips at all, and the LIST passes `clips: []`
+ * because it draws none of them. Now the list costs nothing and the detail
+ * route costs one read. `framingFor` lets a caller that already has the rows
+ * hand them in rather than have them fetched again.
+ */
+export function shapeJob(r: JobRow, clips?: ClipRow[], framingFor?: FramingRow[]) {
   const v = r.venture_id ? ventureRowById(r.venture_id) : undefined;
+  const rows = clips ?? clipRows(r.run_id);
+  const framing = new Map(
+    (framingFor ?? (rows.length ? framingRows(r.run_id) : [])).map((f) => [f.idx, shapeFraming(f)]),
+  );
   return {
     runId: r.run_id,
     ventureId: r.venture_id,
@@ -236,7 +254,7 @@ export function shapeJob(r: JobRow, clips?: ClipRow[]) {
     error: r.error,
     file: r.path ? `/api/video/${r.run_id}/file` : null,
     onDisk: r.path ? existsSync(r.path) : false,
-    clips: (clips ?? clipRows(r.run_id)).map(shapeClip),
+    clips: rows.map((c) => ({ ...shapeClip(c), framing: framing.get(c.idx) ?? null })),
   };
 }
 

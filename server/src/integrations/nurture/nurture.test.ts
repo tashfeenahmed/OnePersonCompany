@@ -24,16 +24,20 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import {
   allowedFrom,
   dueStep,
   notAStyleRule,
+  purchaseUnreachable,
+  truthy,
   ungrounded,
   verdict,
   type Fact,
   type Observed,
   type SequenceStep,
 } from "./validate.ts";
+import { MIGRATIONS } from "./migrations.ts";
 import { parseReply } from "./wording.ts";
 import { messageIdHeader } from "./resend-send.ts";
 import { parseRules } from "./style.ts";
@@ -267,4 +271,137 @@ test("a Message-ID header is bracketed, and a Gmail message id is not one", () =
   assert.equal(messageIdHeader("19936f0a1b2c3d4e"), null);
   assert.equal(messageIdHeader(null), null);
   assert.equal(messageIdHeader("a@b\r\nBcc: victim@x.com"), null);
+});
+
+/* ------------------------------------------ regressions from the review */
+
+/**
+ * P1-1. `MONEY_CODE_RE` used to match any `<number> <three letters>` and then
+ * STRIP every match — currency or not — before the date and number checks. In
+ * ordinary prose almost every number and every abbreviated date sits beside a
+ * three-letter word, so the gate this file exists to be was largely
+ * inoperative. These are the reviewer's own sentences, against an EMPTY packet:
+ * every one of them must be refused, and none of them is about money.
+ */
+test("a number or a date beside a three-letter word is still checked", () => {
+  const empty = allowedFrom([]);
+  for (const [sentence, expect] of [
+    ["We saved you 500 per month.", "500"],
+    ["You have 300 new users waiting.", "300"],
+    ["The trial ends 12 Sep.", "12 Sep"],
+    ["Deadline 3 Oct, no later.", "3 Oct"],
+  ] as const) {
+    const bad = ungrounded(sentence, empty);
+    assert.ok(bad?.includes(expect), `${sentence} → ${bad}`);
+  }
+});
+
+test("a non-currency triple no longer eats the real amount after it", () => {
+  /* `matchAll` continues from the end of each match, so "you 4000" used to be
+     consumed and skipped and "4000 usd" never seen as money at all. With the
+     packet carrying 4000 EUR, the dollar figure must still be refused. */
+  const allowed = allowedFrom([{ key: "p", value: 4000, unit: "EUR", source: "t", observed_at: null }]);
+  const bad = ungrounded("We refunded you 4000 usd already.", allowed);
+  assert.ok(bad?.includes("4000 usd"), bad ?? "expected a currency refusal");
+  assert.equal(ungrounded("We refunded you 4000 eur already.", allowed), null);
+});
+
+/**
+ * P1-2. `URL_RE` requires a scheme, and nothing else read hosts out of a body —
+ * so a bare domain, which is how a link usually appears in prose and which
+ * every mail client autolinks, was never checked at all.
+ */
+test("a link with no scheme is checked like any other", () => {
+  const empty = allowedFrom([]);
+  const bad = ungrounded("Read more at competitor-phish.com/deal", empty);
+  assert.ok(bad?.includes("competitor-phish.com"), bad ?? "expected a host refusal");
+  assert.ok(ungrounded("Have a look at example.org", empty));
+  /* A host the packet carries passes with or without a scheme, and an address
+     is not read as a link — it has already been checked as an address. */
+  const allowed = allowedFrom([
+    { key: "w", value: "https://example-app-1.example.test", source: "t", observed_at: null },
+    { key: "a", value: "mary@example.com", source: "t", observed_at: null },
+  ]);
+  assert.equal(ungrounded("See example-app-1.example.test and example-app-1.example.test/pricing.", allowed), null);
+  assert.equal(ungrounded("Write to mary@example.com.", allowed), null);
+});
+
+/**
+ * P1-3. `dryRun` was a `=== true` identity check on a parameter the skill
+ * publishes as a string, and `routes/skills.ts` forwards arguments verbatim —
+ * so an agent following the schema sent "true", the check never fired, and an
+ * action documented as "file nothing" filed a real row that then held the
+ * address down for the whole per-address floor.
+ */
+test("a flag arriving as a string is read as a flag", () => {
+  for (const yes of [true, "true", "True", " yes ", "on", "1", 1]) assert.equal(truthy(yes), true, String(yes));
+  for (const no of [false, "false", "no", "off", "0", "", undefined, null, {}, "maybe"])
+    assert.equal(truthy(no), false, String(no));
+});
+
+/**
+ * P1-4. The once-a-day row was written at the END of the pass, so the primary
+ * key did not serialise anything: the timer fires every ten minutes, a pass can
+ * take longer, and both runners saw no row for today. The claim is now an
+ * INSERT OR IGNORE before any work, and this is that property — over the real
+ * migration SQL, in memory, with no app database.
+ */
+test("the day row is a claim: the second writer loses the race", () => {
+  const db = new DatabaseSync(":memory:");
+  const sql = MIGRATIONS.find((m) => m.name === "282_nurture_enrollments")!.sql;
+  db.exec(sql);
+  const claim = (trigger: string) =>
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO nurture_passes (day, ran_at, ok, enrolled, drafted, stopped, skipped, trigger, error)
+         VALUES (?, ?, 1, 0, 0, 0, '[]', ?, NULL)`,
+      )
+      .run("2026-09-06", "2026-09-06T08:00:00.000Z", trigger).changes;
+  assert.equal(Number(claim("timer")), 1);
+  assert.equal(Number(claim("owner")), 0, "a second runner on the same day must claim nothing");
+  assert.equal(Number(claim("agent")), 0);
+  /* And the counters accumulate onto the claimed row rather than replacing it,
+     so a forced second pass does not erase what the first one put in the
+     queue. */
+  db.prepare("UPDATE nurture_passes SET drafted = drafted + ? WHERE day = ?").run(3, "2026-09-06");
+  db.prepare("UPDATE nurture_passes SET drafted = drafted + ? WHERE day = ?").run(2, "2026-09-06");
+  assert.equal(
+    (db.prepare("SELECT drafted FROM nurture_passes WHERE day = ?").get("2026-09-06") as { drafted: number }).drafted,
+    5,
+  );
+  db.close();
+});
+
+/**
+ * P1-5. `paying: null` meant both "this address is not in a connected product's
+ * users document" and "no product here publishes one at all", and neither set
+ * `unreachable` — so a sequence stopping on a purchase kept drafting when the
+ * purchase question could not be asked, which is exactly what `verdict`'s
+ * header says must never happen.
+ */
+test("a purchase question that cannot be asked holds the enrolment", () => {
+  const cannot =
+    "no product on this install publishes a users document (the `users` plugin is not connected), so nothing here knows who signed up or who is paying";
+  const absent = "no connected product's users document carries this address";
+
+  assert.ok(purchaseUnreachable(["purchased"], cannot)?.includes("cannot check whether they have bought"));
+  /* A person simply not in the document is a FACT about them, not silence. */
+  assert.equal(purchaseUnreachable(["purchased"], absent), null);
+  /* And a sequence that does not stop on a purchase is not held by it. */
+  assert.equal(purchaseUnreachable(["replied"], cannot), null);
+
+  const held = verdict(observed({ paying: null, unreachable: purchaseUnreachable(["purchased"], cannot) }), [
+    "purchased",
+  ]);
+  assert.ok("hold" in held, JSON.stringify(held));
+  assert.deepEqual(verdict(observed({ paying: null }), ["purchased"]), { go: true });
+});
+
+/** P2-10. The name check only caught `Xxxx`, so a product name and two common
+ *  shapes of a person's name reached the wording prompt. */
+test("a style rule refuses every shape of a capitalised name", () => {
+  assert.ok(notAStyleRule("sound more like Example App 4")!.includes("name"));
+  assert.ok(notAStyleRule("greet them the way you greet Jane-Smith")!.includes("name"));
+  assert.ok(notAStyleRule("write the way ACME writes")!.includes("name"));
+  assert.equal(notAStyleRule("keep the greeting to one word"), null);
 });

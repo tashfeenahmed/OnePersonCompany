@@ -142,9 +142,14 @@ export function Pnl() {
           <div className="text-[12.5px] font-medium">Nobody's margin is carrying</div>
           <div className="mt-1 text-[19px] tabular-nums">{currencies(d.ledger.unallocatedShared)}</div>
           <ul className="text-muted-foreground mt-1.5 space-y-0.5 text-[11.5px]">
+            {/* THE REMAINDER, NOT THE WHOLE BILL. The heading's total is the
+                unallocated part, so a 90%-allocated €7.09 box printed as
+                "€7.09" beside a total of €0.71 read as a contradiction — and
+                as a much larger hole than there is. */}
             {d.ledger.unallocatedLines.slice(0, 6).map((l) => (
               <li key={l.expenseId}>
-                {l.label} — {amount(l.monthly, l.currency)}{l.allocated > 0 ? ` (${pct(l.allocated)} assigned)` : ""}
+                {l.label} — {amount(l.monthly === null ? null : l.monthly * (1 - l.allocated), l.currency)}
+                {l.allocated > 0 ? ` of ${amount(l.monthly, l.currency)}, ${pct(l.allocated)} assigned` : ""}
               </li>
             ))}
           </ul>
@@ -155,9 +160,29 @@ export function Pnl() {
         </div>
       </section>
 
+      {/* MODEL SPEND IS DRAWN WHETHER OR NOT A MACHINE HAS A POWER PROFILE.
+          It used to live inside the electricity block, so on a box with no
+          profile — the ordinary state — the figure was fetched and never
+          shown. The electricity cards sit beside it when there are any; the
+          point of the pairing is the comparison, and half of it is always
+          available. */}
+      <section className="mt-3">
+        <div className="text-[12.5px] font-medium">Model spend, and what the local machines drew</div>
+        <p className="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">
+          Model spend through this box's runtime in {d.month}: {amount(d.modelSpend.usd, "USD")} over{" "}
+          {d.modelSpend.tokens.toLocaleString()} tokens in {d.modelSpend.calls} calls. {d.modelSpend.note}
+        </p>
+        {d.power.length === 0 && (
+          <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+            No machine has a power profile, so there is no electricity figure to set beside that. Local inference
+            will keep looking free until one is typed in on the Power tab.
+          </p>
+        )}
+      </section>
+
       {d.power.length > 0 && (
         <section className="mt-3">
-          <div className="text-[12.5px] font-medium">Electricity, beside the model spend</div>
+          <div className="text-[12.5px] font-medium">Electricity</div>
           <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
             {d.power.map((p) => (
               <div key={p.machineId} className="bg-card rounded-[10px] border px-3.5 py-2.5">
@@ -172,10 +197,6 @@ export function Pnl() {
               </div>
             ))}
           </div>
-          <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
-            Model spend through this box's runtime in {d.month}: {amount(d.modelSpend.usd, "USD")} over{" "}
-            {d.modelSpend.tokens.toLocaleString()} tokens in {d.modelSpend.calls} calls. {d.modelSpend.note}
-          </p>
         </section>
       )}
 

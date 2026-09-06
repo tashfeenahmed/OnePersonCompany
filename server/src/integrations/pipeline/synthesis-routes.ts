@@ -8,13 +8,21 @@
  * dropped` is therefore an ordinary answer with the gate's own sentence on
  * every row.
  *
- * `POST /run` COSTS REAL MONEY. One model call per venture, against the whole
- * evidence packet. It is not marked destructive — filing a board card is
- * reversible, and the card says on its face that it is a proposal — but it is
- * the only route here that spends anything, and it says so.
+ * `POST /run` COSTS REAL MONEY and `POST /plan` cannot. One model call per
+ * venture, against the whole evidence packet. `/run` refuses the word `dry`
+ * outright and names `/plan`; `/plan` hard-codes it and reads nothing from the
+ * request. Two routes rather than a boolean, because the skills proxy sends
+ * every parameter as a STRING and a route testing `body.dry === true` reads
+ * `"true"` as false — the bug that published a real Facebook post in wave 1 of
+ * this build, and the bug this route had until it was reviewed.
+ *
+ * `/run` is not marked destructive — filing a board card is reversible, and the
+ * card says on its face that it is a proposal — but it is the only route here
+ * that spends anything, and it says so.
  */
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { ventureRow } from "../../db.ts";
+import { readBool, refuseDry } from "./params.ts";
 import { packetFor, measuredKeys } from "./evidence.ts";
 import {
   DEFAULT_PER_NIGHT,
@@ -61,6 +69,13 @@ synthesisRoutes.get("/", (c) => {
     limit: Number.isFinite(limit) ? limit : 50,
   });
 
+  /* THE STORED PACKETS ARE OFF BY DEFAULT. Each one is the whole evidence
+     document the model saw — kilobytes — and the venture Overview asks for
+     twelve rows on every render. The list carries the evidence LINE, which is
+     what a reader needs; ask for `packet=full` (or read one proposal) when the
+     question is "what exactly was it looking at". */
+  const withPacket = (c.req.query("packet") ?? "").trim().toLowerCase() === "full";
+
   return c.json({
     config: config(),
     /** Whose turn it is on the next pass, in least-recently-covered order. */
@@ -71,7 +86,7 @@ synthesisRoutes.get("/", (c) => {
        that business's turn, and letting it would mean a curious afternoon
        silently pushed three ventures to the back of the queue. */
     coverage: coverage(),
-    proposals: rows.map(shapeProposal),
+    proposals: rows.map((r) => shapeProposal(r, { packet: withPacket })),
     filed: rows.filter((r) => r.verdict === "filed").length,
     dropped: rows.filter((r) => r.verdict === "dropped").length,
     notes: {
@@ -80,9 +95,10 @@ synthesisRoutes.get("/", (c) => {
         "reasons are that it was already on the board and that it rested on evidence this box does " +
         "not measure for that venture.",
       evidence:
-        "`packet` on each row is the evidence AS IT WAS when the proposal was made. It is stored " +
-        "rather than re-read, because the figure that justified an action on Tuesday is a different " +
-        "figure on Friday.",
+        "`evidenceLine` on each row is the figure the proposal rests on, quoted from the packet at " +
+        "the time. The whole packet is stored too but is NOT returned by default — add `packet=full` " +
+        "for it. Either way it is a snapshot: the figure that justified an action on Tuesday is a " +
+        "different figure on Friday, so never quote it as the current number.",
       cards:
         "A filed proposal is an ordinary board card in Backlog, tagged in its body as a proposal. " +
         "Nothing has been done; deleting the card is the way to decline it.",
@@ -114,24 +130,44 @@ synthesisRoutes.get("/evidence/:key", async (c) => {
   });
 });
 
-synthesisRoutes.post("/run", async (c) => {
-  const body = (await c.req.json().catch(() => null)) as { ventureId?: unknown; venture?: unknown; dry?: unknown } | null;
-  const key = typeof body?.ventureId === "string" ? body.ventureId : typeof body?.venture === "string" ? body.venture : null;
+/** Shared by `/run` and `/plan`, which differ in exactly one hard-coded
+ *  argument. Neither reads `dry` from anywhere. */
+async function pass(c: Context, dry: boolean) {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+
+  if (!dry) {
+    const refusal = refuseDry(body, "POST /api/synthesis/plan");
+    if (refusal) return c.json({ error: refusal }, 400);
+  }
+
+  const key =
+    typeof body?.ventureId === "string" ? body.ventureId : typeof body?.venture === "string" ? body.venture : null;
   if (!key) return c.json({ error: "`ventureId` names the venture to run the pass for." }, 400);
   const v = ventureRow(key);
   if (!v) return c.json({ error: "No venture by that id or slug." }, 404);
 
-  const out = await passForVenture(v.id, { runId: null, dry: body?.dry === true });
+  const out = await passForVenture(v.id, { runId: null, dry });
   return c.json(
     {
       ...out,
-      note: out.ran
-        ? "The pass ran. Filed proposals are board cards in Backlog; dropped ones are on the proposals page with the gate's reason."
-        : "Nothing was asked of the model — see `why`.",
+      note: dry
+        ? "Nothing was asked of the model and nothing was filed. `packet` is the evidence as it stands."
+        : out.ran
+          ? "The pass ran. Filed proposals are board cards in Backlog; dropped ones are on the proposals page with the gate's reason."
+          : "Nothing was asked of the model — see `why`.",
     },
     out.ran ? 201 : 200,
   );
-});
+}
+
+/** RUN IT, FOR REAL. One model call over the whole packet, and board cards for
+ *  whatever survives the gate. It refuses a `dry` field rather than parsing
+ *  one — see the file header. */
+synthesisRoutes.post("/run", (c) => pass(c, false));
+
+/** REHEARSE IT. `dry` is the literal `true` below and comes from nowhere else,
+ *  so there is no request this route can receive that asks a model anything. */
+synthesisRoutes.post("/plan", (c) => pass(c, true));
 
 /** Proposals on or off for one venture. A portfolio has businesses in it that
  *  are parked or sold, and a global switch would make the owner choose between
@@ -139,9 +175,12 @@ synthesisRoutes.post("/run", async (c) => {
 synthesisRoutes.patch("/ventures/:key", async (c) => {
   const v = ventureRow(c.req.param("key"));
   if (!v) return c.json({ error: "No venture by that id or slug." }, 404);
-  const body = (await c.req.json().catch(() => null)) as { proposals?: unknown } | null;
-  if (typeof body?.proposals !== "boolean")
-    return c.json({ error: "`proposals` is true or false." }, 400);
-  setProposals(v.id, body.proposals);
-  return c.json({ ventureId: v.id, venture: v.name, proposals: body.proposals });
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  /* Through `readBool`, which takes the STRING the skills proxy sends. This
+     route used to demand `typeof === "boolean"` and so answered 400 to every
+     call an agent could make: the action could never once succeed. */
+  const read = readBool(body?.proposals, "proposals");
+  if (!read.ok) return c.json({ error: read.error }, 400);
+  setProposals(v.id, read.value === true);
+  return c.json({ ventureId: v.id, venture: v.name, proposals: read.value === true });
 });

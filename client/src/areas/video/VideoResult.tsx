@@ -40,6 +40,18 @@ export function VideoResult({ runId }: { runId: string }) {
   return <VideoPanel job={job} />;
 }
 
+/** The six ways a window can come to exist, each in the words that say how
+ *  much was actually known. The last three are cuts rather than highlights and
+ *  the page must never draw them as though a model had chosen them. */
+const CHOSEN_BY: Record<string, string> = {
+  transcript: "chosen from the site's own timed subtitles",
+  words: "chosen from a transcript timed word by word on this machine",
+  speech: "chosen from a transcript with no timestamps",
+  density: "found by arithmetic on the word timings — not a judgement about what is interesting",
+  scenes: "starts at a real scene change — a clean cut, not a chosen moment",
+  spacing: "cut at an even interval — not chosen from content",
+};
+
 export function VideoPanel({ job }: { job: VideoJob }) {
   const faceless = job.format === "faceless";
   return (
@@ -97,12 +109,25 @@ export function VideoPanel({ job }: { job: VideoJob }) {
                 {" · "}
                 {/* THE HONESTY LINE. `spacing` is not highlight selection and
                     is never drawn as though it were — see the migration. */}
-                {c.chosenBy === "transcript"
-                  ? "chosen from the subtitles"
-                  : c.chosenBy === "speech"
-                    ? "chosen from a transcript with no timestamps"
-                    : "cut at an even interval — not chosen from content"}
+                {CHOSEN_BY[c.chosenBy] ?? "cut at an even interval — not chosen from content"}
               </div>
+              {/* HOW THE FRAME WAS CHOSEN, and the fixed case carries its own
+                  limitation. A tracked crop and a centre crop are not the same
+                  product and a page that drew them identically would be
+                  claiming this box followed a subject it never looked for. */}
+              {c.framing && (
+                <div
+                  className={
+                    c.framing.mode === "tracked"
+                      ? "text-muted-foreground text-[11.5px]"
+                      : "text-warn border-line-soft border-l-2 pl-2 text-[11.5px]"
+                  }
+                >
+                  {c.framing.mode === "tracked"
+                    ? `Tracked crop — followed measured motion across ${c.framing.samples ?? 0} sampled frames, travelling ${c.framing.driftPx ?? 0}px. Not face detection.`
+                    : `Fixed centre crop — anything outside the middle of the source is not in this clip. ${c.framing.note ?? ""}`}
+                </div>
+              )}
               {c.reason && (
                 <div className="text-muted-foreground text-[11.5px] italic">{c.reason}</div>
               )}

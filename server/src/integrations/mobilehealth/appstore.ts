@@ -22,7 +22,7 @@
  * differently, which is exactly why readiness is recorded PER REPORT rather
  * than per account:
  *
- *   not requested  no ONGOING request exists — nothing will ever arrive
+ *   not_requested  no ONGOING request exists — nothing will ever arrive
  *   processing     the report is listed and Apple has produced no instance
  *   available      instances exist and were downloaded
  *   delayed        instances exist but the newest is older than Apple's own
@@ -61,6 +61,7 @@ import {
   ANALYTICS_REPORTS,
   appStoreReview,
   foldAnalytics,
+  snake,
   parseAnalyticsTsv,
   versionPhase,
 } from "./parsers.ts";
@@ -364,7 +365,7 @@ async function ingestAnalytics(
         accountId,
         app: app.id,
         report: `analytics/${name}`,
-        state: "requested",
+        state: "not_requested",
         detail:
           "no ONGOING analyticsReportRequest exists for this app, so Apple generates nothing. " +
           "POST /api/mobilehealth/ios/request with this app id to create one; the first report " +
@@ -480,11 +481,15 @@ async function ingestAnalytics(
           accountId,
           app: app.id,
           day: f.day,
-          dimension: f.dimension === "(all)" ? "(all)" : normaliseDim(f.dimension),
+          dimension: f.dimension === "(all)" ? "(all)" : snake(f.dimension),
           value: f.value,
-          metric: `${spec.key}.${normaliseDim(f.metric)}`,
+          metric: `${spec.key}.${snake(f.metric)}`,
           amount: f.amount,
-          unit: spec.unit,
+          /* THE UNIT IS THE METRIC'S, NOT THE REPORT'S. One Apple report
+             carries a count of events and a count of the distinct devices
+             behind them; stamping the report's name on both would have
+             labelled `Unique Devices` as "sessions" or "crashes". */
+          unit: f.unit,
           report: name,
         })),
       );
@@ -505,7 +510,7 @@ async function ingestAnalytics(
               day: f.day,
               source: `appstore-analytics:${name}`,
               metric: "crashes",
-              dimension: f.dimension === "(all)" ? "(all)" : normaliseDim(f.dimension),
+              dimension: f.dimension === "(all)" ? "(all)" : snake(f.dimension),
               value: f.value,
               amount: f.amount,
               unit: "crashes",
@@ -546,12 +551,6 @@ async function ingestAnalytics(
     if (downloaded) notes.push(`${app.name}: ${name} — ${downloaded} new instance(s), ${rows} rows`);
   }
 }
-
-/** "Download Type" -> "download_type". The dimension names stored are Apple's
- *  own, in snake case, so a route never has to guess whether a slice was
- *  called `Territory` or `territory`. */
-const normaliseDim = (s: string) =>
-  s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
 /* ------------------------------------------------------------- the pass */
 

@@ -15,6 +15,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  ANALYTICS_METRIC_KINDS,
+  ANALYTICS_REPORTS,
   CRASH_METRICS,
   INSTALL_METRICS,
   RATING_METRICS,
@@ -243,7 +245,7 @@ test("Apple's analytics TSV folds per dimension without crossing them", () => {
   assert.equal(rows[0]!.appappleidentifier, "1000000000");
 
   const { folded, missingColumns } = foldAnalytics(rows, {
-    metrics: ["Counts"],
+    metrics: { Counts: { columns: ["Counts"], unit: "downloads", kind: "event" } },
     dims: ["Download Type", "Territory", "Device", "App Version"],
   });
   assert.deepEqual(missingColumns, []);
@@ -266,7 +268,10 @@ test("Apple's analytics TSV folds per dimension without crossing them", () => {
 
 test("foldAnalytics names the columns Apple did not send", () => {
   const { missingColumns } = foldAnalytics(parseAnalyticsTsv(APPLE_DOWNLOADS), {
-    metrics: ["Counts", "Unique Devices"],
+    metrics: {
+      Counts: { columns: ["Counts"], unit: "downloads", kind: "event" },
+      "Unique Devices": { columns: ["Unique Devices"], unit: "devices", kind: "level" },
+    },
     dims: ["Territory"],
   });
   assert.deepEqual(missingColumns, ["Unique Devices"]);
@@ -390,4 +395,129 @@ test("the star histogram always carries all five keys", () => {
   const hist = starHistogram([{ rating: 5 }, { rating: 5 }, { rating: 1 }, { rating: null }]);
   assert.deepEqual(hist, { "1": 1, "2": 0, "3": 0, "4": 0, "5": 2 });
   assert.deepEqual(starHistogram([]), { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 });
+});
+
+test("a daily average rating of 0.0 is nobody rating, not zero stars", () => {
+  const rows = parseDimension(RATINGS_OVERVIEW, {
+    dimension: "(all)",
+    metrics: RATING_METRICS,
+  });
+
+  /*
+    Google writes 0.0 into "Daily Average Rating" on a day nobody rated the
+    app — the fixture has exactly that on 2026-08-05, beside a running total
+    of 4.5 — and a star rating cannot be zero on a scale that starts at one.
+    So the 5th produces NO rating_daily row at all and the 6th produces its
+    real 5.0. Publishing the zero is the precise silent zero this area exists
+    to prevent: an agent handed `rating_daily: 0 stars` will quote it.
+  */
+  assert.deepEqual(
+    rows.filter((r) => r.metric === "rating_daily").map((r) => [r.day, r.amount]),
+    [["2026-08-06", 5]],
+  );
+
+  // The running total is untouched — it is a different column and a real 4.5.
+  assert.equal(rows.filter((r) => r.metric === "rating_total").length, 2);
+
+  // And the rule is about STARS, not about zero: a measured zero install is a
+  // fact and still produces its row.
+  const installs = parseDimension(INSTALLS_COUNTRY, {
+    dimension: "country",
+    metrics: INSTALL_METRICS,
+  });
+  assert.ok(
+    installs.some((r) => r.metric === "installs" && r.amount === 0),
+    "a zero install is a measurement and is kept",
+  );
+});
+
+test("a rating column sliced by country drops its zeroes too", () => {
+  const byCountry = [
+    "Date,Package name,Country,Daily Average Rating,Total Average Rating",
+    "2026-08-05,co.freellmapi.app,PK,0.0,4.5",
+    "2026-08-05,co.freellmapi.app,US,4.0,4.5",
+  ].join("\n");
+  const rows = parseDimension(byCountry, { dimension: "country", metrics: RATING_METRICS });
+  assert.deepEqual(
+    rows.filter((r) => r.metric === "rating_daily").map((r) => [r.value, r.amount]),
+    [["US", 4]],
+  );
+});
+
+test("Apple's unique counts are LEVELS with their own unit, never summable events", () => {
+  /*
+    `Unique Devices`, `Unique Counts` and `Paying Users` are distinct WITHIN A
+    DAY. Thirty of them added counts one device up to thirty times — the exact
+    arithmetic this area's stability rules forbid for `distinctUsers` — and a
+    report-wide unit would also have labelled `Unique Devices` as "sessions"
+    or "crashes" depending on which file it came out of.
+  */
+  const sessions = ANALYTICS_REPORTS["App Sessions Standard"]!;
+  assert.equal(sessions.metrics.Sessions!.kind, "event");
+  assert.equal(sessions.metrics.Sessions!.unit, "sessions");
+  assert.equal(sessions.metrics["Unique Devices"]!.kind, "level");
+  assert.equal(sessions.metrics["Unique Devices"]!.unit, "devices");
+
+  const crashes = ANALYTICS_REPORTS["App Crashes"]!;
+  assert.equal(crashes.metrics.Crashes!.unit, "crashes");
+  // The same column in a different report keeps its OWN unit rather than the
+  // report's — this is what "sessions"/"crashes" mislabelling looked like.
+  assert.equal(crashes.metrics["Unique Devices"]!.unit, "devices");
+
+  assert.equal(ANALYTICS_REPORTS["App Store Purchases Standard"]!.metrics["Paying Users"]!.kind, "level");
+  assert.equal(
+    ANALYTICS_REPORTS["App Store Discovery and Engagement Standard"]!.metrics["Unique Counts"]!.kind,
+    "level",
+  );
+
+  // Every metric that is not an event is reachable under the key the table
+  // actually holds, so a route cannot miss one.
+  assert.equal(ANALYTICS_METRIC_KINDS["sessions.unique_devices"], "level");
+  assert.equal(ANALYTICS_METRIC_KINDS["engagement.unique_counts"], "level");
+  assert.equal(ANALYTICS_METRIC_KINDS["installs.unique_devices"], "level");
+  assert.equal(ANALYTICS_METRIC_KINDS["purchases.paying_users"], "level");
+  assert.equal(ANALYTICS_METRIC_KINDS["downloads.counts"], "event");
+  assert.equal(ANALYTICS_METRIC_KINDS["crashes.crashes"], "event");
+  // The map is derived from the report definitions, so it can never be short.
+  const declared = Object.values(ANALYTICS_REPORTS).reduce(
+    (n, r) => n + Object.keys(r.metrics).length,
+    0,
+  );
+  assert.equal(Object.keys(ANALYTICS_METRIC_KINDS).length, declared);
+});
+
+test("foldAnalytics stamps each metric's own unit and kind on every row", () => {
+  const rows = parseAnalyticsTsv(
+    [
+      "Date\tApp Name\tApp Apple Identifier\tApp Version\tDevice\tSessions\tUnique Devices",
+      "2026-08-24\tExample App 11\t1000000000\t1.0\tiPhone\t40\t9",
+      "2026-08-25\tExample App 11\t1000000000\t1.0\tiPhone\t35\t9",
+    ].join("\n"),
+  );
+  const { folded } = foldAnalytics(rows, ANALYTICS_REPORTS["App Sessions Standard"]!);
+
+  const sessions = folded.filter((f) => f.metric === "Sessions" && f.dimension === "(all)");
+  assert.deepEqual(
+    sessions.map((f) => [f.day, f.amount, f.unit, f.kind]),
+    [
+      ["2026-08-24", 40, "sessions", "event"],
+      ["2026-08-25", 35, "sessions", "event"],
+    ],
+  );
+
+  const unique = folded.filter((f) => f.metric === "Unique Devices" && f.dimension === "(all)");
+  assert.deepEqual(
+    unique.map((f) => [f.day, f.amount, f.unit, f.kind]),
+    [
+      ["2026-08-24", 9, "devices", "level"],
+      ["2026-08-25", 9, "devices", "level"],
+    ],
+  );
+  // The same nine devices on both days. A route that summed this would report
+  // eighteen, and `kind` is what stops it.
+  assert.equal(
+    unique.reduce((n, f) => n + f.amount, 0),
+    18,
+    "the raw rows do add to 18 — which is exactly why kind must say level",
+  );
 });

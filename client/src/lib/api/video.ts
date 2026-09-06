@@ -75,10 +75,16 @@ export type VideoClip = {
   /** The model's sentence for choosing this window. Not a score, and null on
    *  a clip that was cut rather than chosen. */
   reason: string | null;
-  /** `transcript` — chosen from timed subtitles. `speech` — chosen from a
-   *  transcription with no timestamps. `spacing` — NOT chosen at all; the
-   *  video was cut at even intervals. The page must never draw the third as
-   *  though it were the first. */
+  /** SIX VALUES, in descending order of how much was known.
+   *  `transcript` — a model chose it out of the site's own timed subtitles.
+   *  `words` — a model chose it out of a transcript this box timed word by
+   *  word with a local whisper. `speech` — a model chose it out of a
+   *  transcription with NO timestamps. `density` — NO MODEL ANSWERED and the
+   *  densest run of speech was taken by arithmetic. `scenes` — there was no
+   *  transcript at all and the window begins at a real camera cut.
+   *  `spacing` — nothing was known and the video was cut at even intervals.
+   *  The last three are cuts, not highlights, and the page must never draw
+   *  them as though a model had chosen them. */
   chosenBy: string;
   startS: number;
   endS: number;
@@ -87,6 +93,18 @@ export type VideoClip = {
   captions: string | null;
   file: string | null;
   onDisk: boolean;
+  /** How the 9:16 window was chosen out of a wider source, or null on a clip
+   *  cut before this was recorded. `fixed` is the middle of the frame and
+   *  nothing else — its `note` carries the limitation, and the page shows it.
+   *  `tracked` followed the horizontal centre of MEASURED MOTION, which is not
+   *  face detection and must never be described as it. */
+  framing: {
+    mode: string;
+    detector: string;
+    samples: number | null;
+    driftPx: number | null;
+    note: string | null;
+  } | null;
 };
 
 export type VideoJob = {

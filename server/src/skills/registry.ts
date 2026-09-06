@@ -128,11 +128,23 @@ export type SkillView = {
  * caller compose a URL: it sends an id, and this file decides where in the path
  * an id goes.
  *
- * `destructive` IS A CLAIM AND NOT A MOOD. It means the change cannot be undone
- * from here — deleting a card, where archiving the same card is reversible —
- * and it is published as MCP's `destructiveHint`, a field a client is entitled
- * to trust when it decides whether to ask a person first. Marking a reversible
- * action destructive to be safe would train that client to ignore the field.
+ * `destructive` IS A CLAIM AND NOT A MOOD. It is published as MCP's
+ * `destructiveHint`, a field a client is entitled to trust when it decides
+ * whether to ask a person first, and it answers exactly that question: IS
+ * THERE ANYTHING HERE A PERSON CANNOT TAKE BACK? Four things qualify —
+ *
+ *   the record  it cannot be undone from here: deleting a card, where
+ *               archiving the same card is reversible;
+ *   money       it spends: a model call per picture, a dispatched run;
+ *   a message   it sends: a briefing to a phone, a video to a channel;
+ *   a machine   it reaches one that is not this one: an ssh that sleeps a
+ *               desktop.
+ *
+ * The last three were once left unmarked on the grounds that the ROW survives,
+ * which is true and is not what the field is for: a briefing somebody has
+ * already read is not made unsent by a row still being there. Marking a
+ * genuinely reversible action to be safe would still train a client to ignore
+ * the field, so the four above are the whole of it.
  */
 export type SkillAction = {
   /** The `<action>` in `POST /api/skills/<id>/<action>`. Snake case, a verb
@@ -145,7 +157,8 @@ export type SkillAction = {
   path: string;
   about: string;
   params: SkillParam[];
-  /** Irreversible from here. See the type header. */
+  /** Nothing here can be taken back — the record, the money, the message or
+   *  the machine. See the type header for the four. */
   destructive?: boolean;
 };
 

@@ -20,9 +20,15 @@ product: Example two-sided product
 
 source:
   driver: postgres
-  # Set EXAMPLE_DSN in a mode-600 environment file. An unset variable is a
-  # refusal naming it, never an empty password quietly tried.
+  # Set these in a mode-600 environment file. An unset variable is a refusal
+  # naming it, never an empty password quietly tried.
+  #
+  # THE PASSWORD IS NOT IN THE DSN, deliberately: psql takes its connection
+  # string as an ARGUMENT, so a password in there is visible in `ps` on this
+  # box and — over ssh — in the remote command line too. `password:` is passed
+  # to the client through PGPASSWORD in its environment instead.
   dsn: ${EXAMPLE_DSN}
+  password: ${EXAMPLE_DB_PASSWORD}
 
   # Run psql on the box that has the database, not on this one. Omit both of
   # these when the adapter already runs there.
@@ -73,5 +79,10 @@ population:
 # That is deliberate. See CHECKLIST.md step 6 before adding one.
 
 output:
-  path: /var/www/example.com/public/opc/users.json
+  # NOT UNDER public/. This document is every customer's raw address, and a
+  # static file in a web root cannot check the bearer token the dashboard is
+  # perfectly willing to send. This path is served — if it is served at all —
+  # from an nginx location carrying the same auth as the product's admin API.
+  # See CHECKLIST.md, "Where the file may go". The adapter writes it 0640.
+  path: /var/lib/opc-adapter/users.json
   shape: users

@@ -33,13 +33,31 @@
  * them and are a thing to read on their own — which is the test for whether
  * something is its own skill.
  *
- * THE `start` ACTION IS NOT MARKED DESTRUCTIVE and that is a considered claim
- * rather than an oversight. Starting a run cannot be undone — but nothing it
- * touches can be un-made either: it writes a row, and the row can be deleted.
- * What it DOES cost is real and is said in the action's own text: minutes of
- * the single run slot, and tokens on the owner's account. `destructive` means
- * "the change cannot be undone from here", and marking a reversible action
- * destructive to be safe would train a client to ignore the field.
+ * `start` IS DESTRUCTIVE, AND THIS PARAGRAPH USED TO ARGUE THAT IT WAS NOT.
+ * The old argument was that starting a run cannot be un-made but nothing it
+ * touches can be un-made either — it writes a row, and the row deletes. That is
+ * true and it is beside the point, and worse, it stated a narrower definition
+ * of `destructive` than the one the type itself carries. Two contradicting
+ * documents is a worse defect than either of them being wrong.
+ *
+ * THE ONE DEFINITION IS IN `skills/registry.ts`, on `SkillAction`, and it has
+ * four limbs: the RECORD it cannot take back, the MONEY it spends, the MESSAGE
+ * it sends, the MACHINE it reaches. Any one is enough. Starting a run is the
+ * second limb and always has been — its own text says so in the next screenful:
+ * minutes of the single run slot and tokens on the owner's account. The tokens
+ * are not refunded when the row is deleted.
+ *
+ * IT MATTERS BECAUSE OF WHAT THE FLAG IS WIRED TO rather than what it reads
+ * like. The `opc` CLI prints it before an action, the client asks for a
+ * confirmation, and the direct-provider tool loop uses it as its write gate.
+ * All three are asking one question — should a person look at this first — and
+ * an action that quietly spends somebody's model budget on every call needs
+ * that look as much as one that deletes a row.
+ *
+ * `cancel` IS STILL NOT DESTRUCTIVE. It stops a run and therefore spends less,
+ * not more, and the record of it stays. Marking a genuinely reversible action
+ * to be safe would train a client to click through the flag, which is the
+ * failure the whole convention exists to prevent.
  */
 import type { IntegrationManifest } from "../manifest.ts";
 import type { Skill } from "../../skills/registry.ts";
@@ -145,6 +163,10 @@ const skills: Skill[] = [
         key: "start",
         method: "POST",
         path: "/api/runs",
+        /* SPENDS MONEY, therefore destructive — see the header. Not because a
+           run cannot be un-made (the row deletes), but because the tokens it
+           burns are not returned with it. */
+        destructive: true,
         about:
           "Queue one run. It starts immediately if the slot is free and queues " +
           "behind whatever is working if not — the answer says which. This spends " +

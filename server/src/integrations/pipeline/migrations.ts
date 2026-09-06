@@ -210,4 +210,26 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    name: "227_pipeline_stage_window",
+    sql: `
+      -- THE PART OF THE NIGHT A STAGE MAY START IN.
+      --
+      -- The stage shape always carried \`defaultWindow\`, and the walk always
+      -- honoured it — but every registered stage ships null and there was no
+      -- column to override one, so the branch was unreachable code wearing a
+      -- feature's clothes. A review caught it. This is the column that makes it
+      -- real: \`HH:MM-HH:MM\` in the pipeline's own zone, or NULL for anywhere
+      -- inside the nightly window, set through PATCH /api/pipeline/stages/:id.
+      --
+      -- It is on the OVERRIDES table rather than beside the blackouts because
+      -- it is the opposite claim. A blackout says "not here, whatever you are";
+      -- a window says "this one, only here" — one is the owner protecting his
+      -- evening, the other is him putting the expensive stage after the cheap
+      -- ones. Two settings, two tables, and the walk reads them with the same
+      -- function.
+      ALTER TABLE pipeline_stage_prefs ADD COLUMN window TEXT;
+    `,
+  },
+
 ];

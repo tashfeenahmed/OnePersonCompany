@@ -57,6 +57,82 @@ export function writeDimensions(rows: DimensionWrite[]) {
   return rows.length;
 }
 
+/**
+ * Clear one (store, app, dimension) over a window before re-ingesting it.
+ *
+ * WITHOUT THIS, A REVISION CAN ONLY EVER RAISE A FIGURE. Writes are
+ * INSERT OR REPLACE keyed on the measurement, and `play.ts` deliberately does
+ * not store a zero event row — so a day Google later revises DOWN to zero (or
+ * a slice it stops reporting at all) keeps whatever non-zero row it had the
+ * first time, for ever. Deleting the window this pass is about to rewrite is
+ * what makes the table a copy of the report rather than a high-water mark.
+ *
+ * Scoped to the (app, dimension) and the window, never wider: a pass that read
+ * only the country slice must not take the device slice's rows with it.
+ */
+export function clearDimensions(v: {
+  store: string;
+  accountId: number;
+  app: string;
+  dimension: string;
+  since: string;
+}): number {
+  return Number(
+    db
+      .prepare(
+        `DELETE FROM mobile_dimensions
+          WHERE store = ? AND account_id = ? AND app = ? AND dimension = ? AND day >= ?`,
+      )
+      .run(v.store, v.accountId, v.app, v.dimension, v.since).changes,
+  );
+}
+
+/** The same for the crash/ANR rows, which are keyed by source rather than by
+ *  report — see the table comment on `mobile_stability`. */
+export function clearStability(v: {
+  store: string;
+  accountId: number;
+  app: string;
+  source: string;
+  dimension: string;
+  since: string;
+}): number {
+  return Number(
+    db
+      .prepare(
+        `DELETE FROM mobile_stability
+          WHERE store = ? AND account_id = ? AND app = ? AND source = ? AND dimension = ? AND day >= ?`,
+      )
+      .run(v.store, v.accountId, v.app, v.source, v.dimension, v.since).changes,
+  );
+}
+
+/** And for store performance and retention, which have the same problem for
+ *  the same reason: a slice Google stops reporting would otherwise persist. */
+export function clearPerformance(v: {
+  accountId: number;
+  app: string;
+  dimension: string;
+  since: string;
+}): number {
+  return Number(
+    db
+      .prepare(
+        `DELETE FROM mobile_store_performance
+          WHERE account_id = ? AND app = ? AND dimension = ? AND day >= ?`,
+      )
+      .run(v.accountId, v.app, v.dimension, v.since).changes,
+  );
+}
+
+export function clearRetention(v: { accountId: number; app: string; since: string }): number {
+  return Number(
+    db
+      .prepare(`DELETE FROM mobile_retention WHERE account_id = ? AND app = ? AND day >= ?`)
+      .run(v.accountId, v.app, v.since).changes,
+  );
+}
+
 export type DimensionRowOut = {
   store: string;
   app: string;
@@ -207,7 +283,7 @@ export type ReportState =
   | "present"
   | "absent"
   | "empty"
-  | "requested"
+  | "not_requested"
   | "processing"
   | "available"
   | "delayed"

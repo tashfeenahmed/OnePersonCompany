@@ -68,6 +68,11 @@ export function Power() {
                   </>
                 )}
                 {!p && <span className="text-muted-foreground text-[11.5px]">no profile yet</span>}
+                {m.gone && (
+                  <span className="text-muted-foreground text-[11.5px]">
+                    this workstation account no longer exists — the profile is still priced into the ledger until you remove it
+                  </span>
+                )}
               </div>
               {line && <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">{line.note}</p>}
 

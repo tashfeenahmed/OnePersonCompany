@@ -259,6 +259,11 @@ export const SKILLS: Skill[] = [
       "Can we actually post to the Instagram account, and if not what is missing?",
       "What is going out this week?",
     ],
+    /* REACHES OFF THIS MACHINE, so the annotation says so. `retry_item` POSTs
+       to somebody else's API and `probe_destinations` calls three networks;
+       `openWorldHint: false` is a claim a client may act on without asking,
+       and it would be a lie here. */
+    openWorld: true,
   },
 
   {
@@ -342,12 +347,22 @@ export const SKILLS: Skill[] = [
             about: "How many non-overlapping concepts to plan. Clamped to 1–5.",
           },
         ],
+        /*
+          DESTRUCTIVE, AND THE CLAIM IS ABOUT MONEY RATHER THAN ABOUT DATA.
+          Five concepts across four channels is twenty model calls and twenty
+          Replicate renders from ONE call, and none of that is refundable. The
+          rules already said so in prose; a client entitled to ask a person
+          first should be told in the field it can read.
+        */
+        destructive: true,
       },
     ],
     asks: [
       "Plan a campaign for the launch across Facebook and LinkedIn.",
       "How far did that campaign get before it was cancelled?",
     ],
+    /* The planner call and every Studio render leave this machine. */
+    openWorld: true,
   },
 
   {
@@ -419,6 +434,9 @@ export const SKILLS: Skill[] = [
       "What reference images does this venture have?",
       "Can the current image model actually use a logo?",
     ],
+    /* `import_asset` fetches a URL and the library view reads the image
+       model's schema off Replicate. Both leave this machine. */
+    openWorld: true,
   },
 ];
 

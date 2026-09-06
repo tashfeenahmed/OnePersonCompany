@@ -378,6 +378,69 @@ function pushEvents(): NewEvent[] {
   });
 }
 
+/* ----------------------------------------------------------------- journal */
+
+/**
+ * THE OWNER'S OWN ENTRIES — the one source here that no collector produced.
+ *
+ * DERIVED, AND FOR AN UNUSUAL REASON. Every other derived source on this feed
+ * is derived because the SERVICE publishes a day rather than a moment. This one
+ * is derived because the PERSON does: "I shipped the pricing page" is a fact
+ * about a Tuesday, and asking somebody to pick a minute would get either a lie
+ * or no entry at all. So it lands at the start of its day with `exact: 0` like
+ * the Stripe rows, and the surfaces that draw it say the date is the claim.
+ *
+ * IT IS TESTIMONY BESIDE MEASUREMENTS, WHICH IS THE POINT AND THE HAZARD. The
+ * feed is otherwise entirely things that happened to machines; putting the
+ * human half on the same axis is what makes the timeline an operating history
+ * rather than a server log. The `detail` therefore carries `typed: true` and
+ * which door it came in by, so nothing downstream can mistake a sentence
+ * somebody wrote for something this box observed.
+ *
+ * A BACK-DATED ENTRY MENDS THE TIMELINE. The dedupe key is the entry id and the
+ * pass UPDATES ts and title in place, so filing yesterday's work this morning
+ * moves the event to yesterday rather than leaving two.
+ */
+function journalEvents(): NewEvent[] {
+  const live = new Set(ventureRows().map((v) => v.id));
+  const rows = db
+    .prepare(
+      "SELECT id, venture_id, kind, text, url, at, source FROM journal_entries WHERE at >= ?",
+    )
+    .all(cutoff().slice(0, 10)) as unknown as {
+    id: string; venture_id: string | null; kind: string; text: string;
+    url: string | null; at: string; source: string;
+  }[];
+
+  return rows.map((r) => ({
+    key: `journal:${r.id}`,
+    ts: `${r.at}T00:00:00.000Z`,
+    exact: false,
+    kind: "journal",
+    ventureId: r.venture_id && live.has(r.venture_id) ? r.venture_id : null,
+    product: null,
+    title: `${r.kind} — ${r.text.slice(0, 140)}`,
+    detail: {
+      entryId: r.id,
+      entryKind: r.kind,
+      url: r.url,
+      typed: true,
+      filedBy: r.source,
+      /* BRANCHED ON THE SOURCE, because a constant sentence here was saying
+         "typed by the owner" underneath `filedBy: "agent"` — the one thing the
+         source stamp exists to keep apart, contradicted in the field beside it. */
+      note:
+        r.source === "agent"
+          ? "Filed by the agent from something the owner told it — not measured, " +
+            "and not the owner's own hand. The date is the day it was told he did " +
+            "it; the entry carries no time of day."
+          : "Typed by the owner, not measured. The date is the day he says it " +
+            "happened; the entry carries no time of day.",
+    },
+    source: "journal",
+  }));
+}
+
 /* ------------------------------------------------------------------- alerts */
 
 /**
@@ -464,6 +527,7 @@ export function runFeedPass(): PassResult {
     ["runs", runEvents],
     ["board", cardEvents],
     ["github", pushEvents],
+    ["journal", journalEvents],
   ];
 
   for (const [name, fn] of sources) {

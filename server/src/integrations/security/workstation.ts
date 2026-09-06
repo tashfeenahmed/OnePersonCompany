@@ -249,9 +249,51 @@ export type MachineState = {
   gpus: Gpu[] | null;
   gpuNote: string | null;
   error: string | null;
+  /**
+   * WHY IT DID NOT ANSWER, TO THE ONLY RESOLUTION THAT MATTERS — and this
+   * field exists because "unreachable" was being read as "asleep", which is
+   * how this app came to claim it may power off machines it never woke.
+   *
+   * `silence` is a TCP SYN nothing replied to: a timeout, no route, a host
+   * that is down. That is what a sleeping machine looks like from here, and it
+   * is the ONLY shape that supports a wake-ownership claim.
+   *
+   * `refused-or-broken` is everything else — a rotated key, a changed host
+   * key, a name that does not resolve, an sshd that answered with RST. Every
+   * one of those is compatible with a machine that is wide awake and busy, so
+   * nothing may be inferred about its power state from them.
+   *
+   * `null` when the machine answered.
+   */
+  unreachable: "silence" | "refused-or-broken" | null;
   ms: number;
   checkedAt: string;
 };
+
+/** A SYN that nothing answered — the only failure shape a sleeping machine
+ *  produces. Matched on ssh's own words rather than on an exit code, because
+ *  ssh exits 255 for all of them. */
+function unreachableKind(stderr: string): "silence" | "refused-or-broken" {
+  return /connection timed out|operation timed out|timed out after|no route to host|host is down|network is unreachable/i.test(
+    stderr,
+  )
+    ? "silence"
+    : "refused-or-broken";
+}
+
+/**
+ * WHAT STATE THE MACHINE WAS IN, for the wake-ownership record.
+ *
+ * THE THREE ANSWERS ARE NOT A SCALE. `awake` and `asleep` are observations;
+ * `unknown` is the absence of one, and it is what an ssh failure that is not
+ * silence honestly is. `integrations/deploy/leases.ts` treats anything but
+ * `asleep` as "not ours", so an `unknown` machine is one this app will never
+ * offer to power off — which is the safe direction and the point.
+ */
+export function foundState(s: MachineState): "asleep" | "awake" | "unknown" {
+  if (s.reachable) return "awake";
+  return s.unreachable === "silence" ? "asleep" : "unknown";
+}
 
 const numOrNull = (v: string | undefined | null): number | null => {
   if (v === undefined || v === null || v.trim() === "" || v.trim() === "[N/A]") return null;
@@ -287,6 +329,7 @@ export async function readState(m: Machine): Promise<MachineState> {
       gpus: null,
       gpuNote: "The machine did not answer, so nothing could be asked about a GPU.",
       error: sshProblem(ran, keyFile !== null),
+      unreachable: unreachableKind(ran.stderr),
     };
   }
 
@@ -327,6 +370,7 @@ export async function readState(m: Machine): Promise<MachineState> {
         ? fields.gpu_note || "nvidia-smi did not answer. This is not a machine with no GPU — it is a GPU nothing here could read."
         : null,
     error: null,
+    unreachable: null,
   };
 }
 

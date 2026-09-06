@@ -14,19 +14,30 @@
  * list reported as "no such venture" because the list was cut where nobody
  * could see it.
  *
- * THE RULE IS: SCALARS SURVIVE, ARRAYS SHRINK, AND THE CUT IS ANNOUNCED IN
- * BAND. A document that is over budget keeps every scalar and every summary
- * field it has — the totals, the windows, the units, the `null`s that mean "not
- * measured" — because those are the sentences an honest answer is built from
- * and they are cheap. What costs bytes is rows, so rows are what is dropped,
- * longest list first, and each shortened array carries a marker object as its
- * last element:
+ * THE RULE IS: ROWS GO FIRST, SCALARS GO LAST, AND EVERY CUT IS ANNOUNCED IN
+ * BAND. What costs bytes in these documents is rows, and what carries the
+ * meaning is the summary — the totals, the windows, the units, the `null`s that
+ * mean "not measured" — so the order of sacrifice is arrays, then long strings,
+ * then, only when nothing else is left, fields from the END of the document.
+ * Each shortened array carries a marker object as its last element:
  *
- *     { "truncated": true, "shown": 20, "total": 412, "next": "…how to page…" }
+ *     { "truncated": true, "shown": 20, "total": 412 }
  *
- * A model reading that knows three things it could not know from a truncated
- * string: that there is more, how much more, and the exact call that fetches
- * it. `shown` and `total` are counted, never estimated.
+ * A model reading that knows two things it could not know from a truncated
+ * string: that there is more, and how much more. `shown` and `total` are
+ * counted, never estimated. HOW TO ASK FOR THE REST IS WRITTEN ONCE, on
+ * `_bounded` at the root and in the note — an earlier version copied the whole
+ * sentence into every marker, which made a marker cost more than the rows it
+ * replaced, and a document of many small lists then could not be fitted at all
+ * however many rows were dropped. An object that loses fields says so with
+ * `"_omitted": n`.
+ *
+ * SO "EVERY SCALAR SURVIVES" IS NOT PROMISED, and the older version of this
+ * paragraph that promised it was wrong: a document of four hundred short scalar
+ * fields at a two-kilobyte budget has no rows to drop and no string long enough
+ * to abridge. What IS promised is that the head of the document survives, that
+ * nothing is silently removed, and that the answer is always usable data rather
+ * than a refusal.
  *
  * THE OUTPUT IS ALWAYS VALID JSON when the input was. Nothing here slices a
  * serialised document; it edits the parsed value and re-serialises. A string
@@ -145,9 +156,16 @@ function serialise(value: unknown, pretty: boolean): string {
   return pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value);
 }
 
-/** The marker appended to an array that lost rows. Its shape is the contract
- *  the skills preamble documents, so it is built in exactly one place. */
-type Marker = { truncated: true; shown: number; total: number; next: string };
+/**
+ * The marker appended to an array that lost rows. Its shape is the contract the
+ * skills preamble documents, so it is built in exactly one place.
+ *
+ * IT CARRIES COUNTS AND NOTHING ELSE. It used to carry the whole "here is how
+ * to ask for the rest" sentence as well, which made a marker cost more than the
+ * rows it replaced — so a document of many small lists could not be fitted at
+ * all. The sentence is written once, on `_bounded` at the root and in the note.
+ */
+type Marker = { truncated: true; shown: number; total: number };
 
 type Candidate = {
   arr: unknown[];
@@ -155,6 +173,12 @@ type Candidate = {
   total: number;
   marker: Marker | null;
 };
+
+/** An object literal, as opposed to an array or a null. The one shape that has
+ *  top-level keys to pick, to hang the guidance on, and to drop from. */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
 /** Every array in the document, with the path a reader could follow to it. */
 function arrays(value: unknown, path: string, out: Candidate[]): void {
@@ -174,6 +198,25 @@ function arrays(value: unknown, path: string, out: Candidate[]): void {
  *  to drop — a document that is all prose in one field. */
 type StringSlot = { get: () => string; set: (v: string) => void };
 
+/** An object that could lose keys, and which keys are its own to lose. The
+ *  markers this file adds are never on that list: dropping the explanation of a
+ *  truncation to save forty bytes would be removing the honesty first. */
+type ObjSlot = { obj: Record<string, unknown>; path: string; keys: string[] };
+
+const ADDED_KEYS = new Set(["_bounded", "_omitted", "truncated", "shown", "total"]);
+
+function objectsIn(value: unknown, path: string, out: ObjSlot[]): void {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) objectsIn(value[i], `${path}[${i}]`, out);
+    return;
+  }
+  if (!isPlainObject(value)) return;
+  /* A marker is a fact about a cut, not a row of data. */
+  if (value.truncated === true) return;
+  out.push({ obj: value, path: path || "$", keys: Object.keys(value).filter((k) => !ADDED_KEYS.has(k)) });
+  for (const [k, v] of Object.entries(value)) objectsIn(v, path ? `${path}.${k}` : k, out);
+}
+
 function strings(value: unknown, out: StringSlot[]): void {
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
@@ -183,9 +226,12 @@ function strings(value: unknown, out: StringSlot[]): void {
     }
     return;
   }
-  if (typeof value === "object" && value !== null) {
-    const obj = value as Record<string, unknown>;
+  if (isPlainObject(value)) {
+    const obj = value;
     for (const k of Object.keys(obj)) {
+      /* The way out must survive every pass that shortens the document; an
+         abridged instruction is worse than none. */
+      if (k === "_bounded") continue;
       const v = obj[k];
       if (typeof v === "string") out.push({ get: () => obj[k] as string, set: (s) => (obj[k] = s) });
       else strings(v, out);
@@ -236,8 +282,12 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
         unknownFields: [],
       };
     const footer = `\n… [cut here: ${KB(budget)} of ${KB(originalBytes)} shown — ${how}]`;
-    const kept = sliceBytes(body, budget - byteLength(footer));
-    const text = kept + footer;
+    /* A budget smaller than its own explanation. Nothing useful can be said in
+       it, so the bytes go to the DOCUMENT and the explanation goes to `note`,
+       which both callers print beside the answer. Exceeding the budget to
+       explain that the budget was exceeded is the one thing this must not do. */
+    const room = budget - byteLength(footer);
+    const text = room > 0 ? sliceBytes(body, room) + footer : sliceBytes(body, budget);
     return {
       text,
       bytes: byteLength(text),
@@ -256,10 +306,15 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
 
   const unknownFields: string[] = [];
   let root = parsed;
+  /** Did a field pick actually happen — as opposed to being asked for against
+   *  something with no top-level keys? The two used to be one flag, and the
+   *  second read back as "only the fields you asked for are here" over a
+   *  document that had not been filtered at all. */
   let picked = false;
+  let pickable = true;
   if (wanted.length) {
-    if (typeof root === "object" && root !== null && !Array.isArray(root)) {
-      const src = root as Record<string, unknown>;
+    if (isPlainObject(root)) {
+      const src = root;
       const out: Record<string, unknown> = {};
       for (const f of wanted) {
         if (f in src) out[f] = src[f];
@@ -271,8 +326,10 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
       root = out;
       picked = true;
     } else {
-      /* Nothing to pick from. Reported rather than silently ignored. */
-      unknownFields.push(...wanted);
+      /* There are no top-level keys to pick from. Said out loud rather than
+         ignored: a caller told "only the fields you asked for are here" over an
+         array it asked nothing of would believe it was reading a subset. */
+      pickable = false;
     }
   }
 
@@ -285,25 +342,65 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
 
   let text = serialise(doc, pretty);
   if (byteLength(text) <= budget) {
-    const bounded = picked || unknownFields.length > 0;
+    const bounded = picked || unknownFields.length > 0 || !pickable;
+    /*
+      THE FORMATTING IS PART OF THE ANSWER. Returning `body` here — the bytes
+      the route sent — threw away the caller's `pretty`, which is how `opc`
+      stopped indenting every document that fitted and `--raw` became a flag
+      that only did anything above the budget. A caller that asked for compact
+      still gets the original bytes, because re-serialising a document that was
+      already fine is this function changing something for nothing.
+    */
+    const out = pretty || picked ? text : byteLength(body) <= budget ? body : text;
     return {
-      text: picked ? text : body,
-      bytes: picked ? byteLength(text) : originalBytes,
+      text: out,
+      bytes: byteLength(out),
       originalBytes,
       bounded,
       json: true,
-      note: bounded
-        ? `Only the fields you asked for are here` +
-          (unknownFields.length
-            ? `; this document has no ${unknownFields.map((f) => `\`${f}\``).join(", ")}.`
-            : `.`)
-        : null,
+      note: !pickable
+        ? `This document has no top-level keys to pick from, so \`fields\` did ` +
+          `nothing — you are reading all of it.`
+        : bounded
+          ? `Only the fields you asked for are here` +
+            (unknownFields.length
+              ? `; this document has no ${unknownFields.map((f) => `\`${f}\``).join(", ")}.`
+              : `.`)
+          : null,
       trimmed: [],
       unknownFields,
     };
   }
 
+  /* ------------------------------------------------------- the guidance, once */
+
+  /*
+    `next` USED TO BE COPIED INTO EVERY MARKER, and that was the bug behind the
+    worst behaviour this function had. The sentence is around 150 bytes; a
+    marker carrying it costs more than the handful of rows it replaces, so a
+    document with many small arrays could not be made to fit however many rows
+    were dropped — and it fell through to a bail that answered with no data at
+    all. The markers are now four dozen bytes of counted fact, and the way out
+    is written ONCE, here.
+
+    ONLY ONTO AN OBJECT ROOT. An array or a scalar has nowhere to put it without
+    changing what the document IS, and a caller reading a bare list would rather
+    have the list. Those callers get the same sentence in `note`, which is where
+    both the MCP layer and the CLI already put it.
+  */
+  if (isPlainObject(doc))
+    doc._bounded = {
+      next: how,
+      budgetBytes: budget,
+      originalBytes,
+    };
+  text = serialise(doc, pretty);
+
   /* ------------------------------------------------------------- the arrays */
+
+  /* What a marker costs, so the loop below can refuse to make a document
+     BIGGER by explaining that it made it smaller. */
+  const markerCost = byteLength(serialise({ truncated: true, shown: 0, total: 0 }, pretty)) + 2;
 
   const candidates: Candidate[] = [];
   arrays(doc, "", candidates);
@@ -319,13 +416,17 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
     if (guard-- <= 0) break;
 
     /* The array that costs the most right now, not the one with the most rows:
-       twenty fat objects are worth dropping before four hundred integers. */
+       twenty fat objects are worth dropping before four hundred integers. An
+       array worth less than the marker that would explain it is left alone —
+       trimming it would spend more bytes than it saves, and a document made of
+       two hundred tiny lists is one the next phase has to shrink. */
     let worst: Candidate | null = null;
     let worstBytes = 0;
     for (const c of candidates) {
       const rows = c.marker ? c.arr.length - 1 : c.arr.length;
       if (rows <= 0) continue;
       const b = byteLength(serialise(c.arr, pretty));
+      if (!c.marker && b <= markerCost * 2) continue;
       if (b > worstBytes) {
         worst = c;
         worstBytes = b;
@@ -347,7 +448,7 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
       /* The marker is appended the first time an array loses a row, so its own
          size is counted by every pass after this one rather than discovered at
          the end when the budget has already been spent. */
-      worst.marker = { truncated: true, shown, total: worst.total, next: how };
+      worst.marker = { truncated: true, shown, total: worst.total };
       worst.arr.push(worst.marker);
     }
     text = serialise(doc, pretty);
@@ -356,16 +457,19 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
   /* ------------------------------------------------------------ the strings */
 
   if (byteLength(text) > budget) {
-    const slots: StringSlot[] = [];
-    strings(doc, slots);
-    let passes = 40;
+    let passes = 60;
     while (byteLength(text) > budget && passes-- > 0) {
+      /* Re-walked each pass rather than collected once: the array phase above
+         may have detached whole subtrees, and abridging a string that is no
+         longer in the document is a pass that changes nothing. */
+      const slots: StringSlot[] = [];
+      strings(doc, slots);
       let longest: StringSlot | null = null;
       let longestLen = 0;
-      for (const s of slots) {
-        const len = s.get().length;
+      for (const slot of slots) {
+        const len = slot.get().length;
         if (len > longestLen) {
-          longest = s;
+          longest = slot;
           longestLen = len;
         }
       }
@@ -377,20 +481,67 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
     }
   }
 
+  /* --------------------------------------------------------------- the keys */
+
+  /*
+    THE LAST THING DROPPED, AND IT IS STILL NOT A BAIL.
+
+    A document of four hundred short scalar fields has no rows to shorten and no
+    string long enough to abridge, and it can still be five times the budget.
+    The old code gave up here and answered an error object — no data at all,
+    and a sentence claiming a single value was too big, which was false. Losing
+    the tail of a document is worse than losing rows and better than losing the
+    document: the head of these answers is where the summary lives, so keys go
+    from the end, and each object that loses any says how many.
+  */
+  let omitted = 0;
+  if (byteLength(text) > budget) {
+    let passes = 4_000;
+    while (byteLength(text) > budget && passes-- > 0) {
+      const objects: ObjSlot[] = [];
+      objectsIn(doc, "", objects);
+      let worst: ObjSlot | null = null;
+      let worstBytes = 0;
+      for (const o of objects) {
+        if (!o.keys.length) continue;
+        const b = byteLength(serialise(o.obj, pretty));
+        if (b > worstBytes) {
+          worst = o;
+          worstBytes = b;
+        }
+      }
+      if (!worst) break;
+      const size = byteLength(text);
+      const over = 1 - budget / size;
+      const drop = Math.min(
+        worst.keys.length,
+        Math.max(1, Math.ceil(worst.keys.length * Math.min(0.9, Math.max(0.05, over)))),
+      );
+      for (const key of worst.keys.slice(worst.keys.length - drop)) delete worst.obj[key];
+      omitted += drop;
+      worst.obj._omitted = ((worst.obj._omitted as number | undefined) ?? 0) + drop;
+      text = serialise(doc, pretty);
+    }
+  }
+
   /* --------------------------------------------------------- the last resort */
 
   if (byteLength(text) > budget) {
     /*
-      A single value larger than the whole budget and nothing left to shorten.
-      Answering with a cut document would be answering with something that does
-      not parse, so the answer is an honest refusal that names the size and the
-      way out. This is reachable only by a document that is one enormous scalar.
+      Nothing left that can be made smaller without cutting a value in half:
+      one scalar is bigger than the whole budget. Reachable only by a root that
+      is a single enormous number or a boolean-shaped monster; a root string is
+      abridged by the phase above. Answering with a cut document would be
+      answering with something that does not parse, so this is a refusal that
+      names the size and the way out — and it is now genuinely a refusal about
+      one value rather than the shrug the old code gave to any awkward shape.
     */
     const bail = {
       truncated: true,
       error:
-        `This response is ${KB(originalBytes)} and could not be shortened to the ` +
-        `${KB(budget)} tool budget without cutting a value in half.`,
+        `This response is ${KB(originalBytes)} and holds a single value larger than ` +
+        `the ${KB(budget)} tool budget, so it could not be shortened without cutting ` +
+        `that value in half.`,
       next: how,
       originalBytes,
     };
@@ -414,6 +565,7 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
 
   const parts: string[] = [];
   if (picked) parts.push(`only the fields you asked for are here`);
+  if (!pickable) parts.push(`this document has no top-level keys, so \`fields\` did nothing`);
   if (trimmed.length)
     parts.push(
       `${trimmed.length === 1 ? "one list was" : `${trimmed.length} lists were`} shortened to fit ` +
@@ -422,6 +574,11 @@ export function boundResponse(body: string, opts: BoundOptions): Bound {
           .slice(0, 4)
           .map((t) => `${t.path} shows ${t.shown} of ${t.total}`)
           .join(", "),
+    );
+  if (omitted)
+    parts.push(
+      `${omitted} field${omitted === 1 ? "" : "s"} at the end of the document were left out to ` +
+        `fit the ${KB(budget)} budget — each object that lost any carries "_omitted"`,
     );
   if (unknownFields.length)
     parts.push(`this document has no ${unknownFields.map((f) => `\`${f}\``).join(", ")}`);

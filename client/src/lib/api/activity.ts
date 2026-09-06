@@ -173,7 +173,11 @@ export type ActivityReport = {
 export type LeakageBucket = {
   id: string;
   label: string;
-  count: number;
+  /** Null where the source that produced `amount` cannot count what it is
+   *  made of — the disputes bucket, whose money is ledger debits while the
+   *  cases are a differently-dated population counted in `disputeCases`. Not
+   *  zero, and never divided into `amount`. */
+  count: number | null;
   /** Null where the source records a count and no money. Not zero. */
   amount: number | null;
   window: string;

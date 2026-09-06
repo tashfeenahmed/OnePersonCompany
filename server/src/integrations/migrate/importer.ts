@@ -30,7 +30,7 @@
  * application that may still be running; an importer that took its files would
  * be a migration that broke the thing being migrated from.
  */
-import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { db, now } from "../../db.ts";
 import { DATA_DIR } from "../../config.ts";
@@ -133,6 +133,31 @@ function newVentureId(taken: Set<string>): string {
   }
 }
 
+/**
+ * A slug nothing else has, WITHIN THIS PLAN as well as in the database.
+ *
+ * `ventures.slug` is UNIQUE, and a WorkDash project slug is a DOMAIN whose
+ * first label becomes the venture slug — so `foo.ie` and `foo.app`, which is
+ * the ordinary shape of one brand on two TLDs, both want `foo`. Checking only
+ * the database misses that entirely: both pass `plan()`, the dry run reports
+ * two imported, and then the real run takes a backup and dies inside the
+ * transaction on a constraint, with a raw SQLite sentence.
+ *
+ * So the plan carries its own set and suffixes the second one, the way
+ * routes/ventures.ts's `uniqueSlug` does for a name typed twice — and the
+ * rename is REPORTED, because a business quietly addressed as `foo-2` is a URL
+ * somebody will wonder about.
+ */
+function uniqueSlug(base: string, taken: Set<string>): string {
+  const held = (slug: string) =>
+    taken.has(slug) || !!db.prepare("SELECT 1 FROM ventures WHERE slug = ?").get(slug);
+  if (!held(base)) return base;
+  for (let n = 2; ; n++) {
+    const candidate = `${base.slice(0, 44)}-${n}`;
+    if (!held(candidate)) return candidate;
+  }
+}
+
 /* ---------------------------------------------------------------- plan */
 
 export function plan(source: Source, options: Options): Plan {
@@ -156,6 +181,8 @@ export function plan(source: Source, options: Options): Plan {
   const ventureFor = new Map<string, string | null>();
   const existing = ventureRows();
   const mintedIds = new Set<string>();
+  /* See uniqueSlug: ventures.slug is UNIQUE and two projects can want one. */
+  const mintedSlugs = new Set<string>();
 
   if (want.has("projects")) {
     const c = (counts.projects = blank());
@@ -209,6 +236,16 @@ export function plan(source: Source, options: Options): Plan {
 
       const id = newVentureId(mintedIds);
       mintedIds.add(id);
+      /* The slug is decided HERE, in the plan, and carried to apply(). Deciding
+         it at insert time would mean the dry run's counts describing a run that
+         cannot happen. */
+      const unique = uniqueSlug(draft.slug, mintedSlugs);
+      if (unique !== draft.slug)
+        problems.push(
+          `${slug} wants the address “${draft.slug}”, which is already taken — two projects on different domains share a first label, or a venture here has it. It is “${unique}” instead; rename it on its venture page if that reads badly.`,
+        );
+      draft.slug = unique;
+      mintedSlugs.add(unique);
       ventureFor.set(slug, id);
       out.ventures.push({ draft, existingId: null, skip: false });
       (draft as VentureDraft & { mintedId?: string }).mintedId = id;
@@ -398,7 +435,8 @@ export function plan(source: Source, options: Options): Plan {
         c.imported += 1;
       }
       problems.push(
-        `Outbox drafts were imported against the Gmail account “${gmail!.label}”, because a draft has to belong to the mailbox it would be sent from. Anything already approved or sent in WorkDash arrives here with that status and is NOT re-sent.`,
+        `Outbox drafts were imported against the Gmail account “${gmail!.label}”, because a draft has to belong to the mailbox it would be sent from. ` +
+          `Anything already SENT in WorkDash arrives marked sent and nothing re-sends it; anything APPROVED there arrives as a draft, because an approval here is the exact bytes that were agreed to and this box was never shown them.`,
       );
     }
   }
@@ -492,38 +530,87 @@ export type Applied = { counts: Record<string, KindCount>; problems: string[]; f
  *
  * ONE TRANSACTION FOR EVERYTHING. An import that created nineteen ventures and
  * then failed on a card would leave a database that neither the batch record
- * nor the rollback describes. File copies happen INSIDE it too — which is
- * technically outside the transaction's guarantee — and that is why every copy
- * is recorded in migrate_files as it is made: a rollback of a failed run can
- * still find them.
+ * nor the rollback describes.
+ *
+ * FILES ARE THE PART A TRANSACTION CANNOT COVER, so they are handled around it
+ * rather than inside it. A `copyFileSync` is not rolled back by `ROLLBACK`, and
+ * neither is the `migrate_files` row that would have named it — so a failure
+ * after the copies would have rolled the RECORDS back and left the BYTES in
+ * data/studio, invisible to any rollback and contradicting the CLI's own
+ * "NOTHING was written". So: the copies are made first and remembered in a
+ * local list; on COMMIT that list becomes the migrate_files rows; on any
+ * failure the files are UNLINKED before the error is rethrown, and the
+ * directory is left exactly as it was found.
  */
+/**
+ * A file name out of the source document, as a name and nothing else.
+ *
+ * `studio.json` is a JSON file in a directory somebody points this at, so its
+ * `image` field is untrusted the way any file is: `"../../../etc/hosts"` joined
+ * onto the studio directory and resolved reaches outside it, and the copy would
+ * then be served by `GET /api/studio/posts/:id/image` to anybody who can reach
+ * this box. The fix is that a name is a NAME — one path segment, no separators,
+ * no `..` — and anything else is refused by name rather than sanitised, because
+ * a traversal that got quietly rewritten into a valid filename is a traversal
+ * nobody ever hears about.
+ */
+export function safeName(name: string): string | null {
+  const clean = name.trim();
+  if (!clean || clean === "." || clean === "..") return null;
+  if (clean.includes("/") || clean.includes("\\") || clean.includes("\u0000")) return null;
+  if (basename(clean) !== clean) return null;
+  return clean;
+}
+
 export function apply(p: Plan, batchId: string, source: Source, stage: string): Applied {
   const problems: string[] = [];
-  let files = 0;
   const ts = now();
 
   const ventureIdFor = new Map<string, string>();
 
-  const copy = (from: string | null, into: string, kind: string, id: string): string | null => {
-    if (!from) return null;
-    const src = resolve(from);
+  /* Copies made but not yet recorded. See this function's header: on COMMIT
+     these become migrate_files rows; on failure they are unlinked. */
+  const copied: { path: string; sourcePath: string; bytes: number; targetKind: string; targetId: string }[] = [];
+
+  const copy = (dir: string | null, name: string | null, into: string, kind: string, id: string): string | null => {
+    if (!dir || !name) return null;
+    const safe = safeName(name);
+    if (!safe) {
+      problems.push(
+        `${kind} ${id} names its file “${name}”, which is a path and not a file name. Nothing was copied — a name that walks out of the source directory is refused rather than trimmed.`,
+      );
+      return null;
+    }
+    const src = resolve(join(dir, safe));
     if (!existsSync(src)) {
-      problems.push(`${basename(src)} is named by ${kind} ${id} and is not in the source directory; the row was imported without it.`);
+      problems.push(`${safe} is named by ${kind} ${id} and is not in the source directory; the row was imported without it.`);
       return null;
     }
     mkdirSync(into, { recursive: true });
     /* Prefixed, so an imported file cannot land on top of one this box
        generated with the same timestamp-derived name. */
-    const target = join(into, `wd-${basename(src)}`);
+    const target = join(into, `wd-${safe}`);
     try {
       copyFileSync(src, target);
-      const bytes = statSync(target).size;
-      rememberFile({ batch: batchId, path: target, sourcePath: src, bytes, targetKind: kind, targetId: id });
-      files += 1;
+      copied.push({ path: target, sourcePath: src, bytes: statSync(target).size, targetKind: kind, targetId: id });
       return target;
     } catch (err) {
-      problems.push(`${basename(src)} could not be copied: ${err instanceof Error ? err.message : String(err)}`);
+      problems.push(`${safe} could not be copied: ${err instanceof Error ? err.message : String(err)}`);
       return null;
+    }
+  };
+
+  /** Everything this run put on disk, taken back off it. Called on any failure
+   *  before the error is rethrown, so "nothing was written" is true of the
+   *  filesystem as well as of the database. */
+  const undoCopies = () => {
+    for (const f of copied) {
+      try {
+        rmSync(f.path, { force: true });
+      } catch {
+        /* Reported through the thrown error's context rather than swallowed
+           into a problems list nobody will read: the caller is about to die. */
+      }
     }
   };
 
@@ -634,9 +721,7 @@ export function apply(p: Plan, batchId: string, source: Source, stage: string): 
     for (const post of p.studio) {
       const target = venture(post.ventureSource);
       if (!target) continue;
-      const image = source.assets.studio && post.imageFile
-        ? copy(join(source.assets.studio, post.imageFile), join(DATA_DIR, "studio"), "studio_post", post.id)
-        : null;
+      const image = copy(source.assets.studio, post.imageFile, join(DATA_DIR, "studio"), "studio_post", post.id);
       db.prepare(
         `INSERT INTO studio_posts (id, venture_id, ts, brief, platform, format, caption, hashtags, image_prompt, image_path, model, ms, error)
          VALUES (?,?,?,?,?,?,?,NULL,?,?,NULL,NULL,?)`,
@@ -645,9 +730,7 @@ export function apply(p: Plan, batchId: string, source: Source, stage: string): 
     }
 
     for (const v of p.videos) {
-      const file = source.assets.ugc && v.videoFile
-        ? copy(join(source.assets.ugc, v.videoFile), join(DATA_DIR, "video"), "video_job", v.runId)
-        : null;
+      const file = copy(source.assets.ugc, v.videoFile, join(DATA_DIR, "video"), "video_job", v.runId);
       db.prepare(
         `INSERT INTO video_jobs (run_id, venture_id, format, ts, aspect, width, height, script, assets, duration_s, bytes, path, captions, narration, transcript, error)
          VALUES (?,?,?,?,'9:16',NULL,NULL,'{}','[]',NULL,?,?,NULL,?,NULL,?)`,
@@ -661,13 +744,20 @@ export function apply(p: Plan, batchId: string, source: Source, stage: string): 
     /* -------------------------------------------------------- history */
     for (const h of p.history) writeHistory({ batch: batchId, ...h });
 
+    /* THE FILE RECORDS ARE THE LAST WRITE IN THE TRANSACTION. The bytes are
+       already on disk; this is what makes them findable by a rollback, and it
+       is inside the COMMIT so that a database that knows about the import knows
+       about its files too. */
+    for (const f of copied) rememberFile({ batch: batchId, ...f });
+
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");
+    undoCopies();
     throw err;
   }
 
-  return { counts: p.counts, problems, files };
+  return { counts: p.counts, problems, files: copied.length };
 }
 
 /** The kinds a `--only` list names, or all of them. */

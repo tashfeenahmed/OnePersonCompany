@@ -252,6 +252,78 @@ export function writeReading(
     .get(Number(info.lastInsertRowid)) as ReadingRow;
 }
 
+/**
+ * FILE AN OUTCOME FROM ANOTHER AREA, WITHOUT GOING THROUGH THE ROUTE.
+ *
+ * outcomes-routes.ts's POST is the door a PERSON comes in through: it parses a
+ * body, validates every field for somebody who typed it, and takes the
+ * baseline reading itself. An area on this box that already knows its venture,
+ * its date and its metric address has none of those problems and should not
+ * have to compose an HTTP request to its own process to say so.
+ *
+ * IT IS IDEMPOTENT ON `action_kind` + `action_ref`, and that is the whole
+ * reason it is worth having as a function. A sweep that runs hourly and files
+ * an outcome for the same finished card would otherwise leave one row per
+ * hour; here the second call finds the first and returns its id. A caller with
+ * no ref (`""`) gets a new row every time, which is correct — there is nothing
+ * to be the same as.
+ *
+ * NO BASELINE IS TAKEN HERE. The caller that has its own before-figures —
+ * seoops, whose baseline is a Search Console window rather than a field in a
+ * document — takes them itself and would be storing them twice. The scheduled
+ * readings still run, so the outcome fills in from the first offset onward and
+ * `verdict` stays `pending` until then, which is the honest description.
+ */
+export function createOutcome(input: {
+  title: string;
+  ventureId?: string | null;
+  actionKind: string;
+  actionRef?: string;
+  actionText?: string;
+  actionAt: string;
+  skill: string;
+  view?: string;
+  params?: Record<string, string>;
+  path: string;
+  unit?: string | null;
+}): string | null {
+  const title = input.title.trim().slice(0, MAX_TITLE);
+  if (!title || !input.skill || !input.path) return null;
+  const at = new Date(input.actionAt);
+  if (Number.isNaN(at.getTime())) return null;
+
+  const ref = (input.actionRef ?? "").trim();
+  if (ref) {
+    const held = db
+      .prepare("SELECT id FROM chief_outcomes WHERE action_kind = ? AND action_ref = ? AND skill = ? AND path = ?")
+      .get(input.actionKind, ref, input.skill, input.path) as { id: string } | undefined;
+    if (held) return held.id;
+  }
+
+  const id = mintOutcomeId();
+  db.prepare(
+    `INSERT INTO chief_outcomes
+       (id, title, venture_id, action_kind, action_ref, action_text, action_at,
+        skill, view, params, path, unit, created_at, closed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+  ).run(
+    id,
+    title,
+    input.ventureId ?? "",
+    input.actionKind,
+    ref,
+    (input.actionText ?? title).slice(0, MAX_ACTION_TEXT),
+    at.toISOString(),
+    input.skill,
+    input.view || "default",
+    JSON.stringify(input.params ?? {}),
+    input.path,
+    input.unit ?? null,
+    now(),
+  );
+  return id;
+}
+
 let seq = 0;
 export function mintOutcomeId(): string {
   seq = (seq + 1) % 1_000;
@@ -431,4 +503,84 @@ export function startReadings() {
     })();
   }, 60 * 60_000);
   timer.unref?.();
+}
+
+/* ------------------------------------------------ the same, with a baseline */
+
+/**
+ * `createOutcome` AND THE FIRST READING, IN ONE CALL.
+ *
+ * WHAT THIS IS FOR. `createOutcome` above creates the row and stops. That is
+ * right for a caller that wants to decide separately whether a baseline is
+ * worth reading — and the two callers that exist BOTH want one, which is
+ * exactly why the "create, then read, then guard against reading twice"
+ * sequence should be written once rather than twice.
+ *
+ * (An earlier version of this comment said seoops deliberately takes no
+ * baseline because it holds its own before-figures. That was wrong about
+ * seoops: `followup.ts::linkOutcome` reads one through `takeReading` behind the
+ * same "does one already exist" guard implemented below. The two paths were
+ * written independently and agree; that agreement is what this function is
+ * for, and its own note is corrected here rather than left to be believed.)
+ *
+ * A JOURNAL ENTRY HAS NOTHING OF ITS OWN — "shipped the new pricing page" is a
+ * sentence and a link — so its before is whatever the metric says at the moment
+ * the owner asks to track it, and it has to be read THEN. `/api/outcomes`'s own
+ * POST makes the same argument for itself: "we will read it on the next tick"
+ * makes two links made four minutes apart incomparable.
+ *
+ * A BASELINE THAT COULD NOT BE READ STILL LEAVES THE OUTCOME STANDING, with
+ * its reason recorded, so a plugin that was down for a minute does not cost
+ * the owner the link. The outcome then reads `verdict: "unreadable"` until a
+ * reading succeeds, which is the honest description of what is known.
+ *
+ * IT INHERITS `createOutcome`'S IDEMPOTENCE AND ADDS ITS OWN, and the second
+ * one is the part that had to be a transaction. The check and the insert used
+ * to be two statements, so two calls racing — a double-clicked "Take the
+ * baseline", a sweep overlapping itself — could both find no baseline and both
+ * write one. An outcome with two befores has no before at all: `shapeOutcome`
+ * takes `readings.find(kind === "baseline")`, so which of the two numbers the
+ * verdict is measured against would be an accident of insertion order. The
+ * reading is taken OUTSIDE the transaction (it is a network call and must never
+ * hold a write lock) and the claim is staked inside one.
+ */
+export async function createOutcomeWithBaseline(
+  input: Parameters<typeof createOutcome>[0],
+): Promise<{ id: string; baseline: ReadOut; reused: boolean } | null> {
+  const id = createOutcome(input);
+  if (!id) return null;
+
+  const existing = (): ReadingRow | undefined =>
+    db
+      .prepare(
+        "SELECT * FROM chief_outcome_readings WHERE outcome_id = ? AND kind = 'baseline' ORDER BY id LIMIT 1",
+      )
+      .get(id) as ReadingRow | undefined;
+
+  const held = existing();
+  if (held)
+    return { id, baseline: { value: held.value, error: held.error, raw: held.raw }, reused: true };
+
+  const baseline = await takeReading(outcomeRow(id)!);
+
+  /* The window between the read above and the write below is where the race
+     lived. IMMEDIATE takes the write lock up front, so the loser of a race sees
+     the winner's row inside its own transaction and keeps it. */
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const raced = existing();
+    if (raced) {
+      db.exec("COMMIT");
+      return { id, baseline: { value: raced.value, error: raced.error, raw: raced.raw }, reused: true };
+    }
+    db.prepare(
+      `INSERT INTO chief_outcome_readings (outcome_id, ts, kind, day_offset, value, error, raw)
+       VALUES (?, ?, 'baseline', NULL, ?, ?, ?)`,
+    ).run(id, now(), baseline.value, baseline.error, baseline.raw);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { id, baseline, reused: false };
 }

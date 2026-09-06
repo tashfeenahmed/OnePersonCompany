@@ -306,7 +306,7 @@ export async function listSites(token: string): Promise<SiteEntry[]> {
     .map((s) => ({ property: s.siteUrl!, permission: s.permissionLevel ?? null }));
 }
 
-type ApiRow = {
+export type ApiRow = {
   keys?: string[];
   clicks?: number;
   impressions?: number;
@@ -317,7 +317,11 @@ type ApiRow = {
 const int = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : 0);
 const real = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-async function searchAnalytics(
+/* EXPORTED so a caller that needs ONE page's row rather than a property's can
+   send its own filter document without re-implementing the auth, the timeout
+   and the `dataState: "final"` rule below. integrations/seoops/gsc.ts is that
+   caller; nothing about this function changed to let it in. */
+export async function searchAnalytics(
   token: string,
   property: string,
   body: Record<string, unknown>,

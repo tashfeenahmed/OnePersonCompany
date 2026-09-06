@@ -129,8 +129,13 @@ export type OutboxItem = {
   via: "gmail" | "resend" | null;
   replyTo: string | null;
   /** Why the From line could not be resolved — a Resend key pointed at another
-   *  domain, a Gmail account disconnected. NULL when it resolved. */
+   *  domain, a Gmail account disconnected. NULL when it resolved. A refusal:
+   *  the send is frozen against it. */
   fromError: string | null;
+  /** A resolved From line Resend has something to say about — "pending", or
+   *  never asked. It does NOT stop a send; it is what the owner needs to read
+   *  before approving rather than after Resend refuses. */
+  fromWarning: string | null;
   /** Whether this draft carries a plan and a fact packet. A draft typed by hand
    *  does not, and that absence is honest: nobody validated it against
    *  anything. */

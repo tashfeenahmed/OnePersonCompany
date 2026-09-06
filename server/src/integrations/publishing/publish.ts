@@ -6,9 +6,13 @@
  * the next one's failure impossible to confuse:
  *
  *   1. Has this already been submitted? An item carrying an `external_id` is
- *      never sent again, whatever its status. This is the check that survives
- *      a network timeout on a call that actually succeeded — the worst failure
- *      available here, because the evidence looks identical to a failure.
+ *      never sent again, whatever its status. That covers a re-press and a
+ *      retried HTTP request. It does NOT cover the worst case — a call that
+ *      succeeded and whose answer was lost — because the id is only ever
+ *      written from a response this process read, so it is null in exactly
+ *      that case. That one is handled by refusing to retry an ambiguous
+ *      outcome at all; see the retry decision at the bottom of this file and
+ *      `scheduler.reclaim()`.
  *   2. Did the owner approve it? Nothing else in this file cares what the
  *      caption says; this cares that a person read it.
  *   3. Do the platform limits pass? See limits.ts. A refusal here is a
@@ -124,8 +128,17 @@ export async function publishItem(
     });
 
   /* 2 — the owner's consent. A dry run is exempt: rehearsing a draft is how
-     somebody finds out whether it WOULD go, and nothing leaves this box. */
-  if (!dry && row.status !== "approved" && row.status !== "scheduled" && row.status !== "publishing")
+     somebody finds out whether it WOULD go, and nothing leaves this box.
+
+     `failed` IS IN THE LIST, and it is there because `retry` is a real
+     button. A failed item was approved by the owner before it was ever
+     submitted, and nothing since has withdrawn that — an EDIT would have, by
+     returning it to `draft` (see items.patchItem). Leaving it out made the
+     retry route and the `retry_item` skill action structurally unable to do
+     anything but 422, which is worse than either offering the retry or
+     removing it: it looked like a feature and was a dead end. */
+  const CONSENTED = ["approved", "scheduled", "publishing", "failed"];
+  if (!dry && !CONSENTED.includes(row.status))
     return base({
       error:
         `That item is ${row.status}. Only an approved item is published — approve it first.`,
@@ -204,32 +217,81 @@ export async function publishItem(
   const after = itemRow(id)!;
   const max = settings().maxAttempts;
   const exhausted = after.attempts >= max;
-  /* A retry is only ever offered for something that MIGHT be transient. A
-     credential that is not configured will not fix itself, and retrying it
-     four times is four identical log lines. */
-  const retryable = outcome.configured && !exhausted && !!after.scheduled_for;
+
+  /*
+    AN AMBIGUOUS OUTCOME IS NEVER RETRIED, AND THIS IS THE SECOND HALF OF THE
+    RULE `scheduler.reclaim()` KEEPS.
+
+    A refusal is a fact: Meta answered 400, the caption was too long, the token
+    was revoked. Retrying that is free and sometimes right. A `fetch` that
+    THREW is not a fact — a 180-second timeout on `/photos`, a 45-second one on
+    `/feed`, TikTok's status poll running out — because the request may well
+    have arrived and been accepted, and the answer is simply gone. TikTok's own
+    message says so in as many words ("check the app before retrying, or this
+    will post it twice"), and until this check existed the code went on to
+    retry it five minutes later anyway.
+
+    THE SIGNAL IS ALREADY ON THE WIRE. `liveTransport` records `status: null`
+    for a call that threw and a real number for one that answered, so the last
+    recorded call tells us which happened. No new plumbing, and it is true of
+    all four networks because they all go through the same transport.
+  */
+  const last = transport.calls.at(-1);
+  const ambiguous = last !== undefined && last.status === null;
+
+  /* A retry is only ever offered for something that MIGHT be transient AND
+     whose outcome is known. A credential that is not configured will not fix
+     itself, and retrying it four times is four identical log lines.
+
+     THE STATUS IS READ FROM `row`, NOT FROM `after`, and that is not a
+     shortcut: this function moves the item to `publishing` before the call, so
+     by now `after.status` is always "publishing" and a test against it would
+     make nothing retryable ever. `row` is the item as it was when somebody
+     asked for this submission.
+
+     AND IT IS THE STATUS RATHER THAN A NON-NULL `scheduled_for`. The Autopilot
+     writes a PROPOSED date onto a draft (see autopilot-hook.ts), so a row can
+     carry a date the owner never scheduled; the old test on `scheduled_for`
+     turned a failed "Publish now" on such a row into a real unattended
+     schedule for a slot nobody chose. Only an item the owner actually put on
+     the calendar goes back on it. */
+  const retryable =
+    outcome.configured && !exhausted && !ambiguous && row.status === "scheduled";
+
+  const ambiguousError = ambiguous
+    ? `${outcome.error ?? "The call did not answer."} THE OUTCOME IS UNKNOWN — the request ` +
+      "may have been accepted and the answer lost. Nothing here retries it. Open the account " +
+      "and look before you try again; retrying a silent success posts twice."
+    : outcome.error;
+
   db.prepare(
     `UPDATE publish_items
-        SET status = ?, error = ?, next_attempt_at = ?, updated_at = ?
+        SET status = ?, error = ?, next_attempt_at = ?, scheduled_for = ?, updated_at = ?
       WHERE id = ?`,
   ).run(
     retryable ? "scheduled" : "failed",
-    outcome.error,
+    ambiguousError,
     retryable ? new Date(Date.now() + backoffMs(after.attempts)).toISOString() : null,
+    /* An ambiguous outcome loses its date as well as its status, for
+       reclaim()'s reason: neither a timer nor a later status change may
+       resurrect a slot nobody re-chose. */
+    retryable ? after.scheduled_for : ambiguous ? null : after.scheduled_for,
     now(),
     id,
   );
   return base({
     ok: false,
     status: retryable ? "scheduled" : "failed",
-    error: outcome.error,
+    error: ambiguousError,
     note: retryable
       ? `Attempt ${after.attempts} of ${max}; the next one is in ${Math.round(backoffMs(after.attempts) / 60_000)} minutes.`
-      : exhausted
-        ? `Given up after ${after.attempts} attempts. Fix what the error says and retry by hand.`
-        : outcome.configured
-          ? null
-          : "Nothing is connected for that destination, so there was nothing to retry.",
+      : ambiguous
+        ? "Stopped, deliberately. Check the account before approving another attempt."
+        : exhausted
+          ? `Given up after ${after.attempts} attempts. Fix what the error says and retry by hand.`
+          : outcome.configured
+            ? null
+            : "Nothing is connected for that destination, so there was nothing to retry.",
     calls: transport.calls,
     ms,
   });

@@ -184,7 +184,14 @@ function playFacts(ventureId: string): Derived[] {
         statement: `Shipped on Google Play as ${[...mine].join(", ")}; no daily export covering the last 30 days has been ingested.`,
       },
     ];
-  const installs = rows.reduce((n, r) => n + (r.installs ?? 0), 0);
+  /* NULL IS NOT ZERO, and `?? 0` inside a sum is the single easiest way on this
+     box to turn "Play did not carry an install column for this era of the
+     export" into the measured, prompt-fed sentence "Google Play recorded 0
+     installs over the last 30 days". So the rows that carried a figure are
+     counted and the rest are not counted at all — and when NONE of them carried
+     one there is no installs fact, rather than a zero. */
+  const counted = rows.filter((r) => r.installs !== null);
+  const installs = counted.reduce((n, r) => n + r.installs!, 0);
   const devices = rows
     .filter((r) => r.active_devices !== null)
     .sort((a, b) => (a.day < b.day ? 1 : -1))[0]?.active_devices ?? null;
@@ -195,13 +202,18 @@ function playFacts(ventureId: string): Derived[] {
       plugin: "playstore",
       statement: `Shipped on Google Play as ${[...mine].join(", ")}.`,
     },
-    {
+  ];
+  if (counted.length)
+    out.push({
       key: "play:installs",
       kind: "metric",
       plugin: "playstore",
-      statement: `Google Play recorded ${installs.toLocaleString("en")} installs over the last 30 days.`,
-    },
-  ];
+      statement:
+        `Google Play recorded ${installs.toLocaleString("en")} ${verb(installs, "install", "installs")} over the last 30 days` +
+        (counted.length < rows.length
+          ? `, across the ${counted.length} of ${rows.length} exported days that carried an install column.`
+          : "."),
+    });
   if (devices !== null)
     out.push({
       key: "play:devices",
@@ -246,12 +258,20 @@ function appStoreFacts(ventureId: string): Derived[] {
 
 /* ---------------------------------------------------------------- the pass */
 
-const DERIVERS: ((ventureId: string) => Derived[])[] = [
-  stripeFacts,
-  githubFacts,
-  npmFacts,
-  playFacts,
-  appStoreFacts,
+/**
+ * THE DERIVERS, EACH WITH THE KEY PREFIX IT OWNS.
+ *
+ * The prefix is not decoration: it is what makes the retire loop below safe.
+ * Every key a deriver mints starts with it, so "which facts is this deriver
+ * responsible for" has an answer that does not depend on the deriver having
+ * run successfully — which is exactly the case where the question matters.
+ */
+const DERIVERS: { prefix: string; read: (ventureId: string) => Derived[] }[] = [
+  { prefix: "stripe:", read: stripeFacts },
+  { prefix: "github:", read: githubFacts },
+  { prefix: "npm:", read: npmFacts },
+  { prefix: "play:", read: playFacts },
+  { prefix: "appstore:", read: appStoreFacts },
 ];
 
 export type DeriveResult = {
@@ -259,6 +279,10 @@ export type DeriveResult = {
   added: number;
   refreshed: number;
   retired: number;
+  /** Derivers that threw, with their reason. Published rather than swallowed:
+   *  "no Stripe facts" and "the Stripe deriver failed" are different answers
+   *  and the second one is the one that needs somebody. */
+  skipped: string[];
 };
 
 /**
@@ -274,27 +298,25 @@ export type DeriveResult = {
  * where nothing changed, so a pass that finds no news writes no history.
  */
 export function deriveVenture(ventureId: string): DeriveResult {
-  const out: DeriveResult = { ventureId, added: 0, refreshed: 0, retired: 0 };
+  const out: DeriveResult = { ventureId, added: 0, refreshed: 0, retired: 0, skipped: [] };
   const produced: Derived[] = [];
+  /* WHICH DERIVERS ACTUALLY READ SOMETHING, which is a different question from
+     which produced facts. A deriver that returned an empty list has said "this
+     venture has no Stripe products any more" and its old rows SHOULD retire; a
+     deriver that threw has said nothing at all. */
+  const ran: string[] = [];
   for (const d of DERIVERS) {
     try {
-      produced.push(...d(ventureId));
-    } catch {
+      produced.push(...d.read(ventureId));
+      ran.push(d.prefix);
+    } catch (err) {
       /* One deriver failing loses only that deriver — the rule this codebase
          keeps everywhere. A Stripe table mid-migration must not cost the
          venture its Play facts. */
+      out.skipped.push(`${d.prefix.replace(":", "")}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  const before = new Set(
-    (
-      db
-        .prepare(
-          "SELECT id FROM knowledge_facts WHERE venture_id = ? AND tier = 'measured' AND status = 'active'",
-        )
-        .all(ventureId) as unknown as { id: string }[]
-    ).map((r) => r.id),
-  );
   const seen = new Set<string>();
 
   for (const f of produced) {
@@ -314,12 +336,52 @@ export function deriveVenture(ventureId: string): DeriveResult {
     else out.refreshed++;
   }
 
-  for (const id of before)
-    if (!seen.has(id)) {
-      db.prepare("UPDATE knowledge_facts SET status = 'retired' WHERE id = ?").run(id);
-      out.retired++;
-    }
+  out.retired = retireUnproduced(ventureId, { ran, seen });
   return out;
+}
+
+/**
+ * RETIRE ONLY WHAT A DERIVER THAT RAN IS RESPONSIBLE FOR — `refreshRepo`'s rule,
+ * which this loop was missing.
+ *
+ * A deriver that threw contributes nothing to `seen`, so retiring everything
+ * unseen retired ITS facts on a transient failure: they left every prompt, and
+ * the next successful pass filed them again as new rows whose "retired" date on
+ * the old ones meant nothing. It happened on the live box — twelve measured rows
+ * retired inside one bad pass and re-created twenty minutes later carrying the
+ * same fingerprints.
+ *
+ * So a row is only retired when the deriver that OWNS ITS KEY PREFIX ran without
+ * throwing this pass. The distinction that makes this correct is between a
+ * deriver that returned an empty list — which has genuinely said "this venture
+ * has no Stripe products any more", and whose rows should retire — and one that
+ * threw, which has said nothing at all.
+ *
+ * A row whose prefix belongs to no deriver in `ran` is left alone rather than
+ * swept, which also means a deriver that is one day REMOVED does not silently
+ * retire everything it ever wrote: nothing here guesses that a fact is dead
+ * because its author is gone.
+ *
+ * Exported so the rule can be asserted directly, with a deriver "failing"
+ * without having to break a plugin table to make it happen.
+ */
+export function retireUnproduced(
+  ventureId: string,
+  pass: { ran: string[]; seen: Set<string> },
+): number {
+  const rows = db
+    .prepare(
+      "SELECT id, fingerprint FROM knowledge_facts WHERE venture_id = ? AND tier = 'measured' AND status = 'active'",
+    )
+    .all(ventureId) as unknown as { id: string; fingerprint: string }[];
+  let retired = 0;
+  for (const row of rows) {
+    if (pass.seen.has(row.id)) continue;
+    if (!pass.ran.some((p) => row.fingerprint.startsWith(p))) continue;
+    db.prepare("UPDATE knowledge_facts SET status = 'retired' WHERE id = ?").run(row.id);
+    retired++;
+  }
+  return retired;
 }
 
 export function deriveAll(): DeriveResult[] {

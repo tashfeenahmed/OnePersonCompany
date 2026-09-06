@@ -40,7 +40,7 @@ function Bucket({ b, currency }: { b: LeakageBucket; currency: string }) {
           {amount(b.amount, currency)}
         </span>
         <span className="text-muted-foreground text-[12px]">
-          {b.count > 0 ? `${b.count.toLocaleString()} · ` : ""}
+          {b.count !== null && b.count > 0 ? `${b.count.toLocaleString()} · ` : ""}
           {b.window}
         </span>
       </div>

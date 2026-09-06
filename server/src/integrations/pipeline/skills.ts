@@ -42,11 +42,14 @@ export const SKILLS: Skill[] = [
       "`usd` is null when this box prices no tokens — that is 'unknown', never zero. A night's cost " +
         "counts only the model calls its stages made THEMSELVES; a stage that queued a sub-agent " +
         "run has that run's cost billed to the run, not to the night. Never sum the two.",
-      "A run with `dry: true` was PLANNED and nothing happened. It never counts as a stage's last " +
-        "successful pass and must never be reported as work done.",
-      "`run` with dry false spends real money: it dispatches sub-agent runs into the single slot and " +
-        "sends model calls billed to the owner. Say what it will cost before calling it, and prefer " +
-        "dry when the question is 'what would happen'.",
+      "TWO ACTIONS, AND ONLY ONE OF THEM SPENDS. `plan_night` rehearses and cannot execute; " +
+        "`run_stage` always executes and takes no flag that could stop it. There is no `dry` " +
+        "parameter anywhere here — if you find yourself wanting one, you want `plan_night`.",
+      "A run marked `dry: true` in the ledger was PLANNED and nothing happened. It never counts as a " +
+        "stage's last successful pass and must never be reported as work done.",
+      "`run_stage` spends real money: it dispatches sub-agent runs into the single slot and sends " +
+        "model calls billed to the owner. Say what it will cost before calling it, and never call it " +
+        "to answer a question — that is what `plan_night` is for.",
     ],
     views: [
       {
@@ -88,14 +91,34 @@ export const SKILLS: Skill[] = [
     ],
     actions: [
       {
+        key: "plan_night",
+        method: "POST",
+        path: "/api/pipeline/plan",
+        about:
+          "REHEARSE the night: walk the same graph with the same enablement, cadence, blackout and " +
+          "dependency rules, ask each stage what it WOULD do, and file the plan beside the real " +
+          "nights. Executes nothing and spends nothing — there is no flag on this route that could " +
+          "make it run for real. Use it for every 'what would happen' question.",
+        params: [
+          {
+            name: "stage",
+            type: "string",
+            required: false,
+            about: "One stage id to plan on its own. Omitted, the whole night is planned.",
+            exampled: true,
+          },
+        ],
+      },
+      {
         key: "run_stage",
         method: "POST",
         path: "/api/pipeline/run",
         about:
-          "Run the night now, or one stage of it. With `dry` true nothing is executed — each stage " +
-          "reports what it WOULD do and the plan is filed beside the real nights. With `dry` false " +
-          "this spends real money: sub-agent runs into the single slot and model calls on the " +
-          "owner's account.",
+          "RUN the night for real, or one stage of it. This SPENDS: it dispatches sub-agent runs " +
+          "into the single slot and sends model calls billed to the owner. There is no `dry` flag " +
+          "here and sending one is refused — rehearsing is `plan_night`, a separate route, so that " +
+          "no mistyped value can turn one into the other. Only call this when the owner asked for " +
+          "the work to actually happen.",
         params: [
           {
             name: "stage",
@@ -107,15 +130,13 @@ export const SKILLS: Skill[] = [
               "for that stage now.",
             exampled: true,
           },
-          {
-            name: "dry",
-            type: "string",
-            required: false,
-            fallback: "false",
-            about: "true to plan without executing. Use this unless the owner asked for the work to happen.",
-            exampled: true,
-          },
         ],
+        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
+           a row cannot be deleted afterwards. `destructive` is what a client is
+           entitled to trust when it decides whether to ask a person first, and
+           the thing that cannot be taken back here is the money, the message or
+           the power state rather than the record. It spends: the stage dispatches sub-agent runs and model calls. */
+        destructive: true,
       },
       {
         key: "skip_tonight",
@@ -125,7 +146,15 @@ export const SKILLS: Skill[] = [
           "Do not run the scheduled night for today (the owner's own calendar day). It is a note to " +
           "the timer, not a lock: starting a night by hand still works. `cancel` true un-skips.",
         params: [
-          { name: "cancel", type: "string", required: false, fallback: "false", about: "true to un-skip tonight." },
+          {
+            name: "cancel",
+            type: "string",
+            required: false,
+            fallback: "false",
+            about:
+              'true to un-skip. Accepted spellings are "true"/"false", "yes"/"no", "on"/"off", "1"/"0"; ' +
+              "anything else is refused with a 400 rather than read as false.",
+          },
           { name: "reason", type: "string", required: false, about: "Why, for the record. At most 200 characters." },
         ],
       },
@@ -139,10 +168,25 @@ export const SKILLS: Skill[] = [
           "not stop it — its own area's settings do — and the answer says so.",
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "The stage id." },
-          { name: "enabled", type: "string", required: false, about: "true, false, or null for the default." },
-          { name: "cadence", type: "string", required: false, about: "daily, weekly, monthly, or null for the default." },
-          { name: "maxUsd", type: "number", required: false, about: "Dollar cap for one pass, or null for the default." },
-          { name: "maxMinutes", type: "number", required: false, about: "Minute cap for one pass, or null for the default." },
+          {
+            name: "enabled",
+            type: "string",
+            required: false,
+            about:
+              'true or false ("yes"/"no", "on"/"off", "1"/"0" are accepted too), or "null" to restore ' +
+              "this stage's own default. Anything else is refused with a 400.",
+          },
+          { name: "cadence", type: "string", required: false, about: 'daily, weekly, monthly, or "null" for the default.' },
+          {
+            name: "window",
+            type: "string",
+            required: false,
+            about:
+              'HH:MM-HH:MM — the part of the night this stage may START in, or "null" for anywhere ' +
+              "inside the nightly window. Outside it the stage is skipped with that reason.",
+          },
+          { name: "maxUsd", type: "number", required: false, about: 'Dollar cap for one pass, or "null" for the default.' },
+          { name: "maxMinutes", type: "number", required: false, about: 'Minute cap for one pass, or "null" for the default.' },
         ],
       },
     ],
@@ -176,8 +220,11 @@ export const SKILLS: Skill[] = [
         "is zero', and reporting it as zero is the worst thing this skill can do.",
       "Coverage rotates: a venture with no recent proposals has probably not had its turn yet. " +
         "Check `coverage` before concluding that nothing was worth proposing for it.",
-      "Running the pass costs one model call over the whole packet. It is not free and it is not " +
-        "instant; do not run it for every venture to answer one question.",
+      "TWO ACTIONS, AND ONLY ONE OF THEM SPENDS. `plan_for_venture` builds the packet and asks the " +
+        "model nothing; `run_for_venture` costs one model call over the whole packet and files cards. " +
+        "Never run the paid one to answer a question about what is measured.",
+      "`packet` is omitted from the proposals list by default and `packetOmitted` says so — that is a " +
+        "size decision, not an absence of evidence. Add `packet=full` when you actually need it.",
     ],
     views: [
       {
@@ -210,23 +257,31 @@ export const SKILLS: Skill[] = [
     ],
     actions: [
       {
+        key: "plan_for_venture",
+        method: "POST",
+        path: "/api/synthesis/plan",
+        about:
+          "REHEARSE the pass for one venture: build the evidence packet, report what is measured, " +
+          "ask the model nothing and file nothing. Free, and there is no flag on this route that " +
+          "could make it spend. This is the honest answer to 'why does this venture never get a " +
+          "proposal'.",
+        params: [{ name: "ventureId", type: "string", required: true, about: "The venture's id or slug." }],
+      },
+      {
         key: "run_for_venture",
         method: "POST",
         path: "/api/synthesis/run",
         about:
-          "Run the pass for one venture now. One model call over the whole evidence packet; " +
-          "survivors of the gate become board cards in Backlog. `dry` true builds the packet and " +
-          "asks nothing.",
-        params: [
-          { name: "ventureId", type: "string", required: true, about: "The venture's id or slug." },
-          {
-            name: "dry",
-            type: "string",
-            required: false,
-            fallback: "false",
-            about: "true to build the evidence packet and ask the model nothing.",
-          },
-        ],
+          "RUN the pass for one venture. This SPENDS: one model call over the whole evidence packet, " +
+          "and survivors of the gate become board cards in Backlog. There is no `dry` flag here and " +
+          "sending one is refused — rehearsing is `plan_for_venture`, a separate route.",
+        params: [{ name: "ventureId", type: "string", required: true, about: "The venture's id or slug." }],
+        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
+           a row cannot be deleted afterwards. `destructive` is what a client is
+           entitled to trust when it decides whether to ask a person first, and
+           the thing that cannot be taken back here is the money, the message or
+           the power state rather than the record. It spends: the pass dispatches sub-agent runs and model calls. */
+        destructive: true,
       },
       {
         key: "set_proposals",
@@ -235,7 +290,14 @@ export const SKILLS: Skill[] = [
         about: "Switch proposals on or off for one venture. Off, the rotation skips it entirely.",
         params: [
           { name: "key", type: "string", required: true, in: "path", about: "The venture's id or slug." },
-          { name: "proposals", type: "string", required: true, about: "true or false." },
+          {
+            name: "proposals",
+            type: "string",
+            required: true,
+            about:
+              'true or false ("yes"/"no", "on"/"off", "1"/"0" accepted). Anything else is refused ' +
+              "with a 400 rather than read as false.",
+          },
         ],
       },
     ],

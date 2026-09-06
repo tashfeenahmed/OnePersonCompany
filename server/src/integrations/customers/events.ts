@@ -269,6 +269,10 @@ export type Collapsible = {
   type: string;
   at: string;
   customer: string | null;
+  /** True for a row whose message has ALREADY gone. It seeds the window — a
+   *  later failure for the same customer folds into it — and it can never
+   *  itself be collapsed, because there is nothing left to suppress. */
+  delivered?: boolean;
 };
 
 export type CollapseResult = {
@@ -301,12 +305,23 @@ export type CollapseResult = {
 export function collapseFailures(
   rows: Collapsible[],
   minutes = COLLAPSE_MINUTES,
+  /**
+   * Failures whose message has already been sent, inside the same window.
+   *
+   * WITHOUT THESE THE WINDOW IS PER PASS, NOT PER HOUR, and the promise this
+   * function makes in the README and in the `events` skill is not kept: a
+   * failure delivered at 09:00 leaves the pending set the moment it is
+   * marked, so the retry at 09:40 arrives in an empty set and opens a window
+   * of its own. The seed rows carry `delivered: true`, open windows exactly
+   * as a survivor would, and are never themselves collapsed.
+   */
+  seed: Collapsible[] = [],
 ): CollapseResult {
   const collapsed = new Map<string, string>();
   const standsFor = new Map<string, number>();
   const open = new Map<string, { id: string; until: number }>();
 
-  const ordered = [...rows].sort(
+  const ordered = [...seed.map((r) => ({ ...r, delivered: true })), ...rows].sort(
     (a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id),
   );
 
@@ -316,6 +331,10 @@ export function collapseFailures(
     if (Number.isNaN(at)) continue;
     const held = open.get(r.customer);
     if (held && at <= held.until) {
+      /* A row that has already been delivered cannot be suppressed — its
+         message is gone. It does not extend the window either: the window
+         belongs to whichever row opened it. */
+      if (r.delivered) continue;
       collapsed.set(r.id, held.id);
       standsFor.set(held.id, (standsFor.get(held.id) ?? 1) + 1);
       continue;
@@ -353,16 +372,34 @@ export function quietDeferral(
 ): string | null {
   if (!quiet) return null;
   if (!inQuiet(zoned(timezone, at).hour, quiet)) return null;
-  for (let step = 1; step <= 48; step++) {
-    const probe = new Date(at.getTime() + step * 3_600_000);
-    if (!inQuiet(zoned(timezone, probe).hour, quiet)) {
-      probe.setUTCMinutes(0, 0, 0);
-      return probe.toISOString();
-    }
+
+  /*
+    THE STEP IS FIFTEEN MINUTES AND THE INSTANT RETURNED IS NOT ROUNDED.
+
+    This used to probe hourly and then round the winning probe to a UTC hour,
+    which was wrong twice. Rounding DOWN landed before the moment that had
+    been tested, and in a zone whose offset is not a whole number of hours
+    that is back inside the window — Asia/Kolkata is UTC+5:30, so an event at
+    22:15 local under 22-8 probed clear at 08:15 and the rounded answer was
+    07:30 local, still quiet. Rounding UP was safe but blunt: a message held
+    until nine when the owner's quiet hours ended at eight.
+
+    Fifteen minutes is exact rather than merely safer. A quiet boundary is a
+    LOCAL hour mark, and every IANA offset is a whole number of quarter hours,
+    so the true end of the window always falls on a quarter-hour UTC mark —
+    which means the first non-quiet quarter-hour at or after `at` IS the
+    boundary, in any zone, with no rounding at all. 192 formatter calls at
+    worst, once per delivery pass.
+  */
+  const QUARTER = 900_000;
+  const first = Math.ceil(at.getTime() / QUARTER) * QUARTER;
+  for (let step = 0; step <= 192; step++) {
+    const probe = new Date(first + step * QUARTER);
+    if (!inQuiet(zoned(timezone, probe).hour, quiet)) return probe.toISOString();
   }
   /* Unreachable while `from !== to` is enforced at parse time. Returning null
      rather than throwing: a notifier that crashes on a settings value is
-     worse than one that sends an hour early. */
+     worse than one that sends early. */
   return null;
 }
 

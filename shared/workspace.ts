@@ -19,6 +19,13 @@ export function isWorkspacePreferences(v: unknown): boolean {
     const keys = v.pinnedItems.map(pin => pin.type === "page" ? `page:${pin.path}` : `session:${pin.sessionId}`);
     if (new Set(keys).size !== keys.length) return false;
   }
+  /* The chrome's palette: one of the ids in client/src/lib/palettes.ts, or
+     absent for the default. Checked by SHAPE rather than against that list —
+     shared/ is read by the server too and must not import a client module, and
+     a document written by a newer client that has one more palette in it is
+     not an invalid document. An id this client cannot draw falls back to the
+     default at read time. */
+  if (v.palette !== undefined && !(typeof v.palette === "string" && /^[a-z][a-z0-9-]{0,30}$/.test(v.palette))) return false;
   if (v.appOrder !== undefined && (!Array.isArray(v.appOrder) || v.appOrder.length > 200 || !v.appOrder.every(x => text(x, 100)) || new Set(v.appOrder).size !== v.appOrder.length)) return false;
   if (!list(v.sessions, s => text(s.id, 200) && !!s.id && text(s.title, 2000) && ref(s.ventureId)
     && (s.seeded === undefined || typeof s.seeded === "boolean")

@@ -28,6 +28,7 @@
 import { Hono } from "hono";
 import { ventureRow, ventureRowById, ventureRows } from "../../db.ts";
 import { passwordSet } from "../security/owner.ts";
+import { requireBrowser } from "../security/gate.ts";
 import { insertRun, mintRunId, runRow, shapeRun } from "../runs/store.ts";
 import { pump } from "../runs/executor.ts";
 import {
@@ -86,6 +87,43 @@ export const publishingRoutes = new Hono();
 
 const bad = (message: string) => ({ error: message });
 
+/** Boundaries, part headers and the other form fields around the file. A
+ *  generous allowance: the point is to refuse a gigabyte, not to be exact. */
+const MULTIPART_SLACK = 256 * 1024;
+
+/**
+ * THE TWO ROUTES THAT REACH A STRANGER'S FEED ARE BROWSER-ONLY.
+ *
+ * `requireBrowser` (integrations/security/gate.ts) refuses any request that
+ * carries a service key of either scope or the skills proxy's own
+ * `x-opc-via: skills`, and any request whose Origin is not this workspace —
+ * while still letting the dashboard work on a box with no password, which is
+ * the shipped state. That is the right shape for exactly two routes here:
+ * publish and retry. `deploy-routes.ts` uses it for install and uninstall and
+ * `mailflow` uses its stricter sibling for send, for the same reason.
+ *
+ * WHY NOT `/api/publishing` IN THE GATE'S `OWNER_SURFACE`. That list is a
+ * PREFIX list and it refuses the skills proxy outright, so putting this area
+ * on it would kill every publishing skill action — queueing, approving,
+ * scheduling, probing, importing an asset — all of which the registry
+ * deliberately publishes and none of which sends anything. The surface that
+ * has to be closed is two routes, not a prefix, and the id sits in the middle
+ * of both paths where a prefix cannot reach it.
+ *
+ * SO THE WALLS ARE THREE, AND THEY ARE DIFFERENT KINDS:
+ *   the registry names no action pointing at either route, so the proxy has
+ *   no URL to compose — the structural one;
+ *   `requireBrowser` refuses the proxy's header and both keys, so adding such
+ *   an action by accident is a 403 rather than a post;
+ *   and `publishItem` refuses anything the owner has not approved, which is
+ *   the one that does not depend on where the request came from.
+ *
+ * The middle wall is a HEURISTIC and the gate's own comment says so at length:
+ * anything that can open a socket can set these headers. It raises the bar to
+ * "you must deliberately impersonate a browser". It is not a cryptographic
+ * boundary and is not described as one.
+ */
+
 function ventureFrom(key: string | undefined | null) {
   if (!key) return null;
   return ventureRow(key) ?? null;
@@ -123,8 +161,10 @@ publishingRoutes.get("/", (c) => {
           "their own media and this server binds to loopback."
         : locked
           ? "A base URL is set AND this dashboard has a password on it. The media route is behind " +
-            "that lock like every other, so Meta's and TikTok's fetchers will be refused. Put the " +
-            "media behind a public path of your own, or take the password off while publishing."
+            "that lock like every other, so Meta's and TikTok's fetchers will be refused. Serve " +
+            "the media from a public path of your own instead. DO NOT take the password off: " +
+            "that would expose the whole of /api — plugin configuration, the agent routes, every " +
+            "credential surface — to the internet so that Meta could fetch one picture."
           : "A base URL is set. Whether the internet actually routes to it is not something this " +
             "box can test from inside itself — a failed fetch shows up as a container that never " +
             "becomes a post, minutes later.",
@@ -298,7 +338,15 @@ publishingRoutes.patch("/items/:id", async (c) => {
           : String(body.destinationId),
   });
   if (!res.ok) return c.json(bad(res.error), 400);
-  return c.json({ item: shapeItem(res.item) });
+  return c.json({
+    item: shapeItem(res.item),
+    /* SAID OUT LOUD, because it is a status moving backwards and a page that
+       did not mention it would look like it had lost the approval. */
+    unapproved: res.unapproved,
+    note: res.unapproved
+      ? "Edited, so the approval was withdrawn — it is a draft again. Approve it when you have read it."
+      : null,
+  });
 });
 
 publishingRoutes.post("/items/:id/approve", async (c) => {
@@ -364,7 +412,7 @@ publishingRoutes.post("/items/:id/rehearse", async (c) => {
  * that could not be read must never fall through to the side that posts —
  * that is the exact mistake this route made once.
  */
-publishingRoutes.post("/items/:id/publish", async (c) => {
+publishingRoutes.post("/items/:id/publish", requireBrowser, async (c) => {
   const body = (await c.req.json().catch(() => null)) as { dry?: unknown } | null;
   const raw = body?.dry ?? c.req.query("dry");
   let dry: boolean;
@@ -380,8 +428,9 @@ publishingRoutes.post("/items/:id/publish", async (c) => {
       ),
       400,
     );
-  const res = await publishItem(c.req.param("id"), { dry, by: "owner" });
-  const row = itemRow(c.req.param("id"));
+  const id = String(c.req.param("id"));
+  const res = await publishItem(id, { dry, by: "owner" });
+  const row = itemRow(id);
   return c.json(
     { result: res, item: row ? shapeItem(row) : null },
     res.ok || dry ? 200 : 422,
@@ -391,8 +440,8 @@ publishingRoutes.post("/items/:id/publish", async (c) => {
 /** A failed item, tried again by hand. The attempt counter is NOT reset: three
  *  failures and a manual retry is a fourth attempt, and a page that said
  *  "attempt 1" would hide the history. */
-publishingRoutes.post("/items/:id/retry", async (c) => {
-  const row = itemRow(c.req.param("id"));
+publishingRoutes.post("/items/:id/retry", requireBrowser, async (c) => {
+  const row = itemRow(String(c.req.param("id")));
   if (!row) return c.json(bad("No item by that id."), 404);
   if (row.status !== "failed")
     return c.json(bad(`That item is ${row.status}. Retry is for a failed one.`), 400);
@@ -608,6 +657,24 @@ publishingRoutes.get("/assets", async (c) => {
 publishingRoutes.post("/assets", async (c) => {
   const type = c.req.header("content-type") ?? "";
   if (type.includes("multipart/form-data")) {
+    /*
+      THE DECLARED LENGTH IS REFUSED BEFORE THE BODY IS TOUCHED.
+      `c.req.formData()` materialises the whole upload in memory, and
+      `addAsset`'s 12 MB cap is checked afterwards — so without this a
+      multi-gigabyte POST is accepted, buffered, and then politely told it was
+      too big by a process that has already died. The multipart envelope adds
+      boundaries and headers around the file, so the wire limit is the file cap
+      plus a small allowance rather than the file cap exactly.
+    */
+    const declared = Number(c.req.header("content-length") ?? "");
+    if (Number.isFinite(declared) && declared > UPLOAD_CAP + MULTIPART_SLACK)
+      return c.json(
+        bad(
+          `That upload declares ${Math.round(declared / 1024 / 1024)} MB; the cap is ` +
+            `${UPLOAD_CAP / 1024 / 1024} MB.`,
+        ),
+        413,
+      );
     let form: FormData;
     try {
       form = await c.req.formData();

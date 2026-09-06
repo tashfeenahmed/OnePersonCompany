@@ -26,6 +26,12 @@ import { db, ventureRows, ventureRowById } from "../../db.ts";
 import { activeProvider } from "../../models/provider.ts";
 import { queuedCount, runningRow } from "../runs/store.ts";
 import { logRows, nextRunAt, runPass, schedule, wall } from "./autopilot.ts";
+/* THE GATE'S OWN STATE, added 2026-09-06. It is on THIS document rather than
+   behind a second request because "why was nothing queued" is the question
+   this page exists to answer, and since the gate landed the answer is often
+   "because it was a repeat" — which lives in another area's tables. */
+import { checkRows, historyRows, noveltyDays, repeatLimit } from "../socialfeed/novelty.ts";
+import { candidateRows, settings as sourcingSettings, channelFor } from "../socialfeed/sourcing.ts";
 
 export const autopilotRoutes = new Hono();
 
@@ -92,6 +98,79 @@ autopilotRoutes.get("/", (c) => {
         videos: { made: t.video, cadence: s.videos, due: !quiet && s.videos > t.video },
       };
     }),
+    /* ------------------------------------------------- the novelty gate */
+    novelty: {
+      windowDays: noveltyDays(),
+      /* The share of a new topic's distinctive words that must already have
+         been used for it to count as the same work. Asymmetric — see
+         integrations/socialfeed/novelty.ts. */
+      repeatLimit: repeatLimit(),
+      note:
+        "The gate runs BEFORE anything is generated, so a refusal costs nothing and is the feature working. " +
+        "A topic is compared over the window; a source video is compared forever, because a second short out " +
+        "of the same footage is the same footage.",
+      verdicts: checkRows({ limit: 40 }).map((r) => ({
+        id: r.id,
+        ts: r.ts,
+        ventureId: r.venture_id,
+        ventureName: r.venture_id ? (ventureRowById(r.venture_id)?.name ?? null) : null,
+        format: r.format,
+        kind: r.kind,
+        value: r.value,
+        verdict: r.verdict,
+        reason: r.reason,
+        matched: r.matched,
+        score: r.score,
+      })),
+      history: historyRows({ limit: 40 }).map((r) => ({
+        id: r.id,
+        ventureId: r.venture_id,
+        ventureName: ventureRowById(r.venture_id)?.name ?? null,
+        format: r.format,
+        topic: r.topic,
+        sourceUrl: r.source_url,
+        assetKind: r.asset_kind,
+        assetRef: r.asset_ref,
+        createdAt: r.created_at,
+      })),
+    },
+    /* ----------------------------------------------- the source search */
+    sources: {
+      settings: (() => {
+        const so = sourcingSettings();
+        return {
+          minMinutes: Math.round(so.minSeconds / 60),
+          maxMinutes: Math.round(so.maxSeconds / 60),
+          probeTop: so.probe,
+          channels: ventureRows()
+            .map((row) => ({ venture: row.slug, url: channelFor(row, so) }))
+            .filter((x) => x.url !== null),
+        };
+      })(),
+      candidates: candidateRows({ limit: 60 }).map((r) => ({
+        id: r.id,
+        ventureId: r.venture_id,
+        ventureName: ventureRowById(r.venture_id)?.name ?? null,
+        query: r.query,
+        url: r.url,
+        title: r.title,
+        author: r.author,
+        engine: r.engine,
+        durationS: r.duration_s,
+        /* `yt-dlp` is the file's real metadata; `searxng` is the engine's own
+           string and is sometimes wrong. Null means neither said. */
+        durationFrom: r.duration_from,
+        publishedAt: r.published_at,
+        score: r.score,
+        rank: r.rank,
+        verdict: r.verdict,
+        reason: r.reason,
+        ts: r.ts,
+      })),
+      note:
+        "Candidates are found on the owner's own SearXNG node in its video category and ranked by duration " +
+        "fit, recency where a date exists, and how many engines carried the link. No model chose any of them.",
+    },
     log: logRows(80).map((r) => ({
       id: r.id,
       ts: r.ts,

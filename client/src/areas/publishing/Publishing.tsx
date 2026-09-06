@@ -263,19 +263,31 @@ function ItemCard({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
   const [result, setResult] = useState<PublishResult | null>(null);
   const [at, setAt] = useState("");
+  /* TWO CLICKS FOR EITHER BUTTON THAT REACHES AN AUDIENCE. Publishing cannot
+     be undone from here — deleting the post afterwards is a different act on a
+     different site — and one stray click was, in this area's own history, all
+     it took. Retry is armed for a sharper reason: an item can now be `failed`
+     because the outcome was UNKNOWN, and retrying one of those is how a silent
+     success becomes two posts. One flag for both, so arming one disarms the
+     other rather than leaving a primed button behind. */
+  const [armed, setArmed] = useState<"publish" | "retry" | null>(null);
 
-  async function act(name: string, fn: () => Promise<unknown>) {
+  async function act(name: string, fn: () => Promise<{ note?: string | null } | unknown>) {
     setBusy(name);
     setRefused(null);
+    setSaid(null);
     try {
-      await fn();
+      const res = (await fn()) as { note?: string | null } | null;
+      if (res && typeof res === "object" && typeof res.note === "string") setSaid(res.note);
       onChanged();
     } catch (err) {
       setRefused(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
+      setArmed(null);
     }
   }
 
@@ -432,25 +444,46 @@ function ItemCard({
         {(item.status === "approved" || item.status === "scheduled") && (
           <Button
             size="sm"
-            variant="destructive"
-            onClick={() =>
+            variant={armed === "publish" ? "destructive" : "outline"}
+            onBlur={() => setArmed(null)}
+            onClick={() => {
+              if (armed !== "publish") {
+                setArmed("publish");
+                return;
+              }
               void act("publish", async () => {
                 const r = await publishingApi.publish(item.id);
                 setResult(r.result);
-              })
-            }
+                return null;
+              });
+            }}
           >
             {busy === "publish" ? (
               <Loader2 className="size-[14px] animate-spin" strokeWidth={1.8} />
             ) : (
               <Send className="size-[14px]" strokeWidth={1.8} />
             )}
-            Publish now
+            {armed === "publish"
+              ? `Send it to ${item.destination?.handle ?? "that account"} — this cannot be undone`
+              : "Publish now"}
           </Button>
         )}
         {item.status === "failed" && !item.externalId && (
-          <Button size="sm" variant="secondary" onClick={() => void act("retry", () => publishingApi.retry(item.id))}>
-            Retry
+          <Button
+            size="sm"
+            variant={armed === "retry" ? "destructive" : "secondary"}
+            onBlur={() => setArmed(null)}
+            onClick={() => {
+              if (armed !== "retry") {
+                setArmed("retry");
+                return;
+              }
+              void act("retry", () => publishingApi.retry(item.id));
+            }}
+          >
+            {armed === "retry"
+              ? "Send it again — check the account first if the outcome was unknown"
+              : "Retry"}
           </Button>
         )}
         {item.status !== "published" && item.status !== "cancelled" && (
@@ -461,6 +494,7 @@ function ItemCard({
       </div>
 
       {refused && <p className="text-destructive text-[12.5px] leading-relaxed">{refused}</p>}
+      {said && <p className="text-warn text-[12.5px] leading-relaxed">{said}</p>}
 
       {result && (
         <div className="border-line-soft grid gap-1 rounded-[8px] border p-2.5">

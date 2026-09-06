@@ -23,7 +23,7 @@
 import type { IntegrationManifest } from "../manifest.ts";
 import { upsertPlugin } from "../../db.ts";
 import { agentcoreRoutes } from "./routes.ts";
-import { AGENTCORE_PLUGIN, DEFAULT_RESPONSE_BYTES, failInterruptedChatRuns } from "./store.ts";
+import { AGENTCORE_PLUGIN, DEFAULT_RESPONSE_BYTES, failInterruptedChatRuns, pruneChatRuns } from "./store.ts";
 
 export const manifest: IntegrationManifest = {
   id: "agentcore",
@@ -36,10 +36,11 @@ export const manifest: IntegrationManifest = {
           hint:
             `How much of one skill answer the agent is allowed to read, in bytes. ` +
             `Default ${DEFAULT_RESPONSE_BYTES} (24 KB). A document over the budget is ` +
-            `SHAPED rather than cut: every scalar and summary field survives, the ` +
-            `longest lists lose rows, and each shortened list ends with ` +
-            `{"truncated":true,"shown":…,"total":…} so the agent knows what it did not ` +
-            `see and how to ask for the rest. Raise it for a model with a large ` +
+            `SHAPED rather than cut: the longest lists lose rows first and each one ends ` +
+            `with {"truncated":true,"shown":…,"total":…}, then long strings are abridged, ` +
+            `and only when nothing else is left do fields go from the END of the document ` +
+            `(the object that lost them carries "_omitted"). How to ask for the rest is ` +
+            `written once, on "_bounded". Raise it for a model with a large ` +
             `window; lower it for a local 8k one, where a single big document is the ` +
             `difference between an answer and a silence. Minimum 1024 — below that ` +
             `the default stands, because a budget of nothing would empty every tool ` +
@@ -83,5 +84,12 @@ export const manifest: IntegrationManifest = {
     upsertPlugin(AGENTCORE_PLUGIN, true, null);
     const stale = failInterruptedChatRuns();
     if (stale) console.log(`[agentcore] ${stale} chat run(s) did not survive the restart`);
+    /* AND THE OLD ONES GO. One row per turn for ever is a table that grows with
+       use and is read by two questions neither of which can be asked of a run
+       from last spring. Finished runs only — a row still marked running is
+       either live or the residue above, and sweeping one away on age would
+       delete the evidence rather than the clutter. */
+    const swept = pruneChatRuns();
+    if (swept) console.log(`[agentcore] pruned ${swept} chat run(s) older than 30 days`);
   },
 };

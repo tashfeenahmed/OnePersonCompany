@@ -27,13 +27,24 @@ import { shortsVideo } from "./shorts.ts";
 import { ASPECTS, type Fit } from "./assemble.ts";
 import { forgetJob } from "./store.ts";
 import * as leases from "../deploy/leases.ts";
+import { motionVideo } from "../videoplus/motion.ts";
+import { reelVideo } from "../videoplus/reel.ts";
+import { forgetFraming } from "../videoplus/store.ts";
+import { forgetSocialfeed } from "../socialfeed/forget.ts";
 
-export const FORMATS = ["faceless", "shorts"] as const;
+/* `ugc` was added by the socialfeed area, 2026-09-06. It is a FORMAT rather
+   than a run kind for the reason this file exists: the executor knows one door
+   per area, and a third pipeline behind the same door is one branch here
+   instead of a new member of the RunKind union, a new page and a new entry in
+   three shared files. `reel` and `motion` were added by the videoplus area on
+   the same argument and on the same day: all five produce one video_jobs row,
+   under one lease, on one queue. */
+export const FORMATS = ["faceless", "shorts", "ugc", "reel", "motion"] as const;
 export type Format = (typeof FORMATS)[number];
 
 export function readFormat(raw: string | undefined): Format {
   const v = (raw ?? "").trim().toLowerCase();
-  return v === "shorts" ? "shorts" : "faceless";
+  return (FORMATS as readonly string[]).includes(v) ? (v as Format) : "faceless";
 }
 
 const clampNumber = (raw: string | undefined, fallback: number, lo: number, hi: number) => {
@@ -75,13 +86,28 @@ export async function videoRun(opts: {
     ventureId: opts.venture?.id ?? null,
     note: `${readFormat(opts.input.format)} video, run ${opts.runId}`,
   });
-  const beat = setInterval(() => void leases.heartbeat(lease.id), 60_000);
+  /* THE HEARTBEAT MUST NOT BE ABLE TO TAKE THE PROCESS DOWN. `heartbeat` is a
+     synchronous UPDATE and a SQLITE_BUSY inside a bare interval callback is an
+     uncaught exception, which under Node's defaults ends the process — killing
+     the render this lease exists to protect. A missed beat costs nothing until
+     the TTL, so swallowing it is strictly the smaller failure. */
+  const beat = setInterval(() => {
+    try {
+      leases.heartbeat(lease.id);
+    } catch (err) {
+      console.error(`[video] the lease heartbeat failed — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, 60_000);
   beat.unref?.();
   try {
     return await renderVideo(opts);
   } finally {
     clearInterval(beat);
-    leases.release(lease.id, "the video run ended");
+    /* `releaseOwn` and not `release`: this IS the holder, so the
+       still-beating refusal does not apply to it, and a lease that cannot be
+       written back must not throw out of a `finally` and mask the run's own
+       error. */
+    leases.releaseOwn(lease.id, "the video run ended");
   }
 }
 
@@ -120,6 +146,84 @@ async function renderVideo(opts: {
     });
   }
 
+  if (format === "ugc") {
+    /* A GUARDED DYNAMIC IMPORT and not a static one. This module is reached
+       from the video manifest's own import graph, and a static import of
+       another area's module would pull that area's manifest chain in with it —
+       which is how "Cannot access 'MANIFESTS' before initialization" happens
+       and the server does not boot. A missing socialfeed area therefore fails
+       this one run with a sentence rather than the whole process. */
+    let ugcVideo: typeof import("../socialfeed/ugc.ts")["ugcVideo"];
+    try {
+      ({ ugcVideo } = await import("../socialfeed/ugc.ts"));
+    } catch (err) {
+      throw new StepError(
+        "input",
+        `The UGC pipeline is not installed on this server (${err instanceof Error ? err.message : String(err)}).`,
+      );
+    }
+    return ugcVideo({
+      runId: opts.runId,
+      session: opts.session,
+      venture: opts.venture,
+      input: {
+        brief,
+        /* Comma or space separated asset ids from the venture's library. Empty
+           means "use the library", which the pipeline caps at four. */
+        assets: (opts.input.assets ?? "").trim(),
+        aspect,
+        fit,
+        seconds: clampNumber(opts.input.seconds, 5, 1, 20),
+      },
+      signal: opts.signal,
+    });
+  }
+
+  if (format === "reel") {
+    if (!opts.venture)
+      throw new StepError(
+        "input",
+        "A walkthrough reel is a tour of a venture's own pages, so it needs a venture — its website, its record and its colours. Choose one.",
+      );
+    return reelVideo({
+      runId: opts.runId,
+      session: opts.session,
+      venture: opts.venture,
+      input: {
+        urls: (opts.input.url ?? "").trim(),
+        brief,
+        /* For a reel this is the WHOLE video, and the line count follows from
+           it — see reel.ts. Ten seconds is two lines and is the shortest thing
+           that is still a conversation. */
+        seconds: clampNumber(opts.input.seconds, 30, 10, 120),
+        aspect,
+        /* NO `fit` — a reel is always letterboxed. reel.ts says why, and the
+           short version is that a centre crop of a web page is a walkthrough
+           of two thirds of a page. */
+      },
+      signal: opts.signal,
+    });
+  }
+
+  if (format === "motion") {
+    return motionVideo({
+      runId: opts.runId,
+      session: opts.session,
+      venture: opts.venture,
+      input: {
+        specId: (opts.input.spec ?? "").trim(),
+        brief,
+        aspect,
+        /* THE SKILLS PROXY SENDS EVERY PARAMETER AS A STRING, so this is
+           parsed from the two spellings a form and an agent actually send and
+           is false for anything else. A truthiness check on `"false"` would
+           narrate every video. */
+        voiceover: ["true", "on", "1", "yes"].includes((opts.input.voiceover ?? "").trim().toLowerCase()),
+      },
+      signal: opts.signal,
+    });
+  }
+
   if (!opts.venture)
     throw new StepError("input", "A faceless video is made out of a venture — its name, its sentence, its stage and its colours. Choose one.");
   return facelessVideo({
@@ -141,6 +245,11 @@ async function renderVideo(opts: {
  *  files exist only because of that run. */
 export function forgetVideo(runId: string) {
   forgetJob(runId);
+  forgetFraming(runId);
+  /* And the socialfeed area's UGC row, for the `ugc` format. That module
+     imports db.ts and nothing else precisely so this line cannot close a
+     cycle — see integrations/socialfeed/forget.ts. */
+  forgetSocialfeed(runId);
   try {
     rmSync(runDir(runId), { recursive: true, force: true });
   } catch {

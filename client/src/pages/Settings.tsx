@@ -14,6 +14,7 @@ import { isStoreState, useStore } from "@/lib/store";
 import { useTheme, type Theme } from "@/lib/theme";
 import { ModelsSettings } from "@/components/ModelsSettings";
 import { Section } from "@/components/settings/Section";
+import { PaletteSettings } from "@/components/settings/PaletteSettings";
 import { BackupsSettings } from "@/components/settings/BackupsSettings";
 import { CaptureSettings } from "@/components/settings/CaptureSettings";
 import { StudioSettings } from "@/components/settings/StudioSettings";
@@ -225,6 +226,8 @@ export function Settings() {
                 ))}
               </div>
             </Section>
+
+            <PaletteSettings />
 
             <Section
               title="Type and density"

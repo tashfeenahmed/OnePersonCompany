@@ -7,6 +7,10 @@ import { cn } from "@/lib/utils";
 import { ago } from "./format";
 import { EntityLinks } from "./EntityLinks";
 import { Note, PanelEmpty, PanelSection, Rows, Row, Suggest, Tiles } from "./Panel";
+/* The owner's own ledger, under the probes that feed it. Detection may ratchet
+   a row forward to `detected` and can never move one back; everything past
+   that means a person looked. See integrations/seoops/listings.ts. */
+import { ListingsPanel } from "@/areas/seoops/ListingsPanel";
 
 /** The four states a cell can be in, and the colour each earns. `blocked` is
  *  deliberately NOT the same grey as `absent`: one is a fact and the other is
@@ -243,6 +247,8 @@ export function PresencePanel({ onCollected }: { onCollected?: () => void }) {
       {d.notes.map((n) => (
         <Note key={n}>{n}</Note>
       ))}
+
+      <ListingsPanel />
     </PanelSection>
   );
 }

@@ -49,9 +49,13 @@ Two limits are stated rather than worked around. A launchd **agent** runs only w
 
 `GET /api/health` still answers `ok: true` whenever the process replies — `npm run restore` depends on that — and now also carries a `status` of `ok`/`warn`/`fail` over five checks: the database opens and passes `quick_check`, every migration this build ships is applied, connected sources have collected within their own cadence, the managed agent is in the state it was asked to be in, and there is disk left. Each check reports the figures and thresholds it used. Settings → Deployment draws the same document, plus the service state, a log tail and the schedule.
 
+That probe answers with no credential, because `npm run restore` has to be able to ask whether the server is up before it replaces a database. So once a **password is set**, an unauthenticated caller gets liveness only — `ok`, the time, and `status: null` meaning "not run for you". The checks name absolute paths, disk figures and the agent's last error, and those describe the machine. With no password nothing is withheld, which is the shipped state.
+
 ### Per-source collection cadence
 
-`OPC_COLLECT_MINUTES` is now the **default** rather than the only schedule. Every plugin with a collector has a **Collect every (minutes)** setting on its own Integrations page: empty means the box default, `0` means never on a schedule (its Collect button still works), and the scheduler checks once a minute so a cadence is honoured to within a minute. A collection still running when the next is due does not start twice. Nothing changes on an installation that sets none of them.
+`OPC_COLLECT_MINUTES` is now the **default** rather than the only schedule. Every plugin with a collector has a **Collect every (minutes)** setting on its own Integrations page: empty means the box default, `0` means never on a schedule (its Collect button still works), and the scheduler checks once a minute so a cadence is honoured to within a minute. A collection still running when the next is due does not start twice.
+
+One thing genuinely differs from the old single timer: the schedule is now **due-based**, so a source whose last run is already older than its cadence is collected within a minute of the process starting, where before the first collection was always a full interval after boot. That is what makes a box that was asleep catch up. On a development box under `node --watch`, where saving a file restarts the server, it also means a sweep shortly after most restarts; `OPC_COLLECT_MINUTES=0` turns the scheduler off if that is unwanted.
 
 `npm start` serves the built client from `client/dist` on the API port, so one supervised process is the whole app. Build first.
 
@@ -95,15 +99,21 @@ Mail approval/sending, uncertain-delivery resolution and usage-limit changes req
 
 ### What the agent can and cannot reach
 
-There are two service keys, not one. The **owner key** (`server/data/service-key`) is this process calling itself and opens everything. The **agent key** (`server/data/agent-home/service-key.agent`) is what is handed out — to the `opc` wrapper the agent types and to the MCP subprocess — and is refused, with a 403 naming the reason, on `/api/plugins` writes, the whole of `/api/backups` (a restore replaces the live database), `/api/security` writes, `/api/agents` writes, `/api/models`, `/api/freellmapi` and `/api/searxng` writes, `/api/workspace` writes and `/api/setup` writes. That refusal applies whether or not a password is set, because a box with no password is the shipped state.
+There are two service keys, not one. The **owner key** (`server/data/service-key`) is this process calling itself and opens everything. The **agent key** (`server/data/agent-home/service-key.agent`) is what is handed out — to the `opc` wrapper the agent types and to the MCP subprocess.
+
+A small set of paths is the **owner surface**: `/api/plugins` writes, the whole of `/api/backups` (a restore replaces the live database), and writes to `/api/security`, `/api/agents`, `/api/models`, `/api/freellmapi`, `/api/searxng`, `/api/workspace` and `/api/setup`. A request there is refused with a 403 naming the reason **unless it can show it is the owner's**: it carries the owner key, it carries a signed-in session, or it is shaped like a request from your own browser (a loopback `Origin`, or `Sec-Fetch-Site: same-origin`). Sending no credential at all is refused, which is the case that matters — an agent with a shell does not have to send the key it was given. Anything re-issued by the skills proxy is refused there too, whichever key it carries.
+
+The browser test is a **heuristic**, not a cryptographic boundary: anything that can open a socket to this port can set those headers. What it does is raise the bar from "send nothing" to "deliberately impersonate a browser", and at `separate-user` the thing on the other side of that bar also cannot read the owner key. This applies whether or not a password is set, because a box with no password is the shipped state.
 
 Settings → Deployment reports the **measured** isolation level and `npm run service-status` prints it:
 
 - **same-user** — the default. The gateway runs as you, with a built (not inherited) environment, its own empty working directory under `server/data/agent-home/<agent>/`, and only the scoped key. The API boundary above holds; the **filesystem** does not stop it reading `vault.key` or the database.
 - **separate-user** — name an account in Settings → Deployment (or `OPC_AGENT_USER`) and the gateway is spawned through `sudo -n -u <user>`. `deploy/agent-user.sh` is the one-time setup: run it with no arguments to see exactly what it would do, `--apply` to perform it. That account owns the agent home and nothing else, so `vault.key`, the database and the owner key are unreadable to it.
-- **container** — `deploy/agent.Dockerfile` and `deploy/agent-compose.yml` run only the gateway, with nothing mounted and the API reached over the network. Strongest, and it takes the agent's shell on your machine away with it. Not driven by the app; the page reports this level only when the gateway is genuinely not a child of this process.
+Those are the only two levels, because they are the only two anything here can measure. **A container is stronger than both** — `deploy/agent.Dockerfile` and `deploy/agent-compose.yml` run only the gateway, with nothing mounted — but this app does not build it, start it or detect it, so it is never reported as a level; the isolation report carries a `containerPath` that says exactly that. It also needs the API reachable from a container, which it is not: the server binds `127.0.0.1` deliberately. `deploy/agent-compose.yml` sets out the two real options and what each costs.
 
-Moving up a level costs the agent capabilities. Read `deploy/agent.Dockerfile` before choosing the last one.
+`deploy/agent-user.sh` grants exactly two commands (`hermes gateway run`, `openclaw gateway run`) through a `visudo`-checked sudoers file, and leaves the scoped key **owned by you** and group-readable by the agent — the API has to be able to rewrite that file, and the agent only has to read it.
+
+Moving up a level costs the agent capabilities: at `separate-user` it can no longer read your files, and in a container it has no shell on your machine at all. Read `deploy/agent.Dockerfile` before choosing the last one.
 
 Approval captures the exact account, sender, recipient, subject, text and signature. Editing invalidates approval. An atomic send claim prevents concurrent delivery and reserves daily capacity. Interrupted or ambiguous sends become **Check delivery** items. Inspect that account's Gmail Sent folder before marking a message as not sent and retrying; uncertain deliveries are never automatically retried.
 

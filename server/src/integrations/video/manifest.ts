@@ -138,11 +138,31 @@ export const manifest: IntegrationManifest = {
             "changes every few months and the fix is always a flag — a " +
             "dashboard that needed a release to carry one would be broken for " +
             "weeks. Leave it blank unless a download is failing and yt-dlp's " +
-            "own error tells you what to add.",
+            "own error tells you what to add. " +
+            "WHAT YOU TYPE HERE BECOMES ARGUMENTS TO A PROGRAM ON THIS MACHINE, " +
+            "on every shorts run, until you clear it. Some of yt-dlp's flags " +
+            "make it run OTHER programs — `--exec` and `--exec-before-download` " +
+            "run a shell command per file, and `--downloader` replaces the " +
+            "downloader with a binary you name — so those four are refused here. " +
+            "That refusal is a guard rail and not a security boundary: anything " +
+            "that can write this setting can already write anything else on " +
+            "this box. `--cookies-from-browser chrome` is the flag you actually " +
+            "want most of the time, and note that it reads your own browser's " +
+            "cookies and sends them to the video site.",
           ph: "--cookies-from-browser chrome",
           check(value) {
-            if (value.trim().split(/\s+/).filter(Boolean).length > 20)
-              return "That is more than twenty arguments. Something is wrong.";
+            const args = value.trim().split(/\s+/).filter(Boolean);
+            if (args.length > 20) return "That is more than twenty arguments. Something is wrong.";
+            /*
+              THE FOUR FLAGS THAT TURN A DOWNLOADER INTO A COMMAND RUNNER.
+              Matched on the argument's own head — `--exec`, `--exec=…` and
+              `--exec cmd` are the same flag written three ways — and case
+              folded, because yt-dlp accepts either.
+            */
+            const banned = ["--exec", "--exec-before-download", "--downloader", "--external-downloader"];
+            const bad = args.find((a) => banned.includes(a.split("=")[0]!.toLowerCase()));
+            if (bad)
+              return `“${bad}” makes yt-dlp run another program, and this setting is not a place to do that. Everything else is allowed.`;
             return null;
           },
         },
@@ -256,10 +276,17 @@ export const manifest: IntegrationManifest = {
         formats: {
           label: "Video formats it may queue",
           hint:
-            `Comma separated, out of ${FORMATS.join(", ")}. Default “faceless”, ` +
-            `and in practice that is the only useful value: a shorts job needs ` +
-            `a source URL and the autopilot has no way to invent one. The ` +
-            `setting exists so that is a setting rather than a constant.`,
+            `Comma separated, out of ${FORMATS.join(", ")}. Default “faceless”. ` +
+            `Only the FIRST is used per pass — a list of two is not “make both”. ` +
+            `“shorts” now works unattended: the pass finds its own source video ` +
+            `through the SearXNG node and refuses anything it has already cut ` +
+            `up (Integrations → Social feed holds the duration band and the ` +
+            `novelty window). With SearXNG not connected a shorts pass logs a ` +
+            `skip saying there was nowhere to search. “ugc” needs the venture ` +
+            `to have reference pictures in its asset library and is better ` +
+            `started by hand, from the Studio. “reel” and “motion” also work ` +
+            `unattended — a reel walks the venture's own website and a motion ` +
+            `video drafts its own scene list from the topic.`,
           ph: "faceless",
           check(value) {
             const bad = value

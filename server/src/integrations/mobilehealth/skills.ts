@@ -14,12 +14,15 @@
  * from a different credential path; these answer what they DO. Both can be
  * live at once and neither takes the other's rows away.
  *
- * TWO OF THEM WRITE, AND BOTH WRITES ARE NAMED. `reviews` can file a board
- * card carrying review ids — the owner asked for an agent that can work his
- * board — and `ios` can ask Apple to start generating analytics for an app.
- * Neither is destructive: a card is archivable and an ongoing analytics
- * request is idempotent and reversible in Apple's own console. There is NO
- * action that replies to a review, and there is no route on this box that
+ * TWO OF THEM WRITE, AND ONE OF THE TWO IS DESTRUCTIVE. `reviews` can file a
+ * board card carrying review ids — the owner asked for an agent that can work
+ * his board — and a card is archivable, so that one is reversible.
+ * `request_reports` is not: it creates an ONGOING analyticsReportRequest on
+ * the owner's APPLE ACCOUNT, and there is no route here, no action here and no
+ * call in `providers/appstore.ts` that can delete one. By the registry's own
+ * definition ("cannot be undone FROM HERE") that is destructive, and it is
+ * marked so — which is what makes an MCP client ask a person first. There is
+ * NO action that replies to a review, and there is no route on this box that
  * could be proxied into one.
  */
 import type { Skill } from "../../skills/registry.ts";
@@ -229,12 +232,22 @@ export const SKILLS: Skill[] = [
         "review ids it came from, an id the model invented is dropped before " +
         "publication, and a theme left with no real citation is not published " +
         "at all. Quote the ids when you repeat a theme.",
+      "The themes view is CACHED against the exact set of review ids it read, so " +
+        "reading it twice does not ask a model twice. `cached: true` means no " +
+        "model was called on that read; the answer still stands, and a new or " +
+        "edited review changes the set and gets a fresh reading.",
+      "`aggregatesComplete: false` means the histogram, the average and the " +
+        "per-version figures cover only the newest `aggregateCap` reviews in " +
+        "the window — they are a FLOOR, not a total. `window.clampedFrom` is " +
+        "the window you asked for when it was wider than the one answered.",
       "REPLYING TO A REVIEW IS OUT OF SCOPE FOR THIS BOX. There is no route, no " +
         "action and no skill here that writes one; a reply is written in the " +
         "store's own console. The `reply` field is the reply the store ALREADY " +
         "holds, read only, so a triage list does not re-file something answered.",
       "`send_to_board` files ONE card carrying the review ids and records them, " +
-        "so the same complaint does not become five identical cards. It does not " +
+        "so the same complaint does not become five identical cards. Ids already " +
+        "on a card are NOT re-filed — they come back under `alreadyFiled` with " +
+        "the card they are on, and only the rest go on the new one. It does not " +
         "answer anybody.",
     ],
     views: [
@@ -283,7 +296,8 @@ export const SKILLS: Skill[] = [
             name: "themes",
             type: "string",
             required: false,
-            about: "`off` to skip the model entirely and get only the arithmetic.",
+            about:
+              "`off` to skip the model entirely and get only the arithmetic; `refresh` to ask the model again rather than reuse the cached reading. Left out, themes come from the cache when this exact set of reviews has already been read.",
           },
         ],
       },
@@ -294,7 +308,7 @@ export const SKILLS: Skill[] = [
         method: "POST",
         path: "/api/mobilehealth/reviews/triage",
         about:
-          "File one board card carrying the named reviews, their stars, versions and ids. Records which reviews were filed so they are not filed again. Reversible: the card can be archived.",
+          "File ONE board card carrying the named reviews, their stars, versions and ids, and record which reviews went on it. A review already on a card is never moved: it stays where it is, is reported back with that card's id, and is left off the new one — so ids sent twice do not put a review on two cards. Nothing left to file answers 409. Reversible: the card can be archived.",
         params: [
           {
             name: "reviewIds",
@@ -302,7 +316,7 @@ export const SKILLS: Skill[] = [
             required: true,
             in: "body",
             about:
-              "A list of review ids from the reviews view. At most 25. Ids this box does not hold are reported back rather than silently dropped.",
+              "Review ids from the reviews view, COMMA-SEPARATED (a JSON array is accepted too). At most 25. Ids this box does not hold are reported back under `notFound` rather than silently dropped, and an id already on another card is left on it and reported under `alreadyFiled`.",
             exampled: true,
           },
           {
@@ -357,6 +371,12 @@ export const SKILLS: Skill[] = [
         "devices are dropped and noise is added. An empty day is Apple " +
         "withholding, not a measured zero, and a day's data is complete two " +
         "days after it.",
+      "APPLE'S UNIQUE COUNTS ARE DISTINCT WITHIN A DAY and are marked " +
+        "`metricKind: level` for that reason — `sessions.unique_devices`, " +
+        "`installs.unique_devices`, `engagement.unique_counts` and " +
+        "`purchases.paying_users`. Adding thirty days of them counts one device " +
+        "up to thirty times. Only `event` metrics may be summed over a window, " +
+        "and every metric carries its OWN unit, not its report's.",
       "`observedOn` IS THE DAY THIS BOX LOOKED, not the day a version's state " +
         "changed. Apple publishes no change dates at all, so the history is " +
         "only as fine as the collection schedule and a gap is a day nobody " +
@@ -366,10 +386,12 @@ export const SKILLS: Skill[] = [
         "unedited — quote those when the distinction matters.",
       "Nothing here is Android. The Play Console publishes no version-state " +
         "resource to this credential, so every row in the versions view is iOS.",
-      "`request_reports` is the ONLY thing on this box that writes to a store. " +
-        "It opts one app into ongoing analytics generation; it is idempotent, " +
-        "and the first report arrives 24–48 hours later, so a success is not " +
-        "data.",
+      "`request_reports` is the ONLY thing on this box that writes to a store, " +
+        "and it is marked DESTRUCTIVE because nothing here can undo it: it " +
+        "creates an ongoing analytics request on the owner's Apple account and " +
+        "no route, action or provider call on this box deletes one. Calling it " +
+        "again creates nothing new. Ask the owner before calling it, and do not " +
+        "read a success as data — the first report arrives 24–48 hours later.",
     ],
     views: [
       {
@@ -415,7 +437,8 @@ export const SKILLS: Skill[] = [
         method: "POST",
         path: "/api/mobilehealth/ios/request",
         about:
-          "Ask Apple to start generating analytics reports for one app (an ONGOING analyticsReportRequest). Idempotent — an app that already has one gets its existing id back. The first report arrives 24–48 hours later.",
+          "Ask Apple to start generating analytics reports for one app (an ONGOING analyticsReportRequest). It changes the owner's Apple account and NOTHING ON THIS BOX CAN UNDO IT — no route here deletes a report request. Calling it twice creates nothing new (an app that already has one gets its existing id back), but the first call cannot be taken back from here. The first report arrives 24–48 hours later, so a success is not data.",
+        destructive: true,
         params: [
           {
             name: "app",

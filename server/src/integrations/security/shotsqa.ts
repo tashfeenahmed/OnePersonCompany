@@ -26,16 +26,21 @@
  * `unchecked` with the reason, because Chrome does not write those and a file
  * that is one of them is a file worth being told about.
  *
- * THERE IS NO VISION MODEL IN HERE, AND THAT IS CHECKED RATHER THAN ASSUMED.
- * `models/provider.ts` has no capability flag: a provider declares an id, a
- * label, endpoints and a concurrency policy, and nothing anywhere on this box
- * says whether the model behind it can accept an image. So this does not send
- * one. "Ask a model whether this screenshot looks broken" is the obvious next
- * feature and it needs a capability flag to exist first; guessing that a
- * provider is multimodal and posting a base64 PNG at it would be a bill and a
- * 400, and on the provider that happens to accept it, an answer nobody can
- * calibrate. The report says this in as many words rather than leaving a reader
- * to wonder whether a model looked.
+ * NO MODEL IS CALLED FROM THIS FILE, AND A MODEL'S OPINION IS NOW CARRIED
+ * BESIDE IT. This header used to say that asking a model whether a screenshot
+ * looks broken needed a capability flag to exist first, because
+ * `models/provider.ts` declared nothing about whether a provider could accept
+ * an image. `integrations/seoops/vision.ts` now PROBES that — one 1x1 PNG,
+ * cached per provider and model — and stores its verdicts in `shot_vision`.
+ * What changed here is only that this file READS that table, so a reader sees
+ * both; what did not change is that every CHECK below is still arithmetic over
+ * a PNG and two tables, still runs for every venture, and still costs nothing.
+ *
+ * THE TWO ARE NEVER MERGED INTO ONE VERDICT. A `visual` block sits apart from
+ * `checks`, with its own words — ok, broken, unsure — and its own provenance.
+ * A measured check can be wrong about a page; a model can be wrong about
+ * anything, and folding a model's `broken` into the count of failed checks
+ * would make a column of arithmetic quietly contain an opinion.
  */
 import { inflateSync } from "node:zlib";
 import { readFileSync, statSync } from "node:fs";
@@ -329,6 +334,27 @@ function newestAudit(ventureId: string): AuditFacts | null {
   }
 }
 
+/**
+ * A MODEL'S OPINION OF THE SAME PICTURE, CARRIED APART FROM THE CHECKS.
+ *
+ * Read out of `shot_vision`, which `integrations/seoops/vision.ts` writes. It
+ * is never counted into `failed` or `unchecked` — those are the arithmetic —
+ * and `verdict: null` means no model looked, which is the ordinary case: the
+ * pass is opt-in per venture and off by default.
+ */
+export type VisualVerdict = {
+  verdict: "ok" | "broken" | "unsure" | null;
+  issues: { kind: string; where: string; confidence: number }[];
+  at: string | null;
+  /** The capture this verdict is ABOUT, which may be older than the newest
+   *  one — a verdict is reused for an unchanged picture and stale for a
+   *  changed one until the next pass. */
+  shotTs: string | null;
+  model: string | null;
+  /** Why there is no verdict, when there is none. */
+  error: string | null;
+};
+
 export type VentureQa = {
   ventureId: string;
   venture: string;
@@ -343,7 +369,46 @@ export type VentureQa = {
   checks: Check[];
   failed: number;
   unchecked: number;
+  /** MEASURED and VISUAL are two columns and never one. See VisualVerdict. */
+  visual: VisualVerdict | null;
 };
+
+/**
+ * The newest stored visual verdict for a venture, or null.
+ *
+ * A read of another area's table, guarded: a box where seoops has not migrated
+ * yet answers null, which reads as "no model looked" — the truth on such a box
+ * and the default everywhere else.
+ */
+export function newestVisual(ventureId: string): VisualVerdict | null {
+  let row: { ts: string; shot_ts: string | null; verdict: string | null; issues: string; model: string | null; error: string | null } | undefined;
+  try {
+    row = db
+      .prepare(
+        `SELECT ts, shot_ts, verdict, issues, model, error FROM shot_vision
+          WHERE venture_id = ? ORDER BY ts DESC LIMIT 1`,
+      )
+      .get(ventureId) as typeof row;
+  } catch {
+    return null;
+  }
+  if (!row) return null;
+  let issues: { kind: string; where: string; confidence: number }[] = [];
+  try {
+    const parsed: unknown = JSON.parse(row.issues);
+    if (Array.isArray(parsed)) issues = parsed as typeof issues;
+  } catch {
+    /* A row hand-edited into invalid JSON costs its issues, not its verdict. */
+  }
+  return {
+    verdict: (row.verdict as VisualVerdict["verdict"]) ?? null,
+    issues,
+    at: row.ts,
+    shotTs: row.shot_ts,
+    model: row.model,
+    error: row.error,
+  };
+}
 
 const ageDays = (ts: string | null): number | null => {
   if (!ts) return null;
@@ -392,6 +457,7 @@ export function judge(v: VentureRow): VentureQa {
       checks,
       failed: checks.filter((c) => c.verdict === "fail").length,
       unchecked: checks.filter((c) => c.verdict === "unchecked").length,
+      visual: newestVisual(v.id),
     };
   }
 
@@ -609,6 +675,9 @@ export function judge(v: VentureRow): VentureQa {
     checks,
     failed: checks.filter((c) => c.verdict === "fail").length,
     unchecked: checks.filter((c) => c.verdict === "unchecked").length,
+    /* Read, never computed here, and never counted into the two numbers
+       above. */
+    visual: newestVisual(v.id),
   };
 }
 
@@ -665,7 +734,7 @@ export function storeQa(runId: string, pass: QaPass) {
       v.bytes,
       v.failed,
       v.unchecked,
-      JSON.stringify({ checks: v.checks, pixels: v.pixels, website: v.website }),
+      JSON.stringify({ checks: v.checks, pixels: v.pixels, website: v.website, visual: v.visual }),
     );
 }
 
@@ -748,12 +817,45 @@ export function report(pass: QaPass): string {
   for (const r of [...new Set(recs)]) lines.push(`- ${r}`);
   lines.push("");
 
+  /*
+    THE MODEL'S OPINIONS, IN THEIR OWN SECTION AND UNDER THEIR OWN HEADING.
+    Deliberately after the evidence table and outside it: a reader scanning the
+    table is reading arithmetic, and a column of opinions in the middle of it
+    would be read as more of the same.
+  */
+  const looked = pass.ventures.filter((v) => v.visual?.verdict);
+  lines.push("## Visual verdicts (a model, not a measurement)", "");
+  if (!looked.length) {
+    lines.push(
+      "No model has looked at any of these pictures. The visual pass is opt-in per venture and off by " +
+        "default — a vision call is a bill — and it is switched on under Integrations → SEO Ops.",
+      "",
+    );
+  } else {
+    lines.push(
+      `${looked.length} venture(s) have a stored visual verdict. These are a MODEL's opinion of a picture ` +
+        "and are not counted in the failed or unchecked columns above.",
+      "",
+    );
+    for (const v of looked) {
+      lines.push(`- **${v.venture}** — ${v.visual!.verdict}${v.visual!.model ? ` (${v.visual!.model})` : ""}, about the capture of ${v.visual!.shotTs ?? "an unrecorded time"}:`);
+      if (!v.visual!.issues.length) lines.push("    - no issue named");
+      for (const i of v.visual!.issues)
+        lines.push(`    - ${i.kind}: ${i.where} (confidence ${i.confidence})`);
+    }
+    lines.push("");
+  }
+  const refused = pass.ventures.filter((v) => v.visual && !v.visual.verdict && v.visual.error);
+  if (refused.length) {
+    for (const v of refused) lines.push(`- **${v.venture}** — no visual verdict: ${v.visual!.error}`);
+    lines.push("");
+  }
+
   lines.push("## What was not checked", "");
   lines.push(
-    "- **No model looked at these pictures.** `models/provider.ts` has no capability flag saying whether a " +
-      "configured provider can accept an image, so nothing here can tell a multimodal endpoint from a text one. " +
-      "Sending a screenshot on the assumption would be a bill and a 400 on most of them. Every verdict above is " +
-      "arithmetic over the PNG and over two tables this box already had.",
+    "- **Every verdict in the table above is arithmetic**, over the PNG's own pixels and over two tables this " +
+      "box already had. No model is called from this pass. Where a model HAS looked, its opinion is in the " +
+      "Visual verdicts section above, apart from the measurements and never folded into them.",
   );
   lines.push(
     "- **A page that renders perfectly and says the wrong thing passes everything here.** These checks catch a " +

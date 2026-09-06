@@ -16,11 +16,11 @@
 import { Hono } from "hono";
 import { insertRun, mintRunId, runRow, runRows, shapeRun } from "../runs/store.ts";
 import { pump } from "../runs/executor.ts";
-import { latestRows, passes, type Check, type PixelStats } from "./shotsqa.ts";
+import { latestRows, newestVisual, passes, type Check, type PixelStats, type VisualVerdict } from "./shotsqa.ts";
 
 export const shotsqaRoutes = new Hono();
 
-type Stored = { checks: Check[]; pixels: PixelStats | null; website: string | null };
+type Stored = { checks: Check[]; pixels: PixelStats | null; website: string | null; visual: VisualVerdict | null };
 
 function readStored(raw: string): Stored {
   try {
@@ -29,9 +29,10 @@ function readStored(raw: string): Stored {
       checks: Array.isArray(doc.checks) ? doc.checks : [],
       pixels: doc.pixels ?? null,
       website: doc.website ?? null,
+      visual: doc.visual ?? null,
     };
   } catch {
-    return { checks: [], pixels: null, website: null };
+    return { checks: [], pixels: null, website: null, visual: null };
   }
 }
 
@@ -60,6 +61,13 @@ shotsqaRoutes.get("/", (c) => {
         unchecked: r.unchecked,
         pixels: stored.pixels,
         checks: stored.checks,
+        /* THE MODEL'S OPINION, SEPARATE FROM THE MEASUREMENTS AND READ LIVE.
+           The stored blob carries whatever was true when the pass ran; the
+           live read is what is true now, because a visual verdict can be taken
+           between two passes and a page that showed a stale null would look
+           like a feature that does nothing. Null means no model looked, which
+           is the default. */
+        visual: newestVisual(r.venture_id) ?? stored.visual,
       };
     }),
     passes: history,
@@ -67,8 +75,9 @@ shotsqaRoutes.get("/", (c) => {
     note:
       "Three verdicts, never two: `pass`, `fail` and `unchecked`. `unchecked` means the check could not be run — " +
       "no audit on file, no title ever read, the PNG already pruned off disk — and it is NEVER a pass. " +
-      "No model looks at these pictures: nothing on this box says whether a configured provider can accept an " +
-      "image, so every verdict here is arithmetic over the PNG and over two tables.",
+      "Every `check` here is arithmetic over the PNG and over two tables — no model is called by this pass. " +
+      "`visual` is separate: a MODEL's opinion of the same picture, stored by /api/seoops/vision, never counted " +
+      "into `failed` or `unchecked`, and null for every venture nobody opted in.",
   });
 });
 

@@ -6,7 +6,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { db, now } from "../../db.ts";
+import { db, insertAccount, now, setConfig, upsertPlugin, writeAppStorePayouts } from "../../db.ts";
 import {
   addTo,
   annualOf,
@@ -22,14 +22,19 @@ import {
 import {
   activeIn,
   allExpenses,
+  archiveMissing,
   createExpense,
   expense,
+  expensesForMonth,
   monthlyTotals,
+  removeExpense,
+  seedDomains,
+  ownerFields,
   updateExpense,
   upsertSeed,
   type ExpenseRow,
 } from "./expenses.ts";
-import { equalSplit, setAllocations, shareFor, type AllocationRow } from "./allocations.ts";
+import { equalSplit, revenueSplit, setAllocations, shareFor, type AllocationRow } from "./allocations.ts";
 import { marginOf, venturePnl } from "./profit.ts";
 import { powerLine, profile, saveProfile, seedPower } from "./power.ts";
 
@@ -348,4 +353,150 @@ test("the electricity ledger row carries its confidence and is refreshed, not du
   assert.equal(rows[0]!.period, "monthly");
   assert.match(rows[0]!.label, /Electricity/);
   assert.match(rows[0]!.notes!, /^2026-08:/);
+});
+
+/* ================================================================= *
+ * REGRESSIONS. Each of these failed before the review fix beside it. *
+ * ================================================================= */
+
+/* P1 — an archived row must stay in the months it was actually owed in. */
+test("archiving a row takes it out of future months and leaves the closed ones alone", () => {
+  reset();
+  venture("v-a", "a", "A");
+  const v = db.prepare("SELECT * FROM ventures WHERE id = 'v-a'").get() as Parameters<typeof venturePnl>[0];
+  const row = createExpense({
+    label: "control-plane", category: "server", currency: "EUR", period: "monthly", amount: 7.09, ventureId: "v-a",
+  });
+  /* The server is deleted at Hetzner in September. */
+  db.prepare("UPDATE finance_expenses SET source = 'hetzner', source_ref = 'server:1' WHERE id = ?").run(row.id);
+  assert.equal(archiveMissing("hetzner", new Set(["server:9999"])), 1);
+  const archived = expense(row.id)!;
+  assert.equal(archived.archived, 1);
+  assert.ok(archived.ends_on, "archiving must stamp an end date, or the row is owed for ever");
+
+  /* August closed with the box running: its cost is still August's cost. */
+  const august = venturePnl(v, "2026-08", "2026-10-01T00:00:00.000Z");
+  assert.deepEqual(august.costs.ledgerTotal.amounts, [{ currency: "EUR", amount: 7.09 }]);
+  /* The month AFTER it ended does not carry it. */
+  const later = `${archived.ends_on!.slice(0, 4)}-${String(Number(archived.ends_on!.slice(5, 7)) + 1).padStart(2, "0")}`;
+  assert.deepEqual(venturePnl(v, later, "2027-01-01T00:00:00.000Z").costs.ledgerTotal.amounts, []);
+  /* And the ledger's CURRENT state has dropped it, which is the other half. */
+  assert.equal(allExpenses().length, 0);
+  assert.equal(expensesForMonth("2026-08").length, 1);
+});
+
+test("removing a seeded row archives it AND stamps an end date", () => {
+  reset();
+  const row = createExpense({ label: "box", category: "server", currency: "EUR", period: "monthly", amount: 5 });
+  db.prepare("UPDATE finance_expenses SET source = 'hetzner', source_ref = 'server:2' WHERE id = ?").run(row.id);
+  assert.equal(removeExpense(row.id), "archived");
+  const after = expense(row.id)!;
+  assert.equal(after.archived, 1);
+  assert.ok(after.ends_on, "without an end date an archived row is a cost of every future month");
+  /* `activeIn` no longer reads the archive flag; the dates decide. */
+  assert.equal(activeIn(after, after.ends_on!.slice(0, 7)), true);
+  assert.equal(activeIn(after, "2099-01"), false);
+});
+
+
+/**
+ * Two ventures earning in two currencies through the App Store, which is the
+ * only per-venture revenue source with a real currency column. Returns nothing:
+ * every caller asks `revenueSplit` what it made of them.
+ */
+function twoCurrencyVentures() {
+  db.exec("DELETE FROM appstore_payouts; DELETE FROM venture_links; DELETE FROM plugin_config WHERE plugin_id = 'finance'");
+  venture("v-yen", "yen", "Yen Co");
+  venture("v-usd", "usd", "Dollar Co");
+  const link = db.prepare(
+    "INSERT INTO venture_links (venture_id, plugin, entity, label, source, created_at) VALUES (?,?,?,?,?,?)",
+  );
+  link.run("v-yen", "appstore", "app-yen", null, "owner", now());
+  link.run("v-usd", "appstore", "app-usd", null, "owner", now());
+  /* Real accounts: `appstore_payouts` has a foreign key onto `plugin_accounts`,
+     which in turn has one onto `plugins`. */
+  upsertPlugin("appstore", true, null);
+  const yen = insertAccount("appstore", `yen-${Date.now()}`);
+  const usd = insertAccount("appstore", `usd-${Date.now()}`);
+  writeAppStorePayouts(yen, "2026-08", [{ appId: "app-yen", currency: "JPY", amount: 120_000 }]);
+  writeAppStorePayouts(usd, "2026-08", [{ appId: "app-usd", currency: "USD", amount: 1_200 }]);
+}
+
+/* P1 — the revenue basis must never build a denominator across currencies. */
+test("a revenue split refuses when the ventures earn in different currencies", () => {
+  reset();
+  twoCurrencyVentures();
+
+  const split = revenueSplit("2026-08");
+  /* The old code summed 120000 and 1200 and handed the yen venture 99%. */
+  assert.deepEqual(split.shares, []);
+  assert.match(split.explanation, /JPY, USD/);
+  assert.match(split.explanation, /adds no currencies/);
+});
+
+test("a revenue split across currencies works once the owner has typed rates, and says so", () => {
+  reset();
+  twoCurrencyVentures();
+  /* `plugin_config` keys onto `plugins`, and in a test database the finance
+     pseudo-plugin has not been through `onStart`. */
+  upsertPlugin("finance", true, null);
+  setConfig("finance", "display_currency", "USD");
+  setConfig("finance", "fx", "JPY = 0.0067 on 2026-09-01");
+
+  const split = revenueSplit("2026-08");
+  assert.equal(split.shares.length, 2);
+  /* ¥120,000 is $804 at the typed rate, so the dollar venture is the larger. */
+  const usd = split.shares.find((s) => s.ventureId === "v-usd")!;
+  assert.ok(usd.share > 0.5, `expected the $1,200 venture to outweigh ¥120,000; got ${usd.share}`);
+  assert.ok(Math.abs(split.shares.reduce((n, x) => n + x.share, 0) - 1) < 1e-9);
+  assert.match(split.explanation, /converted to USD/);
+  assert.match(split.explanation, /approximate/);
+  db.exec("DELETE FROM plugin_config WHERE plugin_id = 'finance'");
+});
+
+/* P2 — a source that answers with nothing is a disconnection, not a deletion. */
+test("an empty source result archives nothing", () => {
+  reset();
+  upsertSeed("registrar", {
+    sourceRef: "dynadot:example.com", label: "example.com", category: "domain", amount: 31.2,
+    currency: "USD", period: "yearly", renewalOn: "2027-01-01", ventureId: null, notes: "seeded",
+  });
+  db.exec("DELETE FROM domains");
+  /* The registrar's accounts were disconnected, so `domains` is empty. The old
+     code archived all of them and took the typed price with them. */
+  seedDomains();
+  const row = db.prepare("SELECT * FROM finance_expenses WHERE source = 'registrar'").get() as ExpenseRow;
+  assert.equal(row.archived, 0);
+  assert.equal(row.amount, 31.2);
+  assert.equal(archiveMissing("registrar", new Set()), 0);
+});
+
+/* P2 — a note the owner wrote is theirs, like any other claimed column. */
+test("an owner's note survives a provider refresh", () => {
+  reset();
+  const seed = {
+    sourceRef: "server:3", label: "box", category: "server" as const, amount: 6.99,
+    currency: "EUR", period: "monthly" as const, renewalOn: null, ventureId: null, notes: "from Hetzner",
+  };
+  upsertSeed("hetzner", seed);
+  const row = db.prepare("SELECT * FROM finance_expenses WHERE source_ref = 'server:3'").get() as ExpenseRow;
+  updateExpense(row.id, { notes: "cancel this after the migration" });
+  /* A price change touches the row, which is what used to clobber the note. */
+  assert.equal(upsertSeed("hetzner", { ...seed, amount: 7.99, notes: "from Hetzner, new price" }), "refreshed");
+  const after = expense(row.id)!;
+  assert.equal(after.amount, 7.99);
+  assert.equal(after.notes, "cancel this after the migration");
+  assert.ok(ownerFields(after).includes("notes"));
+});
+
+/* P2 — an always-on line watched none of the month and must not claim to. */
+test("an always-on line reports no covered hours", () => {
+  reset();
+  db.exec("DELETE FROM workstation_state");
+  saveProfile({ machineId: "9", label: "Pi", idleWatts: 5, busyWatts: 5, ratePerKwh: 0.3, currency: "EUR", alwaysOn: true });
+  const line = powerLine(profile("9")!, "2026-06", "2026-09-06T12:00:00.000Z");
+  assert.equal(line.samples, 0);
+  assert.equal(line.hours!.covered, 0);
+  assert.equal(line.hours!.inMonth, 720);
+  assert.equal(line.confidence, "estimated");
 });

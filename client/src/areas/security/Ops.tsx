@@ -7,6 +7,7 @@ import { PageShell } from "@/components/PageShell";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { ago, bytes, duration, num } from "@/components/integrations/format";
+import { VisualQaSection } from "@/areas/seoops/VisualQaSection";
 import {
   shotsqaApi,
   snapshotsApi,
@@ -419,6 +420,11 @@ function ShotsQa() {
           ))}
         </div>
       )}
+
+      {/* THE MODEL'S OPINIONS, UNDER THE MEASUREMENTS AND NOT INSIDE THEM. The
+          table above is arithmetic over the PNG; this is a model looking at
+          the same picture. Two different kinds of claim, so two blocks. */}
+      <VisualQaSection />
 
       {d.passes.length > 1 && (
         <>

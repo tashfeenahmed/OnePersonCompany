@@ -31,8 +31,8 @@ examples/            one worked mapping per shape of source
 
 ## Which one
 
-**`sql-adapter.mjs`** where a web server already serves a directory and the user
-list changes slowly. It costs nothing between cron ticks and it survives the
+**`sql-adapter.mjs`** where the user list changes slowly and there is somewhere
+safe to put a file. It costs nothing between cron ticks and it survives the
 process dying. Put the check in front of the write so a schema change stops the
 file updating rather than replacing it with an error:
 
@@ -40,6 +40,20 @@ file updating rather than replacing it with an error:
 */20 * * * * cd /opt/opc-adapter && node sql-adapter.mjs mapping.yaml --check --quiet \
              && node sql-adapter.mjs mapping.yaml --quiet
 ```
+
+> **The file it writes is every customer's raw email address.** The dashboard
+> hashes addresses on arrival; this file, on the product's disk, does not. It is
+> written `0640` — but the mode is the easy half. **Do not put it in a directory
+> your web server publishes unauthenticated.** A static file cannot check the
+> bearer token the dashboard is perfectly willing to send, so it goes behind the
+> same auth as the admin API it is replacing (a `require_auth` location, basic
+> auth, an allow-list on the dashboard's address), or it is not served over HTTP
+> at all and the dashboard reads it another way. "Under a long random path" is
+> the weakest answer that is still an answer. If none of that is convenient, use
+> the HTTP adapter below — it requires a token on every request by construction.
+>
+> With no `--out` the document goes to **stdout**, which under the cron above
+> becomes a mail full of addresses. Pass `--out`.
 
 **`http-adapter.mjs`** where there is no web root to write into, where the
 number has to be current at the moment it is asked for, or where the answer must
@@ -107,7 +121,19 @@ write JSON.
 
 Secrets go in as `${ENV_VAR}` and come from the environment; an unset variable
 is a refusal naming it, because an adapter that connected with an empty password
-produces an auth error somebody spends an hour on.
+produces an auth error somebody spends an hour on. Keep the environment file
+mode `600`.
+
+**A password inside a DSN still ends up in `ps`.** `psql` and `mysql` take their
+connection string as an argument, and over `ssh` it is part of the remote command
+line as well — visible to any other user on either box for the length of the
+query. The adapter avoids this where the client lets it: give `source.dsn` with
+**no password in it** and put the password in `source.password` instead, and it
+is passed to the child through `PGPASSWORD` / `MYSQL_PWD` (and forwarded to the
+remote as an environment assignment rather than an argument). Better still on
+Postgres, put the whole thing in a `~/.pgpass` (mode 600) or a `PGSERVICE` entry
+on the box that runs the query and give a DSN that names neither user nor
+password.
 
 See `examples/` for a worked mapping of each shape, and `CHECKLIST.md` for the
 order to do it in.

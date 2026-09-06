@@ -26,6 +26,7 @@ export type Stage = {
   scheduledBy: ScheduledBy;
   enabled: boolean;
   cadence: Cadence;
+  /** `HH:MM-HH:MM` — the part of the night this stage may START in, or null. */
   window: string | null;
   maxUsd: number | null;
   maxMinutes: number | null;
@@ -57,6 +58,9 @@ export type Schedule = {
   maxUsd: number | null;
   maxMinutes: number | null;
   nextRunAt: string | null;
+  /** The calendar day the NEXT scheduled night belongs to — after midnight
+   *  starts, that is tomorrow's date, which is what "skip tonight" stores. */
+  nextNightDay: string;
   skipTonight: { day: string; setAt: string; reason: string | null } | null;
   session: string;
   defaults: { hour: number; maxMinutes: number };
@@ -118,13 +122,30 @@ export type NightResult = {
 
 export const pipelineApi = {
   all: () => call<PipelineDoc>("/pipeline"),
-  run: (body: { dry?: boolean; stage?: string }) =>
+  /*
+    TWO CALLS, NOT ONE WITH A FLAG.
+
+    `/pipeline/plan` hard-codes the rehearsal on the server and `/pipeline/run`
+    refuses the word `dry` outright. That split exists because the skills proxy
+    sends every parameter as a string, so a route reading `dry === true` saw
+    `"true"` and ran for real — and it is mirrored here so that no client can
+    reach the spending route by getting a boolean wrong either.
+  */
+  plan: (body: { stage?: string } = {}) =>
+    call<NightResult>("/pipeline/plan", { method: "POST", body: JSON.stringify(body) }),
+  run: (body: { stage?: string } = {}) =>
     call<NightResult>("/pipeline/run", { method: "POST", body: JSON.stringify(body) }),
   one: (id: string) =>
     call<{ run: Run; stages: StageResult[] }>(`/pipeline/runs/${encodeURIComponent(id)}`),
   setStage: (
     id: string,
-    patch: { enabled?: boolean | null; cadence?: Cadence | null; maxUsd?: number | null; maxMinutes?: number | null },
+    patch: {
+      enabled?: boolean | null;
+      cadence?: Cadence | null;
+      window?: string | null;
+      maxUsd?: number | null;
+      maxMinutes?: number | null;
+    },
   ) =>
     call<{ stages: Stage[] }>(`/pipeline/stages/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -162,8 +183,11 @@ export type Proposal = {
   /** The gate's own sentence, on every dropped row. */
   reason: string | null;
   cardOrigin: string | null;
-  /** The evidence AS IT WAS. A snapshot, never today's figures. */
+  /** The evidence AS IT WAS. A snapshot, never today's figures — and null
+   *  unless it was asked for, which `packetOmitted` distinguishes from "there
+   *  was none". The list view omits it because each one is kilobytes. */
   packet: unknown;
+  packetOmitted: boolean;
 };
 
 export type SynthesisDoc = {
@@ -203,16 +227,25 @@ export type VenturePass = {
 };
 
 export const synthesisApi = {
-  all: (opts: { ventureId?: string; verdict?: "filed" | "dropped"; limit?: number } = {}) => {
+  all: (opts: { ventureId?: string; verdict?: "filed" | "dropped"; limit?: number; packet?: boolean } = {}) => {
     const q = new URLSearchParams();
     if (opts.ventureId) q.set("ventureId", opts.ventureId);
     if (opts.verdict) q.set("verdict", opts.verdict);
     if (opts.limit) q.set("limit", String(opts.limit));
+    if (opts.packet) q.set("packet", "full");
     const s = q.toString();
     return call<SynthesisDoc>(`/synthesis${s ? `?${s}` : ""}`);
   },
-  run: (ventureId: string, dry = false) =>
-    call<VenturePass>("/synthesis/run", { method: "POST", body: JSON.stringify({ ventureId, dry }) }),
+  /** Two calls, not one with a flag — see `pipelineApi` above for why. */
+  plan: (ventureId: string) =>
+    call<VenturePass>("/synthesis/plan", { method: "POST", body: JSON.stringify({ ventureId }) }),
+  run: (ventureId: string) =>
+    call<VenturePass>("/synthesis/run", { method: "POST", body: JSON.stringify({ ventureId }) }),
+  saveConfig: (config: Record<string, string>) =>
+    call<{ id: string; config: Record<string, string> }>("/plugins/synthesis/config", {
+      method: "PUT",
+      body: JSON.stringify({ config }),
+    }),
   setProposals: (key: string, proposals: boolean) =>
     call<{ ventureId: string; venture: string; proposals: boolean }>(
       `/synthesis/ventures/${encodeURIComponent(key)}`,

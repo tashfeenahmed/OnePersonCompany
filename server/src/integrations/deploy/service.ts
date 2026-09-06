@@ -42,7 +42,7 @@ import { homedir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { DATA_DIR, PORT } from "../../config.ts";
+import { COLLECT_MINUTES, DATA_DIR, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "../../config.ts";
 
 const run = promisify(execFile);
 
@@ -89,35 +89,101 @@ export type Plan = {
   user: string;
 };
 
+/** Where `config.ts` looks when nothing sets `OPC_ENV_FILE` — the file an
+ *  interactive `npm run dev` has been reading all along. */
+export const DEV_ENV_FILE = resolve(fileURLToPath(new URL("../../../", import.meta.url)), ".env");
+
+/** `KEY=value` lines out of an env file, comments and blanks dropped. Not a
+ *  full dotenv parser and does not need to be: it exists to find out which
+ *  names the owner has already set, so the generated file does not silently
+ *  drop them. Values are copied through verbatim. */
+export function readEnvFile(path: string): { order: string[]; values: Record<string, string> } {
+  const order: string[] = [];
+  const values: Record<string, string> = {};
+  try {
+    for (const raw of readFileSync(path, "utf8").split("\n")) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      const at = line.indexOf("=");
+      if (at < 1) continue;
+      const key = line.slice(0, at).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+      if (!(key in values)) order.push(key);
+      values[key] = line.slice(at + 1);
+    }
+  } catch {
+    /* No file is the ordinary case. */
+  }
+  return { order, values };
+}
+
 /**
- * THE ENV FILE, generated from what this process currently believes.
+ * THE ENV FILE, GENERATED FROM WHAT THIS PROCESS ACTUALLY BELIEVES — including
+ * everything it was told by the `server/.env` it is running under.
  *
- * Only the four variables that decide WHERE things are and HOW OFTEN, plus the
- * one that points the service at this file. No credential ever goes in here:
- * every secret on this box lives in the vault, and an env file in a repository
- * directory is exactly the wrong place for one.
+ * THE BUG THIS SHAPE EXISTS TO PREVENT. `config.ts` reads
+ * `OPC_ENV_FILE ?? server/.env` — one file, not both. The unit sets
+ * `OPC_ENV_FILE=deploy/opc.env`, so installing the service SILENTLY STOPS
+ * `server/.env` being read at all. The first version of this function then
+ * wrote three of the five values as constants, so a box collecting every ten
+ * minutes with a year of retention installed itself back to thirty and four
+ * hundred, and the comment above it claimed to be generated from live config.
+ *
+ * So: every name in the existing `server/.env` is carried across with its own
+ * value, the five this app defines are written from the LIVE config values, and
+ * an existing name always wins over the generated default — the file is the
+ * owner's statement about their box and this function is not entitled to
+ * disagree with it. The header says, in the generated file, that it replaces
+ * `server/.env`, because somebody will edit the wrong one otherwise.
  */
-export function envText(): string {
-  return [
+export function envText(from = DEV_ENV_FILE): string {
+  const existing = readEnvFile(from);
+
+  /* The five this app defines, from `config.ts` — which has already applied
+     the environment, `server/.env` and the defaults in that order, so these
+     are what the running process is actually using. */
+  const derived: [key: string, value: string, why: string][] = [
+    ["PORT", String(PORT), "The API and production website port."],
+    ["OPC_DATA_DIR", DATA_DIR, "Database, keys and artifacts. Absolute here on purpose: a service has no reliable working directory."],
+    ["OPC_COLLECT_MINUTES", String(COLLECT_MINUTES), "The DEFAULT collection cadence. Per-source cadence is a setting on each plugin's page; 0 turns the scheduler off."],
+    ["OPC_RETAIN_DAYS", String(RETAIN_DAYS), "Reading retention."],
+    ["OPC_LOAD_RETAIN_DAYS", String(LOAD_RETAIN_DAYS), "Server-load reading retention."],
+  ];
+
+  const lines = [
     "# OnePersonCompany service environment.",
     "#",
-    "# Written once by `npm run install-service` and yours thereafter — the",
-    "# installer will not overwrite it. The service points OPC_ENV_FILE here and",
-    "# server/src/config.ts loads it the same way it loads server/.env. An",
-    "# explicit variable in the unit still wins over a line in this file.",
+    "# THIS FILE REPLACES server/.env FOR THE INSTALLED SERVICE. The unit sets",
+    "# OPC_ENV_FILE to this path, and server/src/config.ts reads OPC_ENV_FILE *or*",
+    "# server/.env — never both. Anything you add to server/.env after installing",
+    "# the service will not be seen by it. Edit this file instead.",
+    "#",
+    `# Generated once by \`npm run install-service\` from the values this process was`,
+    `# running with${existing.order.length ? `, merged with ${from}` : ""}. It is yours thereafter — the installer`,
+    "# will never overwrite it.",
     "#",
     "# NO CREDENTIALS BELONG HERE. Every secret is in the vault at",
     "# server/data/vault.key and its database; this file is paths and numbers.",
     "",
-    `PORT=${PORT}`,
-    `OPC_DATA_DIR=${DATA_DIR}`,
-    "# How often the scheduler collects a source that has no cadence of its own.",
-    "# Per-source cadence is a setting on each plugin's page; see the README.",
-    "OPC_COLLECT_MINUTES=30",
-    "OPC_RETAIN_DAYS=400",
-    "OPC_LOAD_RETAIN_DAYS=30",
-    "",
-  ].join("\n");
+  ];
+
+  for (const [key, value, why] of derived) {
+    const kept = existing.values[key];
+    lines.push(`# ${why}`);
+    lines.push(`${key}=${kept ?? value}`);
+  }
+
+  const carried = existing.order.filter((k) => !derived.some(([d]) => d === k));
+  if (carried.length) {
+    lines.push("");
+    lines.push(`# Carried across from ${from} verbatim. This app does not define these;`);
+    lines.push("# something else on this box reads them, and dropping them would be a");
+    lines.push("# change the installer made without saying so.");
+    for (const key of carried) lines.push(`${key}=${existing.values[key]}`);
+  }
+
+  lines.push("");
+  return lines.join("\n");
 }
 
 /** XML text, escaped. A data directory with an `&` in it is a plist that will
@@ -222,6 +288,21 @@ export function launchdPlist(p: UnitFacts): string {
 }
 
 /**
+ * A VALUE FOR A systemd UNIT, QUOTED.
+ *
+ * systemd splits `ExecStart` on whitespace and reads `Environment=` as
+ * whitespace-separated assignments, so a path or a PATH containing a space
+ * silently becomes two arguments — and the failure is a service that will not
+ * start with an error naming a path that does not exist. The launchd half has
+ * `xml()`; this is its counterpart. Double quotes with C-style escaping is
+ * what systemd.syntax documents, and `$` is escaped as `$$` because systemd
+ * performs `${VAR}` expansion in `ExecStart`.
+ */
+function sd(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "$$$$")}"`;
+}
+
+/**
  * The systemd user unit.
  *
  * THE START-RATE LIMIT IS THE PREDECESSOR'S LESSON, KEPT. Its units learned
@@ -256,11 +337,11 @@ StartLimitBurst=4
 
 [Service]
 Type=simple
-WorkingDirectory=${p.root}
-Environment=OPC_ENV_FILE=${ENV_FILE}
-Environment=LANG=en_US.UTF-8
-Environment=PATH=${process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}
-ExecStart=${p.node} --experimental-strip-types ${p.entry}
+WorkingDirectory=${sd(p.root)}
+Environment="OPC_ENV_FILE=${ENV_FILE.replace(/"/g, '\\"')}"
+Environment="LANG=en_US.UTF-8"
+Environment="PATH=${(process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin").replace(/"/g, '\\"')}"
+ExecStart=${sd(p.node)} --experimental-strip-types ${sd(p.entry)}
 Restart=on-failure
 RestartSec=30
 # The logs go to files as well as to the journal, so the Deployment page can
@@ -268,6 +349,8 @@ RestartSec=30
 # journal still has yesterday's failure.
 StandardOutput=append:${p.outLog}
 StandardError=append:${p.errLog}
+# The log paths are NOT quoted: systemd reads everything after append: as the
+# path, spaces included, and a quote there would become part of the filename.
 # The smallest hardening that changes nothing about how this app works. It
 # writes only to its own data directory and reads only its own tree.
 NoNewPrivileges=true
@@ -361,7 +444,11 @@ export async function install(): Promise<ActionResult> {
   steps.push(`wrote ${p.unitPath}`);
 
   if (p.platform === "darwin") {
-    const target = `gui/${process.getuid?.() ?? 501}`;
+    /* THE DOMAIN IS THIS USER'S, READ FROM THE PROCESS. The old fallback of
+       501 was a guess at "the first Mac account" — on a machine where it
+       fired, it would have addressed somebody else's launchd. `userInfo().uid`
+       is defined on every platform this branch runs on. */
+    const target = `gui/${userInfo().uid}`;
     await tryRun(steps, "/bin/launchctl", ["bootout", `${target}/${LABEL}`]);
     const ok = await tryRun(steps, "/bin/launchctl", ["bootstrap", target, p.unitPath]);
     if (!ok) return { ok: false, steps, error: "launchctl would not load the agent. The step above says why." };
@@ -383,7 +470,7 @@ export async function uninstall(): Promise<ActionResult> {
   if (p.platform === "unsupported") return { ok: false, steps, error: `Nothing to uninstall on ${process.platform}.` };
 
   if (p.platform === "darwin") {
-    await tryRun(steps, "/bin/launchctl", ["bootout", `gui/${process.getuid?.() ?? 501}/${LABEL}`]);
+    await tryRun(steps, "/bin/launchctl", ["bootout", `gui/${userInfo().uid}/${LABEL}`]);
   } else {
     await tryRun(steps, "systemctl", ["--user", "disable", "--now", SYSTEMD_UNIT]);
   }
@@ -438,7 +525,7 @@ export async function status(): Promise<ServiceStatus> {
 
   try {
     if (p.platform === "darwin") {
-      const { stdout } = await run("/bin/launchctl", ["print", `gui/${process.getuid?.() ?? 501}/${LABEL}`], { timeout: 10_000 });
+      const { stdout } = await run("/bin/launchctl", ["print", `gui/${userInfo().uid}/${LABEL}`], { timeout: 10_000 });
       supervisor = stdout.trim().slice(0, 4000);
       const m = /^\s*pid = (\d+)/m.exec(stdout);
       pid = m ? Number(m[1]) : null;

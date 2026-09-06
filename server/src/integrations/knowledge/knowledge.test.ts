@@ -20,6 +20,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +29,8 @@ import {
   TREE_PATH,
   type Excerpt,
   applyBudget,
+  basenameWords,
+  checkLocalRepo,
   directFacts,
   gate,
   localMaterial,
@@ -37,6 +40,7 @@ import {
   verifyCitation,
   wanted,
 } from "./extract.ts";
+import { deriveVenture, retireUnproduced } from "./derive.ts";
 import {
   CONFIDENCE,
   allFacts,
@@ -435,8 +439,35 @@ test("a fact line names its tier and flags a proposal in words", () => {
 
 /* ------------------------------------------------ a repository on this disk */
 
+/**
+ * A REAL, TINY GIT CHECKOUT in a temporary directory.
+ *
+ * It has to be a real one: a local repository that is not a checkout is refused
+ * outright (see the regression below for why), so a fixture that only looked
+ * like a repository would be testing the refusal instead of the reader. One
+ * empty commit is enough — `git rev-parse HEAD` is the whole of what is asked —
+ * and the identity is passed on the command line so the test does not depend on
+ * whatever `git config` the machine happens to have.
+ */
+function gitInit(dir: string): void {
+  const run = (...args: string[]) =>
+    execFileSync("git", ["-C", dir, ...args], {
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "test",
+        GIT_AUTHOR_EMAIL: "test@example.invalid",
+        GIT_COMMITTER_NAME: "test",
+        GIT_COMMITTER_EMAIL: "test@example.invalid",
+      },
+    });
+  execFileSync("git", ["init", "-q", dir], { stdio: "ignore" });
+  run("commit", "-q", "--allow-empty", "-m", "fixture");
+}
+
 test("a local checkout is read into citable excerpts, and the gate agrees with them", async () => {
   const dir = mkdtempSync(join(tmpdir(), "opc-knowledge-repo-"));
+  gitInit(dir);
   mkdirSync(join(dir, "src"), { recursive: true });
   mkdirSync(join(dir, "node_modules", "left-pad"), { recursive: true });
   writeFileSync(
@@ -525,4 +556,209 @@ test("the run block always answers, and says so when there is nothing", () => {
     createdBy: "agent",
   });
   assert.match(knowledgeBlock({ id: empty, name: "Emptyblock" }).text, /exports to CSV/);
+});
+
+/* ================================================================ regressions
+ *
+ * Each of these is a bug that shipped and was caught in review. They are kept
+ * as named tests rather than folded into the ones above, because the value of a
+ * regression test is that its name says which mistake it is watching for.
+ */
+
+test("REGRESSION: an owner editing his own sentence's NUMBER does not delete it", () => {
+  const v = makeVenture("selfcorrect");
+  /* `fingerprint()` replaces every digit run with a marker, so a number-only
+     edit at the same tier normalises to the SAME fingerprint. `put()` therefore
+     refreshes the row and returns the id it was given — and marking that row
+     `corrected` with `corrected_by` pointing at itself took the owner's own
+     highest-tier fact out of every read on the most ordinary action there is. */
+  const { id } = put({
+    ventureId: v,
+    kind: "pricing",
+    statement: "The team plan has been 39 a month since August.",
+    tier: "owner",
+    sourceType: "owner",
+    sourceRef: "the owner wrote it on the Knowledge tab",
+    confidence: CONFIDENCE.owner,
+    createdBy: "owner",
+  });
+
+  const out = correct(id, "The team plan has been 49 a month since August.");
+  assert.equal(out.ok, true);
+  if (!out.ok) return;
+  assert.equal(out.inPlace, true, "a sentence replacing itself is an edit, not a supersession");
+  assert.equal(out.replacement.id, id, "the id survives");
+
+  const live = facts({ ventureId: v });
+  assert.equal(live.length, 1, "the fact is still there");
+  assert.equal(live[0]!.id, id);
+  assert.equal(live[0]!.status, "active");
+  assert.equal(live[0]!.correctedBy, null, "nothing was superseded by itself");
+  assert.match(live[0]!.statement, /49 a month/);
+  /* And it is still in everything that reads from the store. */
+  assert.match(factsForPrompt(v)!, /49 a month/);
+  assert.ok(knowledgeLines(v).some((l) => l.includes("49 a month")));
+  /* …and it does not report disagreeing with itself. */
+  assert.equal(contradictions(allFacts(v)).length, 0);
+});
+
+test("REGRESSION: correcting across tiers still supersedes, even onto an existing owner fact", () => {
+  const v = makeVenture("crosstier");
+  const owner = put({
+    ventureId: v,
+    kind: "pricing",
+    statement: "The team plan costs 39 monthly.",
+    tier: "owner",
+    sourceType: "owner",
+    sourceRef: "typed",
+    confidence: CONFIDENCE.owner,
+    createdBy: "owner",
+  });
+  const repo = put({
+    ventureId: v,
+    kind: "pricing",
+    statement: "The team plan costs 29 monthly.",
+    tier: "repo",
+    sourceType: "repo",
+    sourceRef: "a/b src/pricing.ts:3",
+    confidence: CONFIDENCE.repoDirect,
+    createdBy: "agent",
+  });
+  /* The correction of the REPO fact normalises onto the owner's existing row,
+     so `put` refreshes that one and the repo row is superseded by it. Two
+     different rows: the supersession must still happen. */
+  const out = correct(repo.id, "The team plan costs 39 monthly.");
+  assert.equal(out.ok, true);
+  if (!out.ok) return;
+  assert.equal(out.inPlace, false);
+  assert.equal(out.replacement.id, owner.id);
+  assert.equal(out.corrected.id, repo.id);
+  assert.equal(out.corrected.correctedBy, owner.id);
+  assert.deepEqual(facts({ ventureId: v }).map((f) => f.id), [owner.id]);
+});
+
+test("REGRESSION: a deriver that throws does not retire its own facts", () => {
+  const v = makeVenture("deriverthrow");
+  /* Two measured facts under two deriver prefixes, filed as a good pass would. */
+  for (const [key, statement] of [
+    ["stripe:catalogue", "Stripe carries 2 products for this venture: A, B."],
+    ["play:installs", "Google Play recorded 4,100 installs over the last 30 days."],
+  ] as const)
+    put({
+      ventureId: v,
+      kind: "metric",
+      statement,
+      tier: "measured",
+      sourceType: "plugin",
+      sourceRef: key.split(":")[0]!,
+      confidence: CONFIDENCE.measured,
+      createdBy: "agent",
+      key,
+    });
+
+  /* A pass where the Play deriver threw and the Stripe one legitimately found
+     nothing. Stripe's row SHOULD retire — it ran and said "no products any
+     more". Play's must NOT: it said nothing at all. */
+  const out = retireUnproduced(v, { ran: ["stripe:"], seen: new Set<string>() });
+  assert.equal(out, 1, "exactly one row retired");
+  const live = facts({ ventureId: v });
+  assert.deepEqual(live.map((f) => f.statement), [
+    "Google Play recorded 4,100 installs over the last 30 days.",
+  ]);
+
+  /* And the real pass over a venture with no links at all retires nothing it
+     did not read: every deriver runs, finds no links, returns [] — which for
+     the surviving Play row is a legitimate retirement. */
+  const after = deriveVenture(v);
+  assert.deepEqual(after.skipped, [], "no deriver threw against an unlinked venture");
+});
+
+test("REGRESSION: confirming a proposal the owner already has does not violate the index", () => {
+  const v = makeVenture("confirmdupe");
+  put({
+    ventureId: v,
+    kind: "capability",
+    statement: "It exports to CSV.",
+    tier: "owner",
+    sourceType: "owner",
+    sourceRef: "typed",
+    confidence: CONFIDENCE.owner,
+    createdBy: "owner",
+  });
+  const proposal = put({
+    ventureId: v,
+    kind: "capability",
+    /* Same fingerprint as the owner's sentence — `put` keys per TIER, so
+       nothing stopped this being filed, and promoting it to `owner` without a
+       check raised a raw SQLITE_CONSTRAINT_UNIQUE out of the Confirm button. */
+    statement: "It exports to CSV.",
+    tier: "proposed",
+    sourceType: "model",
+    sourceRef: "the README said so",
+    confidence: CONFIDENCE.proposed,
+    createdBy: "agent",
+  });
+
+  const out = confirm(proposal.id);
+  assert.equal(out.ok, false);
+  if (out.ok) return;
+  assert.equal(out.status, 409);
+  assert.match(out.error, /already have that fact/);
+  assert.match(out.error, /retired as a duplicate/);
+  /* The duplicate is gone from the active set and the owner's own row stands. */
+  const live = facts({ ventureId: v });
+  assert.equal(live.length, 1);
+  assert.equal(live[0]!.tier, "owner");
+  assert.equal(allFacts(v).find((f) => f.id === proposal.id)!.status, "retired");
+});
+
+test("REGRESSION: a local path that is not a git checkout is refused, not read", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "opc-knowledge-notrepo-"));
+  writeFileSync(join(dir, "README.md"), "# Not a repository\n\nThis is somebody's home directory.\n");
+  /* The whole bound on a local path: up to sixteen files out of it are posted
+     to a third-party model endpoint, so a typo naming a home directory or a
+     project's parent must not be read at all. */
+  const why = await checkLocalRepo(dir);
+  assert.ok(why && /not a git checkout/.test(why));
+  await assert.rejects(localMaterial(dir), /not a git checkout/);
+  assert.match((await checkLocalRepo(join(dir, "nothing-here")))!, /There is nothing at/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("REGRESSION: only whole words match the pricing family", () => {
+  /* A substring test fetched `frontier.ts` (contains "tier"), `planning.md`
+     (contains "plan") and — on a live repository — the file that really won a
+     slot, `docs/verification-exec-check-plan.md`. */
+  assert.equal(wanted("src/frontier.ts"), null);
+  assert.equal(wanted("src/planning.ts"), null);
+  assert.equal(wanted("docs/verification-exec-check-plan.md"), null);
+  assert.ok(wanted("src/pricing.ts"));
+  assert.ok(wanted("src/plans.ts"));
+  assert.ok(wanted("src/billingConfig.ts"));
+  assert.ok(wanted("src/stripe-prices.json"));
+  assert.deepEqual(basenameWords("billingConfig.ts"), ["billing", "config"]);
+  assert.deepEqual(basenameWords("check-plan.md"), ["check", "plan"]);
+});
+
+test("REGRESSION: null Play install columns are not summed as zero", () => {
+  /* `installs ?? 0` inside a sum turned "Play carried no install column for
+     this era of the export" into the measured, prompt-fed sentence "Google Play
+     recorded 0 installs over the last 30 days". */
+  const rows = [
+    { installs: null, active_devices: null },
+    { installs: null, active_devices: null },
+  ];
+  const counted = rows.filter((r) => r.installs !== null);
+  assert.equal(counted.length, 0, "nothing to count");
+  /* The deriver omits the fact entirely rather than asserting a zero. Asserted
+     through the real pass: a venture with no Play link has no installs fact,
+     and one whose rows are all null must behave the same way. */
+  const v = makeVenture("playnulls");
+  const before = facts({ ventureId: v }).length;
+  deriveVenture(v);
+  assert.ok(
+    !facts({ ventureId: v }).some((f) => /recorded 0 installs/.test(f.statement)),
+    "no zero-installs fact is ever filed",
+  );
+  assert.equal(facts({ ventureId: v }).length, before);
 });

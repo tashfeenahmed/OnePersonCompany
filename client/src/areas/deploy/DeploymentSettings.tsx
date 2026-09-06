@@ -85,7 +85,21 @@ function ScheduleRow({ s }: { s: Schedule }) {
   );
 }
 
-function LeaseRow({ lease, onRelease, busy }: { lease: Lease; onRelease: (id: string) => void; busy: boolean }) {
+/**
+ * ONE LEASE.
+ *
+ * THE BUTTON ASKS TWICE FOR A LEASE THAT IS STILL BEATING, and that is not
+ * politeness. Releasing a live lease does not stop the job — it removes the
+ * only reason nothing will sleep the machine the job is running on — so the
+ * cost of the wrong click is a forty-minute render destroyed by a sleep. The
+ * server answers 409 for exactly that case and `force` is what lifts it; this
+ * confirm is the deliberate second decision the flag is meant to represent.
+ */
+function LeaseRow({ lease, onRelease, busy }: { lease: Lease; onRelease: (id: string, force: boolean) => void; busy: boolean }) {
+  /* THE SERVER'S OWN ANSWER, not a second copy of the two-minute rule. A page
+     that computed this itself would eventually offer a plain Release for a
+     lease the route then refuses with a 409 nobody expected. */
+  const beating = lease.beating;
   return (
     <div className="border-line-soft flex items-center justify-between gap-3 border-t py-2">
       <div className="min-w-0">
@@ -94,11 +108,30 @@ function LeaseRow({ lease, onRelease, busy }: { lease: Lease; onRelease: (id: st
           {lease.note ? <span className="text-muted-foreground"> — {lease.note}</span> : null}
         </div>
         <div className="text-muted-foreground text-[11.5px]">
-          taken {ago(lease.acquiredAt)} · {lease.live ? `lapses in ${Math.max(0, Math.round(lease.expiresInS / 60))}m without a heartbeat` : `lapsed ${ago(lease.expiresAt)}`}
+          taken {ago(lease.acquiredAt)} ·{" "}
+          {lease.live
+            ? `${beating ? "beating" : `no heartbeat for ${Math.round(lease.heartbeatAgeS / 60)}m`}, lapses in ${Math.max(0, Math.round(lease.expiresInS / 60))}m`
+            : `lapsed ${ago(lease.expiresAt)}`}
         </div>
       </div>
-      <Button size="sm" variant="outline" disabled={busy} onClick={() => onRelease(lease.id)}>
-        Release
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        onClick={() => {
+          if (
+            beating &&
+            !window.confirm(
+              `${lease.kind} on ${lease.resource} is still running — it sent a heartbeat ${lease.heartbeatAgeS}s ago.\n\n` +
+                `Releasing the lease will NOT stop it. It only removes the reason nothing will put ${lease.resource} ` +
+                `to sleep while it works, so the job can be killed by a sleep partway through.\n\nRelease it anyway?`,
+            )
+          )
+            return;
+          onRelease(lease.id, beating);
+        }}
+      >
+        {beating ? "Release anyway" : "Release"}
       </Button>
     </div>
   );
@@ -337,19 +370,32 @@ export function DeploymentSettings() {
           <div className="text-muted-foreground text-[11.5px]">
             That key is refused on: {iso.scopedKey.refusedPrefixes.map((r) => r.prefix).join(", ")}.
           </div>
+          {iso.agentKeyProblem && (
+            <p className="text-destructive max-w-[620px]">
+              {iso.agentKeyProblem}
+            </p>
+          )}
           <div className="text-muted-foreground text-[11.5px]">
             {iso.secretsLocked
-              ? "Every credential file is 0600 and owned by this user."
-              : "At least one credential file is readable beyond its owner — see the modes below."}
+              ? "Every credential file is no wider than it is meant to be."
+              : "At least one credential file is open wider than it should be — see the modes below."}
           </div>
           <div className="text-muted-foreground grid gap-0.5 text-[11.5px]">
             {iso.files.map((f) => (
-              <div key={f.path}>
+              <div key={f.path} className={cn(f.readableByOthers === true && "text-warn")}>
                 {f.mode ?? "—"} {f.path}
                 {f.present ? "" : " (not there yet)"}
+                <span className="opacity-60"> · wants {f.intended}</span>
               </div>
             ))}
           </div>
+          {/* THE CONTAINER PATH IS NAMED AND EXPLICITLY NOT CLAIMED. It is a
+              real, stronger arrangement; nothing here can see whether you are
+              on it, so the page says that rather than drawing a third level. */}
+          <p className="text-muted-foreground max-w-[620px] text-[11.5px]">
+            {iso.containerPath.note}
+            {iso.containerPath.runtime ? ` A container runtime is installed here (${iso.containerPath.runtime}).` : " No container runtime is installed here."}
+          </p>
         </div>
         <PluginSettingsForm plugin="deploy" saveLabel="Save the agent user" onSaved={() => status.reload()} />
       </Section>
@@ -363,7 +409,7 @@ export function DeploymentSettings() {
           <p className="text-muted-foreground text-[12.5px]">Nothing holds a lease. Every machine here may be slept.</p>
         )}
         {d.leases.live.map((l) => (
-          <LeaseRow key={l.id} lease={l} busy={busy} onRelease={(id) => void act(() => deployApi.releaseLease(id))} />
+          <LeaseRow key={l.id} lease={l} busy={busy} onRelease={(id, force) => void act(() => deployApi.releaseLease(id, force))} />
         ))}
         {d.leases.stale.length > 0 && (
           <>
@@ -372,7 +418,7 @@ export function DeploymentSettings() {
               live; sweeping them is bookkeeping.
             </p>
             {d.leases.stale.map((l) => (
-              <LeaseRow key={l.id} lease={l} busy={busy} onRelease={(id) => void act(() => deployApi.releaseLease(id))} />
+              <LeaseRow key={l.id} lease={l} busy={busy} onRelease={(id, force) => void act(() => deployApi.releaseLease(id, force))} />
             ))}
             <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => deployApi.releaseStale())}>
               Release the lapsed ones
@@ -386,7 +432,14 @@ export function DeploymentSettings() {
               <div key={w.resource} className="border-line-soft flex items-center justify-between gap-3 border-t py-2">
                 <div className="min-w-0">
                   <div className="text-[12.5px]">
-                    {w.resource} — {w.owns ? "woken by this app, so it may be slept by it" : "was already awake, so this app will not sleep it"}
+                    {w.resource} —{" "}
+                    {w.owns
+                      ? "woken by this app, so it may be slept by it"
+                      : w.expired
+                        ? "woken by this app, but too long ago to still count as ours"
+                        : w.foundState === "awake"
+                          ? "was already awake, so this app will not sleep it"
+                          : "this app could not tell what state it was in, so it will not sleep it"}
                   </div>
                   <div className="text-muted-foreground text-[11.5px]">
                     {w.wokeBy} · {when(w.wokeAt)}

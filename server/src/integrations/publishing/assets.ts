@@ -36,6 +36,7 @@
  * says which of the two happened.
  */
 import { createHash } from "node:crypto";
+import { lookup } from "node:dns/promises";
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { db, now, ventureRowById } from "../../db.ts";
@@ -234,6 +235,92 @@ export function addAsset(input: {
  * else's copyright, which is why `source` records that this came off the web
  * rather than out of the owner's own folder.
  */
+/**
+ * IS THIS ADDRESS ON THE PUBLIC INTERNET?
+ *
+ * WHY THIS EXISTS. `import_asset` is a NON-DESTRUCTIVE skill action, so an
+ * agent may call it as often as it likes, and it makes this server fetch a URL
+ * somebody else chose. Without a check that is a request forger and a working
+ * internal port scanner: the HTTP status and the error name come back either
+ * way, so `http://192.168.1.1/` answering at all is information, and anything
+ * on this machine's own loopback — including this very API, whose /api surface
+ * has no auth on a box with no password — is one line away.
+ *
+ * SO THE HOST IS RESOLVED AND EVERY ADDRESS IT RESOLVES TO IS CHECKED, rather
+ * than the hostname being pattern-matched. `localhost` is a name, `127.0.0.1`
+ * is a literal, `2130706433` is the same address as an integer and
+ * `internal.example.com` may be an A record pointing at 10.0.0.5 — all four are
+ * the same request, and only the resolved address tells them apart.
+ *
+ * WHAT IT CANNOT CLOSE, said plainly rather than implied: this resolves, then
+ * fetches, and the name could in principle answer differently the second time
+ * (a DNS rebind). Closing that needs a connection-level hook this runtime does
+ * not expose to `fetch`. What is closed is every accidental and every casual
+ * case, and redirects are followed MANUALLY so a public host cannot bounce the
+ * fetch onto a private one — which is the version of this that actually gets
+ * used.
+ */
+const PRIVATE_V4 = [
+  { net: "0.", why: "this network" },
+  { net: "10.", why: "a private range" },
+  { net: "127.", why: "this machine" },
+  { net: "169.254.", why: "link-local, where cloud metadata services live" },
+  { net: "192.168.", why: "a private range" },
+];
+
+export function publicAddress(ip: string): { ok: boolean; why: string } {
+  const v4 = ip.replace(/^::ffff:/i, "");
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(v4)) {
+    for (const p of PRIVATE_V4) if (v4.startsWith(p.net)) return { ok: false, why: p.why };
+    const [a, b] = v4.split(".").map(Number) as [number, number];
+    /* 172.16.0.0/12 and the carrier-grade NAT range 100.64.0.0/10 need the
+       second octet, so they are not prefix strings. */
+    if (a === 172 && b >= 16 && b <= 31) return { ok: false, why: "a private range" };
+    if (a === 100 && b >= 64 && b <= 127) return { ok: false, why: "a carrier-grade NAT range" };
+    if (a >= 224) return { ok: false, why: "a multicast or reserved range" };
+    return { ok: true, why: "" };
+  }
+  const v6 = ip.toLowerCase().split("%")[0]!;
+  if (v6 === "::1" || v6 === "::") return { ok: false, why: "this machine" };
+  if (/^f[cd]/.test(v6)) return { ok: false, why: "a unique-local address" };
+  if (/^fe[89ab]/.test(v6)) return { ok: false, why: "link-local" };
+  return { ok: true, why: "" };
+}
+
+/** Every address this host resolves to must be public. One private answer is
+ *  a refusal, because a name that resolves to both is a name that can be made
+ *  to answer with either. */
+async function hostIsPublic(hostname: string): Promise<{ ok: boolean; error?: string }> {
+  const bare = hostname.replace(/^\[|\]$/g, "");
+  const literal = publicAddress(bare);
+  if (/^[\d.]+$/.test(bare) || bare.includes(":"))
+    return literal.ok
+      ? { ok: true }
+      : { ok: false, error: `${bare} is ${literal.why}. This only fetches from the public internet.` };
+  let addresses: { address: string }[];
+  try {
+    addresses = await lookup(bare, { all: true, verbatim: true });
+  } catch {
+    return { ok: false, error: `“${bare}” did not resolve.` };
+  }
+  if (!addresses.length) return { ok: false, error: `“${bare}” resolved to nothing.` };
+  for (const a of addresses) {
+    const verdict = publicAddress(a.address);
+    if (!verdict.ok)
+      return {
+        ok: false,
+        error:
+          `“${bare}” resolves to ${a.address}, which is ${verdict.why}. This only fetches ` +
+          "from the public internet — upload the file instead.",
+      };
+  }
+  return { ok: true };
+}
+
+/** How many redirects are followed by hand. Three is more than any image host
+ *  needs and few enough that a redirect loop is a refusal rather than a hang. */
+const MAX_HOPS = 3;
+
 export async function addAssetFromUrl(input: {
   ventureId: string;
   kind: string;
@@ -242,15 +329,53 @@ export async function addAssetFromUrl(input: {
   prompt?: string | null;
   notes?: string | null;
 }): Promise<AddResult> {
-  const url = input.url.trim();
+  let url = input.url.trim();
   if (!/^https?:\/\//i.test(url)) return { ok: false, error: "Paste an http(s) image URL." };
-  let res: Response;
-  try {
-    res = await fetch(url, { signal: AbortSignal.timeout(20_000), redirect: "follow" });
-  } catch (err) {
-    return { ok: false, error: `Could not fetch it (${err instanceof Error ? err.name : "Error"}).` };
+
+  let res: Response | null = null;
+  for (let hop = 0; hop <= MAX_HOPS; hop++) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { ok: false, error: "That is not a URL this can read." };
+    }
+    /* CHECKED ON EVERY HOP, not only the first: a public host that 302s to
+       http://127.0.0.1/ is the whole trick, and `redirect: "follow"` would
+       have taken it silently. */
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+      return { ok: false, error: `${parsed.protocol} is not a scheme this fetches.` };
+    const allowed = await hostIsPublic(parsed.hostname);
+    if (!allowed.ok) return { ok: false, error: allowed.error! };
+
+    try {
+      res = await fetch(url, { signal: AbortSignal.timeout(20_000), redirect: "manual" });
+    } catch (err) {
+      return { ok: false, error: `Could not fetch it (${err instanceof Error ? err.name : "Error"}).` };
+    }
+    if (res.status >= 300 && res.status < 400) {
+      const next = res.headers.get("location");
+      if (!next) return { ok: false, error: `That URL answered HTTP ${res.status} with no location.` };
+      url = new URL(next, url).toString();
+      res = null;
+      continue;
+    }
+    break;
   }
+  if (!res) return { ok: false, error: `That URL redirected more than ${MAX_HOPS} times.` };
   if (!res.ok) return { ok: false, error: `That URL answered HTTP ${res.status}.` };
+
+  /* THE DECLARED LENGTH IS CHECKED BEFORE THE BODY IS READ, so a hostile URL
+     cannot make this allocate a gigabyte to be told afterwards that it was too
+     big. A server that declares nothing is still bounded by the cap below,
+     which is checked against what actually arrived. */
+  const declared = Number(res.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > UPLOAD_CAP)
+    return {
+      ok: false,
+      error: `That URL declares ${Math.round(declared / 1024 / 1024)} MB; the cap is ${UPLOAD_CAP / 1024 / 1024} MB.`,
+    };
+
   const bytes = new Uint8Array(await res.arrayBuffer());
   return addAsset({
     ...input,
@@ -383,6 +508,13 @@ const IMAGE_FIELDS = [
 
 const cache = new Map<string, { at: number; value: ImageInputSupport }>();
 const CACHE_MS = 30 * 60_000;
+/** How long a failure is remembered. Much shorter than a success: a schema
+ *  does not change often, and Replicate being unreachable does. */
+const FAILURE_MS = 60_000;
+/** The schema read is on a read route's critical path, so it gets a short
+ *  ceiling of its own rather than the twenty seconds a background call could
+ *  afford. */
+const SCHEMA_TIMEOUT_MS = 8_000;
 
 /**
  * Read the model's own schema and say whether a reference can be passed.
@@ -400,13 +532,17 @@ export async function modelImageInput(model: string): Promise<ImageInputSupport>
   const hit = cache.get(model);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
 
-  const unchecked = (note: string): ImageInputSupport => ({
-    checked: false,
-    supported: false,
-    field: null,
-    many: false,
-    note,
-  });
+  /* A FAILURE IS CACHED TOO, for a shorter time.
+     `GET /api/publishing/assets` — a read route, and the `assets` skill's only
+     view — awaits this. Caching only the successes meant that while Replicate
+     was down every single read paid a twenty-second timeout, so a page that
+     merely lists pictures hung. A failed answer is still an answer ("could not
+     ask"), and asking again a minute later is soon enough. */
+  const unchecked = (note: string): ImageInputSupport => {
+    const value: ImageInputSupport = { checked: false, supported: false, field: null, many: false, note };
+    cache.set(model, { at: Date.now() - (CACHE_MS - FAILURE_MS), value });
+    return value;
+  };
 
   const tokens = tokenAccounts("publishing_model_schema");
   if (!tokens.length)
@@ -415,7 +551,7 @@ export async function modelImageInput(model: string): Promise<ImageInputSupport>
   try {
     const res = await fetch(`${REPLICATE_API}/models/${model}`, {
       headers: { Authorization: `Bearer ${tokens[0]!.token}`, Accept: "application/json" },
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(SCHEMA_TIMEOUT_MS),
     });
     if (!res.ok) return unchecked(`Replicate answered HTTP ${res.status} for that model's schema.`);
     const doc = (await res.json()) as {

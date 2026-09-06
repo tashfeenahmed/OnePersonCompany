@@ -57,6 +57,20 @@ export type ChatRunRow = {
   finished_at: string | null;
 };
 
+/**
+ * INSERTED AS `running`, NOT AS `queued`.
+ *
+ * The row used to go in as `queued` and be updated to `running` two statements
+ * later, which bought nothing and cost something: `queued` was never observable
+ * by any reader, and the gap between the two writes was a window in which a
+ * throw left a row claiming a state nothing was in. Nothing here queues — the
+ * engine starts the turn immediately and the only gate is the model provider's
+ * own limiter — so the honest first state is the one it is actually in.
+ *
+ * `queued` stays in the union because it is the shape a caller that DOES queue
+ * would write, and because the client's type mirrors this one; nothing on this
+ * box produces it today.
+ */
 export function insertChatRun(r: {
   id: string;
   sessionId: string;
@@ -68,7 +82,7 @@ export function insertChatRun(r: {
   db.prepare(
     `INSERT INTO chat_runs
        (id, session_id, status, channel, venture_id, backend, user_message_id, last_seq, started_at)
-     VALUES (?, ?, 'queued', ?, ?, ?, ?, 0, ?)`,
+     VALUES (?, ?, 'running', ?, ?, ?, ?, 0, ?)`,
   ).run(r.id, r.sessionId, r.channel, r.ventureId, r.backend, r.userMessageId, now());
   return chatRun(r.id)!;
 }
@@ -134,6 +148,48 @@ export function runningChatRuns(): ChatRunRow[] {
   return db
     .prepare("SELECT * FROM chat_runs WHERE status IN ('queued','running') ORDER BY started_at")
     .all() as unknown as ChatRunRow[];
+}
+
+/**
+ * FORGET A CONVERSATION'S RUNS.
+ *
+ * `chat_runs` has no foreign key onto anything — the session id is a string the
+ * browser chose, and there is no `chat_sessions` table for it to point at (see
+ * `chatSessionSummaries` in db.ts for why). So deleting a conversation cannot
+ * cascade, and without this the runs of an erased transcript outlive it:
+ * `latestChatRun` would keep answering for a chat that no longer exists, and a
+ * page opening a recycled id would be told there is an answer to reattach to.
+ *
+ * Called from the delete route rather than from `deleteChatSession` itself, so
+ * db.ts keeps knowing nothing about this area's table.
+ */
+export function deleteChatRuns(sessionId: string): number {
+  const info = db.prepare("DELETE FROM chat_runs WHERE session_id = ?").run(sessionId);
+  return Number(info.changes ?? 0);
+}
+
+/**
+ * DROP RUNS NOBODY WILL EVER ASK ABOUT AGAIN.
+ *
+ * One row per turn, for ever, is a table that grows with use and is read by
+ * exactly two questions — "is this conversation being answered" and "what
+ * happened to that one" — neither of which can be asked of a run from last
+ * spring. The transcript is the durable record and it is not touched here.
+ *
+ * FINISHED RUNS ONLY. A row still marked running is either live or the residue
+ * of a restart, and `failInterruptedChatRuns` is what settles those; sweeping
+ * one away on age would delete the evidence rather than the clutter.
+ */
+export function pruneChatRuns(days = 30): number {
+  const cutoff = new Date(Date.now() - Math.max(1, days) * 86_400_000).toISOString();
+  const info = db
+    .prepare(
+      `DELETE FROM chat_runs
+        WHERE status NOT IN ('queued','running')
+          AND COALESCE(finished_at, started_at) < ?`,
+    )
+    .run(cutoff);
+  return Number(info.changes ?? 0);
 }
 
 /**

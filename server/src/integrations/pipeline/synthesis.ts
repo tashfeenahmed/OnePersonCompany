@@ -19,7 +19,7 @@
  * and tested without a provider, a network or a clock — a rule that can only be
  * observed by running a nightly is a rule nobody checks.
  *
- * FIVE REFUSALS, IN THE ORDER THEY FIRE:
+ * SIX REFUSALS, IN THE ORDER THEY FIRE:
  *
  *   1. AN EMPTY OR ONE-WORD ACTION. "Improve marketing" is not an instruction.
  *   2. EVIDENCE THAT IS NOT MEASURED. The proposal names the packet key it
@@ -32,7 +32,10 @@
  *      at is the fastest way to teach him to stop reading these.
  *   4. ALREADY PROPOSED RECENTLY, filed or dropped. A proposal he declined last
  *      Tuesday is not improved by being re-offered on Friday.
- *   5. OVER THE CAP, per venture and per night. Three good actions a night is a
+ *   5. THE SAME ACTION TWICE INSIDE ONE ANSWER. A model asked for three
+ *      sometimes gives one of them in two wordings, and nothing above catches
+ *      that because neither copy is on the board yet.
+ *   6. OVER THE CAP, per venture and per night. Three good actions a night is a
  *      morning's work; thirty is a list nobody opens.
  *
  * EVERY REFUSAL IS RECORDED WITH ITS REASON. `synthesis_proposals` holds the
@@ -497,8 +500,10 @@ export async function passForVenture(
       packet,
       ran: false,
       why:
-        "nothing about this venture is measured: no linked Stripe product, no linked Umami website, " +
-        "no alert rule, no board card, no goal, no note and no recent run. There is no honest question to ask.",
+        "nothing substantive about this venture is measured: no linked Stripe product, no linked " +
+        "Umami website, no alert rule naming it, no open board card, no goal, no note and no recent " +
+        "run. There is no honest question to ask, so nothing was asked and nothing was spent. " +
+        "Linking a product or a website on the connections page is what changes this.",
     };
 
   const s = settings();
@@ -584,7 +589,12 @@ export async function passForVenture(
   const verdicts = gate({
     proposals,
     measured: measuredKeys(packet),
-    openCardTitles: openCards(v.id).map((c) => c.title),
+    /* THE WHOLE OPEN BOARD FOR THIS VENTURE, not the slice the packet showed
+       the model. The packet is capped for prompt size; the GATE is the thing
+       that must not miss an old card, because a card the owner cannot see at
+       the top of his board is exactly the one he has forgotten and would be
+       most annoyed to be offered again. */
+    openCardTitles: openCards(v.id, { all: true }).map((c) => c.title),
     recentProposalTitles: recent,
     perVenture: s.perVenture,
     remainingTonight: opts.remainingTonight ?? s.perNight,
@@ -815,7 +825,16 @@ export function proposalRows(opts: { ventureId?: string | null; verdict?: string
     .all(...args) as unknown as ProposalRow[];
 }
 
-export function shapeProposal(r: ProposalRow) {
+/**
+ * One proposal for the wire.
+ *
+ * `opts.packet` IS OFF BY DEFAULT and that is a size decision with a reason.
+ * The stored packet is the whole evidence document the model saw; the venture
+ * Overview asks for twelve rows on every render, and shipping twelve of them
+ * put kilobytes of JSON on a page that draws one line from each. The evidence
+ * LINE is always here, because that is the half a reader acts on.
+ */
+export function shapeProposal(r: ProposalRow, opts: { packet?: boolean } = {}) {
   let evidence: unknown = {};
   try {
     evidence = JSON.parse(r.evidence);
@@ -838,9 +857,12 @@ export function shapeProposal(r: ProposalRow) {
     verdict: r.verdict as "filed" | "dropped",
     reason: r.reason,
     cardOrigin: r.card_origin,
-    /** The whole packet the model saw, so a proposal can be re-read against
-     *  the evidence that produced it rather than against today's numbers. */
-    packet: (evidence as { packet?: unknown })?.packet ?? null,
+    /** The whole packet the model saw, so a proposal can be re-read against the
+     *  evidence that produced it rather than against today's numbers. Null
+     *  unless it was asked for — the row is not claiming there was none. */
+    packet: opts.packet ? ((evidence as { packet?: unknown })?.packet ?? null) : null,
+    /** Whether `packet` above was withheld for size rather than absent. */
+    packetOmitted: !opts.packet,
   };
 }
 

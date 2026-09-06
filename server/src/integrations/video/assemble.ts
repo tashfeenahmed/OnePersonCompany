@@ -93,7 +93,19 @@ export type Fit = "cover" | "letterbox";
  * the same at this radius behind a video. Null means none of the three was
  * found, and then the letterbox pads with the venture's colour instead — which
  * is still not black bars, and is honest about what it is.
+ *
+ * `track` IS A THIRD MODE AND IT ARRIVES AS AN EXTRA PARAMETER RATHER THAN AS
+ * A THIRD `Fit`. A tracked crop is not a different way of fitting a picture to
+ * the frame — it is a crop taken BEFORE the fit, with a left edge that is a
+ * function of `t`, and the fit that follows it is still `cover`. Keeping it off
+ * the `Fit` union means every existing caller, every stored run input and the
+ * run kind's own select list all keep meaning exactly what they meant.
+ * `x` and `y` are ffmpeg expressions built by videoplus/track.ts; the commas
+ * inside them are escaped there, because this string is a filtergraph and the
+ * filtergraph parser reads an unescaped comma as the next filter.
  */
+export type Track = { cropW: number; cropH: number; x: string; y: string };
+
 export function fitGraph(opts: {
   fit: Fit;
   width: number;
@@ -102,9 +114,17 @@ export function fitGraph(opts: {
   pad: string;
   inLabel: string;
   outLabel: string;
+  track?: Track | null;
 }): string {
-  const { width: w, height: h, inLabel: i, outLabel: o } = opts;
+  const { width: w, height: h, outLabel: o } = opts;
   const cover = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${FPS}`;
+  if (opts.track) {
+    const t = opts.track;
+    /* The moving crop, then a plain scale — no second crop, because the window
+       already has the output's aspect ratio and `increase` would re-crop it. */
+    return `[${opts.inLabel}]crop=${t.cropW}:${t.cropH}:${t.x}:${t.y},scale=${w}:${h},setsar=1,fps=${FPS}[${o}]`;
+  }
+  const i = opts.inLabel;
   if (opts.fit === "cover") return `[${i}]${cover}[${o}]`;
   if (!opts.blur)
     return (
@@ -150,6 +170,8 @@ function videoGraph(opts: {
    *  overlays, so a drawtext build and a typst build put the words in the same
    *  place relative to everything else. */
   drawtext: string | null;
+  /** A moving crop applied before the fit, or null for the plain one. */
+  track?: Track | null;
 }): string {
   const parts: string[] = [
     fitGraph({
@@ -160,6 +182,7 @@ function videoGraph(opts: {
       pad: opts.pad,
       inLabel: "0:v",
       outLabel: "v0",
+      track: opts.track ?? null,
     }),
   ];
   let cur = "v0";
@@ -214,6 +237,8 @@ export async function segment(opts: {
   pad: string;
   overlays: Overlay[];
   drawtext: string | null;
+  /** A moving crop, from videoplus/track.ts, or null for the fixed fit. */
+  track?: Track | null;
   /** A narration file, or null for a segment with no sound. When null and
    *  `silentTrack` is true a silent track is generated instead — see the
    *  header on why a video's segments must agree. */
@@ -246,6 +271,7 @@ export async function segment(opts: {
       pad: opts.pad,
       overlays: opts.overlays,
       drawtext: opts.drawtext,
+      track: opts.track ?? null,
     }),
     "-map", "[vout]",
   );
@@ -357,6 +383,207 @@ export async function extractAudio(opts: {
       opts.out,
     ],
     { timeoutMs: 600_000, signal: opts.signal },
+  );
+  return finish(r, opts.out);
+}
+
+/* ------------------------------------------------------------------------ */
+/*  THE THREE ENCODES THE videoplus FORMATS ADDED                            */
+/*                                                                           */
+/*  They live here rather than in integrations/videoplus/ for the reason at   */
+/*  the top of this file: every ffmpeg invocation this area makes is in one   */
+/*  place, so the flags that make a file play in a `<video>` element are      */
+/*  applied by one set of constants and cannot drift between formats.         */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * A DIRECTORY OF PNG FRAMES, ENCODED AS ONE SCENE.
+ *
+ * `-framerate` BEFORE `-i` IS THE INPUT RATE and it is the whole point: it
+ * tells ffmpeg how fast the stills arrive. `-r` after would set the output
+ * rate and leave the input at 25, which silently changes the length of every
+ * scene. The output is then forced to the area's own 30 by V_ARGS, and ffmpeg
+ * duplicates frames to get there — which is why the motion renderer can draw
+ * twelve frames a second and still write a thirty-frame file.
+ *
+ * The frames are already the frame's exact size, so there is no scale in the
+ * chain; `format=yuv420p` is still needed because a PNG decodes to RGB.
+ */
+export async function fromFrames(opts: {
+  ffmpeg: string;
+  /** A printf pattern — `frame-%05d.png` — inside `dir`. */
+  pattern: string;
+  dir: string;
+  out: string;
+  fps: number;
+  seconds: number;
+  /** A narration file, or null. */
+  audio: string | null;
+  silentTrack: boolean;
+  signal?: AbortSignal;
+}): Promise<SegmentResult> {
+  const args = ["-y", "-v", "error", "-framerate", String(opts.fps), "-start_number", "0", "-i", resolve(opts.dir, opts.pattern)];
+  if (opts.audio) args.push("-i", opts.audio);
+  else if (opts.silentTrack) args.push("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo");
+  args.push("-vf", "format=yuv420p", "-map", "0:v");
+  if (opts.audio || opts.silentTrack) args.push("-map", "1:a", "-af", "apad", ...A_ARGS);
+  else args.push("-an");
+  args.push(...V_ARGS, "-t", opts.seconds.toFixed(3), opts.out);
+  const r = await run(opts.ffmpeg, args, { timeoutMs: 300_000, signal: opts.signal });
+  return finish(r, opts.out);
+}
+
+/**
+ * A TALL SCREENSHOT, PANNED DOWN — the walkthrough's "scrolling".
+ *
+ * There is no browser-recording API on this box (chrome.ts says why), so a
+ * page scroll is not recorded, it is CONSTRUCTED: Chrome renders the page once
+ * into a very tall window, and this moves a viewport-sized crop down that one
+ * picture. `crop` evaluates its y per frame and `t` is available in the
+ * expression, so the movement is arithmetic — which is both cheaper than a
+ * screen recording and smoother than one, because there is no frame rate to
+ * drop.
+ *
+ * THE HOLD AND THE TAIL ARE NOT DECORATION. Starting to move immediately gives
+ * a viewer nothing to read at the top of the page, and arriving at the bottom
+ * exactly as the shot ends reads as the video stopping mid-gesture. The pan is
+ * also allowed NOT to finish: a page four times taller than its shot pans at
+ * the same readable speed and simply gets as far as it gets, because the
+ * alternative is a blur.
+ *
+ * A page shorter than the viewport does not move at all, which is correct — a
+ * one-screen page has nothing to scroll — and the caller records it as a still.
+ */
+export async function panStill(opts: {
+  ffmpeg: string;
+  png: string;
+  out: string;
+  seconds: number;
+  /** The width and height of the viewport being panned. */
+  viewW: number;
+  viewH: number;
+  /** The height of the whole picture. */
+  imageH: number;
+  hold?: number;
+  tail?: number;
+  /** Pixels a second. Above about 250 the text is unreadable on a phone. */
+  maxSpeed?: number;
+  signal?: AbortSignal;
+}): Promise<SegmentResult> {
+  const maxY = Math.max(0, opts.imageH - opts.viewH);
+  const hold = Math.min(opts.hold ?? 0.8, opts.seconds / 3);
+  const tail = Math.min(opts.tail ?? 0.4, opts.seconds / 4);
+  const travel = Math.max(0.1, opts.seconds - hold - tail);
+  const speed = maxY === 0 ? 0 : Math.min(opts.maxSpeed ?? 220, maxY / travel);
+  const y = maxY === 0 ? "0" : `min(${maxY}\\,max(0\\,(t-${hold.toFixed(2)})*${speed.toFixed(2)}))`;
+  const r = await run(
+    opts.ffmpeg,
+    [
+      "-y", "-v", "error",
+      "-loop", "1", "-t", opts.seconds.toFixed(3), "-i", opts.png,
+      "-vf", `crop=${opts.viewW}:${opts.viewH}:0:'${y}',setsar=1,fps=${FPS},format=yuv420p`,
+      "-an",
+      ...V_ARGS,
+      "-t", opts.seconds.toFixed(3),
+      opts.out,
+    ],
+    { timeoutMs: 300_000, signal: opts.signal },
+  );
+  return finish(r, opts.out);
+}
+
+/** Audio as 16 kHz mono WAV, which is the one format whisper.cpp reads without
+ *  a decoder. Separate from `extractAudio` above, which writes an mp3 for an
+ *  HTTP transcription endpoint — the two want different things and a single
+ *  function with a format flag would be a function whose callers all pass the
+ *  flag. */
+export async function wavForSpeech(opts: {
+  ffmpeg: string;
+  source: string;
+  out: string;
+  maxSeconds: number;
+  signal?: AbortSignal;
+}): Promise<SegmentResult> {
+  const r = await run(
+    opts.ffmpeg,
+    [
+      "-y", "-v", "error",
+      "-i", opts.source,
+      "-t", String(Math.round(opts.maxSeconds)),
+      "-vn", "-ac", "1", "-ar", "16000",
+      "-c:a", "pcm_s16le",
+      opts.out,
+    ],
+    { timeoutMs: 900_000, signal: opts.signal },
+  );
+  return finish(r, opts.out);
+}
+
+/** Cut a sheet of side-by-side frames back into single frames. `untile` is an
+ *  ffmpeg filter rather than N crops, so a sheet of eight is one process; the
+ *  output numbering starts at `start` so consecutive sheets extend one
+ *  sequence rather than each writing frame zero. */
+export async function untileSheet(opts: {
+  ffmpeg: string;
+  sheet: string;
+  dir: string;
+  pattern: string;
+  tiles: number;
+  start: number;
+  signal?: AbortSignal;
+}): Promise<SegmentResult> {
+  const out = resolve(opts.dir, opts.pattern);
+  const r = await run(
+    opts.ffmpeg,
+    ["-y", "-v", "error", "-i", opts.sheet, "-vf", `untile=${opts.tiles}x1`, "-start_number", String(opts.start), out],
+    { timeoutMs: 120_000, signal: opts.signal },
+  );
+  return finish(r, out);
+}
+
+/** Whether this build can cut a sheet apart. Probed, because `untile` is not
+ *  in every ffmpeg and a motion render on a build without it must say so
+ *  rather than write eight frames of nothing. */
+export const hasUntile = (filters: Set<string>) => filters.has("untile");
+
+/**
+ * THE SAME VOICE, MADE TO SOUND LIKE A DIFFERENT ONE.
+ *
+ * A dialogue reel needs two speakers. When the voice endpoint has more than
+ * one voice the second role simply asks for a different name — see
+ * signals/voice/provider.ts — and this is not used. When it has only one, the
+ * alternative is a two-hander in which both people sound identical, which
+ * reads as a fault rather than as a stylistic choice.
+ *
+ * `asetrate` RESAMPLES WITHOUT RESAMPLING, which is the trick: playing 44.1 kHz
+ * audio as if it were 41.5 kHz lowers the pitch AND slows it, and `atempo`
+ * puts the speed back without touching the pitch. The result is the same
+ * speaker a few semitones down — recognisably a different person on a phone
+ * speaker, and honestly described on the run as one voice at two pitches
+ * rather than as two voices.
+ *
+ * The shift is small on purpose. Past about eight per cent it stops sounding
+ * like a person and starts sounding like a processed recording.
+ */
+export async function shiftVoice(opts: {
+  ffmpeg: string;
+  source: string;
+  out: string;
+  /** Below 1 is deeper. 0.94 is about a tone down. */
+  ratio: number;
+  signal?: AbortSignal;
+}): Promise<SegmentResult> {
+  const ratio = Math.max(0.9, Math.min(1.1, opts.ratio));
+  const r = await run(
+    opts.ffmpeg,
+    [
+      "-y", "-v", "error",
+      "-i", opts.source,
+      "-af", `asetrate=44100*${ratio.toFixed(3)},aresample=44100,atempo=${(1 / ratio).toFixed(4)}`,
+      "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "160k",
+      opts.out,
+    ],
+    { timeoutMs: 120_000, signal: opts.signal },
   );
   return finish(r, opts.out);
 }

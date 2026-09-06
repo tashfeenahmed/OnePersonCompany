@@ -27,7 +27,7 @@
  * migration rather than a rewrite.
  */
 import { DatabaseSync } from "node:sqlite";
-import { DB_FILE } from "./config.ts";
+import { DB_FILE, DATA_DIR, DEFAULT_DATA_DIR } from "./config.ts";
 import { INTEGRATION_MIGRATIONS } from "./integrations/migrations.ts";
 
 /* A TEST PROCESS MUST NEVER OPEN THE DEVELOPER'S DATABASE. `npm test` loads
@@ -36,10 +36,11 @@ import { INTEGRATION_MIGRATIONS } from "./integrations/migrations.ts";
    data/opc.db, and the first `beforeEach` that deletes plugin accounts takes
    the real ones (and, through ON DELETE CASCADE, every table under them) with
    it — which happened once. Node marks its test workers with
-   NODE_TEST_CONTEXT and the runner with --test in execArgv; either one without
-   an explicit data dir is refused here, before the file is touched. */
+   NODE_TEST_CONTEXT and the runner with --test in execArgv; either one whose
+   data dir resolves to the checkout's own is refused here, before the file is
+   touched — pointing OPC_DATA_DIR at that same directory does not get past it. */
 const underTestRunner = Boolean(process.env.NODE_TEST_CONTEXT) || process.execArgv.includes("--test");
-if (underTestRunner && !process.env.OPC_DATA_DIR) {
+if (underTestRunner && DATA_DIR === DEFAULT_DATA_DIR) {
   throw new Error(
     "refusing to open the developer database from a test process: run `npm test` " +
     "(which loads test/setup.mjs) or pass `--import ./test/setup.mjs`, or set OPC_DATA_DIR to a scratch directory",

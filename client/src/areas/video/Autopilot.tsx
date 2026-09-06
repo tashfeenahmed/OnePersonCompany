@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { CircleCheck, CircleSlash, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StagePill } from "@/components/VentureChrome";
@@ -7,6 +7,7 @@ import { useApi } from "@/hooks/useApi";
 import { ago } from "@/lib/live";
 import type { VentureStage } from "@/lib/api";
 import { autopilotApi, type AutopilotDoc, type AutopilotEntry } from "@/lib/api/video";
+import { History, Sources } from "@/areas/socialfeed/Sourcing";
 import { cn } from "@/lib/utils";
 
 /**
@@ -38,10 +39,22 @@ import { cn } from "@/lib/utils";
  * get in. The page shows what they resolve to and links to the page that
  * changes them.
  */
+/* THREE TABS SINCE THE GATE LANDED. The schedule is still the page; Sources
+   and History are the socialfeed area's own panels, imported rather than
+   reimplemented, because every sentence about a refusal belongs in one place.
+   `?tab=` so a schedule somebody is looking at has an address. */
+const TABS = [
+  { key: "schedule", label: "Schedule" },
+  { key: "sources", label: "Sources" },
+  { key: "history", label: "History" },
+] as const;
+
 export function Autopilot() {
   const doc = useApi(() => autopilotApi.read(), []);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const tab = (params.get("tab") ?? "schedule") as (typeof TABS)[number]["key"];
 
   async function now() {
     setBusy(true);
@@ -78,15 +91,35 @@ export function Autopilot() {
           </p>
         </div>
 
-        {doc.error && (
+        <div className="mb-4 flex flex-wrap gap-1">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => {
+                const p = new URLSearchParams(params);
+                p.set("tab", t.key);
+                setParams(p, { replace: true });
+              }}
+              aria-current={tab === t.key ? "page" : undefined}
+              className={cn("hover:bg-accent rounded-lg px-2.5 py-1.5 text-[12.5px]", tab === t.key && "bg-accent font-medium")}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "sources" && <Sources />}
+        {tab === "history" && <History />}
+
+        {tab === "schedule" && doc.error && (
           <p className="text-muted-foreground mb-4 text-[13px]">
             The autopilot API did not answer.{" "}
             <span className="text-destructive">{doc.error}</span>
           </p>
         )}
-        {!d && !doc.error && <p className="text-muted-foreground text-[13px]">Reading the schedule…</p>}
+        {tab === "schedule" && !d && !doc.error && <p className="text-muted-foreground text-[13px]">Reading the schedule…</p>}
 
-        {d && (
+        {tab === "schedule" && d && (
           <>
             <Schedule doc={d} />
 

@@ -221,7 +221,7 @@ export function plan(s: PipelineSettings, at = new Date()): { planned: PlannedSt
       };
     } else if (!conf.enabled) {
       refusal = { outcome: "skipped", reason: "switched off on the schedule" };
-    } else if (!dueByCadence(conf.cadence, lastCompleted(stage.id), clock.day)) {
+    } else if (!dueByCadence(conf.cadence, lastCompleted(stage.id), clock.day, s.timezone)) {
       refusal = {
         outcome: "skipped",
         reason: `not due — the cadence is ${conf.cadence} and it last completed ${lastCompleted(stage.id)}`,
@@ -304,38 +304,37 @@ function costOf(contextId: string): number | null {
   }
 }
 
-/** How fresh a self-scheduled dependency's own work has to be to count as
- *  satisfied. A day, because every self-scheduled pass on this box runs at
- *  least daily and because the question a dependency asks is "is what I am
- *  about to read current". */
+/** How fresh a self-scheduled dependency's own work has to be before the walk
+ *  stops remarking on it. A day, because every self-scheduled pass on this box
+ *  runs at least daily and because the question a dependency asks is "is what I
+ *  am about to read current". */
 export const DEP_FRESH_HOURS = 24;
 
 /**
  * IS A DEPENDENCY SATISFIED? Null if it is; the sentence to record if it is not.
  *
- * THREE RULES, AND EACH OF THEM WAS A BUG BEFORE IT WAS A RULE.
+ * THREE RULES, AND EVERY ONE OF THEM WAS A BUG BEFORE IT WAS A RULE.
  *
- * A DEPENDENCY ON A SELF-SCHEDULED STAGE CANNOT MEAN "IT COMPLETED TONIGHT",
- * because the pipeline never starts one and so it never completes here. It was
- * the first thing this file got wrong: `rounds` depends on `collect`, `collect`
- * keeps its own half-hourly timer, and the walk skipped the rounds every single
- * night waiting for a completion that by construction could not arrive. So a
- * self-scheduled dependency is satisfied by its own FRESHNESS — the newest row
- * its area wrote, inside the last day — which is what the depending stage
- * actually needs to be true. It is a weaker claim than "it completed", and the
- * skip reason says which claim failed so the morning is not left guessing.
+ * A SELF-SCHEDULED DEPENDENCY NEVER BLOCKS. It cannot mean "it completed
+ * tonight", because the pipeline never starts one — that was the first bug, and
+ * the freshness test that replaced it was the second. `rounds` depends on
+ * `collect`; `collect` is the half-hourly collector sweep; and on a box with
+ * `OPC_COLLECT_MINUTES=0` (a documented setting), with nothing connected, or
+ * after any outage longer than a day, `collect` has no recent row — so the
+ * pipeline skipped the rounds AND their own timer had stood down for the
+ * pipeline, and the estate silently stopped being walked, for ever, with only a
+ * skip row a night to show for it. A dependency on work this area does not
+ * control is INFORMATION, not a gate: `staleDeps` below reports it as a note on
+ * the stage result, and the stage runs.
  *
- * A DEPENDENCY THAT WAS SKIPPED DOES NOT BLOCK, and that is the second one. A
- * skip is a DECISION — the owner switched that stage off, or it is not due
- * tonight, or it is inside a blackout — and cascading a decision down the graph
- * turns one switch into a silent kill for everything behind it. With the rounds
- * switched off, the synthesis pass would never run again, for a reason nobody
- * would ever connect to the switch they flipped. The dependency did its job:
- * it had its turn first.
+ * A DEPENDENCY THAT WAS SKIPPED DOES NOT BLOCK EITHER. A skip is a DECISION —
+ * switched off, not due, inside a blackout — and cascading a decision down the
+ * graph turns one switch into a silent kill for everything behind it.
  *
  * A DEPENDENCY THAT FAILED OR RAN OUT OF BUDGET DOES BLOCK. That is a fault
  * rather than a decision, and the stage behind it would be reading output that
- * is missing or half-written. This is the case the whole mechanism exists for.
+ * is missing or half-written. This is the only case left, and it is the case
+ * the whole mechanism exists for.
  */
 export function unsatisfied(depId: string, outcomes: Map<string, StageOutcome>): string | null {
   const dep = stageById(depId);
@@ -343,26 +342,45 @@ export function unsatisfied(depId: string, outcomes: Map<string, StageOutcome>):
      dropped it from the ordering and published it as an unknown dep; blocking
      on it here as well would take a working stage down with a typo. */
   if (!dep) return null;
-
-  if (!dep.run) {
-    let last: string | null = null;
-    try {
-      last = dep.lastRun?.() ?? null;
-    } catch {
-      last = null;
-    }
-    if (!last) return `${depId}, which keeps its own timer and has never run`;
-    const ageHours = (Date.now() - Date.parse(last)) / 3_600_000;
-    if (!Number.isFinite(ageHours) || ageHours > DEP_FRESH_HOURS)
-      return `${depId}, which keeps its own timer and last ran ${last} — more than ${DEP_FRESH_HOURS} hours ago`;
-    return null;
-  }
+  /* Self-scheduled: advisory only. See the header. */
+  if (!dep.run) return null;
 
   const outcome = outcomes.get(depId);
   if (outcome === "completed" || outcome === "skipped") return null;
   if (outcome === "failed") return `${depId}, which failed tonight`;
   if (outcome === "over-budget") return `${depId}, which ran out of budget before its turn tonight`;
   return `${depId}, which has not run tonight`;
+}
+
+/**
+ * WHICH OF A STAGE'S SELF-SCHEDULED DEPENDENCIES LOOK STALE.
+ *
+ * The freshness reading that used to block, kept as a NOTE. "The rounds ran,
+ * but the collectors have not since Tuesday" is worth a sentence in the
+ * morning's summary; it is not worth stopping the only thing that walks the
+ * estate. Never throws — a `lastRun` reader over a table another area may not
+ * have migrated answers null, which reads as "never".
+ */
+export function staleDeps(stage: Stage, at = Date.now()): string[] {
+  const out: string[] = [];
+  for (const depId of stage.deps) {
+    const dep = stageById(depId);
+    if (!dep || dep.run) continue;
+    let last: string | null = null;
+    try {
+      last = dep.lastRun?.() ?? null;
+    } catch {
+      last = null;
+    }
+    if (!last) {
+      out.push(`${depId} has never run`);
+      continue;
+    }
+    const ageHours = (at - Date.parse(last)) / 3_600_000;
+    if (!Number.isFinite(ageHours) || ageHours > DEP_FRESH_HOURS)
+      out.push(`${depId} last ran ${last}, more than ${DEP_FRESH_HOURS} hours ago`);
+  }
+  return out;
 }
 
 /**
@@ -387,13 +405,27 @@ export async function runNight(
   if (only && !stageById(only))
     return { ran: false, why: `There is no stage called "${only}".`, run: null, stages: [] };
 
-  walking = true;
   const id = mintRunId();
   const startedAt = new Date();
   const startedIso = startedAt.toISOString();
-  db.prepare(
-    "INSERT INTO pipeline_runs (id, started_at, trigger, dry, planned, completed, skipped, failed, over_budget, summary) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, '')",
-  ).run(id, startedIso, opts.trigger, Number(dry));
+  /* THE ROW BEFORE THE FLAG, AND THE FLAG INSIDE THE `try`. `walking` used to
+     be set before this INSERT and before the try below, so a throw in between —
+     a busy database, a migration mid-flight — latched it true and every night
+     afterwards answered "a night is already walking" until somebody restarted
+     the server. Now nothing between here and the `finally` can leave it set. */
+  try {
+    db.prepare(
+      "INSERT INTO pipeline_runs (id, started_at, trigger, dry, planned, completed, skipped, failed, over_budget, summary) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, '')",
+    ).run(id, startedIso, opts.trigger, Number(dry));
+  } catch (err) {
+    return {
+      ran: false,
+      why: `The night could not be opened in the ledger: ${err instanceof Error ? err.message : String(err)}`,
+      run: null,
+      stages: [],
+    };
+  }
+  walking = true;
 
   const counts = { completed: 0, skipped: 0, failed: 0, "over-budget": 0 } as Record<StageOutcome, number>;
   /* What each stage DID tonight, which is what `unsatisfied` reads: a skip and
@@ -469,6 +501,10 @@ export async function runNight(
         continue;
       }
 
+      /* What the walk noticed about this stage's self-scheduled dependencies.
+         Advisory: it colours the note, it never stops the stage. */
+      const stale = staleDeps(p.stage);
+
       const contextId = `pipeline:${id}:${p.stage.id}`;
       const stageStarted = Date.now();
       const stageMs = p.settled.maxMinutes ? p.settled.maxMinutes * 60_000 : null;
@@ -504,6 +540,11 @@ export async function runNight(
           error: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
         };
       }
+      if (stale.length)
+        result = {
+          ...result,
+          note: [result.note, `Worth knowing: ${stale.join("; ")}.`].filter(Boolean).join(" "),
+        };
       file(p.stage, at, Date.now() - stageStarted, result, dry ? null : costOf(contextId));
     }
 
@@ -614,16 +655,6 @@ let timer: ReturnType<typeof setInterval> | null = null;
 export const PIPELINE_SESSION = "pipeline";
 
 /**
- * THE NIGHTLY TIMER.
- *
- * A ten-minute interval rather than a timeout aimed at the hour, for the reason
- * every schedule on this box gives: this is a laptop, it sleeps, and a night
- * due at two while the lid was shut should run at nine when it wakes rather
- * than not at all. "Has one run today" is asked of the TABLE and not of a
- * variable, so the dozens of restarts a day that `node --watch` produces cannot
- * make it run twice.
- */
-/**
  * CLOSE ANY NIGHT THE PROCESS DIED IN THE MIDDLE OF.
  *
  * `runNight`'s own `finally` closes the row on a thrown error, and cannot on a
@@ -654,6 +685,16 @@ export function closeInterrupted(): number {
   }
 }
 
+/**
+ * THE NIGHTLY TIMER.
+ *
+ * A ten-minute interval rather than a timeout aimed at the hour, for the reason
+ * every schedule on this box gives: this is a laptop, it sleeps, and a night
+ * due at two while the lid was shut should run at nine when it wakes rather
+ * than not at all. "Has one run today" is asked of the TABLE and not of a
+ * variable, so the dozens of restarts a day that `node --watch` produces cannot
+ * make it run twice.
+ */
 export function startPipeline() {
   if (timer) return;
   const closed = closeInterrupted();
@@ -670,22 +711,36 @@ export function startPipeline() {
         const due = dueDay(day, hour, s.hour, saved?.value ?? null);
         if (!due) return;
 
+        const claim = () =>
+          db
+            .prepare(
+              "INSERT INTO runtime_settings (key,value) VALUES ('pipeline-last-due',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            )
+            .run(due);
+
         const skip = skipDay();
         if (skip && skip.day === due) {
           /* The watermark is written anyway. "Skip tonight" means tonight does
              not happen, not "tonight happens tomorrow morning as well". */
-          db.prepare(
-            "INSERT INTO runtime_settings (key,value) VALUES ('pipeline-last-due',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-          ).run(due);
+          claim();
           console.log(`[pipeline] ${due} skipped by hand${skip.reason ? `: ${skip.reason}` : ""}`);
           return;
         }
 
+        /* THE WATERMARK IS CLAIMED BEFORE THE WALK, NOT AFTER IT.
+           It used to be written on the way out, which meant a night the process
+           died inside — and under `node --watch` that is a routine event — was
+           started again from the top at the next tick. Completed stages were
+           protected by their own daily cadence, but a stage killed MID-flight
+           (the rounds, after some dispatches) ran a second time and dispatched
+           again. Claiming first costs a night that crashes in its first second:
+           it is not retried until tomorrow. That is the right trade — one
+           missed night against a queue filled twice — and `closeInterrupted`
+           leaves the evidence on the row either way. */
+        claim();
+
         const out = await runNight({ trigger: "schedule" });
         if (out.ran) {
-          db.prepare(
-            "INSERT INTO runtime_settings (key,value) VALUES ('pipeline-last-due',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-          ).run(due);
           await deliver(out);
           console.log(
             `[pipeline] night ${out.run?.id}: ${out.run?.completed} completed, ${out.run?.skipped} skipped, ${out.run?.failed} failed`,
@@ -728,6 +783,47 @@ export async function deliver(out: NightResult): Promise<{ chat: boolean; telegr
      screen; a notification for it would train the owner to ignore the ones
      that report real work. */
   if (out.run.dry) return { chat, telegram: false, note: "A planned night is not pushed." };
+
+  /*
+    QUIET HOURS BELONG TO ONE AREA, AND IT IS NOT THIS ONE.
+
+    The customers area already owns "when may we buzz the phone": it parses the
+    window, defers deliveries inside it, and the owner sets it once on the
+    customers plugin. This push ignored all of that, which mattered more here
+    than anywhere — the default start hour is 02:00, inside any plausible quiet
+    window, so a box configured for silence was buzzed at two in the morning by
+    the pipeline and by nothing else. Two owners for one rule is two rules.
+
+    THE IMPORT IS DYNAMIC AND GUARDED, for the reason the brief gives: no
+    manifest may statically reach `routes/pluginConfig.ts`, and an area that is
+    not installed must not take this push down with it. A box without the
+    customers area gets a push, which is the honest fallback: nothing there has
+    said to be quiet.
+
+    THE NIGHT IS NOT DEFERRED AND RE-SENT. `quietDeferral` is asked only whether
+    NOW is inside the window; there is no delivery queue here, and a summary
+    that arrived at eight would be read beside the briefing that already covered
+    it. Inside quiet hours the transcript is the whole delivery, and the answer
+    says so rather than reporting a send that did not happen.
+  */
+  try {
+    const [{ quietDeferral }, { settings: customerSettings }] = await Promise.all([
+      import("../customers/events.ts"),
+      import("../customers/store.ts"),
+    ]);
+    const cs = customerSettings();
+    if (quietDeferral(new Date(), cs.timezone, cs.quiet))
+      return {
+        chat,
+        telegram: false,
+        note:
+          `Inside the quiet hours set on the customers plugin (${cs.quiet?.from}–${cs.quiet?.to}, ` +
+          `${cs.timezone}), so nothing was pushed to the phone. The result is in the transcript.`,
+      };
+  } catch {
+    /* No customers area on this box, or its settings could not be read. A
+       missing quiet-hours rule is not a reason to withhold the night's result. */
+  }
 
   try {
     /* Imported here and not at the top for briefing.ts's stated reason: the

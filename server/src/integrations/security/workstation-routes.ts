@@ -18,6 +18,7 @@ import { Hono } from "hono";
 import {
   DOCUMENTED,
   findMachine,
+  foundState,
   leaseResource,
   machines,
   noCommandYet,
@@ -38,7 +39,7 @@ import {
   asks integrations/deploy/leases.ts first, and wake records who woke it —
   because a machine this app did not wake is one it has no business sleeping.
 */
-import { recordWake, sleepCheck } from "../deploy/leases.ts";
+import { recordWake, releaseWake, sleepCheck } from "../deploy/leases.ts";
 
 export const workstationRoutes = new Hono();
 
@@ -104,10 +105,15 @@ workstationRoutes.post("/:id/wake", async (c) => {
   const before = await readState(m);
   const res = await sendMagicPacket(m.mac, m.broadcast);
   if (res.error) return c.json({ ok: false, error: `The packet could not be sent: ${res.error}` }, 502);
+  /* `foundState` AND NOT `reachable ? awake : asleep`. An ssh that failed is a
+     sleeping machine, a rotated key, a firewall and a wrong hostname, and only
+     the first of those makes this app the owner of the wake. See
+     workstation.ts — the difference decides whether anything here will ever
+     offer to power the machine off again. */
   const wake = recordWake({
     resource: leaseResource(m),
     by: "the workstation wake button",
-    foundState: before.reachable ? "awake" : "asleep",
+    foundState: foundState(before),
   });
 
   return c.json({
@@ -155,6 +161,20 @@ for (const action of ["sleep", "shutdown"] as const) {
       return c.json({ error: noCommandYet(action, null), documented: DOCUMENTED }, 400);
 
     const res = await power(m, action, command);
+    /*
+      OWNERSHIP ENDS WHERE IT WAS SPENT. We power off exactly what we powered
+      on — and having powered it off, we no longer have. Leaving the row would
+      mean a second sleep hours later, on a machine somebody else had woken in
+      between, still reading as ours.
+
+      ON `res.ok` ONLY, and the note on `power()` says why that is weaker than
+      it looks: a machine going down usually kills the ssh channel before the
+      shell answers, which arrives here as a non-zero exit. So a successful
+      sleep frequently does NOT clear ownership — and that is the safe
+      direction, because the alternative is disclaiming a machine that is still
+      up. The twelve-hour expiry in leases.ts is what catches the rest.
+    */
+    if (res.ok) releaseWake(leaseResource(m));
     return c.json(res);
   });
 }

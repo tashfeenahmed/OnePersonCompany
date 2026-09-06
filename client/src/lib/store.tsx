@@ -1,5 +1,6 @@
 import { sidebarPins, togglePin, reorderPins, type SidebarPin } from "../../../shared/sidebarPins";
 import { isWorkspacePreferences } from "../../../shared/workspace";
+import { isPaletteId, type PaletteId } from "./palettes";
 import { useWorkspaceSync, saveRecovery, preferences } from "./workspaceSync";
 import {
   createContext,
@@ -211,6 +212,19 @@ export type StoreState = {
   favoritePaths?: string[];
   /** Pages and sessions in one shared, owner-ordered sidebar list. */
   pinnedItems?: SidebarPin[];
+  /**
+   * WHICH PALETTE THE CHROME WEARS. Optional and absent on an older state,
+   * where absent means the default — see lib/palettes.ts.
+   *
+   * IT IS HERE AND NOT IN localStorage BESIDE THE LIGHT/DARK CHOICE, and the
+   * two live in different places on purpose. Light or dark is a fact about the
+   * ROOM: the laptop in the sun and the desktop at night want different
+   * answers, and syncing it would fight the OS. A palette is a fact about the
+   * PRODUCT — somebody who chose Moss chose it for their dashboard, not for
+   * this browser — so it rides the workspace preferences and follows them to
+   * every browser they open it in.
+   */
+  palette?: PaletteId;
 };
 
 export const VENTURE_COLORS = [
@@ -1517,6 +1531,9 @@ type StoreApi = {
    *  relative order at the end, so a stale list can never lose a board. */
   reorderDashboards: (ids: string[]) => void;
   setAppOrder: (slugs: string[]) => void;
+  /** The chrome's palette. An unknown id clears it back to the default rather
+   *  than storing a name nothing can draw. */
+  setPalette: (id: PaletteId) => void;
   setWidgets: (dashboardId: string, widgets: PlacedWidget[]) => void;
   setWorkspace: (patch: Partial<Workspace>) => void;
   togglePinned: (pin: SidebarPin) => void;
@@ -1891,6 +1908,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       setAppOrder(slugs) {
         setState((s) => ({ ...s, appOrder: slugs }));
+      },
+
+      setPalette(id) {
+        setState((s) => ({ ...s, palette: isPaletteId(id) ? id : undefined }));
       },
 
       togglePinned(pin) {

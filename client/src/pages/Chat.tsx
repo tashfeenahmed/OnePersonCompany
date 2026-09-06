@@ -539,6 +539,22 @@ type Flight = {
   /** The owner has pressed stop; send the cancel as soon as there is an id to
    *  send it against. */
   stopRequested: boolean;
+  /**
+   * DID THIS BROWSER ASK THE QUESTION?
+   *
+   * True for a turn started from the composer, false for one this page found
+   * already running and reattached to. The difference is what may be dropped:
+   * a turn the owner started here keeps its reader open across pages, because
+   * an answer killed by a glance at /integrations is the bug the module-level
+   * flight map exists to prevent. A REATTACHED reader is only this page's view
+   * of somebody else's turn — the run continues on the server either way — so
+   * closing the chat closes the socket, and reopening it attaches again from
+   * the first frame. Without that, every chat visited while it happened to be
+   * answering left an SSE connection open for the length of the turn, and six
+   * of those exhaust the browser's per-origin pool on HTTP/1.1 and stall every
+   * other request on the page.
+   */
+  owned: boolean;
   /** The answer so far. */
   text: string;
   /** The model's working so far, if it shows any. Never drawn as the answer. */
@@ -1008,6 +1024,22 @@ export function Chat() {
 
   useEffect(() => {
     showing.current = sessionId;
+    /*
+      LET GO OF ANY READER THAT WAS ONLY WATCHING.
+
+      A flight this page did not start is its VIEW of a turn, not the turn —
+      the run belongs to the server and goes on being written whatever this
+      browser does. Leaving its socket open for the length of the answer costs
+      one of the browser's six per-origin connections for a chat nobody is
+      looking at any more, and reopening the chat reattaches from the first
+      frame in any case. A turn the owner started HERE is not touched: killing
+      that on a glance at another page is the exact bug the module-level flight
+      map exists to prevent.
+    */
+    for (const [id, inFlight] of [...flights]) {
+      if (id === sessionId || inFlight.owned) continue;
+      inFlight.controller.abort();
+    }
     if (!sessionId) {
       refreshBackends();
       return;
@@ -1251,6 +1283,7 @@ export function Chat() {
       controller,
       runId: run.runId,
       stopRequested: false,
+      owned: false,
       text: "",
       reasoning: "",
       tools: [],
@@ -1440,6 +1473,9 @@ export function Chat() {
         BEFORE the stream opens — no agent live, message too long, API down —
         and for an abort. An abort no longer means the turn stopped: it means
         this page stopped READING it, which is not a failure and gets no banner.
+        That happens for real when the owner leaves a chat this page had only
+        reattached to — see the session effect above, which lets go of readers
+        it did not start.
 
         The failure goes on the RECORD whether or not this chat is the one on
         screen — and it is only ever drawn under the chat it happened in, so a
@@ -1579,6 +1615,7 @@ export function Chat() {
       controller,
       runId: null,
       stopRequested: false,
+      owned: true,
       text: "",
       reasoning: "",
       tools: [],

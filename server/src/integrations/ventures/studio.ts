@@ -272,7 +272,11 @@ function captionTurns(v: VentureRow, brief: string, platform: string | null, for
      else on this box: a caption is published, and a proposal turned into a
      marketing sentence is a claim made to a customer. See
      integrations/knowledge/store.ts. */
-  const known = factsForPrompt(v.id, ["capability", "pricing", "integration", "limitation"], 900);
+  /* 1,400 rather than 900. The block's own header is 457 characters of rules
+     about tiers, so a 900-character budget left about 440 for the facts — three
+     or four of them — and a caption written from four facts about a product
+     with twenty is a caption that reaches for the marketing page instead. */
+  const known = factsForPrompt(v.id, ["capability", "pricing", "integration", "limitation"], 1_400);
   const user =
     `The business:\n${brandFacts(v).map((f) => `- ${f}`).join("\n")}\n\n` +
     (known ? `${known}\n\n` : "") +

@@ -212,7 +212,17 @@ export const SKILLS: Skill[] = [
           "Re-read the venture's repository and re-file its `repo` facts. Costs " +
           "a handful of GitHub reads and one completion, and does nothing when " +
           "the repository's HEAD has not moved and nothing has expired. Every " +
-          "fact it files cites a file and a line that was checked to exist.",
+          "fact it files cites a file and a line that was checked to exist. A " +
+          "fact that was on file and is not in the new reading is RETIRED, and " +
+          "nothing on this box un-retires one.",
+        /* IRREVERSIBLE FROM HERE, which is what the flag claims and is why it
+           is set. It is not the GitHub calls or the completion — those are just
+           cost. It is the retire loop: a capability that was removed from the
+           repository, or that a reading missed, leaves the active set and there
+           is no route anywhere that puts it back. `destructiveHint` is a field
+           an MCP client is entitled to trust when it decides whether to ask a
+           person first, and this is exactly the case it exists for. */
+        destructive: true,
         params: [
           {
             name: "venture",

@@ -131,4 +131,40 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
     name: "232_knowledge_repo_source",
     sql: `ALTER TABLE knowledge_repos ADD COLUMN source TEXT NOT NULL DEFAULT 'owner';`,
   },
+  {
+    /*
+      AND THE ROWS THAT WERE ALREADY THERE WHEN 232 RAN.
+
+      232's `DEFAULT 'owner'` had to say SOMETHING about rows written before the
+      column existed, and it said the wrong thing: every repository this box had
+      taken off the `venture_links` table was labelled as the owner's own
+      choice. That is a small lie in the one place this area may not tell one —
+      the whole feature is about knowing where a statement came from, and "this
+      is the venture's repository" is a statement like any other.
+
+      THIS RUNS IN THE SAME STARTUP AS 232, IMMEDIATELY AFTER IT, which is what
+      makes it correct rather than a guess: at this instant every row in the
+      table predates the column, so a row whose repo is exactly a `github` link
+      the owner accepted for that venture is a row this code filled in, not one
+      he typed. From the next row onwards `setRepo` records the truth directly
+      and nothing has to be inferred again.
+
+      On a fresh install 230-233 all run against an empty table and this is a
+      no-op. `venture_links` is created by migration 060, well before this one:
+      migrations run in array order and the ventures area is registered ahead of
+      this one in `integrations/migrations.ts`.
+    */
+    name: "233_knowledge_repo_source_backfill",
+    sql: `
+      UPDATE knowledge_repos SET source = 'link'
+       WHERE kind = 'github'
+         AND source = 'owner'
+         AND EXISTS (
+           SELECT 1 FROM venture_links vl
+            WHERE vl.venture_id = knowledge_repos.venture_id
+              AND vl.plugin = 'github'
+              AND vl.entity = knowledge_repos.repo
+         );
+    `,
+  },
 ];

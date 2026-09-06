@@ -329,15 +329,29 @@ export function blackoutFor(
  * means a cadence and not the first of the month, and a stage due on the 31st
  * would run seven times a year.
  *
+ * BOTH DAYS ARE THE OWNER'S DAYS, and that is what `zone` is for. The first
+ * version of this function turned `lastAt` into a UTC date and compared it with
+ * a zone-local `today`, which is correct in Greenwich and wrong everywhere the
+ * start hour crosses the offset: a night at 22:00 in America/New_York is
+ * stamped with the NEXT UTC date, so the following night read `lastDay ===
+ * today` and reported every daily stage "not due" — the pipeline would have run
+ * the estate every second night, silently, for ever. This box runs at 02:00 in
+ * Europe/Dublin, which is why nothing showed it.
+ *
  * A stage that has NEVER completed is always due. That is what makes a newly
  * registered stage run on its first night rather than on its second.
  */
-export function dueByCadence(cadence: Cadence, lastAt: string | null, today: string): boolean {
+export function dueByCadence(
+  cadence: Cadence,
+  lastAt: string | null,
+  today: string,
+  zone: string | null = null,
+): boolean {
   if (!lastAt) return true;
   const last = Date.parse(lastAt);
   if (!Number.isFinite(last)) return true;
   const days = { daily: 1, weekly: 7, monthly: 28 }[cadence];
-  const lastDay = new Date(last).toISOString().slice(0, 10);
+  const lastDay = zoned({ timezone: zone }, new Date(last)).day;
   if (cadence === "daily") return lastDay !== today;
   const elapsed = (Date.parse(`${today}T12:00:00Z`) - Date.parse(`${lastDay}T12:00:00Z`)) / 86_400_000;
   return elapsed >= days;
@@ -514,6 +528,12 @@ export type StagePref = {
   cadence: string | null;
   max_usd: number | null;
   max_minutes: number | null;
+  /** `HH:MM-HH:MM`, the part of the night this stage may start in, or null for
+   *  anywhere inside the nightly window. Added after review: every registered
+   *  stage ships `defaultWindow: null` and there was no way to set one, which
+   *  made the window branch in the walk unreachable code pretending to be a
+   *  feature. */
+  window: string | null;
   updated_at: string;
 };
 
@@ -524,7 +544,13 @@ export function prefs(): Map<string, StagePref> {
 
 export function setPref(
   stageId: string,
-  patch: { enabled?: boolean | null; cadence?: Cadence | null; maxUsd?: number | null; maxMinutes?: number | null },
+  patch: {
+    enabled?: boolean | null;
+    cadence?: Cadence | null;
+    maxUsd?: number | null;
+    maxMinutes?: number | null;
+    window?: string | null;
+  },
 ): void {
   const held = prefs().get(stageId);
   const value = {
@@ -532,15 +558,16 @@ export function setPref(
     cadence: patch.cadence === undefined ? (held?.cadence ?? null) : patch.cadence,
     max_usd: patch.maxUsd === undefined ? (held?.max_usd ?? null) : patch.maxUsd,
     max_minutes: patch.maxMinutes === undefined ? (held?.max_minutes ?? null) : patch.maxMinutes,
+    window: patch.window === undefined ? (held?.window ?? null) : patch.window,
   };
   db.prepare(
-    `INSERT INTO pipeline_stage_prefs (stage_id, enabled, cadence, max_usd, max_minutes, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO pipeline_stage_prefs (stage_id, enabled, cadence, max_usd, max_minutes, window, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(stage_id) DO UPDATE SET
        enabled = excluded.enabled, cadence = excluded.cadence,
        max_usd = excluded.max_usd, max_minutes = excluded.max_minutes,
-       updated_at = excluded.updated_at`,
-  ).run(stageId, value.enabled, value.cadence, value.max_usd, value.max_minutes, now());
+       window = excluded.window, updated_at = excluded.updated_at`,
+  ).run(stageId, value.enabled, value.cadence, value.max_usd, value.max_minutes, value.window, now());
 }
 
 /** The settled definition of one stage: its own defaults with the owner's
@@ -559,7 +586,7 @@ export function settled(s: Stage, pref: StagePref | undefined) {
     scheduledBy: s.run ? ("pipeline" as const) : ("self" as const),
     enabled: pref?.enabled === null || pref?.enabled === undefined ? s.defaultEnabled : pref.enabled === 1,
     cadence,
-    window: s.defaultWindow,
+    window: pref?.window ?? s.defaultWindow,
     maxUsd: pref?.max_usd ?? s.budget.maxUsd ?? null,
     maxMinutes: pref?.max_minutes ?? s.budget.maxMinutes ?? null,
     overridden: !!pref,

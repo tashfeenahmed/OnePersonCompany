@@ -10,6 +10,7 @@ export const MOVED_APPS: Readonly<Record<string, string>> = {
   studio: "/social/studio",
   autopilot: "/social/autopilot",
   video: "/social/video",
+  motion: "/social/motion",
   publishing: "/social/publishing",
   /* A campaign run is read on the Publishing page's Campaigns tab, so the run
      kind resolves to the same address as the page. */
@@ -18,6 +19,7 @@ export const MOVED_APPS: Readonly<Record<string, string>> = {
   serp: "/growth/serp",
   aso: "/growth/aso",
   mobilehealth: "/growth/mobilehealth",
+  webanalytics: "/growth/webanalytics",
   growth: "/growth/overview",
   ops: "/ops",
 };

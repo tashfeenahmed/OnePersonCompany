@@ -21,10 +21,9 @@
  * batch's id map. It is destructive and it is published as destructive.
  */
 import { Hono } from "hono";
-import { rmSync, statSync } from "node:fs";
 import { MAX_DOC } from "../activity/users.ts";
 import { endpoints, populationCounts, recordValidation, validateSample, validations } from "./adapters.ts";
-import { batch, batchCounts, batches, mapRows, rollback } from "./store.ts";
+import { batch, batchCounts, batches, mapRows, removeCopied, rollback } from "./store.ts";
 import { db } from "../../db.ts";
 import { SERIES } from "./mapper.ts";
 
@@ -110,24 +109,9 @@ migrateRoutes.get("/batches/:id", (c) => {
  */
 migrateRoutes.post("/batches/:id/rollback", (c) => {
   const id = c.req.param("id");
-  const result = rollback(id, (path) => {
-    /* A file whose size no longer matches what was copied is somebody's
-       replacement and is left alone. See 294's header. */
-    const recorded = db
-      .prepare("SELECT bytes FROM migrate_files WHERE path = ? ORDER BY imported_at DESC LIMIT 1")
-      .get(path) as { bytes: number } | undefined;
-    try {
-      const size = statSync(path).size;
-      if (recorded && size !== recorded.bytes)
-        return { ok: false, why: `it is ${size} bytes now and was ${recorded.bytes} when it was copied in, so something has replaced it.` };
-      rmSync(path);
-      return { ok: true };
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code === "ENOENT") return { ok: true };
-      return { ok: false, why: err instanceof Error ? err.message : String(err) };
-    }
-  });
+  /* The byte count comes from the batch's own row — see removeCopied and
+     rollback: a lookup by path alone finds whichever batch wrote it last. */
+  const result = rollback(id, removeCopied);
   if (!result.ok) return c.json({ error: result.error, problems: result.problems }, 409);
   return c.json({
     ...result,

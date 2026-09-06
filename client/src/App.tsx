@@ -13,7 +13,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveProvider } from "@/lib/live";
 import { StoreProvider } from "@/lib/store";
-import { ThemeProvider } from "@/lib/theme";
+import { PaletteTokens, ThemeProvider } from "@/lib/theme";
 const Chat = lazy(() => import("@/pages/Chat").then(m => ({ default: m.Chat })));
 const Dashboards = lazy(() => import("@/pages/Dashboards").then(m => ({ default: m.Dashboards })));
 const PluginDetail = lazy(() => import("@/pages/PluginDetail").then(m => ({ default: m.PluginDetail })));
@@ -39,11 +39,15 @@ const Workflows = lazy(() => import("@/areas/chief/Workflows").then(m => ({ defa
 const Finance = lazy(() => import("@/areas/finance/Finance").then(m => ({ default: m.Finance })));
 const ActivityPage = lazy(() => import("@/areas/activity/ActivityPage").then(m => ({ default: m.ActivityPage })));
 const Customers = lazy(() => import("@/areas/customers/Customers").then(m => ({ default: m.Customers })));
+const JournalPage = lazy(() => import("@/areas/journal/JournalPage").then(m => ({ default: m.JournalPage })));
 
 export default function App() {
   return (
     <ThemeProvider>
       <StoreProvider>
+        {/* Draws nothing: it applies the workspace's palette over the mode.
+            Inside the store because that is where the choice is kept. */}
+        <PaletteTokens />
         <LiveProvider>
           <TooltipProvider>
             {/* Real paths, not a hash. /dashboards/servers is the address a
@@ -151,6 +155,7 @@ export default function App() {
                     <Route path="/ventures/:slug/site" element={<Venture />} />
                     <Route path="/ventures/:slug/audit" element={<Venture />} />
                     <Route path="/ventures/:slug/knowledge" element={<Venture />} />
+                    <Route path="/ventures/:slug/journal" element={<Venture />} />
                     {/* A venture's own dashboards. The same board component
                         the global page renders, narrowed to this venture's
                         host — see components/BoardView and lib/scope. */}
@@ -251,6 +256,10 @@ export default function App() {
                         that subject one level deeper. */}
                     <Route path="/finance" element={<Finance />} />
                     <Route path="/finance/:tab" element={<Finance />} />
+                    {/* THE JOURNAL — work the owner did off this box. One
+                        address, no tabs: the venture cut of the same list is a
+                        tab on the venture page. */}
+                    <Route path="/journal" element={<JournalPage />} />
                     <Route path="/workflows" element={<Workflows />} />
                     <Route path="/workflows/:tab" element={<Workflows />} />
                     <Route path="*" element={<div className="p-8"><h1 className="text-2xl mb-3">Page not found</h1><p>This address does not match a page.</p><Link className="underline" to="/">Go to your workspace</Link></div>} />

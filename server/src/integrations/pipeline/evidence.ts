@@ -91,8 +91,18 @@ export type EvidencePacket = {
     window: string;
     finished: { id: string; kind: string; title: string; finishedAt: string | null; headline: string }[];
   }>;
-  /** True when all seven are null. The pass asks the model nothing in that
-   *  case — see the header. */
+  /**
+   * True when nothing SUBSTANTIVE is known: every section is null, or the only
+   * measured one is an empty board.
+   *
+   * It used to be "all seven are null", which was unreachable — `tasks` is
+   * measured even for an empty board, deliberately, because "there is nothing
+   * on the list for this venture" is a fact a proposal may rest on. So the flag
+   * was never true, the short-circuit never fired, and a venture about which
+   * this box knew literally nothing still cost a model call every time its turn
+   * came round. An empty board is evidence when there is something else beside
+   * it and an absence of evidence when there is not.
+   */
   nothingMeasured: boolean;
 };
 
@@ -266,17 +276,29 @@ function alerts(v: VentureRow): EvidencePacket["alerts"] {
 
 /* -------------------------------------------------------------------- tasks */
 
-/** The venture's open board cards. Also the dedupe corpus — synthesis.ts reads
- *  this same list, so a proposal is compared against exactly what the owner
- *  can see on his board. */
-export function openCards(ventureId: string): { title: string; column: string; due: string | null; urgency: number }[] {
+/**
+ * The venture's open board cards. Also the dedupe corpus.
+ *
+ * TWO CALLERS AND TWO LIMITS. The PACKET shows the model a recent slice, capped
+ * for prompt size; the GATE (`opts.all`) reads every one, because a card the
+ * owner cannot see at the top of his board is exactly the one he has forgotten,
+ * and re-proposing it is the fastest way to teach him to stop reading these.
+ * One truncated list serving both was a silent hole in the dedupe.
+ */
+export const PACKET_CARDS = 60;
+export const GATE_CARDS = 2_000;
+
+export function openCards(
+  ventureId: string,
+  opts: { all?: boolean } = {},
+): { title: string; column: string; due: string | null; urgency: number }[] {
   try {
     return db
       .prepare(
         `SELECT c.title AS title, col.title AS column_title, c.due AS due, c.urgency AS urgency
            FROM board_cards c JOIN board_columns col ON col.id = c.column_id
           WHERE c.venture_id = ? AND c.archived_at IS NULL AND col.key <> 'done'
-          ORDER BY c.updated_at DESC LIMIT 60`,
+          ORDER BY c.updated_at DESC LIMIT ${opts.all ? GATE_CARDS : PACKET_CARDS}`,
       )
       .all(ventureId)
       .map((r) => {
@@ -394,14 +416,7 @@ export async function packetFor(ventureId: string, signal?: AbortSignal): Promis
     runs: runs(v),
     nothingMeasured: false,
   };
-  packet.nothingMeasured =
-    packet.revenue.measured === null &&
-    packet.traffic.measured === null &&
-    packet.alerts.measured === null &&
-    packet.tasks.measured === null &&
-    packet.goals.measured === null &&
-    packet.memory.measured === null &&
-    packet.runs.measured === null;
+  packet.nothingMeasured = substantiveKeys(packet).length === 0;
   return packet;
 }
 
@@ -423,4 +438,20 @@ export function measuredKeys(p: EvidencePacket): string[] {
   if (p.memory.measured) keys.push("memory");
   if (p.runs.measured) keys.push("runs");
   return keys;
+}
+
+/**
+ * THE MEASURED KEYS THAT ACTUALLY SAY SOMETHING.
+ *
+ * `measuredKeys` is what the GATE judges against and it deliberately includes
+ * an empty board: "nothing is on the list for this venture" is a legitimate
+ * thing for an action to rest on. This is the narrower question — is there
+ * enough here to be worth a model call at all — and the difference between the
+ * two is exactly the empty board. A venture with no linked product, no linked
+ * site, no rule, no goal, no note, no recent run and an empty board is one this
+ * box knows nothing about, and asking a model what to do about it produces
+ * generic advice with a business's name on top.
+ */
+export function substantiveKeys(p: EvidencePacket): string[] {
+  return measuredKeys(p).filter((k) => k !== "tasks" || (p.tasks.measured?.open.length ?? 0) > 0);
 }

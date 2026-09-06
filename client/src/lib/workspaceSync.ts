@@ -2,11 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, call } from "./api";
 import type { StoreState } from "./store";
 import { isWorkspacePreferences } from "../../../shared/workspace";
-type Preferences = Pick<StoreState, "workspace" | "sessions" | "dashboards" | "appOrder" | "seedVersion" | "favoritePaths" | "pinnedItems">;
+type Preferences = Pick<StoreState, "workspace" | "sessions" | "dashboards" | "appOrder" | "seedVersion" | "favoritePaths" | "pinnedItems" | "palette">;
 type Document = { revision: number; data: Preferences | null };
 const META = "opc-workspace-sync";
 export function preferences(s: StoreState): Preferences {
-  return { workspace: s.workspace, sessions: s.sessions, dashboards: s.dashboards, appOrder: s.appOrder, seedVersion: s.seedVersion, favoritePaths: s.favoritePaths, pinnedItems: s.pinnedItems };
+  return { workspace: s.workspace, sessions: s.sessions, dashboards: s.dashboards, appOrder: s.appOrder, seedVersion: s.seedVersion, favoritePaths: s.favoritePaths, pinnedItems: s.pinnedItems, palette: s.palette };
 }
 export function saveRecovery(state: StoreState) { localStorage.setItem("opc-workspace-recovery", JSON.stringify(state)); }
 function metadata(): { revision: number; saved: string | null; hasLocal: boolean } {
@@ -37,8 +37,8 @@ export function useWorkspaceSync(state: StoreState, setState: React.Dispatch<Rea
       if (doc.data) {
         // An older workspace has favorites but no pinnedItems; accepting it must
         // also clear a newer browser's pin list instead of silently merging it.
-        current.current = { ...current.current, pinnedItems: undefined, favoritePaths: undefined, ...doc.data };
-        setState(s => ({ ...s, pinnedItems: undefined, favoritePaths: undefined, ...doc.data }));
+        current.current = { ...current.current, pinnedItems: undefined, favoritePaths: undefined, palette: undefined, ...doc.data };
+        setState(s => ({ ...s, pinnedItems: undefined, favoritePaths: undefined, palette: undefined, ...doc.data }));
       }
       remember();
     };

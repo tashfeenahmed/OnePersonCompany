@@ -157,6 +157,13 @@ export type DisputeRecord = {
  * re-observed the same terminal status must not move the date forward. Stripe
  * publishes no closed timestamp, so this is the most precise honest answer
  * and it is only ever as precise as the collection interval.
+ *
+ * `terminal` IS THE CALLER'S CLAIM THAT A TRANSITION HAPPENED — that this box
+ * believed the case was open and now does not — rather than "the status is
+ * terminal". The difference is the whole column: computed from the status
+ * alone it stamps every settled dispute in the account's history with the day
+ * the integration was installed. See the pass, which derives it from the
+ * cases it previously held open.
  */
 export function writeDisputes(
   rows: (Omit<DisputeRecord, "seen_at" | "closed_at" | "is_charge_refundable" | "venture_id"> & {

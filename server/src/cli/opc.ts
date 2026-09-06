@@ -196,11 +196,11 @@ opc — this dashboard's own live data, as a command
   --fields a,b   keep only these TOP-LEVEL keys of the answer (an error key is always kept)
   --json '{…}'   the whole body of an action as one JSON object (flags still apply on top)
 
-A long answer is SHORTENED, never cut mid-document: every scalar survives, the
-longest lists lose rows, and each one ends with
-{"truncated":true,"shown":N,"total":T,"next":"…"}. Report T, not N, and fetch
-the rest with --limit/--offset where the view takes them, a narrower window, or
---fields.
+A long answer is SHORTENED, never cut mid-document: the longest lists lose rows
+first and each one ends with {"truncated":true,"shown":N,"total":T}; only when
+nothing else is left do fields go from the end, and the object that lost them
+carries "_omitted". Report T, not N. How to get the rest is written once, on
+"_bounded", and repeated on stderr.
 
 A read is printed as the dashboard answered it, shortened only if it is over
 the response budget; an error is printed whole to stderr and the exit code is
@@ -248,7 +248,7 @@ function helpFor(s: CatalogSkill, universal: string[]): string {
     out.push("");
     out.push("ACT (a POST; changes the owner's own data — only when asked for that exact change):");
     for (const a of s.actions) {
-      out.push(`  ${example(s.id, a.key, a.params, (p) => p.required || p.exampled === true)}${a.destructive ? "   ← no undo" : ""}`);
+      out.push(`  ${example(s.id, a.key, a.params, (p) => p.required || p.exampled === true)}${a.destructive ? "   ← ask first" : ""}`);
       out.push(`      ${a.about}`);
       for (const line of paramTable(a.params)) out.push(`    ${line}`);
     }
@@ -288,8 +288,12 @@ function listing(cat: Catalog): string {
 /**
  * The document, as the dashboard answered it — inside the response budget.
  *
- * Indented when it is JSON and `--raw` was not asked for; otherwise byte for
- * byte. What is new here is the SHAPE. This used to print whatever came back
+ * Indented when it is JSON and `--raw` was not asked for; byte for byte when it
+ * was. Both halves of that hold at every size: the first cut applied the
+ * budget's shaping only above the budget and handed back the route's own
+ * compact bytes below it, so every small document printed as one long line and
+ * `--raw` was a flag that did nothing until an answer got big. What is new here
+ * is the SHAPE. This used to print whatever came back
  * and then, past 24 KB, write a note to stderr saying the terminal tool was
  * about to truncate it and the agent should ask for less. That note was
  * honest and useless: by the time it is read the document has already been cut
@@ -353,7 +357,20 @@ async function read(
   fields: string[],
 ) {
   const known = new Set(v.params.map((p) => p.name));
-  const unknown = Object.keys(flags).filter((k) => !known.has(k));
+  /*
+    A VIEW'S OWN `fields` WINS OVER THIS COMMAND'S.
+
+    `--fields` is parsed as a universal flag, like `--raw`, and is applied to
+    the answer rather than sent. No view declares a parameter by that name
+    today; the day one does, keeping it universal would drop it silently on the
+    way out — which is the exact failure the unknown-parameter refusal below
+    exists to prevent. So when the view owns the name, the value goes back into
+    the query string and shapes nothing.
+  */
+  const viewOwnsFields = known.has("fields");
+  const sent = viewOwnsFields && fields.length ? { ...flags, fields: fields.join(",") } : flags;
+  const shaping = viewOwnsFields ? [] : fields;
+  const unknown = Object.keys(sent).filter((k) => !known.has(k));
   if (unknown.length)
     throw new Fail(
       `${s.id} ${v.key === s.views[0]?.key ? "" : `${v.key} `}has no parameter ${unknown.map((k) => `--${k}`).join(", ")}. ` +
@@ -361,10 +378,10 @@ async function read(
       1,
     );
   for (const p of v.params)
-    if (p.required && !(flags[p.name] ?? "").trim()) throw new Fail(`--${p.name} is required: ${p.about}`, 1);
+    if (p.required && !(sent[p.name] ?? "").trim()) throw new Fail(`--${p.name} is required: ${p.about}`, 1);
   const q = new URLSearchParams();
   if (v.key !== s.views[0]?.key) q.set("view", v.key);
-  for (const [k, val] of Object.entries(flags)) q.set(k, String(typed(v.params.find((p) => p.name === k)!, val)));
+  for (const [k, val] of Object.entries(sent)) q.set(k, String(typed(v.params.find((p) => p.name === k)!, val)));
   const qs = q.toString();
   const res = await fetch(`${API}/api/skills/${encodeURIComponent(s.id)}${qs ? `?${qs}` : ""}`, {
     headers: AUTH,
@@ -380,8 +397,9 @@ async function read(
       : `narrow it: `) +
     `\`opc ${s.id}${v.key === s.views[0]?.key ? "" : ` ${v.key}`}` +
     `${paged.length ? ` ${paged.map((p) => `--${p.name} N`).join(" ")}` : ""}\`` +
-    `, or keep part of it with --fields a,b (\`opc help ${s.id}\` lists every parameter)`;
-  return passThrough(res, raw, { fields, how });
+    (viewOwnsFields ? `` : `, or keep part of it with --fields a,b`) +
+    ` (\`opc help ${s.id}\` lists every parameter)`;
+  return passThrough(res, raw, { fields: shaping, how });
 }
 
 async function act(s: CatalogSkill, a: Action, parsed: Parsed) {

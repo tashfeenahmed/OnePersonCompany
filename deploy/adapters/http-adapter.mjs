@@ -147,9 +147,21 @@ function send(res, status, body) {
 const server = createServer((req, res) => {
   const path = (req.url ?? "/").split("?")[0];
 
-  /* Health takes no token on purpose: it says the process is up and nothing
-     about the business, which is what a supervisor needs and all it needs. */
-  if (path === "/opc/health") return send(res, 200, { ok: true, contract: SHAPE, cachedAt: cachedAt ? new Date(cachedAt).toISOString() : null, error: lastError });
+  /* HEALTH TAKES NO TOKEN ON PURPOSE, so it must say nothing that a stranger
+     is better off not knowing. `failing` is a BOOLEAN and not the sentence:
+     lastError is the database client's own text, which names the host, the
+     database user and sometimes ssh's "Permission denied" — an unauthenticated
+     map of the internal topology. A supervisor needs "is it up and is it
+     currently failing", which is exactly this and no more. The sentence is on
+     /opc/users, behind the token, where somebody debugging can read it. */
+  if (path === "/opc/health")
+    return send(res, 200, {
+      ok: true,
+      contract: SHAPE,
+      cachedAt: cachedAt ? new Date(cachedAt).toISOString() : null,
+      failing: lastError !== null,
+      note: "The reason a rebuild is failing is on /opc/users, which takes the token.",
+    });
 
   if (req.method !== "GET") return send(res, 405, { error: "This adapter answers GET." });
   if (!tokenOk(req.headers.authorization))

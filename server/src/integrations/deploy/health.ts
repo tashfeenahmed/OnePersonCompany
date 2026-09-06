@@ -281,3 +281,47 @@ export async function health(collectorIds: string[]): Promise<Health> {
       "own `measured` object rather than only in the sentence.",
   };
 }
+
+/**
+ * WHAT AN UNAUTHENTICATED CALLER GETS, WHICH IS ALMOST NOTHING.
+ *
+ * `GET /api/health` is on the gate's OPEN list — it answers with no credential
+ * even once a password is set, because `cli/restore.ts` uses it to refuse to
+ * overwrite a live database and a probe that could not tell "running" from
+ * "locked" would be the dangerous version of that tool. That was fine when the
+ * document was four fields. It is not fine now that the checks carry absolute
+ * paths, the database's size, free and total disk, the names of missing
+ * migrations and the agent's verbatim last error: four harmless fields became
+ * a description of the machine, served to anything that can reach the port.
+ *
+ * So the DETAIL is behind the lock and the LIVENESS is not. With no password
+ * set nothing changes — there is no lock to be behind, and the dashboard, the
+ * doctor and curl all see everything. Once a password exists, an
+ * unauthenticated caller gets the four original fields minus the collector
+ * NAMES (which say which businesses this box is connected to) and a `status`
+ * of `null` meaning "not told", which is this codebase's word for it
+ * everywhere else.
+ */
+export type MinimalHealth = {
+  ok: true;
+  now: string;
+  status: null;
+  note: string;
+};
+
+export async function healthFor(
+  collectorIds: string[],
+  opts: { authenticated: boolean; locked: boolean },
+): Promise<Health | MinimalHealth> {
+  if (opts.locked && !opts.authenticated)
+    return {
+      ok: true,
+      now: new Date().toISOString(),
+      status: null,
+      note:
+        "This dashboard has a password on it, so this probe answers liveness only. `ok: true` means the process " +
+        "replied and nothing more; `status: null` means the checks were not run for you rather than that they " +
+        "passed. Sign in, or send a service key, for the checks, the collector list and the disk figures.",
+    };
+  return health(collectorIds);
+}

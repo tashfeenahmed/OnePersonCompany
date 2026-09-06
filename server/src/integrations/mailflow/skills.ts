@@ -173,6 +173,12 @@ export const SKILLS: Skill[] = [
             about: "Which Gmail account. Absent means the first one.",
           },
         ],
+        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
+           a row cannot be deleted afterwards. `destructive` is what a client is
+           entitled to trust when it decides whether to ask a person first, and
+           the thing that cannot be taken back here is the money, the message or
+           the power state rather than the record. It spends: the pass makes model calls, and it moves mail the owner will find moved. */
+        destructive: true,
       },
     ],
     asks: [

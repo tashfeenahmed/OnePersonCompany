@@ -493,7 +493,17 @@ export function Chart({
           coordinates are the SVG's coordinates and no offset arithmetic has to
           agree with a layout. The height is reserved so the card does not
           resize on the frame the width measurement lands. */}
-      <div ref={host} className="relative mt-1" style={{ height: PLOT_H }}>
+      {/* `color` here is what every `currentColor` below resolves to, and it is
+          a TOKEN rather than an inherited ink so an alternate palette can tint
+          the series. `--chart-1` is the foreground in the default palette, so
+          this changes nothing about how the chart has always looked; it just
+          stops the plot being the only colour on the page a palette cannot
+          reach. See lib/palettes.ts for why the rest of the ramp stays grey. */}
+      <div
+        ref={host}
+        className="relative mt-1"
+        style={{ height: PLOT_H, color: "var(--chart-1)" }}
+      >
         {w > 0 && (
           <svg
             width={w}

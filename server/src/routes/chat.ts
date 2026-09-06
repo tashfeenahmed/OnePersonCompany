@@ -94,13 +94,14 @@ import { track } from "../chat/inflight.ts";
 */
 import {
   RunBusyError,
+  sessionBusy,
   answeringSessions,
   cancelChatRun,
   runHandle,
   sessionRunState,
   startChatRun,
 } from "../chat/runs.ts";
-import { chatRun as chatRunRow } from "../integrations/agentcore/store.ts";
+import { chatRun as chatRunRow, deleteChatRuns } from "../integrations/agentcore/store.ts";
 import * as hermes from "../providers/hermes.ts";
 import * as openclaw from "../providers/openclaw.ts";
 /*
@@ -109,7 +110,14 @@ import * as openclaw from "../providers/openclaw.ts";
   inside it because a dynamic import in a request path is a first-call latency
   spike bought to hide a dependency that is real.
 */
-import { activeProvider, complete } from "../models/provider.ts";
+import { activeProvider } from "../models/provider.ts";
+/*
+  THE BOUNDED TOOL LOOP FOR A DIRECT PROVIDER. It replaces the bare
+  `complete()` on both fallback paths below and decides for itself whether this
+  turn gets tools or the text-only completion this route has always made — see
+  integrations/runtime/loop.ts for the bounds and the argument.
+*/
+import { directReply, directTurn } from "../integrations/runtime/loop.ts";
 import { noteOutcome } from "./models.ts";
 /*
   WHERE THE SKILLS LIVE, AND WHY THIS ROUTE HAS TO KNOW. A MANAGED agent has
@@ -393,11 +401,11 @@ function withBudget(turns: ChatTurn[], live: ChatBackend | null): ChatTurn[] {
       role: "system",
       content: [
         `Tool answers are capped. A list that did not fit ends with`,
-        `{"truncated":true,"shown":N,"total":T,"next":"…"} — T is the real total: report T, never N.`,
+        `{"truncated":true,"shown":N,"total":T} — T is the real total: report T, never N. A "_omitted"`,
+        `count means fields were dropped from the end of that object as well.`,
         `To see more: pass limit/offset where the view lists them, narrow the window (fewer days, one`,
-        `venture), or pass fields=<comma-separated top-level keys> to keep only the part you need.`,
-        `"next" says which of those applies to that call. Nothing is ever cut mid-value, so a document`,
-        `that parses is complete as far as it goes — but it is not the whole list unless no marker is in it.`,
+        `venture), or pass fields=<comma-separated top-level keys>. "_bounded".next names which applies.`,
+        `Nothing is ever cut mid-value, so a document that parses is complete as far as it goes.`,
       ].join("\n"),
     },
     ...turns,
@@ -776,7 +784,17 @@ chat.get("/:sessionId/messages", (c) => {
  *  itself: there is no way to spell "all of them" here. */
 chat.delete("/:sessionId", (c) => {
   const sessionId = c.req.param("sessionId");
-  return c.json({ sessionId, deleted: deleteChatSession(sessionId) });
+  /* THE RUNS GO WITH THE TRANSCRIPT. `chat_runs` has no foreign key to cascade
+     from — there is no `chat_sessions` table for one to point at — so a
+     forgotten conversation would otherwise keep answering `latestChatRun`, and
+     a page opening a recycled id would be told there is an answer waiting for
+     it. Deleted here rather than in db.ts, so that file keeps knowing nothing
+     about this area's table. */
+  return c.json({
+    sessionId,
+    deleted: deleteChatSession(sessionId),
+    runs: deleteChatRuns(sessionId),
+  });
 });
 
 /**
@@ -836,6 +854,28 @@ chat.post("/", async (c) => {
     return c.json({ error: new NoBackendError().message, ...state }, 503);
   }
 
+  /*
+    ONE TURN PER CONVERSATION HERE TOO, AND THE RULE WAS HALF-KEPT WITHOUT IT.
+
+    The streaming door refuses a second question on a transcript already being
+    answered; this one did not, so a phone and a browser on the same session
+    wrote two assistant rows for a history that had contained one question, each
+    answering a version of the conversation the other had not seen.
+    `sessionBusy` knows about both doors — the runs, and the sessions
+    chat/inflight.ts has registered for the length of an `ask()` — which is what
+    makes the invariant true rather than merely stated.
+
+    REFUSED BEFORE THE MESSAGE IS STORED. The question is not lost: nothing was
+    written, and the caller has a sentence saying to wait or to stop the answer
+    that is already being written.
+  */
+  const busy = sessionBusy(sessionId);
+  if (busy.busy)
+    return c.json(
+      { error: new RunBusyError(busy.runId ?? "").message, runId: busy.runId, ...backendState() },
+      409,
+    );
+
   const stored = appendChatMessage({ sessionId, role: "user", content: message, channel });
 
   /*
@@ -891,16 +931,24 @@ chat.post("/", async (c) => {
         })
       : await (async () => {
           /*
-            Through `complete()`, which is the ONLY path a completion takes —
-            so this message queues behind the provider's policy exactly as an
-            agent's would. A chat that jumped the limiter would be the one
-            caller able to put two completions on a single GPU at once.
+            Through `directReply()`, which runs the same turn the streaming
+            route runs and hands back only what it ended with. Underneath it is
+            still `complete()` — the ONLY path a completion takes, so this
+            message queues behind the provider's policy exactly as an agent's
+            would — plus the bounded tool loop when the chosen model has been
+            measured to support one. This route's second caller is the Telegram
+            bridge, and a question asked from a phone is the same question:
+            giving the streaming page tools and the phone none would be two
+            different agents behind one door.
           */
-          const r = await complete(turns, { signal: c.req.raw.signal });
-          noteOutcome(r.provider, r.endpoint, null);
+          const r = await directReply(turns, {
+            signal: c.req.raw.signal,
+            ventureId,
+            onOutcome: (provider, endpoint) => noteOutcome(provider, endpoint, null),
+          });
           return {
             text: r.text,
-            backend: `provider:${r.provider}` as MessageBackendId,
+            backend: `provider:${fallback!.id}` as MessageBackendId,
             model: r.model,
             usage: r.usage,
             ms: r.ms,
@@ -1062,15 +1110,16 @@ chat.post("/stream", async (c) => {
     answer. The page already prevents this; a second tab, or a retry after a
     network blip, does not.
   */
-  const already = sessionRunState(sessionId);
-  if (already && already.status === "running")
+  const already = sessionBusy(sessionId);
+  if (already.busy)
     return c.json(
       {
-        error: new RunBusyError(already.runId).message,
+        error: new RunBusyError(already.runId ?? "").message,
         runId: already.runId,
         /* Where to watch the answer it is already writing, so a client that
-           lost its connection has somewhere to go rather than a refusal. */
-        events: `/api/chat/runs/${already.runId}/events`,
+           lost its connection has somewhere to go rather than a refusal. There
+           is no stream to offer when the other door is the non-streaming one. */
+        events: already.runId ? `/api/chat/runs/${already.runId}/events` : null,
       },
       409,
     );
@@ -1114,13 +1163,25 @@ chat.post("/stream", async (c) => {
    * second code path for it.
    */
   async function* oneShot(signal: AbortSignal): AsyncGenerator<ChatStreamEvent> {
-    const reply = live
-      ? await ask(withSkills(turns, live), { sessionId, channel, signal })
-      : await (async () => {
-          const r = await complete(turns, { signal });
-          noteOutcome(r.provider, r.endpoint, null);
-          return { text: r.text, model: r.model, usage: r.usage, ms: r.ms, queuedMs: r.queuedMs };
-        })();
+    /*
+      THE PROVIDER PATH IS NOT ALWAYS ONE SHOT ANY MORE. `directTurn` decides
+      between the text-only completion this function was written for and a
+      BOUNDED TOOL LOOP over the skills registry, from the model's measured
+      capability and the owner's setting — see integrations/runtime/loop.ts.
+      Both come out of it as the same events, so this generator delegates the
+      whole provider half rather than branching on the mode here: "which mode
+      did this turn get" is one decision in one place, and this file does not
+      get a second opinion about it.
+    */
+    if (!live) {
+      yield* directTurn(turns, {
+        signal,
+        ventureId,
+        onOutcome: (provider, endpoint) => noteOutcome(provider, endpoint, null),
+      });
+      return;
+    }
+    const reply = await ask(withSkills(turns, live), { sessionId, channel, signal });
     yield { type: "delta", text: reply.text };
     yield {
       type: "done",
@@ -1128,9 +1189,12 @@ chat.post("/stream", async (c) => {
       model: reply.model,
       usage: reply.usage,
       ms: reply.ms,
-      // An agent's turn never queues here — Hermes owns its own concurrency
-      // and reports nothing — so only the provider path carries a number.
-      queuedMs: "queuedMs" in reply ? (reply.queuedMs ?? null) : null,
+      /* NULL, AND NOT A MEASUREMENT THAT WAS NOT MADE. This branch is the AGENT
+         now that the provider half has moved into `directTurn` above, and an
+         agent's turn never queues here: Hermes owns its own concurrency and
+         reports nothing about it. The queue figure the provider path carries
+         comes back through `directTurn`'s own `done`. */
+      queuedMs: null,
     };
   }
 
@@ -1210,6 +1274,16 @@ chat.get("/runs/:id/events", (c) => {
  * the stop button's other end. Whatever was said is written as a partial row
  * before the run reports itself cancelled, so pressing this loses nothing that
  * was on screen.
+ *
+ * IT ANSWERS `stopping`, NOT `cancelled`, and the difference is a real one.
+ * Aborting is a request the run honours in its own `finally` — it still has a
+ * partial row to write — so reporting the outcome here would be reporting it
+ * before it happened. It used to, and the race was reachable: a cancel landing
+ * after the agent had finished its last token but before the run wrote its
+ * status was accepted, and then the turn landed as `done` while this route had
+ * already told the owner it was cancelled. The authority on what happened is
+ * the terminal frame; a run that has finished answering now refuses the cancel
+ * outright and says so.
  *
  * 409 rather than 404 for a run that has already ended: it existed, it is not
  * running, and telling a client "no such run" would send it looking for a bug

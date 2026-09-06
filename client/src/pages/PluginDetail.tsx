@@ -16,6 +16,7 @@ import { api, type PluginAccount, type ServerPlugin } from "@/lib/api";
 import { HetznerPanel } from "@/components/HetznerPanel";
 import { TelegramPanel } from "@/components/TelegramPanel";
 import { AgentPanel } from "@/components/AgentPanel";
+import { RuntimeJobsPanel } from "@/areas/runtime/JobsPanel";
 import { SearxngPanel } from "@/components/SearxngPanel";
 import { FreeLlmApiPanel } from "@/components/FreeLlmApiPanel";
 import { LocalModelsPanel, ProviderPolicyPanel } from "@/components/LocalModelsPanel";
@@ -464,6 +465,11 @@ export function PluginDetail() {
               second path behind the first would leave an owner with no agent
               anywhere staring at a form asking for the address of one. */}
           {live && isAgent && <AgentPanel id={plugin.id as "hermes" | "openclaw"} />}
+          {/* WHAT THAT AGENT'S OWN SCHEDULER HAS DONE, under the panel that
+              installs and starts it. Both managed runtimes schedule work of
+              their own; this reads it and relays the results, and creates
+              nothing — see areas/runtime/JobsPanel.tsx. */}
+          {live && isAgent && <RuntimeJobsPanel id={plugin.id as "hermes" | "openclaw"} />}
 
           {/*
               FREELLMAPI, AND NOT GATED ON `connected` — which is the point of

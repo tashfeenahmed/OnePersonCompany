@@ -10,6 +10,7 @@ import {
   type Conversion,
   type Readiness,
   type Retention,
+  type ReviewTrend,
   type Reviews,
   type Segments,
   type Stability,
@@ -403,6 +404,12 @@ function ReviewsTab({ days }: { days: number }) {
     () => mobileHealthApi.reviews({ days, minRating, maxRating: minRating === undefined ? undefined : minRating }),
     [days, minRating],
   );
+  /* The star filter is deliberately NOT a dependency here: the themes are a
+     reading of what people said, and re-asking for them every time somebody
+     narrows to one-star reviews would be a different question each click. The
+     server caches by the exact set of review ids, so this costs a model call
+     only when a new review has arrived. */
+  const trend = useApi<ReviewTrend>(() => mobileHealthApi.trend({ days }), [days]);
 
   return (
     <>
@@ -441,8 +448,57 @@ function ReviewsTab({ days }: { days: number }) {
                 </table>
               </div>
             )}
+            {!reviews.data.aggregatesComplete && (
+              <p className="text-warn mt-3 text-[11.5px]">
+                These figures cover the newest {reviews.data.aggregateCap} reviews in the window
+                only — they are a floor, not a total.
+              </p>
+            )}
+            {reviews.data.window.clampedFrom !== null && (
+              <p className="text-muted-foreground mt-3 text-[11.5px]">
+                Asked for {reviews.data.window.clampedFrom} days; answered over{" "}
+                {reviews.data.window.days}, which is as far back as this area ingests.
+              </p>
+            )}
             <p className="text-muted-foreground mt-4 text-[11.5px]">{reviews.data.basis.play}</p>
             <p className="text-muted-foreground mt-1 text-[11.5px]">{reviews.data.basis.appstore}</p>
+          </Card>
+
+          <Card
+            title="What they are about"
+            meta={
+              trend.data
+                ? `a model's reading of ${trend.data.read} review(s) with text${
+                    trend.data.model ? ` · ${trend.data.model}` : ""
+                  }${trend.data.cached ? " · cached" : ""}`
+                : "a model's reading of the recent texts"
+            }
+          >
+            {trend.loading && <Loading what="themes" />}
+            {trend.error && <Failed error={trend.error} />}
+            {trend.data && trend.data.themes.length === 0 && (
+              <p className="text-muted-foreground text-[12.5px]">
+                {trend.data.themeNote ?? "No theme was published."}
+              </p>
+            )}
+            {/* EVERY THEME SHOWS THE REVIEWS IT CAME FROM. A theme with no
+                citation is dropped by the server; printing the ids here is
+                what lets a reader check the claim rather than take it. */}
+            <ul className="space-y-2">
+              {(trend.data?.themes ?? []).map((t) => (
+                <li key={t.theme} className="text-[12.5px]">
+                  <span className="font-medium">{t.theme}</span>{" "}
+                  <span className="text-muted-foreground">{t.sentiment}</span>
+                  <span className="text-muted-foreground block text-[11.5px]">
+                    from {t.reviewIds.length} review(s): {t.reviewIds.join(", ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-muted-foreground mt-3 text-[11.5px]">
+              A model's reading, not a measurement. Every theme cites the reviews it came from and
+              an id the model invented is dropped before it is shown.
+            </p>
           </Card>
 
           <Card title="The reviews" meta="replying happens in the store's own console — this box cannot">
@@ -470,7 +526,14 @@ function ReviewsTab({ days }: { days: number }) {
                   mobileHealthApi
                     .sendToBoard(picked)
                     .then((r) => {
-                      setFiling(`filed onto card ${r.cardId}`);
+                      setFiling(
+                        `filed ${r.filed.length} onto card ${r.cardId}` +
+                          (r.alreadyFiled.length
+                            ? ` · ${r.alreadyFiled.length} left on card(s) ${[
+                                ...new Set(r.alreadyFiled.map((a) => a.cardId)),
+                              ].join(", ")}`
+                            : ""),
+                      );
                       setPicked([]);
                       reviews.reload();
                     })
@@ -551,7 +614,12 @@ function AcquisitionTab({ days }: { days: number }) {
   return (
     <>
       {conversion.data && (
-        <Card title="Listing conversion" meta={conversion.data.source}>
+        <Card
+          title="Listing conversion"
+          meta={`${conversion.data.source}${
+            conversion.data.totalsFrom ? ` · totals from the ${conversion.data.totalsFrom} cut` : ""
+          }`}
+        >
           {!conversion.data.measured ? (
             <p className="text-muted-foreground text-[12.5px]">{conversion.data.reason}</p>
           ) : (
@@ -589,7 +657,7 @@ function AcquisitionTab({ days }: { days: number }) {
               {Object.entries(conversion.data.by).map(([dim, rows]) => (
                 <div key={dim} className="mt-4">
                   <p className="text-muted-foreground mb-1 text-[11.5px]">
-                    by {dim} — a different cut of the SAME visitors, never added to the others
+                    by {dim} — {dim === conversion.data!.totalsFrom ? "the cut the totals above come from" : "a different cut of the SAME visitors"}, never added to the others
                   </p>
                   <Bars
                     rows={rows.slice(0, 8).map((r) => ({

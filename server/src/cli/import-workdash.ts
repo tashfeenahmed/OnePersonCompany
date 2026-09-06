@@ -49,9 +49,9 @@ import {
   plan,
 } from "../integrations/migrate/importer.ts";
 import { readSource } from "../integrations/migrate/workdash.ts";
-import { batchCounts, closeBatch, newBatchId, openBatch, rollback } from "../integrations/migrate/store.ts";
-import { db } from "../db.ts";
-import { rmSync, statSync } from "node:fs";
+import {
+  batchCounts, closeBatch, newBatchId, openBatch, removeCopied, rollback,
+} from "../integrations/migrate/store.ts";
 
 const argv = process.argv.slice(2);
 
@@ -100,6 +100,11 @@ if (flags.has("--help") || (!bare.length && !flags.has("--rollback"))) {
   the plugins they belong to are printed as a reconnect list.
 
   A real run takes a full backup first and refuses to proceed if that fails.
+  That is the SAME backup the nightly job and the Backup button take, so if a
+  remote is configured it is also rsynced there — and that archive contains
+  vault.key in plaintext — and the usual retention prune runs, which can drop
+  the oldest nightly. If neither is wanted, clear the remote under
+  Settings → Server before importing.
 
   Data directory: ${DATA_DIR}
 `);
@@ -108,23 +113,19 @@ if (flags.has("--help") || (!bare.length && !flags.has("--rollback"))) {
 
 /* ------------------------------------------------------------- rollback */
 
-const undo = flag("--rollback");
-if (undo) {
-  const result = rollback(undo, (path) => {
-    const recorded = db
-      .prepare("SELECT bytes FROM migrate_files WHERE path = ? ORDER BY imported_at DESC LIMIT 1")
-      .get(path) as { bytes: number } | undefined;
-    try {
-      const size = statSync(path).size;
-      if (recorded && size !== recorded.bytes)
-        return { ok: false, why: `it is ${size} bytes now and was ${recorded.bytes} when it was copied in.` };
-      rmSync(path);
-      return { ok: true };
-    } catch (err) {
-      if ((err as { code?: string }).code === "ENOENT") return { ok: true };
-      return { ok: false, why: err instanceof Error ? err.message : String(err) };
-    }
-  });
+/* `--rollback` WITH NO VALUE IS ITS OWN MISTAKE and gets its own sentence.
+   Testing the VALUE rather than the flag's presence let an empty one fall
+   through to the import path, where the missing directory argument died with a
+   raw ERR_INVALID_ARG_TYPE out of node:path — the least useful possible answer
+   to somebody who just asked to undo something. */
+if (flags.has("--rollback")) {
+  const undo = flag("--rollback")!.trim();
+  if (!undo)
+    die(
+      "--rollback needs the batch to undo.",
+      "npm run import-workdash -- --rollback b-3k9x2p01 · GET /api/migrate/batches lists them, and so does Settings → Migration.",
+    );
+  const result = rollback(undo, removeCopied);
   if (!result.ok) die(result.error ?? "The rollback did not happen.");
   console.log(`\n  Rolled back ${undo}.`);
   for (const [kind, n] of Object.entries(result.deleted)) console.log(`    ${kind.padEnd(14)} ${n} deleted`);
@@ -205,6 +206,11 @@ if (dryRun) {
 }
 
 /* THE BACKUP IS A PRECONDITION AND NOT A COURTESY. See this file's header. */
+/* THE BACKUP IS A PRECONDITION AND NOT A COURTESY, and it is the SAME backup
+   the button takes — which means it also honours the configured remote and the
+   retention prune. That is said in --help rather than worked around: a
+   private-to-this-command archive would be an archive the owner's own restore
+   tooling does not list. */
 console.log("\n  Taking a backup before anything is written…");
 const backup = await runBackup("manual");
 if (!backup.ok) {

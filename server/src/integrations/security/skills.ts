@@ -152,6 +152,12 @@ export const SKILLS: Skill[] = [
             about: "Why it was taken, stored with it. Say what you were investigating; “asked for” is the default.",
           },
         ],
+        /* DESTRUCTIVE BECAUSE IT REACHES A MACHINE THAT IS NOT THIS ONE. The
+           script it runs there is read-only and installs nothing — the paragraph
+           above says so — but the ssh connection is real, and "should I check with
+           a person before opening one" is the question this flag answers. See
+           skills/registry.ts's SkillAction for the four things it now covers. */
+        destructive: true,
       },
     ],
     asks: [
@@ -269,6 +275,12 @@ export const SKILLS: Skill[] = [
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "The workstation account's label or id." },
         ],
+        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
+           a row cannot be deleted afterwards. `destructive` is what a client is
+           entitled to trust when it decides whether to ask a person first, and
+           the thing that cannot be taken back here is the money, the message or
+           the power state rather than the record. It reaches a physical machine over the network and changes its power state. */
+        destructive: true,
       },
       {
         key: "sleep",
@@ -281,6 +293,12 @@ export const SKILLS: Skill[] = [
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "The workstation account's label or id." },
         ],
+        /* DESTRUCTIVE BECAUSE IT SPENDS, SENDS OR TOUCHES A MACHINE — not because
+           a row cannot be deleted afterwards. `destructive` is what a client is
+           entitled to trust when it decides whether to ask a person first, and
+           the thing that cannot be taken back here is the money, the message or
+           the power state rather than the record. It reaches a physical machine over the network and changes its power state. */
+        destructive: true,
       },
     ],
     asks: [

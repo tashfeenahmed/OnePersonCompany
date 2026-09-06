@@ -26,6 +26,7 @@
  * column, undoing an import would delete a business because a folder in another
  * application happened to share its name.
  */
+import { rmSync, statSync } from "node:fs";
 import { db, now } from "../../db.ts";
 
 export type Batch = {
@@ -48,21 +49,23 @@ export type Batch = {
  *  must delete them: children first, so no foreign key is ever left dangling.
  *  `studio_post` references `ventures`, so it goes before them; `venture` is
  *  last for the same reason. */
-export const TARGETS: { kind: string; table: string; key: string }[] = [
+export const TARGETS: { kind: string; table: string; key: string; rows?: string }[] = [
   { kind: "studio_post", table: "studio_posts", key: "id" },
-  { kind: "video_clip", table: "video_clips", key: "run_id" },
   { kind: "video_job", table: "video_jobs", key: "run_id" },
   { kind: "board_card", table: "board_cards", key: "id" },
   /* A chat SESSION is not a row anywhere: chat_messages carries a session_id
      and that is the whole of it. So the map's target for a chat is the session
      id, and undoing one deletes every message under it — which is right,
-     because the batch created every one of them. */
-  { kind: "chat_session", table: "chat_messages", key: "session_id" },
+     because the batch created every one of them. `rows` says what the delete
+     count means for this one; see rollback. */
+  { kind: "chat_session", table: "chat_messages", key: "session_id", rows: "message" },
   { kind: "memory", table: "chief_memory", key: "id" },
   { kind: "outcome", table: "chief_outcomes", key: "id" },
   { kind: "outbox", table: "mailflow_outbox", key: "id" },
-  /* chief_goals has a composite key, so the target id is "scopeventure".
-     Handled separately in `rollback` for that reason. */
+  /* chief_goals has a COMPOSITE key — (scope, venture_id) — so its target id is
+     the two joined by GOAL_KEY, and `rollback` splits it back out. It is the
+     only entry here whose id is not one column's value, which is why `key` is
+     empty on it. */
   { kind: "goal", table: "chief_goals", key: "" },
   { kind: "venture", table: "ventures", key: "id" },
 ];
@@ -256,6 +259,28 @@ export function writeHistory(input: {
 
 /* -------------------------------------------------------------- undoing */
 
+/**
+ * The file half of an undo, written once because two callers do it.
+ *
+ * A FILE THAT IS NO LONGER THE BYTES THAT WERE COPIED IS SOMEBODY'S
+ * REPLACEMENT and is kept, named, and reported. An undo is allowed to fail
+ * loudly and is never allowed to delete something it did not put there. A file
+ * that is already gone is a success: the outcome asked for is that it not be
+ * there.
+ */
+export function removeCopied(path: string, bytes: number): { ok: boolean; why?: string } {
+  try {
+    const size = statSync(path).size;
+    if (size !== bytes)
+      return { ok: false, why: `it is ${size} bytes now and was ${bytes} when it was copied in, so something has replaced it.` };
+    rmSync(path);
+    return { ok: true };
+  } catch (err) {
+    if ((err as { code?: string }).code === "ENOENT") return { ok: true };
+    return { ok: false, why: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export type RollbackResult = {
   ok: boolean;
   batch: string;
@@ -279,7 +304,11 @@ export type RollbackResult = {
  * reported by name, which is a nuisance the owner can resolve and a deletion
  * they could not.
  */
-export function rollback(batchId: string, remove: (path: string) => { ok: boolean; why?: string }): RollbackResult {
+export function rollback(
+  batchId: string,
+  /** Take the file away, unless it is no longer the `bytes` that were copied. */
+  remove: (path: string, bytes: number) => { ok: boolean; why?: string },
+): RollbackResult {
   const row = batch(batchId);
   if (!row)
     return { ok: false, batch: batchId, deleted: {}, filesRemoved: 0, filesKept: [], problems: [], error: `There is no batch ${batchId}.` };
@@ -331,8 +360,20 @@ export function rollback(batchId: string, remove: (path: string) => { ok: boolea
       const stmt = db.prepare(`DELETE FROM ${target.table} WHERE ${target.key} = ?`);
       let n = 0;
       for (const r of mine) n += Number(stmt.run(r.target_id).changes);
+
+      /* ONE DELETE IS NOT ONE ROW OF THIS KIND FOR EVERY TARGET. A chat session
+         is one mapping and N messages, so `changes` counts messages — and
+         reporting 3 under `chat_session`, where every other key means "rows of
+         that kind", makes one conversation look like three. Both numbers are
+         given, under names that say which is which. */
+      if (target.rows) {
+        if (mine.length) deleted[target.kind] = mine.length;
+        if (n) deleted[`${target.kind}_${target.rows}`] = n;
+        continue;
+      }
+
       if (n) deleted[target.kind] = n;
-      if (n < mine.length && target.kind !== "chat_session")
+      if (n < mine.length)
         problems.push(
           `${mine.length - n} ${target.kind} row(s) named by the id map were already gone from ${target.table}. ` +
             `Something else deleted them between the import and now; nothing was left behind.`,
@@ -359,7 +400,13 @@ export function rollback(batchId: string, remove: (path: string) => { ok: boolea
   let filesRemoved = 0;
   const filesKept: { path: string; why: string }[] = [];
   for (const f of files) {
-    const got = remove(f.path);
+    /* THE BYTE COUNT IS PASSED IN RATHER THAN LOOKED UP AGAIN. Two batches can
+       copy to the same target path — a second import of the same directory
+       does exactly that — and a lookup by path alone finds whichever row was
+       written last, which is not necessarily this batch's. Comparing against
+       the wrong number either deletes a file that changed or keeps one that
+       did not. */
+    const got = remove(f.path, f.bytes);
     if (got.ok) filesRemoved += 1;
     else filesKept.push({ path: f.path, why: got.why ?? "it could not be removed" });
   }

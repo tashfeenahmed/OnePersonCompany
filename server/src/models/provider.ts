@@ -96,7 +96,47 @@ export type CompleteOptions = {
   /** Override the provider's default model for this call. */
   model?: string;
   signal?: AbortSignal;
+  /**
+   * WHAT THE IMAGES IN THIS CALL ARE WORTH, IN TOKENS.
+   *
+   * `runtime/budgets.ts` reserves a call at the UTF-8 byte length of its turns,
+   * which is a sound estimate for text and a nonsense one for a picture: a
+   * 300 KB screenshot base64s to 400 KB and would reserve four hundred thousand
+   * tokens and the dollars to match, so an owner with a daily budget would have
+   * every vision call refused for a cost nobody incurred.
+   *
+   * A caller sending images therefore declares what they are worth, and this
+   * file swaps each data URI for a placeholder of that many bytes BEFORE the
+   * budget sees the turns. The wire still gets the real image; only the
+   * estimate is corrected, and a provider that reports real usage overwrites
+   * the estimate anyway. Absent, nothing changes.
+   */
+  imageTokens?: number;
 };
+
+/**
+ * A TURN THAT CAN CARRY A PICTURE.
+ *
+ * WHY THIS EXISTS AT ALL. `WireTurn` is `{ role, content: string }` and that
+ * was the whole of what this file could send, which is why
+ * `integrations/security/shotsqa.ts` spent a paragraph of its header saying
+ * that nothing on this box could ask a model to look at a screenshot. This is
+ * the smallest thing that changes that: the OpenAI content-parts shape, which
+ * every endpoint this file talks to either understands or refuses with a 400.
+ *
+ * IT IS A WIDENING AND NOT A CAPABILITY CLAIM. Nothing here knows whether the
+ * model behind the active provider can see; declaring a `vision: true` flag on
+ * `ModelProvider` would be this file asserting something it cannot check,
+ * since FreeLLMAPI and a local router both legitimately answer `defaultModel:
+ * null` and route per request. So the capability is PROBED by the caller that
+ * wants it — see `integrations/seoops/vision.ts` — and this file only makes
+ * the probe expressible.
+ */
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "low" | "high" | "auto" } };
+
+export type VisionTurn = { role: "user" | "assistant" | "system"; content: string | ContentPart[] };
 
 export interface ModelProvider {
   id: ProviderId;
@@ -279,6 +319,40 @@ export function forgetDiscovered(baseUrl: string) {
 }
 
 /**
+ * THE TURNS AS THE BUDGET SHOULD SEE THEM.
+ *
+ * Identity when there is no image or no declared cost, so nothing about a text
+ * completion changes. With images, each data URI is replaced by a placeholder
+ * whose byte length is the declared token cost divided across them — because
+ * `reserve()` measures bytes, and a placeholder of N bytes reserves N tokens.
+ * That is a blunt instrument and it is the one the budget actually uses; the
+ * alternative is a second estimator inside budgets.ts that every caller would
+ * have to keep in step.
+ *
+ * It also changes the resume checkpoint key, which is fine: the key only has to
+ * be deterministic for the same request, and this is.
+ */
+function budgetShape(turns: VisionTurn[], imageTokens?: number): unknown {
+  if (imageTokens === undefined) return turns;
+  const images = turns.reduce(
+    (n, t) => n + (typeof t.content === "string" ? 0 : t.content.filter((p) => p.type === "image_url").length),
+    0,
+  );
+  if (!images) return turns;
+  const per = Math.max(1, Math.round(imageTokens / images));
+  return turns.map((t) =>
+    typeof t.content === "string"
+      ? t
+      : {
+          role: t.role,
+          content: t.content.map((part) =>
+            part.type === "image_url" ? { type: "image_url", estimate: "x".repeat(per) } : part,
+          ),
+        },
+  );
+}
+
+/**
  * One completion through the active provider, under its policy.
  *
  * This is the only path a completion takes, so the limiter cannot be bypassed
@@ -286,12 +360,15 @@ export function forgetDiscovered(baseUrl: string) {
  * chat/wire.ts — the same parser the agents use — so a provider and an agent
  * reading the same endpoint agree about what it said.
  */
-export async function complete(turns: WireTurn[], opts: CompleteOptions = {}): Promise<ProviderReply> {
-  const work = () => budgeted({ turns, model: opts.model, provider: activeProvider()?.id }, maxOutputTokens => completeUnmetered(turns, opts, maxOutputTokens));
+export async function complete(turns: VisionTurn[], opts: CompleteOptions = {}): Promise<ProviderReply> {
+  const work = () =>
+    budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: activeProvider()?.id }, maxOutputTokens =>
+      completeUnmetered(turns, opts, maxOutputTokens),
+    );
   if (runContext.getStore()) return work();
   return runContext.run({ id: `direct:${randomUUID()}`, venture: null, automation: true, signal: opts.signal ?? AbortSignal.timeout(budgets().runSeconds * 1000), sequence: 0, resume: false }, work);
 }
-async function completeUnmetered(turns: WireTurn[], opts: CompleteOptions, maxOutputTokens?: number): Promise<ProviderReply> {
+async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, maxOutputTokens?: number): Promise<ProviderReply> {
   const p = activeProvider();
   if (!p) throw new NoProviderError();
   if (!p.endpoints.length) throw new Error(`${p.label} has no endpoint configured.`);
@@ -305,7 +382,12 @@ async function completeUnmetered(turns: WireTurn[], opts: CompleteOptions, maxOu
       base: endpoint.baseUrl,
       key: endpoint.key,
       model,
-      turns,
+      /* The one cast in this file. `chatCompletion` types its messages as
+         `WireTurn[]` and serialises them straight onto the wire; a content
+         ARRAY is what the OpenAI image shape is, and widening wire.ts's own
+         type would touch every caller that reads `turn.content` as a string
+         for no gain. Contained here, beside the reason. */
+      turns: turns as unknown as WireTurn[],
       service: `${p.label} (${endpoint.label})`,
       timeoutMs: p.policy.timeoutMs,
       signal: opts.signal ?? runContext.getStore()?.signal,
@@ -325,4 +407,212 @@ async function completeUnmetered(turns: WireTurn[], opts: CompleteOptions, maxOu
   } finally {
     release();
   }
+}
+
+/* ------------------------------------------------------- completion with tools */
+
+/**
+ * A TURN THAT MAY CARRY TOOL CALLS, on the same wire and through the same gate.
+ *
+ * WHY THIS IS A SECOND FUNCTION AND NOT A FLAG ON `complete()`. The two return
+ * genuinely different things. `complete()` promises TEXT and throws when a
+ * server answers with none, which is right for a plain chat turn: an empty
+ * bubble is indistinguishable from a bug. A tool round legitimately has no
+ * text at all — the model's whole answer that round is "call this" — so the
+ * same rule here would turn every successful tool call into a failure. A
+ * `tools?: []` parameter that changed whether the function throws is a
+ * function every caller would have to narrow before using.
+ *
+ * WHAT IS SHARED IS EVERYTHING THAT MATTERS: the same limiter, so a tool loop
+ * cannot put two completions on one GPU at once; the same model resolution, so
+ * "let the endpoint pick" means the same thing; the same budget reservation,
+ * so every round of a loop lands in `budget_usage` against the run that made
+ * it and the configured ceilings bound the loop without the loop knowing they
+ * exist.
+ *
+ * THE TURNS ARE WIDER THAN `WireTurn` because a tool conversation is not three
+ * roles of plain strings: an assistant turn carries `tool_calls`, and a result
+ * is a `tool` role with a `tool_call_id`. Those shapes belong to the DIALECT
+ * (integrations/runtime/tools.ts builds them) rather than to the wire, so this
+ * takes them as opaque objects and passes them through. The cast at the
+ * `chatCompletion` call is the one place that widening is admitted: the
+ * function's own parameter is `WireTurn[]` because every other caller sends
+ * exactly that, and widening it there would mean every caller of the wire
+ * having an opinion about tool calls.
+ *
+ * THE RAW MESSAGE COMES BACK UNREAD. `chat/wire.ts`'s `readText` falls back to
+ * the model's reasoning when the content is empty, which is right for a final
+ * answer and wrong for a tool round — it would put the scratchpad in the
+ * transcript between calls. So the message travels whole and the caller's
+ * parser decides.
+ */
+export type ToolWireTurn = WireTurn | Record<string, unknown>;
+
+export type ToolCompleteOptions = CompleteOptions & {
+  /** Already in the provider's dialect. Absent or empty sends no `tools` field
+   *  at all, which is how the final "answer with what you have" round asks a
+   *  question without inviting another call. */
+  tools?: unknown[];
+  toolChoice?: "auto" | "none";
+};
+
+export type ToolProviderReply = {
+  /** The assistant message exactly as the server sent it. */
+  message: unknown;
+  /** The same message through `chat/wire.ts`'s `readText` — content first,
+   *  the model's working as a FALLBACK when there is none. That fallback is
+   *  right for a FINAL answer and wrong for a tool round, so a caller in a
+   *  loop reads `message` with its own parser and uses this only on the round
+   *  that answers. Empty string rather than null: a round with no prose has an
+   *  empty answer, not a missing one. */
+  text: string;
+  finishReason: string | null;
+  provider: ProviderId;
+  endpoint: string;
+  model: string | null;
+  usage: { prompt: number; completion: number } | null;
+  ms: number;
+  queuedMs: number;
+};
+
+export async function completeTooled(
+  turns: ToolWireTurn[],
+  opts: ToolCompleteOptions = {},
+): Promise<ToolProviderReply> {
+  const work = () =>
+    budgeted({ turns, model: opts.model, provider: activeProvider()?.id }, (maxOutputTokens) =>
+      completeTooledUnmetered(turns, opts, maxOutputTokens),
+    );
+  /* A caller already inside a run context keeps it — which is the whole point
+     for a tool loop: every round of one turn reserves against ONE run id, so
+     the per-run call and dollar ceilings bound the loop rather than each of
+     its rounds separately. */
+  if (runContext.getStore()) return work();
+  return runContext.run(
+    {
+      id: `direct:${randomUUID()}`,
+      venture: null,
+      automation: true,
+      signal: opts.signal ?? AbortSignal.timeout(budgets().runSeconds * 1000),
+      sequence: 0,
+      resume: false,
+    },
+    work,
+  );
+}
+
+async function completeTooledUnmetered(
+  turns: ToolWireTurn[],
+  opts: ToolCompleteOptions,
+  maxOutputTokens?: number,
+): Promise<ToolProviderReply> {
+  const p = activeProvider();
+  if (!p) throw new NoProviderError();
+  if (!p.endpoints.length) throw new Error(`${p.label} has no endpoint configured.`);
+
+  const { endpoint, release, queuedMs } = await acquire(p);
+  const started = Date.now();
+  try {
+    (opts.signal ?? runContext.getStore()?.signal)?.throwIfAborted();
+    const model = await modelFor(p, endpoint, opts.model);
+    const doc = await chatCompletion({
+      base: endpoint.baseUrl,
+      key: endpoint.key,
+      model,
+      /* See the header: the wire's parameter is narrower than a tool
+         conversation, and the widening is admitted here rather than there. */
+      turns: turns as WireTurn[],
+      service: `${p.label} (${endpoint.label})`,
+      timeoutMs: p.policy.timeoutMs,
+      signal: opts.signal ?? runContext.getStore()?.signal,
+      body: {
+        ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
+        ...(opts.tools?.length ? { tools: opts.tools, tool_choice: opts.toolChoice ?? "auto" } : {}),
+      },
+    });
+    const raw = doc as unknown as {
+      choices?: { message?: unknown; finish_reason?: string | null }[];
+    };
+    const choice = raw.choices?.[0];
+    return {
+      message: choice?.message ?? null,
+      /* `readText` on the typed view, which is the same reader every other
+         caller uses — and an empty string rather than null, because a tool
+         round with no prose is normal here. */
+      text: readText(doc) ?? "",
+      finishReason: choice?.finish_reason ?? null,
+      provider: p.id,
+      endpoint: endpoint.label,
+      model: readModel(doc) ?? model,
+      usage: readUsage(doc),
+      ms: Date.now() - started,
+      queuedMs,
+    };
+  } finally {
+    release();
+  }
+}
+
+/**
+ * WHICH MODEL A CALL WOULD ACTUALLY NAME, resolved the same way `complete()`
+ * resolves it.
+ *
+ * Exported for one caller and one reason: the tool-capability probe caches its
+ * measurement per provider AND MODEL, and a cache keyed on "whatever the
+ * endpoint felt like" would be a cache that never hits. The resolution order is
+ * the caller's override, the provider's chosen default, then the first id the
+ * endpoint's own `/models` lists — the last of which is a network call, which
+ * is why this is async and why the result is remembered per endpoint by
+ * `modelFor` itself.
+ *
+ * Null when nothing is connected, on the same rule `activeProvider()` keeps: a
+ * caller that gets null says so in words rather than reporting a model name it
+ * invented.
+ */
+export async function activeModel(
+  override?: string,
+): Promise<{
+  provider: ProviderId;
+  label: string;
+  model: string;
+  endpoint: string;
+  /**
+   * TRUE WHEN "WHICH MODEL" HAS NO ONE ANSWER, and it is not a rare corner.
+   *
+   * `acquire()` picks whichever ENDPOINT is free or next in the rotation, and
+   * a provider that names no default model resolves one per endpoint out of
+   * that endpoint's own `/models`. Two local boxes serving different models is
+   * the configuration this provider exists for. A caller that cached a
+   * measurement under the first endpoint's answer would be storing a fact
+   * about a model half the calls never reach — so the ambiguity is REPORTED
+   * rather than papered over, and the caller declines to cache instead of
+   * caching something untrue.
+   *
+   * It is false whenever a model is NAMED — by the caller or by the provider —
+   * because then every endpoint is sent the same one, however many there are.
+   */
+  ambiguous: boolean;
+} | null> {
+  const p = activeProvider();
+  if (!p || !p.endpoints.length) return null;
+  const first = p.endpoints[0]!;
+  const model = await modelFor(p, first, override);
+  /* A named model is the same on every endpoint, so there is nothing to
+     compare and no `/models` call to pay for. */
+  if (override || p.defaultModel || p.endpoints.length === 1)
+    return { provider: p.id, label: p.label, model, endpoint: first.label, ambiguous: false };
+
+  let ambiguous = false;
+  for (const e of p.endpoints.slice(1)) {
+    try {
+      if ((await modelFor(p, e)) !== model) ambiguous = true;
+    } catch {
+      /* An endpoint that cannot be asked is one we cannot rule out. Reporting
+         ambiguity is the safe direction: it costs a measurement, not a wrong
+         one. */
+      ambiguous = true;
+    }
+    if (ambiguous) break;
+  }
+  return { provider: p.id, label: p.label, model, endpoint: first.label, ambiguous };
 }

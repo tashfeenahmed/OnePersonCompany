@@ -65,6 +65,37 @@ function viaSkills(c: { req: { header: (n: string) => string | undefined } }): b
   return (c.req.header(VIA_SKILLS) ?? "").trim().toLowerCase() === "skills";
 }
 
+/**
+ * THE WALL THIS FILE'S HEADER HAS ALWAYS DESCRIBED, and which was not actually
+ * here until the review found it.
+ *
+ * `viaSkills` was read in exactly one place — recording whether a draft's words
+ * were the agent's or the owner's — and the approve and send routes were held
+ * by `requireOwner` alone. That IS a real wall (the proxy carries no session
+ * cookie), but three file headers assert that these two routes refuse the
+ * proxy's own header outright, and an assertion nobody enforces is the kind
+ * that quietly stops being true.
+ *
+ * IT RUNS BEFORE `requireOwner`, deliberately. Behind it the refusal would be
+ * unreachable — the owner gate rejects a non-browser request first — and a
+ * check that can never fire is not a second wall, it is a comment. In front,
+ * the request gets the sentence that names what actually happened.
+ */
+async function refuseSkillsProxy(
+  c: { req: { header: (n: string) => string | undefined }; json: (b: unknown, s?: number) => Response },
+  next: () => Promise<void>,
+) {
+  if (viaSkills(c))
+    return c.json(
+      {
+        error:
+          "This is the owner's press, and this request came through the skills proxy. The outbox skill publishes no approve and no send action; there is nothing here for an agent to call.",
+      },
+      403,
+    );
+  return next();
+}
+
 function shape(r: OutboxRow, names: Map<string, string>) {
   const s = settings();
   /* The From line comes from the ROUTE now, not from the Gmail mailbox alone.
@@ -72,7 +103,7 @@ function shape(r: OutboxRow, names: Map<string, string>) {
      one resolves through the identity, and a route that REFUSES (a Resend key
      re-pointed at another domain) comes back as a sentence rather than as a
      failed listing — the card has to be readable in order to be fixed. */
-  const { route, reason } = routeOrReason(r);
+  const { route, reason, warning } = routeOrReason(r);
   return {
     id: r.id,
     approvalKey: approvalKey(r),
@@ -80,7 +111,13 @@ function shape(r: OutboxRow, names: Map<string, string>) {
     fromName: route?.line !== route?.address ? (route?.line ?? null) : null,
     via: route?.via ?? null,
     replyTo: route?.replyTo ?? null,
+    /** A refusal: there is no honest From line and the send is frozen against
+     *  it. NULL when the route resolved. */
     fromError: reason,
+    /** A resolved route Resend has something to say about — "pending", or never
+     *  asked. It does NOT stop a send; it is what the owner needs to read
+     *  before he approves rather than after Resend refuses. */
+    fromWarning: warning,
     identityId: r.identity_id,
     /** Whether this draft carries a plan and a fact packet. The Outbox card
      *  fetches them from /api/nurture/drafts/:id on demand; fanning a packet
@@ -336,7 +373,7 @@ outboxRoutes.patch("/:id", async (c) => {
 
 /* ----------------------------------------------------------------- approve */
 
-outboxRoutes.post("/:id/approve", requireOwner, async (c) => {
+outboxRoutes.post("/:id/approve", refuseSkillsProxy, requireOwner, async (c) => {
   const request = await c.req.json().catch(() => null) as { approvalKey?: string } | null;
   const id = Number(c.req.param("id"));
   const r = row(id);
@@ -361,7 +398,7 @@ outboxRoutes.post("/:id/approve", requireOwner, async (c) => {
 
 /* -------------------------------------------------------------------- send */
 
-outboxRoutes.post("/:id/send", requireOwner, async (c) => {
+outboxRoutes.post("/:id/send", refuseSkillsProxy, requireOwner, async (c) => {
   const request = await c.req.json().catch(() => null) as { approvalKey?: string } | null;
   const id = Number(c.req.param("id"));
   const r = row(id);
@@ -378,9 +415,17 @@ outboxRoutes.post("/:id/send", requireOwner, async (c) => {
   try {
     const sent = await sendApproved(id);
     const names = new Map(ventureRows().map((v) => [v.id, v.name]));
+    /* THE CONFIRMATION NAMES THE DOOR IT ACTUALLY LEFT BY. It used to say
+       "Gmail's own message id … it is in the Sent folder" for every send,
+       including a Resend one, where both halves are false — there is no copy in
+       anybody's Sent folder and the id is Resend's. The row already knows
+       (`sent_via`), so the sentence reads it rather than assuming. */
     return c.json({
       item: shape(sent, names),
-      note: `Sent. Gmail's own message id is ${sent.message_id}; it is in the Sent folder.`,
+      note:
+        sent.sent_via === "resend"
+          ? `Sent through Resend from ${shape(sent, names).from}. Resend's own id is ${sent.message_id}; there is no copy in a Gmail Sent folder, and the delivery event is read back onto the card.`
+          : `Sent. Gmail's own message id is ${sent.message_id}; it is in the Sent folder.`,
     });
   } catch (err) {
     if (err instanceof SendRefused) return c.json({ error: err.message }, err.status as 409);

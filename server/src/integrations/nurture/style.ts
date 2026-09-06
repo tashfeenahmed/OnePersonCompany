@@ -35,6 +35,14 @@
  *   in this area publishes a pair's text: the document carries the rules, the
  *   refusals, and how many edits they came from.
  *
+ *   THE ONE PLACE THOSE BODIES DO LEAVE THIS BOX is the derivation itself — up
+ *   to twelve pairs, trimmed, go to the connected model provider on `derive()`,
+ *   because there is no way to read a voice out of writing without showing the
+ *   writing. That is stated here, in the setting's own hint and on the page,
+ *   rather than left to be discovered: it is an opt-in feature about the
+ *   owner's own mail, and "we keep the pairs private" would be a half-truth
+ *   while a remote endpoint is being shown them.
+ *
  * A DISMISSED DRAFT TEACHES NOTHING, on purpose. A dismissal is "not this
  * person, not now" — a judgement about whether to write at all — and reading it
  * as a verdict on the prose would learn the wrong lesson from the one signal
@@ -300,19 +308,36 @@ export async function derive(): Promise<Derivation> {
       (db.prepare("SELECT COALESCE(MAX(version), 0) AS v FROM nurture_style_rules").get() as { v: number }).v,
     ) + 1;
   const evidence = JSON.stringify(list.slice(0, PAIRS_IN_PROMPT).map((p) => p.id));
-  db.exec("BEGIN IMMEDIATE");
+  /* THE HEADER SAYS THIS NEVER THROWS, so the transaction is caught here rather
+     than rethrown. It used to rethrow a database error out of this function,
+     which made the sentence above false for the one failure that would actually
+     reach it. A rolled-back derivation leaves the PREVIOUS rules in place and
+     says why — which is the same outcome as a model that could not be reached,
+     and the same argument: the last set of rules that worked is better than
+     none, and much better than an empty set silently replacing a good one. */
   try {
-    db.prepare("DELETE FROM nurture_style_rules WHERE by_owner = 0").run();
-    const insert = db.prepare(
-      "INSERT INTO nurture_style_rules (rule, evidence, by_owner, model, derived_at, version) VALUES (?, ?, 0, ?, ?, ?)",
-    );
-    for (const rule of accepted) insert.run(rule, evidence, model, at, version);
-    for (const r of refused)
-      db.prepare("INSERT INTO nurture_style_refusals (rule, why, at) VALUES (?, ?, ?)").run(r.rule, r.why, at);
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare("DELETE FROM nurture_style_rules WHERE by_owner = 0").run();
+      const insert = db.prepare(
+        "INSERT INTO nurture_style_rules (rule, evidence, by_owner, model, derived_at, version) VALUES (?, ?, 0, ?, ?, ?)",
+      );
+      for (const rule of accepted) insert.run(rule, evidence, model, at, version);
+      for (const r of refused)
+        db.prepare("INSERT INTO nurture_style_refusals (rule, why, at) VALUES (?, ?, ?)").run(r.rule, r.why, at);
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+  } catch (err) {
+    return {
+      derived: false,
+      rules: current,
+      refused,
+      error: `the rules could not be stored (${err instanceof Error ? err.message : String(err)}), so the previous ones stand`,
+      model,
+    };
   }
   return { derived: true, rules: rules(), refused, error: null, model };
 }

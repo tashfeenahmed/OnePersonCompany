@@ -8,7 +8,10 @@
  * routes enforce from their side.
  */
 
-const BASE = "/api";
+/** Where every call in this file goes. EXPORTED because a second module now
+ *  opens a stream of its own (`lib/chatRuns.ts` reattaches to a chat run) and
+ *  two spellings of the prefix would be two contracts with one server. */
+export const BASE = "/api";
 
 export class ApiError extends Error {
   status: number;
@@ -2742,6 +2745,11 @@ export type ChatBackends = {
  * reason — because "this ended twenty minutes ago" and "there has never been a
  * run here" are different things for a page to draw.
  */
+/** What a cancel answers. `stopping` and not a run status: the run has been
+ *  ASKED, it still has a partial row to write, and the authority on what
+ *  actually happened is the terminal frame on the stream. */
+export type ChatCancelled = { runId: string; status: "stopping" };
+
 export type ChatRunState = {
   runId: string;
   status: "queued" | "running" | "done" | "failed" | "cancelled";

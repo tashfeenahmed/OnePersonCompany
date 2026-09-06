@@ -23,7 +23,10 @@ import {
   type Stage,
 } from "./registry.ts";
 import { gate, normalise, similarity, readActions, type Proposal } from "./synthesis.ts";
-import { summarise, unsatisfied } from "./nightly.ts";
+import { staleDeps, summarise, unsatisfied } from "./nightly.ts";
+import { dueNight } from "./routes.ts";
+import { readBool, refuseDry } from "./params.ts";
+import { dueDay } from "../../runtime/schedule.ts";
 
 /* ------------------------------------------------------------------ stages */
 
@@ -130,22 +133,25 @@ test("a blackout naming one stage does not catch another, and days are honoured"
 
 /* ----------------------------------------------------------------- cadence */
 
+/* Every cadence test names its zone. Passing null means "this machine's own",
+   which is right in the product and useless in a test: the answer would depend
+   on where the laptop running the suite happens to be. */
 test("a stage that has never completed is always due", () => {
-  assert.equal(dueByCadence("daily", null, "2026-09-06"), true);
-  assert.equal(dueByCadence("monthly", null, "2026-09-06"), true);
-  assert.equal(dueByCadence("weekly", "not a date", "2026-09-06"), true);
+  assert.equal(dueByCadence("daily", null, "2026-09-06", "UTC"), true);
+  assert.equal(dueByCadence("monthly", null, "2026-09-06", "UTC"), true);
+  assert.equal(dueByCadence("weekly", "not a date", "2026-09-06", "UTC"), true);
 });
 
 test("daily means not already today", () => {
-  assert.equal(dueByCadence("daily", "2026-09-06T02:10:00.000Z", "2026-09-06"), false);
-  assert.equal(dueByCadence("daily", "2026-09-05T23:59:00.000Z", "2026-09-06"), true);
+  assert.equal(dueByCadence("daily", "2026-09-06T02:10:00.000Z", "2026-09-06", "UTC"), false);
+  assert.equal(dueByCadence("daily", "2026-09-05T23:59:00.000Z", "2026-09-06", "UTC"), true);
 });
 
 test("weekly and monthly count clear days", () => {
-  assert.equal(dueByCadence("weekly", "2026-09-01T02:00:00.000Z", "2026-09-06"), false);
-  assert.equal(dueByCadence("weekly", "2026-08-30T02:00:00.000Z", "2026-09-06"), true);
-  assert.equal(dueByCadence("monthly", "2026-08-20T02:00:00.000Z", "2026-09-06"), false);
-  assert.equal(dueByCadence("monthly", "2026-08-01T02:00:00.000Z", "2026-09-06"), true);
+  assert.equal(dueByCadence("weekly", "2026-09-01T02:00:00.000Z", "2026-09-06", "UTC"), false);
+  assert.equal(dueByCadence("weekly", "2026-08-30T02:00:00.000Z", "2026-09-06", "UTC"), true);
+  assert.equal(dueByCadence("monthly", "2026-08-20T02:00:00.000Z", "2026-09-06", "UTC"), false);
+  assert.equal(dueByCadence("monthly", "2026-08-01T02:00:00.000Z", "2026-09-06", "UTC"), true);
 });
 
 /* ------------------------------------------------------------------ budget */
@@ -360,25 +366,155 @@ test("a pipeline-scheduled dependency that has not run at all blocks", () => {
   assert.match(unsatisfied("dep-pending", outcomes())!, /has not run tonight/);
 });
 
-test("a self-scheduled dependency is satisfied by freshness, not by completing here", () => {
+/*
+  P1 #6 — THE REGRESSION THAT COULD STOP THE ESTATE.
+
+  `rounds` depends on `collect`, `collect` is self-scheduled, and a box with the
+  collector switched off, nothing connected, or a day's outage has no recent
+  `collect` row. The freshness test used to BLOCK on that — while
+  `pipelineOwnsRounds()` had already stood the rounds' own timer down — so the
+  estate silently stopped being walked, for ever. A self-scheduled dependency is
+  now advisory, always, whatever its reading.
+*/
+test("a self-scheduled dependency never blocks, however stale", () => {
   registerStage({
-    ...stage("dep-self"),
+    ...stage("dep-self-fresh"),
     run: undefined,
     lastRun: () => new Date(Date.now() - 3_600_000).toISOString(),
   });
-  assert.equal(unsatisfied("dep-self", outcomes()), null);
-});
-
-test("a stale self-scheduled dependency blocks, quoting the reading and the window", () => {
   registerStage({
-    ...stage("dep-stale"),
+    ...stage("dep-self-stale"),
     run: undefined,
-    lastRun: () => new Date(Date.now() - 48 * 3_600_000).toISOString(),
+    lastRun: () => new Date(Date.now() - 400 * 3_600_000).toISOString(),
   });
-  assert.match(unsatisfied("dep-stale", outcomes())!, /more than 24 hours ago/);
+  registerStage({ ...stage("dep-self-never"), run: undefined, lastRun: () => null });
+  assert.equal(unsatisfied("dep-self-fresh", outcomes()), null);
+  assert.equal(unsatisfied("dep-self-stale", outcomes()), null);
+  assert.equal(unsatisfied("dep-self-never", outcomes()), null);
 });
 
-test("a self-scheduled dependency that has never run blocks with that exact reason", () => {
-  registerStage({ ...stage("dep-never"), run: undefined, lastRun: () => null });
-  assert.match(unsatisfied("dep-never", outcomes())!, /has never run/);
+test("a stale self-scheduled dependency is reported as a note instead", () => {
+  registerStage({
+    ...stage("dep-self-stale2"),
+    run: undefined,
+    lastRun: () => new Date(Date.now() - 400 * 3_600_000).toISOString(),
+  });
+  registerStage({ ...stage("dep-self-never2"), run: undefined, lastRun: () => null });
+  const dependent = stage("depends-on-both", ["dep-self-stale2", "dep-self-never2", "nothing-registered"]);
+  const notes = staleDeps(dependent);
+  assert.equal(notes.length, 2);
+  assert.match(notes.join(" "), /dep-self-stale2 last ran .* more than 24 hours ago/);
+  assert.match(notes.join(" "), /dep-self-never2 has never run/);
+});
+
+test("a stale reader that throws is not a reason to stop the stage", () => {
+  registerStage({
+    ...stage("dep-self-throws"),
+    run: undefined,
+    lastRun: () => {
+      throw new Error("that area has no table here");
+    },
+  });
+  assert.equal(unsatisfied("dep-self-throws", outcomes()), null);
+  assert.deepEqual(staleDeps(stage("x", ["dep-self-throws"])), ["dep-self-throws has never run"]);
+});
+
+/* -------------------------------------------- P0/P1: booleans off the wire */
+
+/*
+  THE SKILLS PROXY SENDS EVERY PARAMETER AS A STRING. A route testing
+  `body.dry === true` reads `"true"` as FALSE, which in wave 1 of this build
+  published a real Facebook post while an agent believed it was rehearsing, and
+  which in this area meant `opc pipeline run_stage --dry true` walked a real
+  night. These are the tests that stop it coming back.
+*/
+test("readBool takes every spelling a proxy, a CLI or a JSON client sends", () => {
+  for (const yes of [true, 1, "true", "TRUE", " True ", "yes", "on", "1"])
+    assert.deepEqual(readBool(yes, "f"), { ok: true, value: true }, `for ${JSON.stringify(yes)}`);
+  for (const no of [false, 0, "false", "FALSE", "no", "off", "0"])
+    assert.deepEqual(readBool(no, "f"), { ok: true, value: false }, `for ${JSON.stringify(no)}`);
+});
+
+test("readBool REFUSES what it cannot parse rather than defaulting to false", () => {
+  for (const bad of ["maybe", "t", "", 2, {}, []]) {
+    const out = readBool(bad, "dry");
+    assert.equal(out.ok, false, `for ${JSON.stringify(bad)}`);
+    assert.match((out as { error: string }).error, /`dry`/);
+  }
+});
+
+test("readBool treats null as a third answer only where a caller allowed one", () => {
+  assert.deepEqual(readBool(null, "enabled", { allowNull: true }), { ok: true, value: null });
+  assert.deepEqual(readBool("null", "enabled", { allowNull: true }), { ok: true, value: null });
+  assert.deepEqual(readBool(undefined, "enabled", { allowNull: true }), { ok: true, value: null });
+  assert.equal(readBool(null, "cancel").ok, false);
+  assert.equal(readBool("null", "cancel").ok, false);
+});
+
+test("a real route refuses the word dry whatever is in it, and names the rehearsal", () => {
+  for (const body of [{ dry: true }, { dry: "true" }, { dry: false }, { dry: "nonsense" }, { dry: null }]) {
+    const out = refuseDry(body, "POST /api/pipeline/plan");
+    assert.ok(out, `for ${JSON.stringify(body)}`);
+    assert.match(out!, /POST \/api\/pipeline\/plan/);
+  }
+  assert.equal(refuseDry({ stage: "rounds" }, "POST /api/pipeline/plan"), null);
+  assert.equal(refuseDry(null, "POST /api/pipeline/plan"), null);
+});
+
+/* ------------------------------------------- P1 #4: which night is tonight */
+
+/*
+  A night that starts at 02:00 belongs to TOMORROW's date. "Skip tonight" pressed
+  at nine in the evening used to store today's, so the timer at two in the
+  morning asked about a different day and the night ran — after a page that had
+  said all evening that it would not.
+*/
+test("skip-tonight stores the night's own day, not today's", () => {
+  // 21:00 with a 02:00 start: the coming night is tomorrow's.
+  assert.equal(dueNight("2026-09-06", 21, 2), "2026-09-07");
+  // 00:30, still before the start hour: the coming night is still today's.
+  assert.equal(dueNight("2026-09-07", 0, 2), "2026-09-07");
+  // 02:30, the night has started: the NEXT one is tomorrow's.
+  assert.equal(dueNight("2026-09-07", 2, 2), "2026-09-08");
+  // It agrees with dueDay, which is what the timer actually asks.
+  assert.equal(dueNight("2026-09-07", 3, 2), "2026-09-08");
+  assert.equal(dueDay("2026-09-07", 3, 2, null), "2026-09-07");
+  assert.equal(dueNight("2026-09-06", 23, 2), dueDay("2026-09-07", 3, 2, null));
+});
+
+test("skip-tonight crosses a month and a year end", () => {
+  assert.equal(dueNight("2026-09-30", 22, 2), "2026-10-01");
+  assert.equal(dueNight("2026-12-31", 22, 2), "2027-01-01");
+});
+
+/* --------------------------- P1 #5: the cadence day is the owner's day too */
+
+/*
+  `lastAt` used to be turned into a UTC date and compared with a zone-local
+  `today`. In a negative-offset zone with a late start hour the run lands on the
+  NEXT UTC date, so the following night read "already today" and every daily
+  stage was reported not due — the pipeline would have run the estate every
+  second night, for ever. Europe/Dublin at 02:00, this box's setting, is
+  unaffected, which is why live testing never showed it.
+*/
+test("a daily stage run at 22:00 New York is due again the next night", () => {
+  // 2026-09-06 22:30 America/New_York is 2026-09-07T02:30Z — a different UTC day.
+  const lastAt = "2026-09-07T02:30:00.000Z";
+  assert.equal(dueByCadence("daily", lastAt, "2026-09-06", "America/New_York"), false);
+  assert.equal(dueByCadence("daily", lastAt, "2026-09-07", "America/New_York"), true);
+  // The bug, reproduced by asking in UTC: the 7th looks like "already today".
+  assert.equal(dueByCadence("daily", lastAt, "2026-09-07", "UTC"), false);
+});
+
+test("a positive-offset zone is handled in the same direction", () => {
+  // 2026-09-07 01:30 Asia/Tokyo is 2026-09-06T16:30Z — the previous UTC day.
+  const lastAt = "2026-09-06T16:30:00.000Z";
+  assert.equal(dueByCadence("daily", lastAt, "2026-09-07", "Asia/Tokyo"), false);
+  assert.equal(dueByCadence("daily", lastAt, "2026-09-08", "Asia/Tokyo"), true);
+});
+
+test("weekly and monthly are measured in the owner's days as well", () => {
+  const lastAt = "2026-09-07T02:30:00.000Z"; // the 6th, in New York
+  assert.equal(dueByCadence("weekly", lastAt, "2026-09-12", "America/New_York"), false);
+  assert.equal(dueByCadence("weekly", lastAt, "2026-09-13", "America/New_York"), true);
 });

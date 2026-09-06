@@ -20,7 +20,7 @@
  */
 import { Hono } from "hono";
 import { COLLECT_MINUTES } from "../../config.ts";
-import { requireBrowser } from "../security/gate.ts";
+import { isAgentCall, requireBrowser } from "../security/gate.ts";
 import { health } from "./health.ts";
 import { isolation } from "./isolation.ts";
 import * as leases from "./leases.ts";
@@ -166,11 +166,36 @@ deployRoutes.post("/leases/:id/heartbeat", (c) => {
   return c.json({ ok: true, lease });
 });
 
+/**
+ * RELEASE, AND THE ONE OVERRIDE ON THIS ROUTER.
+ *
+ * A lease whose holder is still beating is refused with 409 — releasing it
+ * does not stop the job, it only removes the reason nothing will sleep the
+ * machine under it. `force` lifts that, and two things about it are
+ * deliberate: it is parsed as a REAL BOOLEAN (`=== true`, so the string
+ * "false" that a hand-written client sends is not truthy here), and it is
+ * refused to an agent — the agent key and anything re-issued by the skills
+ * proxy — because the `leases` skill publishes no such parameter and a
+ * parameter an agent can discover is a parameter an agent will use.
+ */
 deployRoutes.post("/leases/:id/release", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const lease = leases.release(c.req.param("id"), typeof body.reason === "string" ? body.reason : "released by hand");
-  if (!lease) return c.json({ error: "No lease has that id." }, 404);
-  return c.json({ ok: true, lease });
+  const wantsForce = body.force === true;
+  if (wantsForce && isAgentCall(c))
+    return c.json(
+      {
+        error:
+          "`force` is the owner's. Releasing a lease whose job is still beating is a decision made looking at the " +
+          "Deployment page, not from a chat turn. Release the lapsed leases instead — that is `release_stale`.",
+      },
+      403,
+    );
+
+  const res = leases.release(c.req.param("id"), typeof body.reason === "string" ? body.reason : "released by hand", {
+    force: wantsForce,
+  });
+  if (!res.ok) return c.json({ error: res.error, reason: res.reason, lease: res.lease }, res.reason === "no-such-lease" ? 404 : 409);
+  return c.json({ ok: true, lease: res.lease });
 });
 
 deployRoutes.post("/leases/release-stale", (c) => {

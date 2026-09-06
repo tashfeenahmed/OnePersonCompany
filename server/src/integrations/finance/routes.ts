@@ -83,7 +83,8 @@ financeRoutes.get("/", (c) => {
   const { display, rates, errors } = fx();
   const shared = rows.filter((r) => r.venture_id === null);
   const withRule = shared.filter((r) => allocationsOf(r.id).length > 0);
-  const soon = renewalsDue(90);
+  const soon = renewalsAhead(90);
+  const overdue = renewalsDue(90).filter((r) => r.inDays < 0);
 
   return c.json({
     generatedAt: new Date().toISOString(),
@@ -104,7 +105,13 @@ financeRoutes.get("/", (c) => {
        short. */
     converted: display ? convert(monthly, display, rates) : null,
     fx: { displayCurrency: display, rates, errors },
-    renewals: { within90Days: soon.length, undecided: soon.filter((r) => r.renewalDecision === "undecided").length },
+    renewals: {
+      within90Days: soon.length,
+      undecided: soon.filter((r) => r.renewalDecision === "undecided").length,
+      /* Counted apart rather than folded in: "4 renew in the next 90 days" and
+         "1 renewal date has already passed" are different pieces of news. */
+      overdue: overdue.length,
+    },
     defaultAllocation: defaultRule(),
     tariff: tariff(),
     note:
@@ -221,7 +228,15 @@ financeRoutes.patch("/expenses/:id", async (c) => {
     if (!validDecision(decision)) return bad(c, "A renewal decision is keep, cancel or undecided.");
     patch.renewalDecision = decision;
   }
-  if (body.archived !== undefined) patch.archived = Boolean(body.archived);
+  if (body.archived !== undefined) {
+    /* `Boolean("false")` is true, and this is a JSON API somebody will send
+       strings to. Only the two spellings that mean something are accepted; a
+       third is a refusal rather than a coin toss over a row's visibility. */
+    const raw = body.archived;
+    const flag = raw === true || raw === "true" ? true : raw === false || raw === "false" ? false : null;
+    if (flag === null) return bad(c, "`archived` is true or false.");
+    patch.archived = flag;
+  }
 
   const next = updateExpense(row.id, patch);
   return c.json({
@@ -239,7 +254,7 @@ financeRoutes.delete("/expenses/:id", (c) => {
     result: what,
     note:
       what === "archived"
-        ? "This row is refreshed from a provider, so it was archived rather than deleted — a delete would only mean the next collection put it straight back. It is out of every total and still on record."
+        ? "This row is refreshed from a provider, so it was archived rather than deleted — a delete would only mean the next collection put it straight back. It is out of the ledger's CURRENT state and out of every month after today, and it is still a cost of the months it was actually owed in: a margin you have already read does not change because you cancelled something later."
         : "Deleted, with its allocation rules.",
   });
 });
@@ -269,6 +284,11 @@ function renewalsDue(days: number) {
     }))
     .sort((a, b) => a.inDays - b.inDays);
 }
+
+/** Renewals still ahead of us. The summary counts these; `/renewals` shows the
+ *  overdue ones too, separately, because a date that has passed with
+ *  auto-renew off is a name that may already be gone. */
+const renewalsAhead = (days: number) => renewalsDue(days).filter((r) => r.inDays >= 0);
 
 financeRoutes.get("/renewals", (c) => {
   const days = Math.min(Math.max(Number(c.req.query("days") ?? 90) || 90, 1), 730);
@@ -349,6 +369,12 @@ financeRoutes.post("/allocations/:expenseId/auto", async (c) => {
   if (row.venture_id !== null) return bad(c, "That expense belongs wholly to one venture, so there is nothing to allocate.");
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const basis = String(body.basis ?? c.req.query("basis") ?? "equal");
+  /* `manual` passes `validBasis` because it is a real stored basis — it is not
+     a COMPUTABLE one, and letting it through here quietly wrote an equal split
+     labelled `equal` while the refusal text one line down claimed manual was
+     not accepted. Refused by name, with the route that does take it. */
+  if (basis === "manual")
+    return bad(c, "There is nothing to compute for a manual split — send the shares yourself to PUT /api/finance/allocations/:expenseId.");
   if (!validBasis(basis)) return bad(c, "A basis is equal, revenue or traffic. (`manual` is a set of shares you send yourself.)");
   const month = String(body.month ?? c.req.query("month") ?? currentMonth());
   if (!isMonth(month)) return bad(c, "A month is YYYY-MM.");
@@ -415,6 +441,23 @@ financeRoutes.get("/power", (c) => {
 });
 
 financeRoutes.put("/power/:machineId", async (c) => {
+  const machineId = c.req.param("machineId");
+  /*
+    THE ID MUST NAME A WORKSTATION ACCOUNT. Without this check any string made
+    a profile: `PUT /power/foo` wrote a row the machine list never showed (so
+    the page could neither edit nor remove it) while the power lines and the
+    ledger seeder went on producing an electricity row for it, priced from
+    `observe("foo")` → `Number("foo")` → NaN → no samples at all.
+  */
+  const known = machinesAvailable();
+  if (!known.some((m) => m.machineId === machineId))
+    return bad(
+      c,
+      known.length
+        ? `“${machineId}” is not a workstation on this box. The machines that can have a power profile are: ${known.map((m) => `${m.machineId} (${m.label})`).join(", ")}.`
+        : "No workstation is connected, so there is no machine to give a power profile to. Connect one under Integrations → Workstation first; its uptime is what the hours are measured from.",
+      404,
+    );
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   if (!body) return bad(c, "Expected a JSON body.");
   const idle = Number(body.idleWatts);
@@ -426,7 +469,7 @@ financeRoutes.put("/power/:machineId", async (c) => {
   const currency = String(body.currency ?? "EUR").trim();
   if (!/^[A-Za-z]{3}$/.test(currency)) return bad(c, "A three-letter currency code, please.");
   const saved = saveProfile({
-    machineId: c.req.param("machineId"),
+    machineId,
     label: body.label ? String(body.label) : null,
     idleWatts: idle,
     busyWatts: busy,

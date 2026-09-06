@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { finance, type Basis } from "@/lib/api/finance";
-import { amount, pct } from "./format";
+import { finance, type Allocation, type Basis } from "@/lib/api/finance";
+import { amount, pct, shownShare } from "./format";
 
 /**
  * THE ALLOCATION EDITOR — how a shared bill reaches a business.
@@ -47,9 +47,21 @@ export function Allocation() {
     }
   };
 
-  const saveManual = async (id: string) => {
+  /** The field and the save read the SAME answer — see `shownShare`, which is
+   *  where the reason lives and where the regression test points. */
+  const shown = (expenseId: string, ventureId: string, allocations: Allocation[]) =>
+    shownShare(manual[`${expenseId}:${ventureId}`], allocations, ventureId);
+
+  const saveManual = async (id: string, allocations: Allocation[]) => {
+    const bad = d.ventures
+      .map((v) => shown(id, v.id, allocations))
+      .find((raw) => raw.trim() !== "" && !Number.isFinite(Number(raw)));
+    if (bad !== undefined) {
+      setMessage({ id, text: `“${bad}” is not a percentage. Type a number, or leave the field empty for none.` });
+      return;
+    }
     const shares = d.ventures
-      .map((v) => ({ ventureId: v.id, share: Number(manual[`${id}:${v.id}`] ?? "0") / 100 }))
+      .map((v) => ({ ventureId: v.id, share: Number(shown(id, v.id, allocations) || "0") / 100 }))
       .filter((s) => Number.isFinite(s.share) && s.share > 0);
     try {
       await finance.setAllocations(id, shares, "manual");
@@ -116,12 +128,10 @@ export function Allocation() {
                   <div className="grid gap-1 sm:grid-cols-2">
                     {d.ventures.map((v) => {
                       const key = `${e.id}:${v.id}`;
-                      const current = e.allocations.find((a) => a.ventureId === v.id);
-                      const value = manual[key] ?? (current ? String(Number((current.share * 100).toFixed(2))) : "");
                       return (
                         <label key={v.id} className="flex items-center gap-2 text-[12px]">
                           <Input
-                            value={value}
+                            value={shown(e.id, v.id, e.allocations)}
                             onChange={(ev) => setManual({ ...manual, [key]: ev.target.value })}
                             placeholder="0"
                             className="h-7 w-16 text-right text-[12px] tabular-nums"
@@ -133,7 +143,7 @@ export function Allocation() {
                     })}
                   </div>
                   <button
-                    onClick={() => void saveManual(e.id)}
+                    onClick={() => void saveManual(e.id, e.allocations)}
                     className="hover:bg-accent mt-3 rounded-lg border px-2.5 py-1 text-[11.5px]"
                   >
                     Save these shares

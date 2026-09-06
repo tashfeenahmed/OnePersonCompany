@@ -10,13 +10,16 @@ const Nurture = lazy(() => import("@/areas/nurture/Nurture").then(m => ({ defaul
 const Studio = lazy(() => import("@/pages/Studio").then(m => ({ default: m.Studio })));
 const Autopilot = lazy(() => import("@/areas/video/Autopilot").then(m => ({ default: m.Autopilot })));
 const Video = lazy(() => import("@/areas/video/Video").then(m => ({ default: m.Video })));
+const Motion = lazy(() => import("@/areas/video/Motion").then(m => ({ default: m.Motion })));
 const Publishing = lazy(() => import("@/areas/publishing/Publishing").then(m => ({ default: m.Publishing })));
+const Posts = lazy(() => import("@/areas/socialfeed/Posts").then(m => ({ default: m.Posts })));
 const Seo = lazy(() => import("@/pages/runs/Seo").then(m => ({ default: m.Seo })));
 const Serp = lazy(() => import("@/areas/growth/pages/Serp").then(m => ({ default: m.Serp })));
 const Aso = lazy(() => import("@/areas/growth/pages/Aso").then(m => ({ default: m.Aso })));
+const WebAnalytics = lazy(() => import("@/areas/webanalytics/WebAnalytics").then(m => ({ default: m.WebAnalytics })));
 const Growth = lazy(() => import("@/areas/growth/pages/Growth").then(m => ({ default: m.Growth })));
 const MobileHealth = lazy(() => import("@/areas/mobilehealth/MobileHealth").then(m => ({ default: m.MobileHealth })));
-const PAGES = { email: Mailbox, triage: Triage, outbox: Outbox, nurture: Nurture, studio: Studio, autopilot: Autopilot, video: Video, publishing: Publishing, seo: Seo, serp: Serp, aso: Aso, mobilehealth: MobileHealth, overview: Growth };
+const PAGES = { email: Mailbox, triage: Triage, outbox: Outbox, nurture: Nurture, studio: Studio, autopilot: Autopilot, video: Video, motion: Motion, publishing: Publishing, posts: Posts, seo: Seo, serp: Serp, aso: Aso, mobilehealth: MobileHealth, webanalytics: WebAnalytics, overview: Growth };
 const SECTIONS = {
   mail: { pages: MAIL_PAGES, label: "Mail" },
   social: { pages: SOCIAL_PAGES, label: "Social media" },

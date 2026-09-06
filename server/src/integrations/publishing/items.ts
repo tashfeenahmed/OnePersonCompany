@@ -29,7 +29,7 @@
  * gone is a refusal naming the file, never a publish of nothing.
  */
 import { randomUUID } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { db, now, ventureRowById } from "../../db.ts";
 import { destinationRow, readCapabilities, type DestinationRow } from "./destinations.ts";
 import { checkLimits, LIMITS, type DestinationKind, type LimitProblem, type MediaKind } from "./limits.ts";
@@ -242,11 +242,35 @@ export function shapeItem(r: ItemRow) {
   };
 }
 
+/**
+ * What the file on disk actually is.
+ *
+ * THE MIME COMES FROM THE FIRST BYTES, NOT FROM THE EXTENSION, and that
+ * matters more here than anywhere else on this route: `submit()` uploads with
+ * the SNIFFED type, so a `.jpg` that is really a PNG would sail through
+ * Instagram's JPEG-only gate on the strength of its name and then die at
+ * Meta's fetcher minutes later, as a container that never becomes a post. The
+ * check and the upload have to agree about what the file is.
+ *
+ * SIXTEEN BYTES, NOT THE WHOLE FILE. This runs on every read of the queue and
+ * some of these files are videos; a magic-number read is a seek and a handful
+ * of bytes. The extension is kept only as the fallback for a file whose bytes
+ * name nothing this recognises — where a claim is better than nothing.
+ */
 function mediaFacts(r: ItemRow): { onDisk: boolean; mime: string | null; bytes: number | null } {
   if (!r.media_path) return { onDisk: false, mime: null, bytes: null };
   try {
     const stat = statSync(r.media_path);
-    return { onDisk: true, mime: mimeFromPath(r.media_path), bytes: stat.size };
+    let mime: string | null = null;
+    const fd = openSync(r.media_path, "r");
+    try {
+      const head = Buffer.alloc(16);
+      const read = readSync(fd, head, 0, 16, 0);
+      mime = sniff(new Uint8Array(head.buffer, head.byteOffset, read));
+    } finally {
+      closeSync(fd);
+    }
+    return { onDisk: true, mime: mime ?? mimeFromPath(r.media_path), bytes: stat.size };
   } catch {
     return { onDisk: false, mime: null, bytes: null };
   }
@@ -384,16 +408,38 @@ export function createItem(input: {
   return { ok: true, item: itemRow(id)!, created: true };
 }
 
+/**
+ * Change the words or the account. AN EDIT UNAPPROVES.
+ *
+ * The approval on this row means "THIS exact text, with THIS exact picture, to
+ * THIS exact account" — that is what the file header claims and what the queue
+ * page tells the owner. An edited row is a different document, so leaving the
+ * approval standing would mean the scheduler sending text nobody read to an
+ * account nobody chose. `mailflow/outbox-routes.ts` keeps the same rule for
+ * the same reason and says so in its own header; this is that rule, here.
+ *
+ * It is the only place in this file where a status moves BACKWARDS, and it
+ * moves towards the state where a person has to press the button again.
+ */
 export function patchItem(
   id: string,
   patch: { caption?: string | null; destinationId?: string | null },
-): { ok: true; item: ItemRow } | { ok: false; error: string } {
+): { ok: true; item: ItemRow; unapproved: boolean } | { ok: false; error: string } {
   const row = itemRow(id);
   if (!row) return { ok: false, error: "No item by that id." };
   if (row.status === "published")
     return { ok: false, error: "That item is published. Editing it here would not change the post." };
   if (row.status === "publishing")
     return { ok: false, error: "That item is being submitted right now." };
+
+  /* What is actually CHANGING, decided before anything is written — an edit
+     that sets the caption to the caption it already had is not an edit, and
+     unapproving on it would punish somebody for pressing save. */
+  const changesDestination =
+    patch.destinationId !== undefined && patch.destinationId !== row.destination_id;
+  const nextCaption =
+    patch.caption === undefined ? undefined : (patch.caption ?? "").trim() || null;
+  const changesCaption = nextCaption !== undefined && nextCaption !== row.caption;
 
   if (patch.destinationId !== undefined && patch.destinationId !== row.destination_id) {
     if (patch.destinationId) {
@@ -421,13 +467,27 @@ export function patchItem(
       id,
     );
   }
-  if (patch.caption !== undefined)
-    db.prepare("UPDATE publish_items SET caption = ? WHERE id = ?").run(
-      (patch.caption ?? "").trim() || null,
-      id,
-    );
+  if (nextCaption !== undefined)
+    db.prepare("UPDATE publish_items SET caption = ? WHERE id = ?").run(nextCaption, id);
+
+  /* The unapproval. `draft` and `cancelled` have no approval to withdraw, so
+     they are left where they are; everything else that actually changed goes
+     back to `draft` and loses its date, because a date on an unapproved row is
+     a slot the scheduler will never look at and the owner might believe in. */
+  const unapproved =
+    (changesCaption || changesDestination) &&
+    row.status !== "draft" &&
+    row.status !== "cancelled";
+  if (unapproved)
+    db.prepare(
+      `UPDATE publish_items
+          SET status = 'draft', approved_at = NULL, approved_by = NULL,
+              scheduled_for = NULL, next_attempt_at = NULL, error = NULL
+        WHERE id = ?`,
+    ).run(id);
+
   db.prepare("UPDATE publish_items SET updated_at = ? WHERE id = ?").run(now(), id);
-  return { ok: true, item: itemRow(id)! };
+  return { ok: true, item: itemRow(id)!, unapproved };
 }
 
 /**

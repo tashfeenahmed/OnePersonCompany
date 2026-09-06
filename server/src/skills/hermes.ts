@@ -227,7 +227,10 @@ function body(s: Skill, cli: string | null): string {
     );
     for (const a of actions) {
       const flags = a.params.filter((p) => p.required || p.exampled).map(exampleFlag).join(" ");
-      out.push(`**${a.about}**${a.destructive ? " **There is no undo.**" : ""}\n`);
+      /* The flag now covers four things a person cannot take back — the
+         record, the money, the message, the machine — so the sentence says
+         that rather than only the first. See skills/registry.ts's SkillAction. */
+      out.push(`**${a.about}**${a.destructive ? " **This cannot be taken back.**" : ""}\n`);
       out.push("```bash");
       out.push(`opc ${s.id} ${a.key}${flags ? ` ${flags}` : ""}`);
       out.push("```\n");

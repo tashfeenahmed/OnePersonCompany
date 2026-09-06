@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { AlertTriangle, Check, ExternalLink, Loader2, Pencil, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, Loader2, Pencil, RefreshCw, Settings2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { PluginSettingsForm } from "@/components/settings/PluginSettingsForm";
 import { useApi } from "@/hooks/useApi";
 import {
   knowledgeApi,
@@ -75,6 +76,15 @@ export function KnowledgeTab({ slug }: { slug: string }) {
   const [newKind, setNewKind] = useState<FactKind>("capability");
   const [newText, setNewText] = useState("");
   const [repoDraft, setRepoDraft] = useState<string | null>(null);
+  /* The two-step retire. A retire is irreversible — nothing on this box
+     un-retires a fact — and it sat one click away from a Correct button of the
+     same size. The row asks once. */
+  const [retiring, setRetiring] = useState<string | null>(null);
+  /* Set when a cheap refresh answered "HEAD has not moved", which is what
+     offers the forced re-read. Without it the skip could never be seen: the
+     button used to force every time and the skip branch was dead code. */
+  const [unchanged, setUnchanged] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const run = (what: string, p: Promise<unknown>, done?: (out: unknown) => string | null) => {
     setBusy(what);
@@ -87,6 +97,37 @@ export function KnowledgeTab({ slug }: { slug: string }) {
         doc.reload();
         clashes.reload();
       });
+  };
+
+  /*
+    THE CHEAP REFRESH IS THE DEFAULT ONE.
+
+    `force` skips the "HEAD has not moved and nothing has expired" test on the
+    server, which is the whole of what makes this button cheap: without it every
+    press spends a set of GitHub calls and a completion re-deriving facts that
+    cannot have changed. The forced read is still one click away, and it appears
+    only once the cheap one has said there was nothing to do.
+  */
+  const refresh = (force: boolean) => {
+    setUnchanged(false);
+    run("refresh", knowledgeApi.refresh(slug, force), (out) => {
+      const r = out as RefreshResult;
+      if (r.skipped) {
+        setUnchanged(true);
+        return r.skipped;
+      }
+      const drops = Object.entries(r.dropped ?? {});
+      return (
+        `${r.added} added, ${r.refreshed} refreshed, ${r.retired} retired from ` +
+        `${r.filesRead} excerpt(s)${r.modelUsed ? ` with ${r.modelUsed}` : " with no model"}.` +
+        (drops.length
+          ? ` Dropped ${drops.reduce((n, [, v]) => n + v, 0)}: ${drops
+              .map(([why, n]) => `${n}× ${why}`)
+              .join("; ")}.`
+          : "") +
+        (r.notes?.length ? ` ${r.notes.join(" ")}` : "")
+      );
+    });
   };
 
   if (doc.error) return <p className="text-destructive p-4 text-[13.5px]">{doc.error}</p>;
@@ -134,22 +175,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
               size="sm"
               variant="outline"
               disabled={busy !== null || !repo?.repo}
-              onClick={() =>
-                run("refresh", knowledgeApi.refresh(slug, true), (out) => {
-                  const r = out as RefreshResult;
-                  if (r.skipped) return r.skipped;
-                  const drops = Object.entries(r.dropped ?? {});
-                  return (
-                    `${r.added} added, ${r.refreshed} refreshed, ${r.retired} retired from ` +
-                    `${r.filesRead} excerpt(s)${r.modelUsed ? ` with ${r.modelUsed}` : " with no model"}.` +
-                    (drops.length
-                      ? ` Dropped ${drops.reduce((n, [, v]) => n + v, 0)}: ${drops
-                          .map(([why, n]) => `${n}× ${why}`)
-                          .join("; ")}.`
-                      : "")
-                  );
-                })
-              }
+              onClick={() => refresh(false)}
             >
               {busy === "refresh" ? (
                 <Loader2 className="size-3.5 animate-spin" />
@@ -158,6 +184,19 @@ export function KnowledgeTab({ slug }: { slug: string }) {
               )}
               Refresh from repo
             </Button>
+            {/* Only after a skip, which is the only moment it means anything.
+                A permanent "force" button beside a cheap one is two buttons
+                that look the same and cost differently. */}
+            {unchanged && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy !== null}
+                onClick={() => refresh(true)}
+              >
+                Read it anyway
+              </Button>
+            )}
             <span className="text-muted-foreground text-[11.5px]">
               {repo?.head
                 ? `read at ${repo.head.slice(0, 7)}${
@@ -281,7 +320,9 @@ export function KnowledgeTab({ slug }: { slug: string }) {
                       variant="outline"
                       disabled={busy !== null || !draft.trim()}
                       onClick={() => {
-                        run("correct", knowledgeApi.correct(f.id, draft.trim()));
+                        run("correct", knowledgeApi.correct(f.id, draft.trim()), (out) =>
+                          (out as { inPlace?: boolean; note?: string }).note ?? null,
+                        );
                         setEditing(null);
                       }}
                     >
@@ -343,14 +384,36 @@ export function KnowledgeTab({ slug }: { slug: string }) {
                         <Pencil className="size-3.5" strokeWidth={1.6} />
                         Correct
                       </button>
-                      <button
-                        disabled={busy !== null}
-                        onClick={() => run("retire", knowledgeApi.retire(f.id, "retired by the owner"))}
-                        className="hover:text-destructive inline-flex items-center gap-1"
-                      >
-                        <X className="size-3.5" strokeWidth={1.6} />
-                        Retire
-                      </button>
+                      {retiring === f.id ? (
+                        <>
+                          <button
+                            disabled={busy !== null}
+                            onClick={() => {
+                              run("retire", knowledgeApi.retire(f.id, "retired by the owner"));
+                              setRetiring(null);
+                            }}
+                            className="text-destructive inline-flex items-center gap-1"
+                          >
+                            <X className="size-3.5" strokeWidth={1.6} />
+                            Retire for good
+                          </button>
+                          <button
+                            onClick={() => setRetiring(null)}
+                            className="hover:text-foreground inline-flex items-center gap-1"
+                          >
+                            Keep it
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          disabled={busy !== null}
+                          onClick={() => setRetiring(f.id)}
+                          className="hover:text-destructive inline-flex items-center gap-1"
+                        >
+                          <X className="size-3.5" strokeWidth={1.6} />
+                          Retire
+                        </button>
+                      )}
                     </span>
                   </div>
                 </>
@@ -395,6 +458,33 @@ export function KnowledgeTab({ slug }: { slug: string }) {
             sentence with the date it stopped being current.
           </span>
         </div>
+      </div>
+
+      {/* ---------------------------------------------------- the one setting */}
+      <div className="border-line-soft bg-card rounded-[10px] border p-4">
+        <button
+          onClick={() => setShowSettings((v) => !v)}
+          className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[12.5px]"
+        >
+          <Settings2 className="size-3.5" strokeWidth={1.6} />
+          {showSettings ? "Hide" : "Which model reads a repository"}
+        </button>
+        {showSettings && (
+          <div className="mt-3">
+            <p className="text-muted-foreground mb-3 max-w-2xl text-[12.5px]">
+              This applies to every venture, so it lives on the plugin rather
+              than here — it is on the Integrations page under “Product
+              knowledge” as well. Blank means whichever model the chosen
+              provider picks, which is right everywhere else on this box and is
+              the one place it is often wrong: reading a repository is a
+              strict-JSON task under an output ceiling, and a reasoning model
+              routed to it can spend the whole ceiling thinking and return
+              nothing this parser can read. The report above quotes the first
+              line of whatever came back.
+            </p>
+            <PluginSettingsForm plugin="knowledge" saveLabel="Save the model" />
+          </div>
+        )}
       </div>
     </div>
   );

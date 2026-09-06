@@ -70,6 +70,18 @@ export const LOCAL = "local";
  * returning to its own event loop, and short enough that a lapse costs one
  * idle cycle rather than an evening.
  */
+/**
+ * How recently a lease must have beaten for its holder to count as ALIVE.
+ *
+ * Two minutes, against a heartbeat the video pipeline sends every sixty
+ * seconds: one missed beat is a busy event loop, two is a job that has stopped
+ * talking. It is deliberately much shorter than the TTL — the TTL answers "may
+ * this machine be slept", this answers "is somebody actually at the other end
+ * of this lease right now", and the second question has to be answered
+ * conservatively because getting it wrong kills a forty-minute render.
+ */
+export const ALIVE_WITHIN_MS = 120_000;
+
 export const DEFAULT_TTL_MINUTES = 10;
 /** The ceiling on what a caller may ask for. A twelve-hour lease is a machine
  *  nothing can ever sleep, which is the failure this whole file exists to make
@@ -106,6 +118,16 @@ export type Lease = {
   live: boolean;
   /** Seconds until it lapses; negative once it has. */
   expiresInS: number;
+  /**
+   * SOMETHING IS DEMONSTRABLY STILL WORKING UNDER THIS LEASE — a heartbeat
+   * inside `ALIVE_WITHIN_MS`. Computed HERE rather than by each reader,
+   * because the route's refusal and the page's confirmation dialog have to
+   * agree about it: two copies of the two-minute rule is one place for the
+   * button to offer a release the route will then refuse.
+   */
+  beating: boolean;
+  /** Seconds since the last heartbeat. */
+  heartbeatAgeS: number;
 };
 
 const clampTtl = (minutes: number | undefined): number => {
@@ -130,6 +152,8 @@ function shape(r: LeaseRow, at = Date.now()): Lease {
     releaseReason: r.release_reason,
     live,
     expiresInS: Number.isFinite(expires) ? Math.round((expires - at) / 1000) : 0,
+    beating: live && at - Date.parse(r.heartbeat_at) <= ALIVE_WITHIN_MS,
+    heartbeatAgeS: Math.max(0, Math.round((at - Date.parse(r.heartbeat_at)) / 1000)),
   };
 }
 
@@ -184,21 +208,77 @@ export function heartbeat(id: string, ttlMinutes?: number): Lease | null {
   return shape(read(id)!);
 }
 
+/** Is something demonstrably still working under this lease? The shaped
+ *  `beating` flag is this question already answered; this is the predicate for
+ *  a caller that has a Lease and its own clock. */
+export function alive(l: Lease, at = Date.now()): boolean {
+  return l.live && at - Date.parse(l.heartbeatAt) <= ALIVE_WITHIN_MS;
+}
+
+export type ReleaseResult =
+  | { ok: true; lease: Lease }
+  | { ok: false; reason: "no-such-lease"; error: string; lease: null }
+  | { ok: false; reason: "alive"; error: string; lease: Lease };
+
 /**
- * Hand it back. Idempotent: releasing a released lease is not an error,
- * because the release lives in a `finally` and a `finally` can run twice on a
- * path that also threw.
+ * Hand it back.
+ *
+ * IDEMPOTENT FOR A RELEASE THAT HAS ALREADY HAPPENED, because the release
+ * lives in a `finally` and a `finally` can run twice on a path that also
+ * threw. The first reason stands; a second release does not rewrite it.
+ *
+ * IT REFUSES A LEASE WHOSE HOLDER IS STILL BEATING, and that refusal is the
+ * point of the whole file rather than a nicety. Releasing a live lease does
+ * not stop the job — it removes the only reason nothing will sleep the machine
+ * the job is running on. So "the agent tidied up the leases and the render
+ * died" is one call away, and a rule in a skill's prose is not enforcement.
+ * The refusal is by HEARTBEAT rather than by liveness, so a lease from a
+ * process that has gone away is still ordinary bookkeeping.
+ *
+ * `force` IS THE OWNER'S AND IS A REAL BOOLEAN. The route parses it as
+ * `body.force === true` and only honours it for a caller that is not an agent;
+ * the skill publishes no such parameter. An owner looking at the Deployment
+ * page and pressing the button anyway has decided, and that is a decision this
+ * file has no business overruling.
  */
-export function release(id: string, reason = "done"): Lease | null {
+export function release(id: string, reason = "done", opts: { force?: boolean } = {}): ReleaseResult {
   const row = read(id);
-  if (!row) return null;
-  if (row.released_at === null)
+  if (!row)
+    return { ok: false, reason: "no-such-lease", lease: null, error: "No lease has that id." };
+  const current = shape(row);
+  if (current.releasedAt === null && current.beating && opts.force !== true) {
+    const beats = current.heartbeatAgeS;
+    return {
+      ok: false,
+      reason: "alive",
+      lease: current,
+      error:
+        `That lease is still beating — ${current.kind}${current.note ? ` (${current.note})` : ""} on ` +
+        `${current.resource}, last heartbeat ${beats}s ago. Releasing it would NOT stop the job; it would only ` +
+        `remove the reason nothing will sleep ${current.resource} while the job runs. Wait for it, or release it ` +
+        `from Settings → Deployment, which asks for a deliberate override.`,
+    };
+  }
+  if (current.releasedAt === null)
     db.prepare("UPDATE job_leases SET released_at = ?, release_reason = ? WHERE id = ?").run(
       now(),
       reason.slice(0, 200),
       id,
     );
-  return shape(read(id)!);
+  return { ok: true, lease: shape(read(id)!) };
+}
+
+/** The release the JOB THAT TOOK THE LEASE makes, in its own `finally`. It is
+ *  not subject to the heartbeat refusal above, because the caller is the thing
+ *  the heartbeat was evidence of. Never throws: a lease that cannot be written
+ *  back is a lease that lapses on its own a few minutes later, and taking a
+ *  finished render's process down over it would be the worse failure. */
+export function releaseOwn(id: string, reason = "done"): void {
+  try {
+    release(id, reason, { force: true });
+  } catch (err) {
+    console.error(`[leases] ${id} could not be released — ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export function read(id: string): LeaseRow | null {
@@ -300,19 +380,46 @@ export type Wake = {
   /** What was true when the wake was sent. `awake` means this app did not
    *  actually wake anything and therefore owes nothing. */
   foundState: "asleep" | "awake" | "unknown";
-  /** Does this app owe the shutdown? */
+  /** Does this app owe the shutdown? False once the claim has expired, once it
+   *  has been handed back, and whenever the machine was not found asleep. */
   owns: boolean;
   releasedAt: string | null;
+  /** The claim aged out — see WAKE_OWNERSHIP_HOURS. Reported separately from
+   *  `owns` because "we woke it and that was yesterday" is a different sentence
+   *  from "it was already awake". */
+  expired: boolean;
+  expiresAt: string;
 };
 
-function shapeWake(r: WakeRow): Wake {
+/**
+ * HOW LONG A WAKE CLAIM IS WORTH ANYTHING. Twelve hours.
+ *
+ * Ownership is the claim "this machine is up because of us, so it is ours to
+ * put back". That claim decays: a desk machine woken at nine in the morning
+ * and still up at nine at night is up for whatever its owner has been doing on
+ * it since, and a row from a fortnight ago asserting otherwise is how this app
+ * would come to sleep a machine somebody else turned on — the exact rule the
+ * header quotes. An expired claim is not `owns`, and `sleepCheck` then leaves
+ * the machine alone rather than claiming it.
+ *
+ * IT IS NOT A TIMER. Nothing fires at twelve hours; the row is simply read as
+ * expired from then on, which is the same argument the lease TTL makes — what
+ * nothing has to fire for, nothing can fail to fire for.
+ */
+export const WAKE_OWNERSHIP_HOURS = 12;
+
+function shapeWake(r: WakeRow, at = Date.now()): Wake {
+  const wokeMs = Date.parse(r.woke_at);
+  const expired = Number.isFinite(wokeMs) && at - wokeMs > WAKE_OWNERSHIP_HOURS * 3_600_000;
   return {
     resource: r.resource,
     wokeAt: r.woke_at,
     wokeBy: r.woke_by,
     foundState: r.found_state === "asleep" || r.found_state === "awake" ? r.found_state : "unknown",
-    owns: r.owns === 1 && r.released_at === null,
+    owns: r.owns === 1 && r.released_at === null && !expired,
     releasedAt: r.released_at,
+    expired,
+    expiresAt: Number.isFinite(wokeMs) ? new Date(wokeMs + WAKE_OWNERSHIP_HOURS * 3_600_000).toISOString() : r.woke_at,
   };
 }
 
@@ -328,6 +435,14 @@ function shapeWake(r: WakeRow): Wake {
 export function recordWake(opts: {
   resource: string;
   by: string;
+  /**
+   * `asleep` IS THE ONLY VALUE THAT CLAIMS OWNERSHIP, and the caller has to
+   * have earned it. "The machine did not answer ssh" is NOT "the machine is
+   * asleep": a rotated key, a firewall or a wrong hostname all look the same
+   * on the wire, and a caller that read them as sleep would hand this app the
+   * right to power off a machine that was awake and busy. `unknown` is the
+   * honest answer to a failure that could be either, and it owns nothing.
+   */
   foundState: "asleep" | "awake" | "unknown";
 }): Wake {
   db.prepare(
@@ -349,8 +464,9 @@ export function wakeOwner(resource: string): Wake | null {
 }
 
 export function wakeOwners(): Wake[] {
+  const at = Date.now();
   const rows = db.prepare("SELECT * FROM wake_ownership ORDER BY woke_at DESC").all() as WakeRow[];
-  return rows.map(shapeWake);
+  return rows.map((r) => shapeWake(r, at));
 }
 
 /** Ownership ends when the machine is put back — or when the owner says it
@@ -403,13 +519,27 @@ export function sleepCheck(resource: string): {
     };
   }
   if (wake && !wake.owns && wake.releasedAt === null) {
+    /* THREE DIFFERENT FACTS ARRIVE AT THE SAME REFUSAL AND THEY ARE NOT THE
+       SAME SENTENCE. Telling somebody their machine "was already awake" when
+       what actually happened is that ssh failed, or that the wake was
+       yesterday, is the kind of confident wrong answer this codebase spends
+       its comments avoiding. */
+    const why =
+      wake.expired
+        ? `this app did wake ${resource} — at ${wake.wokeAt} — but that was more than ${WAKE_OWNERSHIP_HOURS} hours ` +
+          `ago, and a machine that has been up all day is up for whatever has been done on it since`
+        : wake.foundState === "awake"
+          ? `${resource} was already awake when this app last looked at it (${wake.wokeAt}), so it is up for ` +
+            `somebody else's reasons`
+          : `this app could not tell what state ${resource} was in when it sent the wake at ${wake.wokeAt} — ` +
+            `ssh did not answer, which is a machine that is asleep and a machine behind a rotated key and a ` +
+            `machine behind a firewall, and nothing here can tell those apart`;
     return {
       allowed: false,
       reason: "not-ours",
       refusal:
-        `${resource} was already awake when this app last looked at it (${wake.wokeAt}), so it is up for somebody ` +
-        `else's reasons and this app is a guest. We power off exactly what we powered on. Sleep it yourself if it ` +
-        `is genuinely idle — or hand the ownership back on Settings → Deployment (POST ` +
+        `${why}. This app is a guest: we power off exactly what we powered on. Sleep it yourself if it is ` +
+        `genuinely idle — or hand the ownership back on Settings → Deployment (POST ` +
         `/api/deploy/wake/${resource}/release), which is this app forgetting the wake rather than a flag on a URL.`,
       holders,
       wake,

@@ -13,6 +13,9 @@ function num(name: string, fallback: number, min: number, max = Number.MAX_SAFE_
     throw new Error(`${name} must be a whole number between ${min} and ${max}.`);
   return value;
 }
+/** The checkout's own data directory — what a developer's server uses when
+ *  nothing overrides it, and what db.ts refuses to open from a test process. */
+export const DEFAULT_DATA_DIR = resolve(serverDir, "./data");
 export const DATA_DIR = resolve(serverDir, env("OPC_DATA_DIR", "./data"));
 export const DB_FILE = resolve(DATA_DIR, "opc.db");
 export const VAULT_KEY_FILE = resolve(DATA_DIR, "vault.key");

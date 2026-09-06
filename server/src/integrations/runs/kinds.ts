@@ -191,7 +191,7 @@ export const KINDS: KindDef[] = [
     kind: "video",
     name: "Video",
     what:
-      "Makes a vertical video on this machine. `faceless` writes a script from the venture, finds stock footage on Pexels for every beat, burns captions in the venture's own colour and font, and adds an end card. `shorts` downloads a long video with yt-dlp and cuts two to four vertical clips out of it, chosen from the transcript where there is one and from even spacing where there is not — which it says. It publishes nothing anywhere: the file lands on this page.",
+      "Makes a vertical video on this machine. `faceless` writes a script from the venture, finds stock footage on Pexels for every beat, burns captions in the venture's own colour and font, and adds an end card. `shorts` downloads a long video with yt-dlp and cuts two to four vertical clips out of it, choosing the windows from timed words and camera cuts where it can measure them and from even spacing where it cannot — which it says on every clip, and following the subject with the crop where there is something to follow. `reel` screenshots the venture's OWN pages and plays a two-voice walkthrough over them, scrolling. `motion` renders a scene list — a title card, a number, a before/after, a list, a call to action — as animated typography in the venture's own colours. `ugc` takes the venture's own reference pictures out of its asset library, puts the product into a scene with the image model, and animates that still with a Replicate image-to-video model — which is SKIPPED, with a sentence, when no such model is configured, so nothing is spent. It publishes nothing anywhere: the file lands on this page.",
     needsVenture: false,
     inputs: [
       {
@@ -204,6 +204,31 @@ export const KINDS: KindDef[] = [
         options: [
           { value: "faceless", label: "Faceless — script and stock footage" },
           { value: "shorts", label: "Shorts — cut up a long video" },
+          { value: "ugc", label: "UGC — a product shot, animated" },
+          { value: "reel", label: "Reel — two voices over your own pages" },
+          { value: "motion", label: "Motion — animated typography from a scene list" },
+        ],
+      },
+      {
+        key: "spec",
+        label: "Scene spec",
+        hint:
+          "Motion only. The id of a saved scene list (see the Motion page). Empty asks the model for one from the brief — which is a draft with claims in it, so read it before you publish the video.",
+        kind: "text",
+        required: false,
+        default: "",
+      },
+      {
+        key: "voiceover",
+        label: "Speak the scene lines",
+        hint:
+          "Motion only. `true` speaks each scene's narration line through the voice plugin. Anything else is silent, which is the ordinary case — speech is off by default.",
+        kind: "select",
+        required: false,
+        default: "false",
+        options: [
+          { value: "false", label: "Silent" },
+          { value: "true", label: "Narrated — if the voice plugin has speech on" },
         ],
       },
       {
@@ -217,7 +242,8 @@ export const KINDS: KindDef[] = [
       {
         key: "url",
         label: "Source video",
-        hint: "Shorts only, and required for it: a YouTube address or a direct link to a video file.",
+        hint:
+          "Shorts only, and required for it: a YouTube address or a direct link to a video file. For a REEL this is instead the venture's own page addresses to walk through, one per line — empty uses the venture's website.",
         kind: "text",
         required: false,
         default: "",
@@ -225,7 +251,8 @@ export const KINDS: KindDef[] = [
       {
         key: "seconds",
         label: "Length in seconds",
-        hint: "For faceless, how long the whole video is — 10 to 120, and the beats are shared out inside it. For shorts, the LONGEST a single clip may be — 15 to 90.",
+        hint:
+          "For faceless, how long the whole video is — 10 to 120, and the beats are shared out inside it. For shorts, the LONGEST a single clip may be — 15 to 90. For a reel, how long the whole thing is, which is what decides how many lines of dialogue there are. Motion takes its length from the scene list instead.",
         kind: "number",
         required: false,
         default: "30",
@@ -237,6 +264,17 @@ export const KINDS: KindDef[] = [
         kind: "number",
         required: false,
         default: "3",
+      },
+      {
+        /* UGC only. Comma-separated asset ids out of the venture's own library;
+           empty uses the library, up to four. Added with the `ugc` format —
+           see integrations/socialfeed/ugc.ts. */
+        key: "assets",
+        label: "Reference pictures",
+        hint: "UGC only. Asset ids from the venture's library, comma separated. Empty uses whatever is in the library, up to four.",
+        kind: "text",
+        required: false,
+        default: "",
       },
       {
         key: "aspect",

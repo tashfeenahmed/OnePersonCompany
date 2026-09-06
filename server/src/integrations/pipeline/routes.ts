@@ -11,16 +11,23 @@
  * switch. So they get a table and a PATCH, and the night's settings stay where
  * the rest of them are.
  *
- * `POST /run` COSTS REAL MONEY UNLESS `dry` IS TRUE, and says so in every
- * surface that publishes it. A wet run dispatches sub-agent runs into the
- * single slot and sends model calls billed to the owner's account; a dry run
- * walks the same graph, calls each stage with `dry: true`, and files a plan.
- * The difference is one boolean and it is the most important boolean here,
- * which is why it is a body field with a default of false rather than a query
- * parameter that could be dropped by a proxy.
+ * THE REHEARSAL IS ITS OWN ROUTE AND THE REAL ONE REFUSES THE WORD `dry`.
+ * `POST /run` always runs: it dispatches sub-agent runs into the single slot
+ * and sends model calls billed to the owner. `POST /plan` always rehearses: it
+ * hard-codes `dry: true` and reads nothing about it from the request. Sending
+ * `dry` to `/run` is a 400 naming `/plan`.
+ *
+ * That split is not fastidiousness. The skills proxy sends every parameter as a
+ * STRING, so a route testing `body.dry === true` reads `"true"` as FALSE — the
+ * bug that published a real Facebook post in wave 1 of this build, and the bug
+ * this route had until it was reviewed. With two routes there is no boolean
+ * anywhere near the decision that spends money, and no typo can turn one into
+ * the other. Every other boolean here goes through `readBool` in params.ts,
+ * which refuses what it cannot parse instead of defaulting to false.
  */
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { LAST_RUN_MEANS } from "./builtins.ts";
+import { readBool, refuseDry } from "./params.ts";
 import {
   deliver,
   lastCompleted,
@@ -53,6 +60,9 @@ import {
 } from "./registry.ts";
 
 export const pipelineRoutes = new Hono();
+
+/** A stage window, the same grammar a blackout uses for its span. */
+const WINDOW = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
 
 /* ------------------------------------------------------------------ stages */
 
@@ -125,18 +135,39 @@ pipelineRoutes.patch("/stages/:id", async (c) => {
 
   const patch: Parameters<typeof setPref>[1] = {};
   if ("enabled" in body) {
-    if (body.enabled !== null && typeof body.enabled !== "boolean")
-      return c.json({ error: "`enabled` is true, false, or null to restore the default." }, 400);
-    patch.enabled = body.enabled as boolean | null;
+    /* Through `readBool`, which takes the STRING the skills proxy sends as well
+       as a JSON boolean. This route used to demand `typeof === "boolean"` and
+       so answered 400 to every call an agent could possibly make. */
+    const read = readBool(body.enabled, "enabled", { allowNull: true });
+    if (!read.ok) return c.json({ error: read.error }, 400);
+    patch.enabled = read.value;
   }
   if ("cadence" in body) {
-    if (body.cadence !== null && !CADENCES.includes(body.cadence as Cadence))
+    const raw = body.cadence;
+    const cadence = typeof raw === "string" ? raw.trim().toLowerCase() : raw;
+    /* "null" the string as well as null the value, for the proxy's sake. */
+    if (cadence === null || cadence === "null" || cadence === "default") patch.cadence = null;
+    else if (!CADENCES.includes(cadence as Cadence))
       return c.json({ error: `\`cadence\` is one of ${CADENCES.join(", ")}, or null for the default.` }, 400);
-    patch.cadence = body.cadence as Cadence | null;
+    else patch.cadence = cadence as Cadence;
+  }
+  if ("window" in body) {
+    const raw = body.window;
+    const w = typeof raw === "string" ? raw.trim() : raw;
+    if (w === null || w === "" || w === "null" || w === "default") patch.window = null;
+    else if (typeof w !== "string" || !WINDOW.test(w))
+      return c.json(
+        { error: "`window` is HH:MM-HH:MM (the part of the night this stage may start in), or null for anywhere." },
+        400,
+      );
+    else patch.window = w;
   }
   for (const key of ["maxUsd", "maxMinutes"] as const) {
     if (!(key in body)) continue;
-    const v = body[key];
+    /* A number, or a string holding one — the proxy sends `type: "number"`
+       params as numbers, but a hand-written client may not. */
+    const raw = body[key];
+    const v = typeof raw === "string" && raw.trim() ? Number(raw.trim()) : raw;
     /* Zero is refused rather than accepted as "no budget": a cap of zero would
        mean a stage that may never start, which is what `enabled: false` is
        for, and reading it either way would be a guess. */
@@ -169,7 +200,10 @@ function schedule() {
     maxUsd: s.maxUsd,
     maxMinutes: s.maxMinutes,
     nextRunAt: nextRunAt(s),
-    skipTonight: skip && skip.day === clock.day ? skip : null,
+    /* The NIGHT's day, not today's — see `dueNight` below. A skip set at
+       nine in the evening is for the night that starts after midnight. */
+    nextNightDay: dueNight(clock.day, clock.hour, s.hour),
+    skipTonight: skip && skip.day === dueNight(clock.day, clock.hour, s.hour) ? skip : null,
     session: PIPELINE_SESSION,
     defaults: { hour: DEFAULT_HOUR, maxMinutes: DEFAULT_MAX_MINUTES },
     settingsAt: "/api/plugins/pipeline/config",
@@ -236,10 +270,18 @@ pipelineRoutes.get("/plan", (c) => {
 
 /* ---------------------------------------------------------------- the button */
 
-pipelineRoutes.post("/run", async (c) => {
-  const body = (await c.req.json().catch(() => null)) as { dry?: unknown; stage?: unknown } | null;
-  const dry = body?.dry === true;
-  const only = typeof body?.stage === "string" && body.stage.trim() ? body.stage.trim() : null;
+/** Shared by `/run` and `/plan`, which differ in exactly one hard-coded
+ *  argument. Neither reads `dry` from anywhere. */
+async function walk(c: Context, dry: boolean) {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+
+  if (!dry) {
+    const refusal = refuseDry(body, "POST /api/pipeline/plan");
+    if (refusal) return c.json({ error: refusal }, 400);
+  }
+
+  const raw = body?.stage;
+  const only = typeof raw === "string" && raw.trim() ? raw.trim() : null;
   if (only && !stageById(only)) return c.json({ error: `There is no stage called "${only}".` }, 404);
 
   const out = await runNight({ trigger: only ? "stage" : "manual", dry, only });
@@ -247,7 +289,7 @@ pipelineRoutes.post("/run", async (c) => {
 
   /* A night started by hand is delivered like one started by the timer: the
      transcript is the record, and the owner who pressed the button is not the
-     only person who reads it. A planned night is not pushed to a phone —
+     only person who reads it. A planned night is never pushed to a phone —
      `deliver` makes that call, not this route. */
   const delivery = await deliver(out);
 
@@ -261,30 +303,62 @@ pipelineRoutes.post("/run", async (c) => {
     },
     201,
   );
-});
+}
+
+/**
+ * RUN IT, FOR REAL. Dispatches sub-agent runs into the single slot and sends
+ * model calls billed to the owner. It refuses a `dry` field rather than
+ * parsing one — see the file header.
+ */
+pipelineRoutes.post("/run", (c) => walk(c, false));
+
+/**
+ * REHEARSE IT. `dry` is the literal `true` below and comes from nowhere else,
+ * so there is no request this route can receive that executes anything.
+ */
+pipelineRoutes.post("/plan", (c) => walk(c, true));
 
 /**
  * NOT TONIGHT.
  *
- * One calendar day in the owner's own zone, held in a one-row table so it
- * expires by itself. `POST` with no body skips today; `{"cancel": true}`
- * un-skips. It does not stop a night somebody starts by hand — that is a
- * person deciding, and this is a note to the timer.
+ * THE DAY STORED IS THE NIGHT'S DAY, NOT TODAY'S. A night that starts at 02:00
+ * belongs to tomorrow's date, so pressing Skip at nine in the evening used to
+ * store the 6th while the timer, at two in the morning, asked about the 7th —
+ * and the night ran anyway, after a page that had said all evening that it
+ * would not. `dueNight()` below is the mirror of `dueDay()` in
+ * runtime/schedule.ts: past the start hour the next night is tomorrow's,
+ * before it the night is still today's.
+ *
+ * It does not stop a night somebody starts by hand — that is a person
+ * deciding, and this is a note to the timer.
  */
+export function dueNight(day: string, hour: number, startHour: number): string {
+  if (hour < startHour) return day;
+  const next = new Date(Date.parse(`${day}T12:00:00Z`) + 86_400_000);
+  return next.toISOString().slice(0, 10);
+}
+
 pipelineRoutes.post("/skip-tonight", async (c) => {
-  const body = (await c.req.json().catch(() => null)) as { cancel?: unknown; reason?: unknown } | null;
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const s = settings();
-  const { day } = zoned(s);
-  if (body?.cancel === true) {
-    setSkipDay(null, null);
-    return c.json({ skipped: null, note: `Tonight (${day}) will run on the schedule again.` });
+  const clock = zoned(s);
+  const night = dueNight(clock.day, clock.hour, s.hour);
+
+  if (body && "cancel" in body) {
+    const read = readBool(body.cancel, "cancel");
+    if (!read.ok) return c.json({ error: read.error }, 400);
+    if (read.value) {
+      setSkipDay(null, null);
+      return c.json({ skipped: null, note: `The night of ${night} will run on the schedule again.` });
+    }
   }
+
   const reason = typeof body?.reason === "string" ? body.reason.slice(0, 200) : null;
-  setSkipDay(day, reason);
+  setSkipDay(night, reason);
   return c.json({
     skipped: skipDay(),
     note:
-      `The scheduled night for ${day} (${s.resolvedTimezone}) will not run. Starting one by hand still works — ` +
-      `this is a note to the timer, not a lock.`,
+      `The scheduled night of ${night} (${s.resolvedTimezone}, starting at ${String(s.hour).padStart(2, "0")}:00) ` +
+      `will not run. Starting one by hand still works — this is a note to the timer, not a lock.`,
   });
 });

@@ -91,6 +91,18 @@ const MAX_MATERIAL_CHARS = 45_000;
 const MAX_PROPOSED = 12;
 const HTTP_TIMEOUT_MS = 20_000;
 const GIT_TIMEOUT_MS = 10_000;
+/**
+ * THE WHOLE FETCH'S DEADLINE, as opposed to each call's timeout.
+ *
+ * Seventeen GitHub calls at a twenty-second timeout each is five and a half
+ * minutes in the worst case, on a request the Knowledge tab BLOCKS on with a
+ * spinner. Nobody waits that long and nobody should have to: a repository that
+ * has taken ninety seconds to hand over sixteen small files is a repository
+ * this pass should give up on, file what it has, and say so. What was fetched
+ * before the deadline is still evidence, and the excerpts that did not arrive
+ * are named in the notes rather than silently missing.
+ */
+const FETCH_DEADLINE_MS = 90_000;
 
 /** The pseudo-path the file tree is cited by. It is not a file, and it is
  *  named so that a reader of a citation cannot mistake it for one. */
@@ -209,10 +221,46 @@ const NAMED: { re: RegExp; why: string; kind: FactKind }[] = [
   { re: /^openapi\.(ya?ml|json)$/i, why: "the published API surface", kind: "capability" },
 ];
 
-const PRICING = /(pric|plan|tier|billing|subscription|checkout)/i;
+/**
+ * THE PRICING FAMILY, MATCHED AS WHOLE WORDS.
+ *
+ * It used to be a substring test, and a substring test on a basename fetches
+ * `frontier.ts` (contains "tier"), `planning.md` (contains "plan") and
+ * `verification-exec-check-plan.md` — the last of which really did win a slot in
+ * a live extraction and got cited as a source for a fact about the product. The
+ * budget is sixteen files, so every one of those costs a file that might have
+ * been a manifest.
+ *
+ * So the basename's stem is split into WORDS — on punctuation and on camelCase
+ * — and one of them must be exactly a pricing word. `pricing.ts`, `plans.ts`,
+ * `billingConfig.ts` and `stripe-prices.json` still match; `frontier` and
+ * `planning` no longer do, because "frontier" and "planning" are not "tier" and
+ * "plan".
+ */
+const PRICING_WORDS = new Set([
+  "price", "prices", "pricing", "plan", "plans", "tier", "tiers",
+  "billing", "subscription", "subscriptions", "checkout",
+]);
+
+export function basenameWords(base: string): string[] {
+  return base
+    .replace(/\.[^.]*$/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w.toLowerCase());
+}
+
+/**
+ * Extensions a pricing candidate may have — and `.md` is deliberately NOT one
+ * of them. A markdown file with "plan" in its name is a project plan, a release
+ * plan or a test plan far more often than it is a price list, and the README
+ * and CHANGELOG (which really are prose worth reading) are matched by name in
+ * NAMED above rather than by this family.
+ */
 const CODE_EXT = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rb", ".php",
-  ".json", ".toml", ".yaml", ".yml", ".md",
+  ".json", ".toml", ".yaml", ".yml",
 ]);
 const SKIP_DIR = new Set([
   "node_modules", ".git", "dist", "build", "vendor", "target", ".next", "out",
@@ -229,7 +277,10 @@ export function wanted(path: string): { why: string } | null {
      it is a price. */
   if (parts.length > 3) return null;
   for (const n of NAMED) if (n.re.test(base)) return { why: n.why };
-  if (PRICING.test(base) && CODE_EXT.has(extname(base).toLowerCase()))
+  if (
+    CODE_EXT.has(extname(base).toLowerCase()) &&
+    basenameWords(base).some((w) => PRICING_WORDS.has(w))
+  )
     return { why: "its name says it holds prices or plans" };
   return null;
 }
@@ -287,7 +338,7 @@ async function ghGet<T>(path: string, token: string | null): Promise<T> {
  * ventures here are public. It is reported in the notes so the reason for a
  * refusal on a private repo is legible.
  */
-async function githubMaterial(repo: string): Promise<Material> {
+async function githubMaterial(repo: string, deadline = Date.now() + FETCH_DEADLINE_MS): Promise<Material> {
   const notes: string[] = [];
   const accounts = tokenAccounts("knowledge_extract");
   const token = accounts[0]?.token ?? null;
@@ -325,7 +376,15 @@ async function githubMaterial(repo: string): Promise<Material> {
     .sort((a, b) => rank(a) - rank(b))
     .slice(0, MAX_FILES);
 
+  let ranOut = 0;
   for (const p of picked) {
+    /* The deadline is checked BETWEEN files rather than enforced with one
+       signal across all of them, so a file that has already arrived is never
+       thrown away by the clock running out on the next one. */
+    if (Date.now() >= deadline) {
+      ranOut++;
+      continue;
+    }
     try {
       const doc = await ghGet<{ content?: string; encoding?: string }>(
         `/repos/${repo}/contents/${p.split("/").map(encodeURIComponent).join("/")}?ref=${commit}`,
@@ -341,6 +400,11 @@ async function githubMaterial(repo: string): Promise<Material> {
       notes.push(`${p} could not be read: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  if (ranOut)
+    notes.push(
+      `the ${FETCH_DEADLINE_MS / 1000}-second fetch deadline arrived with ${ranOut} file(s) still ` +
+        `unread; this reading is of what had already been fetched.`,
+    );
   /* The tree LAST, so the files win the budget: a path is one fact and a
      README paragraph is several. */
   excerpts.push(treeExcerpt(paths));
@@ -396,6 +460,31 @@ function walk(root: string): string[] {
 }
 
 /**
+ * IS THIS PATH A REPOSITORY THIS FEATURE MAY READ? Null means yes.
+ *
+ * The one test, and the reasoning is in `localMaterial` below: it must exist,
+ * be a directory, and be a git checkout. Exported so `PUT /api/knowledge/repo`
+ * can refuse a typo at the moment it is typed rather than at the first refresh,
+ * and so the two places cannot drift into two different rules.
+ */
+export async function checkLocalRepo(dir: string): Promise<string | null> {
+  const root = resolve(dir);
+  try {
+    if (!statSync(root).isDirectory()) return `${root} is not a directory.`;
+  } catch {
+    return `There is nothing at ${root} on this machine.`;
+  }
+  if (!(await gitHead(root)))
+    return (
+      `${root} is not a git checkout. A local repository has to be one: the refresh rule is ` +
+      `"re-read when HEAD moves", and up to ${MAX_FILES} files out of the directory are sent ` +
+      `to a model, so this refuses a path that is not a repository rather than reading ` +
+      `whatever is there.`
+    );
+  return null;
+}
+
+/**
  * A CHECKOUT ON THIS MACHINE, read as text and nothing else.
  *
  * Exported for the test, which is the only way to assert the local branch
@@ -414,10 +503,37 @@ export async function localMaterial(dir: string): Promise<Material> {
   }
   if (!stats.isDirectory()) throw new Error(`${root} is not a directory.`);
 
+  /*
+    IT HAS TO BE A CHECKOUT, AND THAT IS THE WHOLE BOUND ON A LOCAL PATH.
+
+    A local repository is an absolute path the owner typed. Up to sixteen files
+    and a 250-path directory listing out of it are posted to a third-party model
+    endpoint, so a typo — `/Users/example`, a project's parent, `/` — would send a
+    listing and whatever README and manifest it found off this box. The
+    remaining fields were never a credential store (`.env` itself is not matched,
+    only `.env.example`), but "it leaks little" is not a bound.
+
+    `git rev-parse HEAD` is the bound, and it costs nothing because the commit
+    was already being read: a home directory, `/etc` and a downloads folder are
+    not checkouts and are refused here, while every real repository passes. It
+    is also the honest requirement rather than an arbitrary one — the refresh
+    rule is "re-read when HEAD moves", and a directory with no HEAD is one this
+    feature cannot do its job on anyway.
+
+    There is deliberately no allow-list directory setting on top of it. The only
+    way a local path is ever set is the owner typing one into `PUT
+    /api/knowledge/repo`; a `github` link can never produce one; and the
+    `knowledge` skill has no action that sets a repository at all. A second
+    setting would be a second thing to get wrong guarding a path the owner
+    already had to name.
+  */
   const commit = await gitHead(root);
   if (!commit)
-    notes.push(
-      "this directory is not a git checkout, so there is no commit to pin the facts to and a refresh cannot tell whether it has changed.",
+    throw new Error(
+      `${root} is not a git checkout. A local repository has to be one: the refresh rule is ` +
+        `"re-read when HEAD moves", and up to sixteen files out of the directory are sent to a ` +
+        `model, so this refuses a path that is not a repository rather than reading whatever ` +
+        `is there.`,
     );
 
   const paths = walk(root);
@@ -840,7 +956,42 @@ export type ExtractResult = {
  * still land and the result says the model was not asked. That is a smaller
  * answer, not a failure — and it is the shape every collector on this box has.
  */
+/**
+ * ONE READ PER VENTURE AT A TIME.
+ *
+ * The tab's button and the skill's `request_refresh` reach the same function,
+ * and two of them on one venture is two sets of GitHub calls, two completions
+ * and two passes of the retire loop racing each other over the same rows — the
+ * second of which could retire what the first had just filed. In-memory rather
+ * than a table because it guards a request in THIS process and a lock that
+ * outlived a crash would be a repository nobody could read again.
+ */
+const reading = new Set<string>();
+
+export class RefreshBusyError extends Error {
+  constructor(ventureId: string) {
+    super(
+      `A repository read is already running for ${ventureId}. It takes a few seconds; ` +
+        `wait for it rather than starting a second one over the same facts.`,
+    );
+    this.name = "RefreshBusyError";
+  }
+}
+
 export async function refreshRepo(
+  ventureId: string,
+  opts: { force?: boolean; signal?: AbortSignal } = {},
+): Promise<ExtractResult> {
+  if (reading.has(ventureId)) throw new RefreshBusyError(ventureId);
+  reading.add(ventureId);
+  try {
+    return await refreshRepoInner(ventureId, opts);
+  } finally {
+    reading.delete(ventureId);
+  }
+}
+
+async function refreshRepoInner(
   ventureId: string,
   opts: { force?: boolean; signal?: AbortSignal } = {},
 ): Promise<ExtractResult> {
@@ -892,7 +1043,7 @@ export async function refreshRepo(
     material =
       target.kind === "local"
         ? await localMaterial(target.repo)
-        : await githubMaterial(target.repo);
+        : await githubMaterial(target.repo, Date.now() + FETCH_DEADLINE_MS);
   } catch (err) {
     out.error = err instanceof Error ? err.message : String(err);
     markRepo(ventureId, { error: out.error });
@@ -926,6 +1077,7 @@ export async function refreshRepo(
   out.direct = checked.length;
 
   let proposals: Proposal[] = [];
+  let modelAnswered = false;
   try {
     /* The owner's named model, or the provider's own choice. See the manifest
        header: this is the one job on this box where "let the gateway pick" is
@@ -949,6 +1101,11 @@ export async function refreshRepo(
     const g = gate(parsed?.facts, material.excerpts);
     proposals = g.kept;
     out.dropped = g.dropped;
+    /* The model was asked AND its answer was readable. Both halves matter to the
+       retire rule below: a provider that 502s and a provider that returns four
+       paragraphs of prose are both "the model did not tell us what this
+       repository contains", and neither is evidence that a capability is gone. */
+    modelAnswered = Boolean(parsed && Array.isArray(parsed.facts));
     /* WHAT IT ACTUALLY SAID, when nothing could be read out of it. "the answer
        had no facts array" is a count and not a diagnosis; a refusal, a
        truncation and an apology are three different problems with three
@@ -972,15 +1129,14 @@ export async function refreshRepo(
   out.proposed = proposals.length;
 
   /* ------------------------------------------------------------ the writes */
-  const before = new Set(
-    (
-      db
-        .prepare(
-          "SELECT id FROM knowledge_facts WHERE venture_id = ? AND tier = 'repo' AND status = 'active'",
-        )
-        .all(ventureId) as unknown as { id: string }[]
-    ).map((r) => r.id),
-  );
+  /* The confidence travels with the row because it is what says WHICH READER
+     produced it: `repoDirect` came from code walking the files, `repoModel`
+     from the completion. The retire rule below turns on that distinction. */
+  const before = db
+    .prepare(
+      "SELECT id, confidence FROM knowledge_facts WHERE venture_id = ? AND tier = 'repo' AND status = 'active'",
+    )
+    .all(ventureId) as unknown as { id: string; confidence: number }[];
   const seen = new Set<string>();
 
   const write = (f: { kind: FactKind; statement: string; citation: string }, confidence: number) => {
@@ -1004,21 +1160,39 @@ export async function refreshRepo(
   for (const f of checked) write(f, CONFIDENCE.repoDirect);
   for (const f of proposals) write(f, CONFIDENCE.repoModel);
 
-  /* Only when the reading actually produced something. A repository that
-     answered with nothing — a rate limit, a model refusal — must not retire
-     the whole of what is known about a product. */
-  if (seen.size) {
-    for (const id of before)
-      if (!seen.has(id)) {
-        db.prepare(
-          "UPDATE knowledge_facts SET status = 'retired' WHERE id = ? AND status = 'active'",
-        ).run(id);
-        out.retired++;
-      }
-  } else {
+  /*
+    A READER ONLY RETIRES WHAT IT IS RESPONSIBLE FOR, AND ONLY WHEN IT RAN.
+
+    There are two readers behind the `repo` tier and they fail independently.
+    The deterministic one walks files and always runs; if it produced nothing at
+    all the fetch itself failed and nothing is retired. The MODEL one is the one
+    that goes off this box, and it 502s, rate-limits and answers with prose —
+    all three of which happened during this feature's own verification. Retiring
+    on `seen.size` alone meant the deterministic readings landing were enough to
+    retire every model-tier fact the moment the provider hiccuped, and the next
+    success re-filed them as new rows.
+
+    So: direct facts are retired against a pass where direct facts were read, and
+    model facts only against a pass where the model actually answered. The
+    confidence on the row is the reader's signature.
+  */
+  const directRan = checked.length > 0;
+  if (!directRan)
     out.notes.push(
-      "this reading produced no facts, so nothing already on file was retired — an empty read is not evidence that a capability is gone.",
+      "this reading produced no facts of its own, so nothing already on file was retired — an empty read is not evidence that a capability is gone.",
     );
+  if (!modelAnswered)
+    out.notes.push(
+      "the model did not answer readably this time, so nothing it had filed before was retired.",
+    );
+  for (const row of before) {
+    if (seen.has(row.id)) continue;
+    const byModel = row.confidence <= CONFIDENCE.repoModel;
+    if (byModel ? !modelAnswered : !directRan) continue;
+    db.prepare(
+      "UPDATE knowledge_facts SET status = 'retired' WHERE id = ? AND status = 'active'",
+    ).run(row.id);
+    out.retired++;
   }
 
   markRepo(ventureId, {

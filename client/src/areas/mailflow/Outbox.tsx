@@ -119,7 +119,7 @@ function Reasons({ id }: { id: number }) {
               )}
             >
               {doc.validation.by === "model"
-                ? `Worded by ${doc.validation.model ?? "the model"}; every number, amount, date, link and address in it was checked against the facts below.`
+                ? `Worded by ${doc.validation.model ?? "the model"}; every number, amount, date, link and address in it appears somewhere in the facts below. Money is checked with its currency; the rest is membership of one pooled set, so this is a floor on fabrication rather than a proof that a figure belongs where it was used.`
                 : `The model's wording was NOT used — ${doc.validation.why}. This is the deterministic wording built from the same facts.`}
               {doc.validation.refusals.length > 0 && ` (${doc.validation.refusals.join("; ")})`}
             </p>
@@ -286,9 +286,15 @@ function Card({
           {item.hasReasons && <Reasons id={item.id} />}
 
           {item.fromError && (
-            <p role="alert" className="text-warn mt-2 text-[12.5px]">
+            <p role="alert" className="text-destructive mt-2 text-[12.5px]">
               This cannot be sent as written: {item.fromError}
             </p>
+          )}
+          {/* A WARNING IS NOT A REFUSAL. A domain mid-propagation still drafts
+              and still sends; this is the sentence that should reach the owner
+              before he approves rather than as a 4xx afterwards. */}
+          {!item.fromError && item.fromWarning && (
+            <p className="text-warn mt-2 text-[12.5px]">{item.fromWarning}</p>
           )}
           {item.error && (
             <p role="alert" className="text-destructive mt-2 text-[12.5px]">{item.error}</p>

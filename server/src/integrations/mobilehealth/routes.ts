@@ -41,10 +41,17 @@ import { serviceHeaders } from "../../auth.ts";
 import { getPlugin } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
 import { mintToken } from "../../providers/appstore.ts";
-import { INSTALL_METRICS, RATING_METRICS, CRASH_METRICS, ANALYTICS_REPORTS, starHistogram } from "./parsers.ts";
+import {
+  ANALYTICS_METRIC_KINDS,
+  ANALYTICS_REPORTS,
+  CRASH_METRICS,
+  INSTALL_METRICS,
+  RATING_METRICS,
+  starHistogram,
+} from "./parsers.ts";
 import * as store from "./store.ts";
 import { appStoreIdentities, createAnalyticsRequest } from "./appstore.ts";
-import { collectNow, passRunning } from "./collect.ts";
+import { collectNow, nextPassDue, passRunning } from "./collect.ts";
 import { HEALTH_DAYS, VITALS_DAYS } from "./play.ts";
 
 export const mobileHealthRoutes = new Hono();
@@ -64,15 +71,30 @@ function window(c: { req: { query: (k: string) => string | undefined } }) {
   return { days, since: isoDay(days), clamped: asked !== days ? asked : null };
 }
 
-/** Which kind a metric is, so the reader never has to guess from its name. */
+/**
+ * Which kind a metric is, so the reader never has to guess from its name.
+ *
+ * APPLE'S METRICS ARE LOOKED UP, NOT INFERRED FROM THE DOT. A rule of "it has
+ * a dot, so it is an event" made `engagement.unique_counts`,
+ * `installs.unique_devices`, `sessions.unique_devices` and
+ * `purchases.paying_users` summable — and Apple's unique counts are distinct
+ * WITHIN A DAY, so thirty of them added counts one device up to thirty times.
+ * That is the same arithmetic this document's own stability rules forbid for
+ * `distinctUsers`. `ANALYTICS_METRIC_KINDS` is derived from the report
+ * definitions, so a metric added there cannot be missed here.
+ */
 function metricKind(metric: string): "event" | "level" | "rate" | "unknown" {
+  const apple = ANALYTICS_METRIC_KINDS[metric];
+  if (apple) return apple;
   const bare = metric.includes(".") ? metric.split(".")[1]! : metric;
   const spec =
     INSTALL_METRICS[bare] ?? RATING_METRICS[bare] ?? CRASH_METRICS[bare] ?? null;
   if (spec) return spec.kind;
   if (metric === "crashRate" || metric === "anrRate") return "rate";
   if (metric === "distinctUsers") return "level";
-  // An App Store analytics metric ("downloads.counts", "sessions.sessions").
+  // An App Store analytics metric this file has no definition for. Treated as
+  // an event because that is what Apple's plain counts are, and any metric
+  // that is not one is named in ANALYTICS_METRIC_KINDS above.
   if (metric.includes(".")) return "event";
   return "unknown";
 }
@@ -106,6 +128,11 @@ function readinessDoc() {
     },
     lastCollected: store.lastSeen(),
     collecting: passRunning(),
+    /** The six-hour clock, read off the RUNS LEDGER rather than a variable, so
+     *  it survives the restart this server makes on every save to server/src.
+     *  A `dueAt` that jumped forward after a restart would be the bug this
+     *  replaced: a full pass fifteen minutes after every edit. */
+    schedule: { everyHours: 6, ...nextPassDue() },
     /** The credential's reach, per grant. A false here explains every null in
      *  the block that grant feeds and nothing else. */
     probes: store.probes().map((p) => ({
@@ -134,7 +161,8 @@ function readinessDoc() {
       present: "rows arrived and were ingested",
       absent: "the report is not in the bucket, or Apple lists no report by that name",
       empty: "the report exists and carried no rows for the window",
-      requested: "no ongoing analytics request exists — Apple will generate nothing until one is made",
+      not_requested:
+        "NO ongoing analytics request exists on Apple's side — nothing will be generated until one is made. `processing` is the opposite: the request exists and Apple has not produced an instance yet.",
       processing: "Apple lists the report and has produced no instance of it yet",
       available: "instances exist and were downloaded",
       delayed: "instances exist but the newest is older than Apple's own two-day lag allows",
@@ -276,11 +304,20 @@ mobileHealthRoutes.get("/conversion", (c) => {
   const perDay = new Map<string, { visitors: number | null; acquisitions: number | null }>();
   const perSlice = new Map<string, Map<string, { visitors: number | null; acquisitions: number | null }>>();
 
+  /*
+    EXACTLY ONE CUT IS SUMMED INTO THE TOTALS, AND IT IS CHOSEN FROM WHAT IS
+    THERE. The slices of two different cuts of the same report are the same
+    visitors counted twice, so `apps` and `days` may only ever come from one of
+    them. `country` is preferred because every era of this export carries it —
+    but a bucket that has only `traffic_source` used to answer `measured: true`
+    with an empty `apps`, which reads as "nobody visited". The cut actually
+    used is published as `totalsFrom` so a reader can see which one it was.
+  */
+  const present = [...new Set(rows.map((r) => r.dimension))];
+  const totalsFrom = present.includes("country") ? "country" : (present[0] ?? null);
+
   for (const r of rows) {
-    // Only ONE dimension is summed into the totals, because the slices of two
-    // different cuts of the same report are the same visitors counted twice.
-    // `country` is the cut every era of this export carries.
-    if (r.dimension === "country") {
+    if (r.dimension === totalsFrom) {
       const a = perApp.get(r.app) ?? { visitors: null, acquisitions: null };
       if (r.visitors !== null) a.visitors = (a.visitors ?? 0) + r.visitors;
       if (r.acquisitions !== null) a.acquisitions = (a.acquisitions ?? 0) + r.acquisitions;
@@ -313,6 +350,11 @@ mobileHealthRoutes.get("/conversion", (c) => {
       : reports.length
         ? reports.map((r) => `${r.app} ${r.report}: ${r.state}${r.detail ? ` — ${r.detail}` : ""}`).join("; ")
         : "nothing has been collected yet — run POST /api/mobilehealth/collect",
+    /** Which cut of the report `apps` and `days` were summed from, and which
+     *  others exist. They are the same visitors cut differently and are never
+     *  added together. */
+    totalsFrom,
+    cuts: present,
     apps: [...perApp].map(([app_, v]) => ({
       app: app_,
       visitors: v.visitors,
@@ -344,7 +386,7 @@ mobileHealthRoutes.get("/conversion", (c) => {
     source: "Google Play Console stats/store_performance/ — Android only. The App Store has no equivalent export.",
     rules: [
       "The rate is acquisitions divided by visitors OVER THE WINDOW. Never the mean of the daily rates in the file.",
-      "`by.country` and `by.traffic_source` are two cuts of the SAME visitors. Never add them together.",
+      "`apps` and `days` are summed from ONE cut only, named in `totalsFrom`. `by.country` and `by.traffic_source` are two cuts of the SAME visitors — never add them together, and never add a `by` block to the totals.",
       "A visitor is a store listing visit, not a website visit, and an acquisition is a first install from that listing.",
     ],
     generatedAt: new Date().toISOString(),
@@ -457,8 +499,10 @@ function stabilityDoc(days: number, appFilter?: string, storeFilter?: string) {
         days: new Map<string, number>(),
         byVersion: new Map<string, number>(),
       };
-    if (r.dimension === "(all)")
-      s.days.set(r.day, (s.days.get(r.day) ?? 0) + (r.unit === "rate" ? r.amount : r.amount));
+    /* Only the COUNT sources reach this map: rate rows carry no "(all)" row —
+       the Reporting API is asked by version code — and are re-weighted below
+       rather than added. So this addition is over counts, which do add. */
+    if (r.dimension === "(all)") s.days.set(r.day, (s.days.get(r.day) ?? 0) + r.amount);
     else if (r.dimension === "app_version" || r.dimension === "app_version_code")
       s.byVersion.set(r.value, (s.byVersion.get(r.value) ?? 0) + r.amount);
     series.set(key, s);
@@ -609,9 +653,25 @@ mobileHealthRoutes.get("/stability", (c) => {
 
 /* --------------------------------------------------------------- reviews */
 
+/**
+ * How many rows the AGGREGATES are computed over.
+ *
+ * Every figure on this document except `reviews` — the histogram, the average,
+ * the per-day bars, the per-version averages — is computed over the window's
+ * rows, and this is the ceiling on how many of those are read. It is published
+ * beside `inWindow` so a caller can see when a figure became a floor rather
+ * than a total; on any account this is meant for it is thousands of times the
+ * real number.
+ */
+export const REVIEW_AGGREGATE_CAP = 5000;
+
 function reviewDoc(opts: {
   days: number;
   limit: number;
+  /** What the caller ASKED for, before `window()` clamped it. Published so a
+   *  `days=180` that was answered over 60 says so rather than looking like an
+   *  answer about 180 days. */
+  clampedFrom?: number | null;
   store?: string;
   app?: string;
   minRating?: number;
@@ -626,7 +686,12 @@ function reviewDoc(opts: {
     since,
     limit: opts.limit,
   });
-  const all = store.reviews({ store: opts.store, app: opts.app, since, limit: 5000 });
+  const all = store.reviews({
+    store: opts.store,
+    app: opts.app,
+    since,
+    limit: REVIEW_AGGREGATE_CAP,
+  });
 
   const rated = all.filter((r) => typeof r.rating === "number");
   const perDay = new Map<string, Record<string, number>>();
@@ -650,9 +715,22 @@ function reviewDoc(opts: {
   const filed = new Set(store.filedReviews(all.map((r) => r.id)).map((f) => f.review_id));
 
   return {
-    window: { days: opts.days, from: since, to: isoDay(0) },
+    window: {
+      days: opts.days,
+      from: since,
+      to: isoDay(0),
+      clampedFrom: opts.clampedFrom ?? null,
+    },
     counts: store.reviewCounts(),
     inWindow: all.length,
+    /** The aggregates below cover at most this many rows. `inWindow` equal to
+     *  it means the window is bigger than what was read and every aggregate is
+     *  a FLOOR, not a total. */
+    aggregateCap: REVIEW_AGGREGATE_CAP,
+    aggregatesComplete: all.length < REVIEW_AGGREGATE_CAP,
+    /** How many reviews the `reviews` list itself carries, which is a
+     *  different and smaller number — the aggregates do not depend on it. */
+    listed: rows.length,
     /** All five keys, always. A breakdown that omits the stars nobody gave
      *  makes "no one-star reviews" and "we did not look" the same shape. */
     stars: starHistogram(rated),
@@ -708,6 +786,7 @@ mobileHealthRoutes.get("/reviews", (c) => {
     reviewDoc({
       days: w.days,
       limit,
+      clampedFrom: w.clamped,
       store: storeOf(c),
       app: c.req.query("app") ?? undefined,
       minRating: min ? Number(min) : undefined,
@@ -715,6 +794,33 @@ mobileHealthRoutes.get("/reviews", (c) => {
     }),
   );
 });
+
+/**
+ * Themes already computed, keyed by the exact set of reviews they were read
+ * from.
+ *
+ * IN MEMORY AND BOUNDED, deliberately not a table. It is a cache of a model's
+ * opinion, not a measurement: nothing downstream may cite it as a stored fact,
+ * and a restart losing it costs one model call. The bound is what stops a
+ * long-lived process accumulating one entry per review that has ever arrived.
+ */
+type Theme = { theme: string; sentiment: string; reviewIds: string[] };
+type CachedThemes = { themes: Theme[]; note: string | null; model: string | null; at: number };
+
+const themeCache = new Map<string, CachedThemes>();
+const THEME_CACHE_MS = 6 * 60 * 60 * 1000;
+const THEME_CACHE_MAX = 32;
+
+function rememberThemes(key: string, value: CachedThemes) {
+  themeCache.set(key, value);
+  // Oldest first: Map preserves insertion order, so the first key is the one
+  // that has been there longest.
+  while (themeCache.size > THEME_CACHE_MAX) {
+    const oldest = themeCache.keys().next();
+    if (oldest.done) break;
+    themeCache.delete(oldest.value);
+  }
+}
 
 /**
  * THE TREND SUMMARY — ratings by version, and the themes a model read out of
@@ -736,18 +842,41 @@ mobileHealthRoutes.get("/reviews/trend", async (c) => {
   const doc = reviewDoc({
     days: w.days,
     limit: n,
+    clampedFrom: w.clamped,
     store: storeOf(c),
     app: c.req.query("app") ?? undefined,
   });
   const withText = doc.reviews.filter((r) => (r.body ?? "").trim() || (r.title ?? "").trim());
 
-  let themes: { theme: string; sentiment: string; reviewIds: string[] }[] = [];
+  let themes: Theme[] = [];
   let themeNote: string | null = null;
   let model: string | null = null;
+  let cached = false;
 
-  if (!withText.length) {
+  /*
+    THE MODEL IS ASKED ONCE PER SET OF REVIEWS, NOT ONCE PER READ.
+
+    This is a GET, and a GET is what an alert snapshot, the client's poll and
+    an agent's second look all make — so an uncached `complete()` here would
+    spend tokens every half hour on an answer that cannot have changed. The
+    key is the EXACT set of review ids that were read: reviews are immutable
+    once caught (an edit changes the text and keeps the id, which is a real
+    change and is handled by including the updated stamp), so the same set
+    means the same input and therefore the same answer. A new review changes
+    the key and the model is asked again.
+  */
+  const key = withText.map((r) => `${r.id}@${r.updated ?? ""}`).join("|");
+
+  const wanted = (c.req.query("themes") ?? "").toLowerCase();
+  const hit = key && wanted !== "refresh" ? themeCache.get(key) : undefined;
+  if (hit && Date.now() - hit.at < THEME_CACHE_MS) {
+    themes = hit.themes;
+    themeNote = hit.note;
+    model = hit.model;
+    cached = true;
+  } else if (!withText.length) {
     themeNote = `No review in the last ${w.days} days carries any text, so there is nothing to read themes out of.`;
-  } else if (c.req.query("themes") === "off") {
+  } else if (wanted === "off") {
     themeNote = "Themes were not asked for (themes=off).";
   } else {
     const lines = withText.map(
@@ -802,6 +931,10 @@ mobileHealthRoutes.get("/reviews/trend", async (c) => {
     } catch (err) {
       themeNote = `Themes were not computed: ${err instanceof Error ? err.message : String(err)}`;
     }
+    /* Remembered whatever happened — including a refusal. Retrying a provider
+       error on every poll is the same runaway the cache exists to stop, and
+       the note says what went wrong. `themes=refresh` is the way past it. */
+    if (key) rememberThemes(key, { themes, note: themeNote, model, at: Date.now() });
   }
 
   return c.json({
@@ -815,15 +948,50 @@ mobileHealthRoutes.get("/reviews/trend", async (c) => {
     themes,
     themeNote,
     model,
+    /** True when the themes came back without asking the model. This is a GET
+     *  and a GET must not spend tokens on every read; the answer is kept
+     *  against the exact set of review ids it was computed from. */
+    cached,
     basis: doc.basis,
     rules: [
       ...doc.rules,
       "Themes are a MODEL'S reading of the review texts, not a measurement. Every theme cites the review ids it came from and an id that was not in the input is dropped before publication.",
       `Themes are computed over the ${n} most recent reviews with text in the window, no more.`,
+      "Themes are cached against the exact set of review ids they were read from, so this view does not spend model tokens on every read. `cached: true` means no model was called; a new or edited review changes the set and the model is asked again.",
     ],
     generatedAt: new Date().toISOString(),
   });
 });
+
+/**
+ * The ids a caller sent, however they sent them.
+ *
+ * A JSON ARRAY *AND* A COMMA-SEPARATED STRING, because both arrive in
+ * practice: the page sends an array, and the skill proxy sends whatever the
+ * action's parameter TYPE says — and a skill parameter can only be `number` or
+ * `string` (see skills/registry.ts). Declaring it a string and accepting only
+ * an array is how `opc reviews send_to_board --reviewIds abc` 400s on a route
+ * a curl can drive perfectly. `activity`'s skills take lists the same way.
+ */
+export function readReviewIds(raw: unknown): string[] {
+  const parts = Array.isArray(raw)
+    ? raw.map((v) => String(v))
+    : typeof raw === "string"
+      ? raw.split(",")
+      : [];
+  const out: string[] = [];
+  for (const p of parts) {
+    const id = p.trim();
+    // De-duplicated here rather than downstream: the same id twice would count
+    // twice in the card's own header and in the reply's `filed`.
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/** How many reviews may ride on one card. A card is something a person reads
+ *  in one sitting, and twenty-five excerpts is already long. */
+export const MAX_TRIAGE_REVIEWS = 25;
 
 /**
  * SEND REVIEWS TO THE BOARD.
@@ -833,6 +1001,13 @@ mobileHealthRoutes.get("/reviews/trend", async (c) => {
  * validation, and a second writer reaching into `board_cards` is how two
  * cards end up at position 3. The review ids are recorded against the card so
  * the same complaint does not become five identical cards over five runs.
+ *
+ * A REVIEW ALREADY ON A CARD IS NEVER MOVED. `mobile_review_cards` is keyed on
+ * the review, so filing an already-filed id again would REPOINT it at the new
+ * card and quietly erase the record that it is on the old one — the review
+ * would then sit on two cards with only one of them known. So the already-filed
+ * ids are separated out, reported back with the card they are on, and only the
+ * remainder is filed. Nothing left to file is a 409 rather than an empty card.
  */
 mobileHealthRoutes.post("/reviews/triage", async (c) => {
   const body = (await c.req.json().catch(() => null)) as {
@@ -843,25 +1018,40 @@ mobileHealthRoutes.post("/reviews/triage", async (c) => {
   } | null;
   if (!body) return c.json({ error: "Expected a JSON body." }, 400);
 
-  const ids = Array.isArray(body.reviewIds) ? body.reviewIds.map(String).filter(Boolean) : [];
+  const ids = readReviewIds(body.reviewIds);
   if (!ids.length)
-    return c.json({ error: "reviewIds is required — a list of review ids from /api/mobilehealth/reviews." }, 400);
-  if (ids.length > 25) return c.json({ error: "At most 25 reviews on one card." }, 400);
+    return c.json(
+      {
+        error:
+          "reviewIds is required — review ids from /api/mobilehealth/reviews, as a JSON array or a comma-separated string.",
+      },
+      400,
+    );
+  if (ids.length > MAX_TRIAGE_REVIEWS)
+    return c.json({ error: `At most ${MAX_TRIAGE_REVIEWS} reviews on one card.` }, 400);
 
-  const rows = store.reviewsByIds(ids);
-  const missing = ids.filter((id) => !rows.some((r) => r.id === id));
-  if (!rows.length)
+  const held = store.reviewsByIds(ids);
+  const missing = ids.filter((id) => !held.some((r) => r.id === id));
+  if (!held.length)
     return c.json(
       { error: `No review on this box has any of those ids. Unknown: ${missing.slice(0, 5).join(", ")}` },
       404,
     );
 
-  const already = store.filedReviews(rows.map((r) => r.id));
-  if (already.length === rows.length)
+  const already = store.filedReviews(held.map((r) => r.id));
+  const filedIds = new Set(already.map((a) => a.review_id));
+  const rows = held.filter((r) => !filedIds.has(r.id));
+  if (!rows.length)
     return c.json(
       {
-        error: `Every one of those reviews is already on card ${already[0]!.card_id}.`,
+        error:
+          already.length === 1
+            ? `That review is already on card ${already[0]!.card_id}.`
+            : `Every one of those reviews is already filed — on card(s) ${[
+                ...new Set(already.map((a) => a.card_id)),
+              ].join(", ")}.`,
         cardId: already[0]!.card_id,
+        alreadyFiled: already.map((a) => ({ reviewId: a.review_id, cardId: a.card_id })),
       },
       409,
     );
@@ -904,10 +1094,22 @@ mobileHealthRoutes.post("/reviews/triage", async (c) => {
       columns?: { cards?: { id: number; title: string }[] }[];
     };
     if (!res.ok) return c.json({ error: doc.error ?? `The board answered HTTP ${res.status}.` }, 502);
-    // The board answers with the whole board; the new card is the newest one
-    // carrying this title.
+    /*
+      THE NEW CARD IS THE ONE WITH THE HIGHEST ID, NOT THE LAST IN THE LIST.
+      The board answers with the whole board, flattened column by column and
+      then by POSITION — so "the last card with this title" is whichever such
+      card sits furthest right, which on a repeated default title ("3 app
+      reviews to answer") is an OLDER card in a later column. The id is
+      monotonic and the row was just inserted, so the largest id is this one.
+    */
     const cards = (doc.columns ?? []).flatMap((col) => col.cards ?? []);
-    card = cards.filter((x) => x.title === title).at(-1) ?? null;
+    card =
+      cards
+        .filter((x) => x.title === title)
+        .reduce<{ id: number; title: string } | null>(
+          (best, x) => (best === null || x.id > best.id ? x : best),
+          null,
+        ) ?? null;
   } catch (err) {
     return c.json(
       { error: `Could not reach the board: ${err instanceof Error ? err.message : String(err)}` },
@@ -925,10 +1127,15 @@ mobileHealthRoutes.post("/reviews/triage", async (c) => {
     {
       cardId: card.id,
       title,
+      /** Exactly what went onto THIS card, and nothing that was already on
+       *  another one — the two lists never overlap. */
       filed: rows.map((r) => r.id),
-      alreadyFiled: already.map((a) => a.review_id),
+      alreadyFiled: already.map((a) => ({ reviewId: a.review_id, cardId: a.card_id })),
       notFound: missing,
-      note: "The card holds the review ids so the same reviews are not filed twice. Replying to a review is out of scope for this box.",
+      note:
+        "The card holds the review ids so the same reviews are not filed twice. A review already on a card " +
+        "stays on it — it is reported under alreadyFiled with that card's id and is left off this one. " +
+        "Replying to a review is out of scope for this box.",
     },
     201,
   );
@@ -1092,7 +1299,7 @@ mobileHealthRoutes.get("/", (c) => {
   const w = window(c);
   const readiness = readinessDoc();
   const stability = stabilityDoc(w.days);
-  const reviews = reviewDoc({ days: w.days, limit: 5 });
+  const reviews = reviewDoc({ days: w.days, limit: 5, clampedFrom: w.clamped });
 
   return c.json({
     window: { days: w.days, from: w.since, to: isoDay(0), clampedFrom: w.clamped },
@@ -1102,10 +1309,18 @@ mobileHealthRoutes.get("/", (c) => {
     probes: readiness.probes,
     readinessCounts: readiness.counts,
     dimensions: store.dimensionIndex(),
+    /** Which Apple reports this area asks for, with each metric's unit and
+     *  whether it may be summed over days — a `level` here is Apple's own
+     *  per-day distinct count and adding thirty of them counts one device
+     *  thirty times. */
     analyticsReports: Object.entries(ANALYTICS_REPORTS).map(([name, spec]) => ({
       name,
       key: spec.key,
-      metrics: spec.metrics,
+      metrics: Object.entries(spec.metrics).map(([metric, m]) => ({
+        metric,
+        unit: m.unit,
+        kind: m.kind,
+      })),
       dimensions: spec.dims,
     })),
     stability: {

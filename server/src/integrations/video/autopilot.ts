@@ -40,6 +40,23 @@
  * this week" with silence, and silence sends somebody looking for a bug in a
  * feature that is doing exactly what it was told.
  *
+ * THE TOPIC IS GATED BEFORE IT IS PAID FOR, added 2026-09-06. A derived topic
+ * now goes through integrations/socialfeed/novelty.ts BEFORE any Studio call
+ * or any run is queued: a topic whose normalised fingerprint was already used
+ * for this venture and this format inside the novelty window is REFUSED, the
+ * refusal is logged as a skip with the clash quoted, and nothing is spent. The
+ * "recent briefs in the prompt" trick below is still there and is still worth
+ * having — it makes a good topic more likely — but an instruction to a model
+ * is not a constraint, and the gate is the constraint.
+ *
+ * AND `shorts` IS NO LONGER IMPOSSIBLE. This file used to say, in its own
+ * settings hint, that a shorts job needs a source URL the autopilot has no way
+ * to invent. It can now: integrations/socialfeed/sourcing.ts searches the
+ * owner's own SearXNG node's video category, ranks what comes back by duration,
+ * recency and engine agreement, refuses anything already cut up, and hands back
+ * one URL. With no SearXNG connected there is no source and the pass logs a
+ * skip that says so.
+ *
  * THE TOPIC IS DERIVED, NOT TYPED. A brief for a post or a video comes from
  * the venture record and from what this box has recently run and made for it,
  * put to the model as one question. With no model provider there is no topic,
@@ -59,6 +76,13 @@ import { ensureTeam, subagentId, subagentRow } from "../subagents/store.ts";
    thing a setting there can do is propose a date. The claim in this file's
    header stands: nothing here publishes anything anywhere. */
 import { onAutopilotAsset } from "../publishing/autopilot-hook.ts";
+/* THE TWO LINES THAT CONNECT THIS TO SOURCING AND NOVELTY, added 2026-09-06 by
+   the socialfeed area. Both are ordinary static imports of modules that reach
+   nothing but db.ts and the providers — neither closes a manifest cycle, and
+   the delivery half, which DOES reach the telegram bridge, is a timer in that
+   area rather than a call from here. */
+import { checkTopic, historyRows, remember } from "../socialfeed/novelty.ts";
+import { findSource } from "../socialfeed/sourcing.ts";
 
 export const AUTOPILOT_PLUGIN = "autopilot";
 
@@ -90,9 +114,10 @@ export type Schedule = {
   timezone: string;
   /** Stage names, lower case. A venture at one of these is skipped. */
   quiet: string[];
-  /** Which video formats a pass may queue. `shorts` needs a URL, which the
-   *  autopilot has no way to invent, so only `faceless` is ever useful here —
-   *  the setting exists so the answer is a setting rather than a constant. */
+  /** Which video formats a pass may queue. `shorts` needs a source URL, and
+   *  since 2026-09-06 the pass can find one — see integrations/socialfeed/
+   *  sourcing.ts — so both are useful. Only the FIRST is used per pass; a list
+   *  of two is not "make both". */
   formats: string[];
   cap: number;
 };
@@ -270,13 +295,36 @@ function queuedToday(tz: string): number {
  * business whose pricing this box has never seen is a brief that produces a
  * post full of invented numbers.
  */
-async function deriveTopic(v: VentureRow, kind: "post" | "video"): Promise<{ topic: string } | { error: string }> {
+async function deriveTopic(
+  v: VentureRow,
+  kind: "post" | "video",
+  /** The format the gate will judge this topic under. IT MUST BE THE SAME ONE
+   *  the branch is about to queue — see the `used` lookup below. */
+  format: string,
+): Promise<{ topic: string } | { error: string }> {
   const runs = db
     .prepare("SELECT title, finished_at FROM agent_runs WHERE venture_id = ? AND status = 'done' ORDER BY finished_at DESC LIMIT 5")
     .all(v.id) as unknown as { title: string; finished_at: string }[];
   const posts = db
     .prepare("SELECT brief, ts FROM studio_posts WHERE venture_id = ? ORDER BY ts DESC LIMIT 5")
     .all(v.id) as unknown as { brief: string; ts: string }[];
+  /* THE DURABLE HISTORY, and not just the Studio's own rows. `content_history`
+     remembers every topic this box has committed to for this venture in this
+     format, including the videos — which the studio_posts table has never
+     known about. Ten rather than five: the gate refuses a clash anyway, so a
+     longer list here is a cheaper way to avoid one than a refusal is.
+
+     THE FORMAT IS PASSED IN AND WAS ONCE HARD-CODED TO "faceless", which was a
+     deadlock waiting for the first owner who set the format to `shorts`: the
+     prompt would be handed zero previous briefs while the gate compared
+     against the `shorts` history, so the model would re-derive yesterday's
+     subject, the gate would refuse it, and the pass would log a skip — every
+     day, forever, with nothing ever queued. The two must read the same rows.
+
+     ARCHIVED ROWS ARE EXCLUDED, for the same reason the gate excludes them:
+     a topic the owner set aside is one they want back, and listing it as
+     "do not repeat" would be the prompt re-imposing what the archive lifted. */
+  const used = historyRows({ ventureId: v.id, format, limit: 10, archived: false });
 
   const system = [
     `You choose what a small software business should make a short ${kind === "video" ? "video" : "social post"} about this week. You answer with ONE LINE and nothing else — no quotes, no preamble, no explanation. It is a BRIEF, not the post: "the three things people get wrong about planning permission", not a finished caption.`,
@@ -294,7 +342,8 @@ async function deriveTopic(v: VentureRow, kind: "post" | "video"): Promise<{ top
     `STAGE: ${v.stage}`,
     v.description ? `WHAT IT IS: ${v.description}` : `The owner has written no description.`,
     ``,
-    posts.length ? `RECENT BRIEFS, newest first:` : `Nothing has been made for this business yet.`,
+    posts.length || used.length ? `RECENT BRIEFS, newest first. DO NOT REPEAT ANY OF THESE:` : `Nothing has been made for this business yet.`,
+    ...used.map((h) => `- ${h.topic}`),
     ...posts.map((p) => `- ${p.brief}`),
     runs.length ? `` : ``,
     ...(runs.length ? [`RECENT WORK ON THIS BOX:`, ...runs.map((r) => `- ${r.title}`)] : []),
@@ -410,12 +459,24 @@ export async function runPass(trigger: "clock" | "manual"): Promise<PassResult> 
         if (made >= s.posts) {
           record({ v, kind: "post", action: "skipped", note: `${made} posts already queued in the last seven days, and the cadence is ${s.posts}` });
         } else {
-          const topic = await deriveTopic(v, "post");
+          const topic = await deriveTopic(v, "post", "post");
           if ("error" in topic) record({ v, kind: "post", action: "failed", note: `no topic could be derived — ${topic.error}` });
           else {
-            const post = await makePost(v, topic.topic);
-            if ("error" in post) record({ v, kind: "post", action: "failed", note: post.error });
-            else {
+            /* THE GATE, BEFORE THE STUDIO CALL AND THEREFORE BEFORE THE MONEY.
+               A refusal is a SKIP and not a failure: nothing broke, a duplicate
+               post was prevented, and the sentence quotes the clash.
+
+               A BRANCH RATHER THAN A `continue` OUT OF THE VENTURE LOOP,
+               because a refused POST must not cost this venture its VIDEO —
+               the two cadences are independent and a repeat of one is not a
+               repeat of the other. */
+            const gate = checkTopic(v.id, "post", topic.topic);
+            const post = gate.ok ? await makePost(v, topic.topic) : null;
+            if (!post) {
+              record({ v, kind: "post", action: "skipped", note: `“${topic.topic}” was refused — ${gate.reason}` });
+            } else if ("error" in post) {
+              record({ v, kind: "post", action: "failed", note: post.error });
+            } else {
               /* Filed into the publishing queue as a draft. Its outcome is
                  appended to the log line rather than being a log line of its
                  own: the thing that happened is that a post was queued, and a
@@ -425,6 +486,17 @@ export async function runPass(trigger: "clock" | "manual"): Promise<PassResult> 
                 ventureId: v.id,
                 ventureSlug: v.slug,
                 source: { kind: "studio_post", id: post.id },
+              });
+              /* FILED IN THE HISTORY AT THE MOMENT IT IS QUEUED, not when it
+                 finishes. A post that failed to render still used up its
+                 topic; re-deriving the same subject tomorrow because tonight's
+                 image call timed out would be the gate failing open. */
+              remember({
+                ventureId: v.id,
+                format: "post",
+                topic: topic.topic,
+                assetKind: "studio_post",
+                assetRef: post.id,
               });
               record({
                 v,
@@ -451,12 +523,62 @@ export async function runPass(trigger: "clock" | "manual"): Promise<PassResult> 
             note: `the run queue already has ${queuedCount()} waiting${runningRow() ? ` and one running` : ""} — the autopilot does not push the owner's own work down the line`,
           });
         } else {
-          const topic = await deriveTopic(v, "video");
+          /* THE FORMAT IS DECIDED BEFORE THE TOPIC, so the prompt and the gate
+             read the same history. See deriveTopic. */
+          const format = s.formats[0] ?? "faceless";
+          const topic = await deriveTopic(v, "video", format);
           if ("error" in topic) record({ v, kind: "video", action: "failed", note: `no topic could be derived — ${topic.error}` });
           else {
-            const run = queueVideo(v, topic.topic, s.formats[0] ?? "faceless");
+            /* THE GATE, BEFORE THE SOURCE SEARCH AND BEFORE THE RUN. A shorts
+               job's search costs a request on the owner's own node and a
+               handful of metadata reads; a faceless run costs Pexels quota and
+               ten minutes of CPU. Neither is spent on a repeat. */
+            const gate = checkTopic(v.id, format, topic.topic);
+            if (!gate.ok) {
+              record({ v, kind: "video", action: "skipped", note: `“${topic.topic}” was refused — ${gate.reason}` });
+              continue;
+            }
+
+            /* THE SOURCE, FOR THE ONE FORMAT THAT NEEDS ONE. This is what the
+               settings hint used to say was impossible. A format that does not
+               need a URL skips this entirely and costs nothing. */
+            let url: string | null = null;
+            let source: { url: string; id: string | null } | null = null;
+            if (format === "shorts") {
+              const found = await findSource(v, topic.topic, { signal: undefined });
+              if ("error" in found) {
+                record({
+                  v,
+                  kind: "video",
+                  action: "skipped",
+                  note: `no source video could be found for “${topic.topic}” — ${found.error}`,
+                });
+                continue;
+              }
+              url = found.url;
+              source = { url: found.url, id: found.candidate.sourceId };
+            }
+
+            const run = queueVideo(v, topic.topic, format, url);
             if ("error" in run) record({ v, kind: "video", action: "failed", note: run.error });
-            else record({ v, kind: "video", action: "queued", ref: run.id, note: topic.topic });
+            else {
+              remember({
+                ventureId: v.id,
+                format,
+                topic: topic.topic,
+                sourceUrl: source?.url ?? null,
+                sourceId: source?.id ?? null,
+                assetKind: "run",
+                assetRef: run.id,
+              });
+              record({
+                v,
+                kind: "video",
+                action: "queued",
+                ref: run.id,
+                note: source ? `${topic.topic} — cut from ${source.url}` : topic.topic,
+              });
+            }
           }
         }
       }
@@ -517,14 +639,21 @@ async function makePost(v: VentureRow, brief: string): Promise<{ id: string } | 
  * how the owner says "not this one", and a path that went round it would make
  * that switch a decoration.
  */
-function queueVideo(v: VentureRow, brief: string, format: string): { id: string } | { error: string } {
+function queueVideo(
+  v: VentureRow,
+  brief: string,
+  format: string,
+  /** The source a `shorts` job cuts up, found by the sourcing pass. Null for
+   *  every format that does not need one. */
+  url: string | null = null,
+): { id: string } | { error: string } {
   ensureTeam(v.id);
   const row = subagentRow(subagentId(v.id, "producer"));
   if (!row) return { error: `${v.name} has no video producer.` };
   const body: DispatchBody = {
     brief,
     parentSessionId: AUTOPILOT_SESSION,
-    input: { format },
+    input: url ? { format, url } : { format },
   };
   const res = dispatch(row, body);
   if (res.status !== 201) {

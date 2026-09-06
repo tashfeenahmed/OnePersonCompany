@@ -97,6 +97,10 @@ export type Conversion = {
   window: { days: number; from: string; to: string; clampedFrom: number | null };
   measured: boolean;
   reason: string | null;
+  /** Which cut of the report `apps` and `days` were summed from — the slices
+   *  of two cuts are the same visitors twice, so only one may be totalled. */
+  totalsFrom: string | null;
+  cuts: string[];
   apps: { app: string; visitors: number | null; acquisitions: number | null; rate: number | null }[];
   days: { day: string; visitors: number | null; acquisitions: number | null; rate: number | null }[];
   by: Record<string, ConversionRow[]>;
@@ -177,9 +181,16 @@ export type Review = {
 };
 
 export type Reviews = {
-  window: { days: number; from: string; to: string };
+  window: { days: number; from: string; to: string; clampedFrom: number | null };
   counts: { store: string; app: string; n: number; newest: string | null }[];
   inWindow: number;
+  /** The aggregates cover at most this many rows. `aggregatesComplete: false`
+   *  means every figure below is a floor, not a total. */
+  aggregateCap: number;
+  aggregatesComplete: boolean;
+  /** How many rows the `reviews` list itself carries — a different, smaller
+   *  number that the aggregates do not depend on. */
+  listed: number;
   stars: Record<string, number>;
   average: number | null;
   perDay: { day: string; stars: Record<string, number> }[];
@@ -194,6 +205,9 @@ export type ReviewTrend = Omit<Reviews, "reviews" | "rules"> & {
   themes: { theme: string; sentiment: string; reviewIds: string[] }[];
   themeNote: string | null;
   model: string | null;
+  /** True when no model was called — the answer was already held against this
+   *  exact set of review ids. */
+  cached: boolean;
   rules: string[];
 };
 
@@ -252,8 +266,10 @@ export type CollectResult = {
 export type TriageResult = {
   cardId: number;
   title: string;
+  /** Exactly what went onto THIS card. Never overlaps `alreadyFiled`. */
   filed: string[];
-  alreadyFiled: string[];
+  /** Ids left where they were, with the card they are already on. */
+  alreadyFiled: { reviewId: string; cardId: number }[];
   notFound: string[];
   note: string;
 };

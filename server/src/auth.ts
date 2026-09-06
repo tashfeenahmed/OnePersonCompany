@@ -162,9 +162,40 @@ export const AGENT_HOME = resolve(DATA_DIR, "agent-home");
 export const AGENT_KEY_FILE = resolve(AGENT_HOME, "service-key.agent");
 
 let cachedAgent: string | null = null;
+let agentKeyProblem: string | null = null;
 
-/** The agent's key, minted on first use. Same shape and same 0600 as the
- *  owner's; a different file so a different reader can be given it. */
+/**
+ * THE MODE, AND WHY IT IS 0640 RATHER THAN 0600.
+ *
+ * The owner key is 0600 because exactly one process reads it. This one has TWO
+ * readers by design, and at the `separate-user` level they are two different
+ * uids: this API writes it, and the agent's `opc` wrapper `cat`s it. 0600
+ * owned by the owner would lock the agent out; 0600 owned by the AGENT — which
+ * is what the first version of `deploy/agent-user.sh` did — locks the API out
+ * of its own key file, and the API is the half that has to be able to rewrite
+ * it. So the file stays OWNED BY THE OWNER and is made readable to a group the
+ * agent account is in. `agent-user.sh` creates that group and says so.
+ */
+const AGENT_KEY_MODE = 0o640;
+
+/**
+ * The agent's key, minted on first use.
+ *
+ * IT NEVER THROWS, and that is not tidiness — it is the difference between a
+ * misconfigured key file and a dead API. `keyScope()` calls this on EVERY
+ * request that carries any credential at all, including this process's own
+ * loopback calls, and `ownerGate` calls `keyScope` unguarded. A `writeFileSync`
+ * that raised EACCES here would turn one wrong `chown` into every keyed request
+ * answering 500.
+ *
+ * SO A FILE THAT CANNOT BE READ OR WRITTEN FALLS BACK TO A PROCESS-LOCAL
+ * SECRET, and the consequence is stated rather than hidden: nothing else holds
+ * that value, so the agent's own key stops matching and the agent is refused
+ * at the gate — locked out, which is the safe direction — while the owner key,
+ * the browser and everything in-process keep working. The reason is logged once
+ * and published on the isolation report, so the Deployment page can say what
+ * happened instead of the owner discovering it as "the agent went blind".
+ */
 export function agentKey(): string {
   if (cachedAgent) return cachedAgent;
   try {
@@ -175,17 +206,37 @@ export function agentKey(): string {
         return raw;
       }
     }
-  } catch {
-    /* An unreadable agent key is treated as absent and rewritten, for the
-       reason the owner key gives: throwing here would take the API down over
-       a file that only matters to a child process. */
+  } catch (err) {
+    agentKeyProblem =
+      `${AGENT_KEY_FILE} exists but this process cannot read it (${err instanceof Error ? err.message : String(err)}). ` +
+      `It must stay owned by the account running this API and be group-readable by the agent account — see deploy/agent-user.sh.`;
   }
   const minted = randomBytes(32).toString("hex");
-  mkdirSync(AGENT_HOME, { recursive: true, mode: 0o700 });
-  writeFileSync(AGENT_KEY_FILE, `${minted}\n`, { mode: 0o600 });
-  chmodSync(AGENT_KEY_FILE, 0o600);
+  try {
+    mkdirSync(AGENT_HOME, { recursive: true, mode: 0o750 });
+    writeFileSync(AGENT_KEY_FILE, `${minted}\n`, { mode: AGENT_KEY_MODE });
+    chmodSync(AGENT_KEY_FILE, AGENT_KEY_MODE);
+    agentKeyProblem = null;
+  } catch (err) {
+    agentKeyProblem ??=
+      `${AGENT_KEY_FILE} could not be written (${err instanceof Error ? err.message : String(err)}).`;
+    agentKeyProblem +=
+      " Until that is fixed the agent's key is a value held only in this process's memory, so any agent holding" +
+      " the old file will be refused at the gate. The owner key, the dashboard and every in-process call are" +
+      " unaffected.";
+    console.error(`[auth] ${agentKeyProblem}`);
+  }
   cachedAgent = minted;
   return minted;
+}
+
+/** What went wrong with the agent key file, or null. Read by the isolation
+ *  report so the Deployment page can say it out loud. */
+export function agentKeyProblemNote(): string | null {
+  /* Minting is lazy, so ask for the key before reporting on it — otherwise a
+     page that loads before anything else has needed it reports "fine". */
+  agentKey();
+  return agentKeyProblem;
 }
 
 /** What a presented key is allowed to be. `null` means it is not one of ours. */

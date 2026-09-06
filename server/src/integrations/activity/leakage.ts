@@ -59,7 +59,18 @@ function clamp(value: number, lo: number, hi: number) {
 type Bucket = {
   id: string;
   label: string;
-  count: number;
+  /**
+   * How many THINGS the amount beside it is made of — and NULL where the
+   * source that produced the amount cannot count them.
+   *
+   * That null is the disputes bucket's doing and it is the honest shape. Its
+   * amount comes from the ledger, which records debits and has no notion of a
+   * case; the case COUNT exists now, in `disputeCases` below, but it is a
+   * different population dated a different way, and putting it here beside a
+   * ledger figure would invite exactly one arithmetic — amount ÷ count, "the
+   * mean chargeback" — that is wrong in both directions at once.
+   */
+  count: number | null;
   /** Money, in this currency. NULL where the source records a COUNT and no
    *  amount — which is a different thing from nothing being at stake, and a
    *  zero here would read as "cost us nothing". */
@@ -162,23 +173,27 @@ leakageRoutes.get("/", (c) => {
       },
       {
         id: "disputes",
-        /* THE MONEY IS STILL THE LEDGER'S, and that has not changed. What is
-           new is that the COUNT is now a count of CASES rather than a zero
-           standing in for "no such table". The two are labelled apart in
-           `arithmetic` and in `cases` below, because they are dated
-           differently — a case by when the bank opened it, a debit by when the
-           balance posted — and the ledger figure includes the dispute fee
-           while the case amount does not. */
+        /* THE MONEY IS STILL THE LEDGER'S AND THE COUNT IS STILL NULL, and
+           the second half of that is deliberate now rather than a gap. The
+           old comment here said the count was 0 "because there is no
+           dispute-level table on this box". There is one — stripe_disputes,
+           walked by the customers area — but its cases are a DIFFERENT
+           population from this amount: dated by when the bank opened them,
+           excluding the fee this figure includes, and a case won returns
+           money this figure already counted as gone. So the counts live in
+           `disputeCases` below, where every one of them is beside an amount
+           measured the same way, and this bucket carries none rather than one
+           somebody would divide into the ledger's money. */
         label: "Lost to disputes",
-        count: csLost.length,
+        count: null,
         amount: money(disputes + disputeFees),
         window: `${days}d`,
         arithmetic:
-          `MONEY: SUM(disputes) + SUM(dispute_fees) over stripe_ledger_days for the last ${days} days = ` +
-          `${disputes} + ${disputeFees} — settlement, dated by the balance posting, fee included because it ` +
-          `is charged whatever the outcome. COUNT: disputes in stripe_disputes with outcome 'lost' whose ` +
-          `case was OPENED in the same window (${csLost.length}). The two are measured and dated ` +
-          `differently and are never divided into each other.`,
+          `SUM(disputes) + SUM(dispute_fees) over stripe_ledger_days for the last ${days} days = ` +
+          `${disputes} + ${disputeFees} — SETTLEMENT, dated by the balance posting, fee included because it ` +
+          `is charged whatever the outcome. NO COUNT: the cases are a different population, dated by when ` +
+          `the bank opened them and excluding the fee, and they are counted in \`disputeCases\` instead. ` +
+          `Dividing this amount by any figure there is a mean chargeback that is wrong twice over.`,
         why: "Gone with the fee on top, and each one counts against the Stripe account.",
         floor: false,
       },

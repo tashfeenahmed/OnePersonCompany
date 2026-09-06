@@ -4,7 +4,7 @@
  * Fourteen timers were armed across nine `onStart` hooks before this file
  * existed, and none of them appeared anywhere the owner could see. This module
  * puts every one of them on the schedule. Two of them the pipeline now CALLS;
- * the other twelve keep their own timers and are listed as self-scheduled, with
+ * the other thirteen keep their own timers and are listed as self-scheduled, with
  * the last time each actually did something read out of its own table.
  *
  * THE LAST-RUN READING IS NOT A LOG OF THE TIMER. There is no table anywhere
@@ -59,7 +59,7 @@ type SelfStage = Omit<Stage, "run" | "lastRun"> & {
   lastRunMeans: string;
 };
 
-/* ------------------------------------------------ the twelve self-scheduled */
+/* ---------------------------------------------- the thirteen self-scheduled */
 
 const SELF: SelfStage[] = [
   {

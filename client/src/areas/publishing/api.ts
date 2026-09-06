@@ -311,11 +311,16 @@ export const publishingApi = {
       }),
     }),
 
+  /**
+   * Edit the words or the account. AN EDIT UNAPPROVES: the server returns the
+   * item as a `draft` again with `unapproved: true`, because the approval was
+   * of a document and the document is now a different one.
+   */
   patchItem: (id: string, patch: { caption?: string; destinationId?: string | null }) =>
-    call<{ item: PublishItem }>(`/publishing/items/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    }),
+    call<{ item: PublishItem; unapproved: boolean; note: string | null }>(
+      `/publishing/items/${id}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+    ),
 
   approve: (id: string) =>
     call<{ item: PublishItem; note: string }>(`/publishing/items/${id}/approve`, {

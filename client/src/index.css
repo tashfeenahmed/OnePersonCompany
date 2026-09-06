@@ -56,7 +56,18 @@
 
 :root {
     /* Ported from ../design — a near-black ink on warm paper, dark greys
-       throughout, and colour reserved for state. */
+       throughout, and colour reserved for state.
+
+       THIS BLOCK AND `.dark` BELOW ARE THE DEFAULT PALETTE, "Paper", and they
+       are the only place it is written down. The other palettes are a SECOND
+       AXIS layered over whichever of the two won: lib/palettes.ts holds their
+       tokens and lib/theme.tsx writes them onto <html> as inline custom
+       properties, where they beat both of these blocks. Choosing Paper removes
+       every one of those properties rather than restating the values here, so
+       the default cannot drift from the stylesheet, and every palette ships a
+       complete light AND dark set so the mode choice keeps working inside it.
+       Every token a palette may set exists below; a palette owns colour only —
+       never the radius, the type scale or the fonts. */
     --background: #fbfbfa;
     --foreground: #100f0e;
     --card: #ffffff;

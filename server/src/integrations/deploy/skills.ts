@@ -46,10 +46,16 @@ export const SKILLS: Skill[] = [
         "service supervises. Say so — it is the explanation for “I changed a setting and nothing happened”.",
       "A SOURCE WITH `everyMinutes: null` IS NOT BROKEN. It has been deliberately taken off the schedule (its " +
         "setting is 0) or the whole scheduler is off (OPC_COLLECT_MINUTES=0). Its Collect button still works.",
-      "THE ISOLATION LEVEL IS MEASURED, NOT INTENDED. `same-user` is the shipped configuration and is not a " +
-        "vulnerability to report as one: the API boundary holds (your own key is refused on credentials, " +
-        "backups, the password and the agent processes), and the filesystem one does not. Never claim a level " +
-        "the document does not report, and never describe `same-user` as isolation.",
+      "THE ISOLATION LEVEL IS MEASURED, NOT INTENDED, AND THERE ARE ONLY TWO. `same-user` is the shipped " +
+        "configuration and is not a vulnerability to report as one: the API boundary holds (credentials, " +
+        "backups, the password and the agent processes are refused to anything that cannot show it is the " +
+        "owner), and the filesystem one does not. `separate-user` is the other. A CONTAINER IS NOT A LEVEL — " +
+        "`containerPath.observed` is always false and `containerPath.runtime` only says whether a docker binary " +
+        "exists here. Never claim a level the document does not report, and never describe `same-user` as " +
+        "isolation.",
+      "`agentKeyProblem` IS NOT NULL MEANS YOUR OWN KEY FILE IS BROKEN and you are running on borrowed time: the " +
+        "API could not read or rewrite it, so the next restart locks you out. Report it verbatim and say it needs " +
+        "the owner at a terminal.",
       "YOU CANNOT INSTALL OR UNINSTALL THE SERVICE. Those routes refuse any caller holding a service key, so do " +
         "not offer to — it is Settings → Deployment, in a browser the owner is looking at.",
       "LOG LINES ARE WHAT THE PROCESS WROTE. Quote them; do not paraphrase a stack trace into a diagnosis, and " +
@@ -123,7 +129,11 @@ export const SKILLS: Skill[] = [
         "not a measurement of GPU utilisation — that is `workstation`, which reads nvidia-smi — and the two must " +
         "never be conflated or added.",
       "RELEASING A LIVE LEASE DOES NOT STOP THE JOB. It only removes the reason not to sleep the machine. Do not " +
-        "release a live lease to “free up” anything; release the stale ones, and leave live ones to their jobs.",
+        "release a live lease to “free up” anything; release the stale ones, and leave live ones to their jobs. " +
+        "The route enforces this rather than trusting the rule: a lease whose holder beat within the last two " +
+        "minutes answers 409, and the override is the owner's own — it is not a parameter you have.",
+      "A 409 ON `release` IS NOT AN ERROR TO RETRY OR WORK AROUND. It means the job is alive. Say which job, how " +
+        "long it has held the machine, and that it will lapse on its own if it dies.",
     ],
     views: [
       {
@@ -155,8 +165,21 @@ export const SKILLS: Skill[] = [
         method: "POST",
         path: "/api/deploy/leases/:id/release",
         about:
-          "Hand a lease back. It does not stop the job that took it — it removes the reason not to sleep the " +
-          "machine. Reversible: the job can take another lease.",
+          "Hand a LAPSED lease back. A lease whose holder is still beating — a heartbeat inside the last two " +
+          "minutes — is REFUSED with 409 and cannot be forced from here: releasing it would not stop the job, it " +
+          "would only remove the reason nothing will sleep the machine the job is running on. Use this on the " +
+          "`stale` list, or on a lease whose job you know has gone.",
+        /*
+          DESTRUCTIVE, AND THE CLAIM IS EXACT RATHER THAN CAUTIOUS. The type's
+          own header says the flag means "cannot be undone from here", and this
+          qualifies for a reason the word "release" hides: the row can be
+          replaced, but the thing at risk is not the row. Releasing the wrong
+          lease permits a sleep, and a machine slept under a forty-minute
+          render destroys work no action here can put back. The 409 above is
+          the enforcement; this is the annotation an MCP client is entitled to
+          trust when it decides whether to ask a person first.
+        */
+        destructive: true,
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "The lease id." },
           { name: "reason", type: "string", required: false, about: "Written onto the row so the history says who released it and why." },

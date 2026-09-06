@@ -19,9 +19,12 @@ import {
   answeringSessions,
   cancelChatRun,
   runHandle,
+  sessionBusy,
   sessionRunState,
   startChatRun,
 } from "./runs.ts";
+import { begin as beginInflight } from "./inflight.ts";
+import { chatRun as chatRunRow, deleteChatRuns } from "../integrations/agentcore/store.ts";
 
 let n = 0;
 function session(): string {
@@ -252,4 +255,183 @@ test("tool calls are merged and carry the offset they happened at", async () => 
 
 test("a conversation nobody has asked anything has no run state", () => {
   assert.equal(sessionRunState(session()), null);
+});
+
+/* ======================================================================
+   REGRESSIONS FROM REVIEW. Each of these left the engine in a state it
+   could not get out of, and each is reachable from an ordinary failure.
+   ====================================================================== */
+
+test("regression: a throw while landing the run still releases the conversation", async () => {
+  /*
+    `plan.shape` is the caller's function and runs while the run is writing its
+    terminal frame. It used to run outside any `try`: the throw escaped a
+    `void`-ed async function as an unhandled rejection, and — worse — skipped
+    the two lines that release the session, so every later turn on that chat was
+    refused as busy for the life of the process and every subscriber waited on a
+    promise that never resolved.
+  */
+  const id = session();
+  const row = startChatRun({
+    ...plan(id, async function* () {
+      yield { type: "delta", text: "an answer" };
+      yield { type: "done", text: "an answer", model: null, usage: null, ms: 1 };
+    }),
+    shape: () => {
+      throw new Error("the shaper blew up");
+    },
+  });
+
+  /* The `ended` promise still resolves — a subscriber is not stranded. */
+  await runHandle(row.id)!.ended;
+
+  /* The conversation is free: the next question is not refused. */
+  assert.equal(activeRun(id), null);
+  const second = startChatRun(
+    plan(id, async function* () {
+      yield { type: "done", text: "and another", model: null, usage: null, ms: 1 };
+    }),
+  );
+  await runHandle(second.id)!.ended;
+
+  /* And the failure is on the record rather than swallowed. */
+  const first = frames(row.id).at(-1)!;
+  assert.equal(first.event, "error");
+  assert.match((first.data as { message: string }).message, /shaper blew up/);
+});
+
+test("regression: a run that throws while landing is recorded as failed, not left running", async () => {
+  const id = session();
+  const row = startChatRun({
+    ...plan(id, async function* () {
+      yield { type: "done", text: "words", model: null, usage: null, ms: 1 };
+    }),
+    shape: () => {
+      throw new Error("nope");
+    },
+  });
+  await runHandle(row.id)!.ended;
+  const state = sessionRunState(id)!;
+  assert.equal(state.status, "failed");
+  assert.equal(state.runId, row.id);
+});
+
+test("regression: hitting the buffer cap still delivers a terminal frame", async () => {
+  /*
+    The cap used to refuse EVERY frame once it was reached, the closing
+    `done`/`error` included — so a live reader saw the socket close with no
+    ending and a reattacher replayed the whole buffer and still found none.
+  */
+  const id = session();
+  const big = "x".repeat(200_000);
+  const row = startChatRun(
+    plan(id, async function* (signal) {
+      /* Eighty megabytes of deltas, well past the byte cap. A real adapter
+         stops when its signal is aborted and never reaches its own `done`,
+         which is exactly the shape that used to end with no terminal frame. */
+      for (let i = 0; i < 400; i++) {
+        if (signal.aborted) return;
+        yield { type: "delta", text: big };
+      }
+    }),
+  );
+  await runHandle(row.id)!.ended;
+
+  const all = frames(row.id);
+  const last = all.at(-1)!;
+  assert.equal(last.event, "error", "the ending is always sent");
+  const data = last.data as { incomplete: boolean; message: string };
+  assert.equal(data.incomplete, true, "and it says the middle is missing");
+  assert.match(data.message, /longer than this server will hold/);
+  /* The cap is about MEMORY, so it bit long before the frame count could. */
+  assert.ok(all.length < 400, `${all.length} frames buffered`);
+  assert.equal(sessionRunState(id)!.status, "failed");
+  /* And the conversation is usable again. */
+  assert.equal(activeRun(id), null);
+});
+
+test("regression: a cancel that lands after the answer is refused rather than mis-reported", async () => {
+  /*
+    `cancelChatRun` gated on a status the tail had not written yet, so a stop
+    pressed in the instant between the last token and the row write was accepted
+    — and then the turn landed as `done` while the owner had been told it was
+    cancelled. The stop button's one job is to report what it did.
+  */
+  const id = session();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const row = startChatRun(
+    plan(id, async function* () {
+      yield { type: "done", text: "complete", model: null, usage: null, ms: 1 };
+      /* Held open after `done` so the cancel below lands inside the window. */
+      await gate;
+    }),
+  );
+  await new Promise((r) => setTimeout(r, 10));
+
+  const r = cancelChatRun(row.id);
+  assert.equal(r.ok, false);
+  assert.match(r.error ?? "", /already finished/);
+
+  release();
+  await runHandle(row.id)!.ended;
+  assert.equal(sessionRunState(id)!.status, "done");
+  assert.equal(frames(row.id).at(-1)!.event, "done");
+});
+
+test("a successful cancel answers `stopping`, because the run has not landed yet", async () => {
+  const id = session();
+  const row = startChatRun(
+    plan(id, async function* (signal) {
+      yield { type: "delta", text: "half" };
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve();
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    }),
+  );
+  await new Promise((r) => setTimeout(r, 10));
+  const r = cancelChatRun(row.id);
+  assert.equal(r.ok, true);
+  assert.equal(r.status, "stopping");
+  await runHandle(row.id)!.ended;
+  assert.equal(sessionRunState(id)!.status, "cancelled");
+});
+
+test("`sessionBusy` sees the other door too", async () => {
+  const id = session();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const row = startChatRun(
+    plan(id, async function* () {
+      await gate;
+      yield { type: "done", text: "x", model: null, usage: null, ms: 1 };
+    }),
+  );
+  assert.deepEqual(sessionBusy(id), { busy: true, runId: row.id });
+  release();
+  await runHandle(row.id)!.ended;
+  assert.deepEqual(sessionBusy(id), { busy: false, runId: null });
+
+  /* And an `ask()` on the same session — the non-streaming door, which starts
+     no run — is busy with no stream to point at. */
+  const end = beginInflight(id);
+  assert.deepEqual(sessionBusy(id), { busy: true, runId: null });
+  end();
+  assert.equal(sessionBusy(id).busy, false);
+});
+
+test("deleting a conversation forgets its runs", async () => {
+  const id = session();
+  const row = startChatRun(
+    plan(id, async function* () {
+      yield { type: "done", text: "kept", model: null, usage: null, ms: 1 };
+    }),
+  );
+  await runHandle(row.id)!.ended;
+  assert.ok(sessionRunState(id));
+  assert.equal(deleteChatRuns(id), 1);
+  /* The in-memory run is still in its retention window, so the state comes back
+     from there; the ROW is gone, which is what a recycled id would have found. */
+  assert.equal(chatRunRow(row.id), null);
 });

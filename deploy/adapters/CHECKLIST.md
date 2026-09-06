@@ -137,10 +137,35 @@ unsubscribed; a `marketing` column that was defaulted to true at migration.
 - [ ] Copy `sql-adapter.mjs`, `http-adapter.mjs` and `lib/` to the product host.
 - [ ] Write the mapping from the nearest `examples/` file.
 - [ ] Secrets as `${ENV_VAR}`, in a mode-600 environment file, never in the mapping.
+- [ ] The database password is in `source.password` (passed through the child's
+      environment), or in `~/.pgpass` / `PGSERVICE` — **not inside `source.dsn`**,
+      which becomes an argv element visible in `ps` on this box and, over ssh, on
+      the remote one too.
 - [ ] `node sql-adapter.mjs mapping.yaml --check` — read every line it prints.
 - [ ] Unmapped populations: are they really the default? ____________________
 - [ ] Cron with the check in front of the write, or the systemd unit for the
       HTTP form. See README.md.
+
+### Where the file may go — do not skip this one
+
+The document contains **every customer's raw email address**. The dashboard
+hashes them on arrival; the file on this host does not.
+
+- [ ] It is `0640` (the adapter writes it that way) and owned by the cron user.
+- [ ] It is **not** in a directory the web server publishes unauthenticated.
+      A static file cannot check a bearer token; the dashboard is willing to
+      send one. Pick one and write down which:
+      - [ ] behind the same auth as the product's own admin API
+            (nginx `auth_request` / basic auth / an allow-list on the
+            dashboard's address) — **preferred**
+      - [ ] not served over HTTP at all; the dashboard reads it another way
+      - [ ] `http-adapter.mjs` instead, which requires a token by construction
+      - [ ] an unguessable path under an existing web root — **weakest**, and
+            only where the other three genuinely do not fit
+- [ ] Fetch it from a machine that should NOT be able to see it and confirm you
+      get a 401/403/404 rather than the list.
+- [ ] The cron passes `--out`. Without it the whole document goes to stdout and
+      cron mails it.
 - [ ] Add the account on the dashboard: Integrations → Product users (or Product
       endpoints), label = the product's name.
 - [ ] Validate the real payload against the dashboard's own validator and check

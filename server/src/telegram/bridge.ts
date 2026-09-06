@@ -76,6 +76,8 @@ import { hearVoice, shouldSpeakBack, speakBack } from "../integrations/signals/v
    import rather than code: the copy belongs with the feature. Both are
    best-effort and neither throws — every path in them ends in a sentence. */
 import { alertsText, briefingText } from "../integrations/proactive/telegram.ts";
+/* The journal area's one command, for the same reason. */
+import { didText } from "../integrations/journal/telegram.ts";
 import { escapeHtml, type TelegramUpdate } from "../providers/telegram.ts";
 import { plainRich } from "../skills/present.ts";
 import { composeTurns } from "../routes/chat.ts";
@@ -242,6 +244,9 @@ const COMMANDS = [
      integrations/proactive/telegram.ts — see that file's header. */
   { command: "briefing", description: "Today's briefing, built now if it does not exist yet" },
   { command: "alerts", description: "Alert events that are still open" },
+  /* The journal area's one. Same arrangement: the grammar and the copy live in
+     integrations/journal/telegram.ts. */
+  { command: "did", description: "Log work you did away from the dashboard" },
 ];
 
 export { COMMANDS };
@@ -452,6 +457,15 @@ export async function handleUpdate(
     writeTelegramReply(ctx.accountId);
     return { action: "explained", reason: "alerts", replied: true, chatId };
   }
+  /* Intercepted rather than passed to the agent for the same reason as the
+     two above, and one more: the row it writes is the OWNER'S record of his
+     own work, and an agent between his sentence and the table would be an
+     agent paraphrasing it. Plain text — the message quotes what he typed. */
+  if (command === "/did") {
+    await wire.send(chatId, didText(text));
+    writeTelegramReply(ctx.accountId);
+    return { action: "explained", reason: "did", replied: true, chatId };
+  }
 
   /*
     ANY OTHER SLASH COMMAND GOES TO THE AGENT rather than being refused. This
@@ -602,12 +616,16 @@ async function answer(
 /**
  * OUTBOUND: the other half of a bridge, for the rest of the server to call.
  *
- * NOTHING CALLS THIS YET, and that is deliberate rather than unfinished. The
- * alerts it exists for — a server that stopped answering, a quota about to
- * run out, a payment that failed — are decisions about what is worth waking
- * somebody for, and inventing them here would put messages on the owner's
- * phone that the owner never asked for. What this file owes those callers is
- * a function that cannot send to the wrong person, and this is it:
+ * IT HAS ONE CALLER NOW, and the condition the old note set is the one that
+ * was met. It used to say nothing called this, deliberately: the alerts it
+ * exists for are decisions about what is worth waking somebody for, and
+ * inventing them here would have put messages on the owner's phone that the
+ * owner never asked for. `integrations/customers` calls it for Stripe business
+ * events, behind a setting that is OFF until switched on, and it imports this
+ * module lazily because this file's own import graph reaches
+ * `routes/pluginConfig.ts` and a manifest cannot pull that in at load time.
+ * What this file owes such callers is a function that cannot send to the wrong
+ * person, and this is it:
  *
  *     import { notify } from "../telegram/bridge.ts";
  *     await notify("Hetzner: falkenstein-1 stopped answering.");

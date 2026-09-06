@@ -23,13 +23,15 @@
  * loses nothing, which matters on a box that restarts on every file save.
  *
  * A PROCESS KILLED MID-CALL LEAVES A ROW IN `publishing`, and `reclaim()`
- * moves it back after fifteen minutes. That is only safe because publishItem
- * checks `external_id` first: if the call had in fact succeeded before the
- * process died, the id is on the row and the second attempt refuses. If it had
- * not, the row is unchanged and retrying is right. The dangerous middle — the
- * call succeeded and the answer never arrived — is the one case this cannot
- * distinguish, and the item is reported with its attempt count so a person
- * can look before pressing again.
+ * moves it to `failed` after fifteen minutes — never back onto the calendar.
+ * A row carrying an `external_id` is instead completed as `published`, because
+ * that id can only have come from a response this process read. Everything
+ * else is AMBIGUOUS: `external_id` is null both when the call never arrived
+ * and when it succeeded and the answer was lost, and none of these four APIs
+ * offers an idempotency key that would tell the two apart. So the ambiguous
+ * case stops, with its attempt count and a sentence naming the account to go
+ * and look at. Nothing here retries it; retrying a silent success is two posts
+ * in somebody's feed.
  */
 import { db, now } from "../../db.ts";
 import { itemRow, type ItemRow } from "./items.ts";
@@ -81,6 +83,28 @@ export function scheduledRows(): ItemRow[] {
  * longer than LinkedIn's upload plus its poll — because reclaiming early would
  * mean two submissions of one post, which is the exact outcome this whole file
  * is arranged to prevent.
+ *
+ * ------------------------------------------------------------------------
+ * A RECLAIMED ROW WITH NO EXTERNAL ID IS `failed`, NOT `scheduled`, AND THAT
+ * IS THE MOST IMPORTANT LINE IN THIS FILE.
+ *
+ * It used to return to `scheduled` with no `next_attempt_at` — and `reclaim()`
+ * runs at the TOP of `tick()`, with `dueItems()` immediately after it, so the
+ * row was re-submitted inside the same call. The scenario is not theoretical:
+ * a tick posts a photo, Meta accepts it, the dev watcher restarts this process
+ * before the response is read (which happened repeatedly while this area was
+ * being built). No `external_id` was ever written, so fifteen minutes later
+ * the row was reclaimed and posted a second time. Two identical posts in
+ * somebody's feed, nobody having asked for either.
+ *
+ * `external_id` CANNOT DISTINGUISH THAT CASE, and the honest thing is to say
+ * so rather than to guess. It is written only from a response this process
+ * actually read, so a call that succeeded and never answered leaves it null —
+ * indistinguishable from a call that never arrived. There is no idempotency
+ * key on any of these four APIs for this code to send. So the row stops, the
+ * date comes off it so no timer can pick it up, and the error tells a person
+ * which account to go and look at. Retrying is then a decision somebody makes
+ * with the Page open, which is the only place the ambiguity can be resolved.
  */
 export function reclaim(): number {
   const cutoff = new Date(Date.now() - STUCK_MINUTES * 60_000).toISOString();
@@ -98,15 +122,19 @@ export function reclaim(): number {
       ).run(now(), now(), row.id);
       continue;
     }
+    /* `scheduled_for` is cleared as well as the status being set. Either alone
+       would do; both together mean that a later edit which flips the status
+       back cannot resurrect a date nobody re-chose. */
     db.prepare(
       `UPDATE publish_items
-          SET status = CASE WHEN scheduled_for IS NULL THEN 'failed' ELSE 'scheduled' END,
+          SET status = 'failed', scheduled_for = NULL, next_attempt_at = NULL,
               error = ?, updated_at = ?
         WHERE id = ?`,
     ).run(
       `This server stopped while the post was being submitted (attempt ${row.attempts}). ` +
-        "It is being retried — check the account before approving another attempt, because " +
-        "a call that succeeded without answering cannot be told from one that failed.",
+        "THE OUTCOME IS UNKNOWN: a call that succeeded without answering cannot be told " +
+        "from one that never arrived, so nothing here retries it. Open the account and " +
+        "look before you approve another attempt — retrying a silent success posts twice.",
       now(),
       row.id,
     );

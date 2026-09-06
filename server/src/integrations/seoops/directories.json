@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "about": "The directory checklist this box ships with. Edit it from Integrations → SEO Ops → Directories: the setting is JSON of the same shape and is MERGED over this file by id, so an entry here can be renamed, re-tiered or removed (state it with \"drop\": true) and new ones added, without editing the app. Nothing here is specific to any owner or any business.",
+  "fields": {
+    "id": "kebab, stable, the ledger's join key. Renaming one orphans its rows.",
+    "name": "what a person calls it",
+    "url": "where a human goes to submit. Never fetched by this box.",
+    "tier": "saas | app | code | press | general — which kind of product the directory is for, so a checklist for a Python library is not forty red marks about app stores.",
+    "detect": "the presence source id whose detection may move this row forward, or null for a directory nothing here can probe. A null is the ordinary case and is not a gap.",
+    "note": "what an absence from it is worth."
+  },
+  "directories": [
+    { "id": "producthunt", "name": "Product Hunt", "url": "https://www.producthunt.com/posts/new", "tier": "saas", "detect": "producthunt", "note": "A launch, not a listing. The probe fetches the conventional product url for the name, so a listing under a different slug reads as absent." },
+    { "id": "g2", "name": "G2", "url": "https://www.g2.com/products/new", "tier": "saas", "detect": "g2", "note": "Pages exist for products that never submitted. A detection here is evidence a page exists, not that it is yours." },
+    { "id": "capterra", "name": "Capterra", "url": "https://www.capterra.com/vendors/sign-up", "tier": "saas", "detect": "capterra", "note": "Not probed from here at all — the presence collector records it blocked with the reason every run." },
+    { "id": "getapp", "name": "GetApp", "url": "https://www.getapp.com/vendors/", "tier": "saas", "detect": null, "note": "Shares Gartner's vendor pipeline with Capterra; one submission usually feeds both." },
+    { "id": "software-advice", "name": "Software Advice", "url": "https://www.softwareadvice.com/vendors/", "tier": "saas", "detect": null, "note": "Same pipeline again. Worth one row so the owner can mark it skipped once rather than wondering each quarter." },
+    { "id": "alternativeto", "name": "AlternativeTo", "url": "https://alternativeto.net/manage-item/new/", "tier": "saas", "detect": null, "note": "Community-editable: an entry may already exist that somebody else created." },
+    { "id": "saashub", "name": "SaaSHub", "url": "https://www.saashub.com/submit", "tier": "saas", "detect": null, "note": "Free listing; the backlink is nofollow." },
+    { "id": "slant", "name": "Slant", "url": "https://www.slant.co/", "tier": "saas", "detect": null, "note": "Answers rather than listings — the row is really 'is this product named in the relevant question'." },
+    { "id": "betalist", "name": "BetaList", "url": "https://betalist.com/submit", "tier": "saas", "detect": null, "note": "Pre-launch only. Mark it skipped once the product has launched." },
+    { "id": "indiehackers", "name": "Indie Hackers products", "url": "https://www.indiehackers.com/products", "tier": "saas", "detect": null, "note": "A product page tied to a person, not a company." },
+    { "id": "crunchbase", "name": "Crunchbase", "url": "https://www.crunchbase.com/", "tier": "general", "detect": null, "note": "An organisation record. Free tier is enough to claim and edit one." },
+    { "id": "wikidata", "name": "Wikidata", "url": "https://www.wikidata.org/wiki/Special:NewItem", "tier": "general", "detect": "wikidata", "note": "Notability rules apply and most small products do not meet them. `skipped` is usually the honest state." },
+    { "id": "wikipedia", "name": "Wikipedia", "url": "https://en.wikipedia.org/wiki/Wikipedia:Articles_for_creation", "tier": "general", "detect": "wikipedia", "note": "Do not create an article about your own product. This row exists to record that a page exists, not as a task." },
+    { "id": "github", "name": "GitHub", "url": "https://github.com/new", "tier": "code", "detect": "github", "note": "Counted present only when a repository names the brand AND its homepage is the product's host." },
+    { "id": "pypi", "name": "PyPI", "url": "https://pypi.org/manage/projects/", "tier": "code", "detect": "pypi", "note": "Only meaningful for a Python package." },
+    { "id": "npm", "name": "npm", "url": "https://www.npmjs.com/", "tier": "code", "detect": null, "note": "Only meaningful for a JavaScript package. Not probed by the presence collector." },
+    { "id": "appstore", "name": "Apple App Store", "url": "https://appstoreconnect.apple.com/", "tier": "app", "detect": "appstore", "note": "Detected through iTunes Search, accepted only when the seller url is the product's host." },
+    { "id": "playstore", "name": "Google Play", "url": "https://play.google.com/console", "tier": "app", "detect": null, "note": "Not probed here. The mobile plugin reads a store account you own; this row is the checklist entry." },
+    { "id": "hackernews", "name": "Hacker News (Show HN)", "url": "https://news.ycombinator.com/submit", "tier": "press", "detect": "hackernews", "note": "A post, not a listing. Detected only when a story points at the product's host." },
+    { "id": "reddit", "name": "Relevant subreddit", "url": "https://www.reddit.com/", "tier": "press", "detect": null, "note": "Deliberately vague: which subreddit is a judgement, and the note field is where it belongs." },
+    { "id": "f6s", "name": "F6S", "url": "https://www.f6s.com/", "tier": "general", "detect": null, "note": "Startup profile. Useful mostly as an indexed page carrying the name." },
+    { "id": "sourceforge", "name": "SourceForge", "url": "https://sourceforge.net/create/", "tier": "code", "detect": null, "note": "Still indexed heavily. Only worth a row for downloadable software." }
+  ]
+}

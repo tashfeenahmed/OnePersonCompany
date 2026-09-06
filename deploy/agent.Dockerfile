@@ -16,11 +16,18 @@
 # for most single-owner installs the separate-user level is the better trade.
 # Choose deliberately.
 #
-# THIS FILE IS NOT BUILT OR RUN BY THE APP. The managed-agent installer in
-# server/src/agents/instance.ts spawns a local process; it does not drive
-# Docker. This is the documented manual path for somebody who wants it, and the
-# Deployment page reports `container` only when the agent is genuinely not a
-# child of this process.
+# THIS FILE IS NOT BUILT OR RUN BY THE APP, AND THE PAGE WILL NEVER SAY YOU ARE
+# ON THIS LEVEL. The managed-agent installer in server/src/agents/instance.ts
+# spawns a local process; it does not drive Docker, does not look for a
+# container, and `isolation.ts` reports only the two levels it can measure
+# (`same-user`, `separate-user`). A level nothing can observe is not offered as
+# one. This is a documented manual path, and `containerPath` on the isolation
+# report says exactly that.
+#
+# IT ALSO NEEDS THE API REACHABLE FROM THE CONTAINER, WHICH IT IS NOT. The
+# server binds 127.0.0.1 on purpose. Read the header of agent-compose.yml
+# before building this — that is where the two real options are, and both of
+# them cost you something.
 # ---------------------------------------------------------------------------
 
 # Pinned rather than `latest`, for the reason the OpenClaw version is pinned in
@@ -47,8 +54,12 @@ ENV OPENCLAW_HOME=/home/agent
 
 # NO VOLUME AND NO MOUNT. That is the whole point of this file, so it is stated
 # as an absence rather than left implied. Anything this container needs to
-# remember lives in its own filesystem and goes when the container does; the
-# things worth keeping — the chat history, the memory, the board — are in the
-# dashboard's database, on the other side of the API.
+# remember — including the gateway's own config, written to
+# $OPENCLAW_HOME/.openclaw/openclaw.json on first run — lives in its own
+# writable filesystem and goes when the container does. That is why the compose
+# file does NOT set `read_only: true`: a read-only root would stop the gateway
+# starting, and the obvious fix would be the host mount this file exists to
+# avoid. The things worth keeping — the chat history, the memory, the board —
+# are in the dashboard's database, on the other side of the API.
 
 CMD ["npx", "openclaw", "gateway", "run"]

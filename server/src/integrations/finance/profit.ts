@@ -32,10 +32,7 @@
  */
 import { db, ventureRow, ventureRowById, now, type VentureRow } from "../../db.ts";
 import { budgets } from "../../runtime/budgets.ts";
-import {
-  activeIn,
-  allExpenses,
-} from "./expenses.ts";
+import { expensesForMonth } from "./expenses.ts";
 import {
   addTo,
   currencyCode,
@@ -156,7 +153,7 @@ export type CostSide = {
 };
 
 export function ventureCosts(ventureId: string, month: string): CostSide {
-  const rows = allExpenses().filter((r) => activeIn(r, month));
+  const rows = expensesForMonth(month);
   const allocations = allAllocations();
   const byExpense = new Map<string, AllocationRow[]>();
   for (const a of allocations) byExpense.set(a.expense_id, [...(byExpense.get(a.expense_id) ?? []), a]);
@@ -307,7 +304,7 @@ export function venturePnl(venture: VentureRow, month: string, nowIso = now()) {
  */
 export function portfolioPnl(month: string, nowIso = now()) {
   const list = ventures();
-  const rows = allExpenses().filter((r) => activeIn(r, month));
+  const rows = expensesForMonth(month);
   const allocations = allAllocations();
   const byExpense = new Map<string, AllocationRow[]>();
   for (const a of allocations) byExpense.set(a.expense_id, [...(byExpense.get(a.expense_id) ?? []), a]);
@@ -354,7 +351,12 @@ export function portfolioPnl(month: string, nowIso = now()) {
     ledger: {
       monthly: shapeTotals(ledger),
       unallocatedShared: shapeTotals(unallocated),
-      unallocatedLines: unallocatedLines.sort((a, b) => (b.monthly ?? 0) - (a.monthly ?? 0)),
+      /* Sorted by what is actually UNALLOCATED, not by the size of the bill: a
+         fully-split €13 box belongs below a €7 one nobody has touched, because
+         the question this list answers is "what is nobody carrying". */
+      unallocatedLines: unallocatedLines.sort(
+        (a, b) => (b.monthly ?? 0) * (1 - b.allocated) - (a.monthly ?? 0) * (1 - a.allocated),
+      ),
       defaultRule: rule,
     },
     /** The one Stripe figure on this box that IS dated per-venture-free money.

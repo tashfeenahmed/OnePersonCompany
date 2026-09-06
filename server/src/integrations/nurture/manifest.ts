@@ -119,10 +119,13 @@ export const manifest: IntegrationManifest = {
             "you cut. The rules go into the wording prompt and nowhere else: a " +
             "rule carrying a digit, an address, a link, a domain or anybody's " +
             "name is refused rather than stripped, and every finished message is " +
-            "still checked against its fact packet afterwards. The stored pairs " +
-            "quote whole email bodies, yours and the machine's, and are never " +
-            "published by any route. “Forget the voice” on the Nurture page " +
-            "erases the rules and every pair.",
+            "still checked against its fact packet afterwards. THE PAIRS QUOTE " +
+            "WHOLE EMAIL BODIES, yours and the machine's. No route publishes " +
+            "one — the page shows the rules and how many edits they came from — " +
+            "but reading a voice out of writing means showing the writing, so up " +
+            "to twelve pairs ARE sent to your connected model provider each time " +
+            "the rules are derived. “Forget the voice” on the Nurture page erases " +
+            "the rules and every stored pair.",
           ph: "no",
           check(value) {
             const v = value.trim().toLowerCase();

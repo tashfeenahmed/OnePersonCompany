@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarOff, ChevronRight, Loader2, Play, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Markdown } from "@/components/Markdown";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
 import { ago } from "@/lib/live";
@@ -14,6 +15,7 @@ import {
   type Run,
   type Stage,
   type StageResult,
+  type SynthesisDoc,
 } from "./api";
 
 /**
@@ -92,7 +94,9 @@ export function PipelineTab() {
           disabled={busy !== null}
           onClick={() =>
             go("plan", async () => {
-              const out = await pipelineApi.run({ dry: true });
+              /* The rehearsal is its OWN call to its own route. There is no
+                 flag on this button that could make it run for real. */
+              const out = await pipelineApi.plan();
               return out.run ? `Planned: ${out.run.summary.split("\n")[0]}` : (out.why ?? null);
             })
           }
@@ -106,7 +110,7 @@ export function PipelineTab() {
           disabled={busy !== null}
           onClick={() =>
             go("run", async () => {
-              const out = await pipelineApi.run({});
+              const out = await pipelineApi.run();
               return out.run
                 ? `${out.run.completed} completed, ${out.run.skipped} skipped, ${out.run.failed} failed.`
                 : (out.why ?? null);
@@ -293,7 +297,7 @@ function StageRow({
             disabled={busy}
             onClick={() =>
               onRun(`stage:${stage.id}`, async () => {
-                const out = await pipelineApi.run({ stage: stage.id, dry: false });
+                const out = await pipelineApi.run({ stage: stage.id });
                 const r = out.stages[0];
                 return r ? `${stage.id}: ${r.outcome} — ${r.note ?? r.reason ?? r.error ?? ""}` : (out.why ?? null);
               })
@@ -324,7 +328,13 @@ function RunCard({ run, expanded, onToggle }: { run: Run; expanded: boolean; onT
           {run.usd === null ? "cost not priced on this box" : `$${run.usd.toFixed(4)}`}
         </span>
       </div>
-      <pre className="text-muted-foreground mt-2 text-[12px] whitespace-pre-wrap">{run.summary}</pre>
+      {/* The summary is MARKDOWN — it is written once and read in three places
+          (this card, the chat transcript, the phone), so it is drawn with the
+          same renderer every other prose on this dashboard uses rather than
+          shown raw with its asterisks in it. */}
+      <div className="mt-2 text-[12.5px]">
+        <Markdown text={run.summary} />
+      </div>
       {expanded && (
         <button onClick={onToggle} className="text-muted-foreground mt-1 text-[11.5px] underline">
           stage by stage
@@ -472,15 +482,25 @@ function Proposals() {
       <div className="mb-2 flex flex-wrap items-baseline gap-3">
         <h2 className="text-[15px] font-medium">Proposed actions</h2>
         <span className="text-muted-foreground text-[11.5px]">
-          {config.venturesPerNight} venture{config.venturesPerNight === 1 ? "" : "s"} a night, at most{" "}
-          {config.perVenture} each and {config.perNight} in all. Next up:{" "}
-          {next.map((n) => n.name).join(", ") || "nothing"}.
+          Next up: {next.map((n) => n.name).join(", ") || "nothing"}.
         </span>
         <label className="text-muted-foreground ml-auto flex items-center gap-1.5 text-[11.5px]">
           <input type="checkbox" checked={showDropped} onChange={(e) => setShowDropped(e.target.checked)} />
           show what was refused
         </label>
       </div>
+
+      {/* THE FIVE DIALS, ON THE PAGE THAT SHOWS WHAT THEY DO. They are settings
+          on the `synthesis` pseudo-plugin and were reachable only by curling
+          the config route: that plugin has no entry on the Integrations page,
+          because it holds no credential and does not appear in the catalog the
+          page draws from. So they live here, beside the proposals they govern,
+          which is where somebody changing them is already looking. */}
+      <SynthesisForm
+        key={`${config.venturesPerNight}:${config.perVenture}:${config.perNight}:${config.repeatDays}:${config.model}`}
+        config={config}
+        onSaved={() => doc.reload()}
+      />
       <p className="text-muted-foreground mb-2 text-[11.5px]">{notes.dropped}</p>
       {shown.length === 0 ? (
         <p className="text-muted-foreground text-[13.5px]">
@@ -516,6 +536,77 @@ function Proposals() {
         Coverage: {coverage.filter((c) => c.lastPassAt).length} of {coverage.length} ventures have had a
         pass; {coverage.filter((c) => !c.proposalsOn).length} have proposals switched off.
       </p>
+    </div>
+  );
+}
+
+/**
+ * THE SYNTHESIS DIALS.
+ *
+ * Five values, all of them decisions rather than credentials, all of them about
+ * how much of the owner's morning this pass is allowed to fill. They are stored
+ * on the `synthesis` pseudo-plugin and validated once on the server, which is
+ * why this form does no checking of its own beyond keeping the boxes small —
+ * a second validator here would be a second set of rules to keep in step.
+ */
+function SynthesisForm({
+  config,
+  onSaved,
+}: {
+  config: SynthesisDoc["config"];
+  onSaved: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>({
+    "ventures-per-night": String(config.venturesPerNight),
+    "per-venture": String(config.perVenture),
+    "per-night": String(config.perNight),
+    "repeat-days": String(config.repeatDays),
+    model: config.model ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (k: string, v: string) => setValues((old) => ({ ...old, [k]: v }));
+
+  return (
+    <div className="border-line-soft bg-card mb-2 flex flex-wrap items-end gap-3 rounded-[10px] border px-3 py-3">
+      <Field label="Ventures a night" width="w-24">
+        <Input value={values["ventures-per-night"]} onChange={(e) => set("ventures-per-night", e.target.value)} />
+      </Field>
+      <Field label="Most per venture" width="w-24">
+        <Input value={values["per-venture"]} onChange={(e) => set("per-venture", e.target.value)} />
+      </Field>
+      <Field label="Most in one night" width="w-24">
+        <Input value={values["per-night"]} onChange={(e) => set("per-night", e.target.value)} />
+      </Field>
+      <Field label="Days before repeating an idea" width="w-32">
+        <Input value={values["repeat-days"]} onChange={(e) => set("repeat-days", e.target.value)} />
+      </Field>
+      <Field label="Model (blank = the provider's own)" width="w-56">
+        <Input value={values.model} onChange={(e) => set("model", e.target.value)} />
+      </Field>
+      <Button
+        size="sm"
+        disabled={saving}
+        onClick={() => {
+          setSaving(true);
+          setError(null);
+          synthesisApi
+            .saveConfig(values)
+            .then(onSaved)
+            .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+            .finally(() => setSaving(false));
+        }}
+      >
+        {saving && <Loader2 className="size-3.5 animate-spin" />}
+        Save
+      </Button>
+      <span className="text-muted-foreground w-full text-[11.5px]">
+        Each venture in the rotation costs one model call over its whole evidence packet, so the first
+        box is the main dial on what a night spends. Defaults:{" "}
+        {config.defaults.venturesPerNight} / {config.defaults.perVenture} / {config.defaults.perNight} /{" "}
+        {config.defaults.repeatDays} days.
+      </span>
+      {error && <p className="text-destructive w-full text-[12.5px]">{error}</p>}
     </div>
   );
 }

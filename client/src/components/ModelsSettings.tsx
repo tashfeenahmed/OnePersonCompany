@@ -32,6 +32,7 @@ import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { api, type ModelProvider, type ProviderReply, type ProviderId } from "@/lib/api";
 import { GATE_POLL_MS } from "@/components/ModelPolicy";
+import { ToolModeNote } from "@/areas/runtime/ToolModeNote";
 
 /** The four, with the sentence that says what each one IS — because "local"
  *  and "openrouter" are ids rather than descriptions, and a page listing four
@@ -124,6 +125,14 @@ export function ModelsSettings() {
           {doc.data.why}
         </p>
       )}
+
+      {/* WHAT THE CHOSEN CONNECTION ACTUALLY GIVES — text, or tools. It sits
+          directly under the sentence about which provider is live because it
+          is the second half of that sentence: a chat with no agent in front of
+          it can now READ this box's data, but only where the model has been
+          measured to support function calling. See
+          areas/runtime/ToolModeNote.tsx. */}
+      <ToolModeNote />
 
       <div className="flex flex-col gap-2">
         {providers.map((p) => {

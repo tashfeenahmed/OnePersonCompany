@@ -1270,18 +1270,37 @@ function launchPlan(s: Spec, cmd: { file: string; args: string[]; env: Record<st
   const env = childEnv(s, cmd.env);
   const user = agentUser();
   if (!user || user === userInfo().username) return { file: cmd.file, args: cmd.args, cwd, env, as: null as string | null };
-  /* `env` takes KEY=VALUE pairs; nothing here can hold a secret — the gateway
-     reads its key out of a file in its own home — so nothing lands in `ps`
-     that was not already in the environment of a process that user owns. */
-  const pairs = Object.entries(env).map(([k, v]) => `${k}=${v}`);
+  /*
+    THE COMMAND LINE IS THE GATEWAY'S OWN, WITH NO `env` IN FRONT OF IT — and
+    that is the whole of what makes the sudoers rule mean anything.
+
+    The first version ran `sudo -u <user> -H env KEY=VALUE … <gateway> <args>`,
+    which needs `/usr/bin/env` in the sudoers rule; and `env` with unconstrained
+    arguments IS "run any program as that user". The two gateway paths listed
+    beside it were decoration. sudoers can constrain a command AND its exact
+    arguments, so the fix is to invoke the gateway directly and let sudo carry
+    the environment through `env_keep` — which `deploy/agent-user.sh` writes,
+    naming the six variables and nothing else.
+
+    THE ENVIRONMENT IS STILL THIS PROCESS'S BUILT ONE. `spawn` hands it to
+    sudo, sudo drops everything not in `env_keep`, and what survives is exactly
+    the list the sudoers file names. A variable this app adds later and forgets
+    to add there arrives as absent rather than as a leak, which is the right
+    direction for a filter to fail in.
+  */
   return {
     file: "sudo",
-    args: ["-n", "-u", user, "-H", "env", ...pairs, cmd.file, ...cmd.args],
+    args: ["-n", "-u", user, cmd.file, ...cmd.args],
     cwd,
     env,
     as: user,
   };
 }
+
+/** The environment names the sudoers rule has to preserve for a gateway
+ *  spawned as another user. Exported so `deploy/agent-user.sh` and this file
+ *  cannot drift: the script prints this list, and it is the only list. */
+export const SUDO_ENV_KEEP = ["PATH", "HOME", "LANG", "LC_ALL", "HERMES_HOME", "OPENCLAW_HOME", "TMPDIR"] as const;
 
 function spawnChild(id: AgentId) {
   const s = SPECS[id];

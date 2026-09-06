@@ -10,8 +10,13 @@
  * A second door onto the same thing would be a second set of parameter
  * descriptions to keep in step with the kind's own inputs. What `autopilot`
  * adds is a thing that has no other door — running the scheduled pass now —
- * and it is not marked destructive because it is not: it queues work that can
- * be cancelled, and it obeys every limit the clock does.
+ * and it IS marked destructive. It used to say the opposite here, on the
+ * grounds that a queued pass can be cancelled and obeys every limit the clock
+ * does; both are true and neither is the question. A pass calls the model
+ * provider for a caption, Replicate for a picture and Pexels for footage, and
+ * `destructive` on this box covers the MONEY as well as the record — see
+ * `skills/registry.ts` for the one definition and `runs/manifest.ts` for why
+ * "it can be cancelled" was the wrong test.
  *
  * BOTH ENTRIES ARE ALWAYS LIVE (`plugins: []`), which is deliberate and is the
  * honest reading of an ANY-OF list. A faceless video needs Pexels; a shorts
@@ -29,11 +34,14 @@ export const SKILLS: Skill[] = [
     title: "Video — what this box has made, and what it can",
     plugins: [],
     about:
-      "Vertical videos made on this machine, in two shapes. `faceless` is a " +
+      "Vertical videos made on this machine, in four shapes. `faceless` is a " +
       "script written from a venture record, stock footage from Pexels for " +
       "each beat, captions burned in with the venture's own colour and font, " +
       "and an end card. `shorts` is a long video downloaded with yt-dlp and " +
-      "cut into two to four vertical clips. Every job carries its script, the " +
+      "cut into two to four vertical clips. `reel` is a two-voice walkthrough " +
+      "over screenshots of the venture's OWN pages, scrolling. `motion` is a " +
+      "scene list — a title card, a number, a before/after, a list, a call to " +
+      "action — rendered as animated typography in the venture's own colours. Every job carries its script, the " +
       "footage manifest with the photographer of each clip, the duration and " +
       "size read off the finished file, and which machine drew the captions. " +
       "The readiness block on the default view says which of the five things a " +
@@ -59,13 +67,47 @@ export const SKILLS: Skill[] = [
         "is off by default in the voice plugin, and nothing copyrighted is " +
         "bundled with this dashboard, so a video made here is usually SILENT. " +
         "That is not a fault and it is not a missing file.",
-      "ON A SHORTS JOB, `chosenBy` DECIDES WHAT THE CLIPS ARE. `transcript` " +
-        "means the windows were chosen from the site's own timed subtitles. " +
-        "`speech` means from a transcription with no timestamps, which is " +
-        "weaker. `spacing` means THERE WAS NO TRANSCRIPT AT ALL and the video " +
-        "was cut at even intervals — those are cuts, not highlights, and " +
-        "presenting them as chosen moments is the one thing this document " +
-        "exists to prevent.",
+      "ON A SHORTS JOB, `chosenBy` DECIDES WHAT THE CLIPS ARE, and there are " +
+        "SIX values. `transcript` — chosen by a model out of the site's own " +
+        "timed subtitles. `words` — chosen by a model out of a transcript this " +
+        "box timed word by word with a local whisper, which is the strongest " +
+        "of the six. `speech` — chosen by a model out of a transcription with " +
+        "NO timestamps, which is the weakest of the model ones. `density` — " +
+        "NO MODEL ANSWERED; the densest runs of speech were taken by " +
+        "arithmetic, which finds where somebody talked fastest and is not a " +
+        "judgement about what is interesting. `scenes` — THERE WAS NO " +
+        "TRANSCRIPT; the windows begin at real camera cuts, which start " +
+        "cleanly and are still not highlights. `spacing` — NOTHING WAS KNOWN " +
+        "and the video was cut at even intervals. The last three are cuts, not " +
+        "highlights, and presenting them as chosen moments is the one thing " +
+        "this document exists to prevent.",
+      "A SHORTS CLIP'S FRAMING IS `tracked` OR `fixed` AND THE TWO ARE NOT THE " +
+        "SAME PRODUCT. `fixed` is the middle of the source and nothing else — " +
+        "whatever was at the edges is not in the clip, which on an interview " +
+        "or a wide shot is usually the point of it. `tracked` means the crop " +
+        "window moved with the horizontal centre of MEASURED MOTION, sampled a " +
+        "few times a second and smoothed. THERE IS NO FACE DETECTION ON THIS " +
+        "BOX and `tracked` must never be described as face or subject " +
+        "recognition: a speaker who sits still while a slide changes behind " +
+        "them is the case it gets wrong.",
+      "A `reel` IS A WALKTHROUGH OF THE OWNER'S OWN PAGES AND THE SCROLL IS " +
+        "NOT A RECORDING. Each page was rendered ONCE by a headless browser " +
+        "into a very tall window and ffmpeg panned a viewport-sized crop down " +
+        "that one picture; there is no screen-recording API here. The cost is " +
+        "on every reel's report: a page whose layout responds to viewport " +
+        "height is drawn as it would look in a very tall window, which is not " +
+        "what a visitor sees. The addresses come from the owner or from the " +
+        "venture record and NEVER from the model.",
+      "A `reel` MAY HAVE ONLY ONE VOICE. Two roles speak, but with fewer than " +
+        "two voice names configured the guest is the same voice pitched down " +
+        "by ffmpeg — one speaker at two pitches, which the run says in a " +
+        "sentence. Never describe that as two voices. With speech off " +
+        "entirely, a reel is silent, its lines are captions, and its shot " +
+        "lengths are ESTIMATED from the word count rather than measured.",
+      "A `motion` VIDEO'S NUMBERS ARE CLAIMS. A stat card is a figure in " +
+        "200-point type and this box cannot check one. When the scene list was " +
+        "written by a model, say so and say the numbers must be checked before " +
+        "the video is used anywhere.",
       "`durationS` and `bytes` are read off the finished file with ffprobe. " +
         "Null means the file could not be probed, which is not a zero-length " +
         "video. `onDisk: false` means the row outlived its file.",
@@ -90,7 +132,7 @@ export const SKILLS: Skill[] = [
             name: "format",
             type: "string",
             required: false,
-            about: "`faceless` or `shorts`. Absent lists both.",
+            about: "`faceless`, `shorts`, `reel`, `motion` or `ugc`. Absent lists all of them.",
           },
           {
             name: "limit",
@@ -171,6 +213,12 @@ export const SKILLS: Skill[] = [
         key: "run_now",
         method: "POST",
         path: "/api/autopilot/now",
+        /* SPENDS MONEY. A pass queues Studio posts (a model call for the
+           caption, Replicate for the picture) and video runs (Pexels quota and
+           minutes of this laptop). The rules below have always said so in
+           words; this is the same claim in the field a client actually reads.
+           See skills/registry.ts for the one definition of `destructive`. */
+        destructive: true,
         about:
           "Run the daily pass immediately. Obeys the cadence, the day's cap and the run queue exactly as the scheduled pass does, and answers with what it queued and what it skipped and why.",
         params: [],

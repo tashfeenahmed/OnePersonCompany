@@ -58,7 +58,7 @@ import {
   stopOnOf,
   type SequenceRow,
 } from "./sequences.ts";
-import { STOP_CONDITIONS } from "./validate.ts";
+import { STOP_CONDITIONS, truthy } from "./validate.ts";
 import {
   addOwnerRule,
   derive,
@@ -388,7 +388,7 @@ nurtureRoutes.post("/optout", async (c) => {
 
 nurtureRoutes.post("/run", async (c) => {
   const body = (await c.req.json().catch(() => null)) as { force?: boolean } | null;
-  const out = await runPass(viaSkills(c) ? "agent" : "owner", body?.force === true);
+  const out = await runPass(viaSkills(c) ? "agent" : "owner", truthy(body?.force));
   return c.json({
     ...out,
     note: out.alreadyRan
@@ -533,7 +533,11 @@ nurtureRoutes.post("/prepare", async (c) => {
       at: now(),
     };
 
-    if (body.dryRun === true)
+    /* `truthy`, not `=== true`: the skills proxy forwards arguments verbatim,
+       so a caller following the published schema sends the string "true". A
+       strict identity check there is a check that never fires, and this one
+       decides whether a real row is written. */
+    if (truthy(body.dryRun))
       return c.json({
         dryRun: true,
         plan: prepared.plan,
@@ -577,7 +581,7 @@ nurtureRoutes.post("/prepare", async (c) => {
           "Written, not sent. It is a draft in the Outbox and it will stay one until you approve it there. " +
           (wording.by === "template"
             ? `The model's wording was not used: ${wording.why}`
-            : "Every number, date, link and address in it was checked against the facts above."),
+            : "Every number, amount, date, link and address in it appears somewhere in the facts above. That is a floor on fabrication, not a proof: apart from money, which is checked with its currency, the number check is membership of one pooled set, so a figure from one fact can be quoted about another."),
       },
       201,
     );

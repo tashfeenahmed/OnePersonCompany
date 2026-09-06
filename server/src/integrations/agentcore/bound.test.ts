@@ -35,7 +35,7 @@ test("a document exactly on the budget is not touched", () => {
 });
 
 test("one byte under the budget is shortened, and stays valid JSON", () => {
-  const body = JSON.stringify({ rows: Array.from({ length: 40 }, (_, i) => i) });
+  const body = JSON.stringify({ rows: Array.from({ length: 400 }, (_, i) => i) });
   const exact = byteLength(body);
   const r = boundResponse(body, { budget: exact - 1, how: HOW });
   assert.equal(r.bounded, true);
@@ -45,12 +45,13 @@ test("one byte under the budget is shortened, and stays valid JSON", () => {
     truncated: boolean;
     shown: number;
     total: number;
-    next: string;
   };
   assert.equal(marker.truncated, true);
-  assert.equal(marker.total, 40);
+  assert.equal(marker.total, 400);
   assert.equal(marker.shown, doc.rows.length - 1);
-  assert.equal(marker.next, HOW);
+  /* The way out is written ONCE, at the root — a marker that carried the whole
+     sentence cost more than the rows it replaced. */
+  assert.equal((doc as unknown as { _bounded: { next: string } })._bounded.next, HOW);
 });
 
 test("scalars and summary fields survive; only rows are dropped", () => {
@@ -190,4 +191,87 @@ test("an empty document and an empty array are both left alone", () => {
   assert.equal(boundResponse("{}", { budget: 512, how: HOW }).bounded, false);
   assert.equal(boundResponse("[]", { budget: 512, how: HOW }).bounded, false);
   assert.equal(boundResponse("null", { budget: 512, how: HOW }).text, "null");
+});
+
+/* ======================================================================
+   REGRESSIONS FROM REVIEW. Each of these failed before the fix beside it,
+   and each is a shape a real skill document actually has.
+   ====================================================================== */
+
+test("regression: many small arrays are shortened, not thrown away", () => {
+  /* Two hundred ten-integer lists. Every marker used to carry the whole "here
+     is how to page" sentence, so a marker cost more than the rows it replaced
+     and the document could not be fitted however many rows were dropped — it
+     fell through to a bail that answered with no data at all. */
+  const doc: Record<string, unknown> = {};
+  for (let i = 0; i < 200; i++) doc[`series${i}`] = Array.from({ length: 10 }, (_, k) => k);
+  const body = JSON.stringify(doc);
+  assert.ok(byteLength(body) > 4096);
+
+  const r = boundResponse(body, { budget: 4096, how: HOW });
+  assert.ok(byteLength(r.text) <= 4096);
+  const out = JSON.parse(r.text) as Record<string, unknown>;
+  /* Real data came back — not an error object. */
+  assert.ok(Object.keys(out).length > 20, `only ${Object.keys(out).length} keys survived`);
+  assert.deepEqual(out.series0, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.equal((out._bounded as { next: string }).next, HOW);
+  assert.ok(!("error" in out), "this is not a document with one oversized value");
+});
+
+test("regression: a document of many short scalar fields keeps its head and counts what it dropped", () => {
+  /* Four hundred short strings: no rows to shorten, no string long enough to
+     abridge, and five times the budget. The old code bailed with a sentence
+     claiming a single value was too big, which was false, and returned nothing
+     the agent could use. */
+  const doc: Record<string, unknown> = {};
+  for (let i = 0; i < 400; i++) doc[`field_number_${i}`] = `value ${i}`;
+  const body = JSON.stringify(doc);
+  const r = boundResponse(body, { budget: 2048, how: HOW });
+
+  assert.ok(byteLength(r.text) <= 2048);
+  const out = JSON.parse(r.text) as Record<string, unknown>;
+  assert.equal(out.field_number_0, "value 0", "the head of the document survives");
+  assert.ok(typeof out._omitted === "number" && (out._omitted as number) > 0);
+  assert.ok(r.note && r.note.includes("_omitted"));
+  assert.ok(!("error" in out));
+});
+
+test("regression: `pretty` is honoured for a document that fits", () => {
+  /* `opc` prints indented JSON, and the fix that bounded the answer used to
+     hand back the route's own compact bytes whenever the document fitted — so
+     every small document printed as one long line and `--raw` did nothing. */
+  const body = JSON.stringify({ a: 1, rows: [1, 2, 3] });
+  const pretty = boundResponse(body, { budget: 8192, how: HOW, pretty: true });
+  assert.ok(pretty.text.includes("\n  "), "a fitting document is still indented");
+  assert.equal(pretty.bounded, false);
+  assert.deepEqual(JSON.parse(pretty.text), JSON.parse(body));
+
+  const raw = boundResponse(body, { budget: 8192, how: HOW, pretty: false });
+  assert.equal(raw.text, body, "--raw still gets the bytes the route sent");
+});
+
+test("regression: `fields` against an array root says so instead of claiming a subset", () => {
+  const r = boundResponse("[1,2,3]", { budget: 4096, fields: ["a"], how: HOW });
+  assert.equal(r.text, "[1,2,3]");
+  assert.ok(r.note && r.note.includes("no top-level keys"));
+  assert.equal(r.unknownFields.length, 0, "an array has no field to be missing");
+});
+
+test("the guidance survives every pass that shortens the document", () => {
+  const doc = {
+    summary: { total: 9 },
+    prose: "x".repeat(20_000),
+    rows: Array.from({ length: 500 }, (_, i) => ({ i, s: `row ${i}` })),
+  };
+  const r = boundResponse(JSON.stringify(doc), { budget: 1500, how: HOW });
+  assert.ok(byteLength(r.text) <= 1500);
+  const out = JSON.parse(r.text) as Record<string, unknown>;
+  assert.equal((out._bounded as { next: string }).next, HOW, "never abridged, never dropped");
+});
+
+test("a budget too small for its own footer still answers within it", () => {
+  /* The function's floor is 64 bytes; the non-JSON footer alone was longer. */
+  const r = boundResponse(`prose ${"and more ".repeat(200)}`, { budget: 64, how: HOW });
+  assert.ok(byteLength(r.text) <= 64, `${byteLength(r.text)} bytes`);
+  assert.equal(r.bounded, true);
 });

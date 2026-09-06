@@ -23,7 +23,9 @@ import { ventureRows } from "./db.ts";
 /* The collector schedule and the health checks, both owned by the deploy area
    — see integrations/deploy/manifest.ts for why they are one area. */
 import { startCollectors } from "./integrations/deploy/scheduler.ts";
-import { health } from "./integrations/deploy/health.ts";
+import { healthFor } from "./integrations/deploy/health.ts";
+import { authenticatedRequest } from "./integrations/security/gate.ts";
+import { passwordSet } from "./integrations/security/owner.ts";
 import { COLLECTORS as BUILTIN_COLLECTORS } from "./collector.ts";
 import { MANIFESTS, manifestCollectors } from "./integrations/index.ts";
 import { ownerGate } from "./integrations/security/gate.ts";
@@ -147,7 +149,27 @@ app.use("/api/*", ownerGate);
   is in the state it was asked to be in, and there is disk left. That is the
   question an unattended install actually asks — see integrations/deploy/health.ts.
 */
-app.get("/api/health", async (c) => c.json(await health(Object.keys(COLLECTORS))));
+/** Never throws: an unreadable owner table must not take the liveness probe
+ *  down, and treating it as locked is the direction that reveals less. */
+const locked = () => {
+  try {
+    return passwordSet();
+  } catch {
+    return true;
+  }
+};
+
+app.get("/api/health", async (c) =>
+  c.json(
+    await healthFor(Object.keys(COLLECTORS), {
+      /* THE DETAIL IS BEHIND THE LOCK AND THE LIVENESS IS NOT — see
+         integrations/deploy/health.ts. On a box with no password this is
+         everything, exactly as before. */
+      locked: locked(),
+      authenticated: authenticatedRequest(c),
+    }),
+  ),
+);
 
 app.route("/api/plugins", plugins);
 app.route("/api/hetzner", hetznerRoutes);

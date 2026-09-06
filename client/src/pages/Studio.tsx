@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Sparkles } from "lucide-react";
+import { Clapperboard, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
@@ -15,6 +15,12 @@ import {
   type StudioFormat,
   type StudioPost,
 } from "@/lib/api/studio";
+/* THE UGC DOOR, added by the socialfeed area. It is a button rather than a
+   second form because a UGC job is not a variation on a post: it is a video
+   run, it goes on the run queue, and it belongs on the page that shows runs.
+   The button only exists when the venture has reference pictures, because a
+   UGC shot is a picture of a real product and there is no substitute. */
+import { socialfeedApi } from "@/areas/socialfeed/api";
 
 /**
  * THE STUDIO — a caption and a picture for one venture, in that venture's own
@@ -104,6 +110,8 @@ export function Studio() {
   const [format, setFormat] = useState<StudioFormat>("square");
   const [platform, setPlatform] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ugcBusy, setUgcBusy] = useState(false);
+  const [ugcSaid, setUgcSaid] = useState<string | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   /* WHICH OF THE VENTURE'S OWN PICTURES THIS POST SHOULD LOOK LIKE. Cleared
      when the venture changes, because an asset belongs to one business. */
@@ -163,6 +171,29 @@ export function Studio() {
 
   const readiness = doc.data?.readiness ?? null;
   const posts = doc.data?.posts ?? [];
+
+  /* Queued through the socialfeed area's own route rather than through the
+     Studio's: a UGC job is a run, and the run queue is not this page's. The
+     answer names what will be spent, which is what goes on screen. */
+  async function startUgc() {
+    if (!venture) return;
+    setUgcBusy(true);
+    setUgcSaid(null);
+    try {
+      const res = await socialfeedApi.startUgc({
+        venture: venture.slug,
+        brief: brief.trim(),
+        assets: assetIds,
+      });
+      setUgcSaid(
+        `Queued as run ${res.run.id}. Image: ${res.spend.image}. Video: ${res.spend.video}. It lands on the Video page as a draft.`,
+      );
+    } catch (err) {
+      setUgcSaid(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUgcBusy(false);
+    }
+  }
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
@@ -413,6 +444,31 @@ export function Studio() {
                 <p className="text-destructive text-[12.5px] leading-relaxed">
                   {refused}
                 </p>
+              )}
+
+              {/* ------------------------------------------------ the UGC job */}
+              {venture && (library.data?.assets ?? []).length > 0 && (
+                <div className="border-line-soft flex flex-wrap items-center gap-2.5 border-t pt-3">
+                  <Button
+                    variant="outline"
+                    disabled={ugcBusy}
+                    onClick={() => void startUgc()}
+                  >
+                    {ugcBusy ? (
+                      <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} />
+                    ) : (
+                      <Clapperboard className="size-[15px]" strokeWidth={1.8} />
+                    )}
+                    Make a UGC clip instead
+                  </Button>
+                  <span className="text-muted-foreground text-[12px]">
+                    A product shot from {venture.name}'s own pictures, animated. It is queued as a
+                    video run and it SPENDS MONEY — one image prediction always, and one
+                    image-to-video prediction if a model is configured under Integrations → Social
+                    feed. With none configured it makes a still and spends nothing on video.
+                  </span>
+                  {ugcSaid && <p className="w-full text-[12.5px]">{ugcSaid}</p>}
+                </div>
               )}
             </div>
 

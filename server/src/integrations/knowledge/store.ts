@@ -453,7 +453,7 @@ export function correct(
   id: string,
   statement: string,
   kind?: FactKind,
-): { ok: true; corrected: Fact; replacement: Fact } | { ok: false; error: string } {
+): { ok: true; corrected: Fact; replacement: Fact; inPlace: boolean } | { ok: false; error: string } {
   const old = factRow(id);
   if (!old) return { ok: false, error: `No fact with id ${id}.` };
   if (old.status !== "active")
@@ -473,11 +473,41 @@ export function correct(
     confidence: CONFIDENCE.owner,
     createdBy: "owner",
   });
+
+  /*
+    THE ROW CORRECTED ITSELF, AND THIS IS THE ORDINARY CASE, NOT THE EDGE ONE.
+
+    `put()` dedupes on (venture, tier, fingerprint), and `fingerprint()`
+    replaces every digit run with a marker — so an owner editing his own
+    sentence to change a NUMBER ("39 a month" to "49 a month") normalises to the
+    same fingerprint at the same tier, and `put()` correctly REFRESHES the row
+    in place and hands back the id it was given. Marking that row `corrected`
+    with `corrected_by` pointing at ITSELF was a fact that vanished: it left
+    `facts()`, `factsForPrompt`, `knowledgeLines` and the Studio brief, and
+    `contradictions()` reported it disagreeing with itself. The store's single
+    highest-tier statement disappeared on the most ordinary owner action there
+    is.
+
+    There is nothing to supersede when a sentence has replaced itself, so the
+    supersession is skipped and the caller is told which of the two happened.
+    The row's `observed_at` has already moved, which is the whole of what an
+    in-place edit should do.
+  */
+  if (newid === id) {
+    const fact = shape(factRow(id)!);
+    return { ok: true, corrected: fact, replacement: fact, inPlace: true };
+  }
+
   db.prepare("UPDATE knowledge_facts SET status = 'corrected', corrected_by = ? WHERE id = ?").run(
     newid,
     id,
   );
-  return { ok: true, corrected: shape(factRow(id)!), replacement: shape(factRow(newid)!) };
+  return {
+    ok: true,
+    corrected: shape(factRow(id)!),
+    replacement: shape(factRow(newid)!),
+    inPlace: false,
+  };
 }
 
 export function retire(id: string, why: string | null = null): { ok: boolean; error?: string } {
@@ -500,13 +530,49 @@ export function retire(id: string, why: string | null = null): { ok: boolean; er
  * the sentence, and that an agent proposed it is still part of what is known
  * about it.
  */
-export function confirm(id: string): { ok: true; fact: Fact } | { ok: false; error: string } {
+export function confirm(
+  id: string,
+): { ok: true; fact: Fact } | { ok: false; status: 400 | 404 | 409; error: string } {
   const row = factRow(id);
-  if (!row) return { ok: false, error: `No fact with id ${id}.` };
+  if (!row) return { ok: false, status: 404, error: `No fact with id ${id}.` };
   if (row.tier !== "proposed")
-    return { ok: false, error: `Only a proposed fact needs confirming; that one is ${row.tier}.` };
+    return { ok: false, status: 400, error: `Only a proposed fact needs confirming; that one is ${row.tier}.` };
   if (row.status !== "active")
-    return { ok: false, error: `That proposal is ${row.status}.` };
+    return { ok: false, status: 400, error: `That proposal is ${row.status}.` };
+
+  /*
+    THE OWNER MAY ALREADY HAVE SAID IT.
+
+    Confirming promotes the row to the owner tier WITHOUT changing its
+    fingerprint, and `knowledge_facts_identity` is unique on (venture, tier,
+    fingerprint) for active rows — so a proposal that says what the owner has
+    already written raised a raw SQLITE_CONSTRAINT_UNIQUE out of the Confirm
+    button. Nothing dedupes a proposal against another tier at write time
+    (`put()` keys per tier, deliberately: an agent proposing something the
+    repository also says is a real and useful state), so the collision can only
+    be resolved here.
+
+    The proposal is RETIRED rather than promoted, because it is a duplicate of a
+    higher-tier fact and there is nothing for the owner to decide, and the
+    refusal names the sentence that already stands so the reader can see that
+    nothing was lost.
+  */
+  const already = db
+    .prepare(
+      "SELECT * FROM knowledge_facts WHERE venture_id = ? AND tier = 'owner' AND fingerprint = ? AND status = 'active'",
+    )
+    .get(row.venture_id, row.fingerprint) as FactRow | undefined;
+  if (already) {
+    retire(id, "the owner already had this fact; confirming would have duplicated it");
+    return {
+      ok: false,
+      status: 409,
+      error:
+        `You already have that fact: "${already.statement.slice(0, 160)}". The proposal ` +
+        `has been retired as a duplicate rather than filed twice.`,
+    };
+  }
+
   db.prepare(
     `UPDATE knowledge_facts
         SET tier = 'owner', source_type = 'owner', source_ref = ?, confidence = ?,
@@ -593,15 +659,23 @@ export function contradictions(all: Fact[]): Contradiction[] {
   }
 
   const active = all.filter((f) => f.status === "active" && f.tier !== "proposed");
+  /* The token and digit sets are computed ONCE per fact rather than once per
+     comparison. The pair walk is quadratic and the tab loads it on every
+     render; recomputing `words(b.statement)` inside the inner loop made it
+     quadratic in the STATEMENTS as well, which on four hundred facts is a
+     hundred thousand string splits for a panel that is usually empty. */
+  const tokens = new Map(active.map((f) => [f.id, words(f.statement)]));
+  const digits = new Map(active.map((f) => [f.id, numbers(f.statement)]));
   for (let i = 0; i < active.length; i++)
     for (let j = i + 1; j < active.length; j++) {
       const a = active[i]!;
       const b = active[j]!;
       if (a.kind !== b.kind || a.tier === b.tier) continue;
-      const shared = [...words(a.statement)].filter((w) => words(b.statement).has(w));
+      const wb = tokens.get(b.id)!;
+      const shared = [...tokens.get(a.id)!].filter((w) => wb.has(w));
       if (shared.length < 3) continue;
-      const na = numbers(a.statement);
-      const nb = numbers(b.statement);
+      const na = digits.get(a.id)!;
+      const nb = digits.get(b.id)!;
       if (!na.size || !nb.size || same(na, nb)) continue;
       out.push({
         kind: a.kind,

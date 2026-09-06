@@ -255,7 +255,15 @@ export function clipPath(id: string, format: string): string {
   return join(VOICE_DIR, `${id}.${format}`);
 }
 
-export async function speak(text: string): Promise<Speech> {
+/** `voice` NAMES A DIFFERENT VOICE FOR THIS ONE CLIP, and it exists for the
+ *  video area's dialogue reels, which need two speakers out of one endpoint.
+ *  It is an override of the plugin's own setting and nothing else: an unknown
+ *  name is the endpoint's to refuse, and it is refused loudly rather than
+ *  quietly falling back to the default, because a reel whose two speakers
+ *  silently became one voice is a reel that reads as a fault. Piper takes its
+ *  voice from a model FILE rather than a name, so this is ignored there and
+ *  the caller is told. */
+export async function speak(text: string, opts: { voice?: string } = {}): Promise<Speech> {
   const s = settings();
   if (s.tts === "off")
     throw new Error(
@@ -265,7 +273,8 @@ export async function speak(text: string): Promise<Speech> {
   const body = text.trim();
   if (!body) throw new Error("There is nothing to say.");
   mkdirSync(VOICE_DIR, { recursive: true });
-  return s.tts === "piper" ? speakPiper(body, s) : speakOpenAI(body, s);
+  const chosen = (opts.voice ?? "").trim();
+  return s.tts === "piper" ? speakPiper(body, s) : speakOpenAI(body, chosen ? { ...s, ttsVoice: chosen } : s);
 }
 
 async function speakOpenAI(text: string, s: VoiceSettings): Promise<Speech> {

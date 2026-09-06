@@ -209,8 +209,6 @@ export function daysInMonth(month: string): number {
 
 export const isMonth = (s: string): boolean => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 
-export const monthOf = (iso: string): string => iso.slice(0, 7);
-
 /** The month this box is in, in UTC — the same clock every stored day uses. */
 export const currentMonth = (): string => new Date().toISOString().slice(0, 7);
 

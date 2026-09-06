@@ -159,6 +159,27 @@ async function catalog(): Promise<Catalog> {
  * it is worth them: the failure it prevents is a confident wrong figure, which
  * is the only kind of wrong answer the owner cannot catch.
  */
+/**
+ * WHICH SKILLS OWN THE NAME `fields` THEMSELVES.
+ *
+ * `call` strips `fields` before composing the request, because it is this
+ * layer's parameter and the proxy refuses ones a view does not declare. The day
+ * a skill declares its own, stripping it would be the silently-dropped
+ * `month=august` the proxy's refusal exists to prevent — so the ids that do are
+ * remembered as the tool list is built, which is the same pass that decided not
+ * to add ours.
+ *
+ * NOT A SECOND OPINION ABOUT WHAT EXISTS — the header refuses one, and rightly.
+ * It is a note about what THIS process just published, and it is empty until
+ * `tools/list` has run, which is the state every client starts in and in which
+ * no view declares one anyway.
+ */
+const declaresFields = new Set<string>();
+
+function viewDeclares(id: string, name: string): boolean {
+  return name === "fields" && declaresFields.has(id);
+}
+
 function toolFor(s: CatalogSkill) {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
@@ -216,13 +237,19 @@ function toolFor(s: CatalogSkill) {
     way to fit a big document inside the budget is to ask for less of it, and
     an agent that only wants the totals should be able to say so.
   */
-  properties.fields = {
-    type: "string",
-    description:
-      "Optional. Comma-separated TOP-LEVEL keys to keep, e.g. \"totals,window\". " +
-      "Everything else is left out. Use it when you know which part of the " +
-      "document you need; an `error` field is always kept.",
-  };
+  /* A VIEW'S OWN `fields` WINS. None declares one today, and the day one does
+     this must not quietly eat it: the value is stripped before the request is
+     composed, so shadowing a real parameter here would be exactly the
+     silently-dropped `month=august` the proxy refuses parameters to prevent. */
+  if ("fields" in properties) declaresFields.add(s.id);
+  else
+    properties.fields = {
+      type: "string",
+      description:
+        "Optional. Comma-separated TOP-LEVEL keys to keep, e.g. \"totals,window\". " +
+        "Everything else is left out. Use it when you know which part of the " +
+        "document you need; an `error` field is always kept.",
+    };
 
   const rules = s.rules.map((r) => `- ${r}`).join("\n");
   return {
@@ -254,9 +281,10 @@ function toolFor(s: CatalogSkill) {
     description:
       `${s.about}\n\nAnswers questions like: ${s.asks.join(" / ")}\n\n` +
       `A LARGE ANSWER IS SHORTENED, NOT CUT. Lists lose rows and end with ` +
-      `{"truncated":true,"shown":N,"total":T,"next":"…"} — T is the real total, so ` +
-      `report T and not N, and fetch the rest with limit/offset where this tool ` +
-      `lists them, a narrower window, or fields=<top-level keys>.\n\n` +
+      `{"truncated":true,"shown":N,"total":T} — T is the real total, so report T and ` +
+      `not N; an "_omitted" count means fields were dropped from the end of that ` +
+      `object too. Fetch the rest with limit/offset where this tool lists them, a ` +
+      `narrower window, or fields=<top-level keys>; "_bounded" at the root says how.\n\n` +
       `RULES FOR REPORTING THIS — they are not optional:\n${rules}`,
     inputSchema: { type: "object", properties, required },
   };
@@ -299,10 +327,12 @@ function actionTool(s: CatalogSkill, a: CatalogAction) {
       THE ANNOTATIONS AGAIN, AND HERE THEY ARE A WARNING RATHER THAN A
       REASSURANCE. `readOnlyHint: false` because this changes something the
       owner will find changed; `destructiveHint` from the registry, which means
-      "there is no undo" and is true of exactly one of these today;
-      `idempotentHint: false` because calling create twice makes two cards and a
-      client must not retry one of these on its own; `openWorldHint: false`
-      because every action reaches a route on this machine.
+      what skills/registry.ts says it means — the record it cannot take back,
+      the money it spends, the message it sends or the machine it reaches, any
+      one of the four; `idempotentHint: false` because calling create twice
+      makes two cards and a client must not retry one of these on its own;
+      `openWorldHint: false` because every action reaches a route on this
+      machine.
     */
     annotations: {
       readOnlyHint: false,
@@ -312,7 +342,7 @@ function actionTool(s: CatalogSkill, a: CatalogAction) {
     },
     description:
       `${a.about}\n\nThis CHANGES the owner's own data — ` +
-      `${a.method} ${a.route}${a.destructive ? ", and there is no undo" : ""}.\n\n` +
+      `${a.method} ${a.route}${a.destructive ? ", and it cannot be taken back — it is irreversible, or it spends money, or it reaches something outside this box" : ""}.\n\n` +
       `RULES FOR USING THIS — they are not optional:\n${rules}`,
     inputSchema: { type: "object", properties, required },
   };
@@ -360,10 +390,12 @@ function route(name: string): { id: string; action: string | null } {
  * a byte boundary, which leaves a JSON document ending mid-string. The model
  * then reads as far as it parses and reports the rest as not existing.
  *
- * SO EVERY READ IS SHAPED, and shaped is not truncated: scalars and summary
- * fields all survive, the longest lists lose rows, and each shortened list ends
- * with `{"truncated":true,"shown":…,"total":…,"next":…}`. Nothing is ever cut
- * mid-string. See integrations/agentcore/bound.ts.
+ * SO EVERY READ IS SHAPED, and shaped is not truncated: the longest lists lose
+ * rows first and each shortened list ends with
+ * `{"truncated":true,"shown":…,"total":…}`, long strings are abridged as string
+ * VALUES, and only when nothing else is left do fields go from the end of the
+ * document. Nothing is ever cut mid-string, and the way to ask for the rest is
+ * written once on `_bounded`. See integrations/agentcore/bound.ts.
  *
  * THE NOTE IS A SECOND CONTENT BLOCK rather than a line appended to the
  * document, so the first block is still a parseable JSON document for any
@@ -408,14 +440,20 @@ async function call(name: string, args: Record<string, unknown>) {
     never heard of has to be consumed before the request is composed rather than
     forwarded and rejected.
   */
-  const fields = String(args?.fields ?? "")
-    .split(",")
-    .map((f) => f.trim())
-    .filter(Boolean);
+  /* Consumed here ONLY when this layer added it. A skill that declares its own
+     `fields` parameter owns the name, and its value goes to the route like any
+     other — see `viewTool`. */
+  const ours = !viewDeclares(id, "fields");
+  const fields = ours
+    ? String(args?.fields ?? "")
+        .split(",")
+        .map((f) => f.trim())
+        .filter(Boolean)
+    : [];
 
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(args ?? {})) {
-    if (k === "fields") continue;
+    if (ours && k === "fields") continue;
     if (v === undefined || v === null) continue;
     qs.set(k, String(v));
   }
@@ -441,8 +479,9 @@ async function call(name: string, args: Record<string, unknown>) {
     budget,
     fields,
     how:
-      `call opc_${id} again with a narrower window, or with limit/offset where the ` +
-      `parameters below list them, or with fields=<top-level keys> to keep only part of it`,
+      `call opc_${id} again with a narrower window, with limit/offset where this tool ` +
+      `lists them` +
+      (ours ? `, or with fields=<top-level keys> to keep only part of it` : ``),
   });
 
   const content: { type: "text"; text: string }[] = [{ type: "text", text: bound.text }];

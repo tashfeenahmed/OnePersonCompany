@@ -12,11 +12,22 @@
  * a backlog to catch up on. All of that survives here.
  *
  * WHAT CHANGED. The timer now fires every minute and each plugin is collected
- * only when ITS OWN interval has elapsed — see cadence.ts. A box that has
- * touched none of the settings behaves identically: every connected plugin
- * still comes round every `OPC_COLLECT_MINUTES`, in the same order, one at a
- * time. The minute tick costs one pass over a handful of rows and a Date.parse
- * per plugin; it does no I/O when nothing is due.
+ * only when ITS OWN interval has elapsed — see cadence.ts. On a box that has
+ * touched none of the settings every connected plugin still comes round every
+ * `OPC_COLLECT_MINUTES`, in the same order, one at a time. The minute tick
+ * costs one pass over a handful of rows and a Date.parse per plugin; it does
+ * no I/O when nothing is due.
+ *
+ * ONE THING IS GENUINELY DIFFERENT AND IT IS NOT A BUG: THE FIRST TICK AFTER A
+ * RESTART. The old loop's first collection was `COLLECT_MINUTES` after boot,
+ * whatever the database said; this one is due-based, so a source whose last
+ * run is already older than its cadence is collected within a minute of the
+ * process starting. That is the correct behaviour for a service that has been
+ * down — the whole point of the change is that a box which was asleep catches
+ * up — but on a development box under `node --watch`, where a save restarts
+ * the server several times an hour, it means a full sweep shortly after most
+ * restarts rather than none. If that is unwanted, `OPC_COLLECT_MINUTES=0`
+ * turns the scheduler off and the Collect buttons still work.
  *
  * A COLLECTION THAT IS STILL RUNNING DOES NOT START AGAIN. The tick is
  * serialised by a single in-flight flag rather than per plugin, because the old
@@ -146,9 +157,22 @@ export async function tick(
     for (const id of dueNow(collectors, defaultMinutes)) {
       const collector = collectors[id];
       if (!collector) continue;
-      const r = await collector();
+      /*
+        ONE COLLECTOR'S THROW MUST NOT END THE PASS, LET ALONE THE PROCESS.
+        Every collector on this box is written to return `{ ok: false, error }`
+        rather than reject — but "written to" is not "guaranteed to", and the
+        old loop awaited them bare: a single rejection aborted the remaining
+        thirty-seven sources and, under Node's default unhandled-rejection
+        behaviour, took the server down with it. A source that throws is a
+        source that failed, logged as such, and the pass continues.
+      */
       ran.push(id);
-      console.log(`[collect] ${id} ${r.ok ? "ok" : "failed"}${r.error ? ` — ${r.error}` : ""}`);
+      try {
+        const r = await collector();
+        console.log(`[collect] ${id} ${r.ok ? "ok" : "failed"}${r.error ? ` — ${r.error}` : ""}`);
+      } catch (err) {
+        console.error(`[collect] ${id} threw — ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     /* PRUNING KEEPS THE OLD CADENCE rather than following any source's. It is
@@ -160,13 +184,19 @@ export async function tick(
     const prunedDue = !lastPruneAt || Date.now() - Date.parse(lastPruneAt) >= pruneEvery;
     if (ran.length || prunedDue) {
       lastPruneAt = new Date().toISOString();
-      const pruned = pruneDb(retain.readings, retain.load);
-      const leases = pruneLeases();
-      if (pruned.readings || pruned.runs || pruned.load || leases)
-        console.log(
-          `[prune] ${pruned.readings} readings, ${pruned.runs} runs, ` +
-            `${pruned.load} load samples${leases ? `, ${leases} finished leases` : ""}`,
-        );
+      try {
+        const pruned = pruneDb(retain.readings, retain.load);
+        const leases = pruneLeases();
+        if (pruned.readings || pruned.runs || pruned.load || leases)
+          console.log(
+            `[prune] ${pruned.readings} readings, ${pruned.runs} runs, ` +
+              `${pruned.load} load samples${leases ? `, ${leases} finished leases` : ""}`,
+          );
+      } catch (err) {
+        /* A DELETE that lost a race with a writer is a row that ages out next
+           cycle, not a reason to end the pass. */
+        console.error(`[prune] failed — ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     return { ran, skipped: false };
   } finally {
@@ -188,7 +218,15 @@ export function startCollectors(
   if (started || defaultMinutes <= 0) return false;
   started = true;
   setInterval(() => {
-    void tick(collectors, defaultMinutes, retain);
+    /* THE LAST CATCH. `tick` already guards each collector and the prune, so
+       nothing is expected here — which is exactly why it is here: an interval
+       callback whose promise rejects is an unhandled rejection, and an
+       unhandled rejection is a dead server on Node's defaults. A supervisor
+       would restart it, which is worse than a logged line, because the restart
+       looks like a crash nobody caused. */
+    void tick(collectors, defaultMinutes, retain).catch((err: unknown) => {
+      console.error(`[collect] the scheduler tick failed — ${err instanceof Error ? err.message : String(err)}`);
+    });
   }, TICK_MS).unref();
   return true;
 }

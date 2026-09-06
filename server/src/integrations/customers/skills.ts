@@ -311,10 +311,17 @@ export const SKILLS: Skill[] = [
         method: "POST",
         path: "/api/business-events/:id/resend",
         about:
-          "Queue one event for the next delivery pass. The attempts count is not reset, and quiet hours and the collapse rule still apply.",
+          "Queue one event for the next delivery pass. The attempts count is not reset, and quiet hours, the age fence and the collapse rule all still apply.",
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "Stripe's event id, `evt_…`.", exampled: true },
         ],
+        /* THE ONE ACTION IN THIS AREA THAT PUTS SOMETHING OUTSIDE THIS BOX.
+           `requeue` hands the row to the next delivery pass, which calls
+           `notify` — and a Telegram message cannot be unsent. The blast
+           radius is small (the destination is the owner's own locked chat)
+           but the field is a claim a client is entitled to trust, and "it
+           only messages the owner" is not the same as "it can be undone". */
+        destructive: true,
       },
     ],
     asks: [
