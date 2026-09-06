@@ -54,7 +54,7 @@ import {
   repoRow,
   setRepo,
 } from "./store.ts";
-import { configValue, db, now, ventureRowById } from "../../db.ts";
+import { db, now, ventureRowById } from "../../db.ts";
 
 /* ------------------------------------------------------------------- caps */
 
@@ -1079,10 +1079,10 @@ async function refreshRepoInner(
   let proposals: Proposal[] = [];
   let modelAnswered = false;
   try {
-    /* The owner's named model, or the provider's own choice. See the manifest
-       header: this is the one job on this box where "let the gateway pick" is
-       actively wrong, because the task is a strict shape under a ceiling. */
-    const named = (configValue(KNOWLEDGE_PLUGIN, "model") ?? "").trim();
+    /* The provider's own model — the one model this box uses for everything.
+       A reasoning model routed here can spend its output ceiling thinking and
+       return nothing; that case is handled below by the salvage parser and by
+       reporting the first line of what came back, not by a second model. */
     const reply = await complete(
       [
         { role: "system", content: SYSTEM },
@@ -1094,7 +1094,7 @@ async function refreshRepoInner(
             `THE MATERIAL, and it is all of it:\n\n${renderMaterial(material)}`,
         },
       ],
-      { signal: opts.signal, ...(named ? { model: named } : {}) },
+      { signal: opts.signal },
     );
     out.modelUsed = reply.model ?? reply.provider;
     const parsed = tryParse(reply.text);

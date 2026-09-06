@@ -75,7 +75,6 @@ export type SynthesisSettings = {
   perVenture: number;
   perNight: number;
   repeatDays: number;
-  model: string | null;
 };
 
 function whole(raw: string | null, fallback: number, min: number, max: number): number {
@@ -87,13 +86,11 @@ function whole(raw: string | null, fallback: number, min: number, max: number): 
 }
 
 export function settings(): SynthesisSettings {
-  const model = (configValue(SYNTHESIS_PLUGIN, "model") ?? "").trim();
   return {
     venturesPerNight: whole(configValue(SYNTHESIS_PLUGIN, "ventures-per-night"), DEFAULT_PER_NIGHT_VENTURES, 1, 50),
     perVenture: whole(configValue(SYNTHESIS_PLUGIN, "per-venture"), DEFAULT_PER_VENTURE, 1, 5),
     perNight: whole(configValue(SYNTHESIS_PLUGIN, "per-night"), DEFAULT_PER_NIGHT, 1, 30),
     repeatDays: whole(configValue(SYNTHESIS_PLUGIN, "repeat-days"), DEFAULT_REPEAT_DAYS, 0, 365),
-    model: model || null,
   };
 }
 
@@ -551,7 +548,7 @@ export async function passForVenture(
     try {
       const reply = await complete(
         attempt === 0 ? turns : [...turns, { role: "system" as const, content: NUDGE }],
-        { model: s.model ?? undefined, signal: opts.signal },
+        { signal: opts.signal },
       );
       text = reply.text;
       model = reply.model;

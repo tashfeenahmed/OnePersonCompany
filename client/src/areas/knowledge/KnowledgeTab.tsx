@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { AlertTriangle, Check, ExternalLink, Loader2, Pencil, RefreshCw, Settings2, X } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, Loader2, Pencil, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { PluginSettingsForm } from "@/components/settings/PluginSettingsForm";
 import { useApi } from "@/hooks/useApi";
 import {
   knowledgeApi,
@@ -84,7 +83,6 @@ export function KnowledgeTab({ slug }: { slug: string }) {
      offers the forced re-read. Without it the skip could never be seen: the
      button used to force every time and the skip branch was dead code. */
   const [unchanged, setUnchanged] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
 
   const run = (what: string, p: Promise<unknown>, done?: (out: unknown) => string | null) => {
     setBusy(what);
@@ -460,32 +458,6 @@ export function KnowledgeTab({ slug }: { slug: string }) {
         </div>
       </div>
 
-      {/* ---------------------------------------------------- the one setting */}
-      <div className="border-line-soft bg-card rounded-[10px] border p-4">
-        <button
-          onClick={() => setShowSettings((v) => !v)}
-          className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[12.5px]"
-        >
-          <Settings2 className="size-3.5" strokeWidth={1.6} />
-          {showSettings ? "Hide" : "Which model reads a repository"}
-        </button>
-        {showSettings && (
-          <div className="mt-3">
-            <p className="text-muted-foreground mb-3 max-w-2xl text-[12.5px]">
-              This applies to every venture, so it lives on the plugin rather
-              than here — it is on the Integrations page under “Product
-              knowledge” as well. Blank means whichever model the chosen
-              provider picks, which is right everywhere else on this box and is
-              the one place it is often wrong: reading a repository is a
-              strict-JSON task under an output ceiling, and a reasoning model
-              routed to it can spend the whole ceiling thinking and return
-              nothing this parser can read. The report above quotes the first
-              line of whatever came back.
-            </p>
-            <PluginSettingsForm plugin="knowledge" saveLabel="Save the model" />
-          </div>
-        )}
-      </div>
     </div>
   );
 }

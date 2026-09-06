@@ -8,21 +8,14 @@
  * one thing this area is not is a plugin — it is the place the other areas'
  * measurements turn into sentences about a product.
  *
- * ONE `config` KEY AND IT IS A PSEUDO-PLUGIN, on `rounds`' and `backups`'
- * precedent: `plugin_config` hangs settings off plugins, and "which model reads
- * a repository" is a decision rather than a secret.
- *
- * WHY THAT KEY EXISTS AT ALL, since the box already has a chosen provider. The
- * first real extraction on this box was routed by the gateway to a REASONING
- * model, which spent its whole output allowance writing "We need to produce a
- * JSON with at most 12 facts…" and was cut off before it emitted any. Nothing
- * was wrong with the prompt — the same prompt at the same size answers with
- * clean JSON on an instruction-following model. Extraction is a strict-shape
- * task under an output ceiling, and it is the one job on this box where the
- * default "let the gateway pick" is actively wrong. So the owner may name a
- * model for it, empty means the provider's own choice, and the failure is
- * legible either way: the extraction report quotes the first line of whatever
- * came back.
+ * NO `config` EITHER. There is one model on this box — the one chosen on the
+ * Models page — and extraction uses it like everything else. The first real
+ * extraction here was routed by the gateway to a REASONING model, which spent
+ * its whole output allowance writing "We need to produce a JSON with at most
+ * 12 facts…" and emitted none; the answer to that is the salvage parser in
+ * extract.ts and the report quoting the first line of what came back, not a
+ * second model setting the owner has to know about. The plugin row still
+ * exists so the area has a page under Integrations.
  *
  * THE SETTING THAT IS *NOT* HERE is the one this feature most obviously needs —
  * which repository is this venture's. That is PER VENTURE and `plugin_config`
@@ -41,7 +34,6 @@
  */
 import type { IntegrationManifest } from "../manifest.ts";
 import { startDeriving } from "./derive.ts";
-import { KNOWLEDGE_PLUGIN } from "./extract.ts";
 import { knowledgeRoutes } from "./routes.ts";
 import { PACKS, SKILLS } from "./skills.ts";
 
@@ -49,25 +41,6 @@ export const manifest: IntegrationManifest = {
   id: "knowledge",
   routes: [{ path: "/api/knowledge", app: knowledgeRoutes }],
 
-  config: {
-    [KNOWLEDGE_PLUGIN]: {
-      keys: {
-        model: {
-          label: "Model that reads a repository",
-          hint:
-            `The model id an extraction is sent to, on whichever provider is ` +
-            `chosen on the Models page. Empty means the provider's own default, ` +
-            `which is right for everything else on this box and is the one ` +
-            `setting worth overriding here: reading a repository is a ` +
-            `strict-JSON task under an output ceiling, and a reasoning model ` +
-            `routed to it spends the whole ceiling thinking and returns nothing ` +
-            `this parser can read. Name an instruction-following model if the ` +
-            `extraction report keeps saying the answer could not be read.`,
-          ph: "gemini-3.8-flash",
-        },
-      },
-    },
-  },
 
   skills: SKILLS,
   packs: PACKS,

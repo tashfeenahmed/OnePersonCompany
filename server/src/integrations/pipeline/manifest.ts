@@ -211,14 +211,6 @@ export const manifest: IntegrationManifest = {
           ph: String(DEFAULT_REPEAT_DAYS),
           check: whole(0, 365, "days"),
         },
-        model: {
-          label: "Model for the pass",
-          hint:
-            `Empty lets the connected provider choose, which is the right answer on a box with one ` +
-            `model. Name one to pin the pass to it — the proposals are only as good as the model ` +
-            `reading the packet, and a cheap model on a long packet mostly restates it.`,
-          ph: "",
-        },
       },
       after(values) {
         void values;

@@ -5540,18 +5540,16 @@ evidence that it is true", and "absence is not a limitation".
   brief is about the world around a product this one defines.
 - Anything else, through `factsForPrompt(ventureId, kinds, maxChars)`.
 
-### One setting
+### No model setting
 
-`knowledge.model` — the model an extraction is sent to. Empty means the
-provider's own default, which is right for everything else on this box and is the
-one place it is actively wrong: the first real extraction here was routed by the
+Extraction is sent to the one model this box is configured with on the Models
+page, like everything else. The first real extraction here was routed by the
 gateway to a reasoning model, which spent its whole output allowance writing "We
 need to produce a JSON with at most 12 facts…" and was cut off before it emitted
-any. The same prompt at the same size answers with clean JSON on an
-instruction-following model. The extraction report quotes the first line of
-whatever came back, so the failure is legible either way, and a truncated answer
-is salvaged object by object — each salvaged object still going through the same
-citation gate.
+any; the answer to that is not a second model but the salvage parser (a
+truncated answer is read object by object, each still going through the same
+citation gate) and the extraction report quoting the first line of whatever came
+back, so the failure is legible.
 
 ## Publishing: the one place on this box that shows something to strangers
 
