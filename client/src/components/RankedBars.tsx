@@ -70,10 +70,10 @@ export function RankedBars({
       <div className="space-y-1">
         {rows.map((row) => {
           return (
-            <div key={row.label} className="flex items-center gap-2 text-[12.5px]">
+            <div key={row.label} className="flex items-center gap-2 text-[13.5px]">
               <span className="w-[150px] shrink-0 truncate" title={row.title ?? row.label}>
                 {row.label}
-                {row.sub && <span className="text-muted-foreground text-[11px]"> {row.sub}</span>}
+                {row.sub && <span className="text-muted-foreground text-[12px]"> {row.sub}</span>}
               </span>
 
               <span className="bg-accent relative h-3 flex-1 overflow-hidden rounded-sm">
@@ -88,7 +88,7 @@ export function RankedBars({
               <span className="w-[78px] shrink-0 text-right tabular-nums">{format(row.value)}</span>
 
               {anyShare && (
-                <span className="text-muted-foreground w-[52px] shrink-0 text-right text-[11px] tabular-nums">
+                <span className="text-muted-foreground w-[52px] shrink-0 text-right text-[12px] tabular-nums">
                   {pct(shareOf(row))}
                 </span>
               )}
@@ -96,7 +96,7 @@ export function RankedBars({
               {showChange && (
                 <span
                   className={cn(
-                    "w-[62px] shrink-0 text-right text-[11px] tabular-nums",
+                    "w-[62px] shrink-0 text-right text-[12px] tabular-nums",
                     row.change !== null && row.change !== undefined && row.change > 0
                       ? "text-ok"
                       : "text-muted-foreground",
@@ -111,7 +111,7 @@ export function RankedBars({
           );
         })}
       </div>
-      {footnote && <p className="text-muted-foreground mt-2 text-[11px]">{footnote}</p>}
+      {footnote && <p className="text-muted-foreground mt-2 text-[12px]">{footnote}</p>}
     </div>
   );
 }

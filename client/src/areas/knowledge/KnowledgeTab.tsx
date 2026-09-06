@@ -131,16 +131,16 @@ export function KnowledgeTab({ slug }: { slug: string }) {
     });
   };
 
-  if (doc.error) return <p className="text-destructive p-4 text-[13.5px]">{doc.error}</p>;
+  if (doc.error) return <p className="text-destructive p-4 text-[14.5px]">{doc.error}</p>;
   if (!doc.data)
-    return <p className="text-muted-foreground p-4 text-[13.5px]">Reading what is known…</p>;
+    return <p className="text-muted-foreground p-4 text-[14.5px]">Reading what is known…</p>;
 
   const { facts, kinds, tiers, tierSays, repo, total, limits } = doc.data;
   const unresolved = clashes.data?.contradictions.filter((c) => !c.resolved) ?? [];
 
   return (
     <div className="flex flex-col gap-5 p-4.5">
-      <p className="text-muted-foreground max-w-3xl text-[12.5px]">
+      <p className="text-muted-foreground max-w-3xl text-[13.5px]">
         What this product IS, as opposed to what it measures. Every line carries
         the tier it came from and the date it was observed. For what the product
         does, the owner beats the repository beats a connected account; for a
@@ -150,10 +150,10 @@ export function KnowledgeTab({ slug }: { slug: string }) {
       </p>
 
       {/* ------------------------------------------------------ the repository */}
-      <div className="border-line-soft bg-card flex flex-wrap items-center gap-2 rounded-[10px] border p-3">
+      <div className="border-line-soft bg-card flex flex-wrap items-center gap-2 rounded-[14px] border p-4">
         {repoDraft === null ? (
           <>
-            <span className="text-[13px]">
+            <span className="text-[14px]">
               {repo?.repo ? (
                 <>
                   Repository <span className="font-medium">{repo.repo}</span>
@@ -198,7 +198,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
                 Read it anyway
               </Button>
             )}
-            <span className="text-muted-foreground text-[11.5px]">
+            <span className="text-muted-foreground text-[12.5px]">
               {repo?.head
                 ? `read at ${repo.head.slice(0, 7)}${
                     repo.extractedAt ? `, ${day(repo.extractedAt)}` : ""
@@ -215,7 +215,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
               value={repoDraft}
               onChange={(e) => setRepoDraft(e.target.value)}
               placeholder="owner/name, or an absolute path on this machine"
-              className="h-8 max-w-md text-[13px]"
+              className="h-8 max-w-md text-[14px]"
             />
             <Button
               size="sm"
@@ -231,7 +231,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
             <Button size="sm" variant="ghost" onClick={() => setRepoDraft(null)}>
               Cancel
             </Button>
-            <span className="text-muted-foreground text-[11.5px]">
+            <span className="text-muted-foreground text-[12.5px]">
               “owner/name” reads it through GitHub; a path starting with “/” reads a
               checkout on this machine. Nothing from either is ever executed.
             </span>
@@ -240,21 +240,21 @@ export function KnowledgeTab({ slug }: { slug: string }) {
       </div>
 
       {repo?.error && (
-        <p className="text-destructive text-[12.5px]">{repo.error}</p>
+        <p className="text-destructive text-[13.5px]">{repo.error}</p>
       )}
-      {failure && <p className="text-destructive text-[12.5px]">{failure}</p>}
-      {said && <p className="text-muted-foreground text-[12.5px]">{said}</p>}
+      {failure && <p className="text-destructive text-[13.5px]">{failure}</p>}
+      {said && <p className="text-muted-foreground text-[13.5px]">{said}</p>}
 
       {/* ---------------------------------------------------- contradictions */}
       {unresolved.length > 0 && (
-        <div className="border-warn/40 bg-warn/10 rounded-[10px] border p-3">
-          <p className="flex items-center gap-1.5 text-[13px] font-medium">
+        <div className="border-warn/40 bg-warn/10 rounded-[14px] border p-3">
+          <p className="flex items-center gap-1.5 text-[14px] font-medium">
             <AlertTriangle className="size-3.5" strokeWidth={1.6} />
             {unresolved.length} pair{unresolved.length === 1 ? "" : "s"} of facts disagree
           </p>
           <ul className="mt-2 flex flex-col gap-2">
             {unresolved.map((c, i) => (
-              <li key={i} className="text-[12.5px]">
+              <li key={i} className="text-[13.5px]">
                 <span className="text-muted-foreground">{c.reason}</span>
                 <div className="mt-1 flex flex-col gap-0.5">
                   <span>
@@ -289,21 +289,21 @@ export function KnowledgeTab({ slug }: { slug: string }) {
             {KIND_LABEL[k]}
           </Chip>
         ))}
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {facts.length} shown of {total} on file
         </span>
       </div>
 
       {/* -------------------------------------------------------- the facts */}
       {facts.length === 0 ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           Nothing on file under this filter. That is an absence of evidence, not
           evidence that the product is simple.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
           {facts.map((f) => (
-            <li key={f.id} className="border-line-soft bg-card rounded-[10px] border p-3">
+            <li key={f.id} className="border-line-soft bg-card rounded-[14px] border p-4">
               {editing === f.id ? (
                 <div className="flex flex-col gap-2">
                   <Textarea
@@ -311,7 +311,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
                     onChange={(e) => setDraft(e.target.value)}
                     rows={2}
                     maxLength={limits.maxStatement}
-                    className="text-[13px]"
+                    className="text-[14px]"
                   />
                   <div className="flex items-center gap-2">
                     <Button
@@ -330,7 +330,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
                     <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
                       Cancel
                     </Button>
-                    <span className="text-muted-foreground text-[11.5px]">
+                    <span className="text-muted-foreground text-[12.5px]">
                       The old sentence is kept and marked corrected, pointing at this one.
                     </span>
                   </div>
@@ -339,9 +339,9 @@ export function KnowledgeTab({ slug }: { slug: string }) {
                 <>
                   <div className="flex items-start gap-2">
                     <TierChip tier={f.tier} />
-                    <span className="text-[13.5px]">{f.statement}</span>
+                    <span className="text-[14.5px]">{f.statement}</span>
                   </div>
-                  <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px]">
+                  <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px]">
                     <span>{KIND_LABEL[f.kind]}</span>
                     <span>·</span>
                     <span>observed {ago(f.ageDays)}</span>
@@ -423,8 +423,8 @@ export function KnowledgeTab({ slug }: { slug: string }) {
       )}
 
       {/* ------------------------------------------------------ the owner's own */}
-      <div className="border-line-soft bg-card rounded-[10px] border p-4">
-        <p className="mb-2 text-[13px] font-medium">Write one yourself</p>
+      <div className="border-line-soft bg-card rounded-[14px] border p-5">
+        <p className="mb-2 text-[14px] font-medium">Write one yourself</p>
         <div className="flex flex-wrap items-center gap-1.5 pb-2">
           {kinds.map((k) => (
             <Chip key={k} on={newKind === k} onClick={() => setNewKind(k)}>
@@ -438,7 +438,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
           rows={2}
           maxLength={limits.maxStatement}
           placeholder="One sentence about the product — what it does, what it costs, what it cannot do. The owner's tier beats everything the machine read."
-          className="text-[13px]"
+          className="text-[14px]"
         />
         <div className="mt-2 flex items-center gap-2">
           <Button
@@ -452,7 +452,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
           >
             Record it
           </Button>
-          <span className="text-muted-foreground text-[11.5px]">
+          <span className="text-muted-foreground text-[12.5px]">
             Nothing here is ever deleted; retiring and correcting keep the old
             sentence with the date it stopped being current.
           </span>
@@ -465,7 +465,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
 
 function TierChip({ tier }: { tier: FactTier }) {
   return (
-    <Badge variant={TIER_STYLE[tier]} className="text-[10.5px] tracking-wide uppercase">
+    <Badge variant={TIER_STYLE[tier]} className="text-[11.5px] tracking-wide uppercase">
       {tier === "proposed" ? "unconfirmed" : tier}
     </Badge>
   );
@@ -486,7 +486,7 @@ function Chip({
     <button
       onClick={onClick}
       title={title}
-      className={`rounded-full px-2 py-0.5 text-[11.5px] ${
+      className={`rounded-full px-2 py-0.5 text-[12.5px] ${
         on ? "bg-foreground text-background" : "border-line-soft text-muted-foreground hover:text-foreground border"
       }`}
     >

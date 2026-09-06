@@ -49,8 +49,8 @@ export function PipelineTab() {
   const [failure, setFailure] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
-  if (doc.error) return <p className="text-destructive text-[13.5px]">{doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground text-[13.5px]">Reading the schedule…</p>;
+  if (doc.error) return <p className="text-destructive text-[14.5px]">{doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground text-[14.5px]">Reading the schedule…</p>;
 
   const { schedule, stages, runs, last, cycle, unknownDeps } = doc.data;
 
@@ -69,7 +69,7 @@ export function PipelineTab() {
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-muted-foreground text-[12.5px]">
+      <p className="text-muted-foreground text-[13.5px]">
         Everything this box does on its own, in one place and in dependency
         order. The night walks the stages it OWNS; the rest keep their own
         timers in their own areas and are listed here so the schedule is
@@ -134,15 +134,15 @@ export function PipelineTab() {
           <CalendarOff className="size-3.5" strokeWidth={1.6} />
           {schedule.skipTonight ? "Un-skip tonight" : "Skip tonight"}
         </Button>
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           Planning spends nothing. Running dispatches real sub-agent runs and
           sends model calls billed to you.
         </span>
       </div>
-      {said && <p className="text-muted-foreground text-[12.5px]">{said}</p>}
-      {failure && <p className="text-destructive text-[12.5px]">{failure}</p>}
+      {said && <p className="text-muted-foreground text-[13.5px]">{said}</p>}
+      {failure && <p className="text-destructive text-[13.5px]">{failure}</p>}
       {schedule.skipTonight && (
-        <p className="text-warn-foreground text-[12.5px]">
+        <p className="text-warn-foreground text-[13.5px]">
           The scheduled night for {schedule.skipTonight.day} will not run.
           {schedule.skipTonight.reason ? ` ${schedule.skipTonight.reason}` : ""} Starting one by hand
           still works.
@@ -152,20 +152,20 @@ export function PipelineTab() {
       {/* ---------------------------------------------------------- the graph */}
       <div>
         <div className="mb-2 flex items-baseline gap-3">
-          <h2 className="text-[15px] font-medium">The stages</h2>
-          <span className="text-muted-foreground text-[11.5px]">
+          <h2 className="text-[16px] font-medium">The stages</h2>
+          <span className="text-muted-foreground text-[12.5px]">
             {stages.filter((s) => s.scheduledBy === "pipeline").length} run by the pipeline,{" "}
             {stages.filter((s) => s.scheduledBy === "self").length} on their own timers
           </span>
         </div>
         {cycle.length > 0 && (
-          <p className="text-destructive mb-2 text-[12.5px]">
+          <p className="text-destructive mb-2 text-[13.5px]">
             These stages declare a dependency cycle and are skipped every night until it is fixed:{" "}
             {cycle.join(", ")}.
           </p>
         )}
         {unknownDeps.length > 0 && (
-          <p className="text-muted-foreground mb-2 text-[11.5px]">
+          <p className="text-muted-foreground mb-2 text-[12.5px]">
             Dependencies naming stages nothing registered (ignored):{" "}
             {unknownDeps.map((d) => `${d.stage} → ${d.dep}`).join(", ")}.
           </p>
@@ -179,11 +179,11 @@ export function PipelineTab() {
 
       {/* --------------------------------------------------------- last night */}
       <div>
-        <h2 className="mb-2 text-[15px] font-medium">Last night</h2>
+        <h2 className="mb-2 text-[16px] font-medium">Last night</h2>
         {last ? (
           <RunCard run={last} expanded onToggle={() => setOpen(open === last.id ? null : last.id)} />
         ) : (
-          <p className="text-muted-foreground text-[13.5px]">
+          <p className="text-muted-foreground text-[14.5px]">
             No night has run yet. Plan one above to see what it would do, or switch the schedule on.
           </p>
         )}
@@ -191,13 +191,13 @@ export function PipelineTab() {
 
       {runs.length > 0 && (
         <div>
-          <h2 className="mb-2 text-[15px] font-medium">The ledger</h2>
+          <h2 className="mb-2 text-[16px] font-medium">The ledger</h2>
           <div className="flex flex-col gap-1.5">
             {runs.map((r) => (
               <div key={r.id} className="flex flex-col">
                 <button
                   onClick={() => setOpen(open === r.id ? null : r.id)}
-                  className="border-line-soft bg-card hover:bg-accent/40 flex items-center gap-3 rounded-[10px] border px-3 py-2 text-left text-[12.5px]"
+                  className="border-line-soft bg-card hover:bg-accent/40 flex items-center gap-3 rounded-[14px] border px-4 py-2.5 text-left text-[13.5px]"
                 >
                   <ChevronRight
                     className={cn("size-3.5 shrink-0 transition-transform", open === r.id && "rotate-90")}
@@ -253,14 +253,14 @@ function StageRow({
   const self = stage.scheduledBy === "self";
   return (
     <div
-      className="border-line-soft bg-card flex flex-wrap items-center gap-3 rounded-[10px] border px-3 py-2 text-[12.5px]"
+      className="border-line-soft bg-card flex flex-wrap items-center gap-3 rounded-[14px] border px-4 py-2.5 text-[13.5px]"
       style={{ marginLeft: `${Math.min(stage.depth, 4) * 18}px` }}
     >
       <span className="font-medium">{stage.title}</span>
-      <span className="text-muted-foreground shrink-0 text-[11.5px]">{stage.area}</span>
+      <span className="text-muted-foreground shrink-0 text-[12.5px]">{stage.area}</span>
       <span
         className={cn(
-          "shrink-0 rounded px-1.5 py-0.5 text-[11px]",
+          "shrink-0 rounded px-1.5 py-0.5 text-[12px]",
           self ? "bg-accent text-muted-foreground" : "bg-ok/15 text-ok-foreground",
         )}
         title={
@@ -271,11 +271,11 @@ function StageRow({
       >
         {self ? "own timer" : "pipeline"}
       </span>
-      <span className="text-muted-foreground shrink-0 text-[11.5px]">{stage.cadence}</span>
+      <span className="text-muted-foreground shrink-0 text-[12.5px]">{stage.cadence}</span>
       {stage.deps.length > 0 && (
-        <span className="text-muted-foreground shrink-0 text-[11.5px]">after {stage.deps.join(", ")}</span>
+        <span className="text-muted-foreground shrink-0 text-[12.5px]">after {stage.deps.join(", ")}</span>
       )}
-      <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]" title={stage.lastRunMeans}>
+      <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]" title={stage.lastRunMeans}>
         {stage.lastRun ? ago(stage.lastRun) : "never"}
       </span>
       {!self && (
@@ -289,7 +289,7 @@ function StageRow({
                 void pipelineApi.setStage(stage.id, { enabled: e.target.checked }).then(onChanged);
               }}
             />
-            <span className="text-muted-foreground text-[11.5px]">on</span>
+            <span className="text-muted-foreground text-[12.5px]">on</span>
           </label>
           <Button
             size="sm"
@@ -315,8 +315,8 @@ function StageRow({
 
 function RunCard({ run, expanded, onToggle }: { run: Run; expanded: boolean; onToggle: () => void }) {
   return (
-    <div className="border-line-soft bg-card rounded-[10px] border px-3 py-2.5">
-      <div className="flex flex-wrap items-baseline gap-3 text-[12.5px]">
+    <div className="border-line-soft bg-card rounded-[14px] border px-4 py-3">
+      <div className="flex flex-wrap items-baseline gap-3 text-[13.5px]">
         <span className="font-medium">
           {run.dry ? "Planned" : run.trigger === "schedule" ? "On the schedule" : "By hand"}
         </span>
@@ -332,11 +332,11 @@ function RunCard({ run, expanded, onToggle }: { run: Run; expanded: boolean; onT
           (this card, the chat transcript, the phone), so it is drawn with the
           same renderer every other prose on this dashboard uses rather than
           shown raw with its asterisks in it. */}
-      <div className="mt-2 text-[12.5px]">
+      <div className="mt-2 text-[13.5px]">
         <Markdown text={run.summary} />
       </div>
       {expanded && (
-        <button onClick={onToggle} className="text-muted-foreground mt-1 text-[11.5px] underline">
+        <button onClick={onToggle} className="text-muted-foreground mt-1 text-[12.5px] underline">
           stage by stage
         </button>
       )}
@@ -346,12 +346,12 @@ function RunCard({ run, expanded, onToggle }: { run: Run; expanded: boolean; onT
 
 function RunDetail({ id }: { id: string }) {
   const doc = useApi(() => pipelineApi.one(id), [id]);
-  if (doc.error) return <p className="text-destructive px-3 py-2 text-[12.5px]">{doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground px-3 py-2 text-[12.5px]">Reading…</p>;
+  if (doc.error) return <p className="text-destructive px-3 py-2 text-[13.5px]">{doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground px-3 py-2 text-[13.5px]">Reading…</p>;
   return (
     <div className="border-line-soft mt-1 ml-6 flex flex-col gap-1 border-l pl-3">
       {doc.data.stages.map((s: StageResult, i: number) => (
-        <div key={`${s.stageId}-${i}`} className="flex flex-wrap items-baseline gap-2 text-[12px]">
+        <div key={`${s.stageId}-${i}`} className="flex flex-wrap items-baseline gap-2 text-[13px]">
           <span className="w-36 shrink-0 font-medium">{s.stageId}</span>
           <span className={cn("w-24 shrink-0", OUTCOME_STYLE[s.outcome])}>{s.outcome}</span>
           <span className="text-muted-foreground">{s.note ?? s.reason ?? s.error ?? ""}</span>
@@ -389,9 +389,9 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
   const set = (k: string, v: string) => setValues((old) => ({ ...old, [k]: v }));
 
   return (
-    <div className="border-line-soft bg-card flex flex-col gap-3 rounded-[10px] border px-3 py-3">
+    <div className="border-line-soft bg-card flex flex-col gap-3 rounded-[14px] border px-4 py-3.5">
       <div className="flex flex-wrap items-end gap-3">
-        <label className="flex items-center gap-2 text-[12.5px]">
+        <label className="flex items-center gap-2 text-[13.5px]">
           <input
             type="checkbox"
             checked={values.enabled === "on"}
@@ -424,12 +424,12 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
           value={values.blackouts}
           rows={2}
           onChange={(e) => set("blackouts", e.target.value)}
-          className="border-line-soft bg-background w-full rounded-md border px-2 py-1.5 text-[12.5px]"
+          className="border-line-soft bg-background w-full rounded-md border px-2 py-1.5 text-[13.5px]"
           placeholder="22:00-23:30"
         />
       </Field>
       {schedule.blackoutErrors.length > 0 && (
-        <p className="text-destructive text-[11.5px]">{schedule.blackoutErrors.join(" ")}</p>
+        <p className="text-destructive text-[12.5px]">{schedule.blackoutErrors.join(" ")}</p>
       )}
       <div className="flex flex-wrap items-center gap-3">
         <Button
@@ -451,16 +451,16 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
           {saving && <Loader2 className="size-3.5 animate-spin" />}
           Save the schedule
         </Button>
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           {schedule.nextRunAt
             ? `Next night: ${when(schedule.nextRunAt, { year: true })}.`
             : "The schedule is off; nothing will run on its own."}{" "}
           {schedule.notes.cost}
         </span>
       </div>
-      {error && <p className="text-destructive text-[12.5px]">{error}</p>}
+      {error && <p className="text-destructive text-[13.5px]">{error}</p>}
       {connected === false && (
-        <p className="text-warn-foreground text-[12.5px]">
+        <p className="text-warn-foreground text-[13.5px]">
           Saved, but the pipeline plugin still reads as not connected — nothing will run on this
           schedule until it is.
         </p>
@@ -472,7 +472,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
 function Field({ label, width, children }: { label: string; width: string; children: React.ReactNode }) {
   return (
     <label className={cn("flex flex-col gap-1", width)}>
-      <span className="text-muted-foreground text-[11.5px]">{label}</span>
+      <span className="text-muted-foreground text-[12.5px]">{label}</span>
       {children}
     </label>
   );
@@ -492,7 +492,7 @@ function Proposals() {
   const doc = useApi(() => synthesisApi.all({ limit: 40 }), []);
   const [showDropped, setShowDropped] = useState(true);
 
-  if (doc.error) return <p className="text-destructive text-[13.5px]">{doc.error}</p>;
+  if (doc.error) return <p className="text-destructive text-[14.5px]">{doc.error}</p>;
   if (!doc.data) return null;
   const { proposals, next, coverage, config, notes } = doc.data;
   const shown = showDropped ? proposals : proposals.filter((p) => p.verdict === "filed");
@@ -500,11 +500,11 @@ function Proposals() {
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-baseline gap-3">
-        <h2 className="text-[15px] font-medium">Proposed actions</h2>
-        <span className="text-muted-foreground text-[11.5px]">
+        <h2 className="text-[16px] font-medium">Proposed actions</h2>
+        <span className="text-muted-foreground text-[12.5px]">
           Next up: {next.map((n) => n.name).join(", ") || "nothing"}.
         </span>
-        <label className="text-muted-foreground ml-auto flex items-center gap-1.5 text-[11.5px]">
+        <label className="text-muted-foreground ml-auto flex items-center gap-1.5 text-[12.5px]">
           <input type="checkbox" checked={showDropped} onChange={(e) => setShowDropped(e.target.checked)} />
           show what was refused
         </label>
@@ -521,9 +521,9 @@ function Proposals() {
         config={config}
         onSaved={() => doc.reload()}
       />
-      <p className="text-muted-foreground mb-2 text-[11.5px]">{notes.dropped}</p>
+      <p className="text-muted-foreground mb-2 text-[12.5px]">{notes.dropped}</p>
       {shown.length === 0 ? (
-        <p className="text-muted-foreground text-[13.5px]">
+        <p className="text-muted-foreground text-[14.5px]">
           Nothing has been proposed yet. The pass runs as a stage of the night, and can be run for one
           venture from that venture's page.
         </p>
@@ -532,27 +532,27 @@ function Proposals() {
           {shown.map((p) => (
             <div
               key={p.id}
-              className="border-line-soft bg-card flex flex-col gap-1 rounded-[10px] border px-3 py-2 text-[12.5px]"
+              className="border-line-soft bg-card flex flex-col gap-1 rounded-[14px] border px-4 py-2.5 text-[13.5px]"
             >
               <div className="flex flex-wrap items-baseline gap-2">
-                <span className={cn("shrink-0 text-[11px]", p.verdict === "filed" ? "text-ok-foreground" : "text-muted-foreground")}>
+                <span className={cn("shrink-0 text-[12px]", p.verdict === "filed" ? "text-ok-foreground" : "text-muted-foreground")}>
                   {p.verdict}
                 </span>
                 <span className="font-medium">{p.title}</span>
-                <span className="text-muted-foreground shrink-0 text-[11.5px]">{p.venture ?? "unfiled"}</span>
-                <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]">{ago(p.at)}</span>
+                <span className="text-muted-foreground shrink-0 text-[12.5px]">{p.venture ?? "unfiled"}</span>
+                <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">{ago(p.at)}</span>
               </div>
               {p.evidenceLine && (
-                <p className="text-muted-foreground text-[11.5px]">
+                <p className="text-muted-foreground text-[12.5px]">
                   {p.evidenceKey}: {p.evidenceLine}
                 </p>
               )}
-              {p.reason && <p className="text-muted-foreground text-[11.5px]">Refused — {p.reason}</p>}
+              {p.reason && <p className="text-muted-foreground text-[12.5px]">Refused — {p.reason}</p>}
             </div>
           ))}
         </div>
       )}
-      <p className="text-muted-foreground mt-2 text-[11.5px]">
+      <p className="text-muted-foreground mt-2 text-[12.5px]">
         Coverage: {coverage.filter((c) => c.lastPassAt).length} of {coverage.length} ventures have had a
         pass; {coverage.filter((c) => !c.proposalsOn).length} have proposals switched off.
       </p>
@@ -589,7 +589,7 @@ function SynthesisForm({
   const set = (k: string, v: string) => setValues((old) => ({ ...old, [k]: v }));
 
   return (
-    <div className="border-line-soft bg-card mb-2 flex flex-wrap items-end gap-3 rounded-[10px] border px-3 py-3">
+    <div className="border-line-soft bg-card mb-2 flex flex-wrap items-end gap-3 rounded-[14px] border px-4 py-3.5">
       <Field label="Ventures a night" width="w-24">
         <Input value={values["ventures-per-night"]} onChange={(e) => set("ventures-per-night", e.target.value)} />
       </Field>
@@ -624,15 +624,15 @@ function SynthesisForm({
         {saving && <Loader2 className="size-3.5 animate-spin" />}
         Save
       </Button>
-      <span className="text-muted-foreground w-full text-[11.5px]">
+      <span className="text-muted-foreground w-full text-[12.5px]">
         Each venture in the rotation costs one model call over its whole evidence packet, so the first
         box is the main dial on what a night spends. Defaults:{" "}
         {config.defaults.venturesPerNight} / {config.defaults.perVenture} / {config.defaults.perNight} /{" "}
         {config.defaults.repeatDays} days.
       </span>
-      {error && <p className="text-destructive w-full text-[12.5px]">{error}</p>}
+      {error && <p className="text-destructive w-full text-[13.5px]">{error}</p>}
       {connected === false && (
-        <p className="text-warn-foreground w-full text-[12.5px]">
+        <p className="text-warn-foreground w-full text-[13.5px]">
           Saved, but the synthesis plugin still reads as not connected — no venture will be read
           until it is.
         </p>

@@ -79,9 +79,9 @@ export function Feed({ days }: { days: number }) {
   }
 
   if (report.error)
-    return <p className="text-muted-foreground text-[13px]">The API is not answering: {report.error}</p>;
+    return <p className="text-muted-foreground text-[14px]">The API is not answering: {report.error}</p>;
   if (!report.data || !all.data)
-    return <p className="text-muted-foreground text-[13px]">Reading the feed…</p>;
+    return <p className="text-muted-foreground text-[14px]">Reading the feed…</p>;
 
   const d = report.data;
   /* The chips are built from the UNFILTERED window, so choosing "refunds" does
@@ -101,12 +101,12 @@ export function Feed({ days }: { days: number }) {
                 setKinds((was) => (on ? was.filter((x) => x !== k.kind) : [...was, k.kind]))
               }
               className={cn(
-                "hover:bg-accent rounded-lg border px-2.5 py-1 text-[12px]",
+                "hover:bg-accent rounded-lg border px-2.5 py-1 text-[13px]",
                 on && "bg-accent border-foreground/25 font-medium",
               )}
             >
               {KIND_LABEL[k.kind] ?? k.kind}
-              <span className="text-muted-foreground ml-1.5 text-[11px] tabular-nums">{k.n}</span>
+              <span className="text-muted-foreground ml-1.5 text-[12px] tabular-nums">{k.n}</span>
             </button>
           );
         })}
@@ -114,7 +114,7 @@ export function Feed({ days }: { days: number }) {
           <button
             type="button"
             onClick={() => setKinds([])}
-            className="text-muted-foreground hover:text-foreground text-[12px] underline underline-offset-2"
+            className="text-muted-foreground hover:text-foreground text-[13px] underline underline-offset-2"
           >
             clear
           </button>
@@ -131,15 +131,15 @@ export function Feed({ days }: { days: number }) {
         </Button>
       </div>
 
-      <div className="bg-card mb-4 rounded-[10px] border px-3.5 py-3">
+      <div className="bg-card mb-4 rounded-[14px] border px-4.5 py-3.5">
         <div className="flex items-baseline gap-2">
-          <span className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">
+          <span className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">
             {count(d.counts.matching)}
           </span>
-          <span className="text-muted-foreground text-[11.5px]">
+          <span className="text-muted-foreground text-[12.5px]">
             event{d.counts.matching === 1 ? "" : "s"} in {d.window.days} days
           </span>
-          <span className="text-muted-foreground ml-auto text-[11.5px]">
+          <span className="text-muted-foreground ml-auto text-[12.5px]">
             last derived {ago(d.coverage.lastPassAt)}
           </span>
         </div>
@@ -160,7 +160,7 @@ export function Feed({ days }: { days: number }) {
       </div>
 
       {!d.events.length && (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           {d.coverage.lastPassAt
             ? "Nothing happened in this window that any of the six sources can date. That is an answer, not a gap."
             : "The derivation has not run yet. Press “Derive now”, or wait for the next collection."}
@@ -168,7 +168,7 @@ export function Feed({ days }: { days: number }) {
       )}
 
       {!!d.events.length && (
-        <div className="overflow-hidden rounded-[10px] border">
+        <div className="overflow-hidden rounded-[14px] border">
           {d.events.map((e, i) => (
             <div
               key={e.key}
@@ -176,7 +176,7 @@ export function Feed({ days }: { days: number }) {
             >
               <span
                 className={cn(
-                  "text-muted-foreground w-[92px] shrink-0 pt-px text-[11.5px] tabular-nums",
+                  "text-muted-foreground w-[92px] shrink-0 pt-px text-[12.5px] tabular-nums",
                   !e.exact && "italic",
                 )}
                 title={
@@ -189,21 +189,21 @@ export function Feed({ days }: { days: number }) {
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-2">
-                  <span className={cn("text-[13px]", KIND_TONE[e.kind])}>{e.title}</span>
+                  <span className={cn("text-[14px]", KIND_TONE[e.kind])}>{e.title}</span>
                   {e.product && (
-                    <span className="text-muted-foreground truncate font-mono text-[11px]">
+                    <span className="text-muted-foreground truncate font-mono text-[12px]">
                       {e.product}
                     </span>
                   )}
-                  <span className="text-muted-foreground ml-auto shrink-0 text-[11px]">
+                  <span className="text-muted-foreground ml-auto shrink-0 text-[12px]">
                     {KIND_LABEL[e.kind] ?? e.kind}
                   </span>
                 </div>
                 {typeof e.detail.note === "string" && (
-                  <p className="text-muted-foreground mt-0.5 text-[11.5px]">{e.detail.note}</p>
+                  <p className="text-muted-foreground mt-0.5 text-[12.5px]">{e.detail.note}</p>
                 )}
                 {e.kind === "payment_failed" && typeof e.detail.blocked === "number" && (
-                  <p className="text-muted-foreground mt-0.5 text-[11.5px]">
+                  <p className="text-muted-foreground mt-0.5 text-[12.5px]">
                     {e.detail.blocked} more were blocked by Radar and are not counted with these —
                     card testing stopped before a bank saw it.
                   </p>
@@ -215,13 +215,13 @@ export function Feed({ days }: { days: number }) {
       )}
 
       {d.counts.truncated && (
-        <p className="text-muted-foreground mt-2.5 text-[11.5px]">
+        <p className="text-muted-foreground mt-2.5 text-[12.5px]">
           Showing the newest {d.counts.returned} of {d.counts.matching}. The chart above is over the
           whole window regardless.
         </p>
       )}
 
-      <p className="text-muted-foreground mt-2.5 text-[11.5px] leading-relaxed">
+      <p className="text-muted-foreground mt-2.5 text-[12.5px] leading-relaxed">
         {d.coverage.note} Exact: {d.coverage.exactKinds.join(", ")}. Day resolution:{" "}
         {d.coverage.dayResolutionKinds.join(", ")}. A first derivation only reaches back{" "}
         {d.coverage.derivesBackDays} days.

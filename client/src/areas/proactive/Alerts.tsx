@@ -108,7 +108,7 @@ function Checker({ onDone }: { onDone: () => void }) {
   const [said, setSaid] = useState<string | null>(null);
   return (
     <div className="flex items-center gap-2">
-      {said && <span className="text-muted-foreground text-[11.5px]">{said}</span>}
+      {said && <span className="text-muted-foreground text-[12.5px]">{said}</span>}
       <button
         disabled={busy}
         onClick={() => {
@@ -127,7 +127,7 @@ function Checker({ onDone }: { onDone: () => void }) {
               onDone();
             });
         }}
-        className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
       >
         <RefreshCw className={cn("size-3.5", busy && "animate-spin")} strokeWidth={1.6} />
         Check now
@@ -157,12 +157,12 @@ function Rules({ onChanged }: { onChanged: () => void }) {
   return (
     <section className="mb-8">
       <div className="mb-2 flex items-baseline gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           Rules
         </div>
         <button
           onClick={() => setEditing(editing === "new" ? null : "new")}
-          className="text-muted-foreground hover:text-foreground ml-auto flex items-center gap-1 text-[11.5px]"
+          className="text-muted-foreground hover:text-foreground ml-auto flex items-center gap-1 text-[12.5px]"
         >
           <Plus className="size-3.5" strokeWidth={1.6} />
           New rule
@@ -183,12 +183,12 @@ function Rules({ onChanged }: { onChanged: () => void }) {
       )}
 
       {doc.error ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           The rules could not be read.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
       ) : !rules.length ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           {doc.loading
             ? "Reading the rules…"
             : "No rules yet. This box suggests a few on first start for plugins that are connected; if there are none here, none of those plugins is connected."}
@@ -293,18 +293,18 @@ function RuleRow({
     >
       <div className="flex items-center gap-2.5">
         <Switch checked={rule.enabled} onCheckedChange={onToggle} aria-label="Enabled" />
-        <span className={cn("text-[13px]", !rule.enabled && "text-muted-foreground")}>
+        <span className={cn("text-[14px]", !rule.enabled && "text-muted-foreground")}>
           {rule.name}
         </span>
         {rule.seeded && (
           <span
             title="Suggested by this box on first start, not chosen by you. Edit or delete it like any other."
-            className="text-muted-foreground border-line-soft rounded-full border px-1.5 py-px text-[10px]"
+            className="text-muted-foreground border-line-soft rounded-full border px-1.5 py-px text-[11px]"
           >
             suggested
           </span>
         )}
-        <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px] tabular-nums">
+        <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px] tabular-nums">
           {/* THE LAST VALUE READ, WHICH IS NOT THE LAST VALUE THAT TRIPPED. A
               null with an error beside it is a rule that cannot read its
               document; a null with no error is a rule nothing has asked yet. */}
@@ -323,7 +323,7 @@ function RuleRow({
           </IconButton>
           <button
             onClick={onEdit}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-[6px] px-1.5 py-1 text-[11.5px]"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-[8px] px-1.5 py-1 text-[12.5px]"
           >
             {editing ? "Close" : "Edit"}
           </button>
@@ -333,16 +333,16 @@ function RuleRow({
         </div>
       </div>
 
-      <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 pl-[46px] font-mono text-[11.5px]">
+      <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 pl-[46px] font-mono text-[12.5px]">
         {sentence(rule)}
       </div>
 
       {rule.lastError && (
-        <p className="text-destructive pl-[46px] text-[11.5px]">{rule.lastError}</p>
+        <p className="text-destructive pl-[46px] text-[12.5px]">{rule.lastError}</p>
       )}
 
       {tested !== undefined && (
-        <p className="pl-[46px] text-[11.5px]">
+        <p className="pl-[46px] text-[12.5px]">
           {typeof tested === "string" ? (
             <span className="text-destructive">{tested}</span>
           ) : !tested.readable ? (
@@ -377,7 +377,7 @@ function IconButton({
       title={title}
       aria-label={title}
       onClick={onClick}
-      className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[6px] p-1.5"
+      className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[8px] p-1.5"
     >
       {children}
     </button>
@@ -398,24 +398,24 @@ function Events({ onChanged, tick }: { onChanged: () => void; tick: number }) {
   return (
     <section>
       <div className="mb-2 flex items-baseline gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           Events, last 14 days
         </div>
         <button
           onClick={() => setOpenOnly((v) => !v)}
-          className="text-muted-foreground hover:text-foreground ml-auto text-[11.5px]"
+          className="text-muted-foreground hover:text-foreground ml-auto text-[12.5px]"
         >
           {openOnly ? "Showing unacknowledged only" : "Showing everything"}
         </button>
       </div>
 
       {doc.error ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           The events could not be read.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
       ) : !events.length ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           {doc.loading
             ? "Reading the ledger…"
             : openOnly
@@ -467,26 +467,26 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className="text-[13px]">{event.ruleName ?? `rule ${event.ruleId}`}</span>
-            <span className="text-muted-foreground text-[11.5px]">
+            <span className="text-[14px]">{event.ruleName ?? `rule ${event.ruleId}`}</span>
+            <span className="text-muted-foreground text-[12.5px]">
               {KIND_WORD[event.kind]} · {ago(event.ts)}
             </span>
             {event.acknowledgedAt && (
-              <span className="text-muted-foreground text-[11.5px]">· acknowledged</span>
+              <span className="text-muted-foreground text-[12.5px]">· acknowledged</span>
             )}
           </div>
-          <p className="text-muted-foreground mt-0.5 text-[12.5px] leading-[1.5]">
+          <p className="text-muted-foreground mt-0.5 text-[13.5px] leading-[1.5]">
             {event.message}
           </p>
           {/* THE NARRATION, AND THE HONEST ABSENCE OF ONE. A model wrote the
               first from figures that were read; the second says why there is
               none. Neither is ever filled in from memory. */}
           {event.narration ? (
-            <p className="border-line-soft mt-1.5 border-l-2 pl-2.5 text-[12.5px] leading-[1.55]">
+            <p className="border-line-soft mt-1.5 border-l-2 pl-2.5 text-[13.5px] leading-[1.55]">
               {event.narration}
             </p>
           ) : event.narrationNote ? (
-            <p className="text-muted-foreground mt-1.5 text-[11.5px]">
+            <p className="text-muted-foreground mt-1.5 text-[12.5px]">
               No narration — {event.narrationNote}
             </p>
           ) : null}
@@ -495,7 +495,7 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
           <button
             onClick={onAck}
             title="Mark as seen. The rule keeps watching."
-            className="text-muted-foreground hover:bg-accent hover:text-foreground flex shrink-0 items-center gap-1 rounded-[6px] px-1.5 py-1 text-[11.5px]"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex shrink-0 items-center gap-1 rounded-[8px] px-1.5 py-1 text-[12.5px]"
           >
             <Check className="size-3.5" strokeWidth={1.6} />
             Acknowledge

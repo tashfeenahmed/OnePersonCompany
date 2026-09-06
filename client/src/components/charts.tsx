@@ -173,7 +173,7 @@ function ChartTip({ tip, width }: { tip: TipState; width: number }) {
       ref={ref}
       aria-hidden="true"
       className={cn(
-        "bg-foreground text-background pointer-events-none absolute z-20 w-max -translate-x-1/2 rounded-md px-2 py-1.5 text-[11px] leading-[1.45] whitespace-nowrap shadow-lg",
+        "bg-foreground text-background pointer-events-none absolute z-20 w-max -translate-x-1/2 rounded-md px-2 py-1.5 text-[12px] leading-[1.45] whitespace-nowrap shadow-lg",
         !below && "-translate-y-full",
       )}
       style={{ left: clamp(tip.x, lo, hi), top: below ? tip.y + 14 : tip.y - 12 }}
@@ -389,7 +389,7 @@ export function Chart({
   const lines = series.filter((s) => s.points.length > 1);
   if (!lines.length)
     return (
-      <p className="text-muted-foreground mt-2 text-[11.5px]">
+      <p className="text-muted-foreground mt-2 text-[12.5px]">
         {caption ?? "Nothing measured yet."}
       </p>
     );
@@ -468,7 +468,7 @@ export function Chart({
 
   return (
     <div className="mt-1">
-      <div className="text-muted-foreground flex items-baseline justify-between text-[10.5px] tabular-nums">
+      <div className="text-muted-foreground flex items-baseline justify-between text-[11.5px] tabular-nums">
         <span>{axisLabel(max, unit)}</span>
         {lines.length > 1 && (
           <span className="flex items-center gap-2.5">
@@ -518,7 +518,7 @@ export function Chart({
             )} on ${stampFor(prim.points[peak]!.ts, domain)}, across ${
               prim.points.length
             } samples. Use the arrow keys to read a point.`}
-            className="focus-visible:ring-ring block touch-pan-y rounded-[6px] outline-none focus-visible:ring-1"
+            className="focus-visible:ring-ring block touch-pan-y rounded-[8px] outline-none focus-visible:ring-1"
             onPointerMove={(e) =>
               move(e.clientX, e.currentTarget.getBoundingClientRect())
             }
@@ -674,13 +674,13 @@ export function Chart({
         />
       </div>
 
-      <div className="text-muted-foreground mt-1 flex justify-between text-[10.5px] tabular-nums">
+      <div className="text-muted-foreground mt-1 flex justify-between text-[11.5px] tabular-nums">
         <span>{endLabel(t0, domain)}</span>
         <span>{endLabel(t1, domain)}</span>
       </div>
 
       {caption && (
-        <p className="text-muted-foreground mt-1.5 text-[11px] leading-snug">
+        <p className="text-muted-foreground mt-1.5 text-[12px] leading-snug">
           {caption}
         </p>
       )}
@@ -902,7 +902,7 @@ export function Bars({
           />
         ))}
       </div>
-      <div className="text-muted-foreground mt-1 text-[11.5px]">{labels}</div>
+      <div className="text-muted-foreground mt-1 text-[12.5px]">{labels}</div>
       <ChartTip tip={tip} width={w} />
     </div>
   );
@@ -937,22 +937,22 @@ export function MeterRow({ meter }: { meter: Meter }) {
       className="hover:bg-muted/50 -mx-1 min-w-0 rounded-md px-1 py-0.5 transition-colors"
       title={said}
     >
-      <div className="flex items-baseline gap-2 text-[12px]">
+      <div className="flex items-baseline gap-2 text-[13px]">
         <span className="truncate">{meter.label}</span>
         {tone !== "ok" && (
           <span
             className={cn(
-              "shrink-0 text-[10.5px] font-medium",
+              "shrink-0 text-[11.5px] font-medium",
               tone === "warn" ? "text-warn" : "text-destructive",
             )}
           >
             {tone === "bad" ? "act" : "watch"}
           </span>
         )}
-        <span className="text-muted-foreground ml-auto shrink-0 text-[11px] tabular-nums">
+        <span className="text-muted-foreground ml-auto shrink-0 text-[12px] tabular-nums">
           {meter.note}
         </span>
-        <span className="shrink-0 text-[12px] tabular-nums">
+        <span className="shrink-0 text-[13px] tabular-nums">
           {Math.round(meter.value)}%
         </span>
       </div>
@@ -998,7 +998,7 @@ export function Figures({
 }) {
   return (
     <div className="-mx-1 mt-1 overflow-x-auto px-1">
-      <table className="w-full min-w-[420px] border-collapse text-[11.5px]">
+      <table className="w-full min-w-[420px] border-collapse text-[12.5px]">
         <thead>
           <tr className="text-muted-foreground">
             {headers.map((h, i) => (
@@ -1130,7 +1130,7 @@ export function Runway({
               role="listitem"
               aria-label={`${r.label} — ${said(r)}`}
               className={cn(
-                "-mx-1 flex items-center gap-2 rounded-md px-1 py-0.5 text-[11.5px] transition-colors",
+                "-mx-1 flex items-center gap-2 rounded-md px-1 py-0.5 text-[12.5px] transition-colors",
                 hot === r.label && "bg-muted/60",
               )}
               onPointerEnter={(e) => {
@@ -1233,7 +1233,7 @@ export function Runway({
       </div>
 
       {/* The axis, said once under the rows it applies to. */}
-      <div className="text-muted-foreground mt-1.5 flex items-center gap-3 text-[10.5px] tabular-nums">
+      <div className="text-muted-foreground mt-1.5 flex items-center gap-3 text-[11.5px] tabular-nums">
         <span>today</span>
         <span className="flex items-center gap-1">
           <i
@@ -1253,7 +1253,7 @@ export function Runway({
       </div>
 
       {caption && (
-        <p className="text-muted-foreground mt-1.5 text-[11px] leading-snug">
+        <p className="text-muted-foreground mt-1.5 text-[12px] leading-snug">
           {caption}
         </p>
       )}

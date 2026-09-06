@@ -96,9 +96,9 @@ export function Audit({ venture }: { venture: Venture }) {
       <div className="mx-auto flex w-full max-w-[940px] flex-col gap-6">
         <section>
           <div className="mb-2 flex items-center gap-2">
-            <h2 className="text-[13px] font-medium">SEO audit</h2>
+            <h2 className="text-[14px] font-medium">SEO audit</h2>
             {data && (
-              <span className="text-muted-foreground text-[11.5px]">
+              <span className="text-muted-foreground text-[12.5px]">
                 {new Date(data.ts).toLocaleString()}
               </span>
             )}
@@ -115,13 +115,13 @@ export function Audit({ venture }: { venture: Venture }) {
           </div>
 
           {!venture.website && (
-            <p className="text-muted-foreground text-[12.5px]">
+            <p className="text-muted-foreground text-[13.5px]">
               {venture.name} has no website, so there is nothing to crawl.
             </p>
           )}
 
           {running && (
-            <p className="text-muted-foreground text-[12.5px] leading-snug">
+            <p className="text-muted-foreground text-[13.5px] leading-snug">
               Crawling {venture.host ?? venture.website} — {since}s so far. It
               fetches up to {data?.limits.pages ?? 60} pages from the home page
               outwards with a pause between each, so a minute or two is normal.
@@ -131,17 +131,17 @@ export function Audit({ venture }: { venture: Venture }) {
           )}
 
           {failed && !running && (
-            <p className="text-destructive text-[12.5px]">{failed}</p>
+            <p className="text-destructive text-[13.5px]">{failed}</p>
           )}
 
           {/* The 404 for "never audited" carries the server's own sentence,
               which already says what to press. It is shown as the state it is
               rather than as an error. */}
           {!data && !running && error && (
-            <p className="text-muted-foreground text-[12.5px]">{error}</p>
+            <p className="text-muted-foreground text-[13.5px]">{error}</p>
           )}
           {!data && !running && !error && loading && (
-            <p className="text-muted-foreground text-[12.5px]">
+            <p className="text-muted-foreground text-[13.5px]">
               Reading the last audit…
             </p>
           )}
@@ -158,10 +158,10 @@ export function Audit({ venture }: { venture: Venture }) {
 
         {/* --------------------------------------------------- history */}
         <section>
-          <h2 className="mb-2 text-[13px] font-medium">Every run</h2>
+          <h2 className="mb-2 text-[14px] font-medium">Every run</h2>
           {history.data?.runs.length ? (
             <>
-              <p className="text-muted-foreground mb-2 text-[11.5px] leading-snug">
+              <p className="text-muted-foreground mb-2 text-[12.5px] leading-snug">
                 {history.data.note}
               </p>
               <div className="flex flex-col gap-px">
@@ -169,17 +169,17 @@ export function Audit({ venture }: { venture: Venture }) {
                   <div
                     key={r.id}
                     className={cn(
-                      "flex items-baseline gap-3 py-1 text-[12.5px]",
+                      "flex items-baseline gap-3 py-1 text-[13.5px]",
                       data && r.ts === data.ts && "font-medium",
                     )}
                   >
                     <span className="w-[168px] shrink-0">
                       {new Date(r.ts).toLocaleString()}
                     </span>
-                    <span className="text-muted-foreground text-[11.5px]">
+                    <span className="text-muted-foreground text-[12.5px]">
                       {r.pages} pages
                     </span>
-                    <span className="text-muted-foreground text-[11.5px]">
+                    <span className="text-muted-foreground text-[12.5px]">
                       {r.issues} {r.issues === 1 ? "issue" : "issues"}
                     </span>
                   </div>
@@ -187,7 +187,7 @@ export function Audit({ venture }: { venture: Venture }) {
               </div>
             </>
           ) : (
-            <p className="text-muted-foreground text-[12.5px]">
+            <p className="text-muted-foreground text-[13.5px]">
               {history.error ?? "Nothing has been run yet."}
             </p>
           )}
@@ -208,10 +208,10 @@ function Summary({ doc }: { doc: AuditDoc }) {
         <Stat label="Warnings" value={doc.summary.warnings} tone="warn" />
         <Stat label="Notices" value={doc.summary.notices} />
       </div>
-      <p className="text-muted-foreground mt-2 text-[11.5px] leading-snug">
+      <p className="text-muted-foreground mt-2 text-[12.5px] leading-snug">
         {doc.summary.scoreNote}
       </p>
-      <p className="text-muted-foreground mt-1 text-[11.5px] leading-snug">
+      <p className="text-muted-foreground mt-1 text-[12.5px] leading-snug">
         {doc.crawl.stoppedBecause === "the site was crawled to its end"
           ? `The crawl reached the end of the site: ${doc.crawl.reached} pages in ${Math.round(doc.crawl.ms / 1000)}s.`
           : `The crawl stopped because ${doc.crawl.stoppedBecause} — ${doc.crawl.reached} pages reached, ${doc.crawl.queuedButNotReached} found and not fetched. Every count below is about the pages that were reached.`}
@@ -225,8 +225,8 @@ function Summary({ doc }: { doc: AuditDoc }) {
 function SiteChecks({ doc }: { doc: AuditDoc }) {
   return (
     <section>
-      <h2 className="mb-2 text-[13px] font-medium">The site itself</h2>
-      <p className="text-muted-foreground mb-2 text-[11.5px]">
+      <h2 className="mb-2 text-[14px] font-medium">The site itself</h2>
+      <p className="text-muted-foreground mb-2 text-[12.5px]">
         Four checks that are about the whole site rather than about a page.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -241,7 +241,7 @@ function SiteChecks({ doc }: { doc: AuditDoc }) {
           note={doc.robots.note}
         >
           {doc.robots.sitemaps.length > 0 && (
-            <div className="text-muted-foreground text-[11.5px]">
+            <div className="text-muted-foreground text-[12.5px]">
               Names {doc.robots.sitemaps.length}{" "}
               {doc.robots.sitemaps.length === 1 ? "sitemap" : "sitemaps"}
             </div>
@@ -299,20 +299,20 @@ function SiteChecks({ doc }: { doc: AuditDoc }) {
 
       {doc.links.broken.length > 0 && (
         <div className="mt-3">
-          <h3 className="mb-1 text-[12.5px] font-medium">
+          <h3 className="mb-1 text-[13.5px] font-medium">
             Broken links · {doc.links.broken.length}
           </h3>
-          <p className="text-muted-foreground mb-1.5 text-[11.5px]">
+          <p className="text-muted-foreground mb-1.5 text-[12.5px]">
             {doc.links.note}
           </p>
           <div className="flex flex-col gap-px">
             {doc.links.broken.map((b) => (
-              <div key={b.url} className="flex items-baseline gap-2 text-[12.5px]">
-                <span className="text-destructive w-[42px] shrink-0 text-[11.5px]">
+              <div key={b.url} className="flex items-baseline gap-2 text-[13.5px]">
+                <span className="text-destructive w-[42px] shrink-0 text-[12.5px]">
                   {b.status || "—"}
                 </span>
                 <PageLink url={b.url} />
-                <span className="text-muted-foreground shrink-0 text-[11px]">
+                <span className="text-muted-foreground shrink-0 text-[12px]">
                   from {b.linkedFrom.length}{" "}
                   {b.linkedFrom.length === 1 ? "page" : "pages"}
                 </span>
@@ -335,8 +335,8 @@ function Findings({ doc }: { doc: AuditDoc }) {
   if (!groups.length)
     return (
       <section>
-        <h2 className="mb-2 text-[13px] font-medium">Findings</h2>
-        <p className="text-muted-foreground text-[12.5px] leading-snug">
+        <h2 className="mb-2 text-[14px] font-medium">Findings</h2>
+        <p className="text-muted-foreground text-[13.5px] leading-snug">
           Nothing was found wrong with the {doc.summary.pages} pages this crawl
           reached. That is not the same as a clean site: pages further in than
           the crawl went were never looked at.
@@ -346,7 +346,7 @@ function Findings({ doc }: { doc: AuditDoc }) {
 
   return (
     <section>
-      <h2 className="mb-2 text-[13px] font-medium">Findings</h2>
+      <h2 className="mb-2 text-[14px] font-medium">Findings</h2>
       <div className="flex flex-col gap-4">
         {groups.map((g) => (
           <div key={g.key}>
@@ -359,8 +359,8 @@ function Findings({ doc }: { doc: AuditDoc }) {
                   g.key === "notice" && "bg-border",
                 )}
               />
-              <h3 className="text-[12.5px] font-medium">{g.label}</h3>
-              <span className="text-muted-foreground text-[11.5px]">
+              <h3 className="text-[13.5px] font-medium">{g.label}</h3>
+              <span className="text-muted-foreground text-[12.5px]">
                 {g.rows.reduce((n, f) => n + f.count, 0)} across {g.rows.length}{" "}
                 {g.rows.length === 1 ? "check" : "checks"}
               </span>
@@ -381,15 +381,15 @@ function FindingRow({ finding }: { finding: AuditFinding }) {
   const [open, setOpen] = useState(false);
   const shown = open ? finding.pages : finding.pages.slice(0, 4);
   return (
-    <div className="rounded-[10px] border px-3 py-2.5">
+    <div className="rounded-[14px] border px-3 py-2.5">
       <div className="flex items-baseline gap-2">
-        <span className="text-[12.5px]">{finding.what}</span>
-        <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]">
+        <span className="text-[13.5px]">{finding.what}</span>
+        <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
           {finding.count} {finding.count === 1 ? "page" : "pages"}
         </span>
       </div>
       {/* What the verdict was computed from, so it can be argued with. */}
-      <p className="text-muted-foreground mt-1 text-[11.5px] leading-snug">
+      <p className="text-muted-foreground mt-1 text-[12.5px] leading-snug">
         {finding.evidence}
       </p>
       <div className="mt-1.5 flex flex-col gap-px">
@@ -399,13 +399,13 @@ function FindingRow({ finding }: { finding: AuditFinding }) {
         {finding.pages.length > 4 && (
           <button
             onClick={() => setOpen((v) => !v)}
-            className="text-muted-foreground hover:text-foreground w-fit text-[11.5px]"
+            className="text-muted-foreground hover:text-foreground w-fit text-[12.5px]"
           >
             {open ? "Fewer" : `${finding.pages.length - 4} more`}
           </button>
         )}
         {finding.count > finding.pages.length && (
-          <span className="text-muted-foreground text-[11px]">
+          <span className="text-muted-foreground text-[12px]">
             {finding.count - finding.pages.length} more pages are counted here
             and not listed — the list is capped so one bad template does not
             print sixty URLs.
@@ -425,27 +425,27 @@ function FindingRow({ finding }: { finding: AuditFinding }) {
 function SearchJoin({ doc }: { doc: AuditDoc }) {
   return (
     <section>
-      <h2 className="mb-2 text-[13px] font-medium">
+      <h2 className="mb-2 text-[14px] font-medium">
         Against what Google actually shows
       </h2>
-      <p className="text-muted-foreground mb-2 text-[11.5px] leading-snug">
+      <p className="text-muted-foreground mb-2 text-[12.5px] leading-snug">
         {doc.search.note}
       </p>
       {doc.search.ranked.length > 0 && (
         <div className="flex flex-col gap-px">
           {doc.search.ranked.map((r) => (
-            <div key={r.page} className="flex items-baseline gap-3 py-1 text-[12.5px]">
+            <div key={r.page} className="flex items-baseline gap-3 py-1 text-[13.5px]">
               <PageLink url={r.page} />
-              <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]">
+              <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
                 {r.impressions.toLocaleString()} impressions
               </span>
-              <span className="text-muted-foreground shrink-0 text-[11.5px]">
+              <span className="text-muted-foreground shrink-0 text-[12.5px]">
                 {r.clicks.toLocaleString()} clicks
               </span>
-              <span className="text-muted-foreground w-[52px] shrink-0 text-right text-[11.5px]">
+              <span className="text-muted-foreground w-[52px] shrink-0 text-right text-[12.5px]">
                 {r.position === null ? "unranked" : `#${r.position}`}
               </span>
-              <span className="text-muted-foreground w-[150px] shrink-0 truncate text-[11px]">
+              <span className="text-muted-foreground w-[150px] shrink-0 truncate text-[12px]">
                 {r.issues.join(", ")}
               </span>
             </div>
@@ -468,17 +468,17 @@ function Stat({
   tone?: "bad" | "warn";
 }) {
   return (
-    <div className="rounded-[10px] border px-3 py-2.5">
+    <div className="rounded-[14px] border px-3 py-2.5">
       <div
         className={cn(
-          "text-[19px] leading-tight tracking-tight",
+          "text-[20px] leading-tight tracking-tight",
           value > 0 && tone === "bad" && "text-destructive",
           value > 0 && tone === "warn" && "text-warn",
         )}
       >
         {value.toLocaleString()}
       </div>
-      <div className="text-muted-foreground mt-0.5 text-[11.5px]">{label}</div>
+      <div className="text-muted-foreground mt-0.5 text-[12.5px]">{label}</div>
     </div>
   );
 }
@@ -497,7 +497,7 @@ function Check({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-[10px] border p-3">
+    <div className="rounded-[14px] border p-3">
       <div className="flex items-center gap-2">
         <span
           className={cn(
@@ -508,12 +508,12 @@ function Check({
             state === "unknown" && "bg-border",
           )}
         />
-        <span className="text-[12.5px] font-medium">{title}</span>
+        <span className="text-[13.5px] font-medium">{title}</span>
       </div>
-      <div className="mt-1 text-[12.5px] break-words">{head}</div>
+      <div className="mt-1 text-[13.5px] break-words">{head}</div>
       {children}
       {note && (
-        <p className="text-muted-foreground mt-1 text-[11.5px] leading-snug">
+        <p className="text-muted-foreground mt-1 text-[12.5px] leading-snug">
           {note}
         </p>
       )}
@@ -538,7 +538,7 @@ function PageLink({ url }: { url: string }) {
       target="_blank"
       rel="noreferrer"
       title={url}
-      className="text-muted-foreground hover:text-foreground min-w-0 truncate text-[11.5px]"
+      className="text-muted-foreground hover:text-foreground min-w-0 truncate text-[12.5px]"
     >
       {shown}
     </a>

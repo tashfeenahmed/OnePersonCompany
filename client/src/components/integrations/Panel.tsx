@@ -38,11 +38,11 @@ export function PanelSection({
     <>
       <Separator className="mt-7 mb-5" />
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           {title}
         </div>
         {meta && (
-          <span className="text-muted-foreground ml-auto text-[11.5px]">{meta}</span>
+          <span className="text-muted-foreground ml-auto text-[12.5px]">{meta}</span>
         )}
         {onCollect && (
           <Button
@@ -101,19 +101,19 @@ export function Tiles({ items, className }: { items: Tile[]; className?: string 
         <div
           key={t.k}
           title={t.title}
-          className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3"
+          className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5"
         >
           <div
             className={cn(
               "font-normal",
               t.text
-                ? "truncate text-[15px] tracking-[-0.02em]"
-                : "text-[19px] tracking-[-0.03em] tabular-nums",
+                ? "truncate text-[16px] tracking-[-0.02em]"
+                : "text-[20px] tracking-[-0.03em] tabular-nums",
             )}
           >
             {t.v}
           </div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">{t.k}</div>
+          <div className="text-muted-foreground mt-0.5 text-[12.5px]">{t.k}</div>
         </div>
       ))}
     </div>
@@ -122,7 +122,7 @@ export function Tiles({ items, className }: { items: Tile[]; className?: string 
 
 /** The bordered list every panel puts its per-thing rows in. */
 export function Rows({ children }: { children: ReactNode }) {
-  return <div className="overflow-hidden rounded-[10px] border">{children}</div>;
+  return <div className="overflow-hidden rounded-[14px] border">{children}</div>;
 }
 
 export function Row({
@@ -165,12 +165,12 @@ export function MeterBar({
 }) {
   return (
     <div className="min-w-0">
-      <div className="flex items-baseline gap-2 text-[12px]">
+      <div className="flex items-baseline gap-2 text-[13px]">
         <span className="text-muted-foreground min-w-0 truncate font-mono">{label}</span>
         <span className="ml-auto shrink-0 tabular-nums">
           {meter ? `${meter.percent}%` : <span className="text-muted-foreground">not read</span>}
         </span>
-        {right && <span className="text-muted-foreground shrink-0 text-[11.5px]">{right}</span>}
+        {right && <span className="text-muted-foreground shrink-0 text-[12.5px]">{right}</span>}
       </div>
       <div className="bg-accent mt-1 h-1.5 overflow-hidden rounded-full">
         {meter && (
@@ -195,7 +195,7 @@ export function MeterBar({
  *  treatment tool call lines get, because both are the machine's own words. */
 export function Note({ children }: { children: ReactNode }) {
   return (
-    <p className="text-muted-foreground mt-2.5 text-[11.5px] leading-relaxed">
+    <p className="text-muted-foreground mt-2.5 text-[12.5px] leading-relaxed">
       {children}
     </p>
   );
@@ -251,7 +251,7 @@ export function PanelEmpty({
     return (
       <div
         className={cn(
-          "border-line-soft text-muted-foreground rounded-[10px] border border-dashed px-4 py-6 text-[12.5px]",
+          "border-line-soft text-muted-foreground rounded-[14px] border border-dashed px-4 py-6 text-[13.5px]",
           action ? "flex items-center gap-3" : "text-center",
           className,
         )}
@@ -266,7 +266,7 @@ export function PanelEmpty({
       <Separator className="mt-7 mb-5" />
       <p
         className={cn(
-          "text-muted-foreground text-[13px]",
+          "text-muted-foreground text-[14px]",
           action && "flex items-center gap-3",
           className,
         )}
@@ -321,18 +321,18 @@ export function Suggest({
           Suggest from ventures
         </Button>
         {items !== null && !items.length && (
-          <span className="text-muted-foreground text-[12px]">{nothing}</span>
+          <span className="text-muted-foreground text-[13px]">{nothing}</span>
         )}
-        {problem && <span className="text-destructive text-[12px]">{problem}</span>}
+        {problem && <span className="text-destructive text-[13px]">{problem}</span>}
       </div>
 
       {!!items?.length && (
-        <div className="mt-2 rounded-[10px] border p-3.5">
-          <div className="mb-1.5 text-[12.5px] font-medium">
+        <div className="mt-2 rounded-[14px] border p-3.5">
+          <div className="mb-1.5 text-[13.5px] font-medium">
             {items.length} {noun}
             {items.length === 1 ? "" : "s"} not on the list yet
           </div>
-          <p className="text-muted-foreground font-mono text-[11.5px] leading-relaxed">
+          <p className="text-muted-foreground font-mono text-[12.5px] leading-relaxed">
             {items.join(" · ")}
           </p>
           {note && <Note>{note}</Note>}

@@ -45,14 +45,14 @@ export function VentureMark({
         onError={(e) => {
           e.currentTarget.style.display = "none";
         }}
-        className={cn("shrink-0 rounded-[4px] object-contain", className)}
+        className={cn("shrink-0 rounded-[5px] object-contain", className)}
         style={{ width: size, height: size }}
       />
     );
   return (
     <span
       aria-hidden
-      className={cn("shrink-0 rounded-[3px]", className)}
+      className={cn("shrink-0 rounded-[4px]", className)}
       style={{
         background: venture.color,
         /* A colour square reads as a marker rather than an icon, so it is
@@ -85,7 +85,7 @@ export function StagePill({ stage, className }: { stage: VentureStage; className
     <span
       title={spec?.note}
       className={cn(
-        "shrink-0 rounded-[6px] border px-1.5 py-px text-[10.5px] leading-[1.5] whitespace-nowrap",
+        "shrink-0 rounded-[8px] border px-1.5 py-px text-[11.5px] leading-[1.5] whitespace-nowrap",
         stage === "idea" && "text-muted-foreground border-dashed",
         stage === "pre-launch" && "text-warn border-warn/40",
         stage === "launched" && "text-ok border-ok/40",

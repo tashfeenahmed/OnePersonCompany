@@ -82,10 +82,10 @@ export function BlueskyPanel({ onCollected }: { onCollected?: () => void }) {
           return (
             <Row key={h.handle} first={i === 0}>
               <div className="flex flex-wrap items-baseline gap-2">
-                <span className="text-[13px] font-medium">
+                <span className="text-[14px] font-medium">
                   {h.displayName ?? `@${h.handle}`}
                 </span>
-                <span className="text-muted-foreground font-mono text-[11.5px]">
+                <span className="text-muted-foreground font-mono text-[12.5px]">
                   @{h.handle}
                 </span>
                 {w30?.held && w30.truncated && (
@@ -93,11 +93,11 @@ export function BlueskyPanel({ onCollected }: { onCollected?: () => void }) {
                     truncated — a floor
                   </Badge>
                 )}
-                <span className="text-muted-foreground ml-auto text-[11.5px]">
+                <span className="text-muted-foreground ml-auto text-[12.5px]">
                   read {ago(h.profile.seenAt)}
                 </span>
               </div>
-              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[13px] tabular-nums">
                 <span>{count(h.profile.followers)} followers</span>
                 <span className="text-muted-foreground">
                   {h.growth.change === null
@@ -117,12 +117,12 @@ export function BlueskyPanel({ onCollected }: { onCollected?: () => void }) {
                 )}
               </div>
               {h.growth.note && (
-                <p className="text-muted-foreground mt-1 text-[11.5px]">
+                <p className="text-muted-foreground mt-1 text-[12.5px]">
                   {h.growth.note}
                 </p>
               )}
               {h.lastError && (
-                <p className="text-destructive mt-1 text-[11.5px]">{h.lastError}</p>
+                <p className="text-destructive mt-1 text-[12.5px]">{h.lastError}</p>
               )}
               <EntityLinks
                 map={map.data}

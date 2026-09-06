@@ -27,7 +27,7 @@ export function BrandTile({
   return (
     <div
       className={cn(
-        "grid size-[34px] shrink-0 place-items-center rounded-[9px]",
+        "grid size-[34px] shrink-0 place-items-center rounded-[12px]",
         className,
       )}
       style={{ background: `${colour}1f` }}
@@ -43,7 +43,7 @@ export function BrandTile({
       ) : (
         <span
           className={cn(
-            "text-[13px] font-semibold tracking-tight",
+            "text-[14px] font-semibold tracking-tight",
             glyphClassName,
           )}
           style={{ color: colour }}

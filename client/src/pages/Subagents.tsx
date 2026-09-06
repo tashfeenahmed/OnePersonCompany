@@ -110,7 +110,7 @@ export function Subagents() {
             setTick((n) => n + 1);
             setOrgTick((n) => n + 1);
           }}
-          className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]"
+          className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
         >
           <RefreshCw
             className={cn("size-3.5", doc.loading && !doc.data && "animate-spin")}
@@ -126,7 +126,7 @@ export function Subagents() {
       >
         <QueueControls />
         {doc.error ? (
-          <p className="text-muted-foreground text-[13px]">
+          <p className="text-muted-foreground text-[14px]">
             The queue could not be read, so there is nothing to show — not even
             a zero, which would be a claim that nothing is running.{" "}
             <span className="text-destructive">{doc.error}</span>
@@ -140,13 +140,13 @@ export function Subagents() {
             />
 
             {/* --------------------------------------------------- right now */}
-            <div className="text-muted-foreground mb-2 text-[11px] tracking-[0.06em] uppercase">
+            <div className="text-muted-foreground mb-2 text-[12px] tracking-[0.06em] uppercase">
               Right now
             </div>
             {running ? (
               <Working run={running} />
             ) : (
-              <p className="text-muted-foreground mb-3 text-[13px]">
+              <p className="text-muted-foreground mb-3 text-[14px]">
                 {doc.loading && !doc.data
                   ? "Reading the queue…"
                   : "Nothing is running. The tick that starts the next waiting run comes round every few seconds."}
@@ -160,12 +160,12 @@ export function Subagents() {
                     key={r.id}
                     className="border-line-soft flex items-center gap-2.5 border-b py-1.5 last:border-b-0"
                   >
-                    <span className="text-muted-foreground w-4 shrink-0 text-[11.5px] tabular-nums">
+                    <span className="text-muted-foreground w-4 shrink-0 text-[12.5px] tabular-nums">
                       {i + 1}
                     </span>
                     <span className="bg-warn size-1.5 shrink-0 rounded-full" />
                     <RunTitle run={r} />
-                    <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]">
+                    <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
                       queued {ago(r.queuedAt)}
                     </span>
                   </div>
@@ -175,11 +175,11 @@ export function Subagents() {
 
             {/* ----------------------------------------------- the roster */}
             <div className="mt-7 mb-2 flex items-baseline gap-2">
-              <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                 The roster
               </div>
               {team && (
-                <span className="text-muted-foreground ml-auto text-[11.5px]">
+                <span className="text-muted-foreground ml-auto text-[12.5px]">
                   {team.subagents} across {org.data?.ventures.length ?? 0}{" "}
                   ventures · {team.enabled} on
                 </span>
@@ -198,7 +198,7 @@ export function Subagents() {
                 {org.data.roles.map((r) => (
                   <div
                     key={r.role}
-                    className="text-muted-foreground flex items-start gap-2 text-[11.5px]"
+                    className="text-muted-foreground flex items-start gap-2 text-[12.5px]"
                   >
                     <RoleIcon role={r.role} className="mt-0.5 size-3.5 shrink-0" />
                     <span>
@@ -213,17 +213,17 @@ export function Subagents() {
 
             {/* ---------------------------------------------------- history */}
             <div className="mt-7 mb-2 flex items-baseline gap-2">
-              <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                 Everything, newest first
               </div>
-              <span className="text-muted-foreground ml-auto text-[11.5px]">
+              <span className="text-muted-foreground ml-auto text-[12.5px]">
                 {runs.length === 0
                   ? ""
                   : `last ${runs.length} ${runs.length === 1 ? "run" : "runs"}`}
               </span>
             </div>
             {runs.length === 0 ? (
-              <p className="text-muted-foreground text-[13px]">
+              <p className="text-muted-foreground text-[14px]">
                 No jobs yet. Start a job from an app to track it here.
               </p>
             ) : (
@@ -234,7 +234,7 @@ export function Subagents() {
               </div>
             )}
 
-            <p className="text-muted-foreground pt-5 text-[13px]">
+            <p className="text-muted-foreground pt-5 text-[14px]">
               Reports stay until you delete them. Interrupted jobs are marked
               failed and can be retried from their report. AI visibility jobs
               can also resume saved model steps.
@@ -290,7 +290,7 @@ function Roster({
 
   if (error)
     return (
-      <p className="text-muted-foreground text-[13px]">
+      <p className="text-muted-foreground text-[14px]">
         The roster could not be read, so nobody is listed — an empty list would
         say this box employs nobody.{" "}
         <span className="text-destructive">{error}</span>
@@ -298,7 +298,7 @@ function Roster({
     );
   if (!ventures.length)
     return (
-      <p className="text-muted-foreground text-[13px]">
+      <p className="text-muted-foreground text-[14px]">
         {loading
           ? "Counting everyone in…"
           : "No ventures, so no workers. Every venture gets its six the moment it exists."}
@@ -340,9 +340,9 @@ function Roster({
                 }}
                 size={16}
               />
-              <span className="truncate text-[12.5px] font-medium">{v.name}</span>
+              <span className="truncate text-[13.5px] font-medium">{v.name}</span>
               <StagePill stage={v.stage} />
-              <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]">
+              <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
                 {working > 0 && (
                   <span className="text-foreground">
                     {working} working ·{" "}
@@ -352,7 +352,7 @@ function Roster({
                 {off > 0 && `${off} off · `}
                 {v.subagents.length} workers
               </span>
-              <span className="text-muted-foreground hidden w-[92px] shrink-0 text-right text-[11.5px] sm:block">
+              <span className="text-muted-foreground hidden w-[92px] shrink-0 text-right text-[12.5px] sm:block">
                 {last ? ago(last.finishedAt ?? last.queuedAt) : "never run"}
               </span>
             </button>
@@ -381,20 +381,20 @@ function Working({ run }: { run: RunSummary }) {
   return (
     <Link
       to={runAddress(run)}
-      className="bg-card hover:border-line-strong flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3 transition-colors"
+      className="bg-card hover:border-line-strong flex items-start gap-2.5 rounded-[14px] border px-4.5 py-3.5 transition-colors"
     >
       <span className="bg-ok mt-[7px] size-1.5 shrink-0 animate-pulse rounded-full" />
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-baseline gap-2">
-          <span className="text-[13.5px] font-medium tracking-tight">
+          <span className="text-[14.5px] font-medium tracking-tight">
             {run.title}
           </span>
-          <span className="text-muted-foreground text-[11.5px]">
+          <span className="text-muted-foreground text-[12.5px]">
             {run.kind}
             {run.ventureName && ` · ${run.ventureName}`}
           </span>
         </span>
-        <span className="text-muted-foreground mt-0.5 block text-[12px]">
+        <span className="text-muted-foreground mt-0.5 block text-[13px]">
           {elapsed ? `Working for ${elapsed}` : "Working"} ·{" "}
           {run.steps > 0
             ? `${run.steps} ${run.steps === 1 ? "tool call" : "tool calls"}`
@@ -411,7 +411,7 @@ function Working({ run }: { run: RunSummary }) {
  *  the kind's own outputs page — so there is no unlinked variant to draw. */
 function RunTitle({ run }: { run: RunSummary }) {
   return (
-    <Link to={runAddress(run)} className="min-w-0 truncate text-[12.5px] hover:underline">
+    <Link to={runAddress(run)} className="min-w-0 truncate text-[13.5px] hover:underline">
       {run.title}
       {run.ventureName && (
         <span className="text-muted-foreground"> · {run.ventureName}</span>
@@ -430,19 +430,19 @@ function HistoryRow({ run }: { run: RunSummary }) {
       <span
         className={cn("size-1.5 shrink-0 rounded-full", statusTone(run.status))}
       />
-      <span className="min-w-0 flex-1 truncate text-[12.5px]">
+      <span className="min-w-0 flex-1 truncate text-[13.5px]">
         {run.title}
         {run.ventureName && (
           <span className="text-muted-foreground"> · {run.ventureName}</span>
         )}
       </span>
-      <span className="text-muted-foreground hidden w-[92px] shrink-0 truncate text-right font-mono text-[11px] sm:block">
+      <span className="text-muted-foreground hidden w-[92px] shrink-0 truncate text-right font-mono text-[12px] sm:block">
         {run.kind}
       </span>
-      <span className="text-muted-foreground hidden w-[168px] shrink-0 truncate text-right text-[11.5px] lg:block">
+      <span className="text-muted-foreground hidden w-[168px] shrink-0 truncate text-right text-[12.5px] lg:block">
         {backendPhrase(run)}
       </span>
-      <span className="text-muted-foreground w-[132px] shrink-0 text-right text-[11.5px]">
+      <span className="text-muted-foreground w-[132px] shrink-0 text-right text-[12.5px]">
         {isLive(run.status)
           ? statusWord(run.status)
           : `${took ? `${took} · ` : ""}${ago(run.finishedAt ?? run.queuedAt)}`}

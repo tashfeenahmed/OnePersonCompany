@@ -94,23 +94,23 @@ function BatchRow({ batch, onRolledBack }: { batch: Batch; onRolledBack: () => v
     <div className="border-line-soft grid gap-1.5 border-t py-3 first:border-t-0">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-[12.5px] font-medium">{batch.id}</span>
+          <span className="font-mono text-[13.5px] font-medium">{batch.id}</span>
           {batch.dryRun && (
-            <span className="bg-warn/15 text-warn rounded px-1.5 py-px text-[11px]">dry run — wrote nothing</span>
+            <span className="bg-warn/15 text-warn rounded px-1.5 py-px text-[12px]">dry run — wrote nothing</span>
           )}
           {batch.rolledBackAt && (
-            <span className="text-muted-foreground bg-muted rounded px-1.5 py-px text-[11px]">
+            <span className="text-muted-foreground bg-muted rounded px-1.5 py-px text-[12px]">
               rolled back {when(batch.rolledBackAt, NEVER)}
             </span>
           )}
-          {batch.ok === false && <span className="text-destructive text-[11px]">failed</span>}
+          {batch.ok === false && <span className="text-destructive text-[12px]">failed</span>}
         </div>
-        <span className="text-muted-foreground text-[11.5px]">{when(batch.startedAt, NEVER)}</span>
+        <span className="text-muted-foreground text-[12.5px]">{when(batch.startedAt, NEVER)}</span>
       </div>
 
-      <div className="text-muted-foreground font-mono text-[11.5px] break-all">{batch.source}</div>
+      <div className="text-muted-foreground font-mono text-[12.5px] break-all">{batch.source}</div>
 
-      <div className="text-[12.5px]">
+      <div className="text-[13.5px]">
         {batch.dryRun ? (
           <>
             <span className="text-muted-foreground">would have imported </span>
@@ -124,23 +124,23 @@ function BatchRow({ batch, onRolledBack }: { batch: Batch; onRolledBack: () => v
         )}
       </div>
 
-      {batch.error && <div className="text-destructive text-[12.5px]">{batch.error}</div>}
+      {batch.error && <div className="text-destructive text-[13.5px]">{batch.error}</div>}
 
       <div className="flex flex-wrap items-center gap-3">
         {batch.problems.length > 0 && (
           <button
             type="button"
             onClick={() => setOpen(!open)}
-            className="text-muted-foreground hover:text-foreground text-[11.5px] underline underline-offset-2"
+            className="text-muted-foreground hover:text-foreground text-[12.5px] underline underline-offset-2"
           >
             {open ? "hide" : `${batch.problems.length} thing${batch.problems.length === 1 ? "" : "s"} worth reading`}
           </button>
         )}
         {batch.backup && (
-          <span className="text-muted-foreground font-mono text-[11px]">backup {batch.backup}</span>
+          <span className="text-muted-foreground font-mono text-[12px]">backup {batch.backup}</span>
         )}
         {batch.reversible && (
-          <Button size="sm" variant="destructive" className="h-7 text-[12px]" disabled={busy} onClick={undo}>
+          <Button size="sm" variant="destructive" className="h-7 text-[13px]" disabled={busy} onClick={undo}>
             {busy ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Undo2 className="mr-1 size-3" />}
             Roll back
           </Button>
@@ -148,7 +148,7 @@ function BatchRow({ batch, onRolledBack }: { batch: Batch; onRolledBack: () => v
       </div>
 
       {open && (
-        <ul className="text-muted-foreground grid gap-1 text-[12px]">
+        <ul className="text-muted-foreground grid gap-1 text-[13px]">
           {batch.problems.map((p, i) => (
             <li key={i} className="border-line-soft border-l-2 pl-2">
               {p}
@@ -157,7 +157,7 @@ function BatchRow({ batch, onRolledBack }: { batch: Batch; onRolledBack: () => v
         </ul>
       )}
 
-      {note && <div className="text-[12.5px]">{note}</div>}
+      {note && <div className="text-[13.5px]">{note}</div>}
     </div>
   );
 }
@@ -168,8 +168,8 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
     <div className="border-line-soft grid gap-1 border-t py-2.5 first:border-t-0">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-medium">{endpoint.label}</span>
-          <span className="text-muted-foreground text-[11px]">
+          <span className="text-[14px] font-medium">{endpoint.label}</span>
+          <span className="text-muted-foreground text-[12px]">
             {endpoint.plugin === "users"
               ? "users contract"
               : endpoint.plugin === "product-stats"
@@ -177,11 +177,11 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
                 : "validated, not connected yet"}
           </span>
           {!endpoint.connected && endpoint.plugin !== "unconnected" && (
-            <span className="text-warn text-[11px]">not connected</span>
+            <span className="text-warn text-[12px]">not connected</span>
           )}
         </div>
         {endpoint.plugin !== "unconnected" && (
-          <span className="text-muted-foreground text-[11.5px]">
+          <span className="text-muted-foreground text-[12.5px]">
             <span
               className={cn(
                 "mr-1.5 inline-block size-1.5 rounded-full align-middle",
@@ -193,13 +193,13 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
         )}
       </div>
 
-      {endpoint.lastError && <div className="text-destructive text-[12px]">{endpoint.lastError}</div>}
+      {endpoint.lastError && <div className="text-destructive text-[13px]">{endpoint.lastError}</div>}
 
       {/* THE VALIDATION, which is a different fact from the collection: a
           sample can be checked before the endpoint is connected, and an
           endpoint that has gone quiet still has its last good validation. */}
       {v ? (
-        <div className="text-[12.5px]">
+        <div className="text-[13.5px]">
           <span className={v.ok ? "text-ok" : "text-destructive"}>
             {v.ok ? "sample accepted" : "sample REFUSED"}
           </span>
@@ -217,7 +217,7 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
             <span className="text-muted-foreground"> · {v.contactable} contactable</span>
           )}
           {v.problems.length > 0 && (
-            <ul className="text-muted-foreground mt-1 grid gap-0.5 text-[12px]">
+            <ul className="text-muted-foreground mt-1 grid gap-0.5 text-[13px]">
               {v.problems.slice(0, 4).map((p, i) => (
                 <li key={i} className="border-line-soft border-l-2 pl-2">
                   {p}
@@ -227,7 +227,7 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
           )}
         </div>
       ) : (
-        <div className="text-muted-foreground text-[12px]">
+        <div className="text-muted-foreground text-[13px]">
           No sample has ever been validated against the contract here.
         </div>
       )}
@@ -238,9 +238,9 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
       {endpoint.metrics && endpoint.metrics.length > 0 && (
         <div className="mt-0.5 grid gap-0.5">
           {endpoint.metrics.map((m) => (
-            <div key={m.label} className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
+            <div key={m.label} className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
               <span className="text-muted-foreground">{m.label}</span>
-              <span className="text-muted-foreground/60 font-mono text-[11px]">{m.path}</span>
+              <span className="text-muted-foreground/60 font-mono text-[12px]">{m.path}</span>
               {m.why === null ? (
                 <span className="tabular-nums font-medium">{count(m.value)}</span>
               ) : (
@@ -271,27 +271,27 @@ export function MigrationSettings() {
           </>
         }
       >
-        <pre className="bg-muted text-muted-foreground overflow-x-auto rounded p-2.5 text-[11.5px] leading-relaxed">
+        <pre className="bg-muted text-muted-foreground overflow-x-auto rounded p-2.5 text-[12.5px] leading-relaxed">
           {`npm run import-workdash -- <workdash-data-dir> --dry-run
 npm run import-workdash -- <workdash-data-dir>
 npm run import-workdash -- --rollback <batch>`}
         </pre>
-        <p className="text-muted-foreground max-w-[560px] text-[12px]">
-          The data directory is the one holding <code className="text-[11.5px]">kanban.json</code>,{" "}
-          <code className="text-[11.5px]">chats.json</code> and the rest beside each other — it is flat, so
-          point at that directory and not at a parent; <code className="text-[11.5px]">--help</code> says where
+        <p className="text-muted-foreground max-w-[560px] text-[13px]">
+          The data directory is the one holding <code className="text-[12.5px]">kanban.json</code>,{" "}
+          <code className="text-[12.5px]">chats.json</code> and the rest beside each other — it is flat, so
+          point at that directory and not at a parent; <code className="text-[12.5px]">--help</code> says where
           it usually lives. No credential is ever read: files holding secrets are refused by name and the
           plugins they belong to are printed as a list to reconnect by hand, in Integrations. A real run takes
           a full backup first and refuses to proceed if that fails — the same backup the button takes, so a
           configured remote gets a copy and the usual retention prune runs.
         </p>
 
-        {batches.error && <div className="text-destructive text-[12.5px]">{batches.error}</div>}
+        {batches.error && <div className="text-destructive text-[13.5px]">{batches.error}</div>}
         {batches.loading && !batches.data && (
-          <div className="text-muted-foreground text-[12.5px]">Loading…</div>
+          <div className="text-muted-foreground text-[13.5px]">Loading…</div>
         )}
         {batches.data && batches.data.batches.length === 0 && (
-          <div className="text-muted-foreground text-[12.5px]">
+          <div className="text-muted-foreground text-[13.5px]">
             Nothing has been imported. This dashboard's own data is untouched by anything on this tab.
           </div>
         )}
@@ -303,7 +303,7 @@ npm run import-workdash -- --rollback <batch>`}
           </div>
         )}
         {batches.data && batches.data.batches.some((b) => b.reversible) && (
-          <p className="text-warn flex max-w-[560px] items-start gap-1.5 text-[12px]">
+          <p className="text-warn flex max-w-[560px] items-start gap-1.5 text-[13px]">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
             Rolling back deletes exactly the rows an import created, including any edits made to them since.
             Rows it only matched — a venture that was already here — are left alone.
@@ -318,16 +318,16 @@ npm run import-workdash -- --rollback <batch>`}
             The adapters that publish the users and product-stats contracts, with the last collection and the
             last sample validated against the contract. Those are different facts: a sample can be checked
             before an endpoint is connected, and an endpoint that has gone quiet still shows what it last
-            published. The templates live in <code className="text-[11.5px]">deploy/adapters/</code>.
+            published. The templates live in <code className="text-[12.5px]">deploy/adapters/</code>.
           </>
         }
       >
-        {adapters.error && <div className="text-destructive text-[12.5px]">{adapters.error}</div>}
+        {adapters.error && <div className="text-destructive text-[13.5px]">{adapters.error}</div>}
         {adapters.loading && !adapters.data && (
-          <div className="text-muted-foreground text-[12.5px]">Loading…</div>
+          <div className="text-muted-foreground text-[13.5px]">Loading…</div>
         )}
         {adapters.data && adapters.data.endpoints.length === 0 && (
-          <div className="text-muted-foreground text-[12.5px]">
+          <div className="text-muted-foreground text-[13.5px]">
             No product endpoint is connected. Add one under Integrations — Product users for the signup
             contract, Product endpoints for anything the product counts about itself.
           </div>
@@ -346,9 +346,9 @@ npm run import-workdash -- --rollback <batch>`}
             default — and that is said here rather than looking like a finding. */}
         {adapters.data && adapters.data.populations.length > 0 && (
           <div className="mt-1 grid gap-1">
-            <div className="text-[12.5px] font-medium">Populations held</div>
+            <div className="text-[13.5px] font-medium">Populations held</div>
             {adapters.data.populations.map((p) => (
-              <div key={p.accountId} className="flex flex-wrap items-baseline gap-x-3 text-[12px]">
+              <div key={p.accountId} className="flex flex-wrap items-baseline gap-x-3 text-[13px]">
                 <span className="text-muted-foreground">{p.product}</span>
                 {POPULATION_ORDER.filter((k) => (p.populations[k] ?? 0) > 0).map((k) => (
                   <span key={k}>
@@ -359,7 +359,7 @@ npm run import-workdash -- --rollback <batch>`}
                 <span className="text-muted-foreground">{p.contactable} contactable</span>
               </div>
             ))}
-            <p className="text-muted-foreground max-w-[560px] text-[12px]">
+            <p className="text-muted-foreground max-w-[560px] text-[13px]">
               A product whose endpoint never sends a population counts entirely as “customer”, which is the
               documented default for the older contract — so all-customers may mean classified, or may mean not
               classified at all. Contactable is false unless an adapter was configured with an explicit consent

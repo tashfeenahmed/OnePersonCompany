@@ -62,17 +62,17 @@ export function ToolModeNote() {
   }
 
   return (
-    <div className="bg-card border-line-soft mt-3 rounded-[10px] border p-3.5">
+    <div className="bg-card border-line-soft mt-3 rounded-[14px] border p-4.5">
       <div className="flex flex-wrap items-center gap-2">
         <span
-          className={cn("size-[7px] rounded-[2px]", mode ? TONE[mode] : "bg-muted-foreground")}
+          className={cn("size-[7px] rounded-[3px]", mode ? TONE[mode] : "bg-muted-foreground")}
           aria-hidden
         />
-        <span className="text-[13px] font-medium">
+        <span className="text-[14px] font-medium">
           What this connection gives: {mode ? WORD[mode] : "not measured"}
         </span>
         {d.stale && (
-          <span className="text-muted-foreground text-[11.5px]">measured over a week ago</span>
+          <span className="text-muted-foreground text-[12.5px]">measured over a week ago</span>
         )}
         <Button
           variant="outline"
@@ -85,12 +85,12 @@ export function ToolModeNote() {
         </Button>
       </div>
 
-      <p className="text-muted-foreground mt-2 text-[12.5px]">{d.why}</p>
+      <p className="text-muted-foreground mt-2 text-[13.5px]">{d.why}</p>
 
-      {d.detail && <p className="text-muted-foreground mt-1 text-[11.5px]">{d.detail}</p>}
-      {problem && <p className="text-destructive mt-1 text-[11.5px]">{problem}</p>}
+      {d.detail && <p className="text-muted-foreground mt-1 text-[12.5px]">{d.detail}</p>}
+      {problem && <p className="text-destructive mt-1 text-[12.5px]">{problem}</p>}
 
-      <p className="text-muted-foreground mt-2 text-[11.5px]">
+      <p className="text-muted-foreground mt-2 text-[12.5px]">
         {d.model ? `Measured for ${d.provider} · ${d.model}` : "No model named on this provider"}
         {d.measuredAt ? ` · ${d.measuredAt.slice(0, 16).replace("T", " ")} UTC` : ""}
         {" · "}

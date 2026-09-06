@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
  *  alone — "reading reviews…" tells you which of four panels is slow. */
 export function Loading({ what, className }: { what: ReactNode; className?: string }) {
   return (
-    <p className={cn("text-muted-foreground flex items-center gap-2 text-[13px]", className)}>
+    <p className={cn("text-muted-foreground flex items-center gap-2 text-[14px]", className)}>
       <Loader2 className="size-3.5 animate-spin" strokeWidth={1.6} /> reading {what}…
     </p>
   );
@@ -36,7 +36,7 @@ export function Loading({ what, className }: { what: ReactNode; className?: stri
  */
 export function Failed({ error, className }: { error: ReactNode; className?: string }) {
   return (
-    <p className={cn("text-destructive flex items-start gap-2 text-[13px]", className)}>
+    <p className={cn("text-destructive flex items-start gap-2 text-[14px]", className)}>
       <AlertTriangle className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.6} /> {error}
     </p>
   );
@@ -81,7 +81,7 @@ export function Num({
  */
 export function Rules({ rules }: { rules: string[] }) {
   return (
-    <ul className="text-muted-foreground mt-4 space-y-1 text-[11.5px]">
+    <ul className="text-muted-foreground mt-4 space-y-1 text-[12.5px]">
       {rules.map((r) => (
         <li key={r}>· {r}</li>
       ))}
@@ -109,10 +109,10 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={cn("border-line-soft bg-card mb-4 rounded-xl border p-4", className)}>
-      <div className="mb-3 flex flex-wrap items-baseline gap-2">
-        <h2 className="text-[14px] font-medium">{title}</h2>
-        {meta && <span className="text-muted-foreground text-[11.5px]">{meta}</span>}
+    <section className={cn("border-line-soft bg-card mb-5 rounded-2xl border p-5", className)}>
+      <div className="mb-4 flex flex-wrap items-baseline gap-2.5">
+        <h2 className="text-[15px] font-medium">{title}</h2>
+        {meta && <span className="text-muted-foreground text-[12.5px]">{meta}</span>}
       </div>
       {children}
     </section>

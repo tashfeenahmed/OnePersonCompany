@@ -84,15 +84,15 @@ export function CaptureSettings() {
       hint="A screenshot of each venture's own site, taken by Chrome's command line when this machine has one. A palette can be read out of CSS; what the page looks like cannot."
     >
       {doc.error && (
-        <p className="text-muted-foreground text-[12.5px]">
+        <p className="text-muted-foreground text-[13.5px]">
           The API did not answer, so nothing can be said about the browser.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
       )}
 
       {d && (
-        <div className="bg-card grid gap-1 rounded-[10px] border px-3.5 py-3">
-          <div className="text-[13px]">
+        <div className="bg-card grid gap-1 rounded-[14px] border px-4.5 py-3.5">
+          <div className="text-[14px]">
             {d.browser.found
               ? d.browser.source === "configured"
                 ? "Using the browser you pointed it at"
@@ -100,14 +100,14 @@ export function CaptureSettings() {
               : "No browser on this machine"}
           </div>
           {d.browser.path && (
-            <p className="text-muted-foreground font-mono text-[11.5px] break-all">
+            <p className="text-muted-foreground font-mono text-[12.5px] break-all">
               {d.browser.path}
             </p>
           )}
-          <p className="text-muted-foreground text-[11.5px]">
+          <p className="text-muted-foreground text-[12.5px]">
             {d.browser.found ? d.browser.note : d.browser.error}
           </p>
-          <p className="text-muted-foreground text-[11.5px]">
+          <p className="text-muted-foreground text-[12.5px]">
             A picture older than {d.refreshEveryDays} days counts as due.
           </p>
         </div>
@@ -136,19 +136,19 @@ export function CaptureSettings() {
               )}
               {all ? "Capturing…" : "Capture all now"}
             </Button>
-            <span className="text-muted-foreground text-[12px]">
+            <span className="text-muted-foreground text-[13px]">
               One at a time, each up to 25 seconds — every one launches a
               browser.
             </span>
           </div>
 
           {problem && (
-            <p className="text-destructive text-[12.5px] leading-relaxed">
+            <p className="text-destructive text-[13.5px] leading-relaxed">
               {problem}
             </p>
           )}
 
-          <div className="overflow-hidden rounded-[10px] border">
+          <div className="overflow-hidden rounded-[14px] border">
             {d.ventures.map((v, i) => (
               <div
                 key={v.id}
@@ -157,13 +157,13 @@ export function CaptureSettings() {
                   i > 0 && "border-line-soft border-t",
                 )}
               >
-                <span className="text-[12.5px]">{v.name}</span>
-                <span className="text-muted-foreground min-w-0 flex-1 truncate text-[11.5px]">
+                <span className="text-[13.5px]">{v.name}</span>
+                <span className="text-muted-foreground min-w-0 flex-1 truncate text-[12.5px]">
                   {v.website ?? "no website, so there is nothing to photograph"}
                 </span>
                 <span
                   className={cn(
-                    "shrink-0 text-[11.5px]",
+                    "shrink-0 text-[12.5px]",
                     v.last && !v.last.ok ? "text-warn" : "text-muted-foreground",
                   )}
                 >
@@ -178,7 +178,7 @@ export function CaptureSettings() {
                 {/* A picture that is good while the last attempt failed is two
                     facts, and both are worth having. */}
                 {v.picture && v.last && !v.last.ok && (
-                  <span className="text-muted-foreground shrink-0 text-[11.5px]">
+                  <span className="text-muted-foreground shrink-0 text-[12.5px]">
                     the picture from {when(v.picture.ts, NEVER)} is still there
                   </span>
                 )}
@@ -193,7 +193,7 @@ export function CaptureSettings() {
               </div>
             ))}
           </div>
-          <p className="text-muted-foreground text-[11.5px]">
+          <p className="text-muted-foreground text-[12.5px]">
             The pictures themselves are on each venture's own page, beside the
             brand reading they belong with.
           </p>

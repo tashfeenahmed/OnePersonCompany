@@ -198,7 +198,7 @@ export function AppSidebar() {
     return <div className={cn("sidebar-row flex min-w-0 items-center gap-0.5 rounded-lg pr-1 transition-colors focus-within:bg-accent", active ? "bg-accent font-medium" : "hover:bg-accent")}>
       {handle}
       <Link to={path} aria-current={active ? "page" : undefined} title={label}
-        className={cn("flex min-w-0 flex-1 items-center gap-2 py-1 text-[12.5px] outline-none", handle ? "pl-0.5" : "pl-1.5")}
+        className={cn("flex min-w-0 flex-1 items-center gap-2 py-1 text-[13.5px] outline-none", handle ? "pl-0.5" : "pl-1.5")}
       >
         <ModuleIcon path={path} />
         <span className="truncate">{label}</span>
@@ -221,21 +221,21 @@ export function AppSidebar() {
   return (
     <aside className="bg-sidebar border-sidebar-border flex h-full min-h-0 w-[252px] shrink-0 flex-col border-r px-2.5 pt-3.5 pb-2.5">
       <div className="flex items-center gap-2.5 px-2 pt-1 pb-3.5">
-        <div className="bg-primary text-primary-foreground grid size-[22px] place-items-center rounded-[7px] text-[11px] font-semibold tracking-tight">
+        <div className="bg-primary text-primary-foreground grid size-[22px] place-items-center rounded-[9px] text-[12px] font-semibold tracking-tight">
           1
         </div>
-        <span className="text-[13.5px] font-medium tracking-tight">
+        <span className="text-[14.5px] font-medium tracking-tight">
           One Person Company
         </span>
       </div>
 
       <Button
         onClick={newChat}
-        className="mb-3 h-auto w-full justify-start gap-2.5 py-2 text-[12.5px]"
+        className="mb-3 h-auto w-full justify-start gap-2.5 py-2 text-[13.5px]"
       >
         <Plus className="size-[14px]" strokeWidth={2} />
         New chat
-        <span className="ml-auto font-mono text-[10.5px] opacity-55">⌘K</span>
+        <span className="ml-auto font-mono text-[11.5px] opacity-55">⌘K</span>
       </Button>
 
       <ScrollArea data-sidebar-scroll className="-mx-1 min-h-0 flex-1 px-1 [&_[data-slot=scroll-area-viewport]]:overscroll-contain">
@@ -259,11 +259,11 @@ export function AppSidebar() {
 
       <section aria-label="Sessions" className="border-line-soft mt-3.5 border-t pt-3 pb-3">
         <div className="flex items-center justify-between px-2 pb-0.5">
-          <span className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+          <span className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
             Sessions
           </span>
           <button
-            className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[7px] p-1"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[9px] p-1"
             title="Search sessions"
             onClick={() => { setSearching(v => !v); setSearch(""); }}
             aria-expanded={searching}
@@ -274,7 +274,7 @@ export function AppSidebar() {
 
         {searching && <input autoFocus aria-label="Search sessions" placeholder="Search by title or venture…" value={search} onChange={e => setSearch(e.target.value)} className="m-1 w-[95%] rounded border p-2 text-sm" />}
         <div className="flex flex-col gap-px pt-1">
-          {!visibleSessions.length && <p className="px-2 py-1.5 text-[11.5px] leading-relaxed text-muted-foreground" role="status">
+          {!visibleSessions.length && <p className="px-2 py-1.5 text-[12.5px] leading-relaxed text-muted-foreground" role="status">
             {search.trim() ? "No matching sessions." : state.sessions.length ? "All sessions are pinned above." : "No conversations yet. Start a chat to see it here."}
           </p>}
           {visibleSessions.map(session => <div key={session.id}>{renderSession(session)}</div>)}
@@ -287,14 +287,14 @@ export function AppSidebar() {
       <div className="border-line-soft shrink-0 border-t pt-1.5">
         <DropdownMenu>
           <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent data-[state=open]:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors">
-            <div className="bg-muted text-foreground grid size-[22px] shrink-0 place-items-center rounded-full text-[10.5px] font-semibold">
+            <div className="bg-muted text-foreground grid size-[22px] shrink-0 place-items-center rounded-full text-[11.5px] font-semibold">
               {state.workspace.owner.trim()[0]?.toUpperCase() ?? "?"}
             </div>
             <div className="min-w-0">
-              <div className="text-foreground truncate text-[12.5px]">
+              <div className="text-foreground truncate text-[13.5px]">
                 {state.workspace.owner}
               </div>
-              <div className="truncate text-[11px]">{state.workspace.name}</div>
+              <div className="truncate text-[12px]">{state.workspace.name}</div>
             </div>
             <ChevronsUpDown
               className="ml-auto size-[13px] shrink-0"
@@ -304,8 +304,8 @@ export function AppSidebar() {
 
           <DropdownMenuContent side="top" align="start" className="w-[232px]">
             <DropdownMenuLabel className="font-normal">
-              <div className="text-[12.5px]">{state.workspace.owner}</div>
-              <div className="text-muted-foreground text-[11px]">
+              <div className="text-[13.5px]">{state.workspace.owner}</div>
+              <div className="text-muted-foreground text-[12px]">
                 {state.workspace.name} · 1 seat
               </div>
             </DropdownMenuLabel>

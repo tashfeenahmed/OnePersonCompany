@@ -34,8 +34,8 @@ export function Allocation() {
   const [message, setMessage] = useState<{ id: string; text: string } | null>(null);
   const [manual, setManual] = useState<Record<string, string>>({});
 
-  if (doc.error) return <p className="text-muted-foreground text-[13px]">The API is not answering: {doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground text-[13px]">Reading the rules…</p>;
+  if (doc.error) return <p className="text-muted-foreground text-[14px]">The API is not answering: {doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground text-[14px]">Reading the rules…</p>;
   const d = doc.data;
 
   const auto = async (id: string, basis: Basis) => {
@@ -75,7 +75,7 @@ export function Allocation() {
 
   return (
     <>
-      <p className="text-muted-foreground mb-4 text-[12.5px] leading-relaxed">
+      <p className="text-muted-foreground mb-4 text-[13.5px] leading-relaxed">
         {d.shared.length} shared cost{d.shared.length === 1 ? "" : "s"} belong to no single venture. The default rule
         for one with no split of its own is <span className="text-foreground font-medium">{d.defaultRule}</span> —
         change it on the Finance integration's settings page.
@@ -85,14 +85,14 @@ export function Allocation() {
         {d.shared.map((e) => {
           const isOpen = open === e.id;
           return (
-            <div key={e.id} className="bg-card rounded-[10px] border px-3.5 py-2.5">
+            <div key={e.id} className="bg-card rounded-[14px] border px-4.5 py-3">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="text-[13px] font-medium">{e.label}</span>
-                <span className="text-muted-foreground text-[12px] tabular-nums">{amount(e.monthly, e.currency)} / month</span>
-                <span className="text-muted-foreground text-[11.5px]">{e.category}</span>
+                <span className="text-[14px] font-medium">{e.label}</span>
+                <span className="text-muted-foreground text-[13px] tabular-nums">{amount(e.monthly, e.currency)} / month</span>
+                <span className="text-muted-foreground text-[12.5px]">{e.category}</span>
                 <button
                   onClick={() => { setOpen(isOpen ? null : e.id); setMessage(null); }}
-                  className="hover:bg-accent ml-auto rounded-lg border px-2 py-1 text-[11.5px]"
+                  className="hover:bg-accent ml-auto rounded-lg border px-2 py-1 text-[12.5px]"
                 >
                   {isOpen ? "Close" : e.allocations.length ? "Edit split" : "Allocate"}
                 </button>
@@ -106,7 +106,7 @@ export function Allocation() {
                 ))}
                 <div className="bg-warn/40 flex-1" title={`${pct(e.unallocatedShare)} unallocated`} />
               </div>
-              <div className="text-muted-foreground mt-1 text-[11px]">
+              <div className="text-muted-foreground mt-1 text-[12px]">
                 {e.allocations.length
                   ? `${e.allocations.map((a) => `${a.venture} ${pct(a.share)}`).join(" · ")} · ${pct(e.unallocatedShare)} unallocated`
                   : "No rule. Nobody's margin carries this."}
@@ -120,7 +120,7 @@ export function Allocation() {
                         key={b.key}
                         onClick={() => void auto(e.id, b.key)}
                         title={b.hint}
-                        className="hover:bg-accent rounded-lg border px-2.5 py-1 text-[11.5px]"
+                        className="hover:bg-accent rounded-lg border px-2.5 py-1 text-[12.5px]"
                       >
                         {b.label}
                       </button>
@@ -130,12 +130,12 @@ export function Allocation() {
                     {d.ventures.map((v) => {
                       const key = `${e.id}:${v.id}`;
                       return (
-                        <label key={v.id} className="flex items-center gap-2 text-[12px]">
+                        <label key={v.id} className="flex items-center gap-2 text-[13px]">
                           <Input
                             value={shown(e.id, v.id, e.allocations)}
                             onChange={(ev) => setManual({ ...manual, [key]: ev.target.value })}
                             placeholder="0"
-                            className="h-7 w-16 text-right text-[12px] tabular-nums"
+                            className="h-7 w-16 text-right text-[13px] tabular-nums"
                           />
                           <span className="text-muted-foreground">%</span>
                           <span className="truncate">{v.name}</span>
@@ -145,11 +145,11 @@ export function Allocation() {
                   </div>
                   <button
                     onClick={() => void saveManual(e.id, e.allocations)}
-                    className="hover:bg-accent mt-3 rounded-lg border px-2.5 py-1 text-[11.5px]"
+                    className="hover:bg-accent mt-3 rounded-lg border px-2.5 py-1 text-[12.5px]"
                   >
                     Save these shares
                   </button>
-                  <p className="text-muted-foreground mt-2 text-[11px] leading-relaxed">
+                  <p className="text-muted-foreground mt-2 text-[12px] leading-relaxed">
                     Shares may add up to less than 100%. What is left over stays unallocated overhead and appears in
                     the portfolio P&amp;L — which is a truer answer than forcing a split nobody believes. More than
                     100% is refused: that is double counting.
@@ -158,7 +158,7 @@ export function Allocation() {
               )}
 
               {message?.id === e.id && (
-                <p className={cn("mt-2 text-[11.5px] leading-relaxed", message.text.startsWith("Saved") ? "text-muted-foreground" : "text-foreground")}>
+                <p className={cn("mt-2 text-[12.5px] leading-relaxed", message.text.startsWith("Saved") ? "text-muted-foreground" : "text-foreground")}>
                   {message.text}
                 </p>
               )}
@@ -167,7 +167,7 @@ export function Allocation() {
         })}
       </div>
 
-      <p className="text-muted-foreground mt-4 border-t pt-2 text-[11px] leading-relaxed">{d.note}</p>
+      <p className="text-muted-foreground mt-4 border-t pt-2 text-[12px] leading-relaxed">{d.note}</p>
     </>
   );
 }

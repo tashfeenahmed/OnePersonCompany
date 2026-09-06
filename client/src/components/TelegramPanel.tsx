@@ -47,7 +47,7 @@ export function TelegramPanel() {
   return (
     <>
       <Separator className="mt-7 mb-5" />
-      <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+      <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
         Bridge
       </div>
 
@@ -64,14 +64,14 @@ export function TelegramPanel() {
 
       {/* The agent line is the same for every bot, because there is one live
           backend for the whole app — see chat/backend.ts. */}
-      <p className="text-muted-foreground mt-4 text-[12px]">
+      <p className="text-muted-foreground mt-4 text-[13px]">
         {agent.connected && agent.label
           ? `Replies come from ${agent.label}.`
           : "No agent is live, so a message gets a sentence saying so rather than silence. Connect Hermes or OpenClaw and make one live."}
       </p>
 
       {next && (
-        <p className="mt-2 text-[12.5px]">
+        <p className="mt-2 text-[13.5px]">
           <span className="font-medium">Next:</span> {next}
         </p>
       )}
@@ -103,12 +103,12 @@ function BotRow({
   const quiet = p.state === "backoff" || (p.state === "conflict" && !worrying);
 
   return (
-    <div className="bg-card rounded-[10px] border p-3.5">
-      <div className="flex items-center gap-2 text-[13px]">
+    <div className="bg-card rounded-[14px] border p-4.5">
+      <div className="flex items-center gap-2 text-[14px]">
         <span className="font-medium">{bot.label}</span>
         <span
           className={cn(
-            "ml-auto flex items-center gap-1.5 text-[11.5px]",
+            "ml-auto flex items-center gap-1.5 text-[12.5px]",
             worrying
               ? "text-destructive"
               : quiet
@@ -130,7 +130,7 @@ function BotRow({
       </div>
 
       {bot.chat.locked && bot.chat.chatId ? (
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
           <span>
             Paired with chat{" "}
             <span className="tabular-nums">{bot.chat.chatId}</span>
@@ -146,7 +146,7 @@ function BotRow({
           </span>
           <Button
             variant="ghost"
-            className="ml-auto h-7 px-2 text-[12px]"
+            className="ml-auto h-7 px-2 text-[13px]"
             disabled={busy}
             onClick={onUnpair}
           >
@@ -154,7 +154,7 @@ function BotRow({
           </Button>
         </div>
       ) : (
-        <p className="text-muted-foreground mt-2 text-[12px]">
+        <p className="text-muted-foreground mt-2 text-[13px]">
           Not paired yet. The first message the bot receives — from any chat —
           locks it to that chat; everyone else is ignored and counted.
           {bot.messages.ignored
@@ -164,7 +164,7 @@ function BotRow({
       )}
 
       {worrying && p.lastError && (
-        <p className="text-destructive mt-2 text-[11.5px] leading-snug">
+        <p className="text-destructive mt-2 text-[12.5px] leading-snug">
           {p.lastError}
         </p>
       )}

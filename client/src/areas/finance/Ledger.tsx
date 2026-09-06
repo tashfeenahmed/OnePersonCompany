@@ -46,14 +46,14 @@ function Cell({
       <button
         onClick={() => { setDraft(value); setEditing(true); }}
         className={cn(
-          "hover:bg-accent -mx-1 w-full rounded px-1 py-0.5 text-left text-[12.5px]",
+          "hover:bg-accent -mx-1 w-full rounded px-1 py-0.5 text-left text-[13.5px]",
           numeric && "text-right tabular-nums",
           !value && "text-muted-foreground",
         )}
         title={owned ? "You typed this. A provider refresh will not overwrite it." : undefined}
       >
         {value || placeholder || "—"}
-        {owned && <span className="text-muted-foreground ml-1 text-[10px]">✎</span>}
+        {owned && <span className="text-muted-foreground ml-1 text-[11px]">✎</span>}
       </button>
     );
 
@@ -72,7 +72,7 @@ function Cell({
         setBusy(true);
         try { await onSave(draft); } finally { setBusy(false); setEditing(false); }
       }}
-      className={cn("h-7 px-1 text-[12.5px]", numeric && "text-right tabular-nums")}
+      className={cn("h-7 px-1 text-[13.5px]", numeric && "text-right tabular-nums")}
     />
   );
 }
@@ -96,7 +96,7 @@ function Row({ e, onChange }: { e: Expense; onChange: () => void }) {
       <tr className="border-line-soft border-b align-top">
         <td className="py-1.5 pr-3">
           <Cell value={e.label} owned={owned.has("label")} onSave={(v) => patch({ label: v })} />
-          <div className="text-muted-foreground mt-0.5 text-[11px]">
+          <div className="text-muted-foreground mt-0.5 text-[12px]">
             {e.source === "manual" ? "typed" : e.source}
             {e.confidence ? ` · ${e.confidence}` : ""}
             {e.archived ? " · archived" : ""}
@@ -106,7 +106,7 @@ function Row({ e, onChange }: { e: Expense; onChange: () => void }) {
           <select
             value={e.category}
             onChange={(ev) => void patch({ category: ev.target.value })}
-            className="bg-transparent text-[12.5px] outline-none"
+            className="bg-transparent text-[13.5px] outline-none"
           >
             {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
@@ -136,18 +136,18 @@ function Row({ e, onChange }: { e: Expense; onChange: () => void }) {
           <select
             value={e.period}
             onChange={(ev) => void patch({ period: ev.target.value })}
-            className="bg-transparent text-[12.5px] outline-none"
+            className="bg-transparent text-[13.5px] outline-none"
           >
             {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </td>
-        <td className="py-1.5 pr-3 text-right tabular-nums text-[12.5px]">
+        <td className="py-1.5 pr-3 text-right tabular-nums text-[13.5px]">
           {amount(e.monthly, e.currency)}
         </td>
-        <td className="py-1.5 pr-3 text-[12.5px]">
+        <td className="py-1.5 pr-3 text-[13.5px]">
           {e.shared ? <span className="text-muted-foreground">shared</span> : e.venture}
         </td>
-        <td className="py-1.5 text-[12.5px]">
+        <td className="py-1.5 text-[13.5px]">
           <Cell
             value={e.renewalOn ?? ""}
             placeholder="—"
@@ -157,7 +157,7 @@ function Row({ e, onChange }: { e: Expense; onChange: () => void }) {
         </td>
       </tr>
       {error && (
-        <tr><td colSpan={8} className="text-destructive pb-1.5 text-[11.5px]">{error}</td></tr>
+        <tr><td colSpan={8} className="text-destructive pb-1.5 text-[12.5px]">{error}</td></tr>
       )}
     </>
   );
@@ -170,37 +170,37 @@ export function Ledger() {
   const [draft, setDraft] = useState({ label: "", category: "service", currency: "EUR", period: "monthly", amount: "" });
   const [addError, setAddError] = useState<string | null>(null);
 
-  if (doc.error) return <p className="text-muted-foreground text-[13px]">The API is not answering: {doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground text-[13px]">Reading the ledger…</p>;
+  if (doc.error) return <p className="text-muted-foreground text-[14px]">The API is not answering: {doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground text-[14px]">Reading the ledger…</p>;
   const d = doc.data;
 
   return (
     <>
       <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-2">
         <div>
-          <div className="text-[25px] font-normal tracking-[-0.03em] tabular-nums">{currencies(d.monthly)}</div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">
+          <div className="text-[27px] font-normal tracking-[-0.03em] tabular-nums">{currencies(d.monthly)}</div>
+          <div className="text-muted-foreground mt-0.5 text-[12.5px]">
             per month · {d.count} rows{d.monthly.unpriced ? ` · ${d.monthly.unpriced} with no price yet` : ""}
           </div>
         </div>
         <div>
-          <div className="text-[25px] font-normal tracking-[-0.03em] tabular-nums">{currencies(d.annual)}</div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">per year, each bill at its own cadence</div>
+          <div className="text-[27px] font-normal tracking-[-0.03em] tabular-nums">{currencies(d.annual)}</div>
+          <div className="text-muted-foreground mt-0.5 text-[12.5px]">per year, each bill at its own cadence</div>
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <label className="text-muted-foreground flex items-center gap-1.5 text-[11.5px]">
+          <label className="text-muted-foreground flex items-center gap-1.5 text-[12.5px]">
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
             show archived
           </label>
           <button
             onClick={() => setAdding((v) => !v)}
-            className="hover:bg-accent rounded-lg border px-2.5 py-1 text-[12px]"
+            className="hover:bg-accent rounded-lg border px-2.5 py-1 text-[13px]"
           >
             {adding ? "Cancel" : "Add a cost"}
           </button>
           <button
             onClick={() => void finance.refresh().then(() => doc.reload())}
-            className="hover:bg-accent rounded-lg border px-2.5 py-1 text-[12px]"
+            className="hover:bg-accent rounded-lg border px-2.5 py-1 text-[13px]"
             title="Re-read the servers, volumes and domain renewals now. Your own corrections are never overwritten."
           >
             Refresh from providers
@@ -209,29 +209,29 @@ export function Ledger() {
       </div>
 
       {adding && (
-        <div className="bg-card mb-4 rounded-[10px] border p-3">
+        <div className="bg-card mb-4 rounded-[14px] border p-4">
           <div className="flex flex-wrap items-end gap-2">
-            <label className="text-[11.5px]">
+            <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">What the bill is for</div>
-              <Input value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} className="h-8 w-56 text-[12.5px]" />
+              <Input value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} className="h-8 w-56 text-[13.5px]" />
             </label>
-            <label className="text-[11.5px]">
+            <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">Category</div>
-              <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="bg-card h-8 rounded-md border px-2 text-[12.5px]">
+              <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="bg-card h-8 rounded-md border px-3 text-[13.5px]">
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </label>
-            <label className="text-[11.5px]">
+            <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">Amount</div>
-              <Input value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} placeholder="leave empty if unknown" className="h-8 w-36 text-[12.5px]" />
+              <Input value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} placeholder="leave empty if unknown" className="h-8 w-36 text-[13.5px]" />
             </label>
-            <label className="text-[11.5px]">
+            <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">Currency</div>
-              <Input value={draft.currency} onChange={(e) => setDraft({ ...draft, currency: e.target.value })} className="h-8 w-20 text-[12.5px]" />
+              <Input value={draft.currency} onChange={(e) => setDraft({ ...draft, currency: e.target.value })} className="h-8 w-20 text-[13.5px]" />
             </label>
-            <label className="text-[11.5px]">
+            <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">Period</div>
-              <select value={draft.period} onChange={(e) => setDraft({ ...draft, period: e.target.value })} className="bg-card h-8 rounded-md border px-2 text-[12.5px]">
+              <select value={draft.period} onChange={(e) => setDraft({ ...draft, period: e.target.value })} className="bg-card h-8 rounded-md border px-3 text-[13.5px]">
                 {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
             </label>
@@ -250,23 +250,23 @@ export function Ledger() {
                   setAddError(err instanceof Error ? err.message : String(err));
                 }
               }}
-              className="hover:bg-accent h-8 rounded-lg border px-3 text-[12px]"
+              className="hover:bg-accent h-8 rounded-lg border px-3 text-[13px]"
             >
               Add
             </button>
           </div>
-          <p className="text-muted-foreground mt-2 text-[11px] leading-relaxed">
+          <p className="text-muted-foreground mt-2 text-[12px] leading-relaxed">
             Leave the amount empty if you do not know the price. It will be listed, excluded from every total, and
             counted as unpriced — which is the honest answer, and better than a guess that gets quoted back at you.
           </p>
-          {addError && <p className="text-destructive mt-1 text-[11.5px]">{addError}</p>}
+          {addError && <p className="text-destructive mt-1 text-[12.5px]">{addError}</p>}
         </div>
       )}
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[820px] border-collapse">
           <thead>
-            <tr className="text-muted-foreground border-b text-left text-[11px]">
+            <tr className="text-muted-foreground border-b text-left text-[12px]">
               <th className="pb-1.5 pr-3 font-normal">Cost</th>
               <th className="pb-1.5 pr-3 font-normal">Category</th>
               <th className="pb-1.5 pr-3 text-right font-normal">Amount</th>
@@ -283,7 +283,7 @@ export function Ledger() {
         </table>
       </div>
 
-      <p className="text-muted-foreground mt-4 border-t pt-2 text-[11px] leading-relaxed">{d.note}</p>
+      <p className="text-muted-foreground mt-4 border-t pt-2 text-[12px] leading-relaxed">{d.note}</p>
     </>
   );
 }

@@ -170,7 +170,7 @@ function Form({ venture }: { venture?: Venture }) {
               placeholder="What it does and who pays for it, in one line."
               onChange={(e) => setDescription(e.target.value)}
             />
-            <p className="text-muted-foreground text-[11.5px]">
+            <p className="text-muted-foreground text-[12.5px]">
               Your words. The agent quotes this rather than rewriting it.
             </p>
           </div>
@@ -184,7 +184,7 @@ function Form({ venture }: { venture?: Venture }) {
               placeholder="acme.example"
               onChange={(e) => setWebsite(e.target.value)}
             />
-            <p className="text-muted-foreground text-[11.5px]">
+            <p className="text-muted-foreground text-[12.5px]">
               The favicon and colours are read from here. It also narrows this
               venture&rsquo;s dashboards to that host.
             </p>
@@ -209,14 +209,14 @@ function Form({ venture }: { venture?: Venture }) {
                   aria-pressed={stage === s.id}
                   onClick={() => setStage(s.id)}
                   className={cn(
-                    "rounded-[10px] border p-3 text-left transition-colors",
+                    "rounded-[14px] border p-3 text-left transition-colors",
                     stage === s.id
                       ? "border-foreground"
                       : "hover:border-line-strong",
                   )}
                 >
-                  <div className="text-[12.5px] font-medium">{s.label}</div>
-                  <p className="text-muted-foreground mt-1 text-[11.5px] leading-snug">
+                  <div className="text-[13.5px] font-medium">{s.label}</div>
+                  <p className="text-muted-foreground mt-1 text-[12.5px] leading-snug">
                     {s.note}
                   </p>
                 </button>
@@ -236,7 +236,7 @@ function Form({ venture }: { venture?: Venture }) {
                   onClick={() => setColor(c)}
                   style={{ background: c }}
                   className={cn(
-                    "size-[22px] rounded-[7px] border-2 border-transparent transition-transform hover:scale-110",
+                    "size-[22px] rounded-[9px] border-2 border-transparent transition-transform hover:scale-110",
                     c === color && "border-foreground",
                   )}
                 />
@@ -250,14 +250,14 @@ function Form({ venture }: { venture?: Venture }) {
                 aria-pressed={color === null}
                 onClick={() => setColor(null)}
                 className={cn(
-                  "rounded-[7px] border px-2 py-1 text-[11.5px] transition-colors",
+                  "rounded-[9px] border px-2 py-1 text-[12.5px] transition-colors",
                   color === null ? "border-foreground" : "hover:border-line-strong",
                 )}
               >
                 From the site
               </button>
               {venture && (
-                <span className="text-muted-foreground text-[11.5px]">
+                <span className="text-muted-foreground text-[12.5px]">
                   now {venture.color} ·{" "}
                   {venture.colorSource === "owner"
                     ? "yours"
@@ -270,7 +270,7 @@ function Form({ venture }: { venture?: Venture }) {
           </div>
 
           {failure && (
-            <p className="text-destructive text-[12.5px]">{failure}</p>
+            <p className="text-destructive text-[13.5px]">{failure}</p>
           )}
 
           <div className="flex items-center gap-1.5">
@@ -303,11 +303,11 @@ function Form({ venture }: { venture?: Venture }) {
             what could not be measured says why instead of being left blank.
           */}
           {venture && brand && (
-            <div className="rounded-[10px] border p-4">
+            <div className="rounded-[14px] border p-4">
               <div className="flex items-center gap-2">
                 <VentureMark venture={venture} size={20} />
-                <span className="text-[13px] font-medium">Read from the site</span>
-                <span className="text-muted-foreground text-[11.5px]">
+                <span className="text-[14px] font-medium">Read from the site</span>
+                <span className="text-muted-foreground text-[12.5px]">
                   {brand.enrichedAt
                     ? when(brand.enrichedAt, { year: true })
                     : "never read"}
@@ -325,13 +325,13 @@ function Form({ venture }: { venture?: Venture }) {
               </div>
 
               {!venture.website && (
-                <p className="text-muted-foreground mt-2.5 text-[12px]">
+                <p className="text-muted-foreground mt-2.5 text-[13px]">
                   No website on this venture, so there is nothing to read.
                 </p>
               )}
 
               {brand.error && (
-                <p className="text-destructive mt-2.5 text-[12px]">
+                <p className="text-destructive mt-2.5 text-[13px]">
                   {brand.error}
                 </p>
               )}
@@ -339,10 +339,10 @@ function Form({ venture }: { venture?: Venture }) {
               {(brand.title || brand.description) && (
                 <div className="mt-3 flex flex-col gap-1">
                   {brand.title && (
-                    <div className="text-[12.5px]">{brand.title}</div>
+                    <div className="text-[13.5px]">{brand.title}</div>
                   )}
                   {brand.description && (
-                    <p className="text-muted-foreground text-[12px]">
+                    <p className="text-muted-foreground text-[13px]">
                       {brand.description}
                     </p>
                   )}
@@ -356,7 +356,7 @@ function Form({ venture }: { venture?: Venture }) {
                 brand.palette.secondary ||
                 brand.palette.accent) && (
                 <div className="mt-3">
-                  <div className="text-muted-foreground mb-1.5 text-[11.5px]">
+                  <div className="text-muted-foreground mb-1.5 text-[12.5px]">
                     Palette
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -377,14 +377,14 @@ function Form({ venture }: { venture?: Venture }) {
                           title={`${role} · ${hex} — use as this venture's colour`}
                           onClick={() => setColor(hex!)}
                           className={cn(
-                            "flex items-center gap-1.5 rounded-[7px] border px-1.5 py-1 text-[11px] transition-colors",
+                            "flex items-center gap-1.5 rounded-[9px] border px-1.5 py-1 text-[12px] transition-colors",
                             color === hex
                               ? "border-foreground"
                               : "hover:border-line-strong",
                           )}
                         >
                           <span
-                            className="size-[14px] rounded-[4px]"
+                            className="size-[14px] rounded-[5px]"
                             style={{ background: hex! }}
                           />
                           {role}
@@ -395,13 +395,13 @@ function Form({ venture }: { venture?: Venture }) {
               )}
 
               {brand.fonts.length > 0 && (
-                <p className="text-muted-foreground mt-3 text-[12px]">
+                <p className="text-muted-foreground mt-3 text-[13px]">
                   Fonts: {brand.fonts.join(", ")}
                 </p>
               )}
 
               {brand.faviconSource && (
-                <p className="text-muted-foreground mt-1.5 truncate text-[11.5px]">
+                <p className="text-muted-foreground mt-1.5 truncate text-[12.5px]">
                   Icon from {brand.faviconSource}
                 </p>
               )}
@@ -410,7 +410,7 @@ function Form({ venture }: { venture?: Venture }) {
                   with no icon behind it is a different thing from a site with
                   no icon, and this is where that difference is stated. */}
               {brand.notes.length > 0 && (
-                <ul className="text-muted-foreground mt-2.5 flex flex-col gap-1 text-[11.5px]">
+                <ul className="text-muted-foreground mt-2.5 flex flex-col gap-1 text-[12.5px]">
                   {brand.notes.map((note) => (
                     <li key={note}>{note}</li>
                   ))}
@@ -422,7 +422,7 @@ function Form({ venture }: { venture?: Venture }) {
                   href={venture.website}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-muted-foreground hover:text-foreground mt-3 inline-flex items-center gap-1.5 text-[11.5px]"
+                  className="text-muted-foreground hover:text-foreground mt-3 inline-flex items-center gap-1.5 text-[12.5px]"
                 >
                   <ExternalLink className="size-3.5" strokeWidth={1.6} />
                   {venture.website}
@@ -445,7 +445,7 @@ function Form({ venture }: { venture?: Venture }) {
             <div className="border-line-soft border-t pt-4">
               {confirming ? (
                 <div className="flex flex-col gap-2">
-                  <p className="text-[12.5px] leading-snug">
+                  <p className="text-[13.5px] leading-snug">
                     Delete <span className="font-medium">{venture.name}</span>
                     {boards.length > 0 && (
                       <>
@@ -472,7 +472,7 @@ function Form({ venture }: { venture?: Venture }) {
               ) : (
                 <button
                   onClick={() => setConfirming(true)}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px]"
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13.5px]"
                 >
                   <Trash2 className="size-3.5" strokeWidth={1.6} />
                   Delete this venture

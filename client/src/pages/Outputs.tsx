@@ -67,10 +67,10 @@ export function SubagentOutputs() {
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center px-6">
           <div className="max-w-[380px] text-center">
-            <h1 className="text-[19px] font-normal tracking-[-0.02em]">
+            <h1 className="text-[20px] font-normal tracking-[-0.02em]">
               No output at this address
             </h1>
-            <p className="text-muted-foreground mt-1.5 text-[13px] leading-relaxed">
+            <p className="text-muted-foreground mt-1.5 text-[14px] leading-relaxed">
               Nothing here is called “{app}”.
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-1.5">
@@ -78,7 +78,7 @@ export function SubagentOutputs() {
                 <Link
                   key={a.slug}
                   to={appPage(a.slug)}
-                  className="hover:bg-accent rounded-lg border px-2.5 py-1.5 text-[12.5px]"
+                  className="hover:bg-accent rounded-lg border px-2.5 py-1.5 text-[13.5px]"
                 >
                   {a.name}
                 </Link>

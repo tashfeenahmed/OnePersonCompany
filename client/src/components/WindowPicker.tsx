@@ -69,7 +69,7 @@ export function WindowPicker({
               aria-label={longLabel(option)}
               onClick={() => onChange(option)}
               className={cn(
-                "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px] transition-colors",
+                "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[13.5px] transition-colors",
                 selected && "bg-accent text-foreground font-medium",
               )}
             >
@@ -78,7 +78,7 @@ export function WindowPicker({
           );
         })}
       </div>
-      {right && <span className="text-muted-foreground ml-auto text-[11.5px]">{right}</span>}
+      {right && <span className="text-muted-foreground ml-auto text-[12.5px]">{right}</span>}
     </div>
   );
 }

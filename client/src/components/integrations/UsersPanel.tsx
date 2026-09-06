@@ -76,7 +76,7 @@ export function UsersPanel({ onCollected }: { onCollected?: () => void }) {
   return (
     <>
       <PanelSection title="The contract">
-        <pre className="bg-accent/40 overflow-x-auto rounded-[10px] border px-3.5 py-3 font-mono text-[11.5px] leading-relaxed">
+        <pre className="bg-accent/40 overflow-x-auto rounded-[14px] border px-3.5 py-3 font-mono text-[12.5px] leading-relaxed">
           {CONTRACT}
         </pre>
         <Note>
@@ -129,8 +129,8 @@ export function UsersPanel({ onCollected }: { onCollected?: () => void }) {
                             : "bg-border",
                       )}
                     />
-                    <span className="text-[13px] font-medium">{p.product}</span>
-                    <span className="text-muted-foreground min-w-0 truncate font-mono text-[11.5px]">
+                    <span className="text-[14px] font-medium">{p.product}</span>
+                    <span className="text-muted-foreground min-w-0 truncate font-mono text-[12.5px]">
                       {p.url ?? "URL not cached until the first collection"}
                     </span>
                     {p.shape && (
@@ -143,12 +143,12 @@ export function UsersPanel({ onCollected }: { onCollected?: () => void }) {
                         {p.status}
                       </Badge>
                     )}
-                    <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px] tabular-nums">
+                    <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px] tabular-nums">
                       {p.ms === null ? "—" : `${p.ms} ms`} · {ago(p.lastFetchedAt)}
                     </span>
                   </div>
 
-                  <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-4 text-[12px]">
+                  <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-4 text-[13px]">
                     <span>
                       total{" "}
                       <span className="text-foreground tabular-nums">
@@ -174,29 +174,29 @@ export function UsersPanel({ onCollected }: { onCollected?: () => void }) {
                   </div>
 
                   {p.error && (
-                    <p className="text-destructive mt-1 text-[11.5px] leading-relaxed">{p.error}</p>
+                    <p className="text-destructive mt-1 text-[12.5px] leading-relaxed">{p.error}</p>
                   )}
                   {p.reachable === false && (
-                    <p className="text-muted-foreground mt-1 text-[11.5px]">
+                    <p className="text-muted-foreground mt-1 text-[12.5px]">
                       The figures above are the last good document's, unchanged. Nothing was
                       overwritten.
                     </p>
                   )}
                   {p.reachable === null && !p.error && (
-                    <p className="text-muted-foreground mt-1 text-[12px]">
+                    <p className="text-muted-foreground mt-1 text-[13px]">
                       Never collected. That is not a failure — nothing has asked yet.
                     </p>
                   )}
 
                   {!!problems.length && (
-                    <div className="border-destructive/40 mt-1.5 rounded-[10px] border px-3 py-2">
-                      <div className="text-destructive mb-1 text-[12px] font-medium">
+                    <div className="border-destructive/40 mt-1.5 rounded-[14px] border px-3 py-2">
+                      <div className="text-destructive mb-1 text-[13px] font-medium">
                         {problems.length} field{problems.length === 1 ? "" : "s"} the validator
                         refused
                       </div>
                       <div className="flex flex-col gap-0.5">
                         {problems.map((why, n) => (
-                          <div key={n} className="font-mono text-[11.5px]">
+                          <div key={n} className="font-mono text-[12.5px]">
                             {why}
                           </div>
                         ))}
@@ -208,7 +208,7 @@ export function UsersPanel({ onCollected }: { onCollected?: () => void }) {
                     {p.shape === "users" && (
                       <Link
                         to={`/activity/users/${encodeURIComponent(p.product)}`}
-                        className="text-[11.5px] underline underline-offset-2"
+                        className="text-[12.5px] underline underline-offset-2"
                       >
                         the list →
                       </Link>
@@ -216,12 +216,12 @@ export function UsersPanel({ onCollected }: { onCollected?: () => void }) {
                     <button
                       type="button"
                       onClick={() => setOpenDoc(openDoc === p.accountId ? null : p.accountId)}
-                      className="text-muted-foreground hover:text-foreground text-[11.5px] underline underline-offset-2"
+                      className="text-muted-foreground hover:text-foreground text-[12.5px] underline underline-offset-2"
                     >
                       {openDoc === p.accountId ? "hide the last document" : "the last document"}
                     </button>
                     {p.venture && (
-                      <span className="text-muted-foreground text-[11.5px]">
+                      <span className="text-muted-foreground text-[12.5px]">
                         filed under {p.venture.name}
                         {p.venture.matchedBy === "host" && " — by hostname, which is a guess"}
                       </span>
@@ -264,11 +264,11 @@ function Doc({ accountId }: { accountId: number }) {
   const doc = useApi(() => activityApi.userDocument(String(accountId)), [accountId]);
   return (
     <div className="mt-1.5">
-      <p className="text-muted-foreground mb-1 text-[11px]">
+      <p className="text-muted-foreground mb-1 text-[12px]">
         {doc.data?.note ??
           "The last stored document, with every address replaced and arrays cut to three items."}
       </p>
-      <pre className="bg-accent/40 max-h-[280px] overflow-auto rounded-[10px] border px-3 py-2 font-mono text-[11px] leading-relaxed">
+      <pre className="bg-accent/40 max-h-[280px] overflow-auto rounded-[14px] border px-3 py-2 font-mono text-[12px] leading-relaxed">
         {doc.loading
           ? "…"
           : (doc.data?.document ??

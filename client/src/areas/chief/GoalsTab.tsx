@@ -28,15 +28,15 @@ export function GoalsTab() {
   const doc = useApi(() => goalsApi.all(), []);
 
   if (doc.error)
-    return <p className="text-destructive text-[13.5px]">{doc.error}</p>;
+    return <p className="text-destructive text-[14.5px]">{doc.error}</p>;
   if (!doc.data)
-    return <p className="text-muted-foreground text-[13.5px]">Reading the goals…</p>;
+    return <p className="text-muted-foreground text-[14.5px]">Reading the goals…</p>;
 
   const { global, ventures, summary } = doc.data;
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-muted-foreground text-[12.5px]">
+      <p className="text-muted-foreground text-[13.5px]">
         These go into the agent's system turn on every conversation — the
         workspace goals always, a venture's when the chat is filed under it. The
         agent is told not to rewrite them unasked.{" "}
@@ -63,7 +63,7 @@ export function GoalsTab() {
       />
 
       <div className="flex flex-col gap-4">
-        <h2 className="text-[15px] font-medium">Per venture</h2>
+        <h2 className="text-[16px] font-medium">Per venture</h2>
         {ventures.map((v) => (
           <Editor
             key={`${v.ventureId}:${v.updatedAt ?? "blank"}`}
@@ -97,24 +97,24 @@ function Editor({
   const changed = text.trim() !== doc.text.trim();
 
   return (
-    <div className="border-line-soft bg-card rounded-[10px] border p-4">
+    <div className="border-line-soft bg-card rounded-[14px] border p-5">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <span className="text-[13.5px] font-medium">{label}</span>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-[14.5px] font-medium">{label}</span>
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {/* Null is a real state — nothing has ever been written — and says so
               rather than showing a date of nothing. */}
           {savedAt ? `edited ${savedAt.slice(0, 10)}` : "never written"}
         </span>
       </div>
       {hint && (
-        <p className="text-muted-foreground mb-2 text-[11.5px] leading-snug">{hint}</p>
+        <p className="text-muted-foreground mb-2 text-[12.5px] leading-snug">{hint}</p>
       )}
       <Textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={text.length > 200 ? 8 : 4}
         placeholder="Nothing written. What are you actually trying to do here?"
-        className="text-[13px]"
+        className="text-[14px]"
       />
       <div className="mt-2 flex items-center gap-2">
         <Button
@@ -136,7 +136,7 @@ function Editor({
           {saving && <Loader2 className="size-3.5 animate-spin" />}
           {changed ? "Save" : "Saved"}
         </Button>
-        {failure && <span className="text-destructive text-[11.5px]">{failure}</span>}
+        {failure && <span className="text-destructive text-[12.5px]">{failure}</span>}
       </div>
     </div>
   );

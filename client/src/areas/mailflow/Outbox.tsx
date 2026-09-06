@@ -97,23 +97,23 @@ function Reasons({ id }: { id: number }) {
   return (
     <div className="border-line-soft mt-2 rounded-lg border px-3 py-2">
       <button
-        className="text-muted-foreground text-[11.5px] underline"
+        className="text-muted-foreground text-[12.5px] underline"
         onClick={() => setOpen((v) => !v)}
       >
         {open ? "Hide" : "Show"} the facts this was written from
       </button>
-      {open && error && <p role="alert" className="text-destructive mt-1.5 text-[12px]">{error}</p>}
+      {open && error && <p role="alert" className="text-destructive mt-1.5 text-[13px]">{error}</p>}
       {open && doc && (
         <div className="mt-2 space-y-2">
           {doc.plan && (
-            <p className="text-muted-foreground text-[11.5px]">
+            <p className="text-muted-foreground text-[12.5px]">
               {doc.plan.whyNow}. From {doc.plan.from} by {doc.plan.via}.
             </p>
           )}
           {doc.validation && (
             <p
               className={cn(
-                "text-[11.5px]",
+                "text-[12.5px]",
                 doc.validation.by === "template" ? "text-warn" : "text-muted-foreground",
               )}
             >
@@ -126,7 +126,7 @@ function Reasons({ id }: { id: number }) {
           {doc.facts && doc.facts.length > 0 && (
             <ul className="space-y-1">
               {doc.facts.map((f, i) => (
-                <li key={i} className="text-[11.5px]">
+                <li key={i} className="text-[12.5px]">
                   <span className="font-mono">{f.key}</span>:{" "}
                   <span>{String(f.value)}</span>
                   {f.unit ? ` ${f.unit}` : ""}
@@ -141,17 +141,17 @@ function Reasons({ id }: { id: number }) {
           )}
           {doc.validation && doc.validation.cannotSay.length > 0 && (
             <details>
-              <summary className="text-muted-foreground cursor-pointer text-[11.5px]">
+              <summary className="text-muted-foreground cursor-pointer text-[12.5px]">
                 What nothing here measured, so the message must not mention it
               </summary>
               <ul className="mt-1 space-y-0.5">
                 {doc.validation.cannotSay.map((s, i) => (
-                  <li key={i} className="text-muted-foreground text-[11.5px]">{s}</li>
+                  <li key={i} className="text-muted-foreground text-[12.5px]">{s}</li>
                 ))}
               </ul>
             </details>
           )}
-          <p className="text-muted-foreground/70 text-[11.5px]">{doc.note}</p>
+          <p className="text-muted-foreground/70 text-[12.5px]">{doc.note}</p>
         </div>
       )}
     </div>
@@ -191,16 +191,16 @@ function Card({
   const live = item.status === "draft" || item.status === "approved" || item.status === "failed";
 
   return (
-    <div className="bg-card border-line-soft mb-3 rounded-xl border p-3.5">
+    <div className="bg-card border-line-soft mb-3 rounded-xl border p-4.5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="text-[13.5px] font-medium">{item.subject}</span>
-            <span className={cn("text-[11.5px]", STATUS_TONE[item.status])}>
+            <span className="text-[14.5px] font-medium">{item.subject}</span>
+            <span className={cn("text-[12.5px]", STATUS_TONE[item.status])}>
               {item.status}
             </span>
           </div>
-          <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px]">
+          <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 text-[12.5px]">
             <span>from {item.fromName ?? item.from ?? "unknown mailbox"} → {item.to}</span>
             {item.via && (
               <>
@@ -254,9 +254,9 @@ function Card({
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={10}
-            className="text-[13px]"
+            className="text-[14px]"
           />
-          <p className="text-muted-foreground text-[11.5px]">
+          <p className="text-muted-foreground text-[12.5px]">
             Markdown. It is sent as plain text exactly as written.
             {item.status === "approved" &&
               " Saving this returns the row to draft — the approval was of the previous wording."}
@@ -285,7 +285,7 @@ function Card({
           {item.hasReasons && <Reasons id={item.id} />}
 
           {item.fromError && (
-            <p role="alert" className="text-destructive mt-2 text-[12.5px]">
+            <p role="alert" className="text-destructive mt-2 text-[13.5px]">
               This cannot be sent as written: {item.fromError}
             </p>
           )}
@@ -293,13 +293,13 @@ function Card({
               and still sends; this is the sentence that should reach the owner
               before he approves rather than as a 4xx afterwards. */}
           {!item.fromError && item.fromWarning && (
-            <p className="text-warn mt-2 text-[12.5px]">{item.fromWarning}</p>
+            <p className="text-warn mt-2 text-[13.5px]">{item.fromWarning}</p>
           )}
           {item.error && (
-            <p role="alert" className="text-destructive mt-2 text-[12.5px]">{item.error}</p>
+            <p role="alert" className="text-destructive mt-2 text-[13.5px]">{item.error}</p>
           )}
           {item.status === "sent" && (
-            <p className="text-muted-foreground mt-2 text-[11.5px]">
+            <p className="text-muted-foreground mt-2 text-[12.5px]">
               Sent {when(item.sentAt)} · {item.sentVia === "resend" ? "Resend" : "Gmail"} message id{" "}
               <span className="font-mono">{item.messageId}</span>
               {item.sentVia === "resend" && (
@@ -315,7 +315,7 @@ function Card({
               )}
             </p>
           )}
-          {refused && <p role="alert" className="text-destructive mt-2 text-[12.5px]">{refused}</p>}
+          {refused && <p role="alert" className="text-destructive mt-2 text-[13.5px]">{refused}</p>}
 
           {item.status === "uncertain" && <div className="mt-3 flex flex-wrap gap-2 text-sm">
             <a className="underline" href="https://mail.google.com/mail/u/0/#sent" target="_blank" rel="noreferrer">Check Gmail Sent</a>
@@ -381,7 +381,7 @@ function Composer({ accounts, onCreated }: { accounts: OutboxDoc["accounts"]; on
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   useEffect(() => { if (reply) setOpen(true); }, [key]);
   if (!open) return <Button size="sm" variant="outline" onClick={() => setOpen(true)}><Pencil />Write a draft</Button>;
-  return <section className="bg-card border rounded-xl p-4 space-y-3 mb-4">
+  return <section className="bg-card border rounded-xl p-5 space-y-3 mb-4">
     <h2 className="font-medium">{reply?.thread ? "Draft a reply" : "New draft"}</h2>
     {reply?.back && <Link className="text-sm underline" to={reply.back}>Back to conversation</Link>}
     <label className="block text-sm">From<select aria-label="From account" value={account} disabled={!!reply?.thread} onChange={e => setAccount(e.target.value)} className="block border rounded p-2 w-full">
@@ -438,7 +438,7 @@ export function Outbox() {
     >
       {d && <Composer accounts={d.accounts} onCreated={() => { setOffset(0); setTab("draft"); doc.reload(); }} />}
       {d && (
-        <p className="text-muted-foreground mb-4 text-[11.5px] leading-relaxed">
+        <p className="text-muted-foreground mb-4 text-[12.5px] leading-relaxed">
           Default mailbox: {d.mailbox.address ?? "connect Gmail in Integrations"} ·{" "}
           {d.today.sent} of {d.today.cap} sent today ·{" "}
           {d.settings.gapDays === 0
@@ -466,21 +466,21 @@ export function Outbox() {
       />
 
       {doc.error && (
-        <p className="text-muted-foreground mb-4 text-[13px]">
+        <p className="text-muted-foreground mb-4 text-[14px]">
           The outbox could not be read.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
       )}
 
       {doc.loading && !d && (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
           Reading the queue.
         </p>
       )}
 
       {d && d.items.length === 0 && (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           No messages in this view. Create a draft to get started.
         </p>
       )}
@@ -496,7 +496,7 @@ export function Outbox() {
       ))}
 
       {d && (
-        <p className="text-muted-foreground/70 mt-8 text-[11.5px] leading-relaxed">
+        <p className="text-muted-foreground/70 mt-8 text-[12.5px] leading-relaxed">
           {d.note}
         </p>
       )}

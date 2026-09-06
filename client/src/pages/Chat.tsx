@@ -415,7 +415,7 @@ function Working({ calls, reasoning }: { calls: ChatToolCall[]; reasoning: strin
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className={cn(
-          "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline gap-1.5 rounded-[7px] px-1.5 py-0.5 text-left text-[13.5px] leading-[1.6] transition-colors",
+          "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline gap-1.5 rounded-[9px] px-1.5 py-0.5 text-left text-[14.5px] leading-[1.6] transition-colors",
           running
             ? "tool-shimmer focus-visible:ring-ring focus-visible:ring-1"
             : "hover:bg-accent hover:text-foreground focus-visible:bg-accent",
@@ -467,7 +467,7 @@ function Thinking({ text, done }: { text: string; done: boolean }) {
     <div className="mb-2">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="text-muted-foreground hover:bg-accent hover:text-foreground -mx-1.5 flex items-center gap-1.5 rounded-[7px] px-1.5 py-1 text-[12px] transition-colors"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground -mx-1.5 flex items-center gap-1.5 rounded-[9px] px-1.5 py-1 text-[13px] transition-colors"
       >
         <ChevronRight
           className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")}
@@ -477,7 +477,7 @@ function Thinking({ text, done }: { text: string; done: boolean }) {
         {done ? "Thought about it" : "Thinking…"}
       </button>
       {open && (
-        <p className="text-muted-foreground border-line-soft mt-1 ml-4 border-l pl-3 text-[12px] leading-[1.55] whitespace-pre-wrap">
+        <p className="text-muted-foreground border-line-soft mt-1 ml-4 border-l pl-3 text-[13px] leading-[1.55] whitespace-pre-wrap">
           {text.trim()}
         </p>
       )}
@@ -1763,7 +1763,7 @@ export function Chat() {
 
   const picker = (
     <DropdownMenu>
-      <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]">
+      <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]">
         {target ? (
           <VentureMark venture={target} size={14} />
         ) : (
@@ -1774,7 +1774,7 @@ export function Chat() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
         <DropdownMenuItem onSelect={() => setTargetId(null)}>
-          <span className="border-border size-[7px] shrink-0 rounded-[2px] border" />
+          <span className="border-border size-[7px] shrink-0 rounded-[3px] border" />
           No venture
         </DropdownMenuItem>
         {state.ventures.map((v) => (
@@ -1815,13 +1815,13 @@ export function Chat() {
   */
   const selector = (
     <DropdownMenu>
-      <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]">
+      <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]">
         <Bot className="size-3.5" strokeWidth={1.6} />
         {live ? BACKEND_NAMES[live] : "No agent"}
         <ChevronDown className="size-[13px]" strokeWidth={1.6} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
-        <DropdownMenuLabel className="text-muted-foreground text-[11.5px] font-normal">
+        <DropdownMenuLabel className="text-muted-foreground text-[12.5px] font-normal">
           One agent answers. Connected is not the same as live.
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -1836,7 +1836,7 @@ export function Chat() {
               strokeWidth={2}
             />
             <span className="flex-1">{BACKEND_NAMES[b.id]}</span>
-            <span className="text-muted-foreground text-[11.5px]">
+            <span className="text-muted-foreground text-[12.5px]">
               {/* MANAGED or REMOTE beside each, because the two are not the
                   same thing to be talking to: one is a process this app
                   installed and supervises, the other is somebody else's box. */}
@@ -1887,13 +1887,13 @@ export function Chat() {
   */
   const providerPicker = (
     <DropdownMenu>
-      <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]">
+      <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]">
         <Cpu className="size-3.5" strokeWidth={1.6} />
         {providers?.live ? PROVIDER_NAMES[providers.live] : "No provider"}
         <ChevronDown className="size-[13px]" strokeWidth={1.6} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel className="text-muted-foreground text-[11.5px] font-normal">
+        <DropdownMenuLabel className="text-muted-foreground text-[12.5px] font-normal">
           One provider completes. Agents are pointed at it, and with no agent
           live it answers this chat itself.
         </DropdownMenuLabel>
@@ -1909,7 +1909,7 @@ export function Chat() {
               strokeWidth={2}
             />
             <span className="flex-1">{PROVIDER_NAMES[p.id]}</span>
-            <span className="text-muted-foreground text-[11.5px]">
+            <span className="text-muted-foreground text-[12.5px]">
               {!p.connected
                 ? "not connected"
                 : p.live
@@ -1961,10 +1961,10 @@ export function Chat() {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center px-6">
         <div className="max-w-[380px] text-center">
-          <h1 className="text-[19px] font-normal tracking-[-0.02em]">
+          <h1 className="text-[20px] font-normal tracking-[-0.02em]">
             No session at this address
           </h1>
-          <p className="text-muted-foreground mt-1.5 text-[13px] leading-relaxed">
+          <p className="text-muted-foreground mt-1.5 text-[14px] leading-relaxed">
             Nothing here is called “{sessionId}”. It may have been deleted, or
             the link may be from another browser. Every conversation you do have
             is in the rail.
@@ -1972,7 +1972,7 @@ export function Chat() {
           <div className="mt-4 flex justify-center">
             <Link
               to="/"
-              className="hover:bg-accent rounded-lg border px-2.5 py-1.5 text-[12.5px]"
+              className="hover:bg-accent rounded-lg border px-2.5 py-1.5 text-[13.5px]"
             >
               Start a new chat
             </Link>
@@ -2038,7 +2038,7 @@ export function Chat() {
             has no credentials" are two different walks to two different pages.
           */}
           {noAgent && (
-            <div className="border-line-strong bg-card mb-5 flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3">
+            <div className="border-line-strong bg-card mb-5 flex items-start gap-2.5 rounded-[14px] border px-4.5 py-3.5">
               {fallback ? (
                 <Cpu
                   className="text-muted-foreground mt-0.5 size-4 shrink-0"
@@ -2050,7 +2050,7 @@ export function Chat() {
                   strokeWidth={1.6}
                 />
               )}
-              <p className="text-[12.5px]">
+              <p className="text-[13.5px]">
                 {fallback ? (
                   <>
                     <span className="font-medium">
@@ -2082,7 +2082,7 @@ export function Chat() {
           )}
 
           {loadError && (
-            <div className="border-line-strong bg-card mb-5 rounded-[10px] border px-3.5 py-3 text-[12.5px]">
+            <div className="border-line-strong bg-card mb-5 rounded-[14px] border px-4.5 py-3.5 text-[13.5px]">
               <span className="font-medium">This chat could not be read.</span>{" "}
               <span className="text-muted-foreground">{loadError}</span>
             </div>
@@ -2090,13 +2090,13 @@ export function Chat() {
 
           {!hasChat && (
             <>
-              <h1 className="mb-1.5 text-[25px] font-normal tracking-[-0.025em]">
+              <h1 className="mb-1.5 text-[27px] font-normal tracking-[-0.025em]">
                 {greeting()}, {state.workspace.owner}.{" "}
                 <span className="text-muted-foreground">
                   What are we shipping?
                 </span>
               </h1>
-              <p className="text-muted-foreground mb-6 text-[13.5px]">
+              <p className="text-muted-foreground mb-6 text-[14.5px]">
                 {loading
                   ? "Reading this chat…"
                   : "Start from scratch, or pick up one of these."}
@@ -2110,17 +2110,17 @@ export function Chat() {
                       setText(prompt);
                       inputRef.current?.focus();
                     }}
-                    className="bg-card hover:border-line-strong flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3 text-left transition-colors active:translate-y-px"
+                    className="bg-card hover:border-line-strong flex items-start gap-2.5 rounded-[14px] border px-4.5 py-3.5 text-left transition-colors active:translate-y-px"
                   >
                     <Icon
                       className="text-muted-foreground mt-0.5 size-4 shrink-0"
                       strokeWidth={1.6}
                     />
                     <span>
-                      <span className="block text-[13px] font-medium tracking-tight">
+                      <span className="block text-[14px] font-medium tracking-tight">
                         {title}
                       </span>
-                      <span className="text-muted-foreground mt-0.5 block text-[12px]">
+                      <span className="text-muted-foreground mt-0.5 block text-[13px]">
                         {desc}
                       </span>
                     </span>
@@ -2142,7 +2142,7 @@ export function Chat() {
                     Whitespace is preserved for the same reason.
                   */
                   <div key={m.id} className="flex justify-end">
-                    <div className="bg-card max-w-[85%] rounded-[12px] border px-3.5 py-2.5 text-[13.5px] whitespace-pre-wrap">
+                    <div className="bg-card max-w-[85%] rounded-[16px] border px-4.5 py-3 text-[14.5px] whitespace-pre-wrap">
                       {m.content}
                     </div>
                   </div>
@@ -2158,7 +2158,7 @@ export function Chat() {
                       it — an agent that counts no tokens has not said the turn
                       was free.
                     */}
-                    <p className="text-muted-foreground mt-1.5 text-[11.5px]">
+                    <p className="text-muted-foreground mt-1.5 text-[12.5px]">
                       {/* A run's report is written by the server on the
                           worker's behalf — runs/executor.ts — and is not the
                           agent's turn, so it is not signed as one. */}
@@ -2179,7 +2179,7 @@ export function Chat() {
                       worth more than a gap where a conversation was.
                     */}
                     {m.partial && (
-                      <p className="text-muted-foreground mt-1 text-[11.5px]">
+                      <p className="text-muted-foreground mt-1 text-[12.5px]">
                         <TriangleAlert
                           className="mr-1 inline size-3 align-[-1px]"
                           strokeWidth={1.8}
@@ -2245,7 +2245,7 @@ export function Chat() {
                 !flight?.text &&
                 !flight?.reasoning &&
                 !flight?.tools.length && (
-                <p className="text-muted-foreground text-[12.5px]">
+                <p className="text-muted-foreground text-[13.5px]">
                   {queuedHere
                     ? "Queued behind another reply — this provider completes one at a time."
                     : `${backends?.liveLabel ?? fallback?.label ?? "The agent"} is thinking…`}
@@ -2257,14 +2257,14 @@ export function Chat() {
                   "the model is slow" and "the queue was long" are different
                   complaints and only one of them is about the model. */}
               {waitedMs !== null && (
-                <p className="text-muted-foreground text-[11.5px]">
+                <p className="text-muted-foreground text-[12.5px]">
                   Waited {duration(waitedMs)} for a model slot before
                   that answer could start.
                 </p>
               )}
 
               {failureText && (
-                <div className="border-line-strong bg-card rounded-[10px] border px-3.5 py-3 text-[12.5px]">
+                <div className="border-line-strong bg-card rounded-[14px] border px-4.5 py-3.5 text-[13.5px]">
                   <span className="font-medium">That did not get an answer.</span>{" "}
                   <span className="text-muted-foreground">{failureText}</span>
                 </div>
@@ -2278,7 +2278,7 @@ export function Chat() {
 
       <div className="flex shrink-0 justify-center px-6 pt-5 pb-5.5">
         <div className="w-full max-w-[760px]">
-          <div className="bg-card focus-within:border-foreground rounded-[14px] border px-3 pt-3 pb-2 transition-colors">
+          <div className="bg-card focus-within:border-foreground rounded-[18px] border px-4 pt-3 pb-2 transition-colors">
             <Textarea
               ref={inputRef}
               aria-label="Message"
@@ -2320,7 +2320,7 @@ export function Chat() {
               {picker}
               <Link
                 to="/integrations"
-                className="hover:bg-accent flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]"
+                className="hover:bg-accent flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
               >
                 <Plug className="size-[15px]" strokeWidth={1.6} />
                 Integrations
@@ -2365,7 +2365,7 @@ export function Chat() {
             sentence when nothing is connected — the rail is still the truth
             about where a chat lands.
           */}
-          <p className="text-muted-foreground mt-2.5 text-center text-[11.5px]">
+          <p className="text-muted-foreground mt-2.5 text-center text-[12.5px]">
             {backends?.liveLabel
               ? `${backends.liveLabel} is answering. Only one agent is live at a time.`
               : fallback

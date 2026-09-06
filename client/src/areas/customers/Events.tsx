@@ -43,7 +43,7 @@ export function EventsTab({ tick, onChanged }: { tick: number; onChanged: () => 
       <Stats items={stats} />
 
       {d && !d.settings.telegram && (
-        <div className="border-line-soft text-muted-foreground mb-4 rounded-[10px] border px-3.5 py-2.5 text-[12.5px]">
+        <div className="border-line-soft text-muted-foreground mb-4 rounded-[14px] border px-3.5 py-2.5 text-[13.5px]">
           Pushing to Telegram is off, so nothing here becomes a message. Events are still
           collected, deduplicated and readable on this page. Turn it on under Integrations →
           Customers.
@@ -66,14 +66,14 @@ export function EventsTab({ tick, onChanged }: { tick: number; onChanged: () => 
         <button
           onClick={() => setOnlyUndelivered((v) => !v)}
           className={cn(
-            "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px]",
+            "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[13.5px]",
             onlyUndelivered && "bg-accent text-foreground font-medium",
           )}
         >
           Waiting only
         </button>
         {d && (
-          <span className="text-muted-foreground ml-auto text-[11.5px]">
+          <span className="text-muted-foreground ml-auto text-[12.5px]">
             quiet hours {d.settings.quietHours ?? "off"} · {d.settings.timezone} · collapse{" "}
             {d.settings.collapseMinutes}m
           </span>
@@ -92,7 +92,7 @@ export function EventsTab({ tick, onChanged }: { tick: number; onChanged: () => 
                 }}
                 title={muted ? "Muted — click to let it produce messages again" : "Click to mute this type"}
                 className={cn(
-                  "border-line-soft text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11.5px]",
+                  "border-line-soft text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[12.5px]",
                   muted && "opacity-50",
                 )}
               >
@@ -128,21 +128,21 @@ export function EventsTab({ tick, onChanged }: { tick: number; onChanged: () => 
 function EventRow({ e, onChanged }: { e: BusinessEvent; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   return (
-    <div className="bg-card rounded-[10px] border px-3.5 py-2.5">
+    <div className="bg-card rounded-[14px] border px-4.5 py-3">
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <span className="text-muted-foreground text-[11.5px]">{e.type}</span>
-        <span className="text-[13px]">{e.summary}</span>
+        <span className="text-muted-foreground text-[12.5px]">{e.type}</span>
+        <span className="text-[14px]">{e.summary}</span>
         {e.ventureName && (
-          <span className="text-muted-foreground text-[11.5px]">· {e.ventureName}</span>
+          <span className="text-muted-foreground text-[12.5px]">· {e.ventureName}</span>
         )}
-        <span className="text-muted-foreground ml-auto text-[11.5px] tabular-nums">
+        <span className="text-muted-foreground ml-auto text-[12.5px] tabular-nums">
           {e.at.slice(0, 16).replace("T", " ")} UTC
         </span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <span
           className={cn(
-            "text-[11.5px]",
+            "text-[12.5px]",
             e.delivery.error && !e.delivery.deliveredAt ? "text-destructive" : "text-muted-foreground",
           )}
         >
@@ -168,7 +168,7 @@ function EventRow({ e, onChanged }: { e: BusinessEvent; onChanged: () => void })
                   onChanged();
                 });
             }}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] disabled:opacity-40"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] disabled:opacity-40"
           >
             <Send className="size-3.5" strokeWidth={1.6} /> Queue again
           </button>

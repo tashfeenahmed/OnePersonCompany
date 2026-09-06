@@ -107,7 +107,7 @@ export function ToolCallLine({ call }: { call: ChatToolCall }) {
              answer rather than beside it. The negative margin and the matching
              extra width are what let the hover tint reach past the text
              without the line moving when it appears. */
-          "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[7px] px-1.5 py-0.5 text-left text-[13.5px] leading-[1.6] transition-colors",
+          "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[9px] px-1.5 py-0.5 text-left text-[14.5px] leading-[1.6] transition-colors",
           /* Hover and focus are the same tint, because a keyboard reaching a
              line and a pointer resting on it are the same fact about which one
              is being addressed. A RUNNING line gets a ring instead of a tint:
@@ -138,7 +138,7 @@ export function ToolCallLine({ call }: { call: ChatToolCall }) {
       </button>
 
       {open && (
-        <div className="text-muted-foreground border-line-soft mt-1 ml-1.5 flex flex-col gap-0.5 border-l pl-3 text-[13.5px] leading-[1.6]">
+        <div className="text-muted-foreground border-line-soft mt-1 ml-1.5 flex flex-col gap-0.5 border-l pl-3 text-[14.5px] leading-[1.6]">
           {/* The label again, in full and wrapped, because the line above it
               is where it was cut off — and it is the field most likely to be
               a whole command. */}

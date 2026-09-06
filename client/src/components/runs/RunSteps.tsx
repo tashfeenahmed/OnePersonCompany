@@ -52,7 +52,7 @@ function StepLine({ step }: { step: RunStep }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className={cn(
-          "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[7px] px-1.5 py-0.5 text-left text-[13px] leading-[1.6] transition-colors",
+          "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[9px] px-1.5 py-0.5 text-left text-[14px] leading-[1.6] transition-colors",
           running
             ? "tool-shimmer focus-visible:ring-ring focus-visible:ring-1"
             : "hover:bg-accent hover:text-foreground focus-visible:bg-accent",
@@ -69,7 +69,7 @@ function StepLine({ step }: { step: RunStep }) {
       </button>
 
       {open && (
-        <div className="text-muted-foreground border-line-soft mt-1 mb-1 ml-1.5 flex flex-col gap-0.5 border-l pl-3 text-[13px] leading-[1.6]">
+        <div className="text-muted-foreground border-line-soft mt-1 mb-1 ml-1.5 flex flex-col gap-0.5 border-l pl-3 text-[14px] leading-[1.6]">
           {step.label && (
             <p className="break-words whitespace-pre-wrap">{step.label}</p>
           )}
@@ -94,7 +94,7 @@ export function RunSteps({ steps }: { steps: RunStep[] }) {
   const running = steps.filter((s) => !s.finishedAt).length;
   return (
     <div className="mb-4">
-      <div className="text-muted-foreground mb-1 text-[11px] tracking-[0.06em] uppercase">
+      <div className="text-muted-foreground mb-1 text-[12px] tracking-[0.06em] uppercase">
         {steps.length} {steps.length === 1 ? "tool call" : "tool calls"}
         {running > 0 && ` · ${running} still going`}
       </div>

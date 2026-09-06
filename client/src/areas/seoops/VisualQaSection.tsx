@@ -48,7 +48,7 @@ export function VisualQaSection() {
   }
 
   if (doc.error)
-    return <p className="text-muted-foreground mt-6 text-[12.5px]">Visual QA is not answering: {doc.error}</p>;
+    return <p className="text-muted-foreground mt-6 text-[13.5px]">Visual QA is not answering: {doc.error}</p>;
   if (!doc.data) return null;
   const d = doc.data;
   const opted = d.ventures.filter((v) => v.optedIn);
@@ -57,7 +57,7 @@ export function VisualQaSection() {
   return (
     <div className="mt-8">
       <div className="mb-2 flex flex-wrap items-center gap-3">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           Visual verdicts — a model, not a measurement
         </div>
         <div className="ml-auto flex gap-2">
@@ -90,10 +90,10 @@ export function VisualQaSection() {
         </div>
       </div>
 
-      <p className="text-muted-foreground mb-3 max-w-[760px] text-[12px] leading-relaxed">
+      <p className="text-muted-foreground mb-3 max-w-[760px] text-[13px] leading-relaxed">
         <span
           className={cn(
-            "mr-1.5 rounded-full px-1.5 py-px text-[11px]",
+            "mr-1.5 rounded-full px-1.5 py-px text-[12px]",
             d.capability.supportsImages === true
               ? "bg-ok-bg text-ok"
               : d.capability.supportsImages === false
@@ -111,50 +111,50 @@ export function VisualQaSection() {
         {d.capability.probedAt && <span className="opacity-70"> Probed {ago(d.capability.probedAt)}.</span>}
       </p>
 
-      {problem && <p className="text-destructive mb-3 text-[12.5px]">{problem}</p>}
+      {problem && <p className="text-destructive mb-3 text-[13.5px]">{problem}</p>}
 
       {!opted.length ? (
-        <p className="text-muted-foreground text-[12.5px]">
+        <p className="text-muted-foreground text-[13.5px]">
           No venture is opted in, so nothing is looked at and nothing is spent. Add slugs to “Vision ventures” under
           Integrations → SEO Ops.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[10px] border">
+        <div className="overflow-hidden rounded-[14px] border">
           {opted.map((v, i) => (
             <div
               key={v.ventureId}
-              className={cn("px-3.5 py-2.5 text-[12.5px]", i > 0 && "border-line-soft border-t")}
+              className={cn("px-3.5 py-2.5 text-[13.5px]", i > 0 && "border-line-soft border-t")}
             >
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 {v.verdict ? (
-                  <span className={cn("rounded-full px-1.5 py-px text-[11px]", TONE[v.verdict])}>{v.verdict}</span>
+                  <span className={cn("rounded-full px-1.5 py-px text-[12px]", TONE[v.verdict])}>{v.verdict}</span>
                 ) : (
-                  <span className="text-muted-foreground rounded-full border border-dashed px-1.5 py-px text-[11px]">
+                  <span className="text-muted-foreground rounded-full border border-dashed px-1.5 py-px text-[12px]">
                     not judged
                   </span>
                 )}
                 <span className="font-medium">{v.venture}</span>
-                <span className="text-muted-foreground ml-auto text-[11.5px]">
+                <span className="text-muted-foreground ml-auto text-[12.5px]">
                   {v.shotTs ? `about the capture of ${ago(v.shotTs)}` : "no capture"}
                   {v.model ? ` · ${v.model}` : ""}
                 </span>
               </div>
               {v.issues.map((issue) => (
-                <div key={`${issue.kind}-${issue.where}`} className="mt-1 text-[12px]">
+                <div key={`${issue.kind}-${issue.where}`} className="mt-1 text-[13px]">
                   <span className="font-medium">{issue.kind}</span>{" "}
                   <span className="text-muted-foreground">
                     — {issue.where} (confidence {issue.confidence})
                   </span>
                 </div>
               ))}
-              {v.error && <p className="text-muted-foreground mt-1 text-[11.5px]">{v.error}</p>}
+              {v.error && <p className="text-muted-foreground mt-1 text-[12.5px]">{v.error}</p>}
             </div>
           ))}
         </div>
       )}
 
       {judged.length > 0 && opted.length !== judged.length && (
-        <p className="text-muted-foreground mt-2 text-[11.5px]">
+        <p className="text-muted-foreground mt-2 text-[12.5px]">
           {judged.length - opted.filter((v) => v.verdict).length} venture(s) have a stored verdict but are no longer
           opted in. Their verdicts are kept and are about the capture named on each.
         </p>
@@ -162,7 +162,7 @@ export function VisualQaSection() {
 
       <div className="mt-3">
         {d.notes.map((n) => (
-          <p key={n} className="text-muted-foreground mb-1.5 max-w-[760px] text-[11.5px] leading-relaxed">
+          <p key={n} className="text-muted-foreground mb-1.5 max-w-[760px] text-[12.5px] leading-relaxed">
             {n}
           </p>
         ))}

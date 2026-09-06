@@ -218,10 +218,10 @@ export function BoardView({
           <div className="mx-auto w-full max-w-[1040px]">
             <div className="mt-2 mb-5 flex flex-wrap items-end gap-3">
               <div>
-                <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">
+                <h1 className="mb-1 text-[27px] font-normal tracking-[-0.025em]">
                   {board.name}
                 </h1>
-                <p className="text-muted-foreground text-[13.5px]">
+                <p className="text-muted-foreground text-[14.5px]">
                   {`${board.widgets.length} ${board.widgets.length === 1 ? "widget" : "widgets"} from ${sources} ${sources === 1 ? "service" : "services"}`}
                   {liveHere > 0 && (
                     <>
@@ -261,7 +261,7 @@ export function BoardView({
 
             <div ref={gridRef} className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
               {!board.widgets.length && (
-                <div className="text-muted-foreground col-span-full rounded-[10px] border border-dashed px-5 py-11 text-center">
+                <div className="text-muted-foreground col-span-full rounded-[14px] border border-dashed px-5 py-11 text-center">
                   {editing
                     ? "Pick metrics from the panel on the right to build this dashboard."
                     : "Empty dashboard. Hit Edit to add widgets."}
@@ -296,7 +296,7 @@ export function BoardView({
               {editing && (
                 <button
                   onClick={() => setEditing(true)}
-                  className="text-muted-foreground hover:border-line-strong hover:text-foreground flex min-h-[116px] flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed text-[12.5px]"
+                  className="text-muted-foreground hover:border-line-strong hover:text-foreground flex min-h-[116px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed text-[13.5px]"
                 >
                   <Plus className="size-4" strokeWidth={1.6} />
                   Add widget
@@ -309,7 +309,7 @@ export function BoardView({
         {ghost && (
           <div
             aria-hidden
-            className="bg-card text-foreground pointer-events-none fixed z-50 rounded-[8px] border px-2.5 py-1.5 text-[12px] shadow-md"
+            className="bg-card text-foreground pointer-events-none fixed z-50 rounded-[11px] border px-3 py-2 text-[13px] shadow-md"
             style={{ left: ghost.x + 12, top: ghost.y + 12 }}
           >
             {ghost.label}
@@ -318,8 +318,8 @@ export function BoardView({
         {editing && (
           <aside className="bg-sidebar fixed inset-x-0 bottom-0 z-30 flex max-h-[42vh] flex-col border-t md:static md:max-h-none md:w-[300px] md:shrink-0 md:border-l">
             <div className="border-line-soft border-b px-4 pt-3.5 pb-2.5">
-              <div className="text-[13px] font-medium">Add a widget</div>
-              <p className="text-muted-foreground mt-0.5 text-[11.5px]">
+              <div className="text-[14px] font-medium">Add a widget</div>
+              <p className="text-muted-foreground mt-0.5 text-[12.5px]">
                 Every metric your connected plugins report. Click to place, drag
                 on the canvas to reorder.
               </p>
@@ -332,7 +332,7 @@ export function BoardView({
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Search metrics…"
-                  className="h-8 pl-8 text-[12.5px]"
+                  className="h-8 pl-8 text-[13.5px]"
                 />
               </div>
             </div>
@@ -357,11 +357,11 @@ export function BoardView({
                         mono={src.mono}
                         tint={src.tint}
                         className="size-5 rounded-md"
-                        glyphClassName="size-[11px] text-[9px]"
+                        glyphClassName="size-[11px] text-[10px]"
                       />
-                      <span className="text-[11.5px]">{src.name}</span>
+                      <span className="text-[12.5px]">{src.name}</span>
                       {!src.connected && (
-                        <span className="text-muted-foreground ml-auto text-[10.5px]">
+                        <span className="text-muted-foreground ml-auto text-[11.5px]">
                           not connected
                         </span>
                       )}
@@ -380,7 +380,7 @@ export function BoardView({
                             ])
                           }
                           className={cn(
-                            "hover:bg-accent flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-[12.5px]",
+                            "hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-2 py-1.5 text-left text-[13.5px]",
                             added && "text-muted-foreground",
                             !src.connected && "pointer-events-none opacity-45",
                           )}
@@ -388,7 +388,7 @@ export function BoardView({
                           {def.name}
                           <span
                             className={cn(
-                              "text-muted-foreground ml-auto text-[10.5px]",
+                              "text-muted-foreground ml-auto text-[11.5px]",
                               added && "text-ok",
                             )}
                           >
@@ -429,11 +429,11 @@ export function BoardView({
                 type="button"
                 onClick={() => setCopyOpen((v) => !v)}
                 aria-expanded={copyOpen}
-                className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1.5 text-[11.5px] transition-colors"
+                className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1.5 text-[12.5px] transition-colors"
               >
                 <Copy className="size-3.5" strokeWidth={1.6} />
                 Copy to…
-                <span className="ml-auto text-[10.5px]">{copyOpen ? "hide" : `${copyTargets.length} places`}</span>
+                <span className="ml-auto text-[11.5px]">{copyOpen ? "hide" : `${copyTargets.length} places`}</span>
               </button>
               {copyOpen && (
                 <div className="mt-1.5 flex max-h-[32vh] flex-col gap-px overflow-y-auto">
@@ -449,7 +449,7 @@ export function BoardView({
                             state: { editing: true },
                           });
                       }}
-                      className="hover:bg-accent flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-[12.5px]"
+                      className="hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-2 py-1.5 text-left text-[13.5px]"
                     >
                       {target.name}
                     </button>
@@ -475,7 +475,7 @@ export function BoardView({
             <div className="border-line-soft border-t px-4 py-3">
               {confirmingDelete ? (
                 <div className="flex flex-col gap-2">
-                  <p className="text-[11.5px] leading-snug">
+                  <p className="text-[12.5px] leading-snug">
                     Delete <span className="font-medium">{board.name}</span> and
                     its {board.widgets.length}{" "}
                     {board.widgets.length === 1 ? "widget" : "widgets"}? The
@@ -508,7 +508,7 @@ export function BoardView({
               ) : (
                 <button
                   onClick={() => setConfirmingDelete(true)}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px]"
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13.5px]"
                 >
                   <Trash2 className="size-3.5" strokeWidth={1.6} />
                   Delete this dashboard
@@ -564,8 +564,8 @@ export function NoBoard({
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6">
       <div className="max-w-[380px] text-center">
-        <h1 className="text-[19px] font-normal tracking-[-0.02em]">{title}</h1>
-        <p className="text-muted-foreground mt-1.5 text-[13px] leading-relaxed">
+        <h1 className="text-[20px] font-normal tracking-[-0.02em]">{title}</h1>
+        <p className="text-muted-foreground mt-1.5 text-[14px] leading-relaxed">
           {body}
         </p>
 
@@ -588,7 +588,7 @@ export function NoBoard({
               <Link
                 key={d.id}
                 to={`${basePath}/${d.slug}`}
-                className="hover:bg-accent rounded-lg border px-2.5 py-1.5 text-[12.5px]"
+                className="hover:bg-accent rounded-lg border px-2.5 py-1.5 text-[13.5px]"
               >
                 {d.name}
               </Link>
@@ -692,12 +692,12 @@ function NewDashboardForm({
                 key={p.id}
                 type="button"
                 onClick={() => setFrom(p.id)}
-                className="hover:bg-accent flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-[12.5px]"
+                className="hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-2 py-1.5 text-left text-[13.5px]"
               >
                 {p.label}
                 <span
                   className={cn(
-                    "text-muted-foreground ml-auto text-[10.5px]",
+                    "text-muted-foreground ml-auto text-[11.5px]",
                     p.id === from && "text-ok",
                   )}
                 >
@@ -717,7 +717,7 @@ function NewDashboardForm({
             */}
             {groups.map((g) => (
               <div key={g.key}>
-                <div className="text-muted-foreground px-2 pt-2.5 pb-1 text-[10.5px]">
+                <div className="text-muted-foreground px-2 pt-2.5 pb-1 text-[11.5px]">
                   {g.name}
                 </div>
                 {g.boards.map((d) => (
@@ -731,12 +731,12 @@ function NewDashboardForm({
                       // wants and can still type over.
                       if (!name.trim()) setName(d.name);
                     }}
-                    className="hover:bg-accent flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-[12.5px]"
+                    className="hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-2 py-1.5 text-left text-[13.5px]"
                   >
                     {d.name}
                     <span
                       className={cn(
-                        "text-muted-foreground ml-auto text-[10.5px]",
+                        "text-muted-foreground ml-auto text-[11.5px]",
                         copyId === d.id && "text-ok",
                       )}
                     >
@@ -829,7 +829,7 @@ function RenameForm({
         />
         {/* The address is shown but not edited: it was fixed when the board
             was made, and it stays put so a bookmark survives a rename. */}
-        <p className="text-muted-foreground text-[11.5px]">
+        <p className="text-muted-foreground text-[12.5px]">
           Lives at <span className="tabular-nums">{path}</span> — renaming does
           not move it.
         </p>

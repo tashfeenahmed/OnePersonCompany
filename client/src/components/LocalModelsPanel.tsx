@@ -57,7 +57,7 @@ function DefaultLine({
 }) {
   if (provider.default)
     return (
-      <p className="mt-4 text-[12.5px]">
+      <p className="mt-4 text-[13.5px]">
         <span className="font-medium">This is the default provider.</span>{" "}
         <span className="text-muted-foreground">
           Every agent spawned here is pointed at it, and a chat with no agent in
@@ -66,7 +66,7 @@ function DefaultLine({
       </p>
     );
   return (
-    <div className="mt-4 text-[12.5px]">
+    <div className="mt-4 text-[13.5px]">
       <span className="font-medium">Connected, not the default.</span>{" "}
       <span className="text-muted-foreground">
         {chosen
@@ -75,7 +75,7 @@ function DefaultLine({
       </span>
       <button
         onClick={onChoose}
-        className="hover:bg-accent border-line-strong mt-2 block rounded-lg border px-2.5 py-1 text-[12.5px]"
+        className="hover:bg-accent border-line-strong mt-2 block rounded-lg border px-2.5 py-1 text-[13.5px]"
       >
         Make this the default provider
       </button>
@@ -99,7 +99,7 @@ export function LocalModelsPanel() {
     <>
       <Separator className="mt-7 mb-5" />
       <div className="mb-3 flex items-center gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           Endpoints
         </div>
         <span className="ml-auto">
@@ -108,7 +108,7 @@ export function LocalModelsPanel() {
       </div>
 
       {models.error && (
-        <p className="text-destructive text-[12px]">{models.error}</p>
+        <p className="text-destructive text-[13px]">{models.error}</p>
       )}
 
       <div className="flex flex-col gap-2">
@@ -116,7 +116,7 @@ export function LocalModelsPanel() {
           const inFlight =
             local.gate.byEndpoint.find((g) => g.baseUrl === e.baseUrl)?.inFlight ?? 0;
           return (
-            <div key={e.accountId} className="bg-card rounded-[10px] border p-3.5">
+            <div key={e.accountId} className="bg-card rounded-[14px] border p-4.5">
               <div className="flex flex-wrap items-center gap-2">
                 <i
                   className={cn(
@@ -124,11 +124,11 @@ export function LocalModelsPanel() {
                     e.error ? "bg-destructive" : inFlight ? "bg-ok" : "bg-border",
                   )}
                 />
-                <span className="text-[13px] font-medium">{e.label}</span>
-                <span className="text-muted-foreground font-mono text-[11.5px]">
+                <span className="text-[14px] font-medium">{e.label}</span>
+                <span className="text-muted-foreground font-mono text-[12.5px]">
                   {e.baseUrl}
                 </span>
-                <span className="text-muted-foreground ml-auto text-[11.5px]">
+                <span className="text-muted-foreground ml-auto text-[12.5px]">
                   {/* A key or no key, never the key. A loopback runner with no
                       auth is the ordinary case and worth being able to see
                       without opening the vault. */}
@@ -138,7 +138,7 @@ export function LocalModelsPanel() {
               </div>
 
               {e.error ? (
-                <p className="text-destructive mt-2 text-[11.5px] leading-snug">
+                <p className="text-destructive mt-2 text-[12.5px] leading-snug">
                   {e.error}
                 </p>
               ) : (
@@ -148,7 +148,7 @@ export function LocalModelsPanel() {
                       <span
                         key={m}
                         className={cn(
-                          "rounded-[6px] border px-1.5 py-0.5 font-mono text-[11px]",
+                          "rounded-[8px] border px-1.5 py-0.5 font-mono text-[12px]",
                           m === models.data?.model
                             ? "border-foreground"
                             : "text-muted-foreground",
@@ -158,7 +158,7 @@ export function LocalModelsPanel() {
                       </span>
                     ))
                   ) : (
-                    <span className="text-muted-foreground text-[11.5px]">
+                    <span className="text-muted-foreground text-[12.5px]">
                       This endpoint answered and listed no models.
                     </span>
                   )}
@@ -169,7 +169,7 @@ export function LocalModelsPanel() {
         })}
       </div>
 
-      <p className="text-muted-foreground mt-3 text-[11.5px]">
+      <p className="text-muted-foreground mt-3 text-[12.5px]">
         {models.data?.model
           ? `Asking for ${models.data.model} — set under Settings above, and it has to exist on whichever endpoint takes the call.`
           : "No model named, so each endpoint is asked for whichever it lists first. That is a real answer read from the endpoint rather than a guess — name one under Settings above to pin it."}
@@ -177,10 +177,10 @@ export function LocalModelsPanel() {
 
       <Separator className="mt-7 mb-5" />
       <div className="mb-3 flex items-center gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           Policy
         </div>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {local.endpoints} endpoint{local.endpoints === 1 ? "" : "s"}
         </span>
       </div>
@@ -192,7 +192,7 @@ export function LocalModelsPanel() {
           chosen={providers.data?.chosen ?? null}
           onChoose={() => void choose("local")}
         />
-        <p className="text-muted-foreground mt-3 text-[11.5px]">
+        <p className="text-muted-foreground mt-3 text-[12.5px]">
           Every provider has its own policy, and they are all on{" "}
           <Link to="/settings" className="underline underline-offset-2">
             Settings → Models
@@ -228,7 +228,7 @@ export function ProviderPolicyPanel({ id }: { id: ProviderId }) {
     <>
       <Separator className="mt-7 mb-5" />
       <div className="mb-3 flex items-center gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           As a model provider
         </div>
         <span className="ml-auto">
@@ -236,7 +236,7 @@ export function ProviderPolicyPanel({ id }: { id: ProviderId }) {
         </span>
       </div>
 
-      <p className="text-muted-foreground mb-4 max-w-[560px] text-[12.5px]">
+      <p className="text-muted-foreground mb-4 max-w-[560px] text-[13.5px]">
         The inference key is stored, so this can answer completions as well as
         report its bill. The two keys are separate on purpose and neither can do
         the other's job — see the credentials above.

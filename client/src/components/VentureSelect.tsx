@@ -39,7 +39,7 @@ export function VentureSelect({
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "hover:border-line-strong flex h-9 max-w-full items-center gap-2 rounded-[9px] border px-2.5 text-left text-[12.5px] transition-colors",
+          "hover:border-line-strong flex h-9 max-w-full items-center gap-2 rounded-[12px] border px-2.5 text-left text-[13.5px] transition-colors",
           className,
         )}
       >
@@ -55,7 +55,7 @@ export function VentureSelect({
       <DropdownMenuContent align="start" className="max-h-[60vh] w-64 overflow-y-auto">
         {none !== null && (
           <DropdownMenuItem onSelect={() => onChange(null)}>
-            <span className="border-border size-[7px] shrink-0 rounded-[2px] border" />
+            <span className="border-border size-[7px] shrink-0 rounded-[3px] border" />
             {none}
           </DropdownMenuItem>
         )}

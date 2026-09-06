@@ -90,7 +90,7 @@ export function Motion() {
     >
       {/* ------------------------------------------------------ readiness */}
       {d && (
-        <div className="bg-card border-line-soft mb-4 grid gap-1.5 rounded-[10px] border p-3.5 text-[12.5px]">
+        <div className="bg-card border-line-soft mb-4 grid gap-1.5 rounded-[14px] border p-4.5 text-[13.5px]">
           <Capability label="Renderer" ready={d.readiness.renderer.ready} note={d.readiness.renderer.note} />
           <Capability label="Encoder" ready={d.readiness.encoder.ready} note={d.readiness.encoder.note} />
           <Capability label="Scene writer" ready={d.readiness.writer.ready} note={d.readiness.writer.note} />
@@ -99,7 +99,7 @@ export function Motion() {
 
       {/* -------------------------------------------------------- ventures */}
       <div className="mb-4 flex flex-wrap items-center gap-1">
-        <span className="text-muted-foreground mr-1 text-[12px]">Venture</span>
+        <span className="text-muted-foreground mr-1 text-[13px]">Venture</span>
         <PickButton on={ventureId === null} onClick={() => setVentureId(null)}>
           All
         </PickButton>
@@ -113,14 +113,14 @@ export function Motion() {
       <Draft ventureId={ventureId} onDone={(id) => { setOpenId(id); list.reload(); }} />
 
       {list.error && (
-        <p className="text-muted-foreground mb-4 text-[13px]">
+        <p className="text-muted-foreground mb-4 text-[14px]">
           The motion API did not answer. <span className="text-destructive">{list.error}</span>
         </p>
       )}
-      {!d && !list.error && <p className="text-muted-foreground text-[13px]">Reading the scene specs…</p>}
+      {!d && !list.error && <p className="text-muted-foreground text-[14px]">Reading the scene specs…</p>}
 
       {d && !d.specs.length && (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           No scene specs yet. Draft one from a brief above, or press <em>New</em> to write one by hand.
         </p>
       )}
@@ -141,7 +141,7 @@ export function Motion() {
             >
               <Sparkles className="size-[14px]" strokeWidth={1.8} /> New, from the example
             </Button>
-            <span className="text-muted-foreground text-[12px]">
+            <span className="text-muted-foreground text-[13px]">
               {d.specs.length} spec{d.specs.length === 1 ? "" : "s"}
             </span>
           </div>
@@ -166,7 +166,7 @@ function PickButton({ on, onClick, children }: { on: boolean; onClick: () => voi
     <button
       onClick={onClick}
       aria-current={on ? "page" : undefined}
-      className={cn("hover:bg-accent rounded-lg px-2.5 py-1.5 text-[12.5px]", on && "bg-accent font-medium")}
+      className={cn("hover:bg-accent rounded-lg px-2.5 py-1.5 text-[13.5px]", on && "bg-accent font-medium")}
     >
       {children}
     </button>
@@ -191,14 +191,14 @@ function Draft({ ventureId, onDone }: { ventureId: string | null; onDone: (id: s
   const [said, setSaid] = useState<string | null>(null);
 
   return (
-    <div className="bg-card border-line-soft mb-4 rounded-[10px] border p-3.5">
-      <div className="mb-2 text-[12.5px] font-medium">Draft a scene list from a brief</div>
+    <div className="bg-card border-line-soft mb-4 rounded-[14px] border p-4.5">
+      <div className="mb-2 text-[13.5px] font-medium">Draft a scene list from a brief</div>
       <div className="flex flex-wrap gap-2">
         <input
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
           placeholder="What the video is for. Empty makes the general case for the venture."
-          className="border-line-soft min-w-[280px] flex-1 rounded-[8px] border bg-transparent px-2.5 py-1.5 text-[13px]"
+          className="border-line-soft min-w-[280px] flex-1 rounded-[11px] border bg-transparent px-2.5 py-1.5 text-[14px]"
         />
         <Button
           disabled={busy}
@@ -222,12 +222,12 @@ function Draft({ ventureId, onDone }: { ventureId: string | null; onDone: (id: s
           Draft
         </Button>
       </div>
-      <p className="text-muted-foreground mt-2 text-[11.5px]">
+      <p className="text-muted-foreground mt-2 text-[12.5px]">
         A drafted spec is a DRAFT: every number on a stat card is a claim about your business that
         nothing here can check. The writer is told to use no stat scene when the brief gives it no
         number — read what comes back before you render it.
       </p>
-      {said && <p className="mt-1.5 text-[12px]">{said}</p>}
+      {said && <p className="mt-1.5 text-[13px]">{said}</p>}
     </div>
   );
 }
@@ -246,11 +246,11 @@ function SpecRow({
   onChanged: () => void;
 }) {
   return (
-    <div className="bg-card border-line-soft rounded-[10px] border">
-      <button onClick={onToggle} className="hover:bg-accent/40 flex w-full flex-wrap items-baseline gap-x-2.5 gap-y-1 rounded-[10px] px-3.5 py-2.5 text-left">
+    <div className="bg-card border-line-soft rounded-[14px] border">
+      <button onClick={onToggle} className="hover:bg-accent/40 flex w-full flex-wrap items-baseline gap-x-2.5 gap-y-1 rounded-[14px] px-3.5 py-2.5 text-left">
         <Film className="size-[14px] shrink-0 self-center" strokeWidth={1.8} />
-        <span className="text-[13.5px] font-medium">{summary.name}</span>
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-[14.5px] font-medium">{summary.name}</span>
+        <span className="text-muted-foreground text-[12.5px]">
           {summary.scenes} scene{summary.scenes === 1 ? "" : "s"}
           {summary.seconds !== null && ` · ${summary.seconds.toFixed(1)}s of scene list`}
           {" · "}
@@ -305,10 +305,10 @@ function Editor({ id, onChanged }: { id: string; onChanged: () => void }) {
     setText(JSON.stringify(next, null, 2));
   }
 
-  if (doc.error) return <p className="text-destructive px-3.5 pb-3 text-[12.5px]">{doc.error}</p>;
-  if (!detail) return <p className="text-muted-foreground px-3.5 pb-3 text-[12.5px]">Reading…</p>;
+  if (doc.error) return <p className="text-destructive px-3.5 pb-3 text-[13.5px]">{doc.error}</p>;
+  if (!detail) return <p className="text-muted-foreground px-3.5 pb-3 text-[13.5px]">Reading…</p>;
   if (!detail.readable)
-    return <p className="text-destructive px-3.5 pb-3 text-[12.5px]">This spec is no longer readable as a scene list.</p>;
+    return <p className="text-destructive px-3.5 pb-3 text-[13.5px]">This spec is no longer readable as a scene list.</p>;
 
   return (
     <div className="border-line-soft grid gap-3 border-t px-3.5 py-3">
@@ -316,10 +316,10 @@ function Editor({ id, onChanged }: { id: string; onChanged: () => void }) {
         <input
           value={name ?? detail.name}
           onChange={(e) => setName(e.target.value)}
-          className="border-line-soft rounded-[8px] border bg-transparent px-2.5 py-1.5 text-[13px]"
+          className="border-line-soft rounded-[11px] border bg-transparent px-2.5 py-1.5 text-[14px]"
         />
         {detail.cost && (
-          <span className="text-muted-foreground text-[11.5px]">
+          <span className="text-muted-foreground text-[12.5px]">
             {detail.cost.frames} frames at {detail.cost.fps}/s · {detail.cost.sheets} browser launches,{" "}
             {/* A BROWSER LAUNCH IS ABOUT TWO AND A HALF SECONDS ON THIS
                 MACHINE, measured. It is shown as a rough time because "24
@@ -333,14 +333,14 @@ function Editor({ id, onChanged }: { id: string; onChanged: () => void }) {
       {/* --------------------------------------------- the per-scene form */}
       {parsed ? (
         <div className="grid gap-1.5">
-          <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">The scenes</div>
+          <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">The scenes</div>
           {(parsed.scenes as Record<string, unknown>[]).map((scene, i) => (
             <div key={i} className="border-line-soft flex flex-wrap items-center gap-2 border-l-2 pl-2.5 py-1">
-              <span className="text-muted-foreground w-[18px] text-[11.5px]">{i + 1}</span>
+              <span className="text-muted-foreground w-[18px] text-[12.5px]">{i + 1}</span>
               <select
                 value={String(scene.kind ?? "")}
                 onChange={(e) => patchScene(i, "kind", e.target.value)}
-                className="border-line-soft rounded-[8px] border bg-transparent px-2 py-1 text-[12px]"
+                className="border-line-soft rounded-[11px] border bg-transparent px-2 py-1 text-[13px]"
               >
                 {["title", "stat", "compare", "list", "cta"].map((k) => (
                   <option key={k} value={k}>
@@ -348,33 +348,33 @@ function Editor({ id, onChanged }: { id: string; onChanged: () => void }) {
                   </option>
                 ))}
               </select>
-              <label className="text-muted-foreground flex items-center gap-1 text-[11.5px]">
+              <label className="text-muted-foreground flex items-center gap-1 text-[12.5px]">
                 seconds
                 <input
                   type="number"
                   step="0.1"
                   value={typeof scene.seconds === "number" ? scene.seconds : ""}
                   onChange={(e) => patchScene(i, "seconds", Number(e.target.value))}
-                  className="border-line-soft w-[62px] rounded-[8px] border bg-transparent px-1.5 py-1 text-[12px]"
+                  className="border-line-soft w-[62px] rounded-[11px] border bg-transparent px-1.5 py-1 text-[13px]"
                 />
               </label>
               <input
                 value={typeof scene.kicker === "string" ? scene.kicker : ""}
                 onChange={(e) => patchScene(i, "kicker", e.target.value)}
                 placeholder="kicker"
-                className="border-line-soft w-[130px] rounded-[8px] border bg-transparent px-2 py-1 text-[12px]"
+                className="border-line-soft w-[130px] rounded-[11px] border bg-transparent px-2 py-1 text-[13px]"
               />
               <input
                 value={typeof scene.say === "string" ? scene.say : ""}
                 onChange={(e) => patchScene(i, "say", e.target.value)}
                 placeholder="what a narrator would read"
-                className="border-line-soft min-w-[180px] flex-1 rounded-[8px] border bg-transparent px-2 py-1 text-[12px]"
+                className="border-line-soft min-w-[180px] flex-1 rounded-[11px] border bg-transparent px-2 py-1 text-[13px]"
               />
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-warn text-[12px]">
+        <p className="text-warn text-[13px]">
           The JSON below is not currently valid, so the per-scene fields are hidden rather than
           rewriting what you are typing.
         </p>
@@ -386,12 +386,12 @@ function Editor({ id, onChanged }: { id: string; onChanged: () => void }) {
         onChange={(e) => setText(e.target.value)}
         spellCheck={false}
         rows={16}
-        className="border-line-soft rounded-[8px] border bg-transparent px-2.5 py-2 font-mono text-[11.5px] leading-[1.5]"
+        className="border-line-soft rounded-[11px] border bg-transparent px-2.5 py-2 font-mono text-[12.5px] leading-[1.5]"
       />
 
       {!!problems.length && (
-        <div className="border-line-soft grid gap-1 border-l-2 pl-2.5 text-[12px]">
-          <span className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="border-line-soft grid gap-1 border-l-2 pl-2.5 text-[13px]">
+          <span className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
             What was changed on the way in
           </span>
           {problems.map((p, i) => (
@@ -450,7 +450,7 @@ function Editor({ id, onChanged }: { id: string; onChanged: () => void }) {
           Preview the scenes
         </Button>
 
-        <label className="text-muted-foreground flex items-center gap-1.5 text-[12px]">
+        <label className="text-muted-foreground flex items-center gap-1.5 text-[13px]">
           <input type="checkbox" checked={voiceover} onChange={(e) => setVoiceover(e.target.checked)} />
           Narrate the scene lines
         </label>
@@ -503,9 +503,9 @@ function Editor({ id, onChanged }: { id: string; onChanged: () => void }) {
         </Button>
       </div>
 
-      {said && <p className="text-[12px]">{said}</p>}
+      {said && <p className="text-[13px]">{said}</p>}
       {run && (
-        <p className="text-[12px]">
+        <p className="text-[13px]">
           <Link to={`/social/video/${run}`} className="underline decoration-dotted">
             Open the run
           </Link>{" "}
@@ -516,10 +516,10 @@ function Editor({ id, onChanged }: { id: string; onChanged: () => void }) {
       {/* ---------------------------------------------------- the preview */}
       {preview && (
         <div className="grid gap-1.5">
-          <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
             The first frame of each scene
           </div>
-          {preview.error && <p className="text-destructive text-[12px]">{preview.error}</p>}
+          {preview.error && <p className="text-destructive text-[13px]">{preview.error}</p>}
           <div className="flex flex-wrap gap-2">
             {preview.frames.map((f) => (
               <div key={f.index} className="grid w-[128px] gap-1">
@@ -527,20 +527,20 @@ function Editor({ id, onChanged }: { id: string; onChanged: () => void }) {
                   <img
                     src={f.image}
                     alt={`Scene ${f.index}, ${f.kind}`}
-                    className="border-line-soft w-full rounded-[6px] border bg-black"
+                    className="border-line-soft w-full rounded-[8px] border bg-black"
                   />
                 ) : (
-                  <div className="border-line-soft text-muted-foreground grid h-[180px] place-items-center rounded-[6px] border px-1 text-center text-[10.5px]">
+                  <div className="border-line-soft text-muted-foreground grid h-[180px] place-items-center rounded-[8px] border px-1 text-center text-[11.5px]">
                     {f.error ?? "not drawn"}
                   </div>
                 )}
-                <span className="text-muted-foreground text-[11px]">
+                <span className="text-muted-foreground text-[12px]">
                   {f.index}. {f.kind} · {f.seconds}s
                 </span>
               </div>
             ))}
           </div>
-          <p className="text-muted-foreground text-[11.5px]">{preview.note}</p>
+          <p className="text-muted-foreground text-[12.5px]">{preview.note}</p>
         </div>
       )}
     </div>

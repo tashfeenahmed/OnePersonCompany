@@ -137,7 +137,7 @@ function CollectButton() {
   const [note, setNote] = useState<string | null>(null);
   return (
     <div className="flex items-center gap-2">
-      {note && <span className="text-muted-foreground max-w-[420px] truncate text-[11.5px]">{note}</span>}
+      {note && <span className="text-muted-foreground max-w-[420px] truncate text-[12.5px]">{note}</span>}
       <Button
         size="sm"
         variant="outline"
@@ -187,13 +187,13 @@ function HealthTab({ days }: { days: number }) {
             meta={`weighted by the distinct users each day had · the vitals window ends at the metric set's own freshness, not today`}
           >
             {stability.data.rates.length === 0 ? (
-              <p className="text-muted-foreground text-[12.5px]">
+              <p className="text-muted-foreground text-[13.5px]">
                 No crash or ANR RATE was measured. That is not a rate of zero — see the readiness
                 table below for which report said what.
               </p>
             ) : (
-              <table className="w-full text-[12.5px]">
-                <thead className="text-muted-foreground text-[11.5px]">
+              <table className="w-full text-[13.5px]">
+                <thead className="text-muted-foreground text-[12.5px]">
                   <tr className="border-line-soft border-b">
                     <th className="py-1 text-left font-normal">app</th>
                     <th className="py-1 text-left font-normal">metric</th>
@@ -224,14 +224,14 @@ function HealthTab({ days }: { days: number }) {
             meta="from the console's own export — counts with no denominator, never a rate"
           >
             {stability.data.counts.length === 0 ? (
-              <p className="text-muted-foreground text-[12.5px]">
+              <p className="text-muted-foreground text-[13.5px]">
                 No crash COUNT report answered in this window.
               </p>
             ) : (
               <div className="space-y-4">
                 {stability.data.counts.map((s) => (
                   <div key={`${s.store}-${s.app}-${s.source}-${s.metric}`}>
-                    <p className="mb-1 text-[12.5px]">
+                    <p className="mb-1 text-[13.5px]">
                       <span className="font-medium">{s.app}</span>{" "}
                       <span className="text-muted-foreground">
                         {s.metric} · {s.source} · <Num value={s.total} /> {s.unit}
@@ -265,7 +265,7 @@ function HealthTab({ days }: { days: number }) {
               <span
                 key={`${p.store}-${p.accountId}-${p.probe}`}
                 className={cn(
-                  "rounded border px-2 py-1 text-[11.5px]",
+                  "rounded border px-2 py-1 text-[12.5px]",
                   p.ok ? "border-line-soft" : "text-destructive border-destructive/40",
                 )}
                 title={p.error ?? undefined}
@@ -275,8 +275,8 @@ function HealthTab({ days }: { days: number }) {
             ))}
           </div>
           <div className="max-h-[360px] overflow-y-auto">
-            <table className="w-full text-[12px]">
-              <thead className="text-muted-foreground text-[11.5px]">
+            <table className="w-full text-[13px]">
+              <thead className="text-muted-foreground text-[12.5px]">
                 <tr className="border-line-soft border-b">
                   <th className="py-1 text-left font-normal">app</th>
                   <th className="py-1 text-left font-normal">report</th>
@@ -292,7 +292,7 @@ function HealthTab({ days }: { days: number }) {
                     <td className="py-1 pr-2">
                       <span
                         className={cn(
-                          "rounded px-1.5 py-0.5 text-[11px]",
+                          "rounded px-1.5 py-0.5 text-[12px]",
                           r.state === "present" || r.state === "available"
                             ? "bg-ok/20"
                             : r.state === "unauthorized" || r.state === "error"
@@ -312,7 +312,7 @@ function HealthTab({ days }: { days: number }) {
               </tbody>
             </table>
           </div>
-          <p className="text-muted-foreground mt-3 text-[11.5px]">{readiness.data.note}</p>
+          <p className="text-muted-foreground mt-3 text-[12.5px]">{readiness.data.note}</p>
         </SectionCard>
       )}
     </>
@@ -357,10 +357,10 @@ function ReviewsTab({ days }: { days: number }) {
             />
             {reviews.data.byVersion.length > 0 && (
               <div className="mt-4">
-                <p className="text-muted-foreground mb-1 text-[11.5px]">
+                <p className="text-muted-foreground mb-1 text-[12.5px]">
                   by app version — Android only, because Apple's review resource carries no version
                 </p>
-                <table className="text-[12.5px]">
+                <table className="text-[13.5px]">
                   <tbody>
                     {reviews.data.byVersion.map((v) => (
                       <tr key={v.version}>
@@ -374,19 +374,19 @@ function ReviewsTab({ days }: { days: number }) {
               </div>
             )}
             {!reviews.data.aggregatesComplete && (
-              <p className="text-warn mt-3 text-[11.5px]">
+              <p className="text-warn mt-3 text-[12.5px]">
                 These figures cover the newest {reviews.data.aggregateCap} reviews in the window
                 only — they are a floor, not a total.
               </p>
             )}
             {reviews.data.window.clampedFrom !== null && (
-              <p className="text-muted-foreground mt-3 text-[11.5px]">
+              <p className="text-muted-foreground mt-3 text-[12.5px]">
                 Asked for {reviews.data.window.clampedFrom} days; answered over{" "}
                 {reviews.data.window.days}, which is as far back as this area ingests.
               </p>
             )}
-            <p className="text-muted-foreground mt-4 text-[11.5px]">{reviews.data.basis.play}</p>
-            <p className="text-muted-foreground mt-1 text-[11.5px]">{reviews.data.basis.appstore}</p>
+            <p className="text-muted-foreground mt-4 text-[12.5px]">{reviews.data.basis.play}</p>
+            <p className="text-muted-foreground mt-1 text-[12.5px]">{reviews.data.basis.appstore}</p>
           </SectionCard>
 
           <SectionCard
@@ -402,7 +402,7 @@ function ReviewsTab({ days }: { days: number }) {
             {trend.loading && <Loading what="themes" />}
             {trend.error && <Failed error={trend.error} />}
             {trend.data && trend.data.themes.length === 0 && (
-              <p className="text-muted-foreground text-[12.5px]">
+              <p className="text-muted-foreground text-[13.5px]">
                 {trend.data.themeNote ?? "No theme was published."}
               </p>
             )}
@@ -411,16 +411,16 @@ function ReviewsTab({ days }: { days: number }) {
                 what lets a reader check the claim rather than take it. */}
             <ul className="space-y-2">
               {(trend.data?.themes ?? []).map((t) => (
-                <li key={t.theme} className="text-[12.5px]">
+                <li key={t.theme} className="text-[13.5px]">
                   <span className="font-medium">{t.theme}</span>{" "}
                   <span className="text-muted-foreground">{t.sentiment}</span>
-                  <span className="text-muted-foreground block text-[11.5px]">
+                  <span className="text-muted-foreground block text-[12.5px]">
                     from {t.reviewIds.length} review(s): {t.reviewIds.join(", ")}
                   </span>
                 </li>
               ))}
             </ul>
-            <p className="text-muted-foreground mt-3 text-[11.5px]">
+            <p className="text-muted-foreground mt-3 text-[12.5px]">
               A model's reading, not a measurement. Every theme cites the reviews it came from and
               an id the model invented is dropped before it is shown.
             </p>
@@ -434,7 +434,7 @@ function ReviewsTab({ days }: { days: number }) {
                   type="button"
                   onClick={() => setMinRating(s)}
                   className={cn(
-                    "rounded border px-2 py-0.5 text-[11.5px]",
+                    "rounded border px-2 py-0.5 text-[12.5px]",
                     minRating === s ? "bg-accent" : "border-line-soft text-muted-foreground",
                   )}
                 >
@@ -468,9 +468,9 @@ function ReviewsTab({ days }: { days: number }) {
                 <Send className="size-3.5" strokeWidth={1.6} /> Send {picked.length || ""} to board
               </Button>
             </div>
-            {filing && <p className="text-muted-foreground mb-2 text-[11.5px]">{filing}</p>}
+            {filing && <p className="text-muted-foreground mb-2 text-[12.5px]">{filing}</p>}
             {reviews.data.reviews.length === 0 ? (
-              <p className="text-muted-foreground text-[12.5px]">
+              <p className="text-muted-foreground text-[13.5px]">
                 No review matches. On the Android side that is the seven-day API window, not the
                 app's review count.
               </p>
@@ -488,7 +488,7 @@ function ReviewsTab({ days }: { days: number }) {
                         }
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="text-muted-foreground flex flex-wrap gap-2 text-[11.5px]">
+                        <span className="text-muted-foreground flex flex-wrap gap-2 text-[12.5px]">
                           <span>{r.rating === null ? "no star" : `${r.rating}★`}</span>
                           <span>{r.store}</span>
                           <span>{r.app}</span>
@@ -497,13 +497,13 @@ function ReviewsTab({ days }: { days: number }) {
                           {r.created && <span>{r.created.slice(0, 10)}</span>}
                           {r.filed && <span className="text-ok">on the board</span>}
                         </span>
-                        {r.title && <span className="block text-[13px] font-medium">{r.title}</span>}
-                        <span className="block text-[13px]">{r.body ?? "(no text)"}</span>
+                        {r.title && <span className="block text-[14px] font-medium">{r.title}</span>}
+                        <span className="block text-[14px]">{r.body ?? "(no text)"}</span>
                         {r.author && (
-                          <span className="text-muted-foreground block text-[11.5px]">— {r.author}</span>
+                          <span className="text-muted-foreground block text-[12.5px]">— {r.author}</span>
                         )}
                         {r.reply && (
-                          <span className="text-muted-foreground mt-1 block text-[11.5px]">
+                          <span className="text-muted-foreground mt-1 block text-[12.5px]">
                             already answered in the console: {r.reply}
                           </span>
                         )}
@@ -546,11 +546,11 @@ function AcquisitionTab({ days }: { days: number }) {
           }`}
         >
           {!conversion.data.measured ? (
-            <p className="text-muted-foreground text-[12.5px]">{conversion.data.reason}</p>
+            <p className="text-muted-foreground text-[13.5px]">{conversion.data.reason}</p>
           ) : (
             <>
-              <table className="w-full text-[12.5px]">
-                <thead className="text-muted-foreground text-[11.5px]">
+              <table className="w-full text-[13.5px]">
+                <thead className="text-muted-foreground text-[12.5px]">
                   <tr className="border-line-soft border-b">
                     <th className="py-1 text-left font-normal">app</th>
                     <th className="py-1 text-right font-normal">store visitors</th>
@@ -577,7 +577,7 @@ function AcquisitionTab({ days }: { days: number }) {
               </table>
               {Object.entries(conversion.data.by).map(([dim, rows]) => (
                 <div key={dim} className="mt-4">
-                  <p className="text-muted-foreground mb-1 text-[11.5px]">
+                  <p className="text-muted-foreground mb-1 text-[12.5px]">
                     by {dim} — {dim === conversion.data!.totalsFrom ? "the cut the totals above come from" : "a different cut of the SAME visitors"}, never added to the others
                   </p>
                   <Bars
@@ -603,7 +603,7 @@ function AcquisitionTab({ days }: { days: number }) {
               type="button"
               onClick={() => setDimension(d)}
               className={cn(
-                "rounded border px-2 py-0.5 text-[11.5px]",
+                "rounded border px-2 py-0.5 text-[12.5px]",
                 dimension === d ? "bg-accent" : "border-line-soft text-muted-foreground",
               )}
             >
@@ -614,7 +614,7 @@ function AcquisitionTab({ days }: { days: number }) {
         {segments.loading && <Loading what="segments" />}
         {segments.error && <Failed error={segments.error} />}
         {segments.data && segments.data.groups.length === 0 && (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             Nothing was ingested for that dimension. The readiness table on the Health tab says why.
           </p>
         )}
@@ -624,7 +624,7 @@ function AcquisitionTab({ days }: { days: number }) {
             .slice(0, 12)
             .map((g) => (
               <div key={`${g.store}-${g.app}-${g.dimension}-${g.metric}`}>
-                <p className="mb-1 text-[12.5px]">
+                <p className="mb-1 text-[13.5px]">
                   <span className="font-medium">{g.app}</span>{" "}
                   <span className="text-muted-foreground">
                     {g.metric} · {g.store} · <Num value={g.total} /> {g.unit} ·{" "}
@@ -650,11 +650,11 @@ function AcquisitionTab({ days }: { days: number }) {
       {retention.data && (
         <SectionCard title="Retention" meta={retention.data.source}>
           {!retention.data.measured ? (
-            <p className="text-muted-foreground text-[12.5px]">{retention.data.reason}</p>
+            <p className="text-muted-foreground text-[13.5px]">{retention.data.reason}</p>
           ) : (
             retention.data.apps.map((a) => (
               <div key={a.app} className="mb-3">
-                <p className="mb-1 text-[12.5px] font-medium">{a.app}</p>
+                <p className="mb-1 text-[13.5px] font-medium">{a.app}</p>
                 <Bars
                   rows={a.curve.map((p) => ({
                     label: `day ${p.day} · ${pct(p.rate, { digits: 0 })}`,
@@ -686,15 +686,15 @@ function VersionsTab({ days }: { days: number }) {
           meta="observed once per collection — Apple publishes no change dates, so a gap is a day nobody looked"
         >
           {!versions.data.measured ? (
-            <p className="text-muted-foreground text-[12.5px]">
+            <p className="text-muted-foreground text-[13.5px]">
               Nothing has been observed yet. Press Collect.
             </p>
           ) : (
             versions.data.apps.map((a) => (
               <div key={a.app} className="mb-4">
-                <p className="mb-1 text-[12.5px] font-medium">{a.app}</p>
-                <table className="w-full text-[12px]">
-                  <thead className="text-muted-foreground text-[11.5px]">
+                <p className="mb-1 text-[13.5px] font-medium">{a.app}</p>
+                <table className="w-full text-[13px]">
+                  <thead className="text-muted-foreground text-[12.5px]">
                     <tr className="border-line-soft border-b">
                       <th className="py-1 text-left font-normal">version</th>
                       <th className="py-1 text-left font-normal">phase</th>
@@ -710,7 +710,7 @@ function VersionsTab({ days }: { days: number }) {
                         <td className="py-1 pr-2">
                           <span
                             className={cn(
-                              "rounded px-1.5 py-0.5 text-[11px]",
+                              "rounded px-1.5 py-0.5 text-[12px]",
                               v.phase === "live"
                                 ? "bg-ok/20"
                                 : v.phase === "rejected"

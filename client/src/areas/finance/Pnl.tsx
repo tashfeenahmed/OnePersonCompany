@@ -38,7 +38,7 @@ function Badge({ actual }: { actual: boolean }) {
   return (
     <span
       className={cn(
-        "rounded-full px-1.5 py-0.5 text-[10.5px] font-medium",
+        "rounded-full px-1.5 py-0.5 text-[11.5px] font-medium",
         actual ? "bg-ok/20 text-foreground" : "bg-warn/25 text-foreground",
       )}
       title={actual ? "The month has closed; these are measurements of it." : "The month is still running. Revenue is the part measured so far; costs are the whole month's bill."}
@@ -54,8 +54,8 @@ export function Pnl() {
   const [open, setOpen] = useState<string | null>(null);
   const doc = useApi(() => finance.portfolio(month), [month]);
 
-  if (doc.error) return <p className="text-muted-foreground text-[13px]">The API is not answering: {doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground text-[13px]">Computing…</p>;
+  if (doc.error) return <p className="text-muted-foreground text-[14px]">The API is not answering: {doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground text-[14px]">Computing…</p>;
   const d = doc.data;
 
   return (
@@ -64,12 +64,12 @@ export function Pnl() {
         <select
           value={month}
           onChange={(e) => setMonth(e.target.value)}
-          className="bg-card rounded-md border px-2 py-1 text-[12.5px]"
+          className="bg-card rounded-md border px-3 py-1.5 text-[13.5px]"
         >
           {months.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
         <Badge actual={d.actual} />
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           ledger {currencies(d.ledger.monthly)} / month · {currencies(d.ledger.unallocatedShared)} of it unallocated
         </span>
       </div>
@@ -77,7 +77,7 @@ export function Pnl() {
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] border-collapse">
           <thead>
-            <tr className="text-muted-foreground border-b text-left text-[11px]">
+            <tr className="text-muted-foreground border-b text-left text-[12px]">
               <th className="pb-1.5 pr-3 font-normal">Venture</th>
               <th className="pb-1.5 pr-3 text-right font-normal">Revenue (net)</th>
               <th className="pb-1.5 pr-3 text-right font-normal">Costs</th>
@@ -89,25 +89,25 @@ export function Pnl() {
           <tbody>
             {d.ventures.map((v) => (
               <tr key={v.venture.id} className="border-line-soft border-b align-top">
-                <td className="py-1.5 pr-3 text-[12.5px]">
+                <td className="py-1.5 pr-3 text-[13.5px]">
                   <Link to={`/ventures/${v.venture.slug}`} className="hover:underline">{v.venture.name}</Link>
-                  <span className="text-muted-foreground ml-1.5 text-[11px]">{v.venture.stage}</span>
+                  <span className="text-muted-foreground ml-1.5 text-[12px]">{v.venture.stage}</span>
                 </td>
-                <td className="py-1.5 pr-3 text-right text-[12.5px] tabular-nums">{currencies(v.revenueNet)}</td>
-                <td className="py-1.5 pr-3 text-right text-[12.5px] tabular-nums">{currencies(v.costTotal)}</td>
-                <td className="py-1.5 pr-3 text-right text-[12.5px] tabular-nums">{amount(v.modelUsd, "USD")}</td>
-                <td className="py-1.5 pr-3 text-right text-[12.5px] tabular-nums">
+                <td className="py-1.5 pr-3 text-right text-[13.5px] tabular-nums">{currencies(v.revenueNet)}</td>
+                <td className="py-1.5 pr-3 text-right text-[13.5px] tabular-nums">{currencies(v.costTotal)}</td>
+                <td className="py-1.5 pr-3 text-right text-[13.5px] tabular-nums">{amount(v.modelUsd, "USD")}</td>
+                <td className="py-1.5 pr-3 text-right text-[13.5px] tabular-nums">
                   {v.margin.length === 0 ? "—" : v.margin.map((m) => (
                     <div key={m.currency} className={cn(m.margin < 0 && "text-destructive")}>
                       {amount(m.margin, m.currency)}
                     </div>
                   ))}
-                  {!v.complete && <div className="text-muted-foreground text-[10.5px]">at best — a cost has no price</div>}
+                  {!v.complete && <div className="text-muted-foreground text-[11.5px]">at best — a cost has no price</div>}
                 </td>
                 <td className="py-1.5 text-right">
                   <button
                     onClick={() => setOpen(open === v.venture.slug ? null : v.venture.slug)}
-                    className="hover:bg-accent rounded-lg border px-2 py-0.5 text-[11px]"
+                    className="hover:bg-accent rounded-lg border px-2 py-0.5 text-[12px]"
                   >
                     {open === v.venture.slug ? "hide" : "detail"}
                   </button>
@@ -121,12 +121,12 @@ export function Pnl() {
       {open && <VentureDetail slug={open} month={month} />}
 
       <section className="mt-6 grid gap-3 sm:grid-cols-2">
-        <div className="bg-card rounded-[10px] border px-3.5 py-3">
-          <div className="text-[12.5px] font-medium">Stripe, settled — the portfolio</div>
+        <div className="bg-card rounded-[14px] border px-4.5 py-3.5">
+          <div className="text-[13.5px] font-medium">Stripe, settled — the portfolio</div>
           {d.stripeSettled.length === 0 ? (
-            <p className="text-muted-foreground mt-1 text-[12px]">Nothing settled in {d.month}, or Stripe is not connected.</p>
+            <p className="text-muted-foreground mt-1 text-[13px]">Nothing settled in {d.month}, or Stripe is not connected.</p>
           ) : (
-            <ul className="mt-1.5 space-y-0.5 text-[12px] tabular-nums">
+            <ul className="mt-1.5 space-y-0.5 text-[13px] tabular-nums">
               {d.stripeSettled.map((s) => (
                 <li key={s.currency}>
                   {amount(s.net, s.currency)} net · gross {amount(s.gross, s.currency)} · fees {amount(s.fees, s.currency)} · tax withheld {amount(s.taxWithheld, s.currency)}
@@ -134,16 +134,16 @@ export function Pnl() {
               ))}
             </ul>
           )}
-          <p className="text-muted-foreground mt-2 text-[11px] leading-relaxed">
+          <p className="text-muted-foreground mt-2 text-[12px] leading-relaxed">
             Measured here and only here: Stripe's ledger has no product dimension, so a per-venture settled figure is
             not a measurement.
           </p>
         </div>
 
-        <div className="bg-card rounded-[10px] border px-3.5 py-3">
-          <div className="text-[12.5px] font-medium">Nobody's margin is carrying</div>
-          <div className="mt-1 text-[19px] tabular-nums">{currencies(d.ledger.unallocatedShared)}</div>
-          <ul className="text-muted-foreground mt-1.5 space-y-0.5 text-[11.5px]">
+        <div className="bg-card rounded-[14px] border px-4.5 py-3.5">
+          <div className="text-[13.5px] font-medium">Nobody's margin is carrying</div>
+          <div className="mt-1 text-[20px] tabular-nums">{currencies(d.ledger.unallocatedShared)}</div>
+          <ul className="text-muted-foreground mt-1.5 space-y-0.5 text-[12.5px]">
             {/* THE REMAINDER, NOT THE WHOLE BILL. The heading's total is the
                 unallocated part, so a 90%-allocated €7.09 box printed as
                 "€7.09" beside a total of €0.71 read as a contradiction — and
@@ -155,7 +155,7 @@ export function Pnl() {
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground mt-2 text-[11px] leading-relaxed">
+          <p className="text-muted-foreground mt-2 text-[12px] leading-relaxed">
             Every venture's margin above is this much too good until these are allocated. Default rule:{" "}
             {d.ledger.defaultRule}.
           </p>
@@ -169,13 +169,13 @@ export function Pnl() {
           any; the point of the pairing is the comparison, and half of it is
           always available. */}
       <section className="mt-3">
-        <div className="text-[12.5px] font-medium">Model spend, and what the local machines drew</div>
-        <p className="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">
+        <div className="text-[13.5px] font-medium">Model spend, and what the local machines drew</div>
+        <p className="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">
           Model spend through this box's runtime in {d.month}: {amount(d.modelSpend.usd, "USD")} over{" "}
           {count(d.modelSpend.tokens)} tokens in {d.modelSpend.calls} calls. {d.modelSpend.note}
         </p>
         {d.power.length === 0 && (
-          <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+          <p className="text-muted-foreground mt-1.5 text-[12px] leading-relaxed">
             No machine has a power profile, so there is no electricity figure to set beside that. Local inference
             will keep looking free until one is typed in on the Power tab.
           </p>
@@ -184,25 +184,25 @@ export function Pnl() {
 
       {d.power.length > 0 && (
         <section className="mt-3">
-          <div className="text-[12.5px] font-medium">Electricity</div>
+          <div className="text-[13.5px] font-medium">Electricity</div>
           <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
             {d.power.map((p) => (
-              <div key={p.machineId} className="bg-card rounded-[10px] border px-3.5 py-2.5">
+              <div key={p.machineId} className="bg-card rounded-[14px] border px-4.5 py-3">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-[16px] tabular-nums">{amount(p.amount, p.currency)}</span>
-                  <span className="text-[12px] font-medium">{p.label}</span>
+                  <span className="text-[17px] tabular-nums">{amount(p.amount, p.currency)}</span>
+                  <span className="text-[13px] font-medium">{p.label}</span>
                   {p.confidence && (
-                    <span className="bg-accent rounded-full px-1.5 py-0.5 text-[10.5px]">{p.confidence} hours</span>
+                    <span className="bg-accent rounded-full px-1.5 py-0.5 text-[11.5px]">{p.confidence} hours</span>
                   )}
                 </div>
-                <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">{p.note}</p>
+                <p className="text-muted-foreground mt-1 text-[12px] leading-relaxed">{p.note}</p>
               </div>
             ))}
           </div>
         </section>
       )}
 
-      <ul className="text-muted-foreground mt-5 space-y-1 border-t pt-2 text-[11px] leading-relaxed">
+      <ul className="text-muted-foreground mt-5 space-y-1 border-t pt-2 text-[12px] leading-relaxed">
         {d.rules.map((r) => <li key={r}>{r}</li>)}
       </ul>
     </>
@@ -211,31 +211,31 @@ export function Pnl() {
 
 function VentureDetail({ slug, month }: { slug: string; month: string }) {
   const doc = useApi(() => finance.venture(slug, month), [slug, month]);
-  if (doc.error) return <p className="text-destructive mt-3 text-[12px]">{doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground mt-3 text-[12px]">Computing…</p>;
+  if (doc.error) return <p className="text-destructive mt-3 text-[13px]">{doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground mt-3 text-[13px]">Computing…</p>;
   const d = doc.data;
 
   return (
-    <section className="bg-card mt-3 rounded-[10px] border px-4 py-3.5">
+    <section className="bg-card mt-3 rounded-[14px] border px-5 py-4">
       <div className="flex flex-wrap items-baseline gap-2">
-        <h2 className="text-[15px]">{d.venture.name} · {d.month}</h2>
+        <h2 className="text-[16px]">{d.venture.name} · {d.month}</h2>
         <Badge actual={d.actual} />
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           {d.elapsedDays.toFixed(1)} of {d.daysInMonth} days
         </span>
       </div>
 
       <div className="mt-3 grid gap-4 sm:grid-cols-2">
         <div>
-          <div className="text-muted-foreground text-[11px]">Revenue, measured</div>
-          <div className="text-[17px] tabular-nums">{currencies(d.revenue.net)}</div>
+          <div className="text-muted-foreground text-[12px]">Revenue, measured</div>
+          <div className="text-[18px] tabular-nums">{currencies(d.revenue.net)}</div>
           {d.revenue.subscriptionRunRate.length > 0 && (
-            <div className="text-muted-foreground mt-1 text-[11.5px]">
+            <div className="text-muted-foreground mt-1 text-[12.5px]">
               live MRR {currencies(d.revenue.subscriptionRunRate)} — a run rate, not this month's money, and never
               added to the figure above
             </div>
           )}
-          <ul className="mt-1.5 space-y-1 text-[11.5px]">
+          <ul className="mt-1.5 space-y-1 text-[12.5px]">
             {d.revenue.lines.map((l, i) => (
               <li key={i}>
                 <span className="tabular-nums">{amount(l.net, l.currency)}</span>{" "}
@@ -245,17 +245,17 @@ function VentureDetail({ slug, month }: { slug: string; month: string }) {
             {d.revenue.lines.length === 0 && <li className="text-muted-foreground">No measured revenue for this month.</li>}
           </ul>
           {d.revenue.unavailable.map((u) => (
-            <p key={u} className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">{u}</p>
+            <p key={u} className="text-muted-foreground mt-1.5 text-[12px] leading-relaxed">{u}</p>
           ))}
         </div>
 
         <div>
-          <div className="text-muted-foreground text-[11px]">Costs</div>
-          <div className="text-[17px] tabular-nums">{currencies(d.costs.ledgerTotal)}</div>
-          <div className="text-muted-foreground mt-1 text-[11.5px]">
+          <div className="text-muted-foreground text-[12px]">Costs</div>
+          <div className="text-[18px] tabular-nums">{currencies(d.costs.ledgerTotal)}</div>
+          <div className="text-muted-foreground mt-1 text-[12.5px]">
             direct {currencies(d.costs.direct)} · allocated {currencies(d.costs.allocated)}
           </div>
-          <ul className="mt-1.5 space-y-1 text-[11.5px]">
+          <ul className="mt-1.5 space-y-1 text-[12.5px]">
             {d.costs.lines.slice(0, 12).map((l) => (
               <li key={l.expenseId}>
                 <span className="tabular-nums">{amount(l.monthly, l.currency)}</span>{" "}
@@ -267,7 +267,7 @@ function VentureDetail({ slug, month }: { slug: string; month: string }) {
             ))}
           </ul>
           {!d.costs.complete && (
-            <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+            <p className="text-muted-foreground mt-1.5 text-[12px] leading-relaxed">
               No price yet for {d.costs.unpriced.join(", ")} — the margin below is a ceiling.
             </p>
           )}
@@ -275,15 +275,15 @@ function VentureDetail({ slug, month }: { slug: string; month: string }) {
       </div>
 
       <div className="mt-3 border-t pt-2.5">
-        <div className="text-muted-foreground text-[11px]">Margin, one row per currency</div>
+        <div className="text-muted-foreground text-[12px]">Margin, one row per currency</div>
         <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1">
-          {d.margin.length === 0 && <span className="text-muted-foreground text-[12px]">Nothing measured on either side.</span>}
+          {d.margin.length === 0 && <span className="text-muted-foreground text-[13px]">Nothing measured on either side.</span>}
           {d.margin.map((m) => (
             <div key={m.currency}>
-              <div className={cn("text-[19px] tabular-nums", m.margin < 0 && "text-destructive")}>
+              <div className={cn("text-[20px] tabular-nums", m.margin < 0 && "text-destructive")}>
                 {amount(m.margin, m.currency)}
               </div>
-              <div className="text-muted-foreground text-[11px]">
+              <div className="text-muted-foreground text-[12px]">
                 {amount(m.revenue, m.currency)} in, {amount(m.cost, m.currency)} out
               </div>
             </div>
@@ -293,18 +293,18 @@ function VentureDetail({ slug, month }: { slug: string; month: string }) {
 
       {d.projected && (
         <div className="mt-3 border-t pt-2.5">
-          <div className="text-muted-foreground text-[11px]">
+          <div className="text-muted-foreground text-[12px]">
             Projected to the end of {d.month} — revenue and model spend only
           </div>
-          <div className="mt-1 text-[13px] tabular-nums">
+          <div className="mt-1 text-[14px] tabular-nums">
             {d.projected.revenueNet.map((r) => `${amount(r.amount, r.currency)}`).join("  ·  ") || "—"}
           </div>
-          <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">{d.projected.method}</p>
-          <p className="text-muted-foreground text-[11px] leading-relaxed">Costs: {d.projected.costs}.</p>
+          <p className="text-muted-foreground mt-1 text-[12px] leading-relaxed">{d.projected.method}</p>
+          <p className="text-muted-foreground text-[12px] leading-relaxed">Costs: {d.projected.costs}.</p>
         </div>
       )}
 
-      <ul className="text-muted-foreground mt-3 space-y-1 border-t pt-2 text-[11px] leading-relaxed">
+      <ul className="text-muted-foreground mt-3 space-y-1 border-t pt-2 text-[12px] leading-relaxed">
         {d.rules.map((r) => <li key={r}>{r}</li>)}
       </ul>
     </section>

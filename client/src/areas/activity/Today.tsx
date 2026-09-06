@@ -25,7 +25,7 @@ import { activityApi, type LeakageBucket } from "@/lib/api/activity";
 
 function Bucket({ b, currency }: { b: LeakageBucket; currency: string }) {
   return (
-    <div className="bg-card rounded-[10px] border px-3.5 py-3">
+    <div className="bg-card rounded-[14px] border px-4.5 py-3.5">
       <div className="flex flex-wrap items-baseline gap-2">
         <span
           className={cn(
@@ -35,14 +35,14 @@ function Bucket({ b, currency }: { b: LeakageBucket; currency: string }) {
         >
           {money(b.amount, currency)}
         </span>
-        <span className="text-muted-foreground text-[12px]">
+        <span className="text-muted-foreground text-[13px]">
           {b.count !== null && b.count > 0 ? `${count(b.count)} · ` : ""}
           {b.window}
         </span>
       </div>
-      <div className="mt-0.5 text-[12.5px] font-medium">{b.label}</div>
-      <p className="text-muted-foreground mt-1 text-[12px] leading-relaxed">{b.why}</p>
-      <p className="text-muted-foreground mt-1.5 border-t pt-1.5 text-[11px] leading-relaxed">
+      <div className="mt-0.5 text-[13.5px] font-medium">{b.label}</div>
+      <p className="text-muted-foreground mt-1 text-[13px] leading-relaxed">{b.why}</p>
+      <p className="text-muted-foreground mt-1.5 border-t pt-1.5 text-[12px] leading-relaxed">
         {b.arithmetic}
       </p>
     </div>
@@ -53,13 +53,13 @@ export function Today({ days }: { days: number }) {
   const report = useApi(() => activityApi.leakage(days), [days]);
 
   if (report.error)
-    return <p className="text-muted-foreground text-[13px]">The API is not answering: {report.error}</p>;
-  if (!report.data) return <p className="text-muted-foreground text-[13px]">Computing…</p>;
+    return <p className="text-muted-foreground text-[14px]">The API is not answering: {report.error}</p>;
+  if (!report.data) return <p className="text-muted-foreground text-[14px]">Computing…</p>;
   const d = report.data;
 
   if (!d.currencies.length)
     return (
-      <p className="text-muted-foreground text-[13px] leading-relaxed">{d.coverage.note}</p>
+      <p className="text-muted-foreground text-[14px] leading-relaxed">{d.coverage.note}</p>
     );
 
   return (
@@ -68,23 +68,23 @@ export function Today({ days }: { days: number }) {
         <section key={c.currency} className="mb-7">
           <div className="mb-3 flex flex-wrap items-baseline gap-x-6 gap-y-2">
             <div>
-              <div className="text-[25px] font-normal tracking-[-0.03em] tabular-nums">
+              <div className="text-[27px] font-normal tracking-[-0.03em] tabular-nums">
                 {money(c.totals.window, c.currency)}
               </div>
-              <div className="text-muted-foreground mt-0.5 text-[11.5px]">
+              <div className="text-muted-foreground mt-0.5 text-[12.5px]">
                 left in the last {c.totals.windowLabel} · {c.totals.windowIs}
               </div>
             </div>
             <div>
-              <div className="text-[25px] font-normal tracking-[-0.03em] tabular-nums">
+              <div className="text-[27px] font-normal tracking-[-0.03em] tabular-nums">
                 {money(c.totals.perMonth, c.currency)}
               </div>
-              <div className="text-muted-foreground mt-0.5 text-[11.5px]">
+              <div className="text-muted-foreground mt-0.5 text-[12.5px]">
                 per month · {c.totals.perMonthIs}
               </div>
             </div>
             {c.noAmount.length > 0 && (
-              <div className="text-muted-foreground max-w-[300px] text-[11.5px] leading-relaxed">
+              <div className="text-muted-foreground max-w-[300px] text-[12.5px] leading-relaxed">
                 Both are a FLOOR: {c.noAmount.join(" and ")} carry no amount at all and add to
                 neither.
               </div>
@@ -97,7 +97,7 @@ export function Today({ days }: { days: number }) {
             ))}
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11.5px]">
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[12.5px]">
             <span className="text-muted-foreground">
               declined <span className="text-foreground tabular-nums">{c.counts.declined}</span>
             </span>
@@ -121,25 +121,25 @@ export function Today({ days }: { days: number }) {
             </span>
           </div>
 
-          <p className="text-muted-foreground mt-2 text-[11.5px] leading-relaxed">{c.totals.note}</p>
+          <p className="text-muted-foreground mt-2 text-[12.5px] leading-relaxed">{c.totals.note}</p>
         </section>
       ))}
 
-      <div className="border-line-soft rounded-[10px] border border-dashed px-3.5 py-3">
-        <div className="mb-2 text-[11px] tracking-[0.06em] uppercase">
+      <div className="border-line-soft rounded-[14px] border border-dashed px-3.5 py-3">
+        <div className="mb-2 text-[12px] tracking-[0.06em] uppercase">
           Figures this page refuses to produce
         </div>
         <div className="flex flex-col gap-2">
           {d.wrongFigures.map((w) => (
             <div key={w.figure}>
-              <div className="text-[12.5px] font-medium">{w.figure}</div>
-              <p className="text-muted-foreground text-[11.5px] leading-relaxed">{w.why}</p>
+              <div className="text-[13.5px] font-medium">{w.figure}</div>
+              <p className="text-muted-foreground text-[12.5px] leading-relaxed">{w.why}</p>
             </div>
           ))}
         </div>
       </div>
 
-      <p className="text-muted-foreground mt-2.5 text-[11.5px] leading-relaxed">
+      <p className="text-muted-foreground mt-2.5 text-[12.5px] leading-relaxed">
         {d.coverage.note} Charge days from {d.coverage.chargeDaysFrom ?? "—"};{" "}
         {count(d.coverage.subscriptions)} subscriptions in the book.
       </p>

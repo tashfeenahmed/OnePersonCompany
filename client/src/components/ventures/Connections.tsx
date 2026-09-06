@@ -94,13 +94,13 @@ export function Connections({
   if (error)
     return (
       <Body>
-        <p className="text-destructive text-[12.5px]">{error}</p>
+        <p className="text-destructive text-[13.5px]">{error}</p>
       </Body>
     );
   if (!doc)
     return (
       <Body>
-        <p className="text-muted-foreground text-[12.5px]">
+        <p className="text-muted-foreground text-[13.5px]">
           {loading ? "Reading the connection table…" : "Nothing came back."}
         </p>
       </Body>
@@ -108,23 +108,23 @@ export function Connections({
 
   return (
     <Body>
-      {failed && <p className="text-destructive text-[12.5px]">{failed}</p>}
+      {failed && <p className="text-destructive text-[13.5px]">{failed}</p>}
 
       {/* ------------------------------------------------------- linked */}
       <section>
         <div className="mb-2 flex items-center gap-2">
-          <h2 className="text-[13px] font-medium">
+          <h2 className="text-[14px] font-medium">
             Linked{doc.links.length ? ` · ${doc.links.length}` : ""}
           </h2>
           <button
             onClick={() => setAdding((v) => !v)}
-            className="text-muted-foreground hover:text-foreground ml-auto flex items-center gap-1.5 text-[11.5px]"
+            className="text-muted-foreground hover:text-foreground ml-auto flex items-center gap-1.5 text-[12.5px]"
           >
             <Plus className="size-3.5" strokeWidth={1.6} />
             {adding ? "Close" : "Add link"}
           </button>
         </div>
-        <p className="text-muted-foreground mb-2 text-[11.5px]">
+        <p className="text-muted-foreground mb-2 text-[12.5px]">
           Each row is the owner’s own statement that this thing belongs to this
           business. Nothing here was inferred when the page loaded.
         </p>
@@ -159,19 +159,19 @@ export function Connections({
                       {look.known ? (
                         <Link
                           to={`/integrations/${look.id}`}
-                          className="text-[12.5px] font-medium hover:underline"
+                          className="text-[13.5px] font-medium hover:underline"
                         >
                           {look.name}
                         </Link>
                       ) : (
                         <span
                           title="No integration card carries this id — the link still works, and unlinking it still works."
-                          className="text-[12.5px] font-medium"
+                          className="text-[13.5px] font-medium"
                         >
                           {look.name}
                         </span>
                       )}
-                      <span className="text-muted-foreground text-[11.5px]">
+                      <span className="text-muted-foreground text-[12.5px]">
                         {links.length}
                       </span>
                     </div>
@@ -181,7 +181,7 @@ export function Connections({
                         return (
                           <div
                             key={key}
-                            className="group hover:bg-accent -mx-1.5 flex items-center gap-2 rounded-md px-1.5 py-1 text-[12.5px]"
+                            className="group hover:bg-accent -mx-1.5 flex items-center gap-2 rounded-md px-1.5 py-1 text-[13.5px]"
                           >
                             <span className="truncate">
                               {l.label ?? l.entity}
@@ -189,7 +189,7 @@ export function Connections({
                             {l.label && l.label !== l.entity && (
                               <span
                                 title="The integration's own identifier for it — what the link is stored against."
-                                className="text-muted-foreground truncate text-[11px]"
+                                className="text-muted-foreground truncate text-[12px]"
                               >
                                 {l.entity}
                               </span>
@@ -200,7 +200,7 @@ export function Connections({
                                   ? "Linked one at a time — somebody looked at this and said yes."
                                   : "Came in with “Accept all”. Linking it by hand promotes it."
                               }
-                              className="text-muted-foreground ml-auto shrink-0 text-[11px]"
+                              className="text-muted-foreground ml-auto shrink-0 text-[12px]"
                             >
                               {l.source === "owner" ? "by hand" : "in bulk"}
                             </span>
@@ -226,7 +226,7 @@ export function Connections({
             })}
           </div>
         ) : (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             Nothing linked yet, so this venture’s boards are narrowed by its
             hostname alone.
           </p>
@@ -236,7 +236,7 @@ export function Connections({
       {/* --------------------------------------------------- suggestions */}
       <section>
         <div className="mb-2 flex items-center gap-2">
-          <h2 className="text-[13px] font-medium">
+          <h2 className="text-[14px] font-medium">
             Suggested{suggestions.length ? ` · ${suggestions.length}` : ""}
           </h2>
           {suggestions.length > 1 && (
@@ -255,7 +255,7 @@ export function Connections({
             </Button>
           )}
         </div>
-        <p className="text-muted-foreground mb-2 text-[11.5px]">{doc.note}</p>
+        <p className="text-muted-foreground mb-2 text-[12.5px]">{doc.note}</p>
 
         {suggestions.length ? (
           <div className="flex flex-col gap-1.5">
@@ -265,21 +265,21 @@ export function Connections({
               return (
                 <div
                   key={key}
-                  className="flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5"
+                  className="flex items-start gap-2.5 rounded-[14px] border px-3 py-2.5"
                 >
                   <BrandTile
                     icon={look.icon}
                     name={look.name}
                     mono={look.mono}
                     tint={look.tint}
-                    className="size-[22px] rounded-[6px]"
-                    glyphClassName="size-[12px] text-[10px]"
+                    className="size-[22px] rounded-[8px]"
+                    glyphClassName="size-[12px] text-[11px]"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12.5px]">{s.label}</div>
+                    <div className="truncate text-[13.5px]">{s.label}</div>
                     {/* The server's sentence, quoted. It is the whole reason
                         this row can be accepted without opening anything. */}
-                    <p className="text-muted-foreground mt-0.5 text-[11.5px] leading-snug">
+                    <p className="text-muted-foreground mt-0.5 text-[12.5px] leading-snug">
                       {s.why}
                     </p>
                   </div>
@@ -302,7 +302,7 @@ export function Connections({
             })}
           </div>
         ) : (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             Nothing left to propose. Anything else that belongs to this venture
             has to be linked by hand — a name that does not match a hostname is
             not evidence.
@@ -312,8 +312,8 @@ export function Connections({
 
       {/* ------------------------------------------------------- sources */}
       <section>
-        <h2 className="mb-2 text-[13px] font-medium">Where the list came from</h2>
-        <p className="text-muted-foreground mb-2 text-[11.5px]">
+        <h2 className="mb-2 text-[14px] font-medium">Where the list came from</h2>
+        <p className="text-muted-foreground mb-2 text-[12.5px]">
           Every listing that was asked, and what it said. “Nothing from Umami”
           and “Umami was never asked” are different answers.
         </p>
@@ -321,7 +321,7 @@ export function Connections({
           {doc.sources.map((s) => (
             <div
               key={s.plugin}
-              className="flex items-baseline gap-2 py-1 text-[12.5px]"
+              className="flex items-baseline gap-2 py-1 text-[13.5px]"
             >
               <span
                 className={cn(
@@ -330,11 +330,11 @@ export function Connections({
                 )}
               />
               <span className="shrink-0">{s.plugin}</span>
-              <span className="text-muted-foreground shrink-0 text-[11.5px]">
+              <span className="text-muted-foreground shrink-0 text-[12.5px]">
                 {s.entities} {s.entities === 1 ? "thing" : "things"}
               </span>
               {s.note && (
-                <span className="text-muted-foreground truncate text-[11.5px]">
+                <span className="text-muted-foreground truncate text-[12.5px]">
                   {s.note}
                 </span>
               )}
@@ -411,17 +411,17 @@ function AddLink({
   }, [map, plugin, q]);
 
   return (
-    <div className="mb-3 rounded-[10px] border p-3">
-      {error && <p className="text-destructive text-[12.5px]">{error}</p>}
+    <div className="mb-3 rounded-[14px] border p-3">
+      {error && <p className="text-destructive text-[13.5px]">{error}</p>}
       {!map && !error && (
-        <p className="text-muted-foreground text-[12.5px]">
+        <p className="text-muted-foreground text-[13.5px]">
           {loading ? "Reading every integration’s things…" : "Nothing came back."}
         </p>
       )}
 
       {map && (
         <>
-          <div className="text-muted-foreground mb-1.5 text-[11.5px]">
+          <div className="text-muted-foreground mb-1.5 text-[12.5px]">
             Which integration?
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -436,12 +436,12 @@ function AddLink({
                   }}
                   aria-pressed={p === plugin}
                   className={cn(
-                    "hover:border-line-strong rounded-lg border px-2 py-1 text-[12px]",
+                    "hover:border-line-strong rounded-lg border px-2 py-1 text-[13px]",
                     p === plugin && "bg-accent border-line-strong",
                   )}
                 >
                   {look.name}
-                  <span className="text-muted-foreground ml-1.5 text-[11px]">
+                  <span className="text-muted-foreground ml-1.5 text-[12px]">
                     {map.entities.filter((e) => e.plugin === p).length}
                   </span>
                 </button>
@@ -457,7 +457,7 @@ function AddLink({
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder={`Filter ${pluginLook(plugin).name}…`}
-                  className="h-8 pl-8 text-[12.5px]"
+                  className="h-8 pl-8 text-[13.5px]"
                 />
               </div>
               <div className="flex max-h-[260px] flex-col gap-px overflow-y-auto">
@@ -470,15 +470,15 @@ function AddLink({
                       key={key}
                       disabled={already || busy === `add ${key}`}
                       onClick={() => onAdd(e.plugin, e.entity, e.label)}
-                      className="hover:bg-accent flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12.5px] disabled:opacity-45"
+                      className="hover:bg-accent flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13.5px] disabled:opacity-45"
                     >
                       <span className="truncate">{e.label}</span>
                       {e.host && e.host !== e.label && (
-                        <span className="text-muted-foreground truncate text-[11px]">
+                        <span className="text-muted-foreground truncate text-[12px]">
                           {e.host}
                         </span>
                       )}
-                      <span className="text-muted-foreground ml-auto shrink-0 text-[11px]">
+                      <span className="text-muted-foreground ml-auto shrink-0 text-[12px]">
                         {already
                           ? "already linked"
                           : elsewhere
@@ -489,7 +489,7 @@ function AddLink({
                   );
                 })}
                 {!rows.length && (
-                  <p className="text-muted-foreground py-2 text-[12px]">
+                  <p className="text-muted-foreground py-2 text-[13px]">
                     {q
                       ? "Nothing matches that."
                       : "That integration reports nothing at the moment. It can still be linked by hand from the map."}

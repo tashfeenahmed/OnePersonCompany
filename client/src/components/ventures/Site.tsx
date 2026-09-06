@@ -87,11 +87,11 @@ export function Site({ venture }: { venture: Venture }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-4 pb-16">
       <div className="mx-auto flex w-full max-w-[940px] flex-col gap-6">
-        {error && <p className="text-destructive text-[12.5px]">{error}</p>}
-        {failed && <p className="text-destructive text-[12.5px]">{failed}</p>}
+        {error && <p className="text-destructive text-[13.5px]">{error}</p>}
+        {failed && <p className="text-destructive text-[13.5px]">{failed}</p>}
 
         {!venture.website && (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             {venture.name} has no website, so there is nothing to photograph and
             nothing to read. Add one on the edit page.
           </p>
@@ -102,13 +102,13 @@ export function Site({ venture }: { venture: Venture }) {
             {/* ------------------------------------------------ picture */}
             <section>
               <div className="mb-2 flex items-center gap-2">
-                <h2 className="text-[13px] font-medium">The page</h2>
+                <h2 className="text-[14px] font-medium">The page</h2>
                 {venture.website && (
                   <a
                     href={venture.website}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[11.5px]"
+                    className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[12.5px]"
                   >
                     open it
                     <ExternalLink className="size-3" strokeWidth={1.6} />
@@ -128,7 +128,7 @@ export function Site({ venture }: { venture: Venture }) {
               </div>
 
               {browser && (
-                <p className="text-muted-foreground mb-2 text-[11.5px] leading-snug">
+                <p className="text-muted-foreground mb-2 text-[12.5px] leading-snug">
                   {browser.found ? browser.note : browser.error}
                   {browser.found && (
                     <>
@@ -152,9 +152,9 @@ export function Site({ venture }: { venture: Venture }) {
                     alt={`${venture.name}, ${new Date(mine.picture.ts).toLocaleString()}`}
                     width={mine.last?.width ?? undefined}
                     height={mine.last?.height ?? undefined}
-                    className="w-full rounded-[10px] border"
+                    className="w-full rounded-[14px] border"
                   />
-                  <figcaption className="text-muted-foreground text-[11.5px]">
+                  <figcaption className="text-muted-foreground text-[12.5px]">
                     Captured {new Date(mine.picture.ts).toLocaleString()}
                     {mine.picture.ageDays !== null &&
                       ` · ${mine.picture.ageDays === 0 ? "today" : `${mine.picture.ageDays} days ago`}`}
@@ -169,7 +169,7 @@ export function Site({ venture }: { venture: Venture }) {
                   </figcaption>
                 </figure>
               ) : (
-                <p className="text-muted-foreground text-[12.5px]">
+                <p className="text-muted-foreground text-[13.5px]">
                   {loading
                     ? "Reading the capture table…"
                     : "No picture has ever been taken of this one."}
@@ -180,7 +180,7 @@ export function Site({ venture }: { venture: Venture }) {
                   failed run does not delete the last good photograph, and an
                   old picture with no explanation looks like a stale page. */}
               {mine?.last && !mine.last.ok && (
-                <p className="text-destructive mt-1.5 text-[11.5px]">
+                <p className="text-destructive mt-1.5 text-[12.5px]">
                   The last attempt, {new Date(mine.last.ts).toLocaleString()},
                   failed: {mine.last.error ?? "no reason was recorded."}
                 </p>
@@ -190,7 +190,7 @@ export function Site({ venture }: { venture: Venture }) {
             {/* -------------------------------------------------- brand */}
             <section>
               <div className="mb-2 flex items-center gap-2">
-                <h2 className="text-[13px] font-medium">The two readings</h2>
+                <h2 className="text-[14px] font-medium">The two readings</h2>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -204,7 +204,7 @@ export function Site({ venture }: { venture: Venture }) {
                     : "Re-read brand from the rendered page"}
                 </Button>
               </div>
-              <p className="text-muted-foreground mb-2.5 text-[11.5px] leading-snug">
+              <p className="text-muted-foreground mb-2.5 text-[12.5px] leading-snug">
                 The static reading is parsed from the HTML the server sent and
                 its stylesheets; the rendered one is taken from the DOM after a
                 browser ran the page. They are kept apart because a coarser
@@ -252,28 +252,28 @@ export function Site({ venture }: { venture: Venture }) {
               {/* WHICH ONE IS IN USE. Two palettes on a page with no statement
                   about which one the app draws is a screen that measured
                   something and answered nothing. */}
-              <div className="mt-3 rounded-[10px] border px-3 py-2.5">
-                <div className="flex items-center gap-2 text-[12.5px]">
+              <div className="mt-3 rounded-[14px] border px-3 py-2.5">
+                <div className="flex items-center gap-2 text-[13.5px]">
                   <span
-                    className="size-[14px] rounded-[4px] border"
+                    className="size-[14px] rounded-[5px] border"
                     style={{ background: rebrand?.color ?? venture.color }}
                   />
                   <span>
                     {venture.name}’s colour is{" "}
                     {(rebrand?.color ?? venture.color).toUpperCase()}
                   </span>
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <span className="text-muted-foreground text-[12.5px]">
                     {source(rebrand?.colorSource ?? venture.colorSource)}
                   </span>
                 </div>
-                <p className="text-muted-foreground mt-1.5 text-[11.5px] leading-snug">
+                <p className="text-muted-foreground mt-1.5 text-[12.5px] leading-snug">
                   {rebrand
                     ? rebrand.note
                     : venture.colorSource === "owner"
                       ? "It was typed by the owner, so no measurement may replace it."
                       : "Re-reading the rendered page may replace it, and will say so when it does."}
                 </p>
-                <p className="text-muted-foreground mt-1.5 text-[11.5px] leading-snug">
+                <p className="text-muted-foreground mt-1.5 text-[12.5px] leading-snug">
                   {rebrand
                     ? rebrand.brandNote
                     : "The brand block — the favicon, the title, the ranked palette — is read from the raw HTML by the venture’s own enrichment and is never touched by a rendered reading."}
@@ -317,19 +317,19 @@ function Reading({
   extra: string | null;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-[10px] border p-3">
-      <div className="text-[12.5px] font-medium">{title}</div>
-      <div className="text-muted-foreground text-[11.5px]">
+    <div className="flex flex-col gap-1.5 rounded-[14px] border p-3">
+      <div className="text-[13.5px] font-medium">{title}</div>
+      <div className="text-muted-foreground text-[12.5px]">
         {when ? new Date(when).toLocaleString() : "never"}
       </div>
-      {pageTitle && <div className="text-[12.5px]">{pageTitle}</div>}
+      {pageTitle && <div className="text-[13.5px]">{pageTitle}</div>}
       {swatches.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
           {swatches.slice(0, 8).map((hex) => (
             <span
               key={hex}
               title={hex}
-              className="size-[16px] rounded-[4px] border"
+              className="size-[16px] rounded-[5px] border"
               style={{ background: hex }}
             />
           ))}
@@ -338,14 +338,14 @@ function Reading({
       <p
         className={
           bad
-            ? "text-destructive text-[11.5px] leading-snug"
-            : "text-muted-foreground text-[11.5px] leading-snug"
+            ? "text-destructive text-[12.5px] leading-snug"
+            : "text-muted-foreground text-[12.5px] leading-snug"
         }
       >
         {note}
       </p>
       {extra && (
-        <p className="text-muted-foreground text-[11.5px] leading-snug">{extra}</p>
+        <p className="text-muted-foreground text-[12.5px] leading-snug">{extra}</p>
       )}
     </div>
   );

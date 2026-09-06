@@ -68,19 +68,19 @@ export function Login() {
       <div className="w-full max-w-[360px]">
         <div className="mb-5 flex items-center gap-2.5">
           <Lock className="size-4" strokeWidth={1.8} />
-          <h1 className="text-[19px] font-normal tracking-[-0.02em]">
+          <h1 className="text-[20px] font-normal tracking-[-0.02em]">
             {d && !d.enabled ? "This dashboard has no password" : "Sign in"}
           </h1>
         </div>
 
         {status.error && (
-          <p className="text-muted-foreground text-[13px] leading-relaxed">
+          <p className="text-muted-foreground text-[14px] leading-relaxed">
             The API is not answering ({status.error}), so there is nothing to sign in to yet.
           </p>
         )}
 
         {d && !d.enabled && (
-          <p className="text-muted-foreground text-[13px] leading-relaxed">
+          <p className="text-muted-foreground text-[14px] leading-relaxed">
             /api is open to anything that can reach the port, which is the state this box ships in
             and is fine while it is on loopback. Set a password in Settings → Security if it is ever
             going to be reachable from anywhere else.
@@ -104,8 +104,8 @@ export function Login() {
               {busy && <Loader2 className="size-3.5 animate-spin" strokeWidth={1.8} />}
               {busy ? "Checking…" : "Sign in"}
             </Button>
-            {problem && <p className="text-destructive text-[12.5px]">{problem}</p>}
-            <p className="text-muted-foreground text-[11.5px] leading-relaxed">
+            {problem && <p className="text-destructive text-[13.5px]">{problem}</p>}
+            <p className="text-muted-foreground text-[12.5px] leading-relaxed">
               One password, one owner — this is a lock on a door, not a user system. If it has been
               forgotten, the service key in <span className="font-mono">server/data/service-key</span> on
               this machine still opens the API, and the password can be removed from a shell.

@@ -106,8 +106,8 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
                 probe && probe.failed === 0 && probe.ok > 0 ? "bg-ok" : "bg-border",
               )}
             />
-            <span className="text-[12.5px] font-medium">Transcription</span>
-            <span className="text-muted-foreground min-w-0 truncate font-mono text-[11.5px]">
+            <span className="text-[13.5px] font-medium">Transcription</span>
+            <span className="text-muted-foreground min-w-0 truncate font-mono text-[12.5px]">
               {stt.url ?? "no endpoint set"}
             </span>
             <Badge variant="secondary" className="ml-auto font-mono font-normal">
@@ -115,7 +115,7 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
             </Badge>
             <Badge variant="secondary">{stt.keyed ? "keyed" : "no key sent"}</Badge>
           </div>
-          <p className="text-muted-foreground mt-1 text-[11.5px]">
+          <p className="text-muted-foreground mt-1 text-[12.5px]">
             {probe
               ? `The collector's own probe — half a second of silence — has answered ${probe.ok} time${probe.ok === 1 ? "" : "s"} and failed ${probe.failed}. An empty transcript is a success there: silence transcribes to nothing.`
               : "The endpoint is set and has not been probed yet."}
@@ -130,8 +130,8 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
                 tts.ready ? "bg-ok" : "bg-border",
               )}
             />
-            <span className="text-[12.5px] font-medium">Speech</span>
-            <span className="text-muted-foreground min-w-0 truncate font-mono text-[11.5px]">
+            <span className="text-[13.5px] font-medium">Speech</span>
+            <span className="text-muted-foreground min-w-0 truncate font-mono text-[12.5px]">
               {tts.mode === "piper" ? "a piper binary on this machine" : (tts.url ?? "no endpoint set")}
             </span>
             <Badge variant="secondary" className="ml-auto font-mono font-normal">
@@ -139,13 +139,13 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
             </Badge>
           </div>
           {tts.why && (
-            <p className="text-muted-foreground mt-1 text-[11.5px]">{tts.why}</p>
+            <p className="text-muted-foreground mt-1 text-[12.5px]">{tts.why}</p>
           )}
         </Row>
       </Rows>
 
       <div className="mt-4">
-        <div className="text-muted-foreground mb-2 text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground mb-2 text-[12px] tracking-[0.06em] uppercase">
           Say something
         </div>
         <div className="flex flex-wrap gap-2">
@@ -153,7 +153,7 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={DEFAULT_LINE}
-            className="min-w-[240px] flex-1 text-[12.5px]"
+            className="min-w-[240px] flex-1 text-[13.5px]"
           />
           <Button onClick={() => void speak()} disabled={speaking || !tts.ready}>
             <Volume2 className="size-3.5" strokeWidth={1.8} />
@@ -181,7 +181,7 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
             </Note>
           </div>
         )}
-        {problem && <p className="text-destructive mt-2 text-[12px]">{problem}</p>}
+        {problem && <p className="text-destructive mt-2 text-[13px]">{problem}</p>}
 
         <Note>
           <b className="text-foreground font-medium">
@@ -208,25 +208,25 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
 
       {!!d.runs.length && (
         <div className="mt-4">
-          <div className="text-muted-foreground mb-2 text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground mb-2 text-[12px] tracking-[0.06em] uppercase">
             Last attempts
           </div>
           <div className="flex flex-col gap-1.5">
             {d.runs.slice(0, 8).map((r, i) => (
-              <div key={`${r.ts}:${r.kind}:${i}`} className="flex items-baseline gap-2.5 text-[12px]">
+              <div key={`${r.ts}:${r.kind}:${i}`} className="flex items-baseline gap-2.5 text-[13px]">
                 <span
                   className={cn(
                     "size-1.5 shrink-0 translate-y-[-1px] rounded-full",
                     r.ok ? "bg-ok" : "bg-destructive",
                   )}
                 />
-                <span className="text-muted-foreground w-[64px] shrink-0 font-mono text-[11.5px]">
+                <span className="text-muted-foreground w-[64px] shrink-0 font-mono text-[12.5px]">
                   {r.kind}
                 </span>
                 <span className="text-muted-foreground min-w-0 truncate">
                   {r.error ?? `${count(r.bytes)} bytes in ${r.ms ?? DASH} ms`}
                 </span>
-                <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[11px]">
+                <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[12px]">
                   {ago(r.ts)}
                 </span>
               </div>

@@ -231,7 +231,7 @@ export function Mailbox() {
               onClick={() => put("mode", m.key === "inbox" ? null : m.key)}
               aria-current={mode === m.key ? "page" : undefined}
               className={cn(
-                "text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-[6px] rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap",
+                "text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-[6px] rounded-lg px-2.5 py-1.5 text-[13.5px] whitespace-nowrap",
                 mode === m.key && "bg-accent text-foreground font-medium",
               )}
             >
@@ -257,7 +257,7 @@ export function Mailbox() {
                 : "Search is Gmail's; this list is Resend's"
             }
             disabled={mode === "sent"}
-            className="h-8 pl-8 text-[12.5px]"
+            className="h-8 pl-8 text-[13.5px]"
             aria-label="Search mail"
           />
         </div>
@@ -357,7 +357,7 @@ export function Mailbox() {
           a "next" and never a "previous", so the stack behind the button is
           this page's memory and it should be visible that it exists. */}
       {canPage && (back.length > 0 || nextPage) && (
-        <div className="text-muted-foreground flex shrink-0 items-center gap-2 border-t px-3 py-2 text-[11.5px]">
+        <div className="text-muted-foreground flex shrink-0 items-center gap-2 border-t px-3 py-2 text-[12.5px]">
           <button
             type="button"
             disabled={!back.length}
@@ -399,10 +399,10 @@ export function Mailbox() {
       )}
     >
       {open === null ? (
-        <div className="text-muted-foreground flex flex-1 items-center justify-center px-6 text-center text-[13px]">
+        <div className="text-muted-foreground flex flex-1 items-center justify-center px-6 text-center text-[14px]">
           <div className="max-w-[320px]">
             Pick a {mode === "inbox" ? "conversation" : "message"} to read it.
-            <div className="mt-1.5 text-[11.5px]">
+            <div className="mt-1.5 text-[12.5px]">
               Nothing on this page is written down — every subject and body is
               read from {mode === "inbox" ? "Gmail" : "Resend"} the moment you
               ask for it.
@@ -578,7 +578,7 @@ function Chip({
       title={title}
       aria-pressed={active}
       className={cn(
-        "text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-full border px-2.5 py-[3px] text-[11.5px] whitespace-nowrap",
+        "text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-full border px-2.5 py-[3px] text-[12.5px] whitespace-nowrap",
         active && "bg-foreground text-background border-foreground",
       )}
     >
@@ -616,7 +616,7 @@ function ThreadRow({
       <div className="flex w-full items-baseline gap-2">
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-[12.5px]",
+            "min-w-0 flex-1 truncate text-[13.5px]",
             unread ? "text-foreground font-semibold" : "text-foreground/90",
           )}
           title={t.from}
@@ -626,14 +626,14 @@ function ThreadRow({
             <span className="text-muted-foreground font-normal"> ({t.messages})</span>
           )}
         </span>
-        <span className="text-muted-foreground shrink-0 font-mono text-[10.5px] tabular-nums">
+        <span className="text-muted-foreground shrink-0 font-mono text-[11.5px] tabular-nums">
           {listTime(t.at)}
         </span>
       </div>
       <div className="flex w-full items-baseline gap-1.5">
         {badge && (
           <span
-            className="text-muted-foreground shrink-0 rounded-[4px] border px-1 py-px text-[10px]"
+            className="text-muted-foreground shrink-0 rounded-[5px] border px-1 py-px text-[11px]"
             title={`Addressed to ${t.mailbox}`}
           >
             {badge}
@@ -641,7 +641,7 @@ function ThreadRow({
         )}
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-[12px]",
+            "min-w-0 flex-1 truncate text-[13px]",
             unread ? "font-medium" : "text-foreground/80",
           )}
         >
@@ -649,7 +649,7 @@ function ThreadRow({
         </span>
       </div>
       {t.snippet && (
-        <span className="text-muted-foreground w-full truncate text-[11px]">
+        <span className="text-muted-foreground w-full truncate text-[12px]">
           {t.snippet}
         </span>
       )}
@@ -678,21 +678,21 @@ function SentRow({
       )}
     >
       <div className="flex w-full items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-[12.5px]" title={row.to.join(", ")}>
+        <span className="min-w-0 flex-1 truncate text-[13.5px]" title={row.to.join(", ")}>
           {row.to[0] ?? "(no recipient)"}
           {row.to.length > 1 && (
             <span className="text-muted-foreground"> +{row.to.length - 1}</span>
           )}
         </span>
-        <span className="text-muted-foreground shrink-0 font-mono text-[10.5px] tabular-nums">
+        <span className="text-muted-foreground shrink-0 font-mono text-[11.5px] tabular-nums">
           {listTime(Date.parse(row.at) || null)}
         </span>
       </div>
       <div className="flex w-full items-baseline gap-1.5">
-        <span className="text-muted-foreground shrink-0 rounded-[4px] border px-1 py-px text-[10px]">
+        <span className="text-muted-foreground shrink-0 rounded-[5px] border px-1 py-px text-[11px]">
           {label}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[12px]">
+        <span className="min-w-0 flex-1 truncate text-[13px]">
           {row.subject || "(no subject)"}
         </span>
       </div>
@@ -700,7 +700,7 @@ function SentRow({
           "delivered" and neither is a failure. */}
       <span
         className={cn(
-          "text-muted-foreground text-[11px]",
+          "text-muted-foreground text-[12px]",
           row.lastEvent === "bounced" && "text-destructive",
           row.lastEvent === "complained" && "text-warn",
         )}
@@ -805,10 +805,10 @@ function ThreadReader({
           <ArrowLeft className="size-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[15px] font-normal tracking-[-0.01em]">
+          <h2 className="truncate text-[16px] font-normal tracking-[-0.01em]">
             {shown.subject || "(no subject)"}
           </h2>
-          <p className="text-muted-foreground mt-0.5 text-[11.5px]">
+          <p className="text-muted-foreground mt-0.5 text-[12.5px]">
             {shown.messages.length} {shown.messages.length === 1 ? "message" : "messages"}
             {shown.mailbox && ` · ${venture(shown.mailbox)}`}
             {failed && <span className="text-destructive"> · {failed}</span>}
@@ -818,7 +818,7 @@ function ThreadReader({
           type="button"
           disabled={busy}
           onClick={() => void setRead(!isUnread)}
-          className="hover:bg-accent text-muted-foreground flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] disabled:opacity-50"
+          className="hover:bg-accent text-muted-foreground flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[12.5px] disabled:opacity-50"
           title={
             isUnread
               ? "Remove the UNREAD label in Gmail"
@@ -904,10 +904,10 @@ function SentReader({ domain, id, onBack }: { domain: string; id: string; onBack
           <ArrowLeft className="size-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[15px] font-normal tracking-[-0.01em]">
+          <h2 className="truncate text-[16px] font-normal tracking-[-0.01em]">
             {e.subject || "(no subject)"}
           </h2>
-          <p className="text-muted-foreground mt-0.5 text-[11.5px]">
+          <p className="text-muted-foreground mt-0.5 text-[12.5px]">
             {e.domain} · {e.lastEvent ?? "no event reported"} · sent, not received —
             there is no reply to a password reset
           </p>
@@ -956,13 +956,13 @@ function MessageBlock({
         onClick={() => setFolded(false)}
         className="hover:bg-accent/60 mb-1.5 flex w-full items-baseline gap-2 rounded-lg border px-2.5 py-1.5 text-left"
       >
-        <span className="max-w-40 shrink-0 truncate text-[12px] font-medium">
+        <span className="max-w-40 shrink-0 truncate text-[13px] font-medium">
           {m.fromName || m.from}
         </span>
-        <span className="text-muted-foreground min-w-0 flex-1 truncate text-[11px]">
+        <span className="text-muted-foreground min-w-0 flex-1 truncate text-[12px]">
           {m.text.trim().split("\n").find(Boolean) ?? "(no text)"}
         </span>
-        <span className="text-muted-foreground shrink-0 font-mono text-[10px] tabular-nums">
+        <span className="text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums">
           {listTime(m.at)}
         </span>
       </button>
@@ -971,14 +971,14 @@ function MessageBlock({
   return (
     <article className="mb-3 rounded-lg border p-3">
       <header className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b pb-2">
-        <span className="text-[12.5px] font-medium" title={m.from}>
+        <span className="text-[13.5px] font-medium" title={m.from}>
           {m.fromName || m.from || "(no sender)"}
         </span>
-        <span className="text-muted-foreground min-w-0 flex-1 truncate text-[11px]">
+        <span className="text-muted-foreground min-w-0 flex-1 truncate text-[12px]">
           to {m.to || "(nobody named)"}
           {m.cc && ` · cc ${m.cc}`}
         </span>
-        <span className="text-muted-foreground shrink-0 font-mono text-[10.5px]">
+        <span className="text-muted-foreground shrink-0 font-mono text-[11.5px]">
           {when(m.at, { ...NOTHING, year: true })}
         </span>
       </header>
@@ -989,16 +989,16 @@ function MessageBlock({
         /* The plain path renders as react text nodes and nothing else. There is
            no markup route from a stranger's mail into this document at all,
            which is the point of having it. */
-        <pre className="text-foreground/90 font-sans text-[12.5px] leading-relaxed whitespace-pre-wrap">
+        <pre className="text-foreground/90 font-sans text-[13.5px] leading-relaxed whitespace-pre-wrap">
           {m.text.trim()}
         </pre>
       ) : (
-        <p className="text-muted-foreground text-[12px]">
+        <p className="text-muted-foreground text-[13px]">
           This message has no text and no HTML part.
         </p>
       )}
 
-      <footer className="text-muted-foreground mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+      <footer className="text-muted-foreground mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
         {m.html && (
           <button
             type="button"
@@ -1130,12 +1130,12 @@ function ListNote({
 }) {
   return (
     <div className="px-3 py-6">
-      <p className="text-[12.5px] font-medium">{title}</p>
-      <p className="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">{body}</p>
+      <p className="text-[13.5px] font-medium">{title}</p>
+      <p className="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">{body}</p>
       {action && (
         <Link
           to={action.to}
-          className="hover:bg-accent mt-2.5 inline-block rounded-lg border px-2 py-1 text-[11.5px]"
+          className="hover:bg-accent mt-2.5 inline-block rounded-lg border px-2 py-1 text-[12.5px]"
         >
           {action.label}
         </Link>
@@ -1167,8 +1167,8 @@ function ReaderNote({
       </header>
       <div className="flex flex-1 items-center justify-center px-6 text-center">
         <div className="max-w-[340px]">
-          <p className="text-[13.5px]">{title}</p>
-          <p className="text-muted-foreground mt-1.5 text-[12px] leading-relaxed">{body}</p>
+          <p className="text-[14.5px]">{title}</p>
+          <p className="text-muted-foreground mt-1.5 text-[13px] leading-relaxed">{body}</p>
         </div>
       </div>
     </>
@@ -1187,12 +1187,12 @@ function Center({
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6">
       <div className="max-w-[380px] text-center">
-        <h1 className="text-[19px] font-normal tracking-[-0.02em]">{title}</h1>
-        <p className="text-muted-foreground mt-1.5 text-[13px] leading-relaxed">{body}</p>
+        <h1 className="text-[20px] font-normal tracking-[-0.02em]">{title}</h1>
+        <p className="text-muted-foreground mt-1.5 text-[14px] leading-relaxed">{body}</p>
         {action && (
           <Link
             to={action.to}
-            className="hover:bg-accent mt-4 inline-block rounded-lg border px-2.5 py-1.5 text-[12.5px]"
+            className="hover:bg-accent mt-4 inline-block rounded-lg border px-2.5 py-1.5 text-[13.5px]"
           >
             {action.label}
           </Link>

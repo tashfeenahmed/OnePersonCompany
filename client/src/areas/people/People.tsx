@@ -138,7 +138,7 @@ function Contacts({ stale }: { stale: boolean }) {
     >
       {showSettings && (
         <div className="border-line-soft mb-5 rounded-xl border p-4">
-          <p className="text-muted-foreground mb-3 text-[12.5px]">
+          <p className="text-muted-foreground mb-3 text-[13.5px]">
             Five decisions, saved on the server and checked before they are stored. The window
             is what every count on this page is over; “minimum each way” is what separates a
             correspondence from a transaction; “stale after” is the calendar question this page's
@@ -149,7 +149,7 @@ function Contacts({ stale }: { stale: boolean }) {
       )}
 
       {/* The promise the page is under, in the page rather than in a tooltip. */}
-      <p className="text-muted-foreground mb-4 text-[11.5px]">
+      <p className="text-muted-foreground mb-4 text-[12.5px]">
         Mail headers only — addresses, counts and dates. Nothing here knows what anybody said,
         so a cooling correspondence is arithmetic about dates and not a story.
         {d?.floors && (
@@ -177,15 +177,15 @@ function Contacts({ stale }: { stale: boolean }) {
           >
             {all ? "Every address" : `Correspondences only (≥${d.minEachWay} each way)`}
           </Button>
-          <span className="text-muted-foreground ml-auto text-[11.5px]">
+          <span className="text-muted-foreground ml-auto text-[12.5px]">
             {d.counts.warm} warm · {d.counts.cooling} cooling · {d.counts.cold} cold ·{" "}
             {d.counts.noRhythm} no rhythm yet
           </span>
         </div>
       )}
 
-      {doc.error && <p className="text-destructive text-[13.5px]">{doc.error}</p>}
-      {d?.note && <p className="text-muted-foreground text-[13.5px]">{d.note}</p>}
+      {doc.error && <p className="text-destructive text-[14.5px]">{doc.error}</p>}
+      {d?.note && <p className="text-muted-foreground text-[14.5px]">{d.note}</p>}
 
       {rows.length > 0 && (
         <div className="border-line-soft divide-line-soft divide-y overflow-hidden rounded-xl border">
@@ -211,7 +211,7 @@ function Contacts({ stale }: { stale: boolean }) {
       )}
 
       {!doc.loading && !doc.error && !rows.length && d && d.counts.scanned > 0 && (
-        <p className="text-muted-foreground text-[13.5px]">
+        <p className="text-muted-foreground text-[14.5px]">
           {stale
             ? `Nobody has been silent for ${d.staleDays} days. That is a statement about this ${d.windowDays}-day window, not about your whole mailbox.`
             : "Nothing matches that search."}
@@ -264,16 +264,16 @@ function Brief() {
         </Button>
       }
     >
-      {problem && <p className="text-destructive mb-3 text-[13.5px]">{problem}</p>}
+      {problem && <p className="text-destructive mb-3 text-[14.5px]">{problem}</p>}
       {doc.error && (
-        <p className="text-muted-foreground text-[13.5px]">
+        <p className="text-muted-foreground text-[14.5px]">
           {/* A 404 here is "no brief yet", which is an ordinary state and not a
               failure — the error text from the route says so in words. */}
           {doc.error}
         </p>
       )}
       {d?.error && (
-        <p className="text-muted-foreground border-line-soft mb-4 rounded-lg border p-3 text-[12.5px]">
+        <p className="text-muted-foreground border-line-soft mb-4 rounded-lg border p-3 text-[13.5px]">
           {d.error}
         </p>
       )}
@@ -283,13 +283,13 @@ function Brief() {
         </div>
       )}
       {d?.figures?.firstBrief && (
-        <p className="text-muted-foreground mt-3 text-[11.5px]">
+        <p className="text-muted-foreground mt-3 text-[12.5px]">
           There was no previous brief to compare against, so nobody is reported as newly cooled.
           Next week's can say what changed.
         </p>
       )}
       {d && d.weeks.length > 1 && (
-        <p className="text-muted-foreground mt-3 text-[11.5px]">
+        <p className="text-muted-foreground mt-3 text-[12.5px]">
           Earlier weeks on record: {d.weeks.map((w) => w.week).join(", ")}
         </p>
       )}
@@ -347,7 +347,7 @@ function Commitments() {
       }
       wide
     >
-      <p className="text-muted-foreground mb-4 text-[11.5px]">
+      <p className="text-muted-foreground mb-4 text-[12.5px]">
         Found in your own sent mail. The bodies are read and dropped — what is kept is the
         sentence you wrote, who it was to, and the date. A promise with no date stated is
         undated, never overdue.
@@ -371,7 +371,7 @@ function Commitments() {
             className="w-[68px]"
             aria-label="Days of sent mail to scan"
           />
-          <span className="text-muted-foreground text-[11.5px]">days</span>
+          <span className="text-muted-foreground text-[12.5px]">days</span>
           <Button size="sm" variant="ghost" onClick={runScan} disabled={busy === "scan"}>
             {busy === "scan" ? (
               <Loader2 className="size-3.5 animate-spin" strokeWidth={1.6} />
@@ -383,7 +383,7 @@ function Commitments() {
         </span>
       </div>
 
-      {problem && <p className="text-destructive mb-3 text-[13.5px]">{problem}</p>}
+      {problem && <p className="text-destructive mb-3 text-[14.5px]">{problem}</p>}
 
       {/* Every refusal is a number. A scan that reported only what it kept
           would read as a quiet fortnight when it might be a pattern that has
@@ -391,7 +391,7 @@ function Commitments() {
       {scan && (
         <p
           className={cn(
-            "border-line-soft mb-4 rounded-lg border p-3 text-[12px]",
+            "border-line-soft mb-4 rounded-lg border p-3 text-[13px]",
             scan.ok ? "text-muted-foreground" : "text-destructive",
           )}
         >
@@ -407,8 +407,8 @@ function Commitments() {
         </p>
       )}
 
-      {doc.error && <p className="text-destructive text-[13.5px]">{doc.error}</p>}
-      {d?.note && <p className="text-muted-foreground text-[13.5px]">{d.note}</p>}
+      {doc.error && <p className="text-destructive text-[14.5px]">{doc.error}</p>}
+      {d?.note && <p className="text-muted-foreground text-[14.5px]">{d.note}</p>}
 
       {d && d.commitments.length > 0 && (
         <div className="border-line-soft overflow-hidden rounded-xl border">
@@ -424,7 +424,7 @@ function Commitments() {
       )}
 
       {!doc.loading && d && !d.commitments.length && !d.note && (
-        <p className="text-muted-foreground text-[13.5px]">
+        <p className="text-muted-foreground text-[14.5px]">
           Nothing {status === "all" ? "on record" : status} — which is a statement about the
           windows that have been scanned, not about every promise you have ever made.
         </p>

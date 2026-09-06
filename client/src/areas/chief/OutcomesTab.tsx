@@ -37,15 +37,15 @@ export function OutcomesTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  if (doc.error) return <p className="text-destructive text-[13.5px]">{doc.error}</p>;
+  if (doc.error) return <p className="text-destructive text-[14.5px]">{doc.error}</p>;
   if (!doc.data)
-    return <p className="text-muted-foreground text-[13.5px]">Reading the outcomes…</p>;
+    return <p className="text-muted-foreground text-[14.5px]">Reading the outcomes…</p>;
 
   const { outcomes, summary, schedule } = doc.data;
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-muted-foreground text-[12.5px]">
+      <p className="text-muted-foreground text-[13.5px]">
         One thing you did, one metric, a baseline taken when the link was made
         and readings at {schedule.offsetsDays.join(", ")} days after the action.
         <strong className="text-foreground font-medium">
@@ -62,7 +62,7 @@ export function OutcomesTab() {
           <Plus className="size-3.5" strokeWidth={1.6} />
           Track something
         </Button>
-        <span className="text-muted-foreground text-[11.5px] tabular-nums">
+        <span className="text-muted-foreground text-[12.5px] tabular-nums">
           {summary.up} up · {summary.down} down · {summary.flat} flat ·{" "}
           {summary.pending} too early · {summary.unreadable} unreadable
         </span>
@@ -78,10 +78,10 @@ export function OutcomesTab() {
         />
       )}
 
-      {failure && <p className="text-destructive text-[12.5px]">{failure}</p>}
+      {failure && <p className="text-destructive text-[13.5px]">{failure}</p>}
 
       {outcomes.length === 0 ? (
-        <p className="text-muted-foreground text-[13.5px]">
+        <p className="text-muted-foreground text-[14.5px]">
           Nothing is being tracked. Link a thing you did to a number and this
           page will read it again in a week.
         </p>
@@ -146,19 +146,19 @@ function OutcomeCard({
   const nextDue = outcome.due.find((d) => !d.overdue) ?? null;
 
   return (
-    <div className="border-line-soft bg-card rounded-[10px] border p-4">
+    <div className="border-line-soft bg-card rounded-[14px] border p-5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className="text-[13.5px] font-medium">{outcome.title}</span>
+        <span className="text-[14.5px] font-medium">{outcome.title}</span>
         {outcome.ventureName && (
-          <span className="text-muted-foreground text-[11.5px]">{outcome.ventureName}</span>
+          <span className="text-muted-foreground text-[12.5px]">{outcome.ventureName}</span>
         )}
-        <span className={cn("ml-auto text-[12.5px] font-medium", v.tone)}>{v.word}</span>
+        <span className={cn("ml-auto text-[13.5px] font-medium", v.tone)}>{v.word}</span>
       </div>
 
-      <p className="text-muted-foreground mt-0.5 text-[11.5px]">
+      <p className="text-muted-foreground mt-0.5 text-[12.5px]">
         {outcome.action.text} · done {outcome.action.at.slice(0, 10)} (
         {outcome.action.daysAgo} days ago) · metric{" "}
-        <code className="text-[11px]">{outcome.metric.address}</code>
+        <code className="text-[12px]">{outcome.metric.address}</code>
         {outcome.metric.unit && ` · ${outcome.metric.unit}`}
       </p>
 
@@ -166,8 +166,8 @@ function OutcomeCard({
         <Figure label="Before" value={outcome.before} />
         <Figure label="After" value={outcome.after} />
         <div>
-          <div className="text-muted-foreground text-[11px]">Change</div>
-          <div className="text-[15px] tabular-nums">
+          <div className="text-muted-foreground text-[12px]">Change</div>
+          <div className="text-[16px] tabular-nums">
             {outcome.delta === null ? (
               <span className="text-muted-foreground">—</span>
             ) : (
@@ -177,13 +177,13 @@ function OutcomeCard({
                 {/* Null pct is a real answer: a percentage of a zero baseline
                     is not a percentage, and the delta stands on its own. */}
                 {outcome.pct !== null && (
-                  <span className="text-muted-foreground ml-1.5 text-[12px]">
+                  <span className="text-muted-foreground ml-1.5 text-[13px]">
                     {outcome.pct > 0 ? "+" : ""}
                     {pct(outcome.pct / 100)}
                   </span>
                 )}
                 {outcome.pct === null && outcome.before === 0 && (
-                  <span className="text-muted-foreground ml-1.5 text-[12px]">
+                  <span className="text-muted-foreground ml-1.5 text-[13px]">
                     from nothing — no percentage
                   </span>
                 )}
@@ -196,13 +196,13 @@ function OutcomeCard({
         </div>
       </div>
 
-      <p className="text-muted-foreground mt-2 text-[11px] leading-snug">
+      <p className="text-muted-foreground mt-2 text-[12px] leading-snug">
         {outcome.window}{" "}
         {nextDue &&
           `Next reading due ${nextDue.dueAt.slice(0, 10)} (day ${nextDue.dayOffset}).`}
       </p>
       {outcome.baseline?.error && (
-        <p className="text-warn-foreground mt-1 text-[11px]">
+        <p className="text-warn-foreground mt-1 text-[12px]">
           Baseline: {outcome.baseline.error}
         </p>
       )}
@@ -228,8 +228,8 @@ function OutcomeCard({
 function Figure({ label, value }: { label: string; value: number | null }) {
   return (
     <div>
-      <div className="text-muted-foreground text-[11px]">{label}</div>
-      <div className="text-[15px] tabular-nums">
+      <div className="text-muted-foreground text-[12px]">{label}</div>
+      <div className="text-[16px] tabular-nums">
         {/* NOT ZERO. An em dash for a figure this box could not read. */}
         {value === null ? <span className="text-muted-foreground">—</span> : fmt(value)}
       </div>
@@ -285,7 +285,7 @@ function Gapline({ readings }: { readings: { value: number | null }[] }) {
 
   if (!pts)
     return (
-      <span className="text-muted-foreground text-[11px]">
+      <span className="text-muted-foreground text-[12px]">
         Not enough readings to draw a shape yet.
       </span>
     );
@@ -314,7 +314,7 @@ function Gapline({ readings }: { readings: { value: number | null }[] }) {
         ))}
       </svg>
       {pts.gaps > 0 && (
-        <span className="text-muted-foreground text-[11px]">
+        <span className="text-muted-foreground text-[12px]">
           {pts.gaps} reading{pts.gaps === 1 ? "" : "s"} could not be taken — the
           line breaks rather than dropping to zero.
         </span>
@@ -350,7 +350,7 @@ function TrackForm({
   const chosen = skills.find((s) => s.id === form.skill) ?? null;
 
   return (
-    <div className="border-line-soft bg-card rounded-[10px] border p-4">
+    <div className="border-line-soft bg-card rounded-[14px] border p-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <Row label="What you did" hint="The line you will read in a month.">
           <Input value={form.title} onChange={(e) => set("title", e.target.value)} />
@@ -368,7 +368,7 @@ function TrackForm({
           <select
             value={form.skill}
             onChange={(e) => set("skill", e.target.value)}
-            className="border-input bg-background h-8 rounded-lg border px-2 text-[13px]"
+            className="border-input bg-background h-8 rounded-lg border px-2 text-[14px]"
           >
             <option value="">Choose a skill…</option>
             {skills.map((s) => (
@@ -383,7 +383,7 @@ function TrackForm({
           <select
             value={form.view}
             onChange={(e) => set("view", e.target.value)}
-            className="border-input bg-background h-8 rounded-lg border px-2 text-[13px]"
+            className="border-input bg-background h-8 rounded-lg border px-2 text-[14px]"
           >
             {(chosen?.views ?? [{ key: "default" }]).map((v) => (
               <option key={v.key} value={v.key}>
@@ -445,7 +445,7 @@ function TrackForm({
           {saving && <Loader2 className="size-3.5 animate-spin" />}
           Take the baseline and track it
         </Button>
-        {failure && <span className="text-destructive text-[11.5px]">{failure}</span>}
+        {failure && <span className="text-destructive text-[12.5px]">{failure}</span>}
       </div>
     </div>
   );
@@ -462,9 +462,9 @@ function Row({
 }) {
   return (
     <div className="mt-3 grid gap-1 first:mt-0">
-      <span className="text-[12.5px] font-medium">{label}</span>
+      <span className="text-[13.5px] font-medium">{label}</span>
       {children}
-      <span className="text-muted-foreground text-[11px] leading-snug">{hint}</span>
+      <span className="text-muted-foreground text-[12px] leading-snug">{hint}</span>
     </div>
   );
 }

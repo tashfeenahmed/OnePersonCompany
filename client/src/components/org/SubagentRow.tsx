@@ -67,13 +67,13 @@ export function SubagentRow({
       <span
         className={cn(
           "min-w-0 truncate",
-          dense ? "text-[11.5px]" : "text-[12.5px]",
+          dense ? "text-[12.5px]" : "text-[13.5px]",
         )}
       >
         {label ?? sa.name}
       </span>
       {!dense && (
-        <span className="text-muted-foreground hidden shrink-0 text-[11.5px] sm:inline">
+        <span className="text-muted-foreground hidden shrink-0 text-[12.5px] sm:inline">
           {sa.title}
         </span>
       )}
@@ -81,7 +81,7 @@ export function SubagentRow({
       <span
         className={cn("ml-auto size-1.5 shrink-0 rounded-full", state.tone)}
       />
-      <span className="text-muted-foreground shrink-0 text-[11px]">
+      <span className="text-muted-foreground shrink-0 text-[12px]">
         {state.word}
       </span>
 
@@ -91,7 +91,7 @@ export function SubagentRow({
           been a run — `standing` has already said "never run" and repeating it
           as "never" would be the same absence twice. */}
       {!dense && last && (
-        <span className="text-muted-foreground hidden w-[64px] shrink-0 text-right text-[11px] sm:block">
+        <span className="text-muted-foreground hidden w-[64px] shrink-0 text-right text-[12px] sm:block">
           {ago(last.finishedAt ?? last.queuedAt)}
         </span>
       )}

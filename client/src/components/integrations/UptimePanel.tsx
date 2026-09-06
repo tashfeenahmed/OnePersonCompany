@@ -150,7 +150,7 @@ export function UptimePanel({ onCollected }: { onCollected?: () => void }) {
                   href={h.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-[13px] font-medium hover:underline"
+                  className="text-[14px] font-medium hover:underline"
                 >
                   {h.host}
                 </a>
@@ -170,14 +170,14 @@ export function UptimePanel({ onCollected }: { onCollected?: () => void }) {
                       : `certificate expires in ${tls.daysLeft}d`}
                   </Badge>
                 )}
-                <span className="text-muted-foreground ml-auto text-[11.5px] tabular-nums">
+                <span className="text-muted-foreground ml-auto text-[12.5px] tabular-nums">
                   {h.current?.latencyMs === null || h.current === null
                     ? "—"
                     : `${h.current.latencyMs} ms`}
                 </span>
               </div>
 
-              <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
+              <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[13px] tabular-nums">
                 <span>
                   {av.enough
                     ? `${pct(av.percent === null ? null : av.percent / 100)} of ${av.checks} checks in ${av.hours}h`
@@ -200,7 +200,7 @@ export function UptimePanel({ onCollected }: { onCollected?: () => void }) {
               </div>
 
               {!!h.incidents.length && (
-                <p className="text-destructive mt-1 text-[11.5px]">
+                <p className="text-destructive mt-1 text-[12.5px]">
                   {h.incidents.length} incident{h.incidents.length === 1 ? "" : "s"} in
                   this window — latest{" "}
                   {h.incidents.at(-1)!.error ??
@@ -209,7 +209,7 @@ export function UptimePanel({ onCollected }: { onCollected?: () => void }) {
                 </p>
               )}
               {h.note && (
-                <p className="text-muted-foreground mt-1 text-[11.5px]">{h.note}</p>
+                <p className="text-muted-foreground mt-1 text-[12.5px]">{h.note}</p>
               )}
 
               <EntityLinks

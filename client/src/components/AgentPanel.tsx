@@ -89,11 +89,11 @@ export function AgentPanel({ id }: { id: AgentId }) {
   return (
     <>
       <Separator className="mt-7 mb-5" />
-      <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+      <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
         Or spawn one here
       </div>
 
-      <p className="text-muted-foreground mb-4 text-[12.5px] leading-relaxed">
+      <p className="text-muted-foreground mb-4 text-[13.5px] leading-relaxed">
         This installs {agent.label} into the app's own data directory, points it
         at whichever model provider is the default, runs it as a child of this
         server, and connects the plugin to it — no URL and no key to paste. It
@@ -101,7 +101,7 @@ export function AgentPanel({ id }: { id: AgentId }) {
         it is stopped when this server stops.
       </p>
 
-      <div className="bg-card rounded-[10px] border p-3.5">
+      <div className="bg-card rounded-[14px] border p-4.5">
         <Head agent={agent} live={doc.data.live} />
 
         {/* What it is pointed at, which is the whole reason the model provider
@@ -109,13 +109,13 @@ export function AgentPanel({ id }: { id: AgentId }) {
         <Pointed agent={agent} doc={doc.data} />
 
         {agent.step && (
-          <p className="text-muted-foreground mt-2 text-[12px]">{agent.step}…</p>
+          <p className="text-muted-foreground mt-2 text-[13px]">{agent.step}…</p>
         )}
 
         {agent.lastError && (
           <p
             className={cn(
-              "mt-2 text-[12px] leading-snug",
+              "mt-2 text-[13px] leading-snug",
               agent.state === "failed" ? "text-destructive" : "text-muted-foreground",
             )}
           >
@@ -211,11 +211,11 @@ export function AgentPanel({ id }: { id: AgentId }) {
         </div>
 
         {problem && (
-          <p className="text-destructive mt-3 text-[12px] leading-snug">{problem}</p>
+          <p className="text-destructive mt-3 text-[13px] leading-snug">{problem}</p>
         )}
 
         {!doc.data.provider && doc.data.why && (
-          <p className="text-warn mt-3 text-[12px] leading-snug">{doc.data.why}</p>
+          <p className="text-warn mt-3 text-[13px] leading-snug">{doc.data.why}</p>
         )}
 
         {showLog && (
@@ -223,7 +223,7 @@ export function AgentPanel({ id }: { id: AgentId }) {
              Wrapped in its own scroller rather than allowed to grow the page:
              an installer prints a thousand lines and none of them should push
              the buttons off screen. */
-          <pre className="bg-muted text-muted-foreground mt-3 max-h-64 overflow-auto rounded-[8px] p-2.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
+          <pre className="bg-muted text-muted-foreground mt-3 max-h-64 overflow-auto rounded-[11px] p-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">
             {agent.log.join("\n")}
           </pre>
         )}
@@ -240,19 +240,19 @@ function Head({ agent, live }: { agent: AgentReport; live: AgentId | null }) {
   const moving = agent.state === "installing" || agent.state === "starting";
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[13px]">
+    <div className="flex flex-wrap items-center gap-2 text-[14px]">
       <span className="font-medium">{agent.label} here</span>
       {agent.live ? (
-        <span className="text-ok text-[11.5px]">live</span>
+        <span className="text-ok text-[12.5px]">live</span>
       ) : live !== null && agent.state === "running" ? (
         /* Running and not chosen is a real state and worth a word, because it
            is exactly the one somebody stares at wondering why their message
            went somewhere else. */
-        <span className="text-muted-foreground text-[11.5px]">ready, not live</span>
+        <span className="text-muted-foreground text-[12.5px]">ready, not live</span>
       ) : null}
       <span
         className={cn(
-          "ml-auto flex items-center gap-1.5 text-[11.5px]",
+          "ml-auto flex items-center gap-1.5 text-[12.5px]",
           bad ? "text-destructive" : moving ? "text-warn" : "text-muted-foreground",
         )}
       >
@@ -273,7 +273,7 @@ function Head({ agent, live }: { agent: AgentReport; live: AgentId | null }) {
 function Pointed({ agent, doc }: { agent: AgentReport; doc: AgentsDoc }) {
   if (agent.pointed)
     return (
-      <p className="mt-2 text-[12px] leading-relaxed">
+      <p className="mt-2 text-[13px] leading-relaxed">
         Thinking with{" "}
         <span className="font-medium">{agent.pointed.providerLabel}</span> ·{" "}
         <span className="font-mono">{agent.pointed.model}</span>{" "}
@@ -285,7 +285,7 @@ function Pointed({ agent, doc }: { agent: AgentReport; doc: AgentsDoc }) {
 
   if (doc.provider)
     return (
-      <p className="text-muted-foreground mt-2 text-[12px] leading-relaxed">
+      <p className="text-muted-foreground mt-2 text-[13px] leading-relaxed">
         Will be pointed at {doc.provider.label}
         {doc.provider.defaultModel ? ` · ${doc.provider.defaultModel}` : ""} when
         it starts.
@@ -311,7 +311,7 @@ function Facts({ agent }: { agent: AgentReport }) {
   if (!bits.length) return null;
 
   return (
-    <p className="text-muted-foreground mt-2 text-[11.5px] leading-relaxed">
+    <p className="text-muted-foreground mt-2 text-[12.5px] leading-relaxed">
       {bits.join(" · ")}
       {agent.state === "running" && (
         <>

@@ -48,16 +48,16 @@ export function MemoryTab() {
       });
   };
 
-  if (doc.error) return <p className="text-destructive text-[13.5px]">{doc.error}</p>;
+  if (doc.error) return <p className="text-destructive text-[14.5px]">{doc.error}</p>;
   if (!doc.data)
-    return <p className="text-muted-foreground text-[13.5px]">Reading the memory…</p>;
+    return <p className="text-muted-foreground text-[14.5px]">Reading the memory…</p>;
 
   const { notes, total, limits, passes, canUndo } = doc.data;
   const lastPass = passes[0] ?? null;
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-muted-foreground text-[12.5px]">
+      <p className="text-muted-foreground text-[13.5px]">
         The newest {limits.injectedIntoChat} relevant notes go into the agent's
         system turn on every conversation; the rest are counted for it rather
         than hidden. This is the dashboard's own memory, shared by whichever
@@ -66,13 +66,13 @@ export function MemoryTab() {
       </p>
 
       {/* ------------------------------------------------------------ write */}
-      <div className="border-line-soft bg-card rounded-[10px] border p-4">
+      <div className="border-line-soft bg-card rounded-[14px] border p-5">
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={2}
           placeholder="Something durable: a decision, a constraint, a thing that turned out not to work. Not a figure — those go stale."
-          className="text-[13px]"
+          className="text-[14px]"
         />
         <div className="mt-2 flex items-center gap-2">
           <Button
@@ -86,14 +86,14 @@ export function MemoryTab() {
           >
             Remember this
           </Button>
-          <span className="text-muted-foreground text-[11.5px]">
+          <span className="text-muted-foreground text-[12.5px]">
             {total} note{total === 1 ? "" : "s"}, cap {limits.maxNotes}
           </span>
         </div>
       </div>
 
       {/* -------------------------------------------------------- the passes */}
-      <div className="border-line-soft bg-card flex flex-wrap items-center gap-2 rounded-[10px] border p-3">
+      <div className="border-line-soft bg-card flex flex-wrap items-center gap-2 rounded-[14px] border p-4">
         <Button
           size="sm"
           variant="outline"
@@ -116,7 +116,7 @@ export function MemoryTab() {
           <Undo2 className="size-3.5" strokeWidth={1.6} />
           Undo the last pass
         </Button>
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           {lastPass
             ? `Last pass ${lastPass.week}: ${lastPass.notes_before} → ${lastPass.notes_after} notes` +
               (lastPass.error ? ` — ${lastPass.error}` : "")
@@ -124,14 +124,14 @@ export function MemoryTab() {
         </span>
       </div>
 
-      {said && <p className="text-muted-foreground text-[12.5px]">{said}</p>}
-      {failure && <p className="text-destructive text-[12.5px]">{failure}</p>}
+      {said && <p className="text-muted-foreground text-[13.5px]">{said}</p>}
+      {failure && <p className="text-destructive text-[13.5px]">{failure}</p>}
 
       {/* --------------------------------------------------------- the notes */}
       {notes.length === 0 ? (
-        <p className="text-muted-foreground text-[13.5px]">
+        <p className="text-muted-foreground text-[14.5px]">
           Nothing is remembered yet. The agent writes here through the{" "}
-          <code className="text-[12px]">memory</code> skill as it learns things;
+          <code className="text-[13px]">memory</code> skill as it learns things;
           you can type one above.
         </p>
       ) : (
@@ -166,14 +166,14 @@ function NoteRow({
   const [text, setText] = useState(note.text);
 
   return (
-    <div className="border-line-soft bg-card rounded-[10px] border px-3 py-2.5">
+    <div className="border-line-soft bg-card rounded-[14px] border px-4 py-3">
       {editing ? (
         <>
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={2}
-            className="text-[13px]"
+            className="text-[14px]"
           />
           <div className="mt-2 flex gap-2">
             <Button
@@ -195,8 +195,8 @@ function NoteRow({
       ) : (
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] leading-snug">{note.text}</p>
-            <p className="text-muted-foreground mt-1 text-[11.5px]">
+            <p className="text-[14px] leading-snug">{note.text}</p>
+            <p className="text-muted-foreground mt-1 text-[12.5px]">
               {/* THE PROVENANCE AND THE AGE, ALWAYS. Without them this is a
                   list of assertions about the owner. */}
               {note.source === "owner" ? "You told it" : "It noticed"} ·{" "}

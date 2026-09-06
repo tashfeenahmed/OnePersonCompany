@@ -95,7 +95,7 @@ export function WebAnalytics() {
 function Notes({ notes }: { notes: string[] }) {
   if (!notes.length) return null;
   return (
-    <ul className="text-muted-foreground mb-3 space-y-1 text-[11.5px]">
+    <ul className="text-muted-foreground mb-3 space-y-1 text-[12.5px]">
       {notes.map((n) => (
         <li key={n}>· {n}</li>
       ))}
@@ -125,7 +125,7 @@ function SitePicker({
         aria-label="Website"
         value={current}
         onChange={(e) => onSite(e.target.value)}
-        className="border-line-soft bg-card rounded border px-2 py-1 text-[12.5px]"
+        className="border-line-soft bg-card rounded border px-3 py-1.5 text-[13.5px]"
       >
         {rows.map((r) => (
           <option key={r.websiteId} value={r.websiteId}>
@@ -134,7 +134,7 @@ function SitePicker({
           </option>
         ))}
       </select>
-      <span className="text-muted-foreground text-[11.5px]">
+      <span className="text-muted-foreground text-[12.5px]">
         {row?.readAt
           ? `read ${row.staleHours ?? 0}h ago · rotation every ${sites.data?.everyHours}h`
           : "this site has not had its turn in the rotation yet — that is not a site with no traffic"}
@@ -178,10 +178,10 @@ function SegmentsTab({
             {/* WHICH WINDOW HAS A COMPARISON is a fact about the data, not a
                 label on the control: the 7-day cut is drawn against the 7 days
                 before it and the 30-day cut has nothing to compare with. */}
-            <span className="text-muted-foreground text-[11.5px]">
+            <span className="text-muted-foreground text-[12.5px]">
               the 7-day window is drawn against the 7 days before it
             </span>
-            <label className="flex items-center gap-1.5 text-[11.5px]">
+            <label className="flex items-center gap-1.5 text-[12.5px]">
               <input type="checkbox" checked={bots} onChange={(e) => onBots(e.target.checked)} />
               bot diagnostics
             </label>
@@ -217,8 +217,8 @@ function SegmentsBody({ site, days, bots }: { site: string; days: 7 | 30; bots: 
           <Figure label="pageviews" value={data.raw.pageviews} />
           <Figure label="visits" value={data.raw.visits} />
         </div>
-        <p className="text-muted-foreground mt-3 text-[11.5px]">{data.adjusted.visitors.basis}</p>
-        <p className="text-muted-foreground mt-1 text-[11.5px]">{data.adjusted.note}</p>
+        <p className="text-muted-foreground mt-3 text-[12.5px]">{data.adjusted.visitors.basis}</p>
+        <p className="text-muted-foreground mt-1 text-[12.5px]">{data.adjusted.note}</p>
       </SectionCard>
 
       {bots && (
@@ -229,7 +229,7 @@ function SegmentsBody({ site, days, bots }: { site: string; days: 7 | 30; bots: 
           {data.findings.length ? (
             data.findings.map((f) => <FindingRow key={`${f.heuristic}|${f.fingerprint}`} finding={f} />)
           ) : (
-            <p className="text-muted-foreground text-[12.5px]">
+            <p className="text-muted-foreground text-[13.5px]">
               No heuristic matched on this site. That is not proof there is no automated traffic — it
               is proof that none of the four tests below fired.
             </p>
@@ -237,17 +237,17 @@ function SegmentsBody({ site, days, bots }: { site: string; days: 7 | 30; bots: 
           {/* A TEST THAT COULD NOT BE RUN IS NOT A TEST THAT FOUND NOTHING, and
               this block is the difference. */}
           {data.refusals.map((r) => (
-            <p key={`${r.heuristic}|${r.windowDays}|${r.offsetDays}`} className="text-warn-foreground mt-2 text-[11.5px]">
+            <p key={`${r.heuristic}|${r.windowDays}|${r.offsetDays}`} className="text-warn-foreground mt-2 text-[12.5px]">
               {r.heuristic} was NOT RUN over {r.windowDays} days — {r.reason}
             </p>
           ))}
           <details className="mt-3">
-            <summary className="text-muted-foreground cursor-pointer text-[11.5px]">
+            <summary className="text-muted-foreground cursor-pointer text-[12.5px]">
               The rubric, and how each test can be wrong
             </summary>
             <div className="mt-2 space-y-3">
               {data.heuristics.map((h) => (
-                <div key={h.id} className="text-[11.5px]">
+                <div key={h.id} className="text-[12.5px]">
                   <p className="font-medium">
                     {h.title}{" "}
                     <span className="text-muted-foreground font-normal">
@@ -287,11 +287,11 @@ function Figure({
 }) {
   return (
     <div className={cn("rounded-lg px-2 py-1.5", emphasis && "bg-accent")}>
-      <p className="text-muted-foreground text-[11.5px]">{label}</p>
-      <p className="text-[19px]">
+      <p className="text-muted-foreground text-[12.5px]">{label}</p>
+      <p className="text-[20px]">
         <Num value={value} digits={digits} />
       </p>
-      {sub && <p className="text-muted-foreground text-[11px]">{sub}</p>}
+      {sub && <p className="text-muted-foreground text-[12px]">{sub}</p>}
     </div>
   );
 }
@@ -299,17 +299,17 @@ function Figure({
 function FindingRow({ finding }: { finding: Finding }) {
   return (
     <div className="border-line-soft mb-3 border-l-2 pl-3">
-      <p className="text-[12.5px] font-medium">
+      <p className="text-[13.5px] font-medium">
         {finding.title}{" "}
         <span className="text-muted-foreground font-normal">· {finding.fingerprint}</span>
       </p>
-      <p className="text-muted-foreground text-[11.5px]">
+      <p className="text-muted-foreground text-[12.5px]">
         {finding.excluded === null
           ? "excludes nothing by design"
           : `${count(finding.excluded)} ${finding.population} over ${finding.windowDays} days`}
         {finding.firstSeen ? ` · first seen ${finding.firstSeen.slice(0, 10)}` : ""}
       </p>
-      <ul className="text-muted-foreground mt-1 space-y-0.5 text-[11.5px]">
+      <ul className="text-muted-foreground mt-1 space-y-0.5 text-[12.5px]">
         {finding.evidence.map((e) => (
           <li key={e}>· {e}</li>
         ))}
@@ -333,7 +333,7 @@ function SegmentCard({ block }: { block: SegmentBlock }) {
       }`}
     >
       {block.gapReason && (
-        <p className="text-muted-foreground mb-2 text-[11.5px]">{block.gapReason}</p>
+        <p className="text-muted-foreground mb-2 text-[12.5px]">{block.gapReason}</p>
       )}
       {/* THE SHARES ARE THE SERVER'S, of the dimension's own rows — never
           re-derived here from the twelve rows drawn, which would be a share of
@@ -374,7 +374,7 @@ function EventsBody({ site }: { site: string }) {
   const rows = data?.sites[0]?.events ?? [];
   if (!rows.length)
     return (
-      <p className="text-muted-foreground text-[13px]">
+      <p className="text-muted-foreground text-[14px]">
         No custom events have been collected for this website. Either none are sent, or this site has
         not had its turn in the rotation.
       </p>
@@ -394,11 +394,11 @@ function EventsBody({ site }: { site: string }) {
             <Figure label="per participant" value={e.perParticipant} digits={2} sub="repeats, not steps" />
           </div>
           {e.participants === null && e.participantsError && (
-            <p className="text-muted-foreground mt-2 text-[11.5px]">{e.participantsError}</p>
+            <p className="text-muted-foreground mt-2 text-[12.5px]">{e.participantsError}</p>
           )}
           {e.properties.length > 0 && (
-            <table className="mt-3 w-full text-[12px]">
-              <thead className="text-muted-foreground text-[11px]">
+            <table className="mt-3 w-full text-[13px]">
+              <thead className="text-muted-foreground text-[12px]">
                 <tr>
                   <th className="py-1 text-left font-normal">property</th>
                   <th className="py-1 text-left font-normal">type</th>
@@ -484,7 +484,7 @@ function CampaignsTab() {
         {doc.links.length ? (
           <ul className="space-y-2">
             {doc.links.map((l) => (
-              <li key={l.campaignId} className="flex flex-wrap items-baseline gap-2 text-[12.5px]">
+              <li key={l.campaignId} className="flex flex-wrap items-baseline gap-2 text-[13.5px]">
                 <span className="font-medium">{l.venture.name ?? l.venture.id}</span>
                 <span className="text-muted-foreground">
                   {l.platform} · {l.campaignId} · {l.source}
@@ -493,18 +493,18 @@ function CampaignsTab() {
                   type="button"
                   disabled={busy === l.campaignId}
                   onClick={() => void remove(l.campaignId)}
-                  className="border-line-soft ml-auto rounded border px-2 py-0.5 text-[11.5px]"
+                  className="border-line-soft ml-auto rounded border px-2 py-0.5 text-[12.5px]"
                 >
                   unfile
                 </button>
                 {l.evidence && (
-                  <p className="text-muted-foreground w-full text-[11px]">{l.evidence}</p>
+                  <p className="text-muted-foreground w-full text-[12px]">{l.evidence}</p>
                 )}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-muted-foreground text-[12.5px]">Nothing is filed yet.</p>
+          <p className="text-muted-foreground text-[13.5px]">Nothing is filed yet.</p>
         )}
       </SectionCard>
 
@@ -512,30 +512,30 @@ function CampaignsTab() {
         {doc.suggestions.length ? (
           <ul className="space-y-2">
             {doc.suggestions.map((s) => (
-              <li key={`${s.campaignId}|${s.venture.id}`} className="text-[12.5px]">
+              <li key={`${s.campaignId}|${s.venture.id}`} className="text-[13.5px]">
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="font-medium">{s.venture.name}</span>
                   <span className="text-muted-foreground">
                     {s.campaignName ?? s.campaignId} · {s.via}
                   </span>
                   {doc.contested.includes(s.campaignId) && (
-                    <span className="text-destructive text-[11px]">contested</span>
+                    <span className="text-destructive text-[12px]">contested</span>
                   )}
                   <button
                     type="button"
                     disabled={busy === s.campaignId}
                     onClick={() => void apply(s.campaignId, s.venture.id)}
-                    className="border-line-soft ml-auto rounded border px-2 py-0.5 text-[11.5px]"
+                    className="border-line-soft ml-auto rounded border px-2 py-0.5 text-[12.5px]"
                   >
                     file it
                   </button>
                 </div>
-                <p className="text-muted-foreground text-[11px]">{s.evidence}</p>
+                <p className="text-muted-foreground text-[12px]">{s.evidence}</p>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             No campaign matched a venture host. That is a fact about the campaign names and creative
             links, not about the businesses.
           </p>
@@ -572,8 +572,8 @@ function VentureJoinCard({ ventureId }: { ventureId: string }) {
     >
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div>
-          <p className="text-muted-foreground text-[11.5px]">ad spend</p>
-          <p className="text-[17px]">
+          <p className="text-muted-foreground text-[12.5px]">ad spend</p>
+          <p className="text-[18px]">
             {data.spend.length
               ? data.spend.map((s) => money(s.amount, s.currency)).join(" · ")
               : "—"}
@@ -586,8 +586,8 @@ function VentureJoinCard({ ventureId }: { ventureId: string }) {
           sub={data.taggedViews === null ? "not measured — see below" : undefined}
         />
         <div>
-          <p className="text-muted-foreground text-[11.5px]">blended ratio</p>
-          <p className="text-[17px]">
+          <p className="text-muted-foreground text-[12.5px]">blended ratio</p>
+          <p className="text-[18px]">
             {data.blended.ratio.length
               ? data.blended.ratio
                   .map((r) => (r.value === null ? `— ${r.currency}` : `${r.value}× ${r.currency}`))
@@ -597,7 +597,7 @@ function VentureJoinCard({ ventureId }: { ventureId: string }) {
         </div>
       </div>
       {data.conversions.length > 0 && (
-        <p className="mt-3 text-[12.5px]">
+        <p className="mt-3 text-[13.5px]">
           conversions:{" "}
           {data.conversions
             .map((c) => `${c.event} ${c.participants ?? "—"} participants`)
@@ -626,7 +626,7 @@ function CreativesTab() {
   if (!data) return null;
   if (!data.ads.length)
     return (
-      <p className="text-muted-foreground text-[13px]">
+      <p className="text-muted-foreground text-[14px]">
         No advertisements have been collected yet. This reads the ad accounts the Meta collector
         already found, so collect Meta first and then this area.
       </p>
@@ -643,7 +643,7 @@ function CreativesTab() {
         title="Fatigue"
         meta={`${data.compareDays} complete days against the ${data.compareDays} before · under ${count(data.minImpressions)} impressions there is no verdict`}
       >
-        <p className="text-muted-foreground mb-3 text-[11.5px]">
+        <p className="text-muted-foreground mb-3 text-[12.5px]">
           {order.map((k) => `${data.counts[k] ?? 0} ${k}`).join(" · ")}
         </p>
         {ads.map((a) => (
@@ -653,7 +653,7 @@ function CreativesTab() {
 
       {data.statuses.length > 0 && (
         <SectionCard title="Issues and mismatched delivery" meta={`${data.statuses.length}`}>
-          <ul className="space-y-2 text-[12.5px]">
+          <ul className="space-y-2 text-[13.5px]">
             {data.statuses.map((s) => (
               <li key={s.adId}>
                 <span className="font-medium">{s.name ?? s.adId}</span>{" "}
@@ -662,7 +662,7 @@ function CreativesTab() {
                   {s.mismatched ? " — reads as live where it was set up and is not delivering" : ""}
                 </span>
                 {s.issues.length > 0 && (
-                  <pre className="text-muted-foreground mt-1 overflow-x-auto text-[11px]">
+                  <pre className="text-muted-foreground mt-1 overflow-x-auto text-[12px]">
                     {JSON.stringify(s.issues, null, 1)}
                   </pre>
                 )}
@@ -673,8 +673,8 @@ function CreativesTab() {
       )}
 
       <SectionCard title="Ad sets" meta={`${data.adSets.length}`}>
-        <table className="w-full text-[12px]">
-          <thead className="text-muted-foreground text-[11px]">
+        <table className="w-full text-[13px]">
+          <thead className="text-muted-foreground text-[12px]">
             <tr>
               <th className="py-1 text-left font-normal">name</th>
               <th className="py-1 text-left font-normal">status</th>
@@ -691,7 +691,7 @@ function CreativesTab() {
                 <td className="text-muted-foreground py-1">{s.optimizationGoal ?? "—"}</td>
                 <td className="py-1 text-right">
                   <Num value={s.dailyBudgetMinor} />
-                  {s.currency ? <span className="text-muted-foreground text-[11px]"> {s.currency}</span> : null}
+                  {s.currency ? <span className="text-muted-foreground text-[12px]"> {s.currency}</span> : null}
                 </td>
                 <td className="py-1 text-right">{s.ads}</td>
               </tr>
@@ -708,7 +708,7 @@ function CreativesTab() {
 function AdCard({ ad }: { ad: AdRow }) {
   return (
     <div className="border-line-soft mb-3 border-l-2 pl-3">
-      <p className="text-[12.5px]">
+      <p className="text-[13.5px]">
         <span className={cn("font-medium", VERDICT_TONE[ad.verdict])}>{ad.verdict}</span>{" "}
         <span>{ad.name ?? ad.adId}</span>{" "}
         <span className="text-muted-foreground">
@@ -717,9 +717,9 @@ function AdCard({ ad }: { ad: AdRow }) {
           {ad.venture ? ` · ${ad.venture.name}` : ""}
         </span>
       </p>
-      {ad.why && <p className="text-muted-foreground text-[11.5px]">{ad.why}</p>}
+      {ad.why && <p className="text-muted-foreground text-[12.5px]">{ad.why}</p>}
       {ad.evidence.length > 0 && (
-        <ul className="text-muted-foreground mt-1 space-y-0.5 text-[11.5px]">
+        <ul className="text-muted-foreground mt-1 space-y-0.5 text-[12.5px]">
           {ad.evidence.map((e) => (
             <li key={e}>· {e}</li>
           ))}

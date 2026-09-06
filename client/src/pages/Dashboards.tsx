@@ -93,7 +93,7 @@ export function Dashboards({ report }: { report?: "email-stats" }) {
         />
         <button
           onClick={() => setCreating(true)}
-          className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]"
+          className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
         >
           <Plus className="size-3.5" strokeWidth={1.6} />
           <span className="hidden sm:inline">New dashboard</span><span className="sr-only sm:hidden">New dashboard</span>

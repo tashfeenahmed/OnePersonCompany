@@ -74,12 +74,12 @@ function Delta({ value, percent, invert }: { value: number | null; percent?: num
 function ReadingLine({ r, label }: { r: SeoReading; label: string }) {
   if (!r.measured)
     return (
-      <div className="text-muted-foreground border-line-soft border-l-2 border-dashed py-1 pl-2.5 text-[12px]">
+      <div className="text-muted-foreground border-line-soft border-l-2 border-dashed py-1 pl-2.5 text-[13px]">
         <span className="font-medium">{label}</span> — not measured. {r.error}
       </div>
     );
   return (
-    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 py-1 text-[12px]">
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 py-1 text-[13px]">
       <span className="font-medium">{label}</span>
       <span>
         <Figure value={r.clicks} /> <span className="text-muted-foreground">clicks</span>
@@ -93,7 +93,7 @@ function ReadingLine({ r, label }: { r: SeoReading; label: string }) {
       <span>
         <Figure value={r.position} /> <span className="text-muted-foreground">avg position</span>
       </span>
-      <span className="text-muted-foreground ml-auto text-[11px]">
+      <span className="text-muted-foreground ml-auto text-[12px]">
         {r.window.days}d to {r.window.end} · {r.source === "stored-capped" ? "stored, capped" : "exact, filtered"}
       </span>
     </div>
@@ -122,14 +122,14 @@ export function SeoFollowUpsTab() {
     }
   }
 
-  if (doc.error) return <p className="text-muted-foreground text-[13px]">The API is not answering: {doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground text-[13px]">Reading…</p>;
+  if (doc.error) return <p className="text-muted-foreground text-[14px]">The API is not answering: {doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground text-[14px]">Reading…</p>;
   const d = doc.data;
 
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-[13px]">
+        <span className="text-[14px]">
           {d.count} URL{d.count === 1 ? "" : "s"} tracked · follow-ups at {d.schedule.offsetsDays.join(", ")} days ·{" "}
           {d.schedule.windowDays}-day windows
         </span>
@@ -163,11 +163,11 @@ export function SeoFollowUpsTab() {
         </div>
       </div>
 
-      {problem && <p className="text-destructive mb-3 text-[12.5px]">{problem}</p>}
+      {problem && <p className="text-destructive mb-3 text-[13.5px]">{problem}</p>}
 
       <div className="mb-5 flex flex-wrap gap-2">
         <input
-          className="border-line-soft bg-card min-w-[260px] flex-1 rounded-[8px] border px-2.5 py-1.5 text-[12.5px]"
+          className="border-line-soft bg-card min-w-[260px] flex-1 rounded-[11px] border px-3 py-2 text-[13.5px]"
           placeholder={`Track a URL by hand — for work that never went through a card tagged ${d.schedule.tag}`}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -188,7 +188,7 @@ export function SeoFollowUpsTab() {
       </div>
 
       {cands.data && cands.data.tagged > 0 && (
-        <p className="text-muted-foreground mb-4 text-[12px]">
+        <p className="text-muted-foreground mb-4 text-[13px]">
           {cands.data.tagged} finished card{cands.data.tagged === 1 ? " carries" : "s carry"} {cands.data.tag} out of{" "}
           {cands.data.doneCardsScanned} in Done.{" "}
           {cands.data.candidates.reduce((n, c) => n + c.urls.filter((_, i) => !c.tracked[i]).length, 0)} URL(s) on them
@@ -197,12 +197,12 @@ export function SeoFollowUpsTab() {
       )}
 
       {!d.count ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           Nothing is tracked yet. Mark a board card done with {d.schedule.tag} in it and a URL in its body, then press
           Sweep — or paste a URL above.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[10px] border">
+        <div className="overflow-hidden rounded-[14px] border">
           {d.baselines.map((b: SeoBaseline, i) => {
             const latest = b.diagnoses.at(-1) ?? null;
             const overdue = b.due.filter((x) => x.overdue).length;
@@ -210,7 +210,7 @@ export function SeoFollowUpsTab() {
               <div key={b.id} className={cn(i > 0 && "border-line-soft border-t")}>
                 <button
                   onClick={() => setOpen(open === b.id ? null : b.id)}
-                  className="hover:bg-accent flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-3.5 py-2.5 text-left text-[12.5px]"
+                  className="hover:bg-accent flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-3.5 py-2.5 text-left text-[13.5px]"
                 >
                   {latest ? (
                     <Badge variant={TONE[latest.verdict]} className={DASHED[latest.verdict]}>
@@ -224,7 +224,7 @@ export function SeoFollowUpsTab() {
                   )}
                   <span className="font-medium">{b.title}</span>
                   {b.ventureName && <span className="text-muted-foreground">{b.ventureName}</span>}
-                  <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]">
+                  <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
                     {overdue > 0 && <span className="text-warn">{overdue} due · </span>}
                     day {b.daysSinceAction} · {ago(b.actionAt)}
                   </span>
@@ -236,11 +236,11 @@ export function SeoFollowUpsTab() {
                       href={b.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-muted-foreground hover:text-foreground block truncate font-mono text-[11.5px]"
+                      className="text-muted-foreground hover:text-foreground block truncate font-mono text-[12.5px]"
                     >
                       {b.url}
                     </a>
-                    <p className="text-muted-foreground mt-0.5 text-[11px]">
+                    <p className="text-muted-foreground mt-0.5 text-[12px]">
                       {b.property ? `Measured under ${b.property}.` : "No Search Console property covers this URL."}
                       {b.source.kind === "card" ? ` From board card #${b.source.ref}.` : " Tracked by hand."}
                       {b.outcomeId && (
@@ -263,18 +263,18 @@ export function SeoFollowUpsTab() {
                     </div>
 
                     {b.diagnoses.map((dg) => (
-                      <div key={dg.dayOffset} className="border-line-soft mt-2.5 rounded-[8px] border px-2.5 py-2">
-                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[12px]">
+                      <div key={dg.dayOffset} className="border-line-soft mt-2.5 rounded-[11px] border px-2.5 py-2">
+                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px]">
                           <Badge variant={TONE[dg.verdict]} className={DASHED[dg.verdict]}>
                             {dg.verdict}
                           </Badge>
                           <span className="font-medium">{dg.diagnosis}</span>
-                          <span className="text-muted-foreground text-[11px]">
+                          <span className="text-muted-foreground text-[12px]">
                             at day {dg.dayOffset} · decided by {dg.decidedBy === "model" ? `a model${dg.model ? ` (${dg.model})` : ""}` : `rule ${dg.rule}`}
                           </span>
                         </div>
                         {dg.delta && (
-                          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px]">
+                          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[13px]">
                             <span>
                               <span className="text-muted-foreground">clicks </span>
                               <Delta value={dg.delta.clicks} percent={dg.delta.clicksPct} />
@@ -293,24 +293,24 @@ export function SeoFollowUpsTab() {
                             </span>
                           </div>
                         )}
-                        <p className="mt-1.5 text-[12px]">{dg.next}</p>
+                        <p className="mt-1.5 text-[13px]">{dg.next}</p>
                         {dg.modelNote && (
-                          <p className="text-muted-foreground mt-1 text-[11.5px] italic">{dg.modelNote}</p>
+                          <p className="text-muted-foreground mt-1 text-[12.5px] italic">{dg.modelNote}</p>
                         )}
-                        {dg.note && <p className="text-muted-foreground mt-1 text-[11px]">{dg.note}</p>}
+                        {dg.note && <p className="text-muted-foreground mt-1 text-[12px]">{dg.note}</p>}
                       </div>
                     ))}
 
                     {b.missedOffsets.length > 0 && (
-                      <p className="text-muted-foreground mt-2.5 text-[11px] leading-relaxed">
+                      <p className="text-muted-foreground mt-2.5 text-[12px] leading-relaxed">
                         The day {b.missedOffsets.join(", ")} reading{b.missedOffsets.length === 1 ? "" : "s"} can never
                         be taken: {b.missedOffsets.length === 1 ? "that day" : "those days"} had already passed when
                         this URL was first tracked, so there is no window to measure. Nothing was lost — there was
                         never anything there to read.
                       </p>
                     )}
-                    <p className="text-muted-foreground mt-2.5 text-[11px] leading-relaxed">{b.window}</p>
-                    <p className="text-muted-foreground text-[11px] leading-relaxed">{b.caveat}</p>
+                    <p className="text-muted-foreground mt-2.5 text-[12px] leading-relaxed">{b.window}</p>
+                    <p className="text-muted-foreground text-[12px] leading-relaxed">{b.caveat}</p>
 
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       {b.due.some((x) => x.overdue) && (
@@ -349,7 +349,7 @@ export function SeoFollowUpsTab() {
 
       <div className="mt-6">
         {d.notes.map((n) => (
-          <p key={n} className="text-muted-foreground mb-1.5 max-w-[760px] text-[11.5px] leading-relaxed">
+          <p key={n} className="text-muted-foreground mb-1.5 max-w-[760px] text-[12.5px] leading-relaxed">
             {n}
           </p>
         ))}

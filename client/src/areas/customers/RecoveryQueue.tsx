@@ -90,7 +90,7 @@ export function RecoveryQueueTab({ tick, onChanged }: { tick: number; onChanged:
       <Stats items={stats} />
 
       {d && !d.lastPass.ok && d.lastPass.at && (
-        <div className="border-line-soft mb-4 rounded-[10px] border px-3.5 py-2.5 text-[12.5px]">
+        <div className="border-line-soft mb-4 rounded-[14px] border px-3.5 py-2.5 text-[13.5px]">
           <span className="text-destructive">The last pass failed.</span>{" "}
           <span className="text-muted-foreground">
             {d.lastPass.error ?? "No reason was recorded."} This list is as complete as the
@@ -105,7 +105,7 @@ export function RecoveryQueueTab({ tick, onChanged }: { tick: number; onChanged:
             key={k.key}
             onClick={() => setKind(k.key)}
             className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px]",
+              "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[13.5px]",
               kind === k.key && "bg-accent text-foreground font-medium",
             )}
           >
@@ -118,7 +118,7 @@ export function RecoveryQueueTab({ tick, onChanged }: { tick: number; onChanged:
         <button
           onClick={() => setShowResolved((v) => !v)}
           className={cn(
-            "text-muted-foreground hover:bg-accent hover:text-foreground ml-auto rounded-lg px-2.5 py-1.5 text-[12.5px]",
+            "text-muted-foreground hover:bg-accent hover:text-foreground ml-auto rounded-lg px-2.5 py-1.5 text-[13.5px]",
             showResolved && "bg-accent text-foreground font-medium",
           )}
         >
@@ -176,20 +176,20 @@ function CaseRow({
   };
 
   return (
-    <div className={cn("bg-card rounded-[10px] border px-3.5 py-3", closed && "opacity-60")}>
+    <div className={cn("bg-card rounded-[14px] border px-4.5 py-3.5", closed && "opacity-60")}>
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <span className="text-muted-foreground text-[11.5px]">{KIND_LABEL[c.kind]}</span>
+        <span className="text-muted-foreground text-[12.5px]">{KIND_LABEL[c.kind]}</span>
         {/* THE NOUN A PERSON WOULD RECOGNISE, in the order they would: what
             was sold, then what it was priced as, then the invoice's own
             number, and only then Stripe's opaque object id. */}
-        <span className="text-[13.5px]">{title(c)}</span>
+        <span className="text-[14.5px]">{title(c)}</span>
         {c.ventureName && (
-          <span className="text-muted-foreground text-[11.5px]">· {c.ventureName}</span>
+          <span className="text-muted-foreground text-[12.5px]">· {c.ventureName}</span>
         )}
-        {cash && <span className="text-[13px] tabular-nums">{cash}</span>}
+        {cash && <span className="text-[14px] tabular-nums">{cash}</span>}
         <span
           className={cn(
-            "ml-auto text-[12.5px] tabular-nums",
+            "ml-auto text-[13.5px] tabular-nums",
             overdue ? "text-foreground font-medium" : "text-muted-foreground",
           )}
         >
@@ -197,7 +197,7 @@ function CaseRow({
         </span>
       </div>
 
-      <div className="text-muted-foreground mt-1 text-[11.5px]">
+      <div className="text-muted-foreground mt-1 text-[12.5px]">
         {c.deadlineIs ?? "no deadline recorded"}
         {c.status !== "open" && <> · {c.status}</>}
         {c.outboxId && (
@@ -212,13 +212,13 @@ function CaseRow({
       </div>
 
       {c.resolution && (
-        <div className="text-muted-foreground mt-1 text-[12px] italic">{c.resolution}</div>
+        <div className="text-muted-foreground mt-1 text-[13px] italic">{c.resolution}</div>
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           onClick={() => setOpen((v) => !v)}
-          className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2 py-1 text-[11.5px]"
+          className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2 py-1 text-[12.5px]"
         >
           {open ? "Hide facts" : "Facts"}
         </button>
@@ -231,7 +231,7 @@ function CaseRow({
                 ? "Write a follow-up into the Outbox as a draft"
                 : c.contact.why
             }
-            className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] disabled:opacity-40"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] disabled:opacity-40"
           >
             <FileText className="size-3.5" strokeWidth={1.6} /> Prepare draft
           </button>
@@ -241,7 +241,7 @@ function CaseRow({
             <button
               disabled={busy}
               onClick={() => act(() => customersApi.resolve(c.id, "Closed from the Customers page."))}
-              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] disabled:opacity-40"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] disabled:opacity-40"
             >
               <Check className="size-3.5" strokeWidth={1.6} /> Resolve
             </button>
@@ -249,23 +249,23 @@ function CaseRow({
               disabled={busy}
               onClick={() => act(() => customersApi.dismiss(c.id, "Dismissed from the Customers page."))}
               title="Permanent — the pass never re-opens a dismissed case"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] disabled:opacity-40"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] disabled:opacity-40"
             >
               <X className="size-3.5" strokeWidth={1.6} /> Dismiss
             </button>
           </>
         )}
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {c.contact.address ?? (c.contact.known ? `${c.contact.domain ?? "address"} · hidden` : "no address")}
         </span>
       </div>
 
-      {said && <div className="text-destructive mt-2 text-[11.5px]">{said}</div>}
+      {said && <div className="text-destructive mt-2 text-[12.5px]">{said}</div>}
 
       {open && (
         <div className="border-line-soft mt-2.5 border-t pt-2.5">
-          <div className="text-muted-foreground mb-1.5 text-[11.5px]">{c.contact.why}</div>
-          <pre className="text-muted-foreground overflow-x-auto text-[11.5px] leading-relaxed">
+          <div className="text-muted-foreground mb-1.5 text-[12.5px]">{c.contact.why}</div>
+          <pre className="text-muted-foreground overflow-x-auto text-[12.5px] leading-relaxed">
             {JSON.stringify(c.context, null, 1)}
           </pre>
         </div>

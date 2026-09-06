@@ -69,13 +69,13 @@ export function BriefingPanel() {
         <Button
           onClick={buildNow}
           disabled={building}
-          className="h-8 gap-2 text-[12.5px]"
+          className="h-8 gap-2 text-[13.5px]"
         >
           <RefreshCw className={cn("size-3.5", building && "animate-spin")} strokeWidth={1.6} />
           {building ? "Building…" : "Build now"}
         </Button>
         {s && (
-          <span className="text-muted-foreground text-[11.5px]">
+          <span className="text-muted-foreground text-[12.5px]">
             Scheduled for {String(s.hour).padStart(2, "0")}:00 {s.timezone} ·{" "}
             {s.telegram ? "pushed to Telegram" : "not pushed to Telegram"} ·{" "}
             <Link to="/integrations/briefing" className="hover:text-foreground underline">
@@ -85,15 +85,15 @@ export function BriefingPanel() {
         )}
       </div>
 
-      {said && <p className="text-muted-foreground mb-3 text-[12px]">{said}</p>}
+      {said && <p className="text-muted-foreground mb-3 text-[13px]">{said}</p>}
 
       {doc.error ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           The briefing could not be read.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
       ) : !b ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           {doc.loading
             ? "Reading the latest briefing…"
             : (doc.data?.note ??
@@ -101,8 +101,8 @@ export function BriefingPanel() {
         </p>
       ) : (
         <>
-          <div className="text-muted-foreground mb-3 flex flex-wrap items-center gap-x-2 text-[11.5px]">
-            <span className="text-foreground text-[13px]">{b.day}</span>
+          <div className="text-muted-foreground mb-3 flex flex-wrap items-center gap-x-2 text-[12.5px]">
+            <span className="text-foreground text-[14px]">{b.day}</span>
             <span>· built {ago(b.builtAt)}</span>
             {/* WHICH MODEL WROTE IT, always said. A reader is entitled to know
                 whose sentences these are, and null is "nobody wrote them". */}
@@ -123,7 +123,7 @@ export function BriefingPanel() {
           {b.markdown.trim() ? (
             <Markdown text={b.markdown} />
           ) : (
-            <p className="text-muted-foreground text-[13px]">
+            <p className="text-muted-foreground text-[14px]">
               {b.note ?? "No write-up was produced."} The facts below were still
               assembled and are what the write-up would have been made from.
             </p>
@@ -148,8 +148,8 @@ export function BriefingPanel() {
 function Facts({ facts }: { facts: BriefingFacts }) {
   if (!facts?.day) return null;
   return (
-    <details className="border-line-soft mt-6 rounded-[10px] border">
-      <summary className="text-muted-foreground cursor-pointer px-3.5 py-2.5 text-[12px]">
+    <details className="border-line-soft mt-6 rounded-[14px] border">
+      <summary className="text-muted-foreground cursor-pointer px-3.5 py-2.5 text-[13px]">
         The facts this was built from — read {facts.since ? `since ${facts.since.slice(0, 16).replace("T", " ")}` : ""}
       </summary>
       <div className="border-line-soft flex flex-col gap-3.5 border-t px-3.5 py-3">
@@ -157,13 +157,13 @@ function Facts({ facts }: { facts: BriefingFacts }) {
           {facts.alerts?.trips?.length || facts.alerts?.unreadable?.length ? (
             <ul className="flex flex-col gap-1">
               {facts.alerts.trips?.map((t, i) => (
-                <li key={`t${i}`} className="text-[12px] leading-[1.5]">
+                <li key={`t${i}`} className="text-[13px] leading-[1.5]">
                   <span className="text-muted-foreground">{t.ts.slice(11, 16)} </span>
                   {t.message}
                 </li>
               ))}
               {facts.alerts.unreadable?.map((u, i) => (
-                <li key={`u${i}`} className="text-destructive text-[12px] leading-[1.5]">
+                <li key={`u${i}`} className="text-destructive text-[13px] leading-[1.5]">
                   <span className="opacity-70">{u.ts.slice(11, 16)} </span>
                   {u.rule} — could not be read: {u.message}
                 </li>
@@ -182,12 +182,12 @@ function Facts({ facts }: { facts: BriefingFacts }) {
             <div className="flex flex-col gap-2">
               {facts.movement.skills.map((sk) => (
                 <div key={sk.skill}>
-                  <div className="text-muted-foreground text-[11px] tracking-[0.04em] uppercase">
+                  <div className="text-muted-foreground text-[12px] tracking-[0.04em] uppercase">
                     {sk.skill}
                   </div>
                   <ul className="mt-0.5 flex flex-col gap-px">
                     {sk.moved.map((m) => (
-                      <li key={m.path} className="font-mono text-[11.5px] tabular-nums">
+                      <li key={m.path} className="font-mono text-[12.5px] tabular-nums">
                         <span className="text-muted-foreground">{m.path}</span>{" "}
                         {m.before} → {m.after}
                         {m.changePct !== null && (
@@ -210,7 +210,7 @@ function Facts({ facts }: { facts: BriefingFacts }) {
           {facts.runs?.finished?.length ? (
             <ul className="flex flex-col gap-px">
               {facts.runs.finished.slice(0, 20).map((r) => (
-                <li key={r.id} className="text-[12px]">
+                <li key={r.id} className="text-[13px]">
                   <span className="text-muted-foreground">{r.status}</span> · {r.title}
                   {r.venture ? ` · ${r.venture}` : ""}
                 </li>
@@ -225,13 +225,13 @@ function Facts({ facts }: { facts: BriefingFacts }) {
           {facts.board?.overdue?.length || facts.board?.dueSoon?.length ? (
             <ul className="flex flex-col gap-px">
               {facts.board.overdue?.map((c, i) => (
-                <li key={`o${i}`} className="text-[12px]">
+                <li key={`o${i}`} className="text-[13px]">
                   <span className="text-destructive">overdue {c.due}</span> · {c.title}
                   {c.venture ? ` · ${c.venture}` : ""}
                 </li>
               ))}
               {facts.board.dueSoon?.map((c, i) => (
-                <li key={`d${i}`} className="text-[12px]">
+                <li key={`d${i}`} className="text-[13px]">
                   <span className="text-muted-foreground">due {c.due}</span> · {c.title}
                   {c.venture ? ` · ${c.venture}` : ""}
                 </li>
@@ -244,7 +244,7 @@ function Facts({ facts }: { facts: BriefingFacts }) {
           {facts.ventures?.lines?.length ? (
             <ul className="flex flex-col gap-px">
               {facts.ventures.lines.map((v) => (
-                <li key={v.id} className="text-[12px]">
+                <li key={v.id} className="text-[13px]">
                   {v.name}{" "}
                   <span className="text-muted-foreground">
                     · {v.stage} · {v.openAlerts} open alert
@@ -274,7 +274,7 @@ function Section({
 }) {
   return (
     <div>
-      <div className="mb-1 text-[12.5px] font-medium">{title}</div>
+      <div className="mb-1 text-[13.5px] font-medium">{title}</div>
       {included === false ? (
         /* SWITCHED OFF IS NOT EMPTY. Saying "nothing" here would be a claim
            about the business made by a setting. */
@@ -290,7 +290,7 @@ function Section({
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="text-muted-foreground text-[11.5px] leading-[1.5]">{children}</p>;
+  return <p className="text-muted-foreground text-[12.5px] leading-[1.5]">{children}</p>;
 }
 
 export type { Briefing };

@@ -74,9 +74,9 @@ export function Stats({ items }: { items: [string, string][] }) {
 export function Notes({ title, lines }: { title: string; lines: string[] }) {
   if (!lines.length) return null;
   return (
-    <div className="border-line-soft mt-6 rounded-[10px] border px-3.5 py-3">
-      <div className="text-muted-foreground mb-1.5 text-[11.5px] font-medium">{title}</div>
-      <ul className="text-muted-foreground space-y-1 text-[12.5px] leading-relaxed">
+    <div className="border-line-soft mt-6 rounded-[14px] border px-3.5 py-3">
+      <div className="text-muted-foreground mb-1.5 text-[12.5px] font-medium">{title}</div>
+      <ul className="text-muted-foreground space-y-1 text-[13.5px] leading-relaxed">
         {lines.map((l) => (
           <li key={l}>· {l}</li>
         ))}
@@ -94,7 +94,7 @@ export function Empty({ children }: { children: React.ReactNode }) {
 
 export function Problem({ error }: { error: string }) {
   return (
-    <div className="text-destructive border-line-soft rounded-[10px] border px-3.5 py-3 text-[13px]">
+    <div className="text-destructive border-line-soft rounded-[14px] border px-3.5 py-3 text-[14px]">
       {error}
     </div>
   );

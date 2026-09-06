@@ -182,7 +182,7 @@ export function EmailStats() {
         </Section>
 
         {!!mail.data?.cannot?.length && (
-          <p className="text-muted-foreground mt-2 text-[11.5px] leading-snug">
+          <p className="text-muted-foreground mt-2 text-[12.5px] leading-snug">
             Not on this page because the providers do not report it:{" "}
             {mail.data.cannot.map(item => item.what).join(" · ")}
           </p>
@@ -206,18 +206,18 @@ function Tile({
   tone?: "warn" | "bad";
 }) {
   return (
-    <div className="bg-card rounded-[10px] border p-3.5">
-      <div className="text-muted-foreground text-[11.5px]">{label}</div>
+    <div className="bg-card rounded-[14px] border p-4.5">
+      <div className="text-muted-foreground text-[12.5px]">{label}</div>
       <div
         className={cn(
-          "mt-1 text-[24px] leading-tight font-normal tracking-[-0.03em] tabular-nums",
+          "mt-1 text-[26px] leading-tight font-normal tracking-[-0.03em] tabular-nums",
           tone === "warn" && "text-warn",
           tone === "bad" && "text-destructive",
         )}
       >
         {value}
       </div>
-      <div className="text-muted-foreground mt-1 text-[11.5px]">{sub}</div>
+      <div className="text-muted-foreground mt-1 text-[12.5px]">{sub}</div>
     </div>
   );
 }
@@ -236,8 +236,8 @@ function Section({
   return (
     <section className="mb-8">
       <div className="mb-3 flex items-baseline gap-2">
-        <h2 className="text-[15px] font-medium tracking-[-0.01em]">{title}</h2>
-        <span className="text-muted-foreground text-[12px]">{hint}</span>
+        <h2 className="text-[16px] font-medium tracking-[-0.01em]">{title}</h2>
+        <span className="text-muted-foreground text-[13px]">{hint}</span>
       </div>
       {children.length ? (
         <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
@@ -281,18 +281,18 @@ function BoxHead({
           name={name}
           mono={plugin?.mono}
           tint={plugin?.tint}
-          className="size-7 rounded-[8px]"
-          glyphClassName="size-[14px] text-[11px]"
+          className="size-7 rounded-[11px]"
+          glyphClassName="size-[14px] text-[12px]"
         />
         <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium">{account.label}</div>
-          <div className="text-muted-foreground text-[11px]">
+          <div className="truncate text-[14px] font-medium">{account.label}</div>
+          <div className="text-muted-foreground text-[12px]">
             {kind} · {name}
           </div>
         </div>
         <span
           className={cn(
-            "ml-auto flex shrink-0 items-center gap-1.5 text-[11px]",
+            "ml-auto flex shrink-0 items-center gap-1.5 text-[12px]",
             failing || !account.connected ? "text-warn" : "text-muted-foreground",
           )}
         >
@@ -306,7 +306,7 @@ function BoxHead({
         </span>
       </div>
       {failing && account.lastError && (
-        <p className="text-warn mt-2.5 text-[11.5px] leading-snug">{account.lastError}</p>
+        <p className="text-warn mt-2.5 text-[12.5px] leading-snug">{account.lastError}</p>
       )}
     </>
   );
@@ -326,12 +326,12 @@ function Fig({
 }) {
   return (
     <div className="min-w-0">
-      <div className="text-muted-foreground text-[10.5px] tracking-[0.04em] uppercase">
+      <div className="text-muted-foreground text-[11.5px] tracking-[0.04em] uppercase">
         {label}
       </div>
       <div
         className={cn(
-          "text-[15px] tabular-nums",
+          "text-[16px] tabular-nums",
           tone === "warn" && "text-warn",
           tone === "bad" && "text-destructive",
         )}
@@ -350,7 +350,7 @@ function MailboxCard({
   box: Mailbox | undefined;
 }) {
   return (
-    <div className="bg-card flex flex-col rounded-[10px] border p-3.5">
+    <div className="bg-card flex flex-col rounded-[14px] border p-4.5">
       <BoxHead icon="gmail" name="Gmail" account={account} kind="mailbox" />
 
       {box ? (
@@ -380,7 +380,7 @@ function MailboxCard({
               }
             />
           </div>
-          <div className="text-muted-foreground mt-3 flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px]">
+          <div className="text-muted-foreground mt-3 flex flex-wrap gap-x-3 gap-y-0.5 text-[12.5px]">
             {box.volume.received !== null && (
               <span>
                 {box.volume.received} in · {box.volume.sent ?? 0} out over{" "}
@@ -396,7 +396,7 @@ function MailboxCard({
         </>
       ) : (
         account.connected && (
-          <p className="text-muted-foreground mt-3 text-[11.5px]">
+          <p className="text-muted-foreground mt-3 text-[12.5px]">
             No figures yet — the collector has not read this mailbox.
           </p>
         )
@@ -417,7 +417,7 @@ function DomainCard({
   const verified = domain?.status === "verified";
 
   return (
-    <div className="bg-card flex flex-col rounded-[10px] border p-3.5">
+    <div className="bg-card flex flex-col rounded-[14px] border p-4.5">
       <BoxHead icon="resend" name="Resend" account={account} kind="sending domain" />
 
       {domain ? (
@@ -449,7 +449,7 @@ function DomainCard({
               tone={dnsBad ? "bad" : undefined}
             />
           </div>
-          <div className="text-muted-foreground mt-3 flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px]">
+          <div className="text-muted-foreground mt-3 flex flex-wrap gap-x-3 gap-y-0.5 text-[12.5px]">
             <span className={cn(!verified && "text-warn")}>
               {domain.status ?? "status unknown"}
             </span>
@@ -463,7 +463,7 @@ function DomainCard({
         </>
       ) : (
         account.connected && (
-          <p className="text-muted-foreground mt-3 text-[11.5px]">
+          <p className="text-muted-foreground mt-3 text-[12.5px]">
             No figures yet — the collector has not read this domain.
           </p>
         )

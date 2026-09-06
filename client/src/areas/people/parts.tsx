@@ -55,7 +55,7 @@ export function VentureBadge({ p }: { p: Person }) {
     <Link
       to={`/ventures/${p.link.slug}`}
       title={p.link.why}
-      className="border-line-soft text-muted-foreground hover:text-foreground rounded-md border px-1.5 py-px text-[10.5px] whitespace-nowrap"
+      className="border-line-soft text-muted-foreground hover:text-foreground rounded-md border px-1.5 py-px text-[11.5px] whitespace-nowrap"
     >
       {p.link.ventureName} · by domain
     </Link>
@@ -85,13 +85,13 @@ export function ContactRow({
     >
       <TempDot t={p.temperature} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13.5px]">
+        <span className="block truncate text-[14.5px]">
           {p.name ?? p.address}
           {p.name && (
-            <span className="text-muted-foreground ml-1.5 text-[11.5px]">{p.address}</span>
+            <span className="text-muted-foreground ml-1.5 text-[12.5px]">{p.address}</span>
           )}
         </span>
-        <span className="text-muted-foreground block truncate text-[11.5px]">
+        <span className="text-muted-foreground block truncate text-[12.5px]">
           {p.received} in · {p.sent} out · {p.threads}{" "}
           {p.threads === 1 ? "thread" : "threads"} ·{" "}
           {p.cadenceDays === null ? "no rhythm yet" : `usually every ${p.cadenceDays}d`}
@@ -99,11 +99,11 @@ export function ContactRow({
       </span>
       <VentureBadge p={p} />
       {p.stale && (
-        <span className="border-line-soft text-muted-foreground rounded-md border px-1.5 py-px text-[10.5px]">
+        <span className="border-line-soft text-muted-foreground rounded-md border px-1.5 py-px text-[11.5px]">
           stale
         </span>
       )}
-      <span className="text-muted-foreground w-[86px] shrink-0 text-right text-[11.5px] tabular-nums">
+      <span className="text-muted-foreground w-[86px] shrink-0 text-right text-[12.5px] tabular-nums">
         {p.lastAt ? ago(p.lastAt) : "no dated mail"}
       </span>
     </button>
@@ -142,7 +142,7 @@ export function ContactPanel({
   ];
 
   return (
-    <div className="border-line-soft bg-card/40 border-t px-3 py-3">
+    <div className="border-line-soft bg-card/40 border-t px-4 py-3.5">
       <div className="mb-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
         <Figure label="last heard from" value={p.lastReceived ? ago(p.lastReceived) : "—"} />
         <Figure label="last written to" value={p.lastSent ? ago(p.lastSent) : "—"} />
@@ -162,10 +162,10 @@ export function ContactPanel({
         />
       </div>
 
-      <p className="text-muted-foreground mb-2 text-[11.5px]">{p.why}</p>
+      <p className="text-muted-foreground mb-2 text-[12.5px]">{p.why}</p>
 
       {loading ? (
-        <p className="text-muted-foreground text-[11.5px]">Reading the day series…</p>
+        <p className="text-muted-foreground text-[12.5px]">Reading the day series…</p>
       ) : days.length > 1 ? (
         <Chart
           series={series}
@@ -173,7 +173,7 @@ export function ContactPanel({
           caption="Messages a day, each direction. Only days with mail appear."
         />
       ) : (
-        <p className="text-muted-foreground text-[11.5px]">
+        <p className="text-muted-foreground text-[12.5px]">
           {days.length
             ? "One day of contact — there is no shape to draw yet."
             : "No day series: a chart is kept only for contacts that met the minimum each way."}
@@ -194,9 +194,9 @@ function Figure({
 }) {
   return (
     <div>
-      <div className="text-muted-foreground text-[11px]">{label}</div>
-      <div className="text-[13.5px]">{value}</div>
-      {note && <div className="text-muted-foreground text-[11px]">{note}</div>}
+      <div className="text-muted-foreground text-[12px]">{label}</div>
+      <div className="text-[14.5px]">{value}</div>
+      {note && <div className="text-muted-foreground text-[12px]">{note}</div>}
     </div>
   );
 }
@@ -226,11 +226,11 @@ export function CommitmentRow({
     <div className="border-line-soft border-b px-3 py-2.5 last:border-b-0">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-[13.5px]">{c.what}</div>
-          <blockquote className="border-line-soft text-muted-foreground mt-1 border-l-2 pl-2 text-[12px] italic">
+          <div className="text-[14.5px]">{c.what}</div>
+          <blockquote className="border-line-soft text-muted-foreground mt-1 border-l-2 pl-2 text-[13px] italic">
             “{c.sentence}”
           </blockquote>
-          <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px]">
+          <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px]">
             <span>to {c.toName ?? c.to}</span>
             {c.subject && <span className="truncate">· {c.subject}</span>}
             <span>· {c.sentAt ? ago(c.sentAt) : "no date on the message"}</span>

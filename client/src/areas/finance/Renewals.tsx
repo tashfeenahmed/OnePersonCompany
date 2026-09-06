@@ -25,16 +25,16 @@ export function Renewals() {
   const [days, setDays] = useState(90);
   const doc = useApi(() => finance.renewals(days), [days]);
 
-  if (doc.error) return <p className="text-muted-foreground text-[13px]">The API is not answering: {doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground text-[13px]">Reading renewals…</p>;
+  if (doc.error) return <p className="text-muted-foreground text-[14px]">The API is not answering: {doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground text-[14px]">Reading renewals…</p>;
   const d = doc.data;
 
   return (
     <>
       <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-2">
         <div>
-          <div className="text-[25px] font-normal tracking-[-0.03em] tabular-nums">{d.count}</div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">
+          <div className="text-[27px] font-normal tracking-[-0.03em] tabular-nums">{d.count}</div>
+          <div className="text-muted-foreground mt-0.5 text-[12.5px]">
             renew within {d.window.days} days · {d.undecided} undecided
             {d.overdue ? ` · ${d.overdue} already past` : ""}
           </div>
@@ -45,7 +45,7 @@ export function Renewals() {
               key={n}
               onClick={() => setDays(n)}
               className={cn(
-                "text-muted-foreground hover:bg-accent rounded-lg px-2 py-1 text-[12px]",
+                "text-muted-foreground hover:bg-accent rounded-lg px-2 py-1 text-[13px]",
                 n === days && "bg-accent text-foreground font-medium",
               )}
             >
@@ -56,24 +56,24 @@ export function Renewals() {
       </div>
 
       {d.renewals.length === 0 ? (
-        <p className="text-muted-foreground text-[13px]">Nothing renews in that window.</p>
+        <p className="text-muted-foreground text-[14px]">Nothing renews in that window.</p>
       ) : (
         <div className="space-y-1.5">
           {d.renewals.map((r) => (
-            <div key={r.id} className="bg-card flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-[10px] border px-3.5 py-2.5">
-              <span className={cn("w-16 shrink-0 text-[12.5px] tabular-nums", r.inDays < 0 && "text-destructive")}>
+            <div key={r.id} className="bg-card flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-[14px] border px-4.5 py-3">
+              <span className={cn("w-16 shrink-0 text-[13.5px] tabular-nums", r.inDays < 0 && "text-destructive")}>
                 {inDays(r.inDays)}
               </span>
-              <span className="text-[13px] font-medium">{r.label}</span>
-              <span className="text-muted-foreground text-[12px] tabular-nums">{amount(r.amount, r.currency)} / {r.period}</span>
-              <span className="text-muted-foreground text-[11.5px]">{r.venture ?? "shared"}</span>
+              <span className="text-[14px] font-medium">{r.label}</span>
+              <span className="text-muted-foreground text-[13px] tabular-nums">{amount(r.amount, r.currency)} / {r.period}</span>
+              <span className="text-muted-foreground text-[12.5px]">{r.venture ?? "shared"}</span>
               <div className="ml-auto flex items-center gap-0.5">
                 {DECISIONS.map((decision) => (
                   <button
                     key={decision}
                     onClick={() => void finance.setRenewal(r.id, decision).then(() => doc.reload())}
                     className={cn(
-                      "text-muted-foreground hover:bg-accent rounded-lg px-2 py-1 text-[11.5px]",
+                      "text-muted-foreground hover:bg-accent rounded-lg px-2 py-1 text-[12.5px]",
                       r.renewalDecision === decision && "bg-accent text-foreground font-medium",
                     )}
                   >
@@ -82,14 +82,14 @@ export function Renewals() {
                 ))}
               </div>
               {r.notes && (
-                <p className="text-muted-foreground w-full text-[11px] leading-relaxed">{r.notes}</p>
+                <p className="text-muted-foreground w-full text-[12px] leading-relaxed">{r.notes}</p>
               )}
             </div>
           ))}
         </div>
       )}
 
-      <p className="text-muted-foreground mt-4 border-t pt-2 text-[11px] leading-relaxed">{d.note}</p>
+      <p className="text-muted-foreground mt-4 border-t pt-2 text-[12px] leading-relaxed">{d.note}</p>
     </>
   );
 }

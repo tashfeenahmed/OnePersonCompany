@@ -85,20 +85,20 @@ function Row({
         <div className="flex items-center gap-2">
           <span
             className={cn(
-              "truncate text-[13.5px]",
+              "truncate text-[14.5px]",
               t.unread ? "font-medium" : "text-foreground/90",
             )}
           >
             {t.subject || "(no subject)"}
           </span>
           {t.messages > 1 && (
-            <span className="text-muted-foreground shrink-0 text-[11.5px]">
+            <span className="text-muted-foreground shrink-0 text-[12.5px]">
               ({t.messages})
             </span>
           )}
         </div>
 
-        <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px]">
+        <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12.5px]">
           <span className="truncate">{t.fromName || t.from || "unknown sender"}</span>
           <Link className="underline" to={`/mail/email?thread=${encodeURIComponent(t.id)}&account=${t.accountId}`}>Open</Link>
           <Link className="underline" to="/mail/outbox" state={{ reply: { to: t.from, subject: /^re:/i.test(t.subject) ? t.subject : `Re: ${t.subject}`, account: t.accountId, thread: t.id, venture: t.venture, back: "/mail/triage" } }}>Draft reply</Link>
@@ -136,13 +136,13 @@ function Row({
         </div>
 
         {t.reason ? (
-          <p className="text-muted-foreground mt-1 text-[12.5px] italic">{t.reason}</p>
+          <p className="text-muted-foreground mt-1 text-[13.5px] italic">{t.reason}</p>
         ) : (
-          <p className="text-muted-foreground/70 mt-1 text-[12.5px] italic">
+          <p className="text-muted-foreground/70 mt-1 text-[13.5px] italic">
             Not scored — the model has not read this thread.
           </p>
         )}
-        <p className="text-muted-foreground/60 mt-0.5 line-clamp-1 text-[11.5px]">
+        <p className="text-muted-foreground/60 mt-0.5 line-clamp-1 text-[12.5px]">
           {t.snippet}
         </p>
       </div>
@@ -221,17 +221,17 @@ export function Triage() {
       }
     >
       {doc.error && (
-        <p className="text-muted-foreground mb-4 text-[13px]">
+        <p className="text-muted-foreground mb-4 text-[14px]">
           The inbox could not be read.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
       )}
       {refused && (
-        <p className="text-destructive mb-4 text-[13px]">{refused}</p>
+        <p className="text-destructive mb-4 text-[14px]">{refused}</p>
       )}
 
       {doc.loading && !d && (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
           Reading the inbox. Every thread is its own Gmail request, so fifty of
           them take a few seconds.
@@ -243,7 +243,7 @@ export function Triage() {
           {/* The last pass, stated. Figures of unknown age are worse than no
               figures: a category made an hour ago describes an hour-old
               inbox. */}
-          <p className="text-muted-foreground mb-5 text-[11.5px]">
+          <p className="text-muted-foreground mb-5 text-[12.5px]">
             {d.lastRun
               ? `Last scored ${when(d.lastRun.ranAt, { year: true })} — ${d.lastRun.note ?? ""}${d.lastRun.error ? ` · ${d.lastRun.error}` : ""}`
               : "Nothing has been scored yet. The pass runs by itself every half hour, or press Score new mail."}
@@ -258,8 +258,8 @@ export function Triage() {
               <section key={g.key} className="mb-6">
                 <div className="mb-1.5 flex items-baseline gap-2">
                   <span className={cn("size-2 rounded-full", g.tone)} />
-                  <h2 className="text-[14px] font-medium tracking-tight">{g.label}</h2>
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <h2 className="text-[15px] font-medium tracking-tight">{g.label}</h2>
+                  <span className="text-muted-foreground text-[12.5px]">
                     {items.length} · {g.hint}
                   </span>
                 </div>
@@ -279,13 +279,13 @@ export function Triage() {
           })}
 
           {!GROUPS.some((g) => (d.groups[g.key] ?? []).length) && (
-            <p className="text-muted-foreground text-[13px]">
+            <p className="text-muted-foreground text-[14px]">
               Nothing on this list. {d.counts.done} done and {d.counts.snoozed}{" "}
               snoozed are hidden; both are still in Gmail.
             </p>
           )}
 
-          <p className="text-muted-foreground/70 mt-8 text-[11.5px] leading-relaxed">
+          <p className="text-muted-foreground/70 mt-8 text-[12.5px] leading-relaxed">
             {d.note}
           </p>
         </>

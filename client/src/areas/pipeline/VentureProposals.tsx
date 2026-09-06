@@ -36,8 +36,8 @@ export function VentureProposals({ ventureId }: { ventureId: string }) {
   return (
     <section className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline gap-3">
-        <h2 className="text-[15px] font-medium">Proposed actions</h2>
-        <span className="text-muted-foreground text-[11.5px]">
+        <h2 className="text-[16px] font-medium">Proposed actions</h2>
+        <span className="text-muted-foreground text-[12.5px]">
           {mine?.lastPassAt ? `last looked at ${ago(mine.lastPassAt)}` : "no pass yet"}
           {mine && !mine.proposalsOn ? " · proposals are switched off for this venture" : ""}
         </span>
@@ -66,15 +66,15 @@ export function VentureProposals({ ventureId }: { ventureId: string }) {
           Look at this venture now
         </Button>
       </div>
-      <p className="text-muted-foreground text-[11.5px]">
+      <p className="text-muted-foreground text-[12.5px]">
         One model call over this venture's revenue, traffic, alerts, board, goals, memory and recent
         runs. Survivors of the gate become board cards in Backlog; nothing is done.
       </p>
-      {said && <p className="text-muted-foreground text-[12.5px]">{said}</p>}
-      {failure && <p className="text-destructive text-[12.5px]">{failure}</p>}
+      {said && <p className="text-muted-foreground text-[13.5px]">{said}</p>}
+      {failure && <p className="text-destructive text-[13.5px]">{failure}</p>}
 
       {proposals.length === 0 ? (
-        <p className="text-muted-foreground text-[12.5px]">
+        <p className="text-muted-foreground text-[13.5px]">
           Nothing has been proposed for this venture yet.
         </p>
       ) : (
@@ -82,27 +82,27 @@ export function VentureProposals({ ventureId }: { ventureId: string }) {
           {proposals.map((p) => (
             <div
               key={p.id}
-              className="border-line-soft bg-card flex flex-col gap-1 rounded-[10px] border px-3 py-2 text-[12.5px]"
+              className="border-line-soft bg-card flex flex-col gap-1 rounded-[14px] border px-4 py-2.5 text-[13.5px]"
             >
               <div className="flex flex-wrap items-baseline gap-2">
                 <span
                   className={cn(
-                    "shrink-0 text-[11px]",
+                    "shrink-0 text-[12px]",
                     p.verdict === "filed" ? "text-ok-foreground" : "text-muted-foreground",
                   )}
                 >
                   {p.verdict}
                 </span>
                 <span className="font-medium">{p.title}</span>
-                <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]">{ago(p.at)}</span>
+                <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">{ago(p.at)}</span>
               </div>
-              {p.why && <p className="text-muted-foreground text-[11.5px]">{p.why}</p>}
+              {p.why && <p className="text-muted-foreground text-[12.5px]">{p.why}</p>}
               {p.evidenceLine && (
-                <p className="text-muted-foreground text-[11.5px]">
+                <p className="text-muted-foreground text-[12.5px]">
                   Evidence ({p.evidenceKey}): {p.evidenceLine}
                 </p>
               )}
-              {p.reason && <p className="text-muted-foreground text-[11.5px]">Refused — {p.reason}</p>}
+              {p.reason && <p className="text-muted-foreground text-[12.5px]">Refused — {p.reason}</p>}
             </div>
           ))}
         </div>

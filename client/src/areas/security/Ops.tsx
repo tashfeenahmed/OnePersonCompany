@@ -87,33 +87,33 @@ function Snapshots() {
   }
 
   if (index.error)
-    return <p className="text-muted-foreground text-[13px]">The API is not answering: {index.error}</p>;
-  if (!index.data) return <p className="text-muted-foreground text-[13px]">Reading…</p>;
+    return <p className="text-muted-foreground text-[14px]">The API is not answering: {index.error}</p>;
+  if (!index.data) return <p className="text-muted-foreground text-[14px]">Reading…</p>;
 
   const d = index.data;
 
   return (
     <>
-      <p className="text-muted-foreground mb-4 max-w-[720px] text-[12.5px] leading-relaxed">{d.note}</p>
+      <p className="text-muted-foreground mb-4 max-w-[720px] text-[13.5px] leading-relaxed">{d.note}</p>
 
       {!d.hosts.length ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           No box is connected. Snapshots reach your machines over the Fleet integration's own ssh
           accounts — connect one there and it appears here with nothing else to set up.
         </p>
       ) : (
-        <div className="mb-6 overflow-hidden rounded-[10px] border">
+        <div className="mb-6 overflow-hidden rounded-[14px] border">
           {d.hosts.map((h, i) => (
             <div
               key={h.id}
               className={cn(
-                "flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3.5 py-2.5 text-[12.5px]",
+                "flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3.5 py-2.5 text-[13.5px]",
                 i > 0 && "border-line-soft border-t",
               )}
             >
               <span className="font-medium">{h.label}</span>
-              <span className="text-muted-foreground font-mono text-[11.5px]">{h.target}</span>
-              <span className="text-muted-foreground ml-auto text-[11.5px]">
+              <span className="text-muted-foreground font-mono text-[12.5px]">{h.target}</span>
+              <span className="text-muted-foreground ml-auto text-[12.5px]">
                 last {h.lastSnapshotAt ? ago(h.lastSnapshotAt) : "never"}
               </span>
               <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void capture(h.id)}>
@@ -129,29 +129,29 @@ function Snapshots() {
         </div>
       )}
 
-      {problem && <p className="text-destructive mb-4 text-[12.5px]">{problem}</p>}
+      {problem && <p className="text-destructive mb-4 text-[13.5px]">{problem}</p>}
       {d.problems.map((p) => (
-        <p key={p} className="text-muted-foreground mb-2 text-[12.5px]">
+        <p key={p} className="text-muted-foreground mb-2 text-[13.5px]">
           {p}
         </p>
       ))}
 
-      <div className="text-muted-foreground mb-2 text-[11px] tracking-[0.06em] uppercase">
+      <div className="text-muted-foreground mb-2 text-[12px] tracking-[0.06em] uppercase">
         Snapshots
       </div>
       {!d.snapshots.length ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           None yet. Press Capture now, or wait for an uptime host linked to the same venture as a box
           to start failing.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[10px] border">
+        <div className="overflow-hidden rounded-[14px] border">
           {d.snapshots.map((s, i) => (
             <button
               key={s.id}
               onClick={() => setOpen(open === s.id ? null : s.id)}
               className={cn(
-                "hover:bg-accent flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-3.5 py-2.5 text-left text-[12.5px]",
+                "hover:bg-accent flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-3.5 py-2.5 text-left text-[13.5px]",
                 i > 0 && "border-line-soft border-t",
                 open === s.id && "bg-accent",
               )}
@@ -164,7 +164,7 @@ function Snapshots() {
               />
               <span className="font-medium">{s.host}</span>
               <span className="text-muted-foreground min-w-0 truncate">{s.reason}</span>
-              <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px] tabular-nums">
+              <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px] tabular-nums">
                 {bytes(s.size)} · {ago(s.ts)}
               </span>
             </button>
@@ -174,7 +174,7 @@ function Snapshots() {
 
       {open !== null && (
         <div className="mt-5">
-          {doc.error && <p className="text-destructive text-[12.5px]">{doc.error}</p>}
+          {doc.error && <p className="text-destructive text-[13.5px]">{doc.error}</p>}
           {doc.data && <SnapshotView snap={doc.data} />}
         </div>
       )}
@@ -185,33 +185,33 @@ function Snapshots() {
 function Lines({ title, lines, note }: { title: string; lines: string[]; note: string }) {
   return (
     <div className="mt-4">
-      <div className="text-muted-foreground mb-1.5 text-[11px] tracking-[0.06em] uppercase">{title}</div>
+      <div className="text-muted-foreground mb-1.5 text-[12px] tracking-[0.06em] uppercase">{title}</div>
       {lines.length ? (
-        <pre className="bg-card overflow-x-auto rounded-[10px] border px-3.5 py-3 font-mono text-[11.5px] leading-relaxed">
+        <pre className="bg-card overflow-x-auto rounded-[14px] border px-4.5 py-3.5 font-mono text-[12.5px] leading-relaxed">
           {lines.join("\n")}
         </pre>
       ) : (
-        <p className="text-muted-foreground text-[12.5px]">Nothing was returned.</p>
+        <p className="text-muted-foreground text-[13.5px]">Nothing was returned.</p>
       )}
-      <p className="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">{note}</p>
+      <p className="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">{note}</p>
     </div>
   );
 }
 
 function SnapshotView({ snap }: { snap: Snapshot }) {
   return (
-    <div className="rounded-[10px] border p-4">
+    <div className="rounded-[14px] border p-4">
       <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[15px]">{snap.host}</span>
-        <span className="text-muted-foreground font-mono text-[11.5px]">{snap.target}</span>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-[16px]">{snap.host}</span>
+        <span className="text-muted-foreground font-mono text-[12.5px]">{snap.target}</span>
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {snap.ts} · {snap.tookMs} ms
         </span>
       </div>
-      <p className="text-muted-foreground mb-3 text-[12.5px]">{snap.reason}</p>
+      <p className="text-muted-foreground mb-3 text-[13.5px]">{snap.reason}</p>
 
       {!snap.ok && (
-        <p className="text-destructive mb-3 text-[12.5px] leading-relaxed">
+        <p className="text-destructive mb-3 text-[13.5px] leading-relaxed">
           The box did not answer: {snap.error}. That is itself the record — this snapshot says the
           machine was unreachable at that moment.
         </p>
@@ -227,27 +227,27 @@ function SnapshotView({ snap }: { snap: Snapshot }) {
             v: snap.connections.established === null ? "not counted" : count(snap.connections.established),
           },
         ].map((t) => (
-          <div key={t.k} className="bg-card min-w-[150px] flex-1 rounded-[10px] border px-3.5 py-3">
-            <div className="truncate text-[15px] tracking-[-0.02em]" title={t.v}>
+          <div key={t.k} className="bg-card min-w-[150px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+            <div className="truncate text-[16px] tracking-[-0.02em]" title={t.v}>
               {t.v}
             </div>
-            <div className="text-muted-foreground mt-0.5 text-[11.5px]">{t.k}</div>
+            <div className="text-muted-foreground mt-0.5 text-[12.5px]">{t.k}</div>
           </div>
         ))}
       </div>
 
       {(["byCpu", "byMem"] as const).map((which) => (
         <div key={which} className="mt-4">
-          <div className="text-muted-foreground mb-1.5 text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground mb-1.5 text-[12px] tracking-[0.06em] uppercase">
             {which === "byCpu" ? "Heaviest by CPU" : "Heaviest by memory"}
           </div>
-          <div className="overflow-hidden rounded-[10px] border">
+          <div className="overflow-hidden rounded-[14px] border">
             {snap.processes[which].length ? (
               snap.processes[which].map((p, i) => (
                 <div
                   key={`${which}-${i}`}
                   className={cn(
-                    "flex items-baseline gap-3 px-3.5 py-1.5 text-[11.5px]",
+                    "flex items-baseline gap-3 px-3.5 py-1.5 text-[12.5px]",
                     i > 0 && "border-line-soft border-t",
                   )}
                 >
@@ -261,14 +261,14 @@ function SnapshotView({ snap }: { snap: Snapshot }) {
                 </div>
               ))
             ) : (
-              <div className="text-muted-foreground px-3.5 py-2.5 text-[12.5px]">
+              <div className="text-muted-foreground px-3.5 py-2.5 text-[13.5px]">
                 No process list was returned.
               </div>
             )}
           </div>
         </div>
       ))}
-      <p className="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">{snap.processes.note}</p>
+      <p className="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">{snap.processes.note}</p>
 
       <Lines
         title={`Listening sockets${snap.ports.tool ? ` · ${snap.ports.tool}` : ""}`}
@@ -319,8 +319,8 @@ function ShotsQa() {
   }
 
   if (doc.error)
-    return <p className="text-muted-foreground text-[13px]">The API is not answering: {doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground text-[13px]">Reading…</p>;
+    return <p className="text-muted-foreground text-[14px]">The API is not answering: {doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground text-[14px]">Reading…</p>;
 
   const d = doc.data;
   const failing = d.ventures.filter((v) => v.failed > 0);
@@ -328,7 +328,7 @@ function ShotsQa() {
   return (
     <>
       <div className="mb-4 flex flex-wrap items-baseline gap-3">
-        <span className="text-[13px]">
+        <span className="text-[14px]">
           {d.ts ? (
             <>
               Last pass {ago(d.ts)} — {d.ventures.length} venture(s), {failing.length} with a failed
@@ -347,20 +347,20 @@ function ShotsQa() {
           {busy ? "Queued…" : "Run now"}
         </Button>
       </div>
-      {problem && <p className="text-destructive mb-3 text-[12.5px]">{problem}</p>}
-      <p className="text-muted-foreground mb-4 max-w-[720px] text-[12.5px] leading-relaxed">{d.note}</p>
+      {problem && <p className="text-destructive mb-3 text-[13.5px]">{problem}</p>}
+      <p className="text-muted-foreground mb-4 max-w-[720px] text-[13.5px] leading-relaxed">{d.note}</p>
 
       {!d.ventures.length ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           Nothing has been examined yet. Press Run now — it asks no model and costs nothing.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[10px] border">
+        <div className="overflow-hidden rounded-[14px] border">
           {d.ventures.map((v, i) => (
             <div key={v.ventureId} className={cn(i > 0 && "border-line-soft border-t")}>
               <button
                 onClick={() => setOpen(open === v.ventureId ? null : v.ventureId)}
-                className="hover:bg-accent flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-3.5 py-2.5 text-left text-[12.5px]"
+                className="hover:bg-accent flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-3.5 py-2.5 text-left text-[13.5px]"
               >
                 <span className="flex shrink-0 gap-1">
                   {v.checks.map((c) => (
@@ -380,7 +380,7 @@ function ShotsQa() {
                 {v.unchecked > 0 && (
                   <span className="text-muted-foreground">{v.unchecked} unchecked</span>
                 )}
-                <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px] tabular-nums">
+                <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px] tabular-nums">
                   {v.width && v.height ? `${v.width}x${v.height} · ` : ""}
                   {v.shotTs ? ago(v.shotTs) : "never captured"}
                 </span>
@@ -388,7 +388,7 @@ function ShotsQa() {
               {open === v.ventureId && (
                 <div className="border-line-soft border-t px-3.5 py-3">
                   {v.checks.map((c) => (
-                    <div key={c.key} className="mb-1.5 flex gap-2 text-[12px] last:mb-0">
+                    <div key={c.key} className="mb-1.5 flex gap-2 text-[13px] last:mb-0">
                       <span
                         className={cn(
                           "mt-1.5 size-1.5 shrink-0 rounded-full",
@@ -402,7 +402,7 @@ function ShotsQa() {
                     </div>
                   ))}
                   {v.pixels === null && (
-                    <p className="text-muted-foreground mt-2 flex items-center gap-1.5 text-[11.5px]">
+                    <p className="text-muted-foreground mt-2 flex items-center gap-1.5 text-[12.5px]">
                       <ImageOff className="size-3.5" strokeWidth={1.8} />
                       The image was not decoded, so the blankness figures are absent rather than zero.
                     </p>
@@ -421,15 +421,15 @@ function ShotsQa() {
 
       {d.passes.length > 1 && (
         <>
-          <div className="text-muted-foreground mt-6 mb-2 text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground mt-6 mb-2 text-[12px] tracking-[0.06em] uppercase">
             Earlier passes
           </div>
-          <div className="overflow-hidden rounded-[10px] border">
+          <div className="overflow-hidden rounded-[14px] border">
             {d.passes.map((p, i) => (
               <div
                 key={p.runId}
                 className={cn(
-                  "flex flex-wrap items-baseline gap-x-3 px-3.5 py-2 text-[12px]",
+                  "flex flex-wrap items-baseline gap-x-3 px-3.5 py-2 text-[13px]",
                   i > 0 && "border-line-soft border-t",
                 )}
               >

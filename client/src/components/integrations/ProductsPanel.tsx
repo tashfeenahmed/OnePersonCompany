@@ -74,14 +74,14 @@ export function ProductsPanel({ onCollected }: { onCollected?: () => void }) {
       />
 
       {!!d.mappingErrors.length && (
-        <div className="border-destructive/40 mb-4 rounded-[10px] border px-3.5 py-3">
-          <div className="text-destructive mb-1.5 text-[12.5px] font-medium">
+        <div className="border-destructive/40 mb-4 rounded-[14px] border px-3.5 py-3">
+          <div className="text-destructive mb-1.5 text-[13.5px] font-medium">
             {d.mappingErrors.length} mapping
             {d.mappingErrors.length === 1 ? "" : "s"} matched nothing
           </div>
           <div className="flex flex-col gap-1">
             {d.mappingErrors.map((e, i) => (
-              <div key={`${e.endpoint}:${e.label}:${i}`} className="text-[12px]">
+              <div key={`${e.endpoint}:${e.label}:${i}`} className="text-[13px]">
                 <span className="font-mono">{e.endpoint}</span> ·{" "}
                 <span className="font-mono">{e.path}</span>{" "}
                 <span className="text-muted-foreground">{e.why}</span>
@@ -109,8 +109,8 @@ export function ProductsPanel({ onCollected }: { onCollected?: () => void }) {
                       : "bg-border",
                 )}
               />
-              <span className="text-[13px] font-medium">{e.label}</span>
-              <span className="text-muted-foreground min-w-0 truncate font-mono text-[11.5px]">
+              <span className="text-[14px] font-medium">{e.label}</span>
+              <span className="text-muted-foreground min-w-0 truncate font-mono text-[12.5px]">
                 {e.url ?? "URL not cached until the first collection"}
               </span>
               {e.status !== null && (
@@ -118,16 +118,16 @@ export function ProductsPanel({ onCollected }: { onCollected?: () => void }) {
                   {e.status}
                 </Badge>
               )}
-              <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px] tabular-nums">
+              <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px] tabular-nums">
                 {e.ms === null ? "—" : `${e.ms} ms`} · {ago(e.lastFetchedAt)}
               </span>
             </div>
 
             {e.error && (
-              <p className="text-destructive mt-1 text-[11.5px]">{e.error}</p>
+              <p className="text-destructive mt-1 text-[12.5px]">{e.error}</p>
             )}
             {e.reachable === null && !e.error && (
-              <p className="text-muted-foreground mt-1 text-[12px]">
+              <p className="text-muted-foreground mt-1 text-[13px]">
                 Never collected. That is not a failure — nothing has asked yet.
               </p>
             )}
@@ -137,16 +137,16 @@ export function ProductsPanel({ onCollected }: { onCollected?: () => void }) {
                 {e.metrics.map((m) => (
                   <div
                     key={`${m.label}:${m.path}`}
-                    className="flex flex-wrap items-baseline gap-2 text-[12px]"
+                    className="flex flex-wrap items-baseline gap-2 text-[13px]"
                   >
                     <span className="text-muted-foreground">{m.label}</span>
                     <span className="tabular-nums">
                       {m.value === null ? "—" : count(m.value)}
                     </span>
                     {m.error && (
-                      <span className="text-destructive text-[11.5px]">{m.error}</span>
+                      <span className="text-destructive text-[12.5px]">{m.error}</span>
                     )}
-                    <code className="text-muted-foreground ml-auto truncate font-mono text-[11px]">
+                    <code className="text-muted-foreground ml-auto truncate font-mono text-[12px]">
                       {m.path}
                       {m.scope === "all endpoints" ? "" : ` · ${m.scope} only`}
                     </code>
@@ -156,12 +156,12 @@ export function ProductsPanel({ onCollected }: { onCollected?: () => void }) {
             )}
 
             {!e.metrics.length && !!e.keys?.length && (
-              <p className="text-muted-foreground mt-1.5 truncate font-mono text-[11.5px]">
+              <p className="text-muted-foreground mt-1.5 truncate font-mono text-[12.5px]">
                 No metric mapped. The document's own keys: {e.keys.join(", ")}
               </p>
             )}
             {e.truncated && (
-              <p className="text-muted-foreground mt-1 text-[11.5px]">
+              <p className="text-muted-foreground mt-1 text-[12.5px]">
                 The document was truncated before it was stored, so a path deep
                 inside it may not resolve.
               </p>

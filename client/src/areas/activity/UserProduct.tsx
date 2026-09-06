@@ -54,10 +54,10 @@ export function UserProduct({ product }: { product: string }) {
     return (
       <>
         <Back />
-        <p className="text-muted-foreground text-[13px]">{list.error}</p>
+        <p className="text-muted-foreground text-[14px]">{list.error}</p>
       </>
     );
-  if (!list.data) return <p className="text-muted-foreground text-[13px]">Reading…</p>;
+  if (!list.data) return <p className="text-muted-foreground text-[14px]">Reading…</p>;
   const d = list.data;
   const bars = (card?.days ?? []).filter((x) => x.signups !== null);
 
@@ -65,8 +65,8 @@ export function UserProduct({ product }: { product: string }) {
     <>
       <Back />
       <div className="mb-4 flex flex-wrap items-baseline gap-3">
-        <h2 className="text-[19px] font-normal tracking-[-0.025em]">{d.product}</h2>
-        <span className="text-muted-foreground text-[12.5px]">
+        <h2 className="text-[20px] font-normal tracking-[-0.025em]">{d.product}</h2>
+        <span className="text-muted-foreground text-[13.5px]">
           {d.total !== null ? (
             <>
               {count(d.total)} users by the product's own count
@@ -79,7 +79,7 @@ export function UserProduct({ product }: { product: string }) {
       </div>
 
       {bars.length > 1 && (
-        <div className="bg-card mb-4 rounded-[10px] border px-3.5 py-3">
+        <div className="bg-card mb-4 rounded-[14px] border px-4.5 py-3.5">
           <Bars
             values={bars.map((x) => x.signups ?? 0)}
             barLabels={bars.map((x) => `${x.day} — ${x.signups} signup${x.signups === 1 ? "" : "s"}`)}
@@ -96,7 +96,7 @@ export function UserProduct({ product }: { product: string }) {
             setOffset(0);
           }}
           placeholder="id, plan, country or mail domain"
-          className="h-8 max-w-[280px] text-[12.5px]"
+          className="h-8 max-w-[280px] text-[13.5px]"
         />
         {d.facets.plans.slice(0, 8).map((p) => (
           <Chip key={p} on={plan === p} onClick={() => { setPlan(plan === p ? null : p); setOffset(0); }}>
@@ -112,15 +112,15 @@ export function UserProduct({ product }: { product: string }) {
             {v === "true" ? "paying" : v === "false" ? "not paying" : "paid not said"}
           </Chip>
         ))}
-        <span className="text-muted-foreground ml-auto text-[11.5px] tabular-nums">
+        <span className="text-muted-foreground ml-auto text-[12.5px] tabular-nums">
           {count(d.matching)} match{d.matching === 1 ? "" : "es"}
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-[10px] border">
-        <table className="w-full min-w-[560px] text-[12.5px]">
+      <div className="overflow-x-auto rounded-[14px] border">
+        <table className="w-full min-w-[560px] text-[13.5px]">
           <thead>
-            <tr className="text-muted-foreground border-line-soft border-b text-left text-[11px] tracking-[0.04em] uppercase">
+            <tr className="text-muted-foreground border-line-soft border-b text-left text-[12px] tracking-[0.04em] uppercase">
               <th className="px-3.5 py-2 font-normal">Joined</th>
               <th className="px-3.5 py-2 font-normal">Id</th>
               <th className="px-3.5 py-2 font-normal">Mail domain</th>
@@ -136,7 +136,7 @@ export function UserProduct({ product }: { product: string }) {
                 <td className="px-3.5 py-2 tabular-nums whitespace-nowrap">
                   {day(u.createdAt, { year: "2-digit" })}
                 </td>
-                <td className="text-muted-foreground max-w-[180px] truncate px-3.5 py-2 font-mono text-[11.5px]">
+                <td className="text-muted-foreground max-w-[180px] truncate px-3.5 py-2 font-mono text-[12.5px]">
                   {u.id}
                 </td>
                 <td className="px-3.5 py-2">{u.emailDomain ?? <Dash />}</td>
@@ -163,7 +163,7 @@ export function UserProduct({ product }: { product: string }) {
       </div>
 
       {!d.users.length && (
-        <p className="text-muted-foreground mt-2.5 text-[13px]">
+        <p className="text-muted-foreground mt-2.5 text-[14px]">
           Nothing matches those filters. That is a fact about the filters, not about the product.
         </p>
       )}
@@ -173,7 +173,7 @@ export function UserProduct({ product }: { product: string }) {
           <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
             Previous
           </Button>
-          <span className="text-muted-foreground text-[11.5px] tabular-nums">
+          <span className="text-muted-foreground text-[12.5px] tabular-nums">
             {offset + 1}–{offset + d.users.length} of {count(d.matching)}
           </span>
           <Button
@@ -187,7 +187,7 @@ export function UserProduct({ product }: { product: string }) {
         </div>
       )}
 
-      <p className="text-muted-foreground mt-2.5 text-[11.5px] leading-relaxed">{d.filters.note}</p>
+      <p className="text-muted-foreground mt-2.5 text-[12.5px] leading-relaxed">{d.filters.note}</p>
     </>
   );
 }
@@ -202,7 +202,7 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
       type="button"
       onClick={onClick}
       className={cn(
-        "hover:bg-accent rounded-lg border px-2.5 py-1 text-[12px]",
+        "hover:bg-accent rounded-lg border px-2.5 py-1 text-[13px]",
         on && "bg-accent border-foreground/25 font-medium",
       )}
     >
@@ -215,7 +215,7 @@ function Back() {
   return (
     <Link
       to="/activity/users"
-      className="text-muted-foreground hover:text-foreground mb-3 inline-flex items-center gap-1 text-[12.5px]"
+      className="text-muted-foreground hover:text-foreground mb-3 inline-flex items-center gap-1 text-[13.5px]"
     >
       <ChevronLeft className="size-3.5" strokeWidth={1.8} />
       All products

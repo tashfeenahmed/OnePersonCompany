@@ -98,7 +98,7 @@ export function ModelsSettings() {
 
   if (doc.error)
     return (
-      <p className="text-muted-foreground py-5 text-[12.5px]">
+      <p className="text-muted-foreground py-5 text-[13.5px]">
         The API did not answer, so there is nothing to say about providers.{" "}
         <span className="text-destructive">{doc.error}</span>
       </p>
@@ -110,10 +110,10 @@ export function ModelsSettings() {
   return (
     <div className="grid gap-3 py-5">
       <div>
-        <div className="text-[13px] font-medium tracking-tight">
+        <div className="text-[14px] font-medium tracking-tight">
           The default provider
         </div>
-        <p className="text-muted-foreground mt-0.5 max-w-[560px] text-[12.5px]">
+        <p className="text-muted-foreground mt-0.5 max-w-[560px] text-[13.5px]">
           One provider completes. Every agent spawned from here is pointed at
           it, so "which model" is decided once — and a chat with no agent in
           front of it talks to it directly. Choosing one that is not connected
@@ -122,7 +122,7 @@ export function ModelsSettings() {
       </div>
 
       {doc.data?.why && (
-        <p className="text-muted-foreground max-w-[560px] text-[12.5px]">
+        <p className="text-muted-foreground max-w-[560px] text-[13.5px]">
           {doc.data.why}
         </p>
       )}
@@ -145,7 +145,7 @@ export function ModelsSettings() {
               onClick={() => void choose(p.id)}
               aria-pressed={p.default}
               className={cn(
-                "bg-card rounded-[10px] border p-3.5 text-left transition-colors",
+                "bg-card rounded-[14px] border p-4.5 text-left transition-colors",
                 p.default ? "border-foreground" : "hover:border-line-strong",
                 !p.connected && "opacity-60",
               )}
@@ -157,12 +157,12 @@ export function ModelsSettings() {
                     p.live ? "bg-ok" : p.connected ? "bg-border" : "bg-border",
                   )}
                 />
-                <span className="text-[13px] font-medium">{about.name}</span>
+                <span className="text-[14px] font-medium">{about.name}</span>
                 {/* THREE STATES, NOT TWO. Connected and not the default is the
                     middle one and is the common one — folding it into either
                     neighbour is how a page ends up saying "not connected"
                     about a key that is in the vault. */}
-                <span className="text-muted-foreground text-[11.5px]">
+                <span className="text-muted-foreground text-[12.5px]">
                   {!p.connected
                     ? "not connected"
                     : p.default
@@ -172,12 +172,12 @@ export function ModelsSettings() {
                 {p.default && <Check className="ml-auto size-3.5" strokeWidth={2} />}
               </div>
 
-              <p className="text-muted-foreground mt-1 text-[11.5px] leading-snug">
+              <p className="text-muted-foreground mt-1 text-[12.5px] leading-snug">
                 {about.note}
               </p>
 
               {p.connected && (
-                <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
+                <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]">
                   <span>
                     {p.endpoints} endpoint{p.endpoints === 1 ? "" : "s"}
                   </span>
@@ -202,15 +202,15 @@ export function ModelsSettings() {
             size="sm"
             disabled={busy}
             onClick={() => void choose(null)}
-            className="-ml-3 h-7 px-2 text-[12px]"
+            className="-ml-3 h-7 px-2 text-[13px]"
           >
             No default — nothing completes
           </Button>
         )}
-        {problem && <span className="text-destructive text-[12px]">{problem}</span>}
+        {problem && <span className="text-destructive text-[13px]">{problem}</span>}
       </div>
 
-      <p className="text-muted-foreground text-[11.5px]">
+      <p className="text-muted-foreground text-[12.5px]">
         Endpoints, keys and each provider's policy are on its own page:{" "}
         {providers.map((p, i) => (
           <span key={p.id}>
@@ -263,8 +263,8 @@ function TestCompletion({ live, label }: { live: ProviderId | null; label: strin
 
   return (
     <div className="border-line-soft mt-2 border-t pt-4">
-      <div className="text-[13px] font-medium tracking-tight">Ask it something</div>
-      <p className="text-muted-foreground mt-0.5 mb-2.5 max-w-[560px] text-[12.5px]">
+      <div className="text-[14px] font-medium tracking-tight">Ask it something</div>
+      <p className="text-muted-foreground mt-0.5 mb-2.5 max-w-[560px] text-[13.5px]">
         {live
           ? `Goes to ${label}, through the same limiter every other completion goes through. Nothing is written to a transcript.`
           : "Nothing is the default, so this will come back with the server's own sentence saying so."}
@@ -275,7 +275,7 @@ function TestCompletion({ live, label }: { live: ProviderId | null; label: strin
           disabled={busy}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void send()}
-          className="min-w-[240px] flex-1 text-[12.5px]"
+          className="min-w-[240px] flex-1 text-[13.5px]"
         />
         <Button size="sm" disabled={busy || !text.trim()} onClick={() => void send()}>
           <Send className="size-3.5" strokeWidth={1.8} />
@@ -283,12 +283,12 @@ function TestCompletion({ live, label }: { live: ProviderId | null; label: strin
         </Button>
       </div>
 
-      {problem && <p className="text-destructive mt-2 max-w-[560px] text-[12px]">{problem}</p>}
+      {problem && <p className="text-destructive mt-2 max-w-[560px] text-[13px]">{problem}</p>}
 
       {reply && (
-        <div className="bg-card mt-2 max-w-[560px] rounded-[10px] border p-3.5">
-          <p className="text-[13px] whitespace-pre-wrap">{reply.text.trim()}</p>
-          <p className="text-muted-foreground mt-2 text-[11.5px]">
+        <div className="bg-card mt-2 max-w-[560px] rounded-[14px] border p-4.5">
+          <p className="text-[14px] whitespace-pre-wrap">{reply.text.trim()}</p>
+          <p className="text-muted-foreground mt-2 text-[12.5px]">
             {reply.provider} · {reply.endpoint}
             {reply.model && ` · ${reply.model}`} · {duration(reply.ms)}
             {reply.queuedMs > 0 && ` · queued ${duration(reply.queuedMs)}`}

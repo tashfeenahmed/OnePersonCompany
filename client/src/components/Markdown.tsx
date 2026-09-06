@@ -60,22 +60,22 @@ import { richLang } from "@/lib/rich";
  */
 const COMPONENTS = {
   h1: (p: { children?: React.ReactNode }) => (
-    <h1 className="mt-4 mb-1.5 text-[15px] font-medium tracking-tight first:mt-0">
+    <h1 className="mt-4 mb-1.5 text-[16px] font-medium tracking-tight first:mt-0">
       {p.children}
     </h1>
   ),
   h2: (p: { children?: React.ReactNode }) => (
-    <h2 className="mt-4 mb-1.5 text-[14px] font-medium tracking-tight first:mt-0">
+    <h2 className="mt-4 mb-1.5 text-[15px] font-medium tracking-tight first:mt-0">
       {p.children}
     </h2>
   ),
   h3: (p: { children?: React.ReactNode }) => (
-    <h3 className="mt-3.5 mb-1 text-[13.5px] font-medium tracking-tight first:mt-0">
+    <h3 className="mt-3.5 mb-1 text-[14.5px] font-medium tracking-tight first:mt-0">
       {p.children}
     </h3>
   ),
   h4: (p: { children?: React.ReactNode }) => (
-    <h4 className="text-muted-foreground mt-3.5 mb-1 text-[13px] font-medium first:mt-0">
+    <h4 className="text-muted-foreground mt-3.5 mb-1 text-[14px] font-medium first:mt-0">
       {p.children}
     </h4>
   ),
@@ -135,7 +135,7 @@ const COMPONENTS = {
     if (rich) return <RichBlock lang={rich} text={text.replace(/\n$/, "")} />;
     if (fenced) return <CodeBlock text={text.replace(/\n$/, "")} />;
     return (
-      <code className="bg-muted/60 rounded-[5px] px-1 py-px font-mono text-[12px]">
+      <code className="bg-muted/60 rounded-[7px] px-1 py-px font-mono text-[13px]">
         {p.children}
       </code>
     );
@@ -147,8 +147,8 @@ const COMPONENTS = {
   /* GFM tables. The scroll is on a wrapper rather than the table so a wide one
      never widens the transcript column. */
   table: (p: { children?: React.ReactNode }) => (
-    <div className="border-line-soft my-2.5 overflow-x-auto rounded-[10px] border">
-      <table className="w-full border-collapse text-[12.5px]">{p.children}</table>
+    <div className="border-line-soft my-2.5 overflow-x-auto rounded-[14px] border">
+      <table className="w-full border-collapse text-[13.5px]">{p.children}</table>
     </div>
   ),
   thead: (p: { children?: React.ReactNode }) => (
@@ -163,7 +163,7 @@ const COMPONENTS = {
   img: (p: { src?: string; alt?: string }) => (
     /* Rendered, but never wider than the column. An answer that quotes an
        image URL should not be able to blow the layout out. */
-    <img src={p.src} alt={p.alt ?? ""} className="my-2 max-w-full rounded-[8px]" />
+    <img src={p.src} alt={p.alt ?? ""} className="my-2 max-w-full rounded-[11px]" />
   ),
 };
 
@@ -188,7 +188,7 @@ export const Markdown = memo(function Markdown({
   className?: string;
 }) {
   return (
-    <div className={cn("text-[13.5px] leading-[1.6] break-words", className)}>
+    <div className={cn("text-[14.5px] leading-[1.6] break-words", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
         {text}
       </ReactMarkdown>

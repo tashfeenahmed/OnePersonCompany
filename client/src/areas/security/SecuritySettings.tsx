@@ -83,7 +83,7 @@ export function SecuritySettings() {
         title="Password"
         hint="Require your password to open the workspace. Owner sign-in is required to approve email and change usage limits."
       >
-        <div className="mb-3 flex items-center gap-2 text-[13px]">
+        <div className="mb-3 flex items-center gap-2 text-[14px]">
           {enabled ? (
             <ShieldCheck className="size-4 text-ok" strokeWidth={1.8} />
           ) : (
@@ -95,7 +95,7 @@ export function SecuritySettings() {
               : "No password is set. Set one to enable owner controls and protect the workspace."}
           </span>
           {enabled && d?.passwordChangedAt && (
-            <span className="text-muted-foreground ml-auto text-[11.5px]">
+            <span className="text-muted-foreground ml-auto text-[12.5px]">
               changed {when(d.passwordChangedAt, NEVER)}
             </span>
           )}
@@ -143,8 +143,8 @@ export function SecuritySettings() {
               </Button>
             )}
           </div>
-          {problem && <p role="alert" className="text-destructive text-[12.5px]">{problem}</p>}
-          {note && <p className="text-[12.5px]">{note}</p>}
+          {problem && <p role="alert" className="text-destructive text-[13.5px]">{problem}</p>}
+          {note && <p className="text-[13.5px]">{note}</p>}
         </div>
         <details className="mt-3 text-xs text-muted-foreground"><summary className="cursor-pointer">How access works</summary><p className="mt-2">This is a single-owner workspace. Browser sessions expire after 30 days, or 7 days without activity. The service key lets local integrations use the API; it cannot approve or send email. Software running as the same operating-system user still has access to local files.</p></details>
       </Section>
@@ -153,7 +153,7 @@ export function SecuritySettings() {
         title="The agent keeps working"
         hint="Every in-process caller on this box — the `opc` command, the MCP servers, the skills proxy, a run assembling its brief — sends a service key instead of a cookie, so turning the lock on does not blind the chief of staff."
       >
-        <p className="text-muted-foreground text-[12.5px] leading-relaxed">
+        <p className="text-muted-foreground text-[13.5px] leading-relaxed">
           The key is{" "}
           <span className="text-foreground font-mono">
             {d?.serviceKeyFile ?? "server/data/service-key"}
@@ -170,18 +170,18 @@ export function SecuritySettings() {
         hint="One row per browser that signed in. Revoking one signs that browser out at its next request; changing the password revokes all of them."
       >
         {!enabled ? (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             There is no password, so there are no sessions.
           </p>
         ) : !d?.sessions?.length ? (
-          <p className="text-muted-foreground text-[12.5px]">No browser has signed in yet.</p>
+          <p className="text-muted-foreground text-[13.5px]">No browser has signed in yet.</p>
         ) : (
-          <div className="overflow-hidden rounded-[10px] border">
+          <div className="overflow-hidden rounded-[14px] border">
             {d.sessions.map((s, i) => (
               <div
                 key={s.id}
                 className={cn(
-                  "flex flex-wrap items-baseline gap-x-2.5 gap-y-1 px-3.5 py-2.5 text-[12.5px]",
+                  "flex flex-wrap items-baseline gap-x-2.5 gap-y-1 px-3.5 py-2.5 text-[13.5px]",
                   i > 0 && "border-line-soft border-t",
                   s.revokedAt && "text-muted-foreground",
                 )}
@@ -194,9 +194,9 @@ export function SecuritySettings() {
                 />
                 <span title={s.userAgent ?? undefined}>{browser(s.userAgent)}</span>
                 {s.current && !s.revokedAt && (
-                  <span className="text-muted-foreground text-[11.5px]">this browser</span>
+                  <span className="text-muted-foreground text-[12.5px]">this browser</span>
                 )}
-                <span className="text-muted-foreground ml-auto text-[11.5px]">
+                <span className="text-muted-foreground ml-auto text-[12.5px]">
                   {s.revokedAt ? `signed out ${when(s.revokedAt, NEVER)}` : `last used ${when(s.lastSeenAt, NEVER)}`}
                 </span>
                 {!s.revokedAt && (

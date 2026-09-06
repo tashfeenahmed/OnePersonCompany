@@ -154,7 +154,7 @@ export function WidgetCard({
 
       className={cn(
         placed.w === 4 ? "col-span-2 xl:col-span-4" : placed.w === 2 ? "col-span-2" : "col-span-1",
-        "bg-card relative flex min-h-[116px] flex-col rounded-[10px] border p-3.5 transition-colors",
+        "bg-card relative flex min-h-[116px] flex-col rounded-[14px] border p-4.5 transition-colors",
         editing && "hover:border-line-strong cursor-grab touch-none select-none",
         dragging && "cursor-grabbing opacity-35",
         dropSide === "before" &&
@@ -170,13 +170,13 @@ export function WidgetCard({
           mono={src.mono}
           tint={src.tint}
           className="size-5 rounded-md"
-          glyphClassName="size-[11px] text-[9px]"
+          glyphClassName="size-[11px] text-[10px]"
         />
-        <span className="text-[11.5px]">{def.name}</span>
+        <span className="text-[12.5px]">{def.name}</span>
         {scope && !narrowed && (
           <span
             title={`This figure has no per-site breakdown, so it is the whole portfolio rather than ${scope.label}.`}
-            className="text-muted-foreground shrink-0 rounded-[5px] border px-1 py-px text-[9.5px] leading-[1.35]"
+            className="text-muted-foreground shrink-0 rounded-[7px] border px-1 py-px text-[10.5px] leading-[1.35]"
           >
             portfolio
           </span>
@@ -198,7 +198,7 @@ export function WidgetCard({
                 e.stopPropagation();
                 onCycleWidth();
               }}
-              className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[7px] p-1"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[9px] p-1"
             >
               <UnfoldHorizontal className="size-3.5" strokeWidth={1.6} />
             </button>
@@ -208,7 +208,7 @@ export function WidgetCard({
                 e.stopPropagation();
                 onRemove();
               }}
-              className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[7px] p-1"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[9px] p-1"
             >
               <Trash2 className="size-3.5" strokeWidth={1.6} />
             </button>
@@ -223,17 +223,17 @@ export function WidgetCard({
         )}
       >
         {empty && (
-          <p className="text-muted-foreground text-[11.5px] leading-snug">
+          <p className="text-muted-foreground text-[12.5px] leading-snug">
             {empty}
           </p>
         )}
 
         {!empty && def.kind === "metric" && (
           <>
-            <div className="text-[26px] leading-tight font-normal tracking-[-0.03em] tabular-nums">
+            <div className="text-[28px] leading-tight font-normal tracking-[-0.03em] tabular-nums">
               {def.value}
             </div>
-            <div className="text-muted-foreground mt-1 flex items-center gap-1.5 text-[11.5px]">
+            <div className="text-muted-foreground mt-1 flex items-center gap-1.5 text-[12.5px]">
               {trend !== null && trend !== 0 && (
                 <span
                   className={cn(
@@ -288,9 +288,9 @@ export function WidgetCard({
         {!empty && def.kind === "rows" && def.rows && (
           <div className="mt-2 flex flex-col gap-1.5">
             {def.rows.map(([k, v]) => (
-              <div key={k} className="flex items-baseline gap-2 text-[12px]">
+              <div key={k} className="flex items-baseline gap-2 text-[13px]">
                 <span className="truncate">{k}</span>
-                <span className="text-muted-foreground ml-auto text-[11.5px] whitespace-nowrap tabular-nums">
+                <span className="text-muted-foreground ml-auto text-[12.5px] whitespace-nowrap tabular-nums">
                   {v}
                 </span>
               </div>
@@ -317,7 +317,7 @@ export function WidgetCard({
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground mt-2 text-[11.5px]">
+            <p className="text-muted-foreground mt-2 text-[12.5px]">
               No samples yet — the collector writes these the first time it runs.
             </p>
           ))}
@@ -331,7 +331,7 @@ export function WidgetCard({
               caption={def.caption}
             />
           ) : (
-            <p className="text-muted-foreground mt-2 text-[11.5px]">
+            <p className="text-muted-foreground mt-2 text-[12.5px]">
               No dated renewals yet.
             </p>
           ))}
@@ -340,7 +340,7 @@ export function WidgetCard({
           (def.table?.length ? (
             <Figures headers={def.headers ?? []} rows={def.table} />
           ) : (
-            <p className="text-muted-foreground mt-2 text-[11.5px]">
+            <p className="text-muted-foreground mt-2 text-[12.5px]">
               Nothing measured yet.
             </p>
           ))}
@@ -350,7 +350,7 @@ export function WidgetCard({
             {def.statuses.map(([label, tone]) => (
               <span
                 key={label}
-                className="flex items-center gap-1.5 text-[11.5px]"
+                className="flex items-center gap-1.5 text-[12.5px]"
               >
                 <i
                   className={cn(

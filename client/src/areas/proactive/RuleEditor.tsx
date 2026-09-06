@@ -82,7 +82,7 @@ type Preview = { key: string } & (
 );
 
 const selectClass =
-  "border-input bg-background h-8 rounded-lg border px-2 text-[13px] min-w-0";
+  "border-input bg-background h-8 rounded-lg border px-2 text-[14px] min-w-0";
 
 export function RuleEditor({
   rule,
@@ -200,7 +200,7 @@ export function RuleEditor({
   const ventures = useMemo(() => state.ventures, [state.ventures]);
 
   return (
-    <div className="bg-card border-line-soft mt-1 mb-2 rounded-[10px] border p-3.5">
+    <div className="bg-card border-line-soft mt-1 mb-2 rounded-[14px] border p-4.5">
       <div className="grid gap-2.5 sm:grid-cols-2">
         <Field label="Name" hint="One line. It is what every event this raises is called.">
           <Input
@@ -286,13 +286,13 @@ export function RuleEditor({
             value={form.path}
             placeholder="charges[0].failed"
             onChange={(e) => set("path", e.target.value)}
-            className="font-mono text-[12.5px]"
+            className="font-mono text-[13.5px]"
           />
         </Field>
         {/* THE LIVE READING. It is the reason to trust the rule before saving
             it, and the failure sentence is the route's own — it names the keys
             the document really has. */}
-        <div className="mt-1.5 text-[11.5px]">
+        <div className="mt-1.5 text-[12.5px]">
           {!ready ? (
             <span className="text-muted-foreground">
               Choose a document and type a path to see what it reads right now.
@@ -345,7 +345,7 @@ export function RuleEditor({
           </Field>
         ) : (
           <Field label="Threshold" hint="This operator compares with the previous reading, so it takes none.">
-            <div className="text-muted-foreground flex h-8 items-center text-[12.5px]">
+            <div className="text-muted-foreground flex h-8 items-center text-[13.5px]">
               not used
             </div>
           </Field>
@@ -388,21 +388,21 @@ export function RuleEditor({
         </div>
       )}
 
-      {error && <p className="text-destructive mt-2.5 text-[12.5px]">{error}</p>}
+      {error && <p className="text-destructive mt-2.5 text-[13.5px]">{error}</p>}
 
       <div className="mt-3 flex items-center gap-2">
         <Button
           onClick={() => void save()}
           disabled={saving || !form.name.trim() || !form.skill || !form.path.trim()}
-          className="h-8 text-[12.5px]"
+          className="h-8 text-[13.5px]"
         >
           {saving ? "Saving…" : rule ? "Save changes" : "Create rule"}
         </Button>
-        <Button variant="ghost" onClick={onCancel} className="h-8 text-[12.5px]">
+        <Button variant="ghost" onClick={onCancel} className="h-8 text-[13.5px]">
           Cancel
         </Button>
         {shown?.state === "bad" && (
-          <span className="text-muted-foreground text-[11.5px]">
+          <span className="text-muted-foreground text-[12.5px]">
             You can still save it — it will report as unreadable rather than trip.
           </span>
         )}
@@ -422,12 +422,12 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-muted-foreground text-[11px] tracking-[0.04em] uppercase">
+      <span className="text-muted-foreground text-[12px] tracking-[0.04em] uppercase">
         {label}
       </span>
       {children}
       {hint && (
-        <span className={cn("text-muted-foreground text-[11px] leading-[1.45]")}>{hint}</span>
+        <span className={cn("text-muted-foreground text-[12px] leading-[1.45]")}>{hint}</span>
       )}
     </label>
   );

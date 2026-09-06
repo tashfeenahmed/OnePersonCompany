@@ -100,7 +100,7 @@
     --chart-3: #6e6c65;
     --chart-4: #b0aea6;
     --chart-5: #d6d5cf;
-    --radius: 0.625rem;
+    --radius: 0.875rem;
     --sidebar: #f2f2f0;
     --sidebar-foreground: #100f0e;
     --sidebar-primary: #100f0e;
@@ -157,6 +157,27 @@
   * {
     @apply border-border outline-ring/50;
     }
+
+  /* ----------------------------------------------------------------------
+     CONTROLS ARE FILLED, NOT OUTLINED.
+
+     A border and a fill are two ways to say "this is a thing you can act on",
+     and running both makes every input and button carry a hairline that the
+     card underneath it already provides. The fill is the one that survives
+     being small: a 24px button's outline is most of its visual weight, while
+     a fill reads at any size and leaves the hairlines to mean structure.
+
+     The border is kept and made TRANSPARENT rather than removed, so nothing
+     reflows: a control's height and its optical alignment with the text
+     beside it are both measured with the border in the box. A focus ring
+     still lands on the border, which is why `focus-visible:border-ring` in
+     the component files keeps working unchanged.
+     ---------------------------------------------------------------------- */
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    border-color: transparent;
+  }
   body {
     @apply bg-background text-foreground;
     }
@@ -167,9 +188,9 @@
 @layer base {
   body {
     /* The design's base size. Most type is set explicitly, but anything that
-       is not should land at 14px rather than the browser's 16. */
-    font-size: 14px;
-    line-height: 1.5;
+       is not should land here rather than at the browser's 16. */
+    font-size: 15px;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
   }
 }

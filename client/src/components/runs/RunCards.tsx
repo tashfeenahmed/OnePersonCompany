@@ -84,12 +84,12 @@ export function RunCards({
   }
 
   return (
-    <div className="bg-card mt-5 rounded-[10px] border p-3.5">
+    <div className="bg-card mt-5 rounded-[14px] border p-4.5">
       <div className="mb-2.5 flex flex-wrap items-baseline gap-2">
-        <span className="text-[13px] font-medium tracking-tight">
+        <span className="text-[14px] font-medium tracking-tight">
           File these on the board
         </span>
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           {cards.length} {cards.length === 1 ? "suggestion" : "suggestions"} from
           this run. Nothing has been written until you press.
         </span>
@@ -126,21 +126,21 @@ export function RunCards({
               />
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-baseline gap-2">
-                  <span className="text-[13px] leading-snug">{card.title}</span>
+                  <span className="text-[14px] leading-snug">{card.title}</span>
                   {card.urgency !== 1 && (
-                    <span className="text-muted-foreground shrink-0 rounded-[6px] border px-1.5 py-px text-[10.5px] leading-[1.5]">
+                    <span className="text-muted-foreground shrink-0 rounded-[8px] border px-1.5 py-px text-[11.5px] leading-[1.5]">
                       {URGENCY[card.urgency] ?? card.urgency}
                     </span>
                   )}
                   {isFiled && (
-                    <span className="text-ok flex shrink-0 items-center gap-1 text-[11px]">
+                    <span className="text-ok flex shrink-0 items-center gap-1 text-[12px]">
                       <Check className="size-3" strokeWidth={2} />
                       filed
                     </span>
                   )}
                 </span>
                 {card.body && (
-                  <span className="text-muted-foreground mt-0.5 block text-[12px] leading-relaxed">
+                  <span className="text-muted-foreground mt-0.5 block text-[13px] leading-relaxed">
                     {card.body}
                   </span>
                 )}
@@ -162,7 +162,7 @@ export function RunCards({
         {filed.size > 0 && (
           <Link
             to="/board"
-            className="text-muted-foreground hover:text-foreground text-[12px]"
+            className="text-muted-foreground hover:text-foreground text-[13px]"
           >
             {filed.size} {filed.size === 1 ? "card is" : "cards are"} in Backlog —
             open the board
@@ -171,7 +171,7 @@ export function RunCards({
       </div>
 
       {refused && (
-        <p className="text-destructive mt-2 text-[12.5px] leading-relaxed">
+        <p className="text-destructive mt-2 text-[13.5px] leading-relaxed">
           {refused}
           {filed.size > 0 &&
             ` ${filed.size} ${filed.size === 1 ? "card" : "cards"} had already been written; pressing again files only the rest.`}

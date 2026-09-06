@@ -157,13 +157,13 @@ export function Settings() {
                 <button
                   onClick={() => setWorkspace({ defaultVentureId: null })}
                   className={cn(
-                    "flex items-center gap-2 rounded-[9px] border px-3 py-1.5 text-[12.5px] transition-colors",
+                    "flex items-center gap-2 rounded-[12px] border px-3 py-1.5 text-[13.5px] transition-colors",
                     state.workspace.defaultVentureId === null
                       ? "border-foreground"
                       : "hover:border-line-strong",
                   )}
                 >
-                  <span className="border-border size-[7px] rounded-[2px] border" />
+                  <span className="border-border size-[7px] rounded-[3px] border" />
                   No venture
                 </button>
                 {state.ventures.map((v) => (
@@ -171,14 +171,14 @@ export function Settings() {
                     key={v.id}
                     onClick={() => setWorkspace({ defaultVentureId: v.id })}
                     className={cn(
-                      "flex items-center gap-2 rounded-[9px] border px-3 py-1.5 text-[12.5px] transition-colors",
+                      "flex items-center gap-2 rounded-[12px] border px-3 py-1.5 text-[13.5px] transition-colors",
                       state.workspace.defaultVentureId === v.id
                         ? "border-foreground"
                         : "hover:border-line-strong",
                     )}
                   >
                     <span
-                      className="size-[7px] rounded-[2px]"
+                      className="size-[7px] rounded-[3px]"
                       style={{ background: v.color }}
                     />
                     {v.name}
@@ -207,7 +207,7 @@ export function Settings() {
                     onClick={() => setTheme(id)}
                     aria-pressed={theme === id}
                     className={cn(
-                      "bg-card rounded-[10px] border p-3.5 text-left transition-colors",
+                      "bg-card rounded-[14px] border p-4.5 text-left transition-colors",
                       theme === id
                         ? "border-foreground"
                         : "hover:border-line-strong",
@@ -215,12 +215,12 @@ export function Settings() {
                   >
                     <div className="flex items-center gap-2">
                       <Icon className="size-4" strokeWidth={1.6} />
-                      <span className="text-[13px] font-medium">{label}</span>
+                      <span className="text-[14px] font-medium">{label}</span>
                       {theme === id && (
                         <Check className="ml-auto size-4" strokeWidth={2} />
                       )}
                     </div>
-                    <p className="text-muted-foreground mt-1 text-[11.5px]">
+                    <p className="text-muted-foreground mt-1 text-[12.5px]">
                       {n}
                     </p>
                   </button>
@@ -234,7 +234,7 @@ export function Settings() {
               title="Type and density"
               hint="The interface uses a consistent type scale and spacing."
             >
-              <div className="text-muted-foreground flex flex-wrap gap-4 font-mono text-[11.5px]">
+              <div className="text-muted-foreground flex flex-wrap gap-4 font-mono text-[12.5px]">
                 <span>body 14px</span>
                 <span>rail 12.5px</span>
                 <span>page title 25px</span>
@@ -314,7 +314,7 @@ export function Settings() {
                   }}
                 />
                 {note && (
-                  <span role="status" className="text-muted-foreground text-[12px]">
+                  <span role="status" className="text-muted-foreground text-[13px]">
                     {note}
                   </span>
                 )}
@@ -355,7 +355,7 @@ export function Settings() {
         </Tabs>
 
         <Separator className="mt-8 mb-4" />
-        <p className="text-muted-foreground text-[12.5px]">
+        <p className="text-muted-foreground text-[13.5px]">
           Credentials and integrations are not here — each one lives on{" "}
           <Link
             to="/integrations"

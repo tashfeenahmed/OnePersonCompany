@@ -164,10 +164,10 @@ export function PluginDetail() {
         <TopBar label="Integrations" />
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
           <div className="mx-auto w-full max-w-[720px]">
-            <h1 className="mt-2 mb-1 text-[25px] font-normal tracking-[-0.025em]">
+            <h1 className="mt-2 mb-1 text-[27px] font-normal tracking-[-0.025em]">
               No such plugin
             </h1>
-            <p className="text-muted-foreground mb-5 text-[13.5px]">
+            <p className="text-muted-foreground mb-5 text-[14.5px]">
               Nothing in the catalog is called “{id}”.
             </p>
             <Button variant="outline" onClick={() => navigate("/integrations")}>
@@ -215,7 +215,7 @@ export function PluginDetail() {
         <div className="mx-auto w-full max-w-[720px]">
           <Link
             to="/integrations"
-            className="text-muted-foreground hover:text-foreground -ml-1.5 mb-4 inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[12.5px]"
+            className="text-muted-foreground hover:text-foreground -ml-1.5 mb-4 inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[13.5px]"
           >
             <ArrowLeft className="size-3.5" strokeWidth={1.6} />
             All integrations
@@ -227,11 +227,11 @@ export function PluginDetail() {
               name={plugin.name}
               mono={plugin.mono}
               tint={plugin.tint}
-              className="size-11 rounded-[12px]"
-              glyphClassName="size-[22px] text-[17px]"
+              className="size-11 rounded-[16px]"
+              glyphClassName="size-[22px] text-[18px]"
             />
             <div className="min-w-0 flex-1">
-              <h1 className="text-[25px] leading-tight font-normal tracking-[-0.025em]">
+              <h1 className="text-[27px] leading-tight font-normal tracking-[-0.025em]">
                 {plugin.name}
               </h1>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -280,7 +280,7 @@ export function PluginDetail() {
             </div>
           </div>
 
-          <p className="text-muted-foreground mt-5 text-[13.5px]">
+          <p className="text-muted-foreground mt-5 text-[14.5px]">
             {plugin.help}
           </p>
 
@@ -289,7 +289,7 @@ export function PluginDetail() {
               href={plugin.docs}
               target="_blank"
               rel="noreferrer"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground -ml-2 mt-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground -ml-2 mt-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
             >
               <ExternalLink className="size-3.5" strokeWidth={1.6} />
               Where to get this
@@ -302,14 +302,14 @@ export function PluginDetail() {
             true in two of the three cases and answers the wrong question.
           */}
           {chatRow && (
-            <div className="border-line-strong bg-card mt-4 flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3">
+            <div className="border-line-strong bg-card mt-4 flex items-start gap-2.5 rounded-[14px] border px-4.5 py-3.5">
               <span
                 className={cn(
                   "mt-1.5 size-[7px] shrink-0 rounded-full",
                   chatRow.live ? "bg-emerald-500" : "bg-muted-foreground/40",
                 )}
               />
-              <div className="text-[12.5px]">
+              <div className="text-[13.5px]">
                 {chatRow.live ? (
                   <>
                     <span className="font-medium">
@@ -335,7 +335,7 @@ export function PluginDetail() {
                           .setChatBackend(id === "hermes" ? "hermes" : "openclaw")
                           .then(() => chat.reload());
                       }}
-                      className="hover:bg-accent border-line-strong mt-2 block rounded-lg border px-2.5 py-1 text-[12.5px]"
+                      className="hover:bg-accent border-line-strong mt-2 block rounded-lg border px-2.5 py-1 text-[13.5px]"
                     >
                       Make {plugin.name} the live backend
                     </button>
@@ -388,7 +388,7 @@ export function PluginDetail() {
           {!live && !!plugin.fields.length && (
             <>
               <Separator className="mt-7 mb-5" />
-              <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
                 Credentials
               </div>
 
@@ -406,9 +406,9 @@ export function PluginDetail() {
                       onChange={(e) =>
                         setValues((v) => ({ ...v, [f.key]: e.target.value }))
                       }
-                      className="font-mono text-[12.5px]"
+                      className="font-mono text-[13.5px]"
                     />
-                    <p className="text-muted-foreground text-[11px]">
+                    <p className="text-muted-foreground text-[12px]">
                       {f.kind === "secret"
                         ? `Stored as ${secretFor(plugin, f.key)}, write-only — it is never read back out.`
                         : "Public by design — shown in full."}
@@ -427,20 +427,20 @@ export function PluginDetail() {
                   </Button>
                 )}
                 {saved && !problem && (
-                  <span className="text-ok flex items-center gap-1.5 text-[12px]">
+                  <span className="text-ok flex items-center gap-1.5 text-[13px]">
                     <Check className="size-3.5" strokeWidth={2} />
                     Written to the vault
                   </span>
                 )}
                 {problem && (
-                  <span className="text-destructive text-[12px]">
+                  <span className="text-destructive text-[13px]">
                     {problem}
                   </span>
                 )}
               </div>
 
               {!server.loading && (
-                <p className="text-muted-foreground mt-3 text-[11.5px]">
+                <p className="text-muted-foreground mt-3 text-[12.5px]">
                   Not wired to the API yet — this saves locally so the interface
                   can be used, but nothing is collected.
                 </p>
@@ -514,14 +514,14 @@ export function PluginDetail() {
           {live && !!server.data?.runs.length && (
             <>
               <Separator className="mt-7 mb-5" />
-              <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
                 Recent collections
               </div>
               <div className="flex flex-col gap-1.5">
                 {server.data.runs.map((r) => (
                   <div
                     key={r.id}
-                    className="flex items-baseline gap-2.5 text-[12px]"
+                    className="flex items-baseline gap-2.5 text-[13px]"
                   >
                     <span
                       className={cn(
@@ -534,7 +534,7 @@ export function PluginDetail() {
                     <span className="text-muted-foreground min-w-0 truncate">
                       {r.note ?? r.error ?? "running…"}
                     </span>
-                    <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[11px]">
+                    <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[12px]">
                       {when(r.startedAt, { year: true })}
                     </span>
                   </div>
@@ -546,14 +546,14 @@ export function PluginDetail() {
           {!!plugin.usedBy.length && (
             <>
               <Separator className="mt-7 mb-5" />
-              <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
                 Read by
               </div>
               <ul className="flex flex-col gap-2">
                 {plugin.usedBy.map((u) => (
                   <li
                     key={u}
-                    className="text-muted-foreground flex items-baseline gap-2 font-mono text-[12px] leading-relaxed"
+                    className="text-muted-foreground flex items-baseline gap-2 font-mono text-[13px] leading-relaxed"
                   >
                     <span>→</span>
                     {u}
@@ -564,7 +564,7 @@ export function PluginDetail() {
           )}
 
           <Separator className="mt-7 mb-5" />
-          <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
             Also in {category}
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -574,15 +574,15 @@ export function PluginDetail() {
               <Link
                 key={p.id}
                 to={`/plugins/${p.id}`}
-                className="bg-card hover:border-line-strong flex items-center gap-2 rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors"
+                className="bg-card hover:border-line-strong flex items-center gap-2 rounded-[12px] border px-3 py-2 text-[13.5px] transition-colors"
               >
                 <BrandTile
                   icon={p.icon}
                   name={p.name}
                   mono={p.mono}
                   tint={p.tint}
-                  className="size-[18px] rounded-[5px]"
-                  glyphClassName="size-[10px] text-[8px]"
+                  className="size-[18px] rounded-[7px]"
+                  glyphClassName="size-[10px] text-[9px]"
                 />
                 {p.name}
                 <span
@@ -659,7 +659,7 @@ function PluginSettings({ id, onSaved }: { id: string; onSaved: () => void }) {
   return (
     <>
       <Separator className="mt-7 mb-5" />
-      <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+      <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
         Settings
       </div>
 
@@ -677,9 +677,9 @@ function PluginSettings({ id, onSaved }: { id: string; onSaved: () => void }) {
               onChange={(e) =>
                 setTyped((v) => ({ ...v, [k.key]: e.target.value }))
               }
-              className="font-mono text-[12.5px]"
+              className="font-mono text-[13.5px]"
             />
-            <p className="text-muted-foreground text-[11px]">{k.hint}</p>
+            <p className="text-muted-foreground text-[12px]">{k.hint}</p>
           </div>
         ))}
       </div>
@@ -689,16 +689,16 @@ function PluginSettings({ id, onSaved }: { id: string; onSaved: () => void }) {
           {saving ? "Saving…" : "Save settings"}
         </Button>
         {saved && !problem && (
-          <span className="text-ok flex items-center gap-1.5 text-[12px]">
+          <span className="text-ok flex items-center gap-1.5 text-[13px]">
             <Check className="size-3.5" strokeWidth={2} />
             Saved, and collected
           </span>
         )}
         {problem && (
-          <span className="text-destructive text-[12px]">{problem}</span>
+          <span className="text-destructive text-[13px]">{problem}</span>
         )}
       </div>
-      <p className="text-muted-foreground mt-3 text-[11.5px]">
+      <p className="text-muted-foreground mt-3 text-[12.5px]">
         Public by design — stored beside the plugin rather than in the vault,
         and shown here in full.
       </p>
@@ -786,10 +786,10 @@ function Accounts({
     <>
       <Separator className="mt-7 mb-5" />
       <div className="mb-3 flex items-center gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           Credentials
         </div>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {accounts.length
             ? `${accounts.length} account${accounts.length === 1 ? "" : "s"}`
             : "nothing connected"}
@@ -797,7 +797,7 @@ function Accounts({
       </div>
 
       {!accounts.length && (
-        <p className="text-muted-foreground mb-4 text-[13px]">
+        <p className="text-muted-foreground mb-4 text-[14px]">
           Nothing is stored for {plugin.name} yet. Add an account below and it
           is checked against {plugin.name} before anything is written down.
         </p>
@@ -841,8 +841,8 @@ function Accounts({
       </div>
 
       {open === "new" ? (
-        <div className="mt-2 rounded-[10px] border p-3.5">
-          <div className="mb-3 text-[13px] font-medium">
+        <div className="mt-2 rounded-[14px] border p-3.5">
+          <div className="mb-3 text-[14px] font-medium">
             Add another account
           </div>
           <AccountForm
@@ -885,16 +885,16 @@ function Accounts({
       )}
 
       {problem && (
-        <p className="text-destructive mt-3 text-[12px]">{problem}</p>
+        <p className="text-destructive mt-3 text-[13px]">{problem}</p>
       )}
       {done && !problem && (
-        <p className="text-ok mt-3 flex items-center gap-1.5 text-[12px]">
+        <p className="text-ok mt-3 flex items-center gap-1.5 text-[13px]">
           <Check className="size-3.5" strokeWidth={2} />
           {done}
         </p>
       )}
 
-      <p className="text-muted-foreground mt-3 text-[11.5px]">
+      <p className="text-muted-foreground mt-3 text-[12.5px]">
         Every account is checked against {plugin.name} before it is stored, then
         encrypted with AES-256-GCM in the server's vault under its own entry
         name. The browser never holds a value and no route reads one back.
@@ -936,7 +936,7 @@ function AccountRow({
   const failing = account.connected && !!account.lastError;
 
   return (
-    <div className="rounded-[10px] border p-3.5">
+    <div className="rounded-[14px] border p-3.5">
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
@@ -944,7 +944,7 @@ function AccountRow({
             failing ? "bg-destructive" : account.connected ? "bg-ok" : "bg-border",
           )}
         />
-        <span className="text-[13px] font-medium">{account.label}</span>
+        <span className="text-[14px] font-medium">{account.label}</span>
         <Badge
           variant="secondary"
           className={cn(
@@ -979,13 +979,13 @@ function AccountRow({
       {/* Two dates, because they answer two questions. "Stored" is how old the
           credential is; "last read" is whether it still works. A single line
           would have to pick one and would be read as the other. */}
-      <div className="text-muted-foreground mt-1.5 text-[11.5px]">
+      <div className="text-muted-foreground mt-1.5 text-[12.5px]">
         stored {ago(account.updatedAt)} · last read{" "}
         {account.lastOkAt ? ago(account.lastOkAt) : "not yet"}
       </div>
 
       {account.lastError && (
-        <p className="text-destructive mt-1.5 text-[11.5px]">
+        <p className="text-destructive mt-1.5 text-[12.5px]">
           {account.lastError}
         </p>
       )}
@@ -1049,9 +1049,9 @@ function AccountForm({
           autoComplete="off"
           onChange={(e) => onLabel(e.target.value)}
           placeholder="Account 1"
-          className="text-[12.5px]"
+          className="text-[13.5px]"
         />
-        <p className="text-muted-foreground text-[11px]">{labelHint}</p>
+        <p className="text-muted-foreground text-[12px]">{labelHint}</p>
       </div>
 
       {plugin.fields.map((f) => (
@@ -1065,9 +1065,9 @@ function AccountForm({
             placeholder={fieldHint(f)}
             value={values[f.key] ?? ""}
             onChange={(e) => onValue(f.key, e.target.value)}
-            className="font-mono text-[12.5px]"
+            className="font-mono text-[13.5px]"
           />
-          <p className="text-muted-foreground text-[11px]">
+          <p className="text-muted-foreground text-[12px]">
             {/* An optional field says so HERE as well as in its label, because
                 the label is what a reader skims and this is where they look
                 when they are stuck on an empty box. */}

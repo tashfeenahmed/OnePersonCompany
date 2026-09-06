@@ -23,20 +23,20 @@ export function Power() {
   const [draft, setDraft] = useState<Record<string, { idle: string; busy: string; rate: string; currency: string; alwaysOn: boolean }>>({});
   const [error, setError] = useState<string | null>(null);
 
-  if (doc.error) return <p className="text-muted-foreground text-[13px]">The API is not answering: {doc.error}</p>;
-  if (!doc.data) return <p className="text-muted-foreground text-[13px]">Reading profiles…</p>;
+  if (doc.error) return <p className="text-muted-foreground text-[14px]">The API is not answering: {doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground text-[14px]">Reading profiles…</p>;
   const d = doc.data;
 
   return (
     <>
-      <p className="text-muted-foreground mb-4 text-[12.5px] leading-relaxed">
+      <p className="text-muted-foreground mb-4 text-[13.5px] leading-relaxed">
         Electricity for {d.month}. The price per kWh comes from the Finance integration's settings
         ({d.tariff.perKwh === null ? "not set — every line below is unpriced" : `${d.tariff.perKwh} ${d.tariff.currency}`}),
         unless a machine carries one of its own.
       </p>
 
       {d.machines.length === 0 && (
-        <p className="text-muted-foreground text-[13px] leading-relaxed">
+        <p className="text-muted-foreground text-[14px] leading-relaxed">
           No workstation is connected, so there is no machine to profile. Connect one under Integrations → Workstation
           and its uptime will be sampled every collection; the hours come from those samples.
         </p>
@@ -55,45 +55,45 @@ export function Power() {
             alwaysOn: p?.alwaysOn ?? false,
           };
           return (
-            <div key={key} className="bg-card rounded-[10px] border px-3.5 py-3">
+            <div key={key} className="bg-card rounded-[14px] border px-4.5 py-3.5">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="text-[13px] font-medium">{m.label}</span>
+                <span className="text-[14px] font-medium">{m.label}</span>
                 {line && (
                   <>
-                    <span className="text-[16px] tabular-nums">{amount(line.amount, line.currency)}</span>
-                    <span className="text-muted-foreground text-[11.5px]">
+                    <span className="text-[17px] tabular-nums">{amount(line.amount, line.currency)}</span>
+                    <span className="text-muted-foreground text-[12.5px]">
                       {line.kwh === null ? "" : `${line.kwh} kWh · `}
                       {line.confidence ? `${line.confidence} hours` : "no hours observed"}
                     </span>
                   </>
                 )}
-                {!p && <span className="text-muted-foreground text-[11.5px]">no profile yet</span>}
+                {!p && <span className="text-muted-foreground text-[12.5px]">no profile yet</span>}
                 {m.gone && (
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <span className="text-muted-foreground text-[12.5px]">
                     this workstation account no longer exists — the profile is still priced into the ledger until you remove it
                   </span>
                 )}
               </div>
-              {line && <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">{line.note}</p>}
+              {line && <p className="text-muted-foreground mt-1 text-[12px] leading-relaxed">{line.note}</p>}
 
               <div className="mt-2.5 flex flex-wrap items-end gap-2">
-                <label className="text-[11px]">
+                <label className="text-[12px]">
                   <div className="text-muted-foreground mb-1">Idle watts</div>
-                  <Input value={form.idle} onChange={(e) => setDraft({ ...draft, [key]: { ...form, idle: e.target.value } })} className="h-8 w-24 text-[12.5px]" />
+                  <Input value={form.idle} onChange={(e) => setDraft({ ...draft, [key]: { ...form, idle: e.target.value } })} className="h-8 w-24 text-[13.5px]" />
                 </label>
-                <label className="text-[11px]">
+                <label className="text-[12px]">
                   <div className="text-muted-foreground mb-1">Busy watts</div>
-                  <Input value={form.busy} onChange={(e) => setDraft({ ...draft, [key]: { ...form, busy: e.target.value } })} className="h-8 w-24 text-[12.5px]" />
+                  <Input value={form.busy} onChange={(e) => setDraft({ ...draft, [key]: { ...form, busy: e.target.value } })} className="h-8 w-24 text-[13.5px]" />
                 </label>
-                <label className="text-[11px]">
+                <label className="text-[12px]">
                   <div className="text-muted-foreground mb-1">Its own price/kWh</div>
-                  <Input value={form.rate} placeholder="use the tariff" onChange={(e) => setDraft({ ...draft, [key]: { ...form, rate: e.target.value } })} className="h-8 w-32 text-[12.5px]" />
+                  <Input value={form.rate} placeholder="use the tariff" onChange={(e) => setDraft({ ...draft, [key]: { ...form, rate: e.target.value } })} className="h-8 w-32 text-[13.5px]" />
                 </label>
-                <label className="text-[11px]">
+                <label className="text-[12px]">
                   <div className="text-muted-foreground mb-1">Currency</div>
-                  <Input value={form.currency} onChange={(e) => setDraft({ ...draft, [key]: { ...form, currency: e.target.value } })} className="h-8 w-20 text-[12.5px]" />
+                  <Input value={form.currency} onChange={(e) => setDraft({ ...draft, [key]: { ...form, currency: e.target.value } })} className="h-8 w-20 text-[13.5px]" />
                 </label>
-                <label className="mb-1.5 flex items-center gap-1.5 text-[11.5px]">
+                <label className="mb-1.5 flex items-center gap-1.5 text-[12.5px]">
                   <input type="checkbox" checked={form.alwaysOn} onChange={(e) => setDraft({ ...draft, [key]: { ...form, alwaysOn: e.target.checked } })} />
                   never sleeps
                 </label>
@@ -114,14 +114,14 @@ export function Power() {
                       setError(err instanceof Error ? err.message : String(err));
                     }
                   }}
-                  className="hover:bg-accent h-8 rounded-lg border px-3 text-[12px]"
+                  className="hover:bg-accent h-8 rounded-lg border px-3 text-[13px]"
                 >
                   Save
                 </button>
                 {p && (
                   <button
                     onClick={() => void finance.removePower(key).then(() => doc.reload())}
-                    className="text-muted-foreground hover:bg-accent h-8 rounded-lg border px-3 text-[12px]"
+                    className="text-muted-foreground hover:bg-accent h-8 rounded-lg border px-3 text-[13px]"
                   >
                     Remove
                   </button>
@@ -132,9 +132,9 @@ export function Power() {
         })}
       </div>
 
-      {error && <p className="text-destructive mt-2 text-[12px]">{error}</p>}
+      {error && <p className="text-destructive mt-2 text-[13px]">{error}</p>}
 
-      <p className="text-muted-foreground mt-4 border-t pt-2 text-[11px] leading-relaxed">
+      <p className="text-muted-foreground mt-4 border-t pt-2 text-[12px] leading-relaxed">
         {d.note} Idle is what the machine draws at the wall doing nothing; busy is what it draws with the GPU
         working. A plug-in power meter is the only way to know either — a figure from the manufacturer's spec sheet
         is a ceiling, not a measurement.

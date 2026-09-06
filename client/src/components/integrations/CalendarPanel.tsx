@@ -10,13 +10,13 @@ import { Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
  *  was created in — nothing here is normalised to UTC. */
 function EventLine({ e }: { e: CalendarEvent }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-2 text-[12.5px]">
-      <span className="text-muted-foreground w-[92px] shrink-0 font-mono text-[11.5px] tabular-nums">
+    <div className="flex flex-wrap items-baseline gap-2 text-[13.5px]">
+      <span className="text-muted-foreground w-[92px] shrink-0 font-mono text-[12.5px] tabular-nums">
         {clock(e.start)}–{clock(e.end)}
       </span>
       <span className="min-w-0 flex-1 truncate">{e.summary ?? "(no title)"}</span>
       {e.attendees !== null && e.attendees > 1 && (
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           {e.attendees} people
         </span>
       )}
@@ -25,7 +25,7 @@ function EventLine({ e }: { e: CalendarEvent }) {
           tentative
         </Badge>
       )}
-      <span className="text-muted-foreground shrink-0 text-[11.5px]">
+      <span className="text-muted-foreground shrink-0 text-[12.5px]">
         {e.calendar}
       </span>
     </div>
@@ -102,11 +102,11 @@ export function CalendarPanel({ onCollected }: { onCollected?: () => void }) {
       <Rows>
         <Row first>
           <div className="mb-1.5 flex items-baseline gap-2">
-            <span className="text-[13px] font-medium">Today</span>
-            <span className="text-muted-foreground text-[11.5px]">
+            <span className="text-[14px] font-medium">Today</span>
+            <span className="text-muted-foreground text-[12.5px]">
               {dayLabel(d.today.day)}
             </span>
-            <span className="text-muted-foreground ml-auto text-[11.5px] tabular-nums">
+            <span className="text-muted-foreground ml-auto text-[12.5px] tabular-nums">
               {d.today.busyHours}h busy
             </span>
           </div>
@@ -118,29 +118,29 @@ export function CalendarPanel({ onCollected }: { onCollected?: () => void }) {
               {d.today.allDay.map((e) => (
                 <div
                   key={e.eventId}
-                  className="flex items-baseline gap-2 text-[12.5px]"
+                  className="flex items-baseline gap-2 text-[13.5px]"
                 >
-                  <span className="text-muted-foreground w-[92px] shrink-0 font-mono text-[11.5px]">
+                  <span className="text-muted-foreground w-[92px] shrink-0 font-mono text-[12.5px]">
                     all day
                   </span>
                   <span className="min-w-0 flex-1 truncate">
                     {e.summary ?? "(no title)"}
                   </span>
-                  <span className="text-muted-foreground shrink-0 text-[11.5px]">
+                  <span className="text-muted-foreground shrink-0 text-[12.5px]">
                     no hours counted
                   </span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-[12px]">Nothing booked.</p>
+            <p className="text-muted-foreground text-[13px]">Nothing booked.</p>
           )}
         </Row>
 
         {rest.map((day) => (
           <Row key={day.day}>
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="w-[110px] shrink-0 text-[12.5px]">
+              <span className="w-[110px] shrink-0 text-[13.5px]">
                 {dayLabel(day.day)}
               </span>
               <div className="bg-accent h-1.5 min-w-[40px] flex-1 overflow-hidden rounded-full">
@@ -149,15 +149,15 @@ export function CalendarPanel({ onCollected }: { onCollected?: () => void }) {
                   style={{ width: `${Math.min(100, (day.busyHours / 8) * 100)}%` }}
                 />
               </div>
-              <span className="w-[92px] shrink-0 text-right text-[12px] tabular-nums">
+              <span className="w-[92px] shrink-0 text-right text-[13px] tabular-nums">
                 {day.busyHours ? `${day.busyHours}h busy` : "clear"}
               </span>
-              <span className="text-muted-foreground w-[64px] shrink-0 text-right text-[11.5px]">
+              <span className="text-muted-foreground w-[64px] shrink-0 text-right text-[12.5px]">
                 {day.events.length + day.allDay.length || "—"}
               </span>
             </div>
             {!!day.allDay.length && (
-              <p className="text-muted-foreground mt-1 text-[11.5px]">
+              <p className="text-muted-foreground mt-1 text-[12.5px]">
                 {day.allDay.map((e) => e.summary ?? "(no title)").join(" · ")} —
                 all day, no hours counted
               </p>
@@ -172,7 +172,7 @@ export function CalendarPanel({ onCollected }: { onCollected?: () => void }) {
       </Note>
 
       <div className="mt-4">
-        <div className="text-muted-foreground mb-2 text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground mb-2 text-[12px] tracking-[0.06em] uppercase">
           Calendars
         </div>
         <div className="flex flex-wrap gap-1.5">

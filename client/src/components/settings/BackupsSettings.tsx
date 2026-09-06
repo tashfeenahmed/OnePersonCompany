@@ -107,7 +107,7 @@ export function BackupsSettings() {
       hint="One archive a night, or one when you press the button: a consistent snapshot of the database, the vault key, the stored keys, the screenshots and the studio's pictures."
     >
       {doc.error && (
-        <p className="text-muted-foreground text-[12.5px]">
+        <p className="text-muted-foreground text-[13.5px]">
           The API did not answer, so nothing can be said about the backups.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
@@ -116,9 +116,9 @@ export function BackupsSettings() {
       {d && (
         <>
           {/* The verdict, first. */}
-          <div className="bg-card grid gap-1 rounded-[10px] border px-3.5 py-3">
-            <div className="text-[13px]">{d.summary.state}</div>
-            <p className="text-muted-foreground text-[11.5px]">
+          <div className="bg-card grid gap-1 rounded-[14px] border px-4.5 py-3.5">
+            <div className="text-[14px]">{d.summary.state}</div>
+            <p className="text-muted-foreground text-[12.5px]">
               {d.archives.length} in {d.settings.dir}
               {!d.settings.dirExists && " — which does not exist yet"}
               {d.archives.length > 0 && ` · ${bytes(d.totalBytes)} in all`}
@@ -137,7 +137,7 @@ export function BackupsSettings() {
           {/* WHAT IS IN THE FILE, and the sentence that decides where it may
               be put. Both come off the wire — this page does not keep its own
               list of what the server packs. */}
-          <div className="text-muted-foreground grid gap-1 text-[11.5px]">
+          <div className="text-muted-foreground grid gap-1 text-[12.5px]">
             <p>
               Always: {d.contents.always.join("; ")}. When present:{" "}
               {d.contents.whenPresent.join(", ")}. Never:{" "}
@@ -168,7 +168,7 @@ export function BackupsSettings() {
           )}
           {running ? "Backing up…" : "Back up now"}
         </Button>
-        <span className="text-muted-foreground text-[12px]">
+        <span className="text-muted-foreground text-[13px]">
           {running
             ? "A snapshot, then the tar, then the copy — the page waits for all three."
             : "Writes one archive now, then prunes to the number kept."}
@@ -176,13 +176,13 @@ export function BackupsSettings() {
       </div>
 
       {problem && (
-        <p className="text-destructive text-[12.5px] leading-relaxed">{problem}</p>
+        <p className="text-destructive text-[13.5px] leading-relaxed">{problem}</p>
       )}
 
       {result && (
         <div
           className={cn(
-            "grid gap-1 rounded-[10px] border px-3.5 py-3 text-[12.5px]",
+            "grid gap-1 rounded-[14px] border px-3.5 py-3 text-[13.5px]",
             result.ok ? "border-ok/40" : "border-destructive/40",
           )}
         >
@@ -192,7 +192,7 @@ export function BackupsSettings() {
               : `The backup failed. ${result.error ?? ""}`}
           </div>
           {result.ok && (
-            <p className="text-muted-foreground text-[11.5px]">
+            <p className="text-muted-foreground text-[12.5px]">
               In it: {result.members.join(", ") || "the database alone"}
               {result.skipped.length > 0 &&
                 ` · not present, so skipped: ${result.skipped.join(", ")}`}
@@ -207,7 +207,7 @@ export function BackupsSettings() {
           {result.remote.attempted && (
             <p
               className={cn(
-                "text-[11.5px]",
+                "text-[12.5px]",
                 result.remote.ok ? "text-muted-foreground" : "text-warn",
               )}
             >
@@ -217,24 +217,24 @@ export function BackupsSettings() {
             </p>
           )}
           {result.ok && (
-            <p className="text-warn text-[11.5px]">{result.warning}</p>
+            <p className="text-warn text-[12.5px]">{result.warning}</p>
           )}
         </div>
       )}
 
       {/* ------------------------------------------------------- archives */}
       {d && d.archives.length > 0 && (
-        <div className="overflow-hidden rounded-[10px] border">
+        <div className="overflow-hidden rounded-[14px] border">
           {d.archives.map((a, i) => (
             <div key={a.name} className={cn(i > 0 && "border-line-soft border-t")}>
               <div className="flex flex-wrap items-center gap-2 px-3.5 py-2.5">
-                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
+                <span className="min-w-0 flex-1 truncate font-mono text-[13px]">
                   {a.name}
                 </span>
-                <span className="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">
+                <span className="text-muted-foreground shrink-0 text-[12.5px] tabular-nums">
                   {bytes(a.bytes)}
                 </span>
-                <span className="text-muted-foreground shrink-0 text-[11.5px]">
+                <span className="text-muted-foreground shrink-0 text-[12.5px]">
                   {when(a.at, NEVER)}
                 </span>
                 <Button
@@ -250,7 +250,7 @@ export function BackupsSettings() {
               {openFile === a.name && (
                 <div className="border-line-soft grid gap-2 border-t px-3.5 py-2.5">
                   {checking && !verified && (
-                    <p className="text-muted-foreground text-[12px]">
+                    <p className="text-muted-foreground text-[13px]">
                       Reading the table of contents with tar…
                     </p>
                   )}
@@ -258,7 +258,7 @@ export function BackupsSettings() {
                     <>
                       <p
                         className={cn(
-                          "text-[12.5px]",
+                          "text-[13.5px]",
                           verified.ok && verified.hasDatabase && verified.hasVaultKey
                             ? "text-foreground"
                             : "text-warn",
@@ -266,7 +266,7 @@ export function BackupsSettings() {
                       >
                         {verified.state}
                       </p>
-                      <p className="text-muted-foreground text-[11.5px]">
+                      <p className="text-muted-foreground text-[12.5px]">
                         {verified.members.length}{" "}
                         {verified.members.length === 1 ? "member" : "members"},{" "}
                         {bytes(verified.bytes)} on disk
@@ -282,7 +282,7 @@ export function BackupsSettings() {
                           >
                             Unpack it and show me the steps
                           </Button>
-                          <span className="text-muted-foreground text-[11.5px]">
+                          <span className="text-muted-foreground text-[12.5px]">
                             Unpacking replaces nothing.
                           </span>
                         </div>
@@ -294,10 +294,10 @@ export function BackupsSettings() {
                     <div className="grid gap-1.5">
                       {/* SAID FIRST, because it is what a person who pressed
                           a button called "restore" will assume happened. */}
-                      <p className="text-warn text-[12.5px] leading-relaxed">
+                      <p className="text-warn text-[13.5px] leading-relaxed">
                         Nothing has been replaced. {extracted.note}
                       </p>
-                      <p className="text-muted-foreground text-[11.5px]">
+                      <p className="text-muted-foreground text-[12.5px]">
                         Unpacked to{" "}
                         <span className="font-mono">{extracted.extractedTo}</span>
                         {" · "}
@@ -309,7 +309,7 @@ export function BackupsSettings() {
                           ? "and so is the vault key"
                           : "and NO vault key — every stored credential would restore as unreadable ciphertext"}
                       </p>
-                      <ol className="text-muted-foreground grid list-decimal gap-1 pl-4 text-[12px] leading-relaxed">
+                      <ol className="text-muted-foreground grid list-decimal gap-1 pl-4 text-[13px] leading-relaxed">
                         {extracted.steps.map((s) => (
                           <li key={s} className="break-words">
                             {s}
@@ -322,9 +322,9 @@ export function BackupsSettings() {
                           hand somebody a command with an absolute path in it
                           where the server's own step 2 says the file name.
                           The row already knows the name. */}
-                      <p className="text-muted-foreground text-[11.5px]">
+                      <p className="text-muted-foreground text-[12.5px]">
                         The one command, from the server directory:{" "}
-                        <span className="text-foreground font-mono text-[11.5px]">
+                        <span className="text-foreground font-mono text-[12.5px]">
                           npm run restore -- {a.name}
                         </span>
                       </p>
@@ -340,14 +340,14 @@ export function BackupsSettings() {
       {/* ----------------------------------------------------------- runs */}
       {d && d.runs.length > 0 && (
         <div className="grid gap-1">
-          <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
             Runs
           </div>
           <div className="grid gap-0.5">
             {d.runs.map((r) => (
               <div
                 key={`${r.ts}-${r.file ?? "none"}`}
-                className="text-muted-foreground flex flex-wrap items-baseline gap-x-2 text-[11.5px]"
+                className="text-muted-foreground flex flex-wrap items-baseline gap-x-2 text-[12.5px]"
               >
                 <span className="tabular-nums">{when(r.ts, NEVER)}</span>
                 <span>{r.kind}</span>

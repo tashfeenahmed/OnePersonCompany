@@ -135,7 +135,7 @@ export function JournalFeed({
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value)}
-            className="border-input bg-background h-8 rounded-lg border px-2 text-[12.5px]"
+            className="border-input bg-background h-8 rounded-lg border px-2 text-[13.5px]"
             aria-label="Filter by kind"
           >
             <option value="">Every kind</option>
@@ -161,24 +161,24 @@ export function JournalFeed({
         </div>
       </div>
 
-      {failure && <p className="text-destructive text-[12px]">{failure}</p>}
-      {doc.error && <p className="text-destructive text-[12px]">{doc.error}</p>}
+      {failure && <p className="text-destructive text-[13px]">{failure}</p>}
+      {doc.error && <p className="text-destructive text-[13px]">{doc.error}</p>}
       {doc.loading && !doc.data && (
-        <p className="text-muted-foreground text-[12.5px]">Reading the journal…</p>
+        <p className="text-muted-foreground text-[13.5px]">Reading the journal…</p>
       )}
 
       {doc.data && !doc.data.entries.length && (
-        <p className="text-muted-foreground max-w-[560px] text-[12.5px]">
+        <p className="text-muted-foreground max-w-[560px] text-[13.5px]">
           Nothing logged in this window. This is the record of work that leaves
           no trace anywhere else — a call, a page rewritten by hand, a post
           somewhere with no API. You can also send{" "}
-          <code className="text-[11.5px]">/did …</code> to your Telegram bot.
+          <code className="text-[12.5px]">/did …</code> to your Telegram bot.
         </p>
       )}
 
       {groups.map((g) => (
         <div key={g.day} className="grid gap-1.5">
-          <div className="text-muted-foreground flex items-baseline gap-2 text-[11.5px]">
+          <div className="text-muted-foreground flex items-baseline gap-2 text-[12.5px]">
             <span className="font-medium">{dayLabel(g.day)}</span>
             <span className="tabular-nums">{g.day}</span>
             <span>
@@ -199,7 +199,7 @@ export function JournalFeed({
       ))}
 
       {doc.data && (
-        <p className="text-muted-foreground border-line-soft max-w-[620px] border-t pt-3 text-[11px] leading-relaxed">
+        <p className="text-muted-foreground border-line-soft max-w-[620px] border-t pt-3 text-[12px] leading-relaxed">
           {doc.data.definitions.source} {doc.data.definitions.streak}
         </p>
       )}
@@ -264,7 +264,7 @@ function Composer({
   };
 
   return (
-    <div className="border-line-soft bg-card grid gap-2 rounded-[10px] border p-3">
+    <div className="border-line-soft bg-card grid gap-2 rounded-[14px] border p-4">
       <div className="flex flex-wrap items-center gap-1">
         {KIND_ORDER.map((k) => (
           <button
@@ -273,7 +273,7 @@ function Composer({
             onClick={() => setKind(k)}
             aria-pressed={kind === k}
             className={cn(
-              "rounded-full px-2.5 py-1 text-[12px] transition-colors",
+              "rounded-full px-2.5 py-1 text-[13px] transition-colors",
               kind === k
                 ? "bg-foreground text-background"
                 : "border-line-soft text-muted-foreground hover:text-foreground border",
@@ -297,7 +297,7 @@ function Composer({
           }
         }}
         placeholder="What did you do? — “rewrote the pricing page and shipped it”"
-        className="text-[13.5px]"
+        className="text-[14.5px]"
       />
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -305,7 +305,7 @@ function Composer({
           <select
             value={venture}
             onChange={(e) => setVenture(e.target.value)}
-            className="border-input bg-background h-8 rounded-lg border px-2 text-[12.5px]"
+            className="border-input bg-background h-8 rounded-lg border px-2 text-[13.5px]"
             aria-label="Venture"
           >
             <option value="">No venture</option>
@@ -320,14 +320,14 @@ function Composer({
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="Link (optional) — what makes a shipped or posted entry trackable"
-          className="h-8 max-w-[380px] text-[12.5px]"
+          className="h-8 max-w-[380px] text-[13.5px]"
         />
         <Input
           type="date"
           value={at}
           max={todayLocal()}
           onChange={(e) => setAt(e.target.value)}
-          className="h-8 w-[150px] text-[12.5px]"
+          className="h-8 w-[150px] text-[13.5px]"
           aria-label="The day it happened"
         />
         <Button size="sm" onClick={submit} disabled={!text.trim() || busy} className="ml-auto">
@@ -344,7 +344,7 @@ function Composer({
 function StreakBadge({ streak }: { streak: Streak | null }) {
   if (!streak || !streak.days)
     return (
-      <span className="text-muted-foreground text-[11.5px]">
+      <span className="text-muted-foreground text-[12.5px]">
         {streak?.agentFiled
           ? `No entries of your own yet — ${streak.agentFiled} filed by the agent.`
           : "No entries yet."}
@@ -352,7 +352,7 @@ function StreakBadge({ streak }: { streak: Streak | null }) {
     );
   return (
     <span
-      className="text-muted-foreground flex items-center gap-1.5 text-[11.5px]"
+      className="text-muted-foreground flex items-center gap-1.5 text-[12.5px]"
       /* Deliberately small and deliberately captioned. A streak counts days on
          which a sentence was typed; drawn large it would read as a measure of
          how much work was done, which it is not and cannot be. */
@@ -405,28 +405,28 @@ function Entry({
   const [tracking, setTracking] = useState(false);
 
   return (
-    <div className="border-line-soft bg-card grid gap-1 rounded-[10px] border p-3">
+    <div className="border-line-soft bg-card grid gap-1 rounded-[14px] border p-4">
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="border-line-soft rounded-full border px-1.5 py-0.5 text-[10.5px]">
+        <span className="border-line-soft rounded-full border px-1.5 py-0.5 text-[11.5px]">
           {KIND_LABEL[entry.kind] ?? entry.kind}
         </span>
-        <span className="text-[13.5px]">{entry.text}</span>
+        <span className="text-[14.5px]">{entry.text}</span>
         {entry.venture && (
-          <span className="text-muted-foreground text-[11.5px]">{entry.venture.name}</span>
+          <span className="text-muted-foreground text-[12.5px]">{entry.venture.name}</span>
         )}
         {entry.url && (
           <a
             href={entry.url}
             target="_blank"
             rel="noreferrer"
-            className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[11.5px]"
+            className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[12.5px]"
           >
             link <ExternalLink className="size-3" strokeWidth={1.6} />
           </a>
         )}
       </div>
 
-      <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-[11px]">
+      <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-[12px]">
         <span>{SOURCE_NOTE[entry.source] ?? entry.source}</span>
         {entry.backdated && (
           <span title={`Written on ${entry.createdAt.slice(0, 10)}, filed for ${entry.at}`}>
@@ -466,7 +466,7 @@ function Entry({
       </div>
 
       {entry.result && !editing && (
-        <p className="text-muted-foreground border-line-soft mt-0.5 border-l pl-2 text-[12px]">
+        <p className="text-muted-foreground border-line-soft mt-0.5 border-l pl-2 text-[13px]">
           {entry.result}
         </p>
       )}
@@ -477,7 +477,7 @@ function Entry({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="What came of it, in your words. Nothing here computes this."
-            className="h-8 text-[12.5px]"
+            className="h-8 text-[13.5px]"
           />
           <Button
             size="sm"
@@ -540,8 +540,8 @@ function TrackOutcome({
   const chosen = skills.find((s) => s.id === skill) ?? null;
 
   return (
-    <div className="border-line-soft mt-2 grid gap-2 rounded-[8px] border border-dashed p-2.5">
-      <p className="text-muted-foreground text-[11.5px] leading-snug">
+    <div className="border-line-soft mt-2 grid gap-2 rounded-[11px] border border-dashed p-2.5">
+      <p className="text-muted-foreground text-[12.5px] leading-snug">
         Pick the figure this should have moved. A reading is taken now and again
         at 7, 14 and 30 days after {entry.at}. Two numbers either side of a date
         is correlation — nothing here will claim a cause.
@@ -550,7 +550,7 @@ function TrackOutcome({
         <select
           value={skill}
           onChange={(e) => setSkill(e.target.value)}
-          className="border-input bg-background h-8 rounded-lg border px-2 text-[12.5px]"
+          className="border-input bg-background h-8 rounded-lg border px-2 text-[13.5px]"
           aria-label="Which document"
         >
           <option value="">Which document…</option>
@@ -564,7 +564,7 @@ function TrackOutcome({
         <select
           value={view}
           onChange={(e) => setView(e.target.value)}
-          className="border-input bg-background h-8 rounded-lg border px-2 text-[12.5px]"
+          className="border-input bg-background h-8 rounded-lg border px-2 text-[13.5px]"
           aria-label="Which view"
         >
           {(chosen?.views ?? [{ key: "default" }]).map((v) => (
@@ -577,7 +577,7 @@ function TrackOutcome({
           value={path}
           onChange={(e) => setPath(e.target.value)}
           placeholder="totals.visitors"
-          className="h-8 w-[200px] text-[12.5px]"
+          className="h-8 w-[200px] text-[13.5px]"
           aria-label="The field in it, dotted"
         />
         <Button
@@ -601,7 +601,7 @@ function TrackOutcome({
           Cancel
         </Button>
       </div>
-      {failure && <p className="text-destructive text-[11.5px]">{failure}</p>}
+      {failure && <p className="text-destructive text-[12.5px]">{failure}</p>}
     </div>
   );
 }

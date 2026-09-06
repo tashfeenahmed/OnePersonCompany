@@ -66,10 +66,10 @@ export function PaperShelf({
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           Written here
         </div>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {papers.loading && !papers.data
             ? "loading…"
             : papers.error
@@ -81,7 +81,7 @@ export function PaperShelf({
       </div>
 
       {written.length === 0 ? (
-        <p className="text-muted-foreground mb-7 text-[13px]">
+        <p className="text-muted-foreground mb-7 text-[14px]">
           No paper has been written{venture ? ` for ${venture.name}` : ""} yet. A
           run scouts the literature first, then writes against what it found —
           and every paper after the first has to say something the ones before
@@ -92,15 +92,15 @@ export function PaperShelf({
           {written.map((p) => {
             const open = reading === p.runId;
             return (
-              <div key={p.runId} className="bg-card rounded-[10px] border p-3">
+              <div key={p.runId} className="bg-card rounded-[14px] border p-4">
                 <div className="flex flex-wrap items-baseline gap-2">
                   <Link
                     to={appPage("papers", p.runId)}
-                    className="text-[13px] leading-snug font-medium tracking-tight hover:underline"
+                    className="text-[14px] leading-snug font-medium tracking-tight hover:underline"
                   >
                     {p.title}
                   </Link>
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <span className="text-muted-foreground text-[12.5px]">
                     {p.topic} · {ago(p.ts)}
                   </span>
                   {/* The url the SERVER hands over, not one built here — and
@@ -112,7 +112,7 @@ export function PaperShelf({
                   <span className="ml-auto flex shrink-0 items-center gap-0.5">
                     <button
                       onClick={() => setReading(open ? null : p.runId)}
-                      className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px]"
+                      className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]"
                     >
                       {open ? (
                         <X className="size-3.5" strokeWidth={1.6} />
@@ -128,12 +128,12 @@ export function PaperShelf({
                   <PaperFacts paper={p} />
                 </div>
                 {p.thesis && (
-                  <p className="text-muted-foreground mt-1 text-[12px] leading-relaxed">
+                  <p className="text-muted-foreground mt-1 text-[13px] leading-relaxed">
                     {p.thesis}
                   </p>
                 )}
                 {p.contributions.length > 0 && (
-                  <ul className="text-muted-foreground mt-1 list-disc pl-4 text-[12px] leading-relaxed">
+                  <ul className="text-muted-foreground mt-1 list-disc pl-4 text-[13px] leading-relaxed">
                     {p.contributions.map((c, i) => (
                       <li key={i}>{c}</li>
                     ))}
@@ -151,14 +151,14 @@ export function PaperShelf({
       )}
 
       <div className="mb-3 flex flex-wrap items-baseline gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           The library
         </div>
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           what the scouts found on OpenAlex and arXiv — the only things a paper
           here may cite
         </span>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {library.loading && !library.data
             ? "loading…"
             : library.error
@@ -168,7 +168,7 @@ export function PaperShelf({
       </div>
 
       {entries.length === 0 ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           The library is empty{topic.trim() ? ` for “${topic.trim()}”` : ""}. It
           fills the moment a run scouts.
         </p>
@@ -179,7 +179,7 @@ export function PaperShelf({
               key={`${e.source}:${e.extId}`}
               className="-mx-1.5 flex items-baseline gap-2.5 rounded-md px-1.5 py-1"
             >
-              <span className="min-w-0 flex-1 text-[12.5px] leading-snug">
+              <span className="min-w-0 flex-1 text-[13.5px] leading-snug">
                 {e.url ? (
                   <a
                     href={e.url}
@@ -200,13 +200,13 @@ export function PaperShelf({
                   </span>
                 )}
               </span>
-              <span className="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">
+              <span className="text-muted-foreground shrink-0 text-[12.5px] tabular-nums">
                 {/* Null is drawn as a dash, never as a year. A record with no
                     publication date is common on OpenAlex and guessing one
                     would put a false date in a citation. */}
                 {e.year ?? "—"}
               </span>
-              <span className="text-muted-foreground w-[62px] shrink-0 text-right text-[11.5px]">
+              <span className="text-muted-foreground w-[62px] shrink-0 text-right text-[12.5px]">
                 {e.source}
               </span>
             </div>

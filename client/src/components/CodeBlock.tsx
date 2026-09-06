@@ -21,7 +21,7 @@ export function CodeBlock({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
   return (
-    <div className="border-line-soft bg-muted/40 relative my-2.5 rounded-[10px] border">
+    <div className="border-line-soft bg-muted/40 relative my-2.5 rounded-[14px] border">
       <button
         onClick={() => {
           /*
@@ -40,7 +40,7 @@ export function CodeBlock({ text }: { text: string }) {
             .catch(() => setCopied(false));
         }}
         title="Copy"
-        className="text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1.5 right-1.5 grid place-items-center rounded-[7px] p-1.5 transition-colors"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1.5 right-1.5 grid place-items-center rounded-[9px] p-1.5 transition-colors"
       >
         {copied ? (
           <Check className="size-3.5" strokeWidth={2} />
@@ -51,7 +51,7 @@ export function CodeBlock({ text }: { text: string }) {
       {/* The scroll is on the block and never on the page. A 200-character
           line in an answer must not make the whole transcript scroll
           sideways. */}
-      <pre className="overflow-x-auto px-3.5 py-3 pr-11 text-[12px] leading-[1.55]">
+      <pre className="overflow-x-auto px-3.5 py-3 pr-11 text-[13px] leading-[1.55]">
         <code className="font-mono">{text}</code>
       </pre>
     </div>

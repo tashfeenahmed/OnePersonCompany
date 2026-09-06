@@ -75,10 +75,10 @@ export function PinnedSection<T extends Item>({ items, onReorder, renderItem }: 
   }
 
   return <section aria-label="Pinned" className="mb-2 border-b border-line-soft pb-2">
-    <h2 className="px-2 py-2 text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Pinned</h2>
+    <h2 className="px-2 py-2 text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Pinned</h2>
     <p id={helpId} className="sr-only">Drag to reorder, or use Up and Down arrows. Home moves to the top; End moves to the bottom. Escape cancels a drag.</p>
     <span role="status" className="sr-only">{announcement}</span>
-    {!items.length && <p className="px-2 pb-1 text-[11.5px] leading-relaxed text-muted-foreground">Pin pages or sessions for quick access.</p>}
+    {!items.length && <p className="px-2 pb-1 text-[12.5px] leading-relaxed text-muted-foreground">Pin pages or sessions for quick access.</p>}
     <div ref={list} className="relative space-y-px">
       {items.map((item, index) => <div key={item.key} data-pin-key={item.key} className="relative">
         {preview?.before === item.key && <div className="pointer-events-none absolute inset-x-1 -top-px z-10 h-0.5 rounded-full bg-primary" />}

@@ -22,7 +22,7 @@ export function SidebarSection({ title, active, defaultOpen, pathname, children 
       type="button"
       aria-expanded={expansion.open}
       aria-controls={contentId}
-      className={cn("flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active && "text-foreground/80")}
+      className={cn("flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active && "text-foreground/80")}
       onClick={() => setOpen(!expansion.open)}
       onKeyDown={event => {
         if (event.key === "ArrowRight" || event.key === "ArrowLeft") {

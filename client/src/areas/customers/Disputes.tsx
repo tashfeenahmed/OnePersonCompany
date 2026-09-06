@@ -55,16 +55,16 @@ export function DisputesTab() {
       {d && d.coverage.stored === 0 && <Empty>{d.coverage.note}</Empty>}
 
       {d?.currencies.map((c) => (
-        <div key={c.currency} className="bg-card mb-3 rounded-[10px] border px-3.5 py-3">
-          <div className="mb-2 text-[13.5px]">
+        <div key={c.currency} className="bg-card mb-3 rounded-[14px] border px-4.5 py-3.5">
+          <div className="mb-2 text-[14.5px]">
             {c.currency.toUpperCase()} · {c.window}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <div className="text-muted-foreground mb-1 text-[11.5px] font-medium">
+              <div className="text-muted-foreground mb-1 text-[12.5px] font-medium">
                 From the CASES
               </div>
-              <dl className="space-y-0.5 text-[12.5px]">
+              <dl className="space-y-0.5 text-[13.5px]">
                 <Row k="Opened" v={`${c.cases.opened} · ${money(c.cases.openedAmount, c.currency)}`} />
                 <Row k="Lost" v={`${c.cases.lost} · ${money(c.cases.lostAmount, c.currency)}`} />
                 <Row k="Won" v={`${c.cases.won} · ${money(c.cases.wonAmount, c.currency)}`} />
@@ -73,26 +73,26 @@ export function DisputesTab() {
                   v={`${c.cases.openNow} · ${money(c.cases.openNowAmount, c.currency)}`}
                 />
               </dl>
-              <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+              <p className="text-muted-foreground mt-1.5 text-[12px] leading-relaxed">
                 {c.cases.arithmetic}
               </p>
             </div>
             <div>
-              <div className="text-muted-foreground mb-1 text-[11.5px] font-medium">
+              <div className="text-muted-foreground mb-1 text-[12.5px] font-medium">
                 From the LEDGER
               </div>
-              <dl className="space-y-0.5 text-[12.5px]">
+              <dl className="space-y-0.5 text-[13.5px]">
                 <Row k="Money out" v={money(c.ledger.moneyOut, c.currency)} />
                 <Row k="Disputed amounts" v={money(c.ledger.disputes, c.currency)} />
                 <Row k="Dispute fees" v={money(c.ledger.disputeFees, c.currency)} />
                 <Row k="Difference" v={money(c.difference, c.currency)} />
               </dl>
-              <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+              <p className="text-muted-foreground mt-1.5 text-[12px] leading-relaxed">
                 {c.ledger.arithmetic}
               </p>
             </div>
           </div>
-          <p className="text-muted-foreground border-line-soft mt-2.5 border-t pt-2 text-[11px] leading-relaxed">
+          <p className="text-muted-foreground border-line-soft mt-2.5 border-t pt-2 text-[12px] leading-relaxed">
             {c.differenceIs}
           </p>
         </div>
@@ -100,7 +100,7 @@ export function DisputesTab() {
 
       {d && d.open.length > 0 && (
         <>
-          <h2 className="mt-5 mb-2 text-[13.5px]">Open cases</h2>
+          <h2 className="mt-5 mb-2 text-[14.5px]">Open cases</h2>
           <div className="space-y-1.5">
             {d.open.map((c) => (
               <CaseLine key={c.id} c={c} />
@@ -111,7 +111,7 @@ export function DisputesTab() {
 
       {d && d.recent.length > 0 && (
         <>
-          <h2 className="mt-5 mb-2 text-[13.5px]">Opened in this window</h2>
+          <h2 className="mt-5 mb-2 text-[14.5px]">Opened in this window</h2>
           <div className="space-y-1.5">
             {d.recent.slice(0, 40).map((c) => (
               <CaseLine key={c.id} c={c} />
@@ -137,20 +137,20 @@ function Row({ k, v }: { k: string; v: string }) {
 
 function CaseLine({ c }: { c: DisputeCase }) {
   return (
-    <div className="bg-card rounded-[10px] border px-3.5 py-2.5">
+    <div className="bg-card rounded-[14px] border px-4.5 py-3">
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <span className="text-[13px] tabular-nums">{money(c.amount, c.currency)}</span>
-        <span className="text-muted-foreground text-[12px]">{c.reason ?? "no reason given"}</span>
+        <span className="text-[14px] tabular-nums">{money(c.amount, c.currency)}</span>
+        <span className="text-muted-foreground text-[13px]">{c.reason ?? "no reason given"}</span>
         {/* Stripe's own word, not a paraphrase — it is what the risk page says. */}
-        <span className="text-muted-foreground text-[11.5px]">· {c.status}</span>
+        <span className="text-muted-foreground text-[12.5px]">· {c.status}</span>
         {c.ventureName && (
-          <span className="text-muted-foreground text-[11.5px]">· {c.ventureName}</span>
+          <span className="text-muted-foreground text-[12.5px]">· {c.ventureName}</span>
         )}
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           opened {c.openedAt.slice(0, 10)}
         </span>
       </div>
-      <div className="text-muted-foreground mt-1 text-[11.5px]">
+      <div className="text-muted-foreground mt-1 text-[12.5px]">
         {c.needsResponse && c.evidenceDueLocal ? (
           <span className="text-foreground font-medium">
             Evidence due {c.evidenceDueLocal}

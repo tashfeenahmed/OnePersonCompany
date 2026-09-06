@@ -146,26 +146,26 @@ export function ListingsPanel({ venture }: { venture?: string }) {
         ]}
       />
 
-      {problem && <p className="text-destructive mb-2 text-[12.5px]">{problem}</p>}
+      {problem && <p className="text-destructive mb-2 text-[13.5px]">{problem}</p>}
 
       <Rows>
         {shown.map((v, i) => (
           <Row key={v.ventureId} first={i === 0}>
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="text-[13px] font-medium">{v.venture}</span>
-              {v.host && <span className="text-muted-foreground font-mono text-[11.5px]">{v.host}</span>}
-              <span className="text-muted-foreground ml-auto text-[11.5px] tabular-nums">
+              <span className="text-[14px] font-medium">{v.venture}</span>
+              {v.host && <span className="text-muted-foreground font-mono text-[12.5px]">{v.host}</span>}
+              <span className="text-muted-foreground ml-auto text-[12.5px] tabular-nums">
                 {v.summary.confirmed + v.summary.submitted} of {v.summary.of - v.summary.skipped} worked
                 {v.summary.donePct === null ? " — every row skipped" : ` · ${pct(v.summary.donePct / 100)}`}
               </span>
             </div>
 
-            <div className="border-line-soft mt-2 overflow-hidden rounded-[8px] border">
+            <div className="border-line-soft mt-2 overflow-hidden rounded-[11px] border">
               {v.directories.map((cell, j) => {
                 const key = `${v.ventureId}:${cell.directory}`;
                 return (
                   <div key={cell.directory} className={cn(j > 0 && "border-line-soft border-t")}>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-1.5 text-[12px]">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-1.5 text-[13px]">
                       <button
                         className="hover:text-foreground text-left"
                         onClick={() => setOpen(open === key ? null : key)}
@@ -180,13 +180,13 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                       </Badge>
 
                       {cell.setBy && (
-                        <span className="text-muted-foreground text-[11px]">
+                        <span className="text-muted-foreground text-[12px]">
                           by {cell.setBy === "owner" ? "you" : "a probe"}
                         </span>
                       )}
 
                       <select
-                        className="border-line-soft bg-card ml-auto rounded-[6px] border px-1.5 py-0.5 text-[11.5px]"
+                        className="border-line-soft bg-card ml-auto rounded-[8px] border px-1.5 py-0.5 text-[12.5px]"
                         value={cell.state}
                         disabled={busy === key}
                         onChange={(e) => void set(v.ventureId, cell, { state: e.target.value as ListingState })}
@@ -202,7 +202,7 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                         href={cell.url ?? cell.submitUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-muted-foreground hover:text-foreground text-[11.5px]"
+                        className="text-muted-foreground hover:text-foreground text-[12.5px]"
                       >
                         {cell.url ? "open listing" : "submit"}
                       </a>
@@ -210,7 +210,7 @@ export function ListingsPanel({ venture }: { venture?: string }) {
 
                     {open === key && (
                       <div className="border-line-soft bg-muted/20 border-t px-2.5 py-2">
-                        <p className="text-muted-foreground mb-2 text-[11.5px] leading-relaxed">
+                        <p className="text-muted-foreground mb-2 text-[12.5px] leading-relaxed">
                           {cell.note}
                           {cell.detectableBy
                             ? ` A probe can look at this one (${cell.detectableBy}); it may only ever move the row forward to “detected”.`
@@ -218,7 +218,7 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                         </p>
                         <div className="flex flex-wrap gap-2">
                           <input
-                            className="border-line-soft bg-card min-w-[220px] flex-1 rounded-[6px] border px-2 py-1 text-[12px]"
+                            className="border-line-soft bg-card min-w-[220px] flex-1 rounded-[8px] border px-3 py-1.5 text-[13px]"
                             placeholder="Listing url (https only)"
                             defaultValue={cell.url ?? ""}
                             onBlur={(e) => {
@@ -227,7 +227,7 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                             }}
                           />
                           <input
-                            className="border-line-soft bg-card min-w-[220px] flex-1 rounded-[6px] border px-2 py-1 text-[12px]"
+                            className="border-line-soft bg-card min-w-[220px] flex-1 rounded-[8px] border px-3 py-1.5 text-[13px]"
                             placeholder="Your note — why skipped, what you sent, what to chase"
                             defaultValue={cell.ownerNote ?? ""}
                             onBlur={(e) => {
@@ -236,7 +236,7 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                             }}
                           />
                         </div>
-                        <div className="text-muted-foreground mt-2 flex flex-wrap gap-3 text-[11px]">
+                        <div className="text-muted-foreground mt-2 flex flex-wrap gap-3 text-[12px]">
                           {cell.submittedAt && <span>submitted {ago(cell.submittedAt)}</span>}
                           {cell.confirmedAt && <span>confirmed {ago(cell.confirmedAt)}</span>}
                           {cell.detectedAt && <span>first detected {ago(cell.detectedAt)}</span>}

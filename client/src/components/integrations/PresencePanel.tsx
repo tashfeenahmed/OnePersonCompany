@@ -159,11 +159,11 @@ export function PresencePanel({ onCollected }: { onCollected?: () => void }) {
         {d.products.map((p, i) => (
           <Row key={p.product} first={i === 0}>
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="text-[13px] font-medium">{p.product}</span>
-              <span className="text-muted-foreground font-mono text-[11.5px]">
+              <span className="text-[14px] font-medium">{p.product}</span>
+              <span className="text-muted-foreground font-mono text-[12.5px]">
                 {p.host}
               </span>
-              <span className="text-muted-foreground ml-auto text-[11.5px]">
+              <span className="text-muted-foreground ml-auto text-[12.5px]">
                 {p.summary.present} listed · {p.summary.absent} not found ·{" "}
                 {p.summary.blocked} not checked · {ago(p.checkedAt)}
               </span>
@@ -207,7 +207,7 @@ export function PresencePanel({ onCollected }: { onCollected?: () => void }) {
 
             {!!p.candidates.length && (
               <div className="mt-2">
-                <div className="text-muted-foreground text-[11.5px]">
+                <div className="text-muted-foreground text-[12.5px]">
                   {p.candidates.length} candidate
                   {p.candidates.length === 1 ? "" : "s"} — named the brand but did
                   not point back at {p.host}, so they are yours to judge:
@@ -218,7 +218,7 @@ export function PresencePanel({ onCollected }: { onCollected?: () => void }) {
                     href={cand.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-muted-foreground hover:text-foreground block truncate font-mono text-[11.5px]"
+                    className="text-muted-foreground hover:text-foreground block truncate font-mono text-[12.5px]"
                   >
                     {cand.source} → {cand.url}
                   </a>

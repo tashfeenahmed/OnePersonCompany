@@ -78,7 +78,7 @@ export function WorkstationPanel({ onCollected }: { onCollected?: () => void }) 
       <Rows>
         {d.machines.map((m, i) => (
           <Row key={m.id} first={i === 0}>
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[12.5px]">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13.5px]">
               <span
                 className={cn(
                   "size-1.5 shrink-0 translate-y-[-1px] rounded-full",
@@ -86,22 +86,22 @@ export function WorkstationPanel({ onCollected }: { onCollected?: () => void }) 
                 )}
               />
               <span className="font-medium">{m.label}</span>
-              <span className="text-muted-foreground font-mono text-[11.5px]">{m.target}</span>
-              <span className={cn("text-[11.5px]", m.reachable ? "" : "text-muted-foreground")}>
+              <span className="text-muted-foreground font-mono text-[12.5px]">{m.target}</span>
+              <span className={cn("text-[12.5px]", m.reachable ? "" : "text-muted-foreground")}>
                 {m.reachable ? `awake · up ${durationS(m.uptimeS)}` : "asleep or unreachable"}
               </span>
-              <span className="text-muted-foreground ml-auto text-[11.5px]">
+              <span className="text-muted-foreground ml-auto text-[12.5px]">
                 {m.mac ? `MAC ${m.mac}` : "no MAC — cannot be woken"}
               </span>
             </div>
 
-            <div className="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">
+            <div className="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">
               GPU: {gpuLine(m)}
               {!m.gpus && " — this is not a claim that the machine has no GPU."}
             </div>
 
             {!m.reachable && m.error && (
-              <div className="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">{m.error}</div>
+              <div className="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">{m.error}</div>
             )}
 
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -153,7 +153,7 @@ export function WorkstationPanel({ onCollected }: { onCollected?: () => void }) 
                   Shut down
                 </Button>
               )}
-              <span className="text-muted-foreground text-[11.5px]">
+              <span className="text-muted-foreground text-[12.5px]">
                 Nothing acknowledges a magic packet — after Wake, ask again in half a minute.
               </span>
             </div>
@@ -173,11 +173,11 @@ export function WorkstationPanel({ onCollected }: { onCollected?: () => void }) 
         ))}
       </Rows>
 
-      {said && <p className="mt-3 text-[12.5px] leading-relaxed">{said}</p>}
-      {problem && <p className="text-destructive mt-2 text-[12.5px] leading-relaxed">{problem}</p>}
+      {said && <p className="mt-3 text-[13.5px] leading-relaxed">{said}</p>}
+      {problem && <p className="text-destructive mt-2 text-[13.5px] leading-relaxed">{problem}</p>}
 
       {!d.commands.sleep && !d.commands.shutdown && (
-        <p className="text-muted-foreground mt-3 text-[11.5px] leading-relaxed">
+        <p className="text-muted-foreground mt-3 text-[12.5px] leading-relaxed">
           No power command is set, so there is no Sleep or Shut down button. Type one in Settings
           above — the documented ones are{" "}
           {Object.entries(d.commands.documented)
@@ -188,7 +188,7 @@ export function WorkstationPanel({ onCollected }: { onCollected?: () => void }) 
         </p>
       )}
 
-      <p className="text-muted-foreground mt-3 text-[11.5px] leading-relaxed">{d.note}</p>
+      <p className="text-muted-foreground mt-3 text-[12.5px] leading-relaxed">{d.note}</p>
     </PanelSection>
   );
 }

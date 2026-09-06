@@ -86,7 +86,7 @@ export function EntityLinks({
               ? `Linked to ${venture!.name} by hand`
               : `Suggested from a hostname and accepted for ${venture!.name}`
           }
-          className="hover:border-line-strong inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] transition-colors"
+          className="hover:border-line-strong inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[12px] transition-colors"
         >
           <span
             className="size-1.5 shrink-0 rounded-full"
@@ -100,13 +100,13 @@ export function EntityLinks({
         <DropdownMenu>
           <DropdownMenuTrigger
             disabled={busy}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] disabled:opacity-50"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[12px] disabled:opacity-50"
           >
             <Link2 className="size-3" strokeWidth={1.6} />
             {linked.length ? "Link to another venture…" : "Link to venture…"}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[200px]">
-            <DropdownMenuLabel className="text-[11px] font-normal">
+            <DropdownMenuLabel className="text-[12px] font-normal">
               This is part of…
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -123,7 +123,7 @@ export function EntityLinks({
         </DropdownMenu>
       )}
 
-      {problem && <span className="text-destructive text-[11px]">{problem}</span>}
+      {problem && <span className="text-destructive text-[12px]">{problem}</span>}
     </div>
   );
 }

@@ -80,22 +80,22 @@ export function PypiPanel({ onCollected }: { onCollected?: () => void }) {
         {d.packages.map((p, i) => (
           <Row key={p.package} first={i === 0}>
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="font-mono text-[13px] font-medium">{p.package}</span>
+              <span className="font-mono text-[14px] font-medium">{p.package}</span>
               {p.version && (
                 <Badge variant="secondary" className="font-mono font-normal">
                   {p.version}
                 </Badge>
               )}
-              <span className="text-muted-foreground ml-auto text-[11.5px]">
+              <span className="text-muted-foreground ml-auto text-[12.5px]">
                 read {ago(p.lastOkAt)}
               </span>
             </div>
             {p.summary && (
-              <p className="text-muted-foreground mt-0.5 truncate text-[12px]">
+              <p className="text-muted-foreground mt-0.5 truncate text-[13px]">
                 {p.summary}
               </p>
             )}
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[13px] tabular-nums">
               <span>{count(p.last30)} in 30 days</span>
               <span className="text-muted-foreground">
                 {count(p.lastCompleteWeek?.downloads ?? null)} last complete week
@@ -111,7 +111,7 @@ export function PypiPanel({ onCollected }: { onCollected?: () => void }) {
               </span>
             </div>
             {p.lastError && (
-              <p className="text-destructive mt-1 text-[11.5px]">{p.lastError}</p>
+              <p className="text-destructive mt-1 text-[12.5px]">{p.lastError}</p>
             )}
             <EntityLinks
               map={map.data}

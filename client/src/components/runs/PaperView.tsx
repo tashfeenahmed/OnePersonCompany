@@ -47,7 +47,7 @@ export function PaperFacts({ paper, className }: { paper: Paper; className?: str
     `${paper.cited.length} ${paper.cited.length === 1 ? "citation" : "citations"}`,
   ].filter(Boolean);
   return (
-    <span className={cn("text-muted-foreground text-[11.5px]", className)}>{bits.join(" · ")}</span>
+    <span className={cn("text-muted-foreground text-[12.5px]", className)}>{bits.join(" · ")}</span>
   );
 }
 
@@ -56,7 +56,7 @@ export function PaperFacts({ paper, className }: { paper: Paper; className?: str
  *  full of raw markdown is not what anybody meant by "open it". */
 export function PaperLinks({ paper }: { paper: Paper }) {
   const item =
-    "text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px]";
+    "text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]";
   return (
     <>
       {paper.pdf ? (
@@ -65,7 +65,7 @@ export function PaperLinks({ paper }: { paper: Paper }) {
           PDF
         </a>
       ) : (
-        <span className="text-muted-foreground px-2 py-1 text-[11.5px]">no PDF</span>
+        <span className="text-muted-foreground px-2 py-1 text-[12.5px]">no PDF</span>
       )}
       {paper.source && (
         <a
@@ -99,8 +99,8 @@ export function PaperLinks({ paper }: { paper: Paper }) {
 export function PaperFrame({ paper }: { paper: Paper }) {
   if (!paper.pdf)
     return (
-      <div className="bg-muted/40 rounded-[10px] border p-3.5">
-        <p className="text-[13px] leading-relaxed">
+      <div className="bg-muted/40 rounded-[14px] border p-3.5">
+        <p className="text-[14px] leading-relaxed">
           There is no PDF for this paper.{" "}
           {paper.source
             ? "The typesetter refused the document when it was written — the Typst source below is what was set, and the run's report carries what the compiler objected to."
@@ -113,7 +113,7 @@ export function PaperFrame({ paper }: { paper: Paper }) {
     );
 
   return (
-    <div className="bg-muted/40 overflow-hidden rounded-[10px] border">
+    <div className="bg-muted/40 overflow-hidden rounded-[14px] border">
       <iframe
         /* Keyed on the url so a different paper replaces the viewer rather than
            reusing one that is already scrolled to page four of another. */

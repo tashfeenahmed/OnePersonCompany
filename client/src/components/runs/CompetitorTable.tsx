@@ -53,7 +53,7 @@ export function CompetitorTable({
 
   if (!venture)
     return (
-      <p className="text-muted-foreground text-[13px]">
+      <p className="text-muted-foreground text-[14px]">
         Pick a venture to see the rivals found for it.
       </p>
     );
@@ -114,10 +114,10 @@ export function CompetitorTable({
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           Who else is in this market
         </div>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {doc.loading && !doc.data
             ? "loading…"
             : doc.error
@@ -131,15 +131,15 @@ export function CompetitorTable({
       </div>
 
       {profiles.length === 0 ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           {doc.error
             ? "The profiles could not be read."
             : `No rivals have been recorded for ${venture.name}. A sweep builds this list and the next one deepens it.`}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-[10px] border">
-          <table className="w-full text-[12.5px]">
-            <thead className="text-muted-foreground border-line-soft border-b text-[11px] tracking-[0.06em] uppercase">
+        <div className="overflow-x-auto rounded-[14px] border">
+          <table className="w-full text-[13.5px]">
+            <thead className="text-muted-foreground border-line-soft border-b text-[12px] tracking-[0.06em] uppercase">
               <tr>
                 <th className="px-3 py-2 text-left font-normal">Name</th>
                 <th className="px-3 py-2 text-left font-normal">Positioning</th>
@@ -172,7 +172,7 @@ export function CompetitorTable({
                       p.name
                     )}
                     {(p.strengths.length > 0 || p.weaknesses.length > 0) && (
-                      <div className="text-muted-foreground mt-0.5 text-[11.5px] leading-relaxed">
+                      <div className="text-muted-foreground mt-0.5 text-[12.5px] leading-relaxed">
                         {p.strengths.length > 0 && (
                           <div>Strong: {p.strengths.join(", ")}</div>
                         )}
@@ -274,7 +274,7 @@ function Cell({
           setEditing(false);
         }
       }}
-      className="border-line-strong -mx-1 w-full rounded-md border bg-transparent px-1 py-0.5 text-[12.5px] outline-none"
+      className="border-line-strong -mx-1 w-full rounded-md border bg-transparent px-1 py-0.5 text-[13.5px] outline-none"
     />
   );
 }

@@ -52,7 +52,7 @@ export function ReadinessBanner({ readiness }: { readiness: StudioReadiness }) {
   ];
 
   return (
-    <div className="overflow-hidden rounded-[10px] border">
+    <div className="overflow-hidden rounded-[14px] border">
       {rows.map((r, i) => (
         <div
           key={r.key}
@@ -73,15 +73,15 @@ export function ReadinessBanner({ readiness }: { readiness: StudioReadiness }) {
             />
           )}
           <div className="min-w-0">
-            <div className="text-[13px]">{r.title}</div>
-            <p className="text-muted-foreground mt-0.5 text-[12px] leading-relaxed">
+            <div className="text-[14px]">{r.title}</div>
+            <p className="text-muted-foreground mt-0.5 text-[13px] leading-relaxed">
               {r.note}
             </p>
           </div>
           {r.fix && (
             <Link
               to={r.fix.to}
-              className="hover:bg-accent ml-auto shrink-0 rounded-lg border px-2.5 py-1 text-[12px]"
+              className="hover:bg-accent ml-auto shrink-0 rounded-lg border px-2.5 py-1 text-[13px]"
             >
               {r.fix.label}
             </Link>

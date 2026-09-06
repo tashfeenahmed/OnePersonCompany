@@ -6,7 +6,7 @@ type Report = { node: string; port: number; dataDirectory: string; writable: boo
 export function SetupChecklist() {
   const { data, error, reload, loading } = useApi(() => call<Report>("/setup"));
   return <section className="py-5 space-y-3"><h2 className="text-lg">Setup checks</h2>
-    {error && <p role="alert">{error}</p>}<button className="border rounded px-3 py-1" disabled={loading} onClick={reload}>Check again</button>
+    {error && <p role="alert">{error}</p>}<button className="rounded-lg px-3.5 py-1.5 bg-muted hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] transition-colors disabled:opacity-50" disabled={loading} onClick={reload}>Check again</button>
     {data && <><ul className="space-y-2 text-sm">
       <li>{data.writable ? "✓" : "!"} Server data storage {data.writable ? "is writable" : "needs attention"}.</li>
       <li>{data.model || data.agent ? "✓" : "!"} {data.model || data.agent || "Choose a model or connect an agent"}. <Link className="underline" to="/settings?tab=models">Models</Link></li>

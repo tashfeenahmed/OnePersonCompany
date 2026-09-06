@@ -52,7 +52,7 @@ function PromptLine({ prompt }: { prompt: string }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:bg-accent -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[7px] px-1.5 py-0.5 text-left text-[12.5px] leading-[1.6] transition-colors"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:bg-accent -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[9px] px-1.5 py-0.5 text-left text-[13.5px] leading-[1.6] transition-colors"
       >
         <span className="min-w-0 truncate">
           The image was asked for like this
@@ -60,7 +60,7 @@ function PromptLine({ prompt }: { prompt: string }) {
         <span className="shrink-0">{" · "}{prompt.length} characters</span>
       </button>
       {open && (
-        <p className="text-muted-foreground border-line-soft mt-1 ml-1.5 border-l pl-3 text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap">
+        <p className="text-muted-foreground border-line-soft mt-1 ml-1.5 border-l pl-3 text-[13.5px] leading-[1.6] break-words whitespace-pre-wrap">
           {prompt}
         </p>
       )}
@@ -164,7 +164,7 @@ export function PostCard({
   }
 
   return (
-    <div className="bg-card overflow-hidden rounded-[10px] border">
+    <div className="bg-card overflow-hidden rounded-[14px] border">
       {/* The picture, on the muted ground rather than the card's own, so a
           PNG with a white background does not bleed into the card edge. */}
       {post.image ? (
@@ -174,7 +174,7 @@ export function PostCard({
           className="bg-muted max-h-[420px] w-full object-contain"
         />
       ) : (
-        <div className="bg-muted text-muted-foreground flex items-center gap-2 px-3.5 py-6 text-[12.5px]">
+        <div className="bg-muted text-muted-foreground flex items-center gap-2 px-3.5 py-6 text-[13.5px]">
           <ImageOff className="size-4 shrink-0" strokeWidth={1.6} />
           <span>
             {busy === "image"
@@ -185,7 +185,7 @@ export function PostCard({
       )}
 
       <div className="grid gap-2 px-3.5 py-3">
-        <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px]">
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
           <span>{when(post.ts)}</span>
           <span>·</span>
           <span>{post.format}</span>
@@ -213,7 +213,7 @@ export function PostCard({
           )}
         </div>
 
-        <p className="text-[13.5px] leading-relaxed break-words whitespace-pre-wrap">
+        <p className="text-[14.5px] leading-relaxed break-words whitespace-pre-wrap">
           {post.caption ?? (
             <span className="text-muted-foreground">
               The model answered with no caption.
@@ -222,19 +222,19 @@ export function PostCard({
         </p>
 
         {post.hashtags.length > 0 && (
-          <p className="text-muted-foreground text-[12.5px] break-words">
+          <p className="text-muted-foreground text-[13.5px] break-words">
             {post.hashtags.join(" ")}
           </p>
         )}
 
         {colours.length > 0 && (
-          <div className="text-muted-foreground flex items-center gap-1.5 text-[11.5px]">
+          <div className="text-muted-foreground flex items-center gap-1.5 text-[12.5px]">
             <span className="flex gap-1">
               {colours.slice(0, 4).map((hex, i) => (
                 <span
                   key={`${hex}-${i}`}
                   title={hex}
-                  className="border-line-soft size-[13px] rounded-[3px] border"
+                  className="border-line-soft size-[13px] rounded-[4px] border"
                   style={{ background: hex }}
                 />
               ))}
@@ -252,15 +252,15 @@ export function PostCard({
         {/* THE SERVER'S OWN SENTENCE, not a status word. It is one string
             covering both halves because that is how the server joins it. */}
         {post.error && (
-          <p className="text-warn text-[12.5px] leading-relaxed">{post.error}</p>
+          <p className="text-warn text-[13.5px] leading-relaxed">{post.error}</p>
         )}
         {refused && (
-          <p className="text-destructive text-[12.5px] leading-relaxed">
+          <p className="text-destructive text-[13.5px] leading-relaxed">
             {refused}
           </p>
         )}
         {sent && (
-          <p className="text-muted-foreground text-[12.5px] leading-relaxed">
+          <p className="text-muted-foreground text-[13.5px] leading-relaxed">
             {sent}{" "}
             <Link to="/social/publishing" className="underline decoration-dotted">
               Open the queue

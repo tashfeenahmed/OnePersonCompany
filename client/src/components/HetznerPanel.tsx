@@ -37,7 +37,7 @@ export function HetznerPanel({ onCollected }: { onCollected?: () => void }) {
     return (
       <>
         <Separator className="mt-7 mb-5" />
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           Connected, but the last collection found no servers on{" "}
           {s.accounts.length > 1 ? "any of these accounts" : "this account"}.
         </p>
@@ -54,10 +54,10 @@ export function HetznerPanel({ onCollected }: { onCollected?: () => void }) {
     <>
       <Separator className="mt-7 mb-5" />
       <div className="mb-3 flex items-center gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           What it reads
         </div>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           collected {ago(s.seenAt)}
         </span>
         <Button variant="outline" size="sm" onClick={collectNow}>
@@ -83,7 +83,7 @@ export function HetznerPanel({ onCollected }: { onCollected?: () => void }) {
         ]}
       />
 
-      <div className="overflow-hidden rounded-[10px] border">
+      <div className="overflow-hidden rounded-[14px] border">
         {(fleet.data?.servers ?? []).map((srv, i) => (
           <div
             key={srv.id}
@@ -100,8 +100,8 @@ export function HetznerPanel({ onCollected }: { onCollected?: () => void }) {
               strokeWidth={1.6}
             />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium">{srv.name}</div>
-              <div className="text-muted-foreground truncate font-mono text-[11.5px]">
+              <div className="truncate text-[14px] font-medium">{srv.name}</div>
+              <div className="text-muted-foreground truncate font-mono text-[12.5px]">
                 {[srv.ipv4, srv.specs].filter(Boolean).join(" · ")}
               </div>
             </div>
@@ -119,7 +119,7 @@ export function HetznerPanel({ onCollected }: { onCollected?: () => void }) {
             >
               {srv.plan}
             </Badge>
-            <div className="w-[92px] shrink-0 text-right text-[12.5px] tabular-nums">
+            <div className="w-[92px] shrink-0 text-right text-[13.5px] tabular-nums">
               {srv.monthlyEur === null ? (
                 <span className="text-muted-foreground">unpriced</span>
               ) : (
@@ -130,7 +130,7 @@ export function HetznerPanel({ onCollected }: { onCollected?: () => void }) {
         ))}
       </div>
 
-      <p className="text-muted-foreground mt-2.5 text-[11.5px]">
+      <p className="text-muted-foreground mt-2.5 text-[12.5px]">
         {multi && (
           <>
             {s.accounts

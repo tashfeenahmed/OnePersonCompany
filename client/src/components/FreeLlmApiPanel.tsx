@@ -82,7 +82,7 @@ export function FreeLlmApiPanel() {
   return (
     <>
       <Separator className="mt-7 mb-5" />
-      <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+      <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
         Which endpoint answers
       </div>
 
@@ -98,14 +98,14 @@ export function FreeLlmApiPanel() {
             />
           ))}
           {data.chosenAccountId !== null && (
-            <div className="flex items-center gap-2 text-[12px]">
+            <div className="flex items-center gap-2 text-[13px]">
               <span className="text-muted-foreground">
                 One endpoint is pinned, so the local instance starting will not
                 move the completions.
               </span>
               <Button
                 variant="ghost"
-                className="ml-auto h-7 px-2 text-[12px]"
+                className="ml-auto h-7 px-2 text-[13px]"
                 disabled={busy === "auto"}
                 onClick={() => act("auto", () => api.freellmapiUseAccount(null))}
               >
@@ -115,7 +115,7 @@ export function FreeLlmApiPanel() {
           )}
         </div>
       ) : (
-        <p className="text-muted-foreground text-[12px]">
+        <p className="text-muted-foreground text-[13px]">
           No endpoint yet. Paste the base URL and key of a FreeLLMAPI you
           already run above — there is no hosted one, so the address is always
           somebody's own — or install one here.
@@ -124,7 +124,7 @@ export function FreeLlmApiPanel() {
 
       {/* THE DEFAULT-PROVIDER LINE. Connected and chosen are two different
           things, and only the second one makes a chat turn arrive here. */}
-      <p className="mt-3 text-[12.5px]">
+      <p className="mt-3 text-[13.5px]">
         {data.provider.isDefault ? (
           <span className="text-muted-foreground">
             FreeLLMAPI is the default provider — every agent completes through
@@ -140,7 +140,7 @@ export function FreeLlmApiPanel() {
             {!!data.inUse && (
               <Button
                 variant="outline"
-                className="h-7 px-2.5 text-[12px]"
+                className="h-7 px-2.5 text-[13px]"
                 disabled={busy === "default"}
                 onClick={() => act("default", () => api.freellmapiMakeDefault())}
               >
@@ -154,7 +154,7 @@ export function FreeLlmApiPanel() {
       {/* ---------------------------------------------------------- instance */}
 
       <Separator className="mt-7 mb-5" />
-      <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] tracking-[0.06em] uppercase">
+      <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[12px] tracking-[0.06em] uppercase">
         <span>Instance on this machine</span>
         <StateDot state={i.state} />
       </div>
@@ -164,7 +164,7 @@ export function FreeLlmApiPanel() {
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
         {i.state === "absent" && (
           <Button
-            className="h-8 px-3 text-[12.5px]"
+            className="h-8 px-3 text-[13.5px]"
             disabled={busy === "install"}
             onClick={() => act("install", () => api.freellmapiInstall())}
           >
@@ -173,7 +173,7 @@ export function FreeLlmApiPanel() {
         )}
         {(i.state === "installed" || i.state === "stopped" || i.state === "failed") && (
           <Button
-            className="h-8 px-3 text-[12.5px]"
+            className="h-8 px-3 text-[13.5px]"
             disabled={busy === "start"}
             onClick={() => act("start", () => api.freellmapiStart())}
           >
@@ -184,7 +184,7 @@ export function FreeLlmApiPanel() {
           <>
             <Button
               variant="outline"
-              className="h-8 px-3 text-[12.5px]"
+              className="h-8 px-3 text-[13.5px]"
               disabled={busy === "stop"}
               onClick={() => act("stop", () => api.freellmapiStop())}
             >
@@ -192,7 +192,7 @@ export function FreeLlmApiPanel() {
             </Button>
             <Button
               variant="ghost"
-              className="h-8 px-3 text-[12.5px]"
+              className="h-8 px-3 text-[13.5px]"
               disabled={busy === "reconnect"}
               onClick={() => act("reconnect", () => api.freellmapiReconnect())}
             >
@@ -202,7 +202,7 @@ export function FreeLlmApiPanel() {
         )}
         {i.state === "running" && i.dashboard && (
           <a
-            className="text-muted-foreground hover:text-foreground text-[12px] underline underline-offset-2"
+            className="text-muted-foreground hover:text-foreground text-[13px] underline underline-offset-2"
             href={i.dashboardUrl}
             target="_blank"
             rel="noreferrer"
@@ -212,11 +212,11 @@ export function FreeLlmApiPanel() {
         )}
       </div>
 
-      {problem && <p className="text-destructive mt-2.5 text-[12px]">{problem}</p>}
+      {problem && <p className="text-destructive mt-2.5 text-[13px]">{problem}</p>}
       {i.lastError && (
         <p
           className={cn(
-            "mt-2.5 text-[12px] leading-snug",
+            "mt-2.5 text-[13px] leading-snug",
             i.state === "failed" ? "text-destructive" : "text-warn",
           )}
         >
@@ -229,25 +229,25 @@ export function FreeLlmApiPanel() {
       {!!data.models.count && (
         <>
           <Separator className="mt-7 mb-5" />
-          <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
             {data.models.count} models on {data.inUse?.label ?? "the endpoint"}
           </div>
           <div className="flex flex-wrap gap-1.5">
             {data.models.ids.slice(0, 40).map((id) => (
               <span
                 key={id}
-                className="bg-muted/60 rounded-[6px] px-1.5 py-0.5 font-mono text-[11px]"
+                className="bg-muted/60 rounded-[8px] px-1.5 py-0.5 font-mono text-[12px]"
               >
                 {id}
               </span>
             ))}
             {data.models.count > 40 && (
-              <span className="text-muted-foreground py-0.5 text-[11px]">
+              <span className="text-muted-foreground py-0.5 text-[12px]">
                 +{data.models.count - 40} more
               </span>
             )}
           </div>
-          <p className="text-muted-foreground mt-2.5 text-[11.5px] leading-snug">
+          <p className="text-muted-foreground mt-2.5 text-[12.5px] leading-snug">
             Read from the endpoint itself, {ago(data.models.readAt)}. The first
             id is what an empty Model setting asks for — on this gateway that is
             its own router rather than a guess made here. The model that
@@ -257,7 +257,7 @@ export function FreeLlmApiPanel() {
         </>
       )}
       {data.models.error && (
-        <p className="text-warn mt-2.5 text-[12px]">
+        <p className="text-warn mt-2.5 text-[13px]">
           Its catalog could not be read: {data.models.error}
         </p>
       )}
@@ -265,7 +265,7 @@ export function FreeLlmApiPanel() {
       {/* The log tail, which during an install is the only honest thing to
           show for several minutes. Scrubbed on the server. */}
       {!!i.log.length && (i.state === "installing" || i.state === "failed") && (
-        <pre className="bg-muted/50 mt-4 max-h-56 overflow-auto rounded-[8px] p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
+        <pre className="bg-muted/50 mt-4 max-h-56 overflow-auto rounded-[11px] p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">
           {i.log.slice(-24).join("\n")}
         </pre>
       )}
@@ -309,7 +309,7 @@ function StateDot({ state }: { state: FreeLlmApiDoc["instance"]["state"] }) {
 function Instance({ instance: i }: { instance: FreeLlmApiDoc["instance"] }) {
   if (i.state === "absent")
     return (
-      <p className="text-muted-foreground text-[12.5px] leading-relaxed">
+      <p className="text-muted-foreground text-[13.5px] leading-relaxed">
         Nothing installed here yet. This clones the gateway at a commit it
         writes down, builds it, and runs it as a child of this API on{" "}
         <span className="font-mono">127.0.0.1:{i.port}</span> — loopback only,
@@ -320,7 +320,7 @@ function Instance({ instance: i }: { instance: FreeLlmApiDoc["instance"] }) {
 
   if (i.state === "installing")
     return (
-      <p className="text-[12.5px]">
+      <p className="text-[13.5px]">
         {i.step ?? "working"}… A clone, its dependencies, two builds and the
         migration that mints the key. This takes minutes and keeps going if you
         leave the page.
@@ -328,9 +328,9 @@ function Instance({ instance: i }: { instance: FreeLlmApiDoc["instance"] }) {
     );
 
   return (
-    <div className="flex flex-col gap-1.5 text-[12.5px]">
+    <div className="flex flex-col gap-1.5 text-[13.5px]">
       <Fact label="Commit">
-        <span className="font-mono text-[11.5px]">{i.commit?.slice(0, 12)}</span>
+        <span className="font-mono text-[12.5px]">{i.commit?.slice(0, 12)}</span>
         {i.installedAt && (
           <span className="text-muted-foreground">
             {" "}
@@ -340,12 +340,12 @@ function Instance({ instance: i }: { instance: FreeLlmApiDoc["instance"] }) {
         )}
       </Fact>
       <Fact label="Node">
-        <span className="font-mono text-[11.5px]">{i.node?.version}</span>
+        <span className="font-mono text-[12.5px]">{i.node?.version}</span>
       </Fact>
       {i.pid !== null && (
         <Fact label="Process">
           pid <span className="tabular-nums">{i.pid}</span> on{" "}
-          <span className="font-mono text-[11.5px]">{i.url}</span>
+          <span className="font-mono text-[12.5px]">{i.url}</span>
           {i.healthyAt ? (
             <span className="text-muted-foreground"> · healthy {ago(i.healthyAt)}</span>
           ) : null}
@@ -382,7 +382,7 @@ function Instance({ instance: i }: { instance: FreeLlmApiDoc["instance"] }) {
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-2">
-      <span className="text-muted-foreground w-[7.5rem] shrink-0 text-[11.5px]">
+      <span className="text-muted-foreground w-[7.5rem] shrink-0 text-[12.5px]">
         {label}
       </span>
       <span className="min-w-0">{children}</span>
@@ -404,24 +404,24 @@ function AccountRow({
   return (
     <div
       className={cn(
-        "bg-card rounded-[10px] border p-3",
+        "bg-card rounded-[14px] border p-4",
         account.inUse && "border-ok/50",
       )}
     >
-      <div className="flex flex-wrap items-center gap-2 text-[13px]">
+      <div className="flex flex-wrap items-center gap-2 text-[14px]">
         <span className="font-medium">{account.label}</span>
-        <span className="text-muted-foreground font-mono text-[11px]">
+        <span className="text-muted-foreground font-mono text-[12px]">
           {account.baseUrl ?? "no endpoint stored"}
         </span>
         {account.inUse ? (
-          <span className="text-ok ml-auto flex items-center gap-1.5 text-[11.5px]">
+          <span className="text-ok ml-auto flex items-center gap-1.5 text-[12.5px]">
             <i className="bg-ok size-1.5 rounded-full" />
             {automatic ? "answering" : "answering · pinned"}
           </span>
         ) : (
           <Button
             variant="ghost"
-            className="ml-auto h-7 px-2 text-[12px]"
+            className="ml-auto h-7 px-2 text-[13px]"
             disabled={busy || !account.connected}
             onClick={onUse}
           >
@@ -429,12 +429,12 @@ function AccountRow({
           </Button>
         )}
       </div>
-      <p className="text-muted-foreground mt-1.5 text-[11.5px]">
+      <p className="text-muted-foreground mt-1.5 text-[12.5px]">
         {account.local ? "The instance on this machine" : "An instance somewhere else"}
         {account.lastOkAt ? ` · last answered ${ago(account.lastOkAt)}` : " · has not answered yet"}
       </p>
       {account.lastError && (
-        <p className="text-destructive mt-1.5 text-[11.5px] leading-snug">
+        <p className="text-destructive mt-1.5 text-[12.5px] leading-snug">
           {account.lastError}
         </p>
       )}

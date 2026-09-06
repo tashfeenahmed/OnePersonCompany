@@ -105,7 +105,7 @@ export function SearxngPanel({
   return (
     <>
       <Separator className="mt-7 mb-5" />
-      <div className="text-muted-foreground mb-3 text-[11px] tracking-[0.06em] uppercase">
+      <div className="text-muted-foreground mb-3 text-[12px] tracking-[0.06em] uppercase">
         Where the searches go
       </div>
 
@@ -113,19 +113,19 @@ export function SearxngPanel({
         {/* ---------------------------------------------------- the remote node */}
         <div
           className={cn(
-            "bg-card rounded-[10px] border p-3.5",
+            "bg-card rounded-[14px] border p-4.5",
             remote && !inst.inUse && "border-line-strong",
           )}
         >
           <div className="flex items-center gap-2">
-            <span className="text-[13px] font-medium">Add a URL and a key</span>
+            <span className="text-[14px] font-medium">Add a URL and a key</span>
             {!inst.inUse && remote && (
               <Badge variant="secondary" className="bg-ok-bg text-ok border-transparent">
                 In use
               </Badge>
             )}
           </div>
-          <p className="text-muted-foreground mt-2 text-[12px] leading-relaxed">
+          <p className="text-muted-foreground mt-2 text-[13px] leading-relaxed">
             A node you already run. Put its address in the search endpoint
             setting below and its API key in the credentials above — the key
             travels as an <span className="font-mono">x-api-key</span> header,
@@ -133,7 +133,7 @@ export function SearxngPanel({
             expects.
           </p>
           {endpoint && (
-            <p className="text-muted-foreground mt-2 font-mono text-[11px] break-all">
+            <p className="text-muted-foreground mt-2 font-mono text-[12px] break-all">
               {endpoint}
             </p>
           )}
@@ -142,12 +142,12 @@ export function SearxngPanel({
         {/* --------------------------------------------------- the local one */}
         <div
           className={cn(
-            "bg-card rounded-[10px] border p-3.5",
+            "bg-card rounded-[14px] border p-4.5",
             inst.inUse && "border-line-strong",
           )}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-medium">Install here</span>
+            <span className="text-[14px] font-medium">Install here</span>
             <StateBadge inst={inst} />
             {inst.inUse && inst.state === "running" && (
               <Badge variant="secondary" className="bg-ok-bg text-ok border-transparent">
@@ -156,25 +156,25 @@ export function SearxngPanel({
             )}
           </div>
 
-          <p className="text-muted-foreground mt-2 text-[12px] leading-relaxed">
+          <p className="text-muted-foreground mt-2 text-[13px] leading-relaxed">
             {SENTENCE[inst.state]}
           </p>
 
           {/* The address it serves, which is also the whole of its access
               control: nothing off this machine can open a loopback port, so
               there is no key to invent and none to paste. */}
-          <p className="text-muted-foreground mt-2 font-mono text-[11px]">
+          <p className="text-muted-foreground mt-2 font-mono text-[12px]">
             {inst.url}
           </p>
 
           {inst.state === "running" && inst.inUse && (
-            <p className="text-ok mt-2 flex items-center gap-1.5 text-[12px]">
+            <p className="text-ok mt-2 flex items-center gap-1.5 text-[13px]">
               <Check className="size-3.5" strokeWidth={2} />
               Connected automatically — no key, because it is loopback
             </p>
           )}
           {inst.state === "running" && !inst.inUse && (
-            <p className="text-muted-foreground mt-2 text-[12px]">
+            <p className="text-muted-foreground mt-2 text-[13px]">
               Running, but the searches still go to the endpoint above. Set the
               search endpoint to {inst.url} to use this one.
             </p>
@@ -184,7 +184,7 @@ export function SearxngPanel({
               release this could name instead — and the Python is here because
               it is the dependency that decides whether the build works at all. */}
           {inst.commit && (
-            <div className="text-muted-foreground mt-2.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+            <div className="text-muted-foreground mt-2.5 flex flex-wrap gap-x-3 gap-y-1 text-[12px]">
               <span className="font-mono">{inst.commit.slice(0, 12)}</span>
               {inst.python && <span>python {inst.python.version}</span>}
               {inst.installSeconds !== null && (
@@ -238,7 +238,7 @@ export function SearxngPanel({
               </Button>
             )}
             {inst.autostart && inst.state !== "running" && (
-              <span className="text-muted-foreground text-[11.5px]">
+              <span className="text-muted-foreground text-[12.5px]">
                 set to come back when the API restarts
               </span>
             )}
@@ -251,17 +251,17 @@ export function SearxngPanel({
           {(moving || inst.state === "failed") && (
             <div className="mt-3">
               {inst.step && (
-                <div className="text-[12px]">
+                <div className="text-[13px]">
                   <span className="font-medium">{inst.step}</span>
                 </div>
               )}
               {inst.lastError && (
-                <p className="text-destructive mt-1 text-[11.5px] leading-snug">
+                <p className="text-destructive mt-1 text-[12.5px] leading-snug">
                   {inst.lastError}
                 </p>
               )}
               {!!inst.log.length && (
-                <pre className="bg-muted/40 text-muted-foreground mt-2 max-h-40 overflow-auto rounded-[8px] p-2 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap">
+                <pre className="bg-muted/40 text-muted-foreground mt-2 max-h-40 overflow-auto rounded-[11px] p-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
                   {inst.log.slice(-12).join("\n")}
                 </pre>
               )}
@@ -269,12 +269,12 @@ export function SearxngPanel({
           )}
 
           {problem && (
-            <p className="text-destructive mt-2 text-[12px]">{problem}</p>
+            <p className="text-destructive mt-2 text-[13px]">{problem}</p>
           )}
         </div>
       </div>
 
-      <p className="text-muted-foreground mt-3 text-[11.5px]">
+      <p className="text-muted-foreground mt-3 text-[12.5px]">
         The local instance is a child of the API process: it stops when the API
         stops, comes back if it was running when the API last did, and is
         restarted if it crashes. It is installed into{" "}

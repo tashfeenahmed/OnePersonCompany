@@ -282,10 +282,10 @@ export function RunApp({
     <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
       <div className="mx-auto w-full max-w-[940px]">
         <div className="mt-2 mb-6">
-          <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">
+          <h1 className="mb-1 text-[27px] font-normal tracking-[-0.025em]">
             {info?.name ?? name}
           </h1>
-          <p className="text-muted-foreground text-[13.5px]">
+          <p className="text-muted-foreground text-[14.5px]">
             {info?.what ??
               (list.error
                 ? "The runs API did not answer, so nothing can be started here right now."
@@ -294,20 +294,20 @@ export function RunApp({
         </div>
 
         {list.error && (
-          <p className="text-muted-foreground mb-4 text-[13px]">
+          <p className="text-muted-foreground mb-4 text-[14px]">
             <span className="text-destructive">{list.error}</span>
           </p>
         )}
 
         {/* ------------------------------------------------------ the brief */}
         {info && (
-          <div className="bg-card grid gap-3.5 rounded-[10px] border p-3.5">
+          <div className="bg-card grid gap-3.5 rounded-[14px] border p-4.5">
             <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                 {needsVenture ? "For which venture" : "About which venture"}
               </div>
               {ventures.length === 0 ? (
-                <p className="text-muted-foreground text-[12.5px]">
+                <p className="text-muted-foreground text-[13.5px]">
                   There are no ventures yet, and this run is made out of one —
                   the name, the sentence you wrote, the stage, the site. Add a
                   venture first.
@@ -325,7 +325,7 @@ export function RunApp({
                 </div>
               )}
               {!needsVenture && (
-                <p className="text-muted-foreground text-[11.5px]">
+                <p className="text-muted-foreground text-[12.5px]">
                   Optional here. Without one the run is about whatever you type
                   below and is filed under no venture.
                 </p>
@@ -334,7 +334,7 @@ export function RunApp({
 
             {info.inputs.map((f) => (
               <div key={f.key} className="grid gap-1.5">
-                <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+                <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                   {f.label}
                   {!f.required && (
                     <span className="ml-1.5 tracking-normal normal-case">
@@ -358,7 +358,7 @@ export function RunApp({
                           setValues((v) => ({ ...v, [f.key]: o.value }))
                         }
                         className={cn(
-                          "rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors",
+                          "rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
                           valueOf(f) === o.value
                             ? "border-foreground"
                             : "hover:border-line-strong",
@@ -377,7 +377,7 @@ export function RunApp({
                     rows={3}
                     maxLength={4000}
                     placeholder={f.hint}
-                    className="text-[13.5px]"
+                    className="text-[14.5px]"
                   />
                 ) : (
                   <Input
@@ -387,7 +387,7 @@ export function RunApp({
                       setValues((v) => ({ ...v, [f.key]: e.target.value }))
                     }
                     placeholder={f.hint}
-                    className="text-[13.5px]"
+                    className="text-[14.5px]"
                   />
                 )}
               </div>
@@ -415,7 +415,7 @@ export function RunApp({
                     ? "Starting…"
                     : "Start the run"}
               </Button>
-              <span className="text-muted-foreground text-[12px]">
+              <span className="text-muted-foreground text-[13px]">
                 {busyHere && detail?.status === "queued" && running
                   ? `One run at a time on this box — ${running.title} is working.`
                   : busyHere
@@ -429,7 +429,7 @@ export function RunApp({
             </div>
 
             {refused && (
-              <p className="text-destructive text-[12.5px] leading-relaxed">
+              <p className="text-destructive text-[13.5px] leading-relaxed">
                 {refused}
               </p>
             )}
@@ -440,7 +440,7 @@ export function RunApp({
         {runId && (
           <div className="mt-5">
             {open.error ? (
-              <p className="text-muted-foreground text-[13px]">
+              <p className="text-muted-foreground text-[14px]">
                 No run at this address.{" "}
                 <span className="text-destructive">{open.error}</span>
               </p>
@@ -454,7 +454,7 @@ export function RunApp({
                 onResume={() => void restart(true)}
               />
             ) : (
-              <p className="text-muted-foreground text-[13px]">Reading the run…</p>
+              <p className="text-muted-foreground text-[14px]">Reading the run…</p>
             )}
           </div>
         )}
@@ -468,7 +468,7 @@ export function RunApp({
 
         {/* ------------------------------------------------------ the history */}
         <div className="mt-7 mb-3 flex flex-wrap items-baseline gap-2">
-          <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
             Past runs
           </div>
           {venture && (
@@ -483,7 +483,7 @@ export function RunApp({
                   key={key}
                   onClick={() => setScope(key)}
                   className={cn(
-                    "rounded-[7px] px-1.5 py-0.5 text-[11.5px] transition-colors",
+                    "rounded-[9px] px-1.5 py-0.5 text-[12.5px] transition-colors",
                     scope === key
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:text-foreground",
@@ -494,7 +494,7 @@ export function RunApp({
               ))}
             </div>
           )}
-          <span className="text-muted-foreground ml-auto text-[11.5px]">
+          <span className="text-muted-foreground ml-auto text-[12.5px]">
             {info
               ? `${info.counts.done} finished · ${info.counts.failed} failed${
                   info.counts.running + info.counts.queued > 0
@@ -508,7 +508,7 @@ export function RunApp({
         </div>
 
         {shown.length === 0 ? (
-          <p className="text-muted-foreground text-[13px]">
+          <p className="text-muted-foreground text-[14px]">
             {list.loading && !list.data
               ? "Reading the history…"
               : venture && scope === "venture"
@@ -554,16 +554,16 @@ function HistoryRow({
       <span
         className={cn("size-1.5 shrink-0 rounded-full", statusTone(run.status))}
       />
-      <span className="min-w-0 flex-1 truncate text-[12.5px]">{run.title}</span>
+      <span className="min-w-0 flex-1 truncate text-[13.5px]">{run.title}</span>
       {run.ventureName && (
-        <span className="text-muted-foreground hidden shrink-0 text-[11.5px] sm:block">
+        <span className="text-muted-foreground hidden shrink-0 text-[12.5px] sm:block">
           {run.ventureName}
         </span>
       )}
-      <span className="text-muted-foreground hidden w-[152px] shrink-0 truncate text-right text-[11.5px] lg:block">
+      <span className="text-muted-foreground hidden w-[152px] shrink-0 truncate text-right text-[12.5px] lg:block">
         {backendPhrase(run)}
       </span>
-      <span className="text-muted-foreground w-[124px] shrink-0 text-right text-[11.5px]">
+      <span className="text-muted-foreground w-[124px] shrink-0 text-right text-[12.5px]">
         {isLive(run.status)
           ? statusWord(run.status)
           : `${took ? `${took} · ` : ""}${ago(run.finishedAt ?? run.queuedAt)}`}

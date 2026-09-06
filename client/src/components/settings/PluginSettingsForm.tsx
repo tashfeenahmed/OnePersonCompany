@@ -45,7 +45,7 @@ export function PluginSettingsForm({
 
   if (settings.error)
     return (
-      <p className="text-muted-foreground text-[12.5px]">
+      <p className="text-muted-foreground text-[13.5px]">
         The API did not answer, so these settings cannot be read or changed.{" "}
         <span className="text-destructive">{settings.error}</span>
       </p>
@@ -91,9 +91,9 @@ export function PluginSettingsForm({
               onChange={(e) =>
                 setTyped((v) => ({ ...v, [k.key]: e.target.value }))
               }
-              className="font-mono text-[12.5px]"
+              className="font-mono text-[13.5px]"
             />
-            <p className="text-muted-foreground text-[11px] leading-relaxed">
+            <p className="text-muted-foreground text-[12px] leading-relaxed">
               {k.hint}
             </p>
           </div>
@@ -105,13 +105,13 @@ export function PluginSettingsForm({
           {saving ? "Saving…" : saveLabel}
         </Button>
         {saved && !problem && (
-          <span className="text-ok flex items-center gap-1.5 text-[12px]">
+          <span className="text-ok flex items-center gap-1.5 text-[13px]">
             <Check className="size-3.5" strokeWidth={2} />
             Saved
           </span>
         )}
         {problem && (
-          <span className="text-destructive text-[12px]">{problem}</span>
+          <span className="text-destructive text-[13px]">{problem}</span>
         )}
       </div>
     </>

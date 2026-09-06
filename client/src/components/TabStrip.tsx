@@ -49,7 +49,7 @@ const HOLD_MS = 150;
  */
 function tabItemClass(active: boolean): string {
   return cn(
-    "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap",
+    "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[13.5px] whitespace-nowrap",
     active && "bg-accent text-foreground font-medium",
   );
 }
@@ -171,7 +171,7 @@ export function TabStrip({
             {Icon && <Icon className="size-3.5" strokeWidth={1.6} />}
             {t.label}
             {t.count !== undefined && (
-              <span className="text-muted-foreground text-[11px]">{t.count}</span>
+              <span className="text-muted-foreground text-[12px]">{t.count}</span>
             )}
           </Link>
         );
@@ -246,7 +246,7 @@ export function SubTabs({
             {Icon && <Icon className="size-3.5" strokeWidth={1.6} />}
             {t.label}
             {t.count !== undefined && (
-              <span className="text-muted-foreground text-[11px]">{t.count}</span>
+              <span className="text-muted-foreground text-[12px]">{t.count}</span>
             )}
           </>
         );

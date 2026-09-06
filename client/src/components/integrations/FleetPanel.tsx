@@ -99,8 +99,8 @@ export function FleetPanel({ onCollected }: { onCollected?: () => void }) {
                 )}
                 strokeWidth={1.6}
               />
-              <span className="text-[13px] font-medium">{b.label}</span>
-              <span className="text-muted-foreground font-mono text-[11.5px]">
+              <span className="text-[14px] font-medium">{b.label}</span>
+              <span className="text-muted-foreground font-mono text-[12.5px]">
                 {b.hostname ?? b.target ?? "no address cached yet"}
               </span>
               {b.docker && (
@@ -109,13 +109,13 @@ export function FleetPanel({ onCollected }: { onCollected?: () => void }) {
                   {b.docker.installed ? `${b.docker.running} running` : "no docker"}
                 </Badge>
               )}
-              <span className="text-muted-foreground ml-auto text-[11.5px]">
+              <span className="text-muted-foreground ml-auto text-[12.5px]">
                 up {duration(b.sample?.uptimeSeconds ?? null)} · read {ago(b.okAt)}
               </span>
             </div>
 
             {b.error && (
-              <p className="text-destructive mt-1 text-[11.5px]">{b.error}</p>
+              <p className="text-destructive mt-1 text-[12.5px]">{b.error}</p>
             )}
 
             {b.sample ? (
@@ -146,7 +146,7 @@ export function FleetPanel({ onCollected }: { onCollected?: () => void }) {
                     <MeterBar meter={b.sample.swap} label="swap" />
                   )}
                 </div>
-                <div className="text-muted-foreground mt-1.5 text-[12px] tabular-nums">
+                <div className="text-muted-foreground mt-1.5 text-[13px] tabular-nums">
                   load {count(b.sample.load.one)} / {count(b.sample.load.five)} /{" "}
                   {count(b.sample.load.fifteen)} ·{" "}
                   {b.sample.loadPerCpu === null
@@ -155,7 +155,7 @@ export function FleetPanel({ onCollected }: { onCollected?: () => void }) {
                 </div>
               </>
             ) : (
-              <p className="text-muted-foreground mt-1 text-[12px]">
+              <p className="text-muted-foreground mt-1 text-[13px]">
                 Nothing has been read off this box yet. The credential exists;
                 no collection has reached it.
               </p>
@@ -166,18 +166,18 @@ export function FleetPanel({ onCollected }: { onCollected?: () => void }) {
                 {b.counters.map((counter) => (
                   <div
                     key={counter.label}
-                    className="flex flex-wrap items-baseline gap-2 text-[12px]"
+                    className="flex flex-wrap items-baseline gap-2 text-[13px]"
                   >
                     <span className="text-muted-foreground">{counter.label}</span>
                     <span className="tabular-nums">
                       {counter.latest ? count(counter.latest.value) : "—"}
                     </span>
                     {counter.note && (
-                      <span className="text-muted-foreground text-[11.5px]">
+                      <span className="text-muted-foreground text-[12.5px]">
                         {counter.note}
                       </span>
                     )}
-                    <code className="text-muted-foreground ml-auto truncate font-mono text-[11px]">
+                    <code className="text-muted-foreground ml-auto truncate font-mono text-[12px]">
                       {counter.command}
                     </code>
                   </div>
@@ -186,7 +186,7 @@ export function FleetPanel({ onCollected }: { onCollected?: () => void }) {
             )}
 
             {!!b.containers.length && (
-              <p className="text-muted-foreground mt-1.5 truncate font-mono text-[11.5px]">
+              <p className="text-muted-foreground mt-1.5 truncate font-mono text-[12.5px]">
                 {b.containers.map((ct) => ct.name).join(" · ")}
               </p>
             )}

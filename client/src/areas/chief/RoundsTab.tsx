@@ -30,9 +30,9 @@ export function RoundsTab() {
   const [said, setSaid] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  if (doc.error) return <p className="text-destructive text-[13.5px]">{doc.error}</p>;
+  if (doc.error) return <p className="text-destructive text-[14.5px]">{doc.error}</p>;
   if (!doc.data)
-    return <p className="text-muted-foreground text-[13.5px]">Reading the schedule…</p>;
+    return <p className="text-muted-foreground text-[14.5px]">Reading the schedule…</p>;
 
   const { schedule, rounds, last, jobs } = doc.data;
   /* WHICH PAGE A DISPATCHED RUN IS READ AT, taken from the server's own role
@@ -43,7 +43,7 @@ export function RoundsTab() {
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-muted-foreground text-[12.5px]">
+      <p className="text-muted-foreground text-[13.5px]">
         Once a day, this box walks every venture and gives the roles below a job
         on the ones that are due — skipping quiet stages, respecting the
         per-venture cadence, and never spending more than the cap of the single
@@ -92,18 +92,18 @@ export function RoundsTab() {
           {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" strokeWidth={1.6} />}
           Walk the estate now
         </Button>
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           This queues real runs into the one slot and spends tokens.
         </span>
       </div>
-      {said && <p className="text-muted-foreground text-[12.5px]">{said}</p>}
-      {failure && <p className="text-destructive text-[12.5px]">{failure}</p>}
+      {said && <p className="text-muted-foreground text-[13.5px]">{said}</p>}
+      {failure && <p className="text-destructive text-[13.5px]">{failure}</p>}
 
       {/* --------------------------------------------------------- last walk */}
       <div>
-        <h2 className="mb-2 text-[15px] font-medium">The last round</h2>
+        <h2 className="mb-2 text-[16px] font-medium">The last round</h2>
         {last ? <RoundCard round={last} /> : (
-          <p className="text-muted-foreground text-[13.5px]">
+          <p className="text-muted-foreground text-[14.5px]">
             No round has run yet. Switch the schedule on above, or walk it once
             by hand.
           </p>
@@ -112,12 +112,12 @@ export function RoundsTab() {
 
       {rounds.length > 1 && (
         <div>
-          <h2 className="mb-2 text-[15px] font-medium">Before that</h2>
+          <h2 className="mb-2 text-[16px] font-medium">Before that</h2>
           <div className="flex flex-col gap-1.5">
             {rounds.slice(1, 8).map((r) => (
               <div
                 key={r.id}
-                className="border-line-soft bg-card flex items-center gap-3 rounded-[10px] border px-3 py-2 text-[12.5px]"
+                className="border-line-soft bg-card flex items-center gap-3 rounded-[14px] border px-4 py-2.5 text-[13.5px]"
               >
                 <span className="text-muted-foreground">{ago(r.startedAt)}</span>
                 <span>{r.trigger === "manual" ? "by hand" : "scheduled"}</span>
@@ -132,17 +132,17 @@ export function RoundsTab() {
 
       {/* ----------------------------------------------------------- ledger */}
       <div>
-        <h2 className="mb-1 text-[15px] font-medium">Every scheduled job</h2>
-        <p className="text-muted-foreground mb-2 text-[11.5px]">
+        <h2 className="mb-1 text-[16px] font-medium">Every scheduled job</h2>
+        <p className="text-muted-foreground mb-2 text-[12.5px]">
           Including the ones that became nothing. A skip is a decision — a quiet
           stage, a venture inside its cadence, a spent cap or a worker already
           busy — and a refusal is a worker you switched off.
         </p>
         {jobs.length === 0 ? (
-          <p className="text-muted-foreground text-[13.5px]">Nothing has been scheduled yet.</p>
+          <p className="text-muted-foreground text-[14.5px]">Nothing has been scheduled yet.</p>
         ) : (
-          <div className="border-line-soft overflow-x-auto rounded-[10px] border">
-            <table className="w-full text-[12.5px]">
+          <div className="border-line-soft overflow-x-auto rounded-[14px] border">
+            <table className="w-full text-[13.5px]">
               <tbody>
                 {jobs.slice(0, 60).map((j) => (
                   <JobRow key={j.id} job={j} apps={apps} />
@@ -158,8 +158,8 @@ export function RoundsTab() {
 
 function RoundCard({ round }: { round: Round }) {
   return (
-    <div className="border-line-soft bg-card rounded-[10px] border p-4">
-      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[12.5px]">
+    <div className="border-line-soft bg-card rounded-[14px] border p-5">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13.5px]">
         <span className="font-medium">
           {round.dispatched} run{round.dispatched === 1 ? "" : "s"} dispatched
         </span>
@@ -174,7 +174,7 @@ function RoundCard({ round }: { round: Round }) {
       </div>
       <div className="flex flex-col gap-1">
         {round.notes.map((n) => (
-          <div key={n.ventureId} className="flex items-baseline gap-2 text-[12.5px]">
+          <div key={n.ventureId} className="flex items-baseline gap-2 text-[13.5px]">
             <span
               className={cn(
                 "inline-block size-1.5 shrink-0 rounded-full",
@@ -245,7 +245,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <div className="border-line-soft bg-card rounded-[10px] border p-4">
+    <div className="border-line-soft bg-card rounded-[14px] border p-5">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button
           size="sm"
@@ -254,7 +254,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
         >
           {form.enabled === "on" ? "Rounds are on" : "Rounds are off"}
         </Button>
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-muted-foreground text-[12.5px]">
           {schedule.nextRunAt
             ? `Next run ${when(schedule.nextRunAt, { year: true })} (${schedule.timezone})`
             : "Nothing is scheduled while this is off."}
@@ -319,7 +319,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
           {saving && <Loader2 className="size-3.5 animate-spin" />}
           Save the schedule
         </Button>
-        {failure && <span className="text-destructive text-[11.5px]">{failure}</span>}
+        {failure && <span className="text-destructive text-[12.5px]">{failure}</span>}
       </div>
     </div>
   );
@@ -336,9 +336,9 @@ function Field({
 }) {
   return (
     <div className="grid gap-1">
-      <span className="text-[12.5px] font-medium">{label}</span>
+      <span className="text-[13.5px] font-medium">{label}</span>
       {children}
-      <span className="text-muted-foreground text-[11px] leading-snug">{hint}</span>
+      <span className="text-muted-foreground text-[12px] leading-snug">{hint}</span>
     </div>
   );
 }

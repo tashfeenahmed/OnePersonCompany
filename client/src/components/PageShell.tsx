@@ -17,20 +17,20 @@ export function PageShell({
   wide?: boolean;
 }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
+    <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-3 pb-20">
       <div
         className={cn(
           "mx-auto w-full",
           wide ? "max-w-[1040px]" : "max-w-[940px]",
         )}
       >
-        <div className="mt-2 mb-6 flex items-end gap-3">
+        <div className="mt-3 mb-8 flex items-end gap-4">
           <div>
-            <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">
+            <h1 className="mb-1.5 text-[27px] font-normal tracking-[-0.025em]">
               {title}
             </h1>
             {sub && (
-              <p className="text-muted-foreground text-[13.5px]">{sub}</p>
+              <p className="text-muted-foreground text-[14.5px]">{sub}</p>
             )}
           </div>
           {action && <div className="ml-auto shrink-0">{action}</div>}
@@ -51,7 +51,7 @@ export function TopBar({
 }) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 px-4.5">
-      <span className="text-muted-foreground px-2 py-1 text-[12.5px]">
+      <span className="text-muted-foreground px-2 py-1 text-[13.5px]">
         {label}
       </span>
       {children && (

@@ -86,7 +86,7 @@ export function Plugins() {
   return (
     <>
       <TopBar label="Integrations">
-        <button className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]">
+        <button className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]">
           <Plus className="size-3.5" strokeWidth={1.6} />
           Add custom
         </button>
@@ -133,7 +133,7 @@ export function Plugins() {
         />
 
         {!visible.length && (
-          <p className="text-muted-foreground py-8 text-[13px]">
+          <p className="text-muted-foreground py-8 text-[14px]">
             Nothing matches that. Every integration here is custom built — if it
             is missing, it has not been wired up yet.
           </p>
@@ -142,7 +142,7 @@ export function Plugins() {
         {grouped.map(([label, items]) => (
           <div key={label ?? "flat"}>
             {label && (
-              <div className="text-muted-foreground mt-6 mb-2.5 text-[11px] tracking-[0.06em] uppercase first:mt-1">
+              <div className="text-muted-foreground mt-6 mb-2.5 text-[12px] tracking-[0.06em] uppercase first:mt-1">
                 {label}
               </div>
             )}
@@ -151,7 +151,7 @@ export function Plugins() {
                 <Link
                   key={p.id}
                   to={`/integrations/${p.id}`}
-                  className="bg-card hover:border-line-strong flex items-start gap-3 rounded-[10px] border p-3.5 text-left transition-colors active:translate-y-px"
+                  className="bg-card hover:border-line-strong flex items-start gap-3 rounded-[14px] border p-4.5 text-left transition-colors active:translate-y-px"
                 >
                   <BrandTile
                     icon={p.icon}
@@ -161,7 +161,7 @@ export function Plugins() {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-[13.5px] font-medium tracking-tight">
+                      <span className="text-[14.5px] font-medium tracking-tight">
                         {p.name}
                       </span>
                       <span
@@ -171,7 +171,7 @@ export function Plugins() {
                         )}
                       />
                     </div>
-                    <p className="text-muted-foreground mt-0.5 line-clamp-2 text-[12px]">
+                    <p className="text-muted-foreground mt-0.5 line-clamp-2 text-[13px]">
                       {p.desc}
                     </p>
                     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">

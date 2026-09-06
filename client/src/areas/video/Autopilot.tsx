@@ -107,12 +107,12 @@ export function Autopilot() {
       {tab === "history" && <History />}
 
       {tab === "schedule" && doc.error && (
-        <p className="text-muted-foreground mb-4 text-[13px]">
+        <p className="text-muted-foreground mb-4 text-[14px]">
           The autopilot API did not answer.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
       )}
-      {tab === "schedule" && !d && !doc.error && <p className="text-muted-foreground text-[13px]">Reading the schedule…</p>}
+      {tab === "schedule" && !d && !doc.error && <p className="text-muted-foreground text-[14px]">Reading the schedule…</p>}
 
       {tab === "schedule" && d && (
         <>
@@ -127,20 +127,20 @@ export function Autopilot() {
               )}
               Run a pass now
             </Button>
-            <span className="text-muted-foreground text-[12px]">
+            <span className="text-muted-foreground text-[13px]">
               {busy
                 ? "Writing captions and pictures takes about twenty seconds each."
                 : "The same pass the clock runs, with the same limits. It spends Replicate credit and Pexels quota."}
             </span>
           </div>
-          {said && <p className="mt-2 text-[12.5px]">{said}</p>}
+          {said && <p className="mt-2 text-[13.5px]">{said}</p>}
 
           {/* --------------------------------------------- the ventures */}
-          <div className="mt-7 mb-2 text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+          <div className="mt-7 mb-2 text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
             This week, per venture
           </div>
           {d.ventures.length === 0 ? (
-            <p className="text-muted-foreground text-[13px]">
+            <p className="text-muted-foreground text-[14px]">
               There are no ventures yet, and the autopilot works venture by venture.
             </p>
           ) : (
@@ -148,7 +148,7 @@ export function Autopilot() {
               {d.ventures.map((v) => (
                 <div
                   key={v.id}
-                  className="flex flex-wrap items-center gap-x-2.5 gap-y-1 py-1 text-[12.5px]"
+                  className="flex flex-wrap items-center gap-x-2.5 gap-y-1 py-1 text-[13.5px]"
                 >
                   <span className="min-w-[150px] flex-1 truncate">{v.name}</span>
                   {/* The wire type is a string because the route sends the
@@ -158,10 +158,10 @@ export function Autopilot() {
                   {isStage(v.stage) ? (
                     <StagePill stage={v.stage} />
                   ) : (
-                    <span className="text-muted-foreground text-[11.5px]">{v.stage}</span>
+                    <span className="text-muted-foreground text-[12.5px]">{v.stage}</span>
                   )}
                   {v.quiet ? (
-                    <span className="text-muted-foreground text-[11.5px]">
+                    <span className="text-muted-foreground text-[12.5px]">
                       skipped — “{v.stage}” is on the quiet list
                     </span>
                   ) : (
@@ -174,18 +174,18 @@ export function Autopilot() {
               ))}
             </div>
           )}
-          <p className="text-muted-foreground mt-1.5 text-[11.5px]">
+          <p className="text-muted-foreground mt-1.5 text-[12.5px]">
             Counted over the last seven days, rolling — not a calendar week. Only
             what the autopilot queued itself is counted: a post you made by hand
             does not use up the cadence.
           </p>
 
           {/* -------------------------------------------------- the log */}
-          <div className="mt-7 mb-2 text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+          <div className="mt-7 mb-2 text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
             Every decision it has taken
           </div>
           {d.log.length === 0 ? (
-            <p className="text-muted-foreground text-[13px]">
+            <p className="text-muted-foreground text-[14px]">
               It has never run. {d.schedule.enabled ? "The next pass is above." : "It is switched off."}
             </p>
           ) : (
@@ -195,7 +195,7 @@ export function Autopilot() {
               ))}
             </div>
           )}
-          <p className="text-muted-foreground mt-2 text-[11.5px] leading-relaxed">{d.note}</p>
+          <p className="text-muted-foreground mt-2 text-[12.5px] leading-relaxed">{d.note}</p>
         </>
       )}
     </PageShell>
@@ -206,7 +206,7 @@ function Tally({ label, made, cadence }: { label: string; made: number; cadence:
   return (
     <span
       className={cn(
-        "text-[11.5px]",
+        "text-[12.5px]",
         cadence === 0 ? "text-muted-foreground" : made >= cadence ? "text-muted-foreground" : "",
       )}
     >
@@ -257,7 +257,7 @@ function Schedule({ doc }: { doc: AutopilotDoc }) {
   ];
 
   return (
-    <div className="bg-card grid gap-2.5 rounded-[10px] border p-3.5">
+    <div className="bg-card grid gap-2.5 rounded-[14px] border p-4.5">
       {rows.map((r) => (
         <div key={r.key} className="flex gap-2.5">
           {r.ready ? (
@@ -266,13 +266,13 @@ function Schedule({ doc }: { doc: AutopilotDoc }) {
             <CircleSlash className="text-muted-foreground mt-[2px] size-[14px] shrink-0" strokeWidth={1.8} />
           )}
           <div className="min-w-0 flex-1">
-            <div className="text-[13px]">{r.title}</div>
-            <div className="text-muted-foreground text-[11.5px] leading-relaxed">{r.note}</div>
+            <div className="text-[14px]">{r.title}</div>
+            <div className="text-muted-foreground text-[12.5px] leading-relaxed">{r.note}</div>
           </div>
           {r.fix && (
             <Link
               to={r.fix.to}
-              className="text-muted-foreground hover:text-foreground shrink-0 text-[11.5px] underline decoration-dotted"
+              className="text-muted-foreground hover:text-foreground shrink-0 text-[12.5px] underline decoration-dotted"
             >
               {r.fix.label}
             </Link>
@@ -280,7 +280,7 @@ function Schedule({ doc }: { doc: AutopilotDoc }) {
         </div>
       ))}
       {s.quietStages.length > 0 && s.quietStages[0] !== "none" && (
-        <div className="text-muted-foreground text-[11.5px]">
+        <div className="text-muted-foreground text-[12.5px]">
           Ventures at stage {s.quietStages.join(" or ")} are skipped whatever the cadence says.
         </div>
       )}
@@ -296,7 +296,7 @@ function LogLine({ entry }: { entry: AutopilotEntry }) {
         ? `/social/studio`
         : null;
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-0.5 text-[12px]">
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-0.5 text-[13px]">
       <span
         className={cn(
           "size-1.5 shrink-0 rounded-full",
@@ -307,20 +307,20 @@ function LogLine({ entry }: { entry: AutopilotEntry }) {
               : "bg-line-strong",
         )}
       />
-      <span className="text-muted-foreground w-[76px] shrink-0 text-[11.5px]">
+      <span className="text-muted-foreground w-[76px] shrink-0 text-[12.5px]">
         {ago(entry.ts)}
       </span>
       <span className="w-[100px] shrink-0 truncate">{entry.ventureName ?? "—"}</span>
-      <span className="text-muted-foreground w-[52px] shrink-0 text-[11.5px]">{entry.kind}</span>
+      <span className="text-muted-foreground w-[52px] shrink-0 text-[12.5px]">{entry.kind}</span>
       <span
         className={cn(
-          "w-[58px] shrink-0 text-[11.5px]",
+          "w-[58px] shrink-0 text-[12.5px]",
           entry.action === "failed" ? "text-destructive" : "text-muted-foreground",
         )}
       >
         {entry.action}
       </span>
-      <span className="text-muted-foreground min-w-0 flex-1 text-[11.5px]">
+      <span className="text-muted-foreground min-w-0 flex-1 text-[12.5px]">
         {entry.note}
         {to && (
           <>

@@ -145,15 +145,15 @@ export function VentureMap() {
         action={
           <Link
             to="/ventures"
-            className="text-muted-foreground hover:text-foreground text-[12.5px]"
+            className="text-muted-foreground hover:text-foreground text-[13.5px]"
           >
             Back to the list
           </Link>
         }
       >
-        {error && <p className="text-destructive text-[12.5px]">{error}</p>}
+        {error && <p className="text-destructive text-[13.5px]">{error}</p>}
         {!data && !error && (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             {loading ? "Asking every integration what it holds…" : "Nothing came back."}
           </p>
         )}
@@ -243,7 +243,7 @@ export function VentureMap() {
                         background: on ? `${v.color}14` : undefined,
                       }}
                       className={cn(
-                        "absolute flex cursor-pointer items-center gap-2 rounded-[8px] border px-2 text-[12px] transition-opacity",
+                        "absolute flex cursor-pointer items-center gap-2 rounded-[11px] border px-2 text-[13px] transition-opacity",
                         !on && "opacity-40",
                       )}
                     >
@@ -254,7 +254,7 @@ export function VentureMap() {
                         size={15}
                       />
                       <span className="truncate">{v.name}</span>
-                      <span className="text-muted-foreground ml-auto shrink-0 text-[11px]">
+                      <span className="text-muted-foreground ml-auto shrink-0 text-[12px]">
                         {n}
                       </span>
                     </div>
@@ -290,7 +290,7 @@ export function VentureMap() {
                         borderColor: on && colour ? colour : undefined,
                       }}
                       className={cn(
-                        "absolute flex items-center gap-2 rounded-[8px] border px-2 text-[12px] transition-opacity",
+                        "absolute flex items-center gap-2 rounded-[11px] border px-2 text-[13px] transition-opacity",
                         m.kind === "rest" && "border-dashed",
                         !on && "opacity-25",
                       )}
@@ -309,7 +309,7 @@ export function VentureMap() {
                         !layout.present.has(m.key) && (
                           <span
                             title="Nothing currently reports this. A paused integration and a deleted zone look the same from here."
-                            className="text-warn ml-auto shrink-0 text-[11px]"
+                            className="text-warn ml-auto shrink-0 text-[12px]"
                           >
                             missing
                           </span>
@@ -336,7 +336,7 @@ export function VentureMap() {
                         height: NODE_H,
                       }}
                       className={cn(
-                        "hover:border-line-strong absolute flex items-center gap-2 rounded-[8px] border px-2 text-[12px] transition-opacity",
+                        "hover:border-line-strong absolute flex items-center gap-2 rounded-[11px] border px-2 text-[13px] transition-opacity",
                         !on && "opacity-30",
                       )}
                     >
@@ -345,8 +345,8 @@ export function VentureMap() {
                         name={look.name}
                         mono={look.mono}
                         tint={look.tint}
-                        className="size-[16px] rounded-[4px]"
-                        glyphClassName="size-[10px] text-[9px]"
+                        className="size-[16px] rounded-[5px]"
+                        glyphClassName="size-[10px] text-[10px]"
                       />
                       <span className="truncate">{look.name}</span>
                       <span
@@ -361,10 +361,10 @@ export function VentureMap() {
               </div>
             </div>
 
-            <p className="text-muted-foreground mt-4 text-[11.5px] leading-relaxed">
+            <p className="text-muted-foreground mt-4 text-[12.5px] leading-relaxed">
               {data.note}
             </p>
-            <p className="text-muted-foreground mt-1.5 text-[11.5px] leading-relaxed">
+            <p className="text-muted-foreground mt-1.5 text-[12.5px] leading-relaxed">
               Hover a venture to pick its threads out of the rest; press one to
               go to its connections. The dashed rows are everything an
               integration holds that nobody has claimed — press the integration
@@ -378,7 +378,7 @@ export function VentureMap() {
                 <span
                   key={s.plugin}
                   title={s.note ?? undefined}
-                  className="text-muted-foreground flex items-center gap-1.5 text-[11.5px]"
+                  className="text-muted-foreground flex items-center gap-1.5 text-[12.5px]"
                 >
                   <span
                     className={cn(

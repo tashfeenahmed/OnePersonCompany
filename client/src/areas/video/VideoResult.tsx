@@ -56,13 +56,13 @@ const CHOSEN_BY: Record<string, string> = {
 export function VideoPanel({ job }: { job: VideoJob }) {
   const faceless = job.format === "faceless";
   return (
-    <div className="bg-card mb-4 rounded-[10px] border p-3.5">
+    <div className="bg-card mb-4 rounded-[14px] border p-4.5">
       <div className="mb-3 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <Film className="size-[15px] shrink-0" strokeWidth={1.8} />
-        <span className="text-[13.5px] font-medium tracking-tight">
+        <span className="text-[14.5px] font-medium tracking-tight">
           {faceless ? (job.script?.title ?? "Faceless video") : `${job.clips.length} clips`}
         </span>
-        <span className="text-muted-foreground text-[12px]">
+        <span className="text-muted-foreground text-[13px]">
           {job.width && job.height ? `${job.width}×${job.height}` : job.aspect}
           {job.durationS !== null && ` · ${job.durationS.toFixed(1)}s`}
           {job.bytes !== null && ` · ${bytes(job.bytes)}`}
@@ -76,12 +76,12 @@ export function VideoPanel({ job }: { job: VideoJob }) {
             src={job.file}
             controls
             preload="metadata"
-            className="border-line-soft mx-auto max-h-[540px] w-auto rounded-[8px] border bg-black"
+            className="border-line-soft mx-auto max-h-[540px] w-auto rounded-[11px] border bg-black"
           />
           <a
             href={job.file}
             download
-            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 justify-self-center text-[12px]"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 justify-self-center text-[13px]"
           >
             <Download className="size-[13px]" strokeWidth={1.8} />
             Download the file
@@ -96,15 +96,15 @@ export function VideoPanel({ job }: { job: VideoJob }) {
                   src={c.file}
                   controls
                   preload="metadata"
-                  className="border-line-soft max-h-[420px] w-full rounded-[8px] border bg-black"
+                  className="border-line-soft max-h-[420px] w-full rounded-[11px] border bg-black"
                 />
               ) : (
-                <p className="text-muted-foreground text-[12.5px]">
+                <p className="text-muted-foreground text-[13.5px]">
                   Clip {c.index} was written to a file that is no longer on disk.
                 </p>
               )}
-              <div className="text-[12.5px]">{c.title}</div>
-              <div className="text-muted-foreground text-[11.5px]">
+              <div className="text-[13.5px]">{c.title}</div>
+              <div className="text-muted-foreground text-[12.5px]">
                 {stamp(c.startS)}–{stamp(c.endS)}
                 {c.durationS !== null && ` · ${c.durationS.toFixed(1)}s`}
                 {" · "}
@@ -120,8 +120,8 @@ export function VideoPanel({ job }: { job: VideoJob }) {
                 <div
                   className={
                     c.framing.mode === "tracked"
-                      ? "text-muted-foreground text-[11.5px]"
-                      : "text-warn border-line-soft border-l-2 pl-2 text-[11.5px]"
+                      ? "text-muted-foreground text-[12.5px]"
+                      : "text-warn border-line-soft border-l-2 pl-2 text-[12.5px]"
                   }
                 >
                   {c.framing.mode === "tracked"
@@ -130,13 +130,13 @@ export function VideoPanel({ job }: { job: VideoJob }) {
                 </div>
               )}
               {c.reason && (
-                <div className="text-muted-foreground text-[11.5px] italic">{c.reason}</div>
+                <div className="text-muted-foreground text-[12.5px] italic">{c.reason}</div>
               )}
               {c.file && (
                 <a
                   href={c.file}
                   download
-                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-[11.5px]"
+                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-[12.5px]"
                 >
                   <Download className="size-[12px]" strokeWidth={1.8} />
                   Download clip {c.index}
@@ -146,7 +146,7 @@ export function VideoPanel({ job }: { job: VideoJob }) {
           ))}
         </div>
       ) : (
-        <p className="text-muted-foreground text-[12.5px]">
+        <p className="text-muted-foreground text-[13.5px]">
           This run wrote no file. {job.error ?? "Its report says which step stopped it."}
         </p>
       )}
@@ -154,23 +154,23 @@ export function VideoPanel({ job }: { job: VideoJob }) {
       {/* ------------------------------------------------------ the script */}
       {faceless && !!job.script?.beats?.length && (
         <div className="mt-4">
-          <div className="text-muted-foreground mb-1.5 text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground mb-1.5 text-[12px] tracking-[0.06em] uppercase">
             The script
           </div>
           <div className="flex flex-col gap-2">
             {job.script.beats.map((b, i) => (
               <div key={i} className="border-line-soft flex gap-2.5 border-l-2 pl-2.5">
-                <span className="text-muted-foreground w-[74px] shrink-0 text-[11.5px]">
+                <span className="text-muted-foreground w-[74px] shrink-0 text-[12.5px]">
                   {b.role === "hook" ? "Hook" : b.role === "cta" ? "Call to action" : `Beat ${i}`}
                   <br />
                   {b.seconds.toFixed(1)}s
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px]">{b.caption}</span>
+                  <span className="block text-[14px]">{b.caption}</span>
                   {b.voiceover !== b.caption && (
-                    <span className="text-muted-foreground block text-[12px]">{b.voiceover}</span>
+                    <span className="text-muted-foreground block text-[13px]">{b.voiceover}</span>
                   )}
-                  <span className="text-muted-foreground block text-[11.5px]">
+                  <span className="text-muted-foreground block text-[12.5px]">
                     searched: {b.terms.join(", ")}
                   </span>
                 </span>
@@ -183,12 +183,12 @@ export function VideoPanel({ job }: { job: VideoJob }) {
       {/* ----------------------------------------------------- the credits */}
       {!!job.assets.length && (
         <div className="mt-4">
-          <div className="text-muted-foreground mb-1.5 text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground mb-1.5 text-[12px] tracking-[0.06em] uppercase">
             Footage — credit these with the video
           </div>
           <div className="flex flex-col gap-px">
             {job.assets.map((a, i) => (
-              <div key={i} className="flex flex-wrap items-baseline gap-x-2 py-0.5 text-[12px]">
+              <div key={i} className="flex flex-wrap items-baseline gap-x-2 py-0.5 text-[13px]">
                 <a
                   href={a.page}
                   target="_blank"
@@ -205,7 +205,7 @@ export function VideoPanel({ job }: { job: VideoJob }) {
                 >
                   {a.author}
                 </a>
-                <span className="text-muted-foreground text-[11.5px]">
+                <span className="text-muted-foreground text-[12.5px]">
                   {a.licence} · found by “{a.term}”
                 </span>
               </div>
@@ -215,7 +215,7 @@ export function VideoPanel({ job }: { job: VideoJob }) {
       )}
 
       {/* --------------------------------------------------- what was done */}
-      <div className="text-muted-foreground mt-3.5 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px]">
+      <div className="text-muted-foreground mt-3.5 flex flex-wrap gap-x-3 gap-y-1 text-[12.5px]">
         <span>
           Captions:{" "}
           {job.captions === "typst"
@@ -235,7 +235,7 @@ export function VideoPanel({ job }: { job: VideoJob }) {
         <span>Nothing has been published anywhere.</span>
       </div>
 
-      {job.error && <p className="text-destructive mt-2 text-[12px]">{job.error}</p>}
+      {job.error && <p className="text-destructive mt-2 text-[13px]">{job.error}</p>}
     </div>
   );
 }

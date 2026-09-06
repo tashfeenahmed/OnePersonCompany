@@ -175,13 +175,13 @@ export function Org() {
           <div className="flex items-center gap-2">
             <Link
               to="/subagents"
-              className="text-muted-foreground hover:text-foreground text-[12.5px]"
+              className="text-muted-foreground hover:text-foreground text-[13.5px]"
             >
               The roster
             </Link>
             <Link
               to="/ventures"
-              className="text-muted-foreground hover:text-foreground text-[12.5px]"
+              className="text-muted-foreground hover:text-foreground text-[13.5px]"
             >
               Back to the list
             </Link>
@@ -189,14 +189,14 @@ export function Org() {
         }
       >
         {doc.error && (
-          <p className="text-muted-foreground text-[13px]">
+          <p className="text-muted-foreground text-[14px]">
             The org could not be read, so none of it is drawn — an empty chart
             would be a claim that nobody works here.{" "}
             <span className="text-destructive">{doc.error}</span>
           </p>
         )}
         {!doc.data && !doc.error && (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             {doc.loading ? "Counting everyone in…" : "Nothing came back."}
           </p>
         )}
@@ -213,11 +213,11 @@ export function Org() {
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Filter ventures"
-                  className="focus:border-line-strong h-8 w-full rounded-[8px] border bg-transparent pr-2 pl-7 text-[12.5px] outline-none"
+                  className="focus:border-line-strong h-8 w-full rounded-[11px] border bg-transparent pr-2 pl-7 text-[13.5px] outline-none"
                 />
               </div>
               {q && (
-                <span className="text-muted-foreground text-[11.5px]">
+                <span className="text-muted-foreground text-[12.5px]">
                   {ventures.length} of {doc.data.ventures.length}
                 </span>
               )}
@@ -307,16 +307,16 @@ export function Org() {
                       width: OWNER_W,
                       height: OWNER_H,
                     }}
-                    className="bg-card absolute flex items-center justify-center gap-2 rounded-[10px] border"
+                    className="bg-card absolute flex items-center justify-center gap-2 rounded-[14px] border"
                   >
-                    <div className="bg-muted text-foreground grid size-[22px] shrink-0 place-items-center rounded-full text-[10.5px] font-semibold">
+                    <div className="bg-muted text-foreground grid size-[22px] shrink-0 place-items-center rounded-full text-[11.5px] font-semibold">
                       {doc.data.owner.name.trim()[0]?.toUpperCase() ?? "?"}
                     </div>
                     <div className="min-w-0">
-                      <div className="truncate text-[12.5px] font-medium">
+                      <div className="truncate text-[13.5px] font-medium">
                         {doc.data.owner.name}
                       </div>
-                      <div className="text-muted-foreground text-[11px]">
+                      <div className="text-muted-foreground text-[12px]">
                         The one person
                       </div>
                     </div>
@@ -336,7 +336,7 @@ export function Org() {
                       width: CHIEF_W,
                       height: CHIEF_H,
                     }}
-                    className="bg-card hover:border-line-strong absolute flex items-center gap-2.5 rounded-[10px] border px-3 transition-colors"
+                    className="bg-card hover:border-line-strong absolute flex items-center gap-2.5 rounded-[14px] border px-4 transition-colors"
                   >
                     <span
                       className={cn(
@@ -345,14 +345,14 @@ export function Org() {
                       )}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[12.5px] font-medium">
+                      <span className="block text-[13.5px] font-medium">
                         Chief of staff
                       </span>
-                      <span className="text-muted-foreground block truncate text-[11.5px]">
+                      <span className="text-muted-foreground block truncate text-[12.5px]">
                         {chiefLine(doc.data.chiefOfStaff)}
                       </span>
                     </span>
-                    <span className="text-muted-foreground shrink-0 text-[11.5px]">
+                    <span className="text-muted-foreground shrink-0 text-[12.5px]">
                       Open chat
                     </span>
                   </Link>
@@ -367,7 +367,7 @@ export function Org() {
                         width: CARD_W,
                         height: CARD_H,
                       }}
-                      className="bg-card absolute flex flex-col overflow-hidden rounded-[10px] border"
+                      className="bg-card absolute flex flex-col overflow-hidden rounded-[14px] border"
                     >
                       <Link
                         to={`/ventures/${v.slug}`}
@@ -387,7 +387,7 @@ export function Org() {
                           }}
                           size={16}
                         />
-                        <span className="truncate text-[12.5px] font-medium">
+                        <span className="truncate text-[13.5px] font-medium">
                           {v.name}
                         </span>
                         <StagePill stage={v.stage} className="ml-auto" />
@@ -403,7 +403,7 @@ export function Org() {
                           />
                         ))}
                         {!v.subagents.length && (
-                          <p className="text-muted-foreground px-1.5 py-1 text-[11.5px]">
+                          <p className="text-muted-foreground px-1.5 py-1 text-[12.5px]">
                             Nobody provisioned yet.
                           </p>
                         )}
@@ -415,14 +415,14 @@ export function Org() {
             </div>
 
             {!ventures.length && (
-              <p className="text-muted-foreground text-[12.5px]">
+              <p className="text-muted-foreground text-[13.5px]">
                 {doc.data.ventures.length
                   ? `Nothing matches “${q}”.`
                   : "There are no ventures, so there is nobody to staff. Make one and its six workers appear with it."}
               </p>
             )}
 
-            <p className="text-muted-foreground mt-5 text-[11.5px] leading-relaxed">
+            <p className="text-muted-foreground mt-5 text-[12.5px] leading-relaxed">
               Nobody here was created by hand. Every venture gets the same six —
               one per app — the moment it exists, and a venture that is deleted
               takes its six with it. Press a worker to give it a brief, change
@@ -434,7 +434,7 @@ export function Org() {
                   <span
                     key={r.role}
                     title={r.what}
-                    className="text-muted-foreground text-[11.5px]"
+                    className="text-muted-foreground text-[12.5px]"
                   >
                     {r.title} · {r.kind}
                   </span>

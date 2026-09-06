@@ -100,13 +100,13 @@ function Frame({
   children: React.ReactNode;
 }) {
   return (
-    <figure className="border-line-soft my-2.5 rounded-[10px] border px-3.5 py-3">
+    <figure className="border-line-soft my-2.5 rounded-[14px] border px-3.5 py-3">
       {title && (
-        <figcaption className="mb-1.5 text-[12.5px] font-medium tracking-tight">{title}</figcaption>
+        <figcaption className="mb-1.5 text-[13.5px] font-medium tracking-tight">{title}</figcaption>
       )}
       {children}
       {caption && (
-        <p className="text-muted-foreground mt-2 text-[11.5px] leading-snug">{caption}</p>
+        <p className="text-muted-foreground mt-2 text-[12.5px] leading-snug">{caption}</p>
       )}
     </figure>
   );
@@ -126,12 +126,12 @@ function Cards({ doc }: { doc: Obj }) {
           const note = str(c.note);
           return (
             <div key={i} className="min-w-0">
-              <div className="text-muted-foreground truncate text-[11.5px]">{str(c.label) ?? "—"}</div>
+              <div className="text-muted-foreground truncate text-[12.5px]">{str(c.label) ?? "—"}</div>
               <div className={cn("text-[18px] font-semibold tracking-tight tabular-nums", t && TONE_TEXT[t])}>
                 {fmt(c.value, str(c.unit))}
               </div>
               {(delta || note) && (
-                <div className="text-muted-foreground truncate text-[11px] leading-snug">
+                <div className="text-muted-foreground truncate text-[12px] leading-snug">
                   {delta && <span className={cn("tabular-nums", t && TONE_TEXT[t])}>{delta}</span>}
                   {delta && note && " · "}
                   {note}
@@ -186,7 +186,7 @@ function BarList({ doc }: { doc: Obj }) {
   const max = Math.max(...bars.map((b) => Math.abs(b.value)), 0) || 1;
   return (
     <Frame title={str(doc.title)} caption={str(doc.caption)}>
-      <div className="grid grid-cols-[minmax(0,9rem)_1fr_auto] items-center gap-x-3 gap-y-1.5 text-[12px]">
+      <div className="grid grid-cols-[minmax(0,9rem)_1fr_auto] items-center gap-x-3 gap-y-1.5 text-[13px]">
         {bars.map((b, i) => (
           <div key={i} className="contents">
             <div className="truncate" title={b.note ? `${b.label} — ${b.note}` : b.label}>
@@ -244,7 +244,7 @@ function Table({ doc }: { doc: Obj }) {
     <Frame title={str(doc.title)} caption={str(doc.caption)}>
       <Figures headers={columns} rows={rows.slice(0, 60)} />
       {rows.length > 60 && (
-        <p className="text-muted-foreground mt-1 text-[11px]">First 60 of {rows.length} rows.</p>
+        <p className="text-muted-foreground mt-1 text-[12px]">First 60 of {rows.length} rows.</p>
       )}
     </Frame>
   );

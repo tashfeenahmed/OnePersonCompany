@@ -128,13 +128,13 @@ export function Ventures() {
               <Link
                 key={v.id}
                 to={`/ventures/${v.slug}`}
-                className="bg-card hover:border-line-strong flex min-h-[148px] flex-col rounded-[10px] border p-3.5 transition-colors"
+                className="bg-card hover:border-line-strong flex min-h-[148px] flex-col rounded-[14px] border p-4.5 transition-colors"
               >
                 {/* The top of the page at 1280x800, not the whole page — so it
                     is anchored to the top rather than centred, which is where
                     the header of any site actually is. */}
                 {anyPicture && (
-                  <div className="mb-2.5 h-[88px] overflow-hidden rounded-[7px] border">
+                  <div className="mb-3 h-[88px] overflow-hidden rounded-[11px] border">
                     {picture ? (
                       <img
                         src={picture.url}
@@ -144,7 +144,7 @@ export function Ventures() {
                       />
                     ) : (
                       <div
-                        className="text-muted-foreground grid h-full place-items-center text-[11.5px]"
+                        className="text-muted-foreground grid h-full place-items-center text-[12.5px]"
                         style={{ background: `${v.color}12` }}
                       >
                         {v.website ? "no picture yet" : "no website"}
@@ -155,7 +155,7 @@ export function Ventures() {
 
                 <div className="flex items-center gap-2">
                   <VentureMark venture={v} size={18} />
-                  <span className="truncate text-[13.5px] font-medium tracking-tight">
+                  <span className="truncate text-[14.5px] font-medium tracking-tight">
                     {v.name}
                   </span>
                   <StagePill stage={v.stage} className="ml-auto" />
@@ -164,16 +164,16 @@ export function Ventures() {
                 {/* The host, not the whole URL: nobody reads "https://" and
                     the scheme is never the interesting half. */}
                 {v.host && (
-                  <span className="text-muted-foreground mt-1 truncate text-[11.5px]">
+                  <span className="text-muted-foreground mt-1 truncate text-[12.5px]">
                     {v.host}
                   </span>
                 )}
 
-                <p className="text-muted-foreground mt-1.5 line-clamp-2 text-[12px]">
+                <p className="text-muted-foreground mt-1.5 line-clamp-2 text-[13px]">
                   {v.description || "No description yet."}
                 </p>
 
-                <div className="border-line-soft text-muted-foreground mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t pt-2.5 text-[11.5px]">
+                <div className="border-line-soft text-muted-foreground mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t pt-2.5 text-[12.5px]">
                   <span>
                     {boards.length}{" "}
                     {boards.length === 1 ? "dashboard" : "dashboards"}
@@ -199,15 +199,15 @@ export function Ventures() {
 
           <Link
             to="/ventures/new"
-            className="text-muted-foreground hover:border-line-strong hover:text-foreground flex min-h-[148px] flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed transition-colors"
+            className="text-muted-foreground hover:border-line-strong hover:text-foreground flex min-h-[148px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed transition-colors"
           >
             <Plus className="size-[18px]" strokeWidth={1.6} />
-            <span className="text-[13px]">New venture</span>
+            <span className="text-[14px]">New venture</span>
           </Link>
         </div>
 
         {!state.ventures.length && (
-          <p className="text-muted-foreground mt-4 text-[12.5px]">
+          <p className="text-muted-foreground mt-4 text-[13.5px]">
             Nothing here yet — or the API has not answered. Ventures live on the
             server now, so this list is what this browser last saw.
           </p>

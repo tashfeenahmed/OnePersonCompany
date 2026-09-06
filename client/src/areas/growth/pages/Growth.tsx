@@ -78,8 +78,8 @@ export function Growth() {
 function Working({ lines, label = "the arithmetic" }: { lines: string[]; label?: string }) {
   return (
     <details className="mt-3">
-      <summary className="text-muted-foreground cursor-pointer text-[11.5px] select-none">{label}</summary>
-      <ul className="text-muted-foreground mt-2 space-y-1 text-[11.5px]">
+      <summary className="text-muted-foreground cursor-pointer text-[12.5px] select-none">{label}</summary>
+      <ul className="text-muted-foreground mt-2 space-y-1 text-[12.5px]">
         {lines.map((l) => (
           <li key={l} className="leading-[1.55]">
             {l}
@@ -102,7 +102,7 @@ function AuthorityTab() {
 
   return (
     <div className="space-y-3">
-      <p className="text-muted-foreground text-[12px] leading-[1.6]">
+      <p className="text-muted-foreground text-[13px] leading-[1.6]">
         {doc.data.label}. {doc.data.note}
       </p>
       {doc.data.hosts.map((h) => (
@@ -114,31 +114,31 @@ function AuthorityTab() {
 
 function AuthorityCard({ a }: { a: Authority }) {
   return (
-    <div className="bg-card rounded-[10px] border px-4 py-3.5">
+    <div className="bg-card rounded-[14px] border px-5 py-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[14px]">{a.host}</span>
-        <span className="text-[22px] leading-none tracking-[-0.02em]">{a.estimate === null ? "—" : a.estimate}</span>
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-[15px]">{a.host}</span>
+        <span className="text-[24px] leading-none tracking-[-0.02em]">{a.estimate === null ? "—" : a.estimate}</span>
+        <span className="text-muted-foreground text-[12.5px]">
           {a.estimate === null
             ? "no estimate — nothing about this host could be read"
             : `from ${a.basis.join(" + ")}${a.missing.length ? `; ${a.missing.join(", ")} not measured` : ""}`}
         </span>
-        <span className="ml-auto text-[11.5px]">
+        <span className="ml-auto text-[12.5px]">
           {a.ceiling === null ? (
             <span className="text-muted-foreground">
               {a.estimate === null ? "no ceiling" : "no ceiling stated at this size"}
             </span>
           ) : (
             <>
-              keyword difficulty ceiling <span className="text-[13px]">{a.ceiling}</span>
+              keyword difficulty ceiling <span className="text-[14px]">{a.ceiling}</span>
             </>
           )}
         </span>
       </div>
 
       <div className="mt-3 overflow-x-auto">
-        <table className="w-full text-[12px]">
-          <thead className="text-muted-foreground text-[11.5px]">
+        <table className="w-full text-[13px]">
+          <thead className="text-muted-foreground text-[12.5px]">
             <tr className="border-line-soft border-b">
               <th className="py-1 pr-3 text-left font-normal">Part</th>
               <th className="py-1 pr-3 text-right font-normal">Input</th>
@@ -152,7 +152,7 @@ function AuthorityCard({ a }: { a: Authority }) {
                 <td className="py-1.5 pr-3">{p.name}</td>
                 <td className="py-1.5 pr-3 text-right tabular-nums">{n(p.input)}</td>
                 <td className="py-1.5 pr-3 text-right tabular-nums">{n(p.score)}</td>
-                <td className="text-muted-foreground py-1.5 text-[11.5px]">
+                <td className="text-muted-foreground py-1.5 text-[12.5px]">
                   {p.from ?? "not measured — dropped from the mean, not counted as zero"}
                 </td>
               </tr>
@@ -162,12 +162,12 @@ function AuthorityCard({ a }: { a: Authority }) {
       </div>
 
       {a.links.sources.length > 0 && (
-        <p className="text-muted-foreground mt-2 text-[11.5px]">
+        <p className="text-muted-foreground mt-2 text-[12.5px]">
           Link sources, never added together: {a.links.sources.map((s) => `${s.source} ${s.referringDomains ?? "no figure"}`).join(", ")}
           {a.links.spread !== null ? `; ${a.links.spread} distinct linking domains stored, ${a.links.verifiedLive} verified live` : ""}.
         </p>
       )}
-      {a.note && <p className="text-muted-foreground mt-1.5 text-[11.5px]">{a.note}</p>}
+      {a.note && <p className="text-muted-foreground mt-1.5 text-[12.5px]">{a.note}</p>}
       <Working lines={a.arithmetic} />
     </div>
   );
@@ -199,7 +199,7 @@ function CroTab() {
         <select
           value={stage ?? ""}
           onChange={(e) => setStage(e.target.value || null)}
-          className="bg-card h-9 rounded-[9px] border px-2 text-[12.5px]"
+          className="bg-card h-9 rounded-[12px] border px-3 text-[13.5px]"
         >
           <option value="">Stage: whatever the funnel says</option>
           {(doc.data?.stages ?? []).map((s) => (
@@ -246,31 +246,31 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-card rounded-[10px] border px-4 py-3.5">
+      <div className="bg-card rounded-[14px] border px-5 py-4">
         <div className="flex flex-wrap items-baseline gap-x-3">
-          <span className="text-[13.5px]">
+          <span className="text-[14.5px]">
             {doc.funnel.stage ? (
               <>
-                The stage that leaks: <span className="text-[15px]">{doc.funnel.stage}</span>
+                The stage that leaks: <span className="text-[16px]">{doc.funnel.stage}</span>
               </>
             ) : (
               "No stage could be measured"
             )}
           </span>
-          {doc.funnel.source && <span className="text-muted-foreground text-[11.5px]">read from {doc.funnel.source}</span>}
+          {doc.funnel.source && <span className="text-muted-foreground text-[12.5px]">read from {doc.funnel.source}</span>}
         </div>
-        <p className="text-muted-foreground mt-1.5 text-[12px] leading-[1.6]">{doc.funnel.why}</p>
+        <p className="text-muted-foreground mt-1.5 text-[13px] leading-[1.6]">{doc.funnel.why}</p>
 
         {doc.funnel.steps.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {doc.funnel.steps.map((s, i) => (
               <span key={s.stage} className="flex items-center gap-2">
-                <span className="bg-background rounded-[8px] border px-2.5 py-1.5 text-[12px]">
+                <span className="bg-background rounded-[11px] border px-2.5 py-1.5 text-[13px]">
                   <span className="text-muted-foreground">{s.stage}</span> <span className="tabular-nums">{count(s.count)}</span>
-                  <span className="text-muted-foreground text-[11px]"> · {s.key}</span>
+                  <span className="text-muted-foreground text-[12px]"> · {s.key}</span>
                 </span>
                 {i < doc.funnel.transitions.length && (
-                  <span className="text-muted-foreground text-[11.5px] tabular-nums" title={doc.funnel.transitions[i]!.why}>
+                  <span className="text-muted-foreground text-[12.5px] tabular-nums" title={doc.funnel.transitions[i]!.why}>
                     → {pct(doc.funnel.transitions[i]!.ratio, { digits: 2, nullText: "not computed" })}
                   </span>
                 )}
@@ -279,7 +279,7 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
           </div>
         )}
         {doc.funnel.tried.length > 0 && (
-          <ul className="text-muted-foreground mt-2 space-y-1 text-[11.5px]">
+          <ul className="text-muted-foreground mt-2 space-y-1 text-[12.5px]">
             {doc.funnel.tried.map((t) => (
               <li key={t}>{t}</li>
             ))}
@@ -289,22 +289,22 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
 
       {doc.experiments.length > 0 && (
         <div>
-          <h2 className="mb-2 text-[13.5px]">Experiments on this venture</h2>
+          <h2 className="mb-2 text-[14.5px]">Experiments on this venture</h2>
           <div className="space-y-2">
             {doc.experiments.map((e) => (
-              <div key={e.experiment} className="bg-card rounded-[10px] border px-3.5 py-3">
+              <div key={e.experiment} className="bg-card rounded-[14px] border px-4.5 py-3.5">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[12.5px]">{e.detail?.hypothesis ?? e.experiment}</span>
+                  <span className="text-[13.5px]">{e.detail?.hypothesis ?? e.experiment}</span>
                   <span
                     className={cn(
-                      "ml-auto rounded-[6px] px-1.5 py-0.5 text-[11px]",
+                      "ml-auto rounded-[8px] px-1.5 py-0.5 text-[12px]",
                       e.status === "running" ? "bg-warn/20" : e.status === "done" ? "bg-ok/20" : "text-muted-foreground border",
                     )}
                   >
                     {e.status}
                   </span>
                 </div>
-                <p className="text-muted-foreground mt-1 text-[11.5px]">
+                <p className="text-muted-foreground mt-1 text-[12.5px]">
                   {e.experiment} · {e.stage ?? "no stage"} · started {e.startedAt?.slice(0, 10) ?? "—"}
                   {e.finishedAt ? ` · finished ${e.finishedAt.slice(0, 10)}` : ""}
                   {e.result ? ` · ${e.result}` : ""}
@@ -315,7 +315,7 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
                       value={result[e.experiment] ?? ""}
                       onChange={(ev) => setResult((r) => ({ ...r, [e.experiment]: ev.target.value }))}
                       placeholder="What happened?"
-                      className="h-8 max-w-[320px] text-[12px]"
+                      className="h-8 max-w-[320px] text-[13px]"
                     />
                     <Button size="sm" variant="outline" disabled={busy === e.experiment} onClick={() => finish(e.experiment, "done")}>
                       Done
@@ -332,22 +332,22 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
       )}
 
       <div>
-        <h2 className="mb-1 text-[13.5px]">
+        <h2 className="mb-1 text-[14.5px]">
           {doc.shortlist.length ? `The ${doc.funnel.stage} bucket, biggest lever first` : "The whole library — nothing named a stage, so nothing is shortlisted"}
         </h2>
-        <p className="text-muted-foreground mb-2 text-[11.5px] leading-[1.6]">{doc.note}</p>
+        <p className="text-muted-foreground mb-2 text-[12.5px] leading-[1.6]">{doc.note}</p>
         <div className="space-y-2">
           {(doc.shortlist.length ? doc.shortlist : doc.library).map((x) => {
             const row = running.get(x.id);
             return (
-              <div key={x.id} className="bg-card rounded-[10px] border px-3.5 py-3">
+              <div key={x.id} className="bg-card rounded-[14px] border px-4.5 py-3.5">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-muted-foreground text-[11px]">
+                  <span className="text-muted-foreground text-[12px]">
                     {x.stage} · {x.dimension} · rank {x.rank} · {x.effort}
                   </span>
                   <div className="ml-auto">
                     {row && row.status === "running" ? (
-                      <span className="text-muted-foreground flex items-center gap-1 text-[11.5px]">
+                      <span className="text-muted-foreground flex items-center gap-1 text-[12.5px]">
                         <Check className="size-3" strokeWidth={2} /> running
                       </span>
                     ) : (
@@ -357,11 +357,11 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
                     )}
                   </div>
                 </div>
-                <p className="mt-1 text-[12.5px] leading-[1.6]">{x.hypothesis}</p>
-                <p className="text-muted-foreground mt-1 text-[12px] leading-[1.6]">
+                <p className="mt-1 text-[13.5px] leading-[1.6]">{x.hypothesis}</p>
+                <p className="text-muted-foreground mt-1 text-[13px] leading-[1.6]">
                   <span className="text-foreground">Change:</span> {x.change}
                 </p>
-                <p className="text-muted-foreground mt-0.5 text-[12px] leading-[1.6]">
+                <p className="text-muted-foreground mt-0.5 text-[13px] leading-[1.6]">
                   <span className="text-foreground">Measure:</span> {x.measure}
                 </p>
               </div>
@@ -371,8 +371,8 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
       </div>
 
       <details>
-        <summary className="text-muted-foreground cursor-pointer text-[11.5px] select-none">what this library will never suggest</summary>
-        <ul className="text-muted-foreground mt-2 space-y-1 text-[11.5px]">
+        <summary className="text-muted-foreground cursor-pointer text-[12.5px] select-none">what this library will never suggest</summary>
+        <ul className="text-muted-foreground mt-2 space-y-1 text-[12.5px]">
           {doc.refusals.map((r) => (
             <li key={r}>{r}</li>
           ))}
@@ -419,7 +419,7 @@ function IndexingTab() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <select value={host} onChange={(e) => setHost(e.target.value)} className="bg-card h-9 rounded-[9px] border px-2 text-[12.5px]">
+        <select value={host} onChange={(e) => setHost(e.target.value)} className="bg-card h-9 rounded-[12px] border px-3 text-[13.5px]">
           {hosts.map((h) => (
             <option key={h} value={h}>
               {h}
@@ -438,26 +438,26 @@ function IndexingTab() {
       {doc.error && <Failed error={doc.error} />}
       {doc.data && (
         <>
-          <div className="bg-card rounded-[10px] border px-4 py-3.5">
-            <p className="text-[13px]">
-              Key <code className="bg-background rounded-[6px] border px-1.5 py-0.5 text-[12px]">{doc.data.key}</code>
+          <div className="bg-card rounded-[14px] border px-5 py-4">
+            <p className="text-[14px]">
+              Key <code className="bg-background rounded-[8px] border px-1.5 py-0.5 text-[13px]">{doc.data.key}</code>
             </p>
-            <p className="text-muted-foreground mt-2 text-[12px] leading-[1.65]">{doc.data.instruction}</p>
+            <p className="text-muted-foreground mt-2 text-[13px] leading-[1.65]">{doc.data.instruction}</p>
             {doc.data.keyFile && (
-              <p className={cn("mt-2 text-[12px]", doc.data.keyFile.hosted ? "text-ok" : "text-destructive")}>
+              <p className={cn("mt-2 text-[13px]", doc.data.keyFile.hosted ? "text-ok" : "text-destructive")}>
                 {doc.data.keyFile.hosted ? "The key file is in place. " : "The key file is not in place. "}
                 {doc.data.keyFile.why}
               </p>
             )}
-            <p className="text-muted-foreground mt-2 text-[11.5px] leading-[1.6]">{doc.data.means}</p>
-            <p className="text-muted-foreground mt-1 text-[11.5px] leading-[1.6]">{doc.data.engines}</p>
-            <p className="text-muted-foreground mt-1 text-[11.5px] leading-[1.6]">{doc.data.google}</p>
+            <p className="text-muted-foreground mt-2 text-[12.5px] leading-[1.6]">{doc.data.means}</p>
+            <p className="text-muted-foreground mt-1 text-[12.5px] leading-[1.6]">{doc.data.engines}</p>
+            <p className="text-muted-foreground mt-1 text-[12.5px] leading-[1.6]">{doc.data.google}</p>
           </div>
 
-          <div className="bg-card rounded-[10px] border px-4 py-3.5">
-            <p className="text-[13px]">What the last two audits found</p>
-            <p className="text-muted-foreground mt-1 text-[12px] leading-[1.6]">{doc.data.audit.why}</p>
-            <p className="text-muted-foreground mt-2 text-[11.5px]">
+          <div className="bg-card rounded-[14px] border px-5 py-4">
+            <p className="text-[14px]">What the last two audits found</p>
+            <p className="text-muted-foreground mt-1 text-[13px] leading-[1.6]">{doc.data.audit.why}</p>
+            <p className="text-muted-foreground mt-2 text-[12.5px]">
               Sitemap: {doc.data.sitemaps.map((s) => `${s.url}${s.configured ? "" : " (assumed, not configured)"}`).join(", ")} · auto-submit{" "}
               {doc.data.autoSubmit ? "on" : "off"}
             </p>
@@ -472,22 +472,22 @@ function IndexingTab() {
                 Dry run
               </Button>
             </div>
-            {error && <p className="text-destructive mt-2 text-[12px]">{error}</p>}
+            {error && <p className="text-destructive mt-2 text-[13px]">{error}</p>}
             {sent && (
-              <p className={cn("mt-2 text-[12px] leading-[1.6]", sent.outcome === "dry-run" ? "text-warn" : "text-ok")}>
+              <p className={cn("mt-2 text-[13px] leading-[1.6]", sent.outcome === "dry-run" ? "text-warn" : "text-ok")}>
                 {sent.outcome} · {sent.submitted} URLs · {sent.what}
               </p>
             )}
           </div>
 
           <div>
-            <h2 className="mb-2 text-[13.5px]">The log</h2>
+            <h2 className="mb-2 text-[14.5px]">The log</h2>
             {doc.data.submissions.length === 0 ? (
-              <p className="text-muted-foreground text-[12px]">Nothing has been submitted for {doc.data.host}.</p>
+              <p className="text-muted-foreground text-[13px]">Nothing has been submitted for {doc.data.host}.</p>
             ) : (
-              <div className="bg-card overflow-x-auto rounded-[10px] border">
-                <table className="w-full text-[12px]">
-                  <thead className="text-muted-foreground text-[11.5px]">
+              <div className="bg-card overflow-x-auto rounded-[14px] border">
+                <table className="w-full text-[13px]">
+                  <thead className="text-muted-foreground text-[12.5px]">
                     <tr className="border-line-soft border-b">
                       <th className="px-3 py-1.5 text-left font-normal">When</th>
                       <th className="px-3 py-1.5 text-left font-normal">URL</th>
@@ -528,11 +528,11 @@ function AdsTab() {
   if (doc.error) return <Failed error={doc.error} />;
   if (!doc.data) return null;
   if (!doc.data.accounts.length)
-    return <p className="text-muted-foreground text-[13px]">No Meta ad account has been collected, so there is nothing to score.</p>;
+    return <p className="text-muted-foreground text-[14px]">No Meta ad account has been collected, so there is nothing to score.</p>;
 
   return (
     <div className="space-y-3">
-      <p className="text-muted-foreground text-[12px] leading-[1.6]">{doc.data.note}</p>
+      <p className="text-muted-foreground text-[13px] leading-[1.6]">{doc.data.note}</p>
       {doc.data.accounts.map((a) => (
         <AdsCard key={a.account.id} a={a} />
       ))}
@@ -542,27 +542,27 @@ function AdsTab() {
 
 function AdsCard({ a }: { a: AdsHealth }) {
   return (
-    <div className="bg-card rounded-[10px] border px-4 py-3.5">
+    <div className="bg-card rounded-[14px] border px-5 py-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[14px]">{a.account.name ?? a.account.id}</span>
-        <span className="text-[22px] leading-none tracking-[-0.02em]">{a.score === null ? "—" : a.score}</span>
-        {a.grade && <span className="text-muted-foreground text-[12px]">{a.grade}</span>}
-        <span className="text-muted-foreground text-[11.5px]">
+        <span className="text-[15px]">{a.account.name ?? a.account.id}</span>
+        <span className="text-[24px] leading-none tracking-[-0.02em]">{a.score === null ? "—" : a.score}</span>
+        {a.grade && <span className="text-muted-foreground text-[13px]">{a.grade}</span>}
+        <span className="text-muted-foreground text-[12.5px]">
           {a.refusal ?? `${a.coverage} of the rubric's weight could be evaluated`}
         </span>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {a.account.window.from} → {a.account.window.to} · {a.account.spend ?? "—"} {a.account.currency} · {a.account.leads ?? "—"} leads
         </span>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
         {Object.entries(a.categories).map(([name, c]) => (
-          <div key={name} className="bg-background min-w-[128px] flex-1 rounded-[9px] border px-3 py-2">
-            <p className="text-muted-foreground text-[11px]">
+          <div key={name} className="bg-background min-w-[128px] flex-1 rounded-[12px] border px-3 py-2">
+            <p className="text-muted-foreground text-[12px]">
               {name} · weight {c.weight}
             </p>
-            <p className="text-[16px] tabular-nums">{c.score === null ? "—" : c.score}</p>
-            <p className="text-muted-foreground text-[11px] leading-[1.5]">{c.reason ?? `coverage ${c.coverage}`}</p>
+            <p className="text-[17px] tabular-nums">{c.score === null ? "—" : c.score}</p>
+            <p className="text-muted-foreground text-[12px] leading-[1.5]">{c.reason ?? `coverage ${c.coverage}`}</p>
           </div>
         ))}
       </div>
@@ -570,13 +570,13 @@ function AdsCard({ a }: { a: AdsHealth }) {
       {a.failing.length > 0 && (
         <div className="mt-3 space-y-1.5">
           {a.failing.map((f) => (
-            <div key={f.id} className="border-line-soft rounded-[9px] border px-3 py-2">
-              <p className="text-[12.5px]">
+            <div key={f.id} className="border-line-soft rounded-[12px] border px-3 py-2">
+              <p className="text-[13.5px]">
                 <span className={cn(f.result === "fail" ? "text-destructive" : "text-warn")}>{f.result}</span> · {f.title}
-                <span className="text-muted-foreground text-[11px]"> · {f.severity}</span>
+                <span className="text-muted-foreground text-[12px]"> · {f.severity}</span>
               </p>
-              <p className="text-muted-foreground mt-1 text-[11.5px] leading-[1.6]">{f.detail}</p>
-              <p className="text-muted-foreground mt-0.5 text-[11.5px] leading-[1.6]">{f.fix}</p>
+              <p className="text-muted-foreground mt-1 text-[12.5px] leading-[1.6]">{f.detail}</p>
+              <p className="text-muted-foreground mt-0.5 text-[12.5px] leading-[1.6]">{f.fix}</p>
             </div>
           ))}
         </div>
@@ -585,8 +585,8 @@ function AdsCard({ a }: { a: AdsHealth }) {
       <Working lines={a.arithmetic} />
       <Working lines={a.checks.map((c) => `${c.id} — ${c.result ?? "not evaluated"} — ${c.detail}`)} label="every check, and what it was computed from" />
       <Working lines={a.limitations} label="what this cannot see" />
-      <p className="text-muted-foreground mt-3 text-[11.5px] leading-[1.6]">{a.means}</p>
-      <p className="text-muted-foreground mt-1 text-[11.5px] leading-[1.6]">
+      <p className="text-muted-foreground mt-3 text-[12.5px] leading-[1.6]">{a.means}</p>
+      <p className="text-muted-foreground mt-1 text-[12.5px] leading-[1.6]">
         Target cost per lead: {a.target.costPerLead ?? "none"} — {a.target.basis}{" "}
         <Link to="/integrations/meta" className="underline">
           Meta

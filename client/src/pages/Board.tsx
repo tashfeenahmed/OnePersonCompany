@@ -238,8 +238,8 @@ export function Board() {
       <div className="shrink-0 px-6 pt-4 pb-3.5">
         <div className="flex items-end gap-3">
           <div>
-            <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">Board</h1>
-            <p className="text-muted-foreground text-[13.5px]">
+            <h1 className="mb-1 text-[27px] font-normal tracking-[-0.025em]">Board</h1>
+            <p className="text-muted-foreground text-[14.5px]">
               {data.totals.cards === 0
                 ? "Nothing on it yet."
                 : `${data.totals.cards} ${data.totals.cards === 1 ? "card" : "cards"} · ${data.totals.done} done · ${filed} filed under a venture`}
@@ -281,7 +281,7 @@ export function Board() {
             visible event is a card sliding home, which reads as a bug in the
             drag rather than as an answer. */}
         {refused && (
-          <div className="border-destructive/30 bg-destructive/5 text-destructive mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-[12.5px]">
+          <div className="border-destructive/30 bg-destructive/5 text-destructive mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-[13.5px]">
             <span className="min-w-0 flex-1">
               That did not save, so the board is as it was. {refused}
             </span>
@@ -511,7 +511,7 @@ function Column({
 
   return (
     <section
-      className="bg-secondary/50 dark:bg-card/40 flex h-full min-h-0 w-[276px] shrink-0 flex-col rounded-[10px] border"
+      className="bg-secondary/50 dark:bg-card/40 flex h-full min-h-0 w-[276px] shrink-0 flex-col rounded-[14px] border"
       /* THE LANE IS THE DROP TARGET OF LAST RESORT. Without a
          `preventDefault` somewhere the browser refuses the drop outright, and
          this is also what makes the empty space under the last card mean "the
@@ -543,7 +543,7 @@ function Column({
                 setRenaming(false);
               }
             }}
-            className="h-6 px-1.5 text-[12.5px]"
+            className="h-6 px-1.5 text-[13.5px]"
           />
         ) : (
           <button
@@ -552,13 +552,13 @@ function Column({
               setRenaming(true);
             }}
             title="Rename this column"
-            className="truncate text-[12.5px] font-medium tracking-tight"
+            className="truncate text-[13.5px] font-medium tracking-tight"
           >
             {column.title}
           </button>
         )}
 
-        <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]">
+        <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
           {hidden > 0 ? `${shown.length} of ${column.count}` : column.count}
         </span>
 
@@ -587,7 +587,7 @@ function Column({
                 setLimiting(false);
               }
             }}
-            className="h-6 w-12 shrink-0 px-1.5 text-[11.5px]"
+            className="h-6 w-12 shrink-0 px-1.5 text-[12.5px]"
           />
         ) : (
           <button
@@ -598,7 +598,7 @@ function Column({
                 : `At most ${column.wipLimit}. Clear the box to remove the limit.`
             }
             className={cn(
-              "shrink-0 rounded-md px-1 text-[11.5px]",
+              "shrink-0 rounded-md px-1 text-[12.5px]",
               column.overLimit ? "text-warn font-medium" : "text-muted-foreground/60",
             )}
           >
@@ -651,7 +651,7 @@ function Column({
         ))}
 
         {!shown.length && (
-          <div className="text-muted-foreground rounded-lg border border-dashed px-3 py-6 text-center text-[12px] leading-relaxed">
+          <div className="text-muted-foreground rounded-lg border border-dashed px-3 py-6 text-center text-[13px] leading-relaxed">
             {drop === null && drag !== null ? (
               "Drop it here"
             ) : hidden > 0 ? (
@@ -703,12 +703,12 @@ function Column({
               setTitle("");
               setAdding(false);
             }}
-            className="h-8 text-[12.5px]"
+            className="h-8 text-[13.5px]"
           />
         ) : (
           <button
             onClick={() => setAdding(true)}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12.5px]"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13.5px]"
           >
             <Plus className="size-3.5" strokeWidth={1.6} />
             Add a card
@@ -803,18 +803,18 @@ function CardTile({
         onDrop(e.clientY > r.top + r.height / 2);
       }}
       className={cn(
-        "bg-card hover:border-line-strong my-1 cursor-grab rounded-[9px] border px-2.5 py-2 transition-colors",
+        "bg-card hover:border-line-strong my-1 cursor-grab rounded-[12px] border px-3 py-2.5 transition-colors",
         dragging && "opacity-35",
       )}
     >
-      <div className="text-[12.5px] leading-snug">{card.title}</div>
+      <div className="text-[13.5px] leading-snug">{card.title}</div>
 
       {/* ONE LINE OF THE BODY AND NOT A WORD MORE. A card is a handle on a
           piece of work; the note is for the dialog. `line-clamp-1` rather than
           a substring so a long word cannot break the layout and so nothing is
           cut mid-character. */}
       {card.body && (
-        <div className="text-muted-foreground mt-1 line-clamp-1 text-[11.5px]">
+        <div className="text-muted-foreground mt-1 line-clamp-1 text-[12.5px]">
           {card.body}
         </div>
       )}
@@ -822,7 +822,7 @@ function CardTile({
       {(venture || card.urgency !== 1 || card.due) && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {venture && (
-            <span className="text-muted-foreground flex items-center gap-1 text-[11px]">
+            <span className="text-muted-foreground flex items-center gap-1 text-[12px]">
               <VentureMark venture={venture} size={13} />
               {venture.name}
             </span>
@@ -833,7 +833,7 @@ function CardTile({
           {card.urgency !== 1 && (
             <span
               className={cn(
-                "rounded-4xl px-1.5 py-px text-[10.5px] font-medium",
+                "rounded-4xl px-1.5 py-px text-[11.5px] font-medium",
                 urgency.chip,
               )}
             >
@@ -844,7 +844,7 @@ function CardTile({
           {card.due && (
             <span
               className={cn(
-                "text-[11px]",
+                "text-[12px]",
                 overdue
                   ? "text-destructive"
                   : dueToday
@@ -964,7 +964,7 @@ function CardForm({
                   aria-pressed={urgency === i}
                   onClick={() => setUrgency(i)}
                   className={cn(
-                    "rounded-lg border px-2 py-1 text-[11.5px] capitalize",
+                    "rounded-lg border px-2 py-1 text-[12.5px] capitalize",
                     urgency === i
                       ? "border-foreground/40 font-medium"
                       : "text-muted-foreground border-transparent",
@@ -1000,7 +1000,7 @@ function CardForm({
               aria-pressed={ventureId === null}
               onClick={() => setVentureId(null)}
               className={cn(
-                "rounded-lg border px-2 py-1 text-[11.5px]",
+                "rounded-lg border px-2 py-1 text-[12.5px]",
                 ventureId === null
                   ? "border-foreground/40 font-medium"
                   : "text-muted-foreground border-transparent",
@@ -1015,14 +1015,14 @@ function CardForm({
                 aria-pressed={ventureId === v.id}
                 onClick={() => setVentureId(v.id)}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11.5px]",
+                  "flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[12.5px]",
                   ventureId === v.id
                     ? "border-foreground/40 font-medium"
                     : "text-muted-foreground border-transparent",
                 )}
               >
                 <span
-                  className="size-[7px] shrink-0 rounded-[2px]"
+                  className="size-[7px] shrink-0 rounded-[3px]"
                   style={{ background: v.color }}
                 />
                 {v.name}
@@ -1033,7 +1033,7 @@ function CardForm({
               ventures live in this browser and the card lives on the server.
               Saying so beats drawing nothing and letting it look unfiled. */}
           {card.ventureId && !ventures.some((v) => v.id === card.ventureId) && (
-            <p className="text-muted-foreground text-[11.5px]">
+            <p className="text-muted-foreground text-[12.5px]">
               Filed under a venture this browser does not have
               (<code>{card.ventureId}</code>). Choosing another replaces it.
             </p>
@@ -1081,7 +1081,7 @@ function Chip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px]",
+        "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[13px]",
         active
           ? "border-foreground/40 text-foreground font-medium"
           : "text-muted-foreground hover:bg-accent hover:text-foreground border-transparent",
@@ -1104,9 +1104,9 @@ function Empty({
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6">
       <div className="max-w-[420px] text-center">
-        <h1 className="text-[19px] font-normal tracking-[-0.02em]">{title}</h1>
+        <h1 className="text-[20px] font-normal tracking-[-0.02em]">{title}</h1>
         {body && (
-          <p className="text-muted-foreground mt-1.5 text-[13px] leading-relaxed">
+          <p className="text-muted-foreground mt-1.5 text-[14px] leading-relaxed">
             {body}
           </p>
         )}

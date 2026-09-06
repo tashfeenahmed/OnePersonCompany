@@ -31,7 +31,7 @@ function Card({ p }: { p: UserProduct }) {
   const bars = p.days.filter((d) => d.signups !== null);
 
   return (
-    <div className="bg-card rounded-[10px] border px-3.5 py-3">
+    <div className="bg-card rounded-[14px] border px-4.5 py-3.5">
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
@@ -41,7 +41,7 @@ function Card({ p }: { p: UserProduct }) {
         />
         <Link
           to={countsOnly ? "#" : `/activity/users/${encodeURIComponent(p.product)}`}
-          className={cn("text-[13.5px] font-medium", countsOnly ? "pointer-events-none" : "hover:underline")}
+          className={cn("text-[14.5px] font-medium", countsOnly ? "pointer-events-none" : "hover:underline")}
         >
           {p.product}
         </Link>
@@ -53,7 +53,7 @@ function Card({ p }: { p: UserProduct }) {
         {p.venture && (
           <Link
             to={`/ventures/${p.venture.slug}`}
-            className="text-muted-foreground text-[11.5px] hover:underline"
+            className="text-muted-foreground text-[12.5px] hover:underline"
             title={
               p.venture.matchedBy === "host"
                 ? "Filed by a hostname that looked alike — a guess. Set it in the plugin's settings to make it a decision."
@@ -64,7 +64,7 @@ function Card({ p }: { p: UserProduct }) {
             {p.venture.matchedBy === "host" && " ?"}
           </Link>
         )}
-        <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px]">
+        <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
           {ago(p.lastFetchedAt)}
         </span>
       </div>
@@ -105,7 +105,7 @@ function Card({ p }: { p: UserProduct }) {
       </div>
 
       {countsOnly && p.newWindow && (
-        <p className="text-muted-foreground mt-2 text-[12px]">
+        <p className="text-muted-foreground mt-2 text-[13px]">
           Its own window: {count(p.newWindow.n)} new in {p.newWindow.days} days — the only one it
           publishes, quoted in its words.
         </p>
@@ -119,16 +119,16 @@ function Card({ p }: { p: UserProduct }) {
         />
       )}
 
-      {p.error && <p className="text-destructive mt-2 text-[11.5px]">{p.error}</p>}
+      {p.error && <p className="text-destructive mt-2 text-[12.5px]">{p.error}</p>}
       {p.reachable === null && !p.error && (
-        <p className="text-muted-foreground mt-2 text-[12px]">
+        <p className="text-muted-foreground mt-2 text-[13px]">
           Never collected. That is not a failure — nothing has asked yet.
         </p>
       )}
       {!!p.problems.length && (
         <div className="mt-2 flex flex-col gap-0.5">
           {p.problems.slice(0, 4).map((why, i) => (
-            <p key={i} className="text-destructive text-[11.5px]">
+            <p key={i} className="text-destructive text-[12.5px]">
               {why}
             </p>
           ))}
@@ -141,9 +141,9 @@ function Card({ p }: { p: UserProduct }) {
 function Figure({ v, k, note }: { v: string; k: string; note?: string }) {
   return (
     <div>
-      <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">{v}</div>
-      <div className="text-muted-foreground mt-0.5 text-[11.5px]">{k}</div>
-      {note && <div className="text-muted-foreground text-[11px]">{note}</div>}
+      <div className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">{v}</div>
+      <div className="text-muted-foreground mt-0.5 text-[12.5px]">{k}</div>
+      {note && <div className="text-muted-foreground text-[12px]">{note}</div>}
     </div>
   );
 }
@@ -152,13 +152,13 @@ export function Users() {
   const report = useApi(() => activityApi.users(90), []);
 
   if (report.error)
-    return <p className="text-muted-foreground text-[13px]">The API is not answering: {report.error}</p>;
-  if (!report.data) return <p className="text-muted-foreground text-[13px]">Reading…</p>;
+    return <p className="text-muted-foreground text-[14px]">The API is not answering: {report.error}</p>;
+  if (!report.data) return <p className="text-muted-foreground text-[14px]">Reading…</p>;
   const d = report.data;
 
   if (!d.products.length)
     return (
-      <p className="text-muted-foreground text-[13px] leading-relaxed">
+      <p className="text-muted-foreground text-[14px] leading-relaxed">
         No product is publishing its users yet. Connect one under Integrations → App users: it takes
         a URL that answers either a list of users or a bare count, and the contract is on that page.
       </p>
@@ -168,38 +168,38 @@ export function Users() {
   return (
     <>
       <div className="mb-4 flex flex-wrap gap-2">
-        <div className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3">
-          <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">
+        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+          <div className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">
             {count(s.totalUsers)}
           </div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">
+          <div className="text-muted-foreground mt-0.5 text-[12.5px]">
             users across {s.configured} product{s.configured === 1 ? "" : "s"}
           </div>
           {s.complete === false && (
-            <div className="text-muted-foreground text-[11px]">a floor — not every one answered</div>
+            <div className="text-muted-foreground text-[12px]">a floor — not every one answered</div>
           )}
         </div>
-        <div className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3">
-          <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">{count(s.new7d)}</div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">new in 7 days</div>
+        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+          <div className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">{count(s.new7d)}</div>
+          <div className="text-muted-foreground mt-0.5 text-[12.5px]">new in 7 days</div>
           {s.windowsMissing > 0 && (
-            <div className="text-muted-foreground text-[11px]">
+            <div className="text-muted-foreground text-[12px]">
               {s.windowsMissing} product{s.windowsMissing === 1 ? "" : "s"} absent, not zero
             </div>
           )}
         </div>
-        <div className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3">
-          <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">{count(s.new30d)}</div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">new in 30 days</div>
-          <div className="text-muted-foreground text-[11px]">contains the 7d — never added to it</div>
+        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+          <div className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">{count(s.new30d)}</div>
+          <div className="text-muted-foreground mt-0.5 text-[12.5px]">new in 30 days</div>
+          <div className="text-muted-foreground text-[12px]">contains the 7d — never added to it</div>
         </div>
-        <div className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3">
-          <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">
+        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+          <div className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">
             {s.answering}/{s.configured}
           </div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">endpoints answering</div>
+          <div className="text-muted-foreground mt-0.5 text-[12.5px]">endpoints answering</div>
           {s.countsOnly > 0 && (
-            <div className="text-muted-foreground text-[11px]">{s.countsOnly} counts-only</div>
+            <div className="text-muted-foreground text-[12px]">{s.countsOnly} counts-only</div>
           )}
         </div>
       </div>
@@ -210,7 +210,7 @@ export function Users() {
         ))}
       </div>
 
-      <p className="text-muted-foreground mt-2.5 text-[11.5px] leading-relaxed">{s.note}</p>
+      <p className="text-muted-foreground mt-2.5 text-[12.5px] leading-relaxed">{s.note}</p>
     </>
   );
 }

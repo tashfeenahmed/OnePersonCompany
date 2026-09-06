@@ -48,8 +48,8 @@ function CheckRow({ check }: { check: Check }) {
     <div className="flex items-start gap-2.5 py-2">
       <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", DOT[check.status])} />
       <div className="min-w-0">
-        <div className="text-[13px] capitalize">{check.key}</div>
-        <div className="text-muted-foreground text-[12.5px]">{check.detail}</div>
+        <div className="text-[14px] capitalize">{check.key}</div>
+        <div className="text-muted-foreground text-[13.5px]">{check.detail}</div>
       </div>
     </div>
   );
@@ -65,14 +65,14 @@ function CheckRow({ check }: { check: Check }) {
 function RetentionRow({ r }: { r: Retention }) {
   return (
     <tr className="border-line-soft border-t align-top">
-      <td className="py-1.5 pr-3 font-mono text-[11.5px]">{r.table}</td>
-      <td className="text-muted-foreground py-1.5 pr-3 font-mono text-[11.5px]">
+      <td className="py-1.5 pr-3 font-mono text-[12.5px]">{r.table}</td>
+      <td className="text-muted-foreground py-1.5 pr-3 font-mono text-[12.5px]">
         {r.column}
         {r.grain === "day" && " · day key"}
         {r.where && <span className="block opacity-70">only where {r.where}</span>}
       </td>
-      <td className="py-1.5 pr-3 text-[12.5px] tabular-nums whitespace-nowrap">{r.days}d</td>
-      <td className="text-muted-foreground py-1.5 text-[11.5px]">
+      <td className="py-1.5 pr-3 text-[13.5px] tabular-nums whitespace-nowrap">{r.days}d</td>
+      <td className="text-muted-foreground py-1.5 text-[12.5px]">
         {r.source === "setting" ? <span className="font-mono">{r.setting ?? "a setting"}</span> : "this area chose it"}
         {r.note && <span className="block opacity-80">{r.note}</span>}
       </td>
@@ -95,7 +95,7 @@ function RetentionRow({ r }: { r: Retention }) {
 function RefusedRoutes({ rows }: { rows: RefusedRoute[] }) {
   const levels = [...new Map(rows.map((r) => [r.level, r.demands])).entries()];
   return (
-    <div className="text-muted-foreground grid gap-1 text-[11.5px]">
+    <div className="text-muted-foreground grid gap-1 text-[12.5px]">
       <span>That key is refused on {rows.length} owner controls:</span>
       <div className="grid gap-0.5">
         {rows.map((r) => (
@@ -119,9 +119,9 @@ function RefusedRoutes({ rows }: { rows: RefusedRoute[] }) {
 function ScheduleRow({ s }: { s: Schedule }) {
   return (
     <tr className="border-line-soft border-t">
-      <td className="py-1.5 pr-3 text-[13px]">{s.pluginId}</td>
-      <td className="text-muted-foreground py-1.5 pr-3 text-[11.5px]">{s.connected ? "connected" : "not connected"}</td>
-      <td className="py-1.5 pr-3 text-[12.5px] tabular-nums">
+      <td className="py-1.5 pr-3 text-[14px]">{s.pluginId}</td>
+      <td className="text-muted-foreground py-1.5 pr-3 text-[12.5px]">{s.connected ? "connected" : "not connected"}</td>
+      <td className="py-1.5 pr-3 text-[13.5px] tabular-nums">
         {s.everyMinutes === null ? (
           <span className="text-muted-foreground">never on the schedule</span>
         ) : (
@@ -130,8 +130,8 @@ function ScheduleRow({ s }: { s: Schedule }) {
           </>
         )}
       </td>
-      <td className="text-muted-foreground py-1.5 pr-3 text-[12.5px]">{ago(s.lastStartedAt)}</td>
-      <td className="text-muted-foreground py-1.5 text-[12.5px]">
+      <td className="text-muted-foreground py-1.5 pr-3 text-[13.5px]">{ago(s.lastStartedAt)}</td>
+      <td className="text-muted-foreground py-1.5 text-[13.5px]">
         {s.everyMinutes === null ? "—" : s.due ? "due now" : when(s.nextDueAt, NEVER)}
       </td>
     </tr>
@@ -156,11 +156,11 @@ function LeaseRow({ lease, onRelease, busy }: { lease: Lease; onRelease: (id: st
   return (
     <div className="border-line-soft flex items-center justify-between gap-3 border-t py-2">
       <div className="min-w-0">
-        <div className="text-[13px]">
+        <div className="text-[14px]">
           {lease.kind} on {lease.resource}
           {lease.note ? <span className="text-muted-foreground"> — {lease.note}</span> : null}
         </div>
-        <div className="text-muted-foreground text-[11.5px]">
+        <div className="text-muted-foreground text-[12.5px]">
           taken {ago(lease.acquiredAt)} ·{" "}
           {lease.live
             ? `${beating ? "beating" : `no heartbeat for ${Math.round(lease.heartbeatAgeS / 60)}m`}, lapses in ${Math.max(0, Math.round(lease.expiresInS / 60))}m`
@@ -224,14 +224,14 @@ export function DeploymentSettings() {
   if (status.error)
     return (
       <Section title="Deployment" hint="How this app runs when nobody is sitting in front of it.">
-        <p className="text-destructive text-[12.5px]">{status.error}</p>
+        <p className="text-destructive text-[13.5px]">{status.error}</p>
       </Section>
     );
 
   if (!d)
     return (
       <Section title="Deployment" hint="How this app runs when nobody is sitting in front of it.">
-        <p className="text-muted-foreground flex items-center gap-2 text-[12.5px]">
+        <p className="text-muted-foreground flex items-center gap-2 text-[13.5px]">
           <Loader2 className="size-3.5 animate-spin" /> Asking the supervisor and running the health checks…
         </p>
       </Section>
@@ -251,7 +251,7 @@ export function DeploymentSettings() {
             : `A ${svc.platform === "darwin" ? "launchd user agent" : "systemd user service"} in your own account — no root, nothing in /etc. It restarts on failure and comes back at login.`
         }
       >
-        <div className="grid gap-1.5 text-[12.5px]">
+        <div className="grid gap-1.5 text-[13.5px]">
           <div className="flex items-center gap-2">
             <Server className="text-muted-foreground size-3.5" />
             <span>
@@ -339,15 +339,15 @@ export function DeploymentSettings() {
           </Button>
         </div>
 
-        {note && <pre className="text-muted-foreground max-h-48 overflow-auto text-[11.5px] whitespace-pre-wrap">{note}</pre>}
-        {problem && <p className="text-destructive text-[12.5px]">{problem}</p>}
+        {note && <pre className="text-muted-foreground max-h-48 overflow-auto text-[12.5px] whitespace-pre-wrap">{note}</pre>}
+        {problem && <p className="text-destructive text-[13.5px]">{problem}</p>}
         {unit && (
-          <pre className="bg-card border-line-soft max-h-72 overflow-auto rounded border p-2.5 text-[11.5px] whitespace-pre">
+          <pre className="bg-card border-line-soft max-h-72 overflow-auto rounded border p-3 text-[12.5px] whitespace-pre">
             {unit}
           </pre>
         )}
         {log && (
-          <pre className="bg-card border-line-soft max-h-64 overflow-auto rounded border p-2.5 text-[11.5px] whitespace-pre-wrap">
+          <pre className="bg-card border-line-soft max-h-64 overflow-auto rounded border p-3 text-[12.5px] whitespace-pre-wrap">
             {log.lines.length ? log.lines.join("\n") : log.note}
           </pre>
         )}
@@ -358,7 +358,7 @@ export function DeploymentSettings() {
         title="Health"
         hint="Five checks over this process. `ok` on the probe means only that the process answered; the verdict is here."
       >
-        <div className="flex items-center gap-2 text-[13px]">
+        <div className="flex items-center gap-2 text-[14px]">
           <span className={cn("size-2 rounded-full", DOT[d.health.status])} />
           {d.health.status === "ok" ? (
             <span className="flex items-center gap-1.5">
@@ -383,14 +383,14 @@ export function DeploymentSettings() {
         hint="One row per table, verbatim from the registry the prune walks — not a setting that describes some of it. A table that is NOT on this list is a table nothing ages out."
       >
         {d.health.retention.length === 0 ? (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             Nothing has registered a window, so nothing on this box is pruned.
           </p>
         ) : (
           <div className="max-h-96 overflow-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="text-muted-foreground text-[11.5px]">
+                <tr className="text-muted-foreground text-[12.5px]">
                   <th className="pb-1 pr-3 font-normal">Table</th>
                   <th className="pb-1 pr-3 font-normal">Aged on</th>
                   <th className="pb-1 pr-3 font-normal">Kept</th>
@@ -414,14 +414,14 @@ export function DeploymentSettings() {
         title="Collection schedule"
         hint={`The scheduler looks once a minute and collects each source on its own cadence. The box default is ${d.scheduler.defaultMinutes} minutes; a per-source value is a setting on that plugin's own Integrations page.`}
       >
-        <div className="text-muted-foreground flex items-center gap-2 text-[11.5px]">
+        <div className="text-muted-foreground flex items-center gap-2 text-[12.5px]">
           <Timer className="size-3.5" />
           {d.scheduler.running ? `Running · last tick ${ago(d.scheduler.lastTickAt)}` : "The scheduler is off (OPC_COLLECT_MINUTES=0). Nothing is collected automatically."}
         </div>
         <div className="max-h-80 overflow-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="text-muted-foreground text-[11.5px]">
+              <tr className="text-muted-foreground text-[12.5px]">
                 <th className="pb-1 pr-3 font-normal">Source</th>
                 <th className="pb-1 pr-3 font-normal">State</th>
                 <th className="pb-1 pr-3 font-normal">Cadence</th>
@@ -440,7 +440,7 @@ export function DeploymentSettings() {
 
       {/* ---------------------------------------------------- the isolation */}
       <Section title="Agent isolation" hint="Measured, not intended — file modes read from this machine and the configured user compared with the running one.">
-        <div className="grid gap-1.5 text-[12.5px]">
+        <div className="grid gap-1.5 text-[13.5px]">
           <div className="flex items-center gap-2">
             <ShieldAlert className={cn("size-3.5", iso.level === "same-user" ? "text-warn" : "text-ok")} />
             <span className="font-medium">{iso.level}</span>
@@ -449,7 +449,7 @@ export function DeploymentSettings() {
           <p className="text-muted-foreground max-w-[620px]">{iso.summary}</p>
           {iso.problem && <p className="text-destructive">{iso.problem}</p>}
           <p className="text-muted-foreground max-w-[620px]">{iso.nextStep}</p>
-          <div className="text-muted-foreground text-[11.5px]">
+          <div className="text-muted-foreground text-[12.5px]">
             Agent home: {iso.agentHome} · scoped key: {iso.scopedKey.file}
           </div>
           <RefusedRoutes rows={iso.scopedKey.refusedPrefixes} />
@@ -458,12 +458,12 @@ export function DeploymentSettings() {
               {iso.agentKeyProblem}
             </p>
           )}
-          <div className="text-muted-foreground text-[11.5px]">
+          <div className="text-muted-foreground text-[12.5px]">
             {iso.secretsLocked
               ? "Every credential file is no wider than it is meant to be."
               : "At least one credential file is open wider than it should be — see the modes below."}
           </div>
-          <div className="text-muted-foreground grid gap-0.5 text-[11.5px]">
+          <div className="text-muted-foreground grid gap-0.5 text-[12.5px]">
             {iso.files.map((f) => (
               <div key={f.path} className={cn(f.readableByOthers === true && "text-warn")}>
                 {f.mode ?? "—"} {f.path}
@@ -475,7 +475,7 @@ export function DeploymentSettings() {
           {/* THE CONTAINER PATH IS NAMED AND EXPLICITLY NOT CLAIMED. It is a
               real, stronger arrangement; nothing here can see whether you are
               on it, so the page says that rather than drawing a third level. */}
-          <p className="text-muted-foreground max-w-[620px] text-[11.5px]">
+          <p className="text-muted-foreground max-w-[620px] text-[12.5px]">
             {iso.containerPath.note}
             {iso.containerPath.runtime ? ` A container runtime is installed here (${iso.containerPath.runtime}).` : " No container runtime is installed here."}
           </p>
@@ -489,14 +489,14 @@ export function DeploymentSettings() {
         hint="What is using a shared machine right now. A live lease is the only thing that refuses to sleep one — it is not a lock, and two live leases on one machine are ordinary."
       >
         {d.leases.live.length === 0 && d.leases.stale.length === 0 && (
-          <p className="text-muted-foreground text-[12.5px]">Nothing holds a lease. Every machine here may be slept.</p>
+          <p className="text-muted-foreground text-[13.5px]">Nothing holds a lease. Every machine here may be slept.</p>
         )}
         {d.leases.live.map((l) => (
           <LeaseRow key={l.id} lease={l} busy={busy} onRelease={(id, force) => void act(() => deployApi.releaseLease(id, force))} />
         ))}
         {d.leases.stale.length > 0 && (
           <>
-            <p className="text-muted-foreground pt-2 text-[11.5px]">
+            <p className="text-muted-foreground pt-2 text-[12.5px]">
               {d.leases.stale.length} lease(s) lapsed without being released — a job that died. They already count as not
               live; sweeping them is bookkeeping.
             </p>
@@ -510,11 +510,11 @@ export function DeploymentSettings() {
         )}
         {d.leases.wake.length > 0 && (
           <div className="grid gap-1.5 pt-2">
-            <div className="text-[13px]">Wake ownership</div>
+            <div className="text-[14px]">Wake ownership</div>
             {d.leases.wake.map((w) => (
               <div key={w.resource} className="border-line-soft flex items-center justify-between gap-3 border-t py-2">
                 <div className="min-w-0">
-                  <div className="text-[12.5px]">
+                  <div className="text-[13.5px]">
                     {w.resource} —{" "}
                     {w.owns
                       ? "woken by this app, so it may be slept by it"
@@ -524,7 +524,7 @@ export function DeploymentSettings() {
                           ? "was already awake, so this app will not sleep it"
                           : "this app could not tell what state it was in, so it will not sleep it"}
                   </div>
-                  <div className="text-muted-foreground text-[11.5px]">
+                  <div className="text-muted-foreground text-[12.5px]">
                     {w.wokeBy} · {when(w.wokeAt, NEVER)}
                   </div>
                 </div>

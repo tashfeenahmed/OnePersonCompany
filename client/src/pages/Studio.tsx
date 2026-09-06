@@ -224,7 +224,7 @@ export function Studio() {
       }
     >
       {doc.error && (
-        <p className="text-muted-foreground mb-4 text-[13px]">
+        <p className="text-muted-foreground mb-4 text-[14px]">
           The API did not answer, so nothing can be made here right now.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
@@ -237,7 +237,7 @@ export function Studio() {
       )}
 
       {ventures.length === 0 ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           There are no ventures yet, and a post here is made out of one — the
           name, the sentence you wrote, the stage and the colours read off the
           site. Add a venture first.
@@ -245,9 +245,9 @@ export function Studio() {
       ) : (
         <>
           {/* ------------------------------------------------ the brief */}
-          <div className="bg-card grid gap-3.5 rounded-[10px] border p-3.5">
+          <div className="bg-card grid gap-3.5 rounded-[14px] border p-4.5">
             <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                 For which venture
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -259,7 +259,7 @@ export function Studio() {
                       setAssetIds([]);
                     }}
                     className={cn(
-                      "flex items-center gap-1.5 rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors",
+                      "flex items-center gap-1.5 rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
                       venture?.id === v.id
                         ? "border-foreground"
                         : "hover:border-line-strong",
@@ -272,7 +272,7 @@ export function Studio() {
                 ))}
               </div>
               {venture && (
-                <p className="text-muted-foreground text-[11.5px]">
+                <p className="text-muted-foreground text-[12.5px]">
                   {/* WHAT THE MODEL IS ACTUALLY TOLD, named here so the
                       caption is never a surprise. The stage is the half
                       that changes what a post is allowed to say. */}
@@ -285,7 +285,7 @@ export function Studio() {
             </div>
 
             <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                 What the post is about
               </div>
               <Textarea
@@ -294,12 +294,12 @@ export function Studio() {
                 rows={3}
                 maxLength={2000}
                 placeholder="One line. “We shipped weekly digests” — not the post itself."
-                className="text-[13.5px]"
+                className="text-[14.5px]"
               />
             </div>
 
             <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                 Shape
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -309,7 +309,7 @@ export function Studio() {
                     title={f.about}
                     onClick={() => setFormat(f.key as StudioFormat)}
                     className={cn(
-                      "rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors",
+                      "rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
                       format === f.key
                         ? "border-foreground"
                         : "hover:border-line-strong",
@@ -326,11 +326,11 @@ export function Studio() {
 
             {/* ------------------------------------------- the references */}
             <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                 Take visual direction from
               </div>
               {(library.data?.assets ?? []).length === 0 ? (
-                <p className="text-muted-foreground text-[11.5px]">
+                <p className="text-muted-foreground text-[12.5px]">
                   {venture?.name} has no assets yet. Upload a logo, a reference picture or a
                   screenshot under{" "}
                   <Link to="/social/publishing?tab=assets" className="underline decoration-dotted">
@@ -353,7 +353,7 @@ export function Studio() {
                           )
                         }
                         className={cn(
-                          "overflow-hidden rounded-[8px] border transition-colors",
+                          "overflow-hidden rounded-[11px] border transition-colors",
                           assetIds.includes(a.id)
                             ? "border-foreground"
                             : "hover:border-line-strong",
@@ -362,7 +362,7 @@ export function Studio() {
                         {a.onDisk ? (
                           <img src={a.url} alt="" className="size-12 object-cover" />
                         ) : (
-                          <span className="text-muted-foreground flex size-12 items-center justify-center text-[10px]">
+                          <span className="text-muted-foreground flex size-12 items-center justify-center text-[11px]">
                             missing
                           </span>
                         )}
@@ -373,7 +373,7 @@ export function Studio() {
                       A model with no image input gets the pictures described
                       in words instead, which is much weaker — so it is said
                       before the button is pressed rather than after. */}
-                  <p className="text-muted-foreground text-[11.5px]">
+                  <p className="text-muted-foreground text-[12.5px]">
                     {library.data?.imageModel.note}
                   </p>
                 </>
@@ -381,14 +381,14 @@ export function Studio() {
             </div>
 
             <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                 Written for
               </div>
               <div className="flex flex-wrap gap-1.5">
                 <button
                   onClick={() => setPlatform(null)}
                   className={cn(
-                    "rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors",
+                    "rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
                     platform === null
                       ? "border-foreground"
                       : "hover:border-line-strong",
@@ -401,7 +401,7 @@ export function Studio() {
                     key={p}
                     onClick={() => setPlatform(p)}
                     className={cn(
-                      "rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors",
+                      "rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
                       platform === p
                         ? "border-foreground"
                         : "hover:border-line-strong",
@@ -411,7 +411,7 @@ export function Studio() {
                   </button>
                 ))}
               </div>
-              <p className="text-muted-foreground text-[11.5px]">
+              <p className="text-muted-foreground text-[12.5px]">
                 A hint about length and register. Nothing here logs into
                 anything.
               </p>
@@ -429,7 +429,7 @@ export function Studio() {
                 )}
                 {busy ? "Making it…" : "Make a post"}
               </Button>
-              <span className="text-muted-foreground text-[12px]">
+              <span className="text-muted-foreground text-[13px]">
                 {busy
                   ? "The caption first, then Replicate holds the line until the picture exists. About twenty seconds."
                   : readiness?.image.ready
@@ -439,7 +439,7 @@ export function Studio() {
             </div>
 
             {refused && (
-              <p className="text-destructive text-[12.5px] leading-relaxed">
+              <p className="text-destructive text-[13.5px] leading-relaxed">
                 {refused}
               </p>
             )}
@@ -459,23 +459,23 @@ export function Studio() {
                   )}
                   Make a UGC clip instead
                 </Button>
-                <span className="text-muted-foreground text-[12px]">
+                <span className="text-muted-foreground text-[13px]">
                   A product shot from {venture.name}'s own pictures, animated. It is queued as a
                   video run and it SPENDS MONEY — one image prediction always, and one
                   image-to-video prediction if a model is configured under Integrations → Social
                   feed. With none configured it makes a still and spends nothing on video.
                 </span>
-                {ugcSaid && <p className="w-full text-[12.5px]">{ugcSaid}</p>}
+                {ugcSaid && <p className="w-full text-[13.5px]">{ugcSaid}</p>}
               </div>
             )}
           </div>
 
           {/* ---------------------------------------------- the gallery */}
           <div className="mt-7 mb-3 flex items-baseline gap-2">
-            <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+            <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
               Made for {venture?.name}
             </div>
-            <span className="text-muted-foreground ml-auto text-[11.5px]">
+            <span className="text-muted-foreground ml-auto text-[12.5px]">
               {doc.loading
                 ? "loading…"
                 : posts.length === 0
@@ -485,7 +485,7 @@ export function Studio() {
           </div>
 
           {posts.length === 0 && !doc.loading ? (
-            <p className="text-muted-foreground text-[13px]">
+            <p className="text-muted-foreground text-[14px]">
               Nothing has been made for {venture?.name} yet. A post is kept
               until you delete it, and deleting one deletes its picture off
               the disk with it.

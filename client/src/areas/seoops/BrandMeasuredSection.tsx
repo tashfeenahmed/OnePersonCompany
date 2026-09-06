@@ -38,15 +38,15 @@ function Swatch({ label, field }: { label: string; field: BrandField }) {
     <div className="flex items-center gap-2">
       <span
         className={cn(
-          "border-line-soft size-6 shrink-0 rounded-[6px] border",
+          "border-line-soft size-6 shrink-0 rounded-[8px] border",
           !field.value && "border-dashed",
         )}
         style={paint(field.value) ? { background: paint(field.value) } : undefined}
       />
-      <span className="text-[12px]">
+      <span className="text-[13px]">
         <span className="text-muted-foreground">{label}</span>{" "}
         <span className="font-mono">{field.value ?? "—"}</span>{" "}
-        <span className="text-muted-foreground text-[11px]">{METHOD_LABEL[field.method]}</span>
+        <span className="text-muted-foreground text-[12px]">{METHOD_LABEL[field.method]}</span>
       </span>
     </div>
   );
@@ -87,14 +87,14 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
     }
   }
 
-  if (doc.error) return <p className="text-muted-foreground text-[12.5px]">Brand is not answering: {doc.error}</p>;
+  if (doc.error) return <p className="text-muted-foreground text-[13.5px]">Brand is not answering: {doc.error}</p>;
   if (!doc.data) return null;
   const d = doc.data;
 
   return (
     <div className="mt-6">
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">Measured brand</div>
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">Measured brand</div>
         <div className="ml-auto flex gap-2">
           <Button variant="ghost" size="sm" onClick={() => setEditing(!editing)}>
             {editing ? "Done" : "Override"}
@@ -115,7 +115,7 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
         </div>
       </div>
 
-      {problem && <p className="text-destructive mb-2 text-[12.5px]">{problem}</p>}
+      {problem && <p className="text-destructive mb-2 text-[13.5px]">{problem}</p>}
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <Swatch label="primary" field={d.effective.primary} />
@@ -125,22 +125,22 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
         <Swatch label="ink" field={d.effective.ink} />
       </div>
 
-      <div className="mt-3 space-y-1 text-[12px]">
+      <div className="mt-3 space-y-1 text-[13px]">
         <div>
           <span className="text-muted-foreground">body font </span>
           <span className="font-mono">{d.effective.bodyFont.value ?? "—"}</span>{" "}
-          <span className="text-muted-foreground text-[11px]">{METHOD_LABEL[d.effective.bodyFont.method]}</span>
+          <span className="text-muted-foreground text-[12px]">{METHOD_LABEL[d.effective.bodyFont.method]}</span>
         </div>
         <div>
           <span className="text-muted-foreground">heading font </span>
           <span className="font-mono">{d.effective.headingFont.value ?? "—"}</span>{" "}
-          <span className="text-muted-foreground text-[11px]">{METHOD_LABEL[d.effective.headingFont.method]}</span>
+          <span className="text-muted-foreground text-[12px]">{METHOD_LABEL[d.effective.headingFont.method]}</span>
         </div>
       </div>
 
       {editing && (
-        <div className="border-line-soft mt-3 rounded-[8px] border px-3 py-2.5">
-          <p className="text-muted-foreground mb-2 text-[11.5px] leading-relaxed">
+        <div className="border-line-soft mt-3 rounded-[11px] border px-3 py-2.5">
+          <p className="text-muted-foreground mb-2 text-[12.5px] leading-relaxed">
             A hex like <code>#2F7D4F</code>, or empty to drop the override and let the measurement stand. Nothing typed
             here changes either reading.
           </p>
@@ -148,7 +148,7 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
             {OVERRIDABLE.map((key) => (
               <input
                 key={key}
-                className="border-line-soft bg-card w-[150px] rounded-[6px] border px-2 py-1 font-mono text-[12px]"
+                className="border-line-soft bg-card w-[150px] rounded-[8px] border px-3 py-1.5 font-mono text-[13px]"
                 placeholder={key}
                 defaultValue={(d.override?.[key] as string | undefined) ?? ""}
                 onBlur={(e) => {
@@ -167,7 +167,7 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
 
       {d.rendered && !d.rendered.error && (
         <div className="mt-4">
-          <div className="text-muted-foreground mb-1.5 text-[11px]">
+          <div className="text-muted-foreground mb-1.5 text-[12px]">
             Browser reading {ago(d.rendered.at ?? d.rendered.readAt)} — {d.rendered.elementsMeasured} visible elements,
             colours ranked by painted area
           </div>
@@ -176,16 +176,16 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
               <span
                 key={`${c.hex}-${c.kind}`}
                 title={`${c.hex} · ${c.kind} · ${pct(c.share / 100)} of the painted area`}
-                className="border-line-soft flex items-center gap-1.5 rounded-[6px] border px-1.5 py-0.5 text-[11px]"
+                className="border-line-soft flex items-center gap-1.5 rounded-[8px] border px-1.5 py-0.5 text-[12px]"
               >
-                <span className="size-3 rounded-[3px]" style={{ background: paint(c.hex) }} />
+                <span className="size-3 rounded-[4px]" style={{ background: paint(c.hex) }} />
                 <span className="font-mono">{c.hex}</span>
                 <span className="text-muted-foreground">{pct(c.share / 100)}</span>
               </span>
             ))}
           </div>
           {d.rendered.notes.map((n) => (
-            <p key={n} className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+            <p key={n} className="text-muted-foreground mt-1.5 text-[12px] leading-relaxed">
               {n}
             </p>
           ))}
@@ -193,13 +193,13 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
       )}
 
       {d.renderedError && (
-        <p className="text-muted-foreground mt-3 text-[11.5px] leading-relaxed">
+        <p className="text-muted-foreground mt-3 text-[12.5px] leading-relaxed">
           The last browser reading failed: {d.renderedError} The HTML reading is unchanged and is what the swatches
           above fall back to.
         </p>
       )}
       {!d.rendered && (
-        <p className="text-muted-foreground mt-3 text-[11.5px] leading-relaxed">
+        <p className="text-muted-foreground mt-3 text-[12.5px] leading-relaxed">
           This site has never been read in a browser. The swatches above come from the HTML parse, which counts a colour
           whether or not anything is painted with it.
         </p>
@@ -207,7 +207,7 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
 
       <div className="mt-3">
         {d.notes.map((n) => (
-          <p key={n} className="text-muted-foreground mb-1.5 max-w-[760px] text-[11.5px] leading-relaxed">
+          <p key={n} className="text-muted-foreground mb-1.5 max-w-[760px] text-[12.5px] leading-relaxed">
             {n}
           </p>
         ))}

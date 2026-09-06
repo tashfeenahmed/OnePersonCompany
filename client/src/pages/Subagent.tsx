@@ -134,7 +134,7 @@ export function Subagent() {
               : `Nothing here is called “${slug}”, or it has no ${role}.`
           }
         >
-          <Link to="/ventures/org" className="text-[12.5px] underline">
+          <Link to="/ventures/org" className="text-[13.5px] underline">
             The org chart
           </Link>
         </PageShell>
@@ -225,7 +225,7 @@ export function Subagent() {
             )}
             <Link
               to="/ventures/org"
-              className="text-muted-foreground hover:text-foreground text-[12.5px]"
+              className="text-muted-foreground hover:text-foreground text-[13.5px]"
             >
               The org
             </Link>
@@ -233,13 +233,13 @@ export function Subagent() {
         }
       >
         {detail.error && (
-          <p className="text-muted-foreground text-[13px]">
+          <p className="text-muted-foreground text-[14px]">
             This worker could not be read.{" "}
             <span className="text-destructive">{detail.error}</span>
           </p>
         )}
         {!sa && !detail.error && (
-          <p className="text-muted-foreground text-[12.5px]">
+          <p className="text-muted-foreground text-[13.5px]">
             {detail.loading ? "Looking them up…" : "Nothing came back."}
           </p>
         )}
@@ -250,7 +250,7 @@ export function Subagent() {
             <section>
               <div className="mb-2 flex items-center gap-2">
                 <RoleIcon role={role} className="text-muted-foreground size-3.5" />
-                <h2 className="text-[13px] font-medium">Who this is</h2>
+                <h2 className="text-[14px] font-medium">Who this is</h2>
                 <div className="ml-auto flex items-center gap-2">
                   {mood && (
                     <>
@@ -260,7 +260,7 @@ export function Subagent() {
                           mood.tone,
                         )}
                       />
-                      <span className="text-muted-foreground text-[11.5px]">
+                      <span className="text-muted-foreground text-[12.5px]">
                         {mood.word}
                       </span>
                     </>
@@ -270,7 +270,7 @@ export function Subagent() {
 
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="flex flex-col gap-1">
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <span className="text-muted-foreground text-[12.5px]">
                     Name
                   </span>
                   <Input
@@ -282,7 +282,7 @@ export function Subagent() {
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <span className="text-muted-foreground text-[12.5px]">
                     Title
                   </span>
                   <Input
@@ -302,7 +302,7 @@ export function Subagent() {
                 into a text box every time somebody wants a report.
               */}
               <label className="mt-2 flex flex-col gap-1">
-                <span className="text-muted-foreground text-[11.5px]">
+                <span className="text-muted-foreground text-[12.5px]">
                   Standing instructions — prepended to every brief this worker
                   is given. Empty means nothing has been said, which is not the
                   same as told to do nothing.
@@ -331,7 +331,7 @@ export function Subagent() {
                   {saving ? "Saving…" : "Save"}
                 </Button>
                 {saved && (
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <span className="text-muted-foreground text-[12.5px]">
                     Saved.
                   </span>
                 )}
@@ -340,7 +340,7 @@ export function Subagent() {
                     second press to mean anything is a checkbox pretending to
                     be a switch. */}
                 <label className="ml-auto flex items-center gap-2">
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <span className="text-muted-foreground text-[12.5px]">
                     {sa.enabled
                       ? "On — will accept work"
                       : "Off — dispatch is refused"}
@@ -361,9 +361,9 @@ export function Subagent() {
                   className="text-muted-foreground size-3.5"
                   strokeWidth={1.6}
                 />
-                <h2 className="text-[13px] font-medium">Give it a brief</h2>
+                <h2 className="text-[14px] font-medium">Give it a brief</h2>
               </div>
-              <p className="text-muted-foreground mb-2 text-[11.5px]">
+              <p className="text-muted-foreground mb-2 text-[12.5px]">
                 Written in English, not in fields — the server turns it into
                 this kind's inputs and puts your standing instructions above
                 it. It queues like everything else and carries on with this tab
@@ -384,13 +384,13 @@ export function Subagent() {
                   {sending ? "Dispatching…" : "Dispatch"}
                 </Button>
                 {sa.running && (
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <span className="text-muted-foreground text-[12.5px]">
                     This one is already working. A second brief queues behind
                     the first.
                   </span>
                 )}
                 {!sa.enabled && (
-                  <span className="text-muted-foreground text-[11.5px]">
+                  <span className="text-muted-foreground text-[12.5px]">
                     Switched off. Turn it back on above to dispatch.
                   </span>
                 )}
@@ -402,26 +402,26 @@ export function Subagent() {
                     nobody's conversation. */}
                 <Link
                   to={`/?venture=${encodeURIComponent(venture.id)}&q=${encodeURIComponent(`Ask ${sa.name} to `)}`}
-                  className="text-muted-foreground hover:text-foreground ml-auto flex items-center gap-1.5 text-[11.5px]"
+                  className="text-muted-foreground hover:text-foreground ml-auto flex items-center gap-1.5 text-[12.5px]"
                 >
                   <MessageSquare className="size-3.5" strokeWidth={1.6} />
                   Ask the chief of staff instead
                 </Link>
               </div>
               {problem && (
-                <p className="text-destructive mt-2 text-[12px]">{problem}</p>
+                <p className="text-destructive mt-2 text-[13px]">{problem}</p>
               )}
             </section>
 
             {/* ---------------------------------------------------- history */}
             <section>
               <div className="mb-2 flex items-baseline gap-2">
-                <h2 className="text-[13px] font-medium">What it has done</h2>
-                <span className="text-muted-foreground ml-auto text-[11.5px]">
+                <h2 className="text-[14px] font-medium">What it has done</h2>
+                <span className="text-muted-foreground ml-auto text-[12.5px]">
                   {sa.counts.done} kept · {sa.counts.failed} failed
                 </span>
               </div>
-              <p className="text-muted-foreground mb-2 text-[11.5px]">
+              <p className="text-muted-foreground mb-2 text-[12.5px]">
                 Every {sa.kind} run filed under {venture.name}, dispatched by
                 name or started from the app — a run of this kind against this
                 venture IS this worker's work, whoever pressed the button.
@@ -442,13 +442,13 @@ export function Subagent() {
                             statusTone(r.status),
                           )}
                         />
-                        <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                        <span className="min-w-0 flex-1 truncate text-[13.5px]">
                           {r.title}
                         </span>
-                        <span className="text-muted-foreground hidden w-[168px] shrink-0 truncate text-right text-[11.5px] lg:block">
+                        <span className="text-muted-foreground hidden w-[168px] shrink-0 truncate text-right text-[12.5px] lg:block">
                           {backendPhrase(r)}
                         </span>
-                        <span className="text-muted-foreground w-[132px] shrink-0 text-right text-[11.5px]">
+                        <span className="text-muted-foreground w-[132px] shrink-0 text-right text-[12.5px]">
                           {isLive(r.status)
                             ? statusWord(r.status)
                             : `${took ? `${took} · ` : ""}${ago(r.finishedAt ?? r.queuedAt)}`}
@@ -458,7 +458,7 @@ export function Subagent() {
                   })}
                 </div>
               ) : (
-                <p className="text-muted-foreground text-[12.5px]">
+                <p className="text-muted-foreground text-[13.5px]">
                   Nothing yet. Nobody has asked this one for anything and no
                   {" "}
                   {sa.kind} run has been started from an app with {venture.name}

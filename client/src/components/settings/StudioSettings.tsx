@@ -40,15 +40,15 @@ export function StudioSettings() {
       />
 
       {doc.error && (
-        <p className="text-muted-foreground text-[12.5px]">
+        <p className="text-muted-foreground text-[13.5px]">
           The API did not answer, so this cannot say which model is in use.{" "}
           <span className="text-destructive">{doc.error}</span>
         </p>
       )}
 
       {r && (
-        <div className="bg-card grid gap-1 rounded-[10px] border px-3.5 py-3">
-          <div className="text-[13px]">
+        <div className="bg-card grid gap-1 rounded-[14px] border px-4.5 py-3.5">
+          <div className="text-[14px]">
             {r.image.ready
               ? `Pictures will be asked of ${r.image.model}`
               : "No picture will be made — Replicate is not connected"}
@@ -56,10 +56,10 @@ export function StudioSettings() {
               <span className="text-muted-foreground"> — the default</span>
             )}
           </div>
-          <p className="text-muted-foreground text-[11.5px] leading-relaxed">
+          <p className="text-muted-foreground text-[12.5px] leading-relaxed">
             {r.image.note}
           </p>
-          <p className="text-muted-foreground text-[11.5px] leading-relaxed">
+          <p className="text-muted-foreground text-[12.5px] leading-relaxed">
             {r.caption.note}
           </p>
         </div>

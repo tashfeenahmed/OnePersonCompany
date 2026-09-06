@@ -67,28 +67,28 @@ export function RunReport({
   const took = duration(run.ms, { nullText: "" }) || (run.status === "running" ? since(run.startedAt) : null);
 
   return (
-    <div className="bg-card rounded-[10px] border p-3.5">
+    <div className="bg-card rounded-[14px] border p-4.5">
       <div className="mb-3 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <span
           className={cn("size-1.5 shrink-0 rounded-full", statusTone(run.status))}
         />
-        <span className="text-[13.5px] font-medium tracking-tight">
+        <span className="text-[14.5px] font-medium tracking-tight">
           {run.title}
         </span>
-        <span className="text-muted-foreground text-[12px]">
+        <span className="text-muted-foreground text-[13px]">
           {statusWord(run.status)}
           {run.ventureName && ` · ${run.ventureName}`}
           {took && ` · ${took}`}
         </span>
 
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          {!live && onRetry && <button className="rounded border px-2 py-1 text-xs" disabled={busy} onClick={onRetry}>Retry saved inputs</button>}
-          {run.canResume && onResume && <button className="rounded border px-2 py-1 text-xs" disabled={busy} onClick={onResume}>Resume checkpoints</button>}
+          {!live && onRetry && <button className="rounded-md px-2.5 py-1.5 text-xs bg-muted hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] transition-colors disabled:opacity-50" disabled={busy} onClick={onRetry}>Retry saved inputs</button>}
+          {run.canResume && onResume && <button className="rounded-md px-2.5 py-1.5 text-xs bg-muted hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] transition-colors disabled:opacity-50" disabled={busy} onClick={onResume}>Resume checkpoints</button>}
           {live && (
             <button
               onClick={onCancel}
               disabled={busy}
-              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] disabled:opacity-50"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] disabled:opacity-50"
             >
               <Square className="size-3.5" strokeWidth={1.6} />
               Stop
@@ -102,7 +102,7 @@ export function RunReport({
             <a
               href={runFileUrl(run.id, "markdown")}
               download
-              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px]"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px]"
             >
               <Download className="size-3.5" strokeWidth={1.6} />
               Markdown
@@ -113,7 +113,7 @@ export function RunReport({
             <button
               onClick={onDelete}
               disabled={busy}
-              className="text-muted-foreground hover:bg-accent hover:text-destructive flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] disabled:opacity-50"
+              className="text-muted-foreground hover:bg-accent hover:text-destructive flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] disabled:opacity-50"
             >
               <Trash2 className="size-3.5" strokeWidth={1.6} />
               Delete
@@ -123,7 +123,7 @@ export function RunReport({
       </div>
 
       {run.error && (
-        <p className="text-destructive mb-3 text-[12.5px] leading-relaxed">
+        <p className="text-destructive mb-3 text-[13.5px] leading-relaxed">
           {run.error}
         </p>
       )}
@@ -134,32 +134,32 @@ export function RunReport({
       {run.paper && (
         <div className="mb-4">
           <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="text-[14px] leading-snug font-medium tracking-tight">
+            <span className="text-[15px] leading-snug font-medium tracking-tight">
               {run.paper.title}
             </span>
             <PaperFacts paper={run.paper} />
           </div>
           {run.paper.thesis && (
-            <p className="text-muted-foreground mb-2 text-[12.5px] leading-relaxed">
+            <p className="text-muted-foreground mb-2 text-[13.5px] leading-relaxed">
               {run.paper.thesis}
             </p>
           )}
           {run.paper.contributions.length > 0 && (
-            <ul className="text-muted-foreground mb-2.5 list-disc pl-4 text-[12.5px] leading-relaxed">
+            <ul className="text-muted-foreground mb-2.5 list-disc pl-4 text-[13.5px] leading-relaxed">
               {run.paper.contributions.map((c, i) => (
                 <li key={i}>{c}</li>
               ))}
             </ul>
           )}
           <PaperFrame paper={run.paper} />
-          <div className="text-muted-foreground mt-3 mb-1 text-[11px] tracking-[0.06em] uppercase">
+          <div className="text-muted-foreground mt-3 mb-1 text-[12px] tracking-[0.06em] uppercase">
             How it was made
           </div>
         </div>
       )}
 
       {run.status === "queued" ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           Waiting its turn. Runs execute one at a time on this box, so this one
           starts when the one before it finishes — the tab can be closed and the
           work carries on.
@@ -167,7 +167,7 @@ export function RunReport({
       ) : body.trim() ? (
         <>
           {run.partial && (
-            <div className="text-muted-foreground mb-2 flex items-center gap-2 text-[11.5px]">
+            <div className="text-muted-foreground mb-2 flex items-center gap-2 text-[12.5px]">
               <Loader2 className="size-3 animate-spin" strokeWidth={1.8} />
               Still being written — this is the report so far, not the finished
               one.
@@ -176,19 +176,19 @@ export function RunReport({
           <Markdown text={body} />
         </>
       ) : run.status === "running" ? (
-        <p className="text-muted-foreground flex items-center gap-2 text-[13px]">
+        <p className="text-muted-foreground flex items-center gap-2 text-[14px]">
           <Loader2 className="size-3.5 animate-spin" strokeWidth={1.8} />
           Working. Nothing has been written yet.
         </p>
       ) : (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           This run wrote nothing.
         </p>
       )}
 
       {cards.length > 0 && <RunCards cards={cards} ventureId={run.ventureId} />}
 
-      <div className="text-muted-foreground border-line-soft mt-3.5 border-t pt-2.5 text-[11.5px]">
+      <div className="text-muted-foreground border-line-soft mt-3.5 border-t pt-2.5 text-[12.5px]">
         {backendPhrase(run)}
         {run.steps.length > 0 &&
           ` · ${run.steps.length} ${run.steps.length === 1 ? "tool call" : "tool calls"}`}

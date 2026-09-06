@@ -118,13 +118,13 @@ export function BacklinksPanel({ onCollected }: { onCollected?: () => void }) {
 
       <div className="flex flex-col gap-2">
         {d.hosts.map((h) => (
-          <div key={h.host} className="rounded-[10px] border p-3.5">
+          <div key={h.host} className="rounded-[14px] border p-3.5">
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="text-[13px] font-medium">{h.host}</span>
+              <span className="text-[14px] font-medium">{h.host}</span>
               {!h.collected && (
                 <Badge variant="secondary">not collected yet</Badge>
               )}
-              <span className="text-muted-foreground ml-auto text-[11.5px]">
+              <span className="text-muted-foreground ml-auto text-[12.5px]">
                 {h.links.length} link{h.links.length === 1 ? "" : "s"} held ·{" "}
                 {ago(h.seenAt)}
               </span>
@@ -152,15 +152,15 @@ export function BacklinksPanel({ onCollected }: { onCollected?: () => void }) {
                             : "never asked"
                       }
                     />
-                    <span className="text-[12.5px] font-medium">{src.label}</span>
+                    <span className="text-[13.5px] font-medium">{src.label}</span>
                     <Badge variant="secondary" className="font-normal">
                       confidence {src.confidence}
                     </Badge>
-                    <span className="text-muted-foreground ml-auto text-[11.5px]">
+                    <span className="text-muted-foreground ml-auto text-[12.5px]">
                       {src.ok === null ? "never asked" : ago(src.seenAt)}
                     </span>
                   </div>
-                  <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
+                  <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[13px] tabular-nums">
                     <span>referring domains {count(src.referringDomains)}</span>
                     <span>inbound links {count(src.backlinks)}</span>
                     <span>linked pages {count(src.linkedPages)}</span>
@@ -176,7 +176,7 @@ export function BacklinksPanel({ onCollected }: { onCollected?: () => void }) {
                   {(src.note || src.error) && (
                     <p
                       className={cn(
-                        "mt-1 text-[11.5px]",
+                        "mt-1 text-[12.5px]",
                         src.error ? "text-destructive" : "text-muted-foreground",
                       )}
                     >

@@ -19,9 +19,9 @@ export function Section({
   return (
     <div className="grid gap-2.5 py-5">
       <div>
-        <div className="text-[13px] font-medium tracking-tight">{title}</div>
+        <div className="text-[14px] font-medium tracking-tight">{title}</div>
         {hint && (
-          <p className="text-muted-foreground mt-0.5 max-w-[560px] text-[12.5px]">
+          <p className="text-muted-foreground mt-0.5 max-w-[560px] text-[13.5px]">
             {hint}
           </p>
         )}

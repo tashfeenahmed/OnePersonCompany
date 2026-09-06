@@ -74,16 +74,16 @@ export function UmamiPanel({ onCollected }: { onCollected?: () => void }) {
         {d.websites.map((site, i) => (
           <Row key={`${site.accountId}:${site.entity}`} first={i === 0}>
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="text-[13px] font-medium">{site.name}</span>
-              <span className="text-muted-foreground font-mono text-[11.5px]">
+              <span className="text-[14px] font-medium">{site.name}</span>
+              <span className="text-muted-foreground font-mono text-[12.5px]">
                 {site.domain ?? "no domain recorded"}
               </span>
-              <span className="text-muted-foreground ml-auto text-[11.5px]">
+              <span className="text-muted-foreground ml-auto text-[12.5px]">
                 {site.account} · read {ago(site.seenAt)}
               </span>
             </div>
             {site.window ? (
-              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[13px] tabular-nums">
                 <span>{count(site.window.pageviews)} pageviews</span>
                 <span>{count(site.window.visitors)} visitors</span>
                 <span>{count(site.window.visits)} visits</span>
@@ -93,7 +93,7 @@ export function UmamiPanel({ onCollected }: { onCollected?: () => void }) {
                 </span>
               </div>
             ) : (
-              <p className="text-muted-foreground mt-1 text-[12px]">
+              <p className="text-muted-foreground mt-1 text-[13px]">
                 No window collected for this site yet — it is listed on the
                 instance and has not been read.
               </p>

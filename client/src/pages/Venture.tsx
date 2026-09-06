@@ -133,7 +133,7 @@ export function Venture() {
               <Link
                 key={v.id}
                 to={`/ventures/${v.slug}`}
-                className="hover:bg-accent flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[12.5px]"
+                className="hover:bg-accent flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[13.5px]"
               >
                 <VentureMark venture={v} size={16} />
                 {v.name}
@@ -180,7 +180,7 @@ export function Venture() {
           different page. */}
       <header className="flex h-12 shrink-0 items-center gap-2.5 px-4.5">
         <VentureMark venture={venture} size={18} />
-        <span className="text-[13px] font-medium tracking-tight">
+        <span className="text-[14px] font-medium tracking-tight">
           {venture.name}
         </span>
         <StagePill stage={venture.stage} />
@@ -189,7 +189,7 @@ export function Venture() {
             href={venture.website}
             target="_blank"
             rel="noreferrer"
-            className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[11.5px]"
+            className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[12.5px]"
           >
             {venture.host}
             <ExternalLink className="size-3" strokeWidth={1.6} />
@@ -205,7 +205,7 @@ export function Venture() {
               <span
                 key={role}
                 title={`${role} · ${hex} — measured from ${venture.host ?? "the site"}`}
-                className="size-[11px] rounded-[3px]"
+                className="size-[11px] rounded-[4px]"
                 style={{ background: hex! }}
               />
             ))}
@@ -257,7 +257,7 @@ export function Venture() {
         />
         <button
           onClick={() => setCreating(true)}
-          className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]"
+          className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
         >
           <Plus className="size-3.5" strokeWidth={1.6} />
           New dashboard
@@ -399,9 +399,9 @@ function Overview({
     <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-4 pb-16">
       <div className="mx-auto flex w-full max-w-[940px] flex-col gap-6">
         {venture.description && (
-          <p className="text-[13.5px] leading-relaxed">{venture.description}</p>
+          <p className="text-[14.5px] leading-relaxed">{venture.description}</p>
         )}
-        <p className="text-muted-foreground text-[12.5px] leading-relaxed">
+        <p className="text-muted-foreground text-[13.5px] leading-relaxed">
           {stage?.note}
         </p>
 
@@ -416,7 +416,7 @@ function Overview({
               <Link
                 key={q}
                 to={`/?venture=${encodeURIComponent(venture.id)}&q=${encodeURIComponent(q)}`}
-                className="hover:border-line-strong rounded-[10px] border px-3 py-2.5 text-[12.5px] leading-snug transition-colors"
+                className="hover:border-line-strong rounded-[14px] border px-3 py-2.5 text-[13.5px] leading-snug transition-colors"
               >
                 {q}
               </Link>
@@ -458,13 +458,13 @@ function Overview({
               <Link
                 key={slug}
                 to={`${appPage(slug)}?venture=${encodeURIComponent(venture.id)}`}
-                className="text-muted-foreground hover:border-line-strong hover:text-foreground rounded-[9px] border px-2.5 py-1.5 text-[12px] transition-colors"
+                className="text-muted-foreground hover:border-line-strong hover:text-foreground rounded-[12px] border px-2.5 py-1.5 text-[13px] transition-colors"
               >
                 {label}
               </Link>
             ))}
           </div>
-          <p className="text-muted-foreground mt-1.5 text-[11.5px]">
+          <p className="text-muted-foreground mt-1.5 text-[12.5px]">
             These queue long agent work rather than opening a chat — minutes,
             one at a time, and it carries on with this tab shut.
           </p>
@@ -495,7 +495,7 @@ function Overview({
           action={
             <Link
               to="/ventures/org"
-              className="text-muted-foreground hover:text-foreground text-[11.5px]"
+              className="text-muted-foreground hover:text-foreground text-[12.5px]"
             >
               The org chart
             </Link>
@@ -509,7 +509,7 @@ function Overview({
                   sa={sa}
                   to={teamAddress(venture.slug, sa.role)}
                   trailing={
-                    <span className="text-muted-foreground group-hover:text-foreground hidden w-[56px] shrink-0 text-right text-[11px] sm:block">
+                    <span className="text-muted-foreground group-hover:text-foreground hidden w-[56px] shrink-0 text-right text-[12px] sm:block">
                       Dispatch
                     </span>
                   }
@@ -517,7 +517,7 @@ function Overview({
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-[12.5px]">
+            <p className="text-muted-foreground text-[13.5px]">
               {org.error
                 ? `Nobody could be read — ${org.error}`
                 : org.loading
@@ -534,7 +534,7 @@ function Overview({
           action={
             <Link
               to="/board"
-              className="text-muted-foreground hover:text-foreground text-[11.5px]"
+              className="text-muted-foreground hover:text-foreground text-[12.5px]"
             >
               Open the board
             </Link>
@@ -544,20 +544,20 @@ function Overview({
             <div className="flex flex-col gap-3">
               {columns.map((c) => (
                 <div key={c.title}>
-                  <div className="text-muted-foreground mb-1 text-[11.5px]">
+                  <div className="text-muted-foreground mb-1 text-[12.5px]">
                     {c.title} · {c.cards.length}
                   </div>
                   <div className="flex flex-col gap-px">
                     {c.cards.slice(0, 6).map((card) => (
                       <div
                         key={card.id}
-                        className="truncate rounded-md px-1.5 py-1 text-[12.5px]"
+                        className="truncate rounded-md px-1.5 py-1 text-[13.5px]"
                       >
                         {card.title}
                       </div>
                     ))}
                     {c.cards.length > 6 && (
-                      <span className="text-muted-foreground px-1.5 pt-1 text-[11.5px]">
+                      <span className="text-muted-foreground px-1.5 pt-1 text-[12.5px]">
                         {c.cards.length - 6} more
                       </span>
                     )}
@@ -566,7 +566,7 @@ function Overview({
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-[12.5px]">
+            <p className="text-muted-foreground text-[13.5px]">
               {board
                 ? "Nothing filed under this venture."
                 : "The board could not be read."}
@@ -582,7 +582,7 @@ function Overview({
           action={
             <Link
               to={`/?venture=${encodeURIComponent(venture.id)}`}
-              className="text-muted-foreground hover:text-foreground text-[11.5px]"
+              className="text-muted-foreground hover:text-foreground text-[12.5px]"
             >
               New chat
             </Link>
@@ -594,14 +594,14 @@ function Overview({
                 <Link
                   key={s.id}
                   to={`/chat/${encodeURIComponent(s.id)}`}
-                  className="hover:bg-accent -mx-1.5 truncate rounded-md px-1.5 py-1 text-[12.5px]"
+                  className="hover:bg-accent -mx-1.5 truncate rounded-md px-1.5 py-1 text-[13.5px]"
                 >
                   {s.title}
                 </Link>
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-[12.5px]">
+            <p className="text-muted-foreground text-[13.5px]">
               Nothing asked about this one yet.
             </p>
           )}
@@ -622,10 +622,10 @@ function Overview({
               <Link
                 key={d.id}
                 to={`/ventures/${venture.slug}/dashboards/${d.slug}`}
-                className="hover:border-line-strong rounded-[10px] border p-3 transition-colors"
+                className="hover:border-line-strong rounded-[14px] border p-3 transition-colors"
               >
-                <div className="text-[12.5px] font-medium">{d.name}</div>
-                <div className="text-muted-foreground mt-0.5 text-[11.5px]">
+                <div className="text-[13.5px] font-medium">{d.name}</div>
+                <div className="text-muted-foreground mt-0.5 text-[12.5px]">
                   {d.widgets.length}{" "}
                   {d.widgets.length === 1 ? "widget" : "widgets"}
                 </div>
@@ -633,7 +633,7 @@ function Overview({
             ))}
             <button
               onClick={onNewDashboard}
-              className="text-muted-foreground hover:border-line-strong hover:text-foreground flex min-h-[62px] items-center justify-center gap-2 rounded-[10px] border border-dashed text-[12.5px] transition-colors"
+              className="text-muted-foreground hover:border-line-strong hover:text-foreground flex min-h-[62px] items-center justify-center gap-2 rounded-[14px] border border-dashed text-[13.5px] transition-colors"
             >
               <Plus className="size-3.5" strokeWidth={1.6} />
               New dashboard
@@ -654,7 +654,7 @@ function Overview({
               <div className="flex items-center gap-3">
                 <Link
                   to={`/ventures/${venture.slug}/site`}
-                  className="text-muted-foreground hover:text-foreground text-[11.5px]"
+                  className="text-muted-foreground hover:text-foreground text-[12.5px]"
                 >
                   The page and both readings
                 </Link>
@@ -664,7 +664,7 @@ function Overview({
                     void enrichVenture(venture.id).finally(() => setReading(false));
                   }}
                   disabled={reading}
-                  className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[11.5px]"
+                  className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[12.5px]"
                 >
                   <RefreshCw className="size-3.5" strokeWidth={1.6} />
                   {reading ? "Reading…" : "Re-read the site"}
@@ -674,7 +674,7 @@ function Overview({
           }
         >
           {!venture.website && (
-            <p className="text-muted-foreground text-[12.5px]">
+            <p className="text-muted-foreground text-[13.5px]">
               No website on this venture, so nothing has been read.
             </p>
           )}
@@ -683,13 +683,13 @@ function Overview({
               absence: "the site could not be reached" and "the site has no
               icon" look identical on a page that only draws what it found. */}
           {venture.brand.error && (
-            <p className="text-destructive text-[12.5px]">
+            <p className="text-destructive text-[13.5px]">
               {venture.brand.error}
             </p>
           )}
 
           {venture.website && !venture.brand.error && (
-            <div className="flex flex-col gap-2 text-[12.5px]">
+            <div className="flex flex-col gap-2 text-[13.5px]">
               {venture.brand.title && <div>{venture.brand.title}</div>}
               {venture.brand.description && (
                 <p className="text-muted-foreground">
@@ -702,7 +702,7 @@ function Overview({
                     <span
                       key={c.hex}
                       title={`${c.hex} · weight ${c.weight}`}
-                      className="size-[16px] rounded-[4px] border"
+                      className="size-[16px] rounded-[5px] border"
                       style={{ background: c.hex }}
                     />
                   ))}
@@ -711,7 +711,7 @@ function Overview({
               {/* The fonts and the notes about what could not be measured are
                   on the Site tab, beside the rendered reading they are meant
                   to be compared with. */}
-              <p className="text-muted-foreground text-[11.5px]">
+              <p className="text-muted-foreground text-[12.5px]">
                 {venture.brand.enrichedAt
                   ? `Read ${when(venture.brand.enrichedAt, { year: true })}`
                   : "Never read."}
@@ -747,11 +747,11 @@ function Section({
         {Icon && (
           <Icon className="text-muted-foreground size-3.5" strokeWidth={1.6} />
         )}
-        <h2 className="text-[13px] font-medium">{title}</h2>
+        <h2 className="text-[14px] font-medium">{title}</h2>
         {action && <div className="ml-auto">{action}</div>}
       </div>
       {note && (
-        <p className="text-muted-foreground mb-2 text-[11.5px]">{note}</p>
+        <p className="text-muted-foreground mb-2 text-[12.5px]">{note}</p>
       )}
       {children}
     </section>

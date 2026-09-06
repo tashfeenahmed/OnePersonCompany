@@ -46,7 +46,7 @@ export function GeoAnswers({
 
   if (!venture)
     return (
-      <p className="text-muted-foreground text-[13px]">
+      <p className="text-muted-foreground text-[14px]">
         Pick a venture to see what the models say about it.
       </p>
     );
@@ -66,10 +66,10 @@ export function GeoAnswers({
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-2">
-        <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
           What the models say
         </div>
-        <span className="text-muted-foreground ml-auto text-[11.5px]">
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
           {doc.loading && !doc.data
             ? "loading…"
             : doc.error
@@ -83,7 +83,7 @@ export function GeoAnswers({
       </div>
 
       {answers.length === 0 ? (
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-[14px]">
           Nothing has been asked about {venture.name} yet. A run puts the same
           few questions to the active provider with no tools and no web, and
           keeps whatever comes back.
@@ -93,10 +93,10 @@ export function GeoAnswers({
           {[...byProvider].map(([provider, rows]) => (
             <div key={provider}>
               <div className="mb-1.5 flex flex-wrap items-baseline gap-2">
-                <span className="text-[13px] font-medium tracking-tight">
+                <span className="text-[14px] font-medium tracking-tight">
                   {provider}
                 </span>
-                <span className="text-muted-foreground text-[11.5px]">
+                <span className="text-muted-foreground text-[12.5px]">
                   {rows[0]?.model ?? "model not recorded"} · asked{" "}
                   {ago(rows[0]?.ts ?? null)} ·{" "}
                   {rows.filter((r) => r.mentioned).length} of {rows.length}{" "}
@@ -107,10 +107,10 @@ export function GeoAnswers({
                 {rows.map((a, i) => (
                   <div
                     key={`${a.runId}:${i}`}
-                    className="bg-card rounded-[10px] border p-3"
+                    className="bg-card rounded-[14px] border p-4"
                   >
                     <div className="mb-1 flex flex-wrap items-baseline gap-2">
-                      <span className="text-[12.5px] font-medium tracking-tight">
+                      <span className="text-[13.5px] font-medium tracking-tight">
                         {a.question}
                       </span>
                       <span className="ml-auto flex shrink-0 gap-1">
@@ -119,7 +119,7 @@ export function GeoAnswers({
                         <Pill label="recommended" value={a.recommended} />
                       </span>
                     </div>
-                    <p className="text-muted-foreground text-[12.5px] leading-relaxed whitespace-pre-wrap">
+                    <p className="text-muted-foreground text-[13.5px] leading-relaxed whitespace-pre-wrap">
                       {a.answer}
                     </p>
                   </div>
@@ -146,7 +146,7 @@ function Pill({ label, value }: { label: string; value: boolean | null }) {
             : `not ${label}`
       }
       className={cn(
-        "rounded-[6px] border px-1.5 py-px text-[10.5px] leading-[1.5] whitespace-nowrap",
+        "rounded-[8px] border px-1.5 py-px text-[11.5px] leading-[1.5] whitespace-nowrap",
         value === null && "text-muted-foreground border-dashed opacity-70",
         value === true && "text-ok border-ok/40",
         value === false && "text-muted-foreground",

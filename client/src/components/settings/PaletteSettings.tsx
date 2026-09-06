@@ -46,12 +46,12 @@ export function PaletteSettings() {
             onClick={() => setPalette(p.id)}
             aria-pressed={chosen === p.id}
             className={cn(
-              "bg-card rounded-[10px] border p-3 text-left transition-colors",
+              "bg-card rounded-[14px] border p-4 text-left transition-colors",
               chosen === p.id ? "border-foreground" : "hover:border-line-strong",
             )}
           >
             <div className="flex items-center gap-2">
-              <span className="text-[13px] font-medium">{p.label}</span>
+              <span className="text-[14px] font-medium">{p.label}</span>
               {chosen === p.id && <Check className="ml-auto size-4" strokeWidth={2} />}
             </div>
 
@@ -60,14 +60,14 @@ export function PaletteSettings() {
                 <div key={mode} className="flex items-center gap-1.5">
                   <span
                     className={cn(
-                      "w-[30px] shrink-0 text-[10px] tabular-nums",
+                      "w-[30px] shrink-0 text-[11px] tabular-nums",
                       mode === resolved ? "text-foreground" : "text-muted-foreground",
                     )}
                   >
                     {mode === "light" ? "light" : "dark"}
                   </span>
                   <span
-                    className="border-line-soft flex h-5 flex-1 overflow-hidden rounded-[5px] border"
+                    className="border-line-soft flex h-5 flex-1 overflow-hidden rounded-[7px] border"
                     /* Four bands: page, card, ink, primary. Decorative — the
                        label above already names the palette, and a screen
                        reader reading out four hexes would be noise. */
@@ -81,11 +81,11 @@ export function PaletteSettings() {
               ))}
             </div>
 
-            <p className="text-muted-foreground mt-2 text-[11.5px] leading-snug">{p.hint}</p>
+            <p className="text-muted-foreground mt-2 text-[12.5px] leading-snug">{p.hint}</p>
           </button>
         ))}
       </div>
-      <p className="text-muted-foreground max-w-[560px] text-[11.5px]">
+      <p className="text-muted-foreground max-w-[560px] text-[12.5px]">
         The seven palettes beside Paper are checked against WCAG AA (4.5:1) by a
         unit test — every ink against every surface, in both modes — so none of
         them can ship type you cannot read. Paper is this app's existing design
