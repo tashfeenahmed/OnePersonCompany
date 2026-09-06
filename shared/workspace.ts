@@ -11,6 +11,14 @@ export function isWorkspacePreferences(v: unknown): boolean {
   if (!text(w.name) || !text(w.owner) || !ref(w.defaultVentureId)) return false;
   if (v.seedVersion !== undefined && (!Number.isInteger(v.seedVersion) || Number(v.seedVersion) < 0)) return false;
   if (v.favoritePaths !== undefined && (!Array.isArray(v.favoritePaths) || v.favoritePaths.length > 100 || !v.favoritePaths.every(x => typeof x === "string" && /^\/[a-z][a-z0-9/-]*$/.test(x)) || new Set(v.favoritePaths).size !== v.favoritePaths.length)) return false;
+  if (v.pinnedItems !== undefined) {
+    if (!Array.isArray(v.pinnedItems) || v.pinnedItems.length > 5200 || !v.pinnedItems.every(pin => object(pin) && (
+      pin.type === "page" ? text(pin.path, 300) && /^\/[a-z][a-z0-9/-]*$/.test(pin.path)
+        : pin.type === "session" && text(pin.sessionId, 200) && !!pin.sessionId
+    ))) return false;
+    const keys = v.pinnedItems.map(pin => pin.type === "page" ? `page:${pin.path}` : `session:${pin.sessionId}`);
+    if (new Set(keys).size !== keys.length) return false;
+  }
   if (v.appOrder !== undefined && (!Array.isArray(v.appOrder) || v.appOrder.length > 200 || !v.appOrder.every(x => text(x, 100)) || new Set(v.appOrder).size !== v.appOrder.length)) return false;
   if (!list(v.sessions, s => text(s.id, 200) && !!s.id && text(s.title, 2000) && ref(s.ventureId)
     && (s.seeded === undefined || typeof s.seeded === "boolean")

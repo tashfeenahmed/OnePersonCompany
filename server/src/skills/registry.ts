@@ -432,19 +432,21 @@ const BUILTIN_ENTRIES: Skill[] = [
 
   {
     id: "mobile",
-    title: "App stores — Apple and Google, estimate and payout",
+    title: "App Store Connect and Google Play — revenue, estimates and installs",
     plugins: ["appstore", "playstore"],
     about:
-      "Both stores in one document: store presence and ratings, installs and " +
+      "Check App Store Connect (iOS) and Google Play (Android) revenue once either plugin is connected. " +
+      "Use the revenue view for a specific report month or the latest available month, per store, account and app. " +
+      "The default view includes both stores: store presence and ratings, installs and " +
       "units per day, each store's ESTIMATE of what a period earned, and — " +
-      "separately — the PAYOUT it actually settled. Per currency throughout. " +
-      "Window in days, default 30.",
+      "separately — net proceeds from its financial reports. Per currency throughout. " +
+      "The days window (default 30) applies only to daily figures, not monthly financial reports.",
     rules: [
       "THE ESTIMATE AND THE PAYOUT ARE DIFFERENT THINGS. Never add them, never " +
         "average them, never substitute one for the other. Only a payout may be " +
         "called revenue. Apple's estimate is its daily sales report's developer " +
         "proceeds; its payout is the finance report. Google's estimate is what " +
-        "buyers were charged; its payout is the merchant amount that landed.",
+        "buyers were charged; its payout is reported net merchant earnings.",
       "The estimate is the only figure that exists for a month still running, " +
         "which is exactly why it keeps its own name.",
       "Nothing is added across currencies. One month of this account took money " +
@@ -455,6 +457,12 @@ const BUILTIN_ENTRIES: Skill[] = [
       "Apple pays per FISCAL MONTH and Google stamps its financial exports by " +
         "MONTH, so no window narrower than a month is measurable on the payout " +
         "side at all.",
+      "For revenue questions use view=revenue with store=all, appstore, or playstore and optional month=YYYY-MM. " +
+        "Without month, each store selects its own latest available financial report; do not assume their months match. " +
+        "These are net proceeds reported by the store, not confirmation of a bank deposit.",
+      "Read connected, status, reportAvailable, collection dates and account errors before quoting revenue. " +
+        "A disconnected store or missing report is not zero. Partial account coverage is not a complete total. " +
+        "The tool reads collected reports; it does not refresh credentials or call the stores live.",
     ],
     views: [
       {
@@ -471,8 +479,18 @@ const BUILTIN_ENTRIES: Skill[] = [
           },
         ],
       },
+      {
+        key: "revenue",
+        path: "/api/mobile/revenue",
+        about: "Monthly App Store Connect and Google Play net revenue, per currency, account and app, with report availability.",
+        params: [
+          { name: "store", type: "string", required: false, fallback: "all", about: "all, appstore (iOS), or playstore (Android)." },
+          { name: "month", type: "string", required: false, about: "YYYY-MM report month. Omit for each store's latest available financial report. Apple uses fiscal months." },
+        ],
+      },
     ],
     asks: [
+      "What is my App Store and Google Play revenue for a particular month?",
       "What did the apps actually pay out last closed month?",
       "How many installs across both stores in the last 30 days?",
     ],

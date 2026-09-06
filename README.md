@@ -46,7 +46,7 @@ Port, interval and retention values are validated at startup. Setup checks repor
 
 ## Workspace and recovery
 
-Dashboard layouts, session labels/associations, workspace details, app order and favorites synchronize to the server with revision checks. The browser keeps a cache. Conflicting edits show a choice between server and browser versions, with a recovery copy saved first. Theme and unsent chat/mail drafts remain browser-local.
+Dashboard layouts, session labels/associations, workspace details, app order and sidebar pins synchronize to the server with revision checks. Pages and sessions share the Pinned section at the top of the sidebar; hover or focus a row to pin it, then drag its handle to reorder (or use Up/Down, Home/End). Existing favorites become page pins. The browser keeps a cache. Conflicting edits show a choice between server and browser versions, with a recovery copy saved first. Theme and unsent chat/mail drafts remain browser-local.
 
 Settings → Data exports/imports preferences. Imports are validated and confirmed before replacement. Reset restores workspace/layout defaults while keeping server ventures, chats and accounts. **Restore previous preferences** recovers the preceding snapshot. The recovery screen can export or clear invalid cached state.
 
@@ -79,6 +79,14 @@ Settings → Usage limits controls job runtime, model calls, output tokens, and 
 Capacity is reserved before managed requests, including concurrent ones. Provider-reported usage settles reservations; ambiguous/missing usage remains estimated. Dollar accounting uses an owner-configured price ceiling, not provider billing. Unmetered agents, video and screenshot QA are blocked when token/dollar limits are enabled. Arbitrary tools, external subscriptions and other processes remain outside the ledger.
 
 The Action inbox combines alerts, commitments, reply triage, failed jobs and revenue follow-ups. Open the source, snooze, send an item to a board, or resolve it. Resolution updates the source's completion state where available; dismissing a failed job preserves its report.
+
+## App-store revenue tools
+
+Connecting App Store Connect or Google Play enables the agent's `mobile` skill. Hermes receives the `app-store-revenue` skill pack; OpenClaw receives the read-only `opc_mobile` tool. Managed agents synchronize their available tools after plugin connections change, with a one-minute settle window before restarting an active agent.
+
+Use `opc mobile revenue --store appstore --month 2026-08` or `opc mobile revenue --store playstore --month 2026-08`. The MCP equivalent is `opc_mobile` with `view: "revenue"`, `store`, and `month`. Omit the month for the latest financial report available per store, or use `store=all` for both. The HTTP view is `/api/skills/mobile?view=revenue&store=all&month=2026-08`.
+
+Results separate currencies, accounts and apps, identify missing reports and partial coverage, and include collection dates and errors. They read collected reports and do not trigger a fresh collection. A missing report is never revenue of zero. Apple's fiscal months and Google Play's report months can differ; net proceeds are not proof of a bank deposit. Sales estimates remain separate in the default mobile view. Report sources: [Apple financial reports](https://developer.apple.com/help/app-store-connect/getting-paid/download-financial-reports/) and [Google Play financial exports](https://support.google.com/googleplay/android-developer/answer/6135870?hl=en).
 
 ## Verification
 

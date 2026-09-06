@@ -17,6 +17,13 @@ test("workspace synchronization rejects stale writes without losing saved settin
   assert.equal((await put(0, "stale")).status, 409);
   assert.equal((await (await workspaceRoutes.request("/")).json() as {data: typeof data}).data.workspace.owner, "first");
   assert.equal((await put(1, "second")).status, 200);
+  const pinnedItems = [{ type: "page", path: "/board" }, { type: "session", sessionId: "chat / ü" }, { type: "page", path: "/mail/email" }];
+  const withPins = { ...data, sessions: [{ id: "chat / ü", title: "Pinned session" }], pinnedItems };
+  assert.equal((await workspaceRoutes.request("/", { method: "PUT", body: JSON.stringify({ revision: 2, data: withPins }) })).status, 200);
+  const saved = await (await workspaceRoutes.request("/")).json() as { revision: number; data: typeof withPins };
+  assert.deepEqual(saved.data.pinnedItems, pinnedItems);
+  assert.equal((await workspaceRoutes.request("/", { method: "PUT", body: JSON.stringify({ revision: saved.revision, data: { ...withPins, pinnedItems: [pinnedItems[0], pinnedItems[0]] } }) })).status, 400);
+  assert.deepEqual((await (await workspaceRoutes.request("/")).json() as typeof saved).data.pinnedItems, pinnedItems);
 });
 test("run completion links use actual page names", () => {
   assert.equal(runPage("geo", "r-1"), "/outputs/visibility/r-1");

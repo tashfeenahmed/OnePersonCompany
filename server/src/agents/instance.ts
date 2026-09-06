@@ -104,9 +104,8 @@ import * as openclawAdapter from "../providers/openclaw.ts";
   disk before a child is spawned.
 */
 import { liveFingerprint, syncHermesSkills } from "../skills/hermes.ts";
+import { openClawSkillServers, syncOpenClawSkills } from "../skills/openclaw.ts";
 import { installCli } from "../skills/cli.ts";
-import { mcpCommandFor } from "../skills/spawn.ts";
-import { skills } from "../skills/registry.ts";
 
 /* ------------------------------------------------------------------- ids */
 
@@ -1026,7 +1025,7 @@ function configureOpenClaw(s: Spec, pl: Plan) {
     */
     // One server per integration here too — the tool list is what the owner
     // sees, and eighteen named entries beat one called "opc".
-    mcp: { servers: Object.fromEntries(skills().map((sk) => [`opc-${sk.id}`, mcpCommandFor(sk.id)])) },
+    mcp: { servers: openClawSkillServers() },
     tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
     discovery: { mdns: { mode: "off" } },
     logging: { level: "info", file: join(logsDir(s), "gateway.log") },
@@ -1691,17 +1690,18 @@ function watchProvider() {
  * moved and a child is up, bounce it. Nothing is restarted for a sync that
  * wrote nothing, which is the ordinary case.
  *
- * OPENCLAW IS NOT RESTARTED HERE and needs no equivalent. Its door is the MCP
- * server, whose tool list is built by asking `/api/skills` on every
- * `tools/list` — so a plugin connected while it runs is a tool that appears
- * without its config or its process changing.
+ * OpenClaw also needs its per-skill MCP server configuration updated. A new
+ * plugin has no server in the old configuration, so re-listing existing MCP
+ * servers cannot discover it. Sync the managed entries and restart when changed.
  */
 function watchSkills() {
   const SETTLE_MS = 60_000;
   let acted = liveFingerprint();
   let pending: { print: string; since: number } | null = null;
+  let syncing = false;
 
   const timer = setInterval(() => {
+    if (syncing) return;
     void (async () => {
       const print = liveFingerprint();
       if (print === acted) {
@@ -1713,29 +1713,29 @@ function watchSkills() {
         return;
       }
       if (Date.now() - pending.since < SETTLE_MS) return;
-      pending = null;
-      acted = print;
-
-      const s = SPECS.hermes;
-      const r = RUNTIME.hermes;
-      if (!r.installed) return;
-      const log = logger(s);
-      const sync = syncHermesSkills(join(hermesHome(s), "skills"), {
-        cli: join(cliBinDir(s), "opc"),
-      });
-      if (!sync.changed) return;
-      log(
-        `skills: the connected set changed — ${sync.written.length} written, ` +
-          `${sync.removed.length} removed` +
-          (sync.removed.length ? ` (${sync.removed.join(", ")})` : ""),
-      );
-      if (!r.child) return;
-      log(
-        "restarting so the new skill set reaches the system prompt — a running " +
-          "gateway caches its skills index for the life of the process",
-      );
-      await kill("hermes", "the connected skill set changed");
-      spawnChild("hermes");
+      syncing = true;
+      try {
+        for (const id of AGENT_IDS) {
+          const s = SPECS[id];
+          const r = RUNTIME[id];
+          if (!r.installed) continue;
+          const changed = id === "hermes"
+            ? syncHermesSkills(join(hermesHome(s), "skills"), { cli: join(cliBinDir(s), "opc") }).changed
+            : syncOpenClawSkills(join(s.home, ".openclaw", "openclaw.json"));
+          if (!changed) continue;
+          logger(s)("skills: updated the connected integrations");
+          if (!r.child) continue;
+          logger(s)("restarting so the connected skill set reaches the agent");
+          await kill(id, "the connected skill set changed");
+          spawnChild(id);
+        }
+        acted = print;
+        pending = null;
+      } catch (err) {
+        console.error("Could not sync agent skills:", err instanceof Error ? err.message : String(err));
+      } finally {
+        syncing = false;
+      }
     })();
   }, 15_000);
   timer.unref();

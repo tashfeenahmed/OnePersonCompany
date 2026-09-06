@@ -1,27 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
 import {
-  Activity,
   ChevronsUpDown,
-  FolderClosed,
-  LayoutDashboard,
-  KanbanSquare,
-  Bell,
-  FileText,
-  HardDrive,
-  MoreHorizontal,
   Moon,
-  Pencil,
-  Plug,
   Plus,
   Search,
-  Settings as SettingsIcon,
   Sun,
-  Trash2,
-  Users,
-  Workflow,
-  Network,
-  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,7 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { useStore } from "@/lib/store";
+import { useStore, type Session } from "@/lib/store";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useRunQueue } from "@/hooks/useRunQueue";
 import { useOpenAlerts } from "@/hooks/useOpenAlerts";
@@ -47,25 +31,29 @@ import { api } from "@/lib/api";
 import { GROWTH_PAGES, MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
 
 import { SidebarSection } from "@/components/SidebarSection";
-import { sidebarPath } from "../../../shared/navigation";
+import { PinnedSection } from "@/components/PinnedSection";
+import { SidebarPinButton } from "@/components/SidebarPinButton";
+import { SidebarSessionRow } from "@/components/SidebarSessionRow";
+import { ModuleIcon } from "@/components/ModuleIcon";
+import { pinKey, sidebarPins, type SidebarPin } from "../../../shared/sidebarPins";
 
 const NAV = [
-  { to: "/action-inbox", label: "Action inbox", icon: Bell },
-  { to: "/board", label: "Board", icon: KanbanSquare },
-  { to: "/outputs", label: "Sub-agent outputs", icon: FileText },
+  { to: "/action-inbox", label: "Action inbox" },
+  { to: "/board", label: "Board" },
+  { to: "/outputs", label: "Sub-agent outputs" },
   /* The rail's order: the business (ventures, its workers, the org), what
      is happening (activity, alerts, people), what runs on its own (workflows),
      then the machinery (integrations, dashboards, apps). */
-  { to: "/ventures", label: "Ventures", icon: FolderClosed },
-  { to: "/subagents", label: "Sub-agents", icon: Workflow },
-  { to: "/org", label: "Org chart", icon: Network },
-  { to: "/activity", label: "Activity", icon: Activity },
-  { to: "/alerts", label: "Alerts", icon: Bell },
-  { to: "/people", label: "People", icon: Users },
-  { to: "/workflows", label: "Workflows", icon: CalendarClock },
-  { to: "/integrations", label: "Integrations", icon: Plug },
-  { to: "/dashboards", label: "Dashboards", icon: LayoutDashboard },
-  { to: "/ops", label: "Ops", icon: HardDrive },
+  { to: "/ventures", label: "Ventures" },
+  { to: "/subagents", label: "Sub-agents" },
+  { to: "/org", label: "Org chart" },
+  { to: "/activity", label: "Activity" },
+  { to: "/alerts", label: "Alerts" },
+  { to: "/people", label: "People" },
+  { to: "/workflows", label: "Workflows" },
+  { to: "/integrations", label: "Integrations" },
+  { to: "/dashboards", label: "Dashboards" },
+  { to: "/ops", label: "Ops" },
   ...MAIL_PAGES,
   ...SOCIAL_PAGES,
   ...GROWTH_PAGES,
@@ -81,11 +69,17 @@ const NAV_GROUPS = [
 ];
 
 export function AppSidebar() {
-  const { state, renameSession, removeSession, streamingSessions, toggleFavorite } = useStore();
+  const { state, renameSession, removeSession, streamingSessions, togglePinned, reorderPinned } = useStore();
   const { theme, resolved, setTheme } = useTheme();
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const favoritePaths = [...new Set((state.favoritePaths ?? []).map(sidebarPath))];
+  const pins = sidebarPins(state);
+  const pinnedKeys = new Set(pins.map(pinKey));
+  const pinnedRows = pins.flatMap(pin => {
+    const label = pin.type === "page" ? NAV.find(item => item.to === pin.path)?.label
+      : state.sessions.find(session => session.id === pin.sessionId)?.title;
+    return label ? [{ key: pinKey(pin), label, pin }] : [];
+  });
 
   /** The chats with an answer arriving. A Set because this is looked up once
    *  per row and the rail is the one place that asks. */
@@ -157,31 +151,12 @@ export function AppSidebar() {
     return () => window.removeEventListener("keydown", onKey);
   }, [newChat]);
 
-  /** Which chat is being renamed in place, and what it says so far. Null is
-   *  "none" — there is never more than one, because the input takes focus and
-   *  a second one would be an edit nobody is looking at. */
   const [search, setSearch] = useState("");
   const [searching, setSearching] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
 
-  /**
-   * DELETE IS TWO DELETIONS AND BOTH HAVE TO HAPPEN.
-   *
-   * The rail's entry is the store's; the transcript is the server's. Removing
-   * only the first leaves a conversation on disk that nothing can reach —
-   * invisible, undeletable, and back in the rail on the next reconcile, which
-   * is the confusing kind of bug. Removing only the second leaves a row in the
-   * rail that opens onto nothing.
-   *
-   * THE SERVER GOES FIRST, and the store's entry is removed whether or not
-   * that call succeeds. The reasoning is which failure is worse: a transcript
-   * deleted from a rail that still lists it is recoverable by reloading; a
-   * rail entry that survives a successful delete would have the owner press it
-   * again and wonder why nothing happens. There is no undo either way, which
-   * is why the confirm is here at all.
-   */
+  // Delete the transcript first; only a successful response removes its row and pin.
   async function deleteSession(id: string, title: string) {
     if (deleting || !confirm(`Delete “${title}”? The conversation goes with it.`)) return;
     setDeleting(id); setDeleteError(null);
@@ -211,6 +186,41 @@ export function AppSidebar() {
     "/alerts": openAlerts,
   };
 
+  const visibleSessions = state.sessions.filter(session => {
+    const query = search.trim().toLowerCase();
+    if (!query) return !pinnedKeys.has(pinKey({ type: "session", sessionId: session.id }));
+    return `${session.title} ${state.ventures.find(venture => venture.id === session.ventureId)?.name ?? ""}`.toLowerCase().includes(query);
+  });
+
+  function renderPage(path: string, handle?: ReactNode) {
+    const item = NAV.find(item => item.to === path);
+    if (!item) return null;
+    const { label } = item;
+    const active = pathname === path || pathname.startsWith(`${path}/`);
+    const pin: SidebarPin = { type: "page", path };
+    return <div className={cn("sidebar-row flex min-w-0 items-center gap-0.5 rounded-lg pr-1 transition-colors focus-within:bg-accent", active ? "bg-accent font-medium" : "hover:bg-accent")}>
+      {handle}
+      <Link to={path} aria-current={active ? "page" : undefined} title={label}
+        className={cn("flex min-w-0 flex-1 items-center gap-2 py-1 text-[12.5px] outline-none", handle ? "pl-0.5" : "pl-1.5")}
+      >
+        <ModuleIcon path={path} />
+        <span className="truncate">{label}</span>
+        {counts[path] !== undefined && <span className="ml-auto text-xs text-muted-foreground">{counts[path]}</span>}
+      </Link>
+      <SidebarPinButton label={label} pinned={pinnedKeys.has(pinKey(pin))} onClick={() => togglePinned(pin)} />
+    </div>;
+  }
+
+  function renderSession(session: Session, handle?: ReactNode) {
+    const pin: SidebarPin = { type: "session", sessionId: session.id };
+    return <SidebarSessionRow
+      session={session} openSessionId={openSessionId} streaming={streaming}
+      pinned={pinnedKeys.has(pinKey(pin))} handle={handle} deleting={!!deleting}
+      onTogglePin={() => togglePinned(pin)} onRename={title => renameSession(session.id, title)}
+      onDelete={() => void deleteSession(session.id, session.title)}
+    />;
+  }
+
   return (
     <aside className="bg-sidebar border-sidebar-border flex h-full min-h-0 w-[252px] shrink-0 flex-col border-r px-2.5 pt-3.5 pb-2.5">
       <div className="flex items-center gap-2.5 px-2 pt-1 pb-3.5">
@@ -232,7 +242,12 @@ export function AppSidebar() {
       </Button>
 
       <ScrollArea data-sidebar-scroll className="-mx-1 min-h-0 flex-1 px-1 [&_[data-slot=scroll-area-viewport]]:overscroll-contain">
-      {!!favoritePaths?.length && <div className="mb-2 border-b pb-2 text-xs"><div className="px-2 py-1 text-muted-foreground uppercase text-[10px]">Favorites</div>{favoritePaths.map(path => { const item = NAV.find(n => n.to === path); return item ? <Link key={path} to={path} className="block px-2 py-1 hover:bg-accent rounded">★ {item.label}</Link> : null; })}</div>}
+      <PinnedSection items={pinnedRows} onReorder={reorderPinned} renderItem={(item, handle) => {
+        if (item.pin.type === "page") return renderPage(item.pin.path, handle);
+        const session = state.sessions.find(session => item.pin.type === "session" && session.id === item.pin.sessionId);
+        return session ? renderSession(session, handle) : null;
+      }} />
+      {deleteError && <p role="alert" className="p-2 text-xs text-destructive">Could not delete: {deleteError}</p>}
       <nav aria-label="Workspace" className="space-y-0.5">
         {NAV_GROUPS.map(group => <SidebarSection
           key={group.name}
@@ -241,13 +256,7 @@ export function AppSidebar() {
           defaultOpen={group.expanded}
           active={group.paths.some(path => pathname === path || pathname.startsWith(`${path}/`))}
         >
-          {NAV.filter(item => group.paths.includes(item.to)).map(({ to, label, icon: Icon }) => {
-            const active = pathname === to || pathname.startsWith(`${to}/`);
-            return <div key={to} className="flex items-center"><Link to={to} aria-current={active ? "page" : undefined} className={cn("flex flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-[12.5px]", active ? "bg-accent font-medium" : "hover:bg-accent")}>
-              <Icon className="size-[14px] shrink-0" strokeWidth={1.6} />{label}
-              {counts[to] !== undefined && <span className="ml-auto text-muted-foreground text-xs">{counts[to]}</span>}
-            </Link><button className="p-1 text-xs text-muted-foreground" aria-label={`${favoritePaths?.includes(to) ? "Remove" : "Add"} ${label} ${favoritePaths?.includes(to) ? "from" : "to"} favorites`} aria-pressed={favoritePaths?.includes(to) ?? false} onClick={() => toggleFavorite(to)}>{favoritePaths?.includes(to) ? "★" : "☆"}</button></div>;
-          })}
+          {NAV.filter(item => group.paths.includes(item.to)).map(item => <div key={item.to}>{renderPage(item.to)}</div>)}
         </SidebarSection>)}
       </nav>
 
@@ -259,248 +268,19 @@ export function AppSidebar() {
           <button
             className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[7px] p-1"
             title="Search sessions"
-            onClick={() => setSearching(v => !v)}
+            onClick={() => { setSearching(v => !v); setSearch(""); }}
             aria-expanded={searching}
           >
             <Search className="size-3.5" strokeWidth={1.6} />
           </button>
         </div>
 
-        {/* One flat list, newest first. Most chats are about nothing in
-            particular, so nothing here is grouped and nothing carries an icon;
-            the only indent is a chat that dispatched sub-agent runs. */}
-        {deleteError && <p role="alert" className="p-2 text-destructive text-xs">Could not delete: {deleteError}</p>}
-        {searching && <input autoFocus aria-label="Search sessions" placeholder="Search by title or venture…" value={search} onChange={e => setSearch(e.target.value)} className="m-1 w-[95%] border rounded p-2 text-sm" />}
-        {search && !state.sessions.some(s => s.title.toLowerCase().includes(search.toLowerCase())) && <p className="p-2 text-xs" role="status">No matching session titles.</p>}
+        {searching && <input autoFocus aria-label="Search sessions" placeholder="Search by title or venture…" value={search} onChange={e => setSearch(e.target.value)} className="m-1 w-[95%] rounded border p-2 text-sm" />}
         <div className="flex flex-col gap-px pt-1">
-          {/*
-            THE EMPTY RAIL IS A SENTENCE RATHER THAN A GAP.
-
-            It ships empty now — the twelve invented sessions are gone, and a
-            fresh install has had no conversations. A blank strip under a
-            heading reads as something that failed to load, which is the one
-            thing it is not.
-          */}
-          {!state.sessions.length && (
-            <p className="text-muted-foreground px-2 py-1.5 text-[11.5px] leading-[1.5]">
-              No conversations yet. Anything you say on the Chat page lands
-              here.
-            </p>
-          )}
-          {state.sessions.filter(s => `${s.title} ${state.ventures.find(v => v.id === s.ventureId)?.name ?? ""}`.toLowerCase().includes(search.toLowerCase())).map((s) => (
-            <div key={s.id} className="flex flex-col">
-              {editing?.id === s.id ? (
-                /*
-                  RENAME IN PLACE, IN THE ROW ITSELF. A dialog for one short
-                  string is a modal to type eight characters into, and it takes
-                  the rail off screen while you decide what to call something
-                  you can no longer see. Enter commits, Escape abandons, and
-                  blur commits too — because clicking away from a field you
-                  have just typed into means what you typed.
-                */
-                <input
-                  autoFocus
-                  value={editing.title}
-                  onChange={(e) => setEditing({ id: s.id, title: e.target.value })}
-                  onBlur={() => {
-                    renameSession(s.id, editing.title);
-                    setEditing(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      renameSession(s.id, editing.title);
-                      setEditing(null);
-                    }
-                    if (e.key === "Escape") setEditing(null);
-                  }}
-                  className="bg-accent text-foreground focus:border-foreground w-full rounded-[7px] border border-transparent px-2 py-[5px] text-[12.5px] outline-none"
-                />
-              ) : (
-                /*
-                  ONE ROW, AND EVERYTHING THE ROW HAS IS INSIDE IT.
-
-                  It used to be a tinted button with two controls standing
-                  next to it, which is why the highlight stopped short of the
-                  ⋯ and the dot: the background belonged to the title, not to
-                  the row, so the lit rectangle was the wrong shape and the
-                  menu appeared to float beside the chat rather than belong to
-                  it. The tint, the hover, the focus state and both trailing
-                  controls now live on ONE flex box with one radius — the
-                  title takes the space that is left and truncates, and the
-                  dot and the ⋯ are the last two items in the same line, so
-                  there is nothing that can overhang the rounded edge.
-
-                  `relative` is the row's other job: it is the positioning
-                  context anything that ever needs to sit ON the row (a drag
-                  handle, an unread pip) would be placed against, and a row
-                  without one would hang that off the sidebar instead.
-
-                  `group/row` is per ROW rather than per session, because a
-                  session with sub-agent runs under it is several rows and
-                  hovering a child should not light the parent's menu.
-                */
-                <div
-                  className={cn(
-                    "group/row relative flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-[7px] pr-1 transition-colors",
-                    s.id === openSessionId
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                    /* A keyboard reaching the row lights the row, not a
-                       rectangle around the title inside it. */
-                    "focus-within:bg-accent focus-within:text-foreground",
-                  )}
-                >
-                  {/*
-                    A LINK, NOT A BUTTON. The chat has an address, so the row
-                    that opens it should be the ordinary thing a browser knows
-                    what to do with: middle-click into a tab, ⌘-click, copy
-                    link, and the back button on the way out. A button could
-                    only ever navigate the one window it was clicked in.
-                  */}
-                  <Link
-                    to={`/chat/${encodeURIComponent(s.id)}`}
-                    aria-current={s.id === openSessionId ? "page" : undefined}
-                    className="block min-w-0 flex-1 truncate py-[5px] pl-2 text-left text-[12.5px] outline-none"
-                  >
-                    {s.title}
-                  </Link>
-
-                  {/*
-                    STILL ANSWERING — a dot, and nothing more than a dot.
-
-                    A chat can be written to while you are reading another one,
-                    and the rail is the only place that can say so. It is
-                    deliberately not a spinner, a count or a label: the row's
-                    job is to name a conversation, and the one extra fact worth
-                    two pixels of it is that this one is not finished. Pressing
-                    the row shows the answer arriving, live, mid-sentence.
-                  */}
-                  {streaming.has(s.id) && (
-                    <span
-                      title="Still answering"
-                      aria-label="Still answering"
-                      className="bg-foreground/60 size-1.5 shrink-0 animate-pulse rounded-full"
-                    />
-                  )}
-
-                  {/*
-                    THE ROW'S OWN MENU, shown on hover and on focus. On hover
-                    because a permanent ⋯ on every row is thirty pieces of
-                    furniture in a list of thirty chats; on focus as well
-                    because hover is not a thing a keyboard has, and a control
-                    that only exists for a mouse is a control half the people
-                    using this cannot reach.
-
-                    It carries no background of its own any more. The row is
-                    already tinted by the time this is visible — it only
-                    appears on hover, focus or while open — so a second accent
-                    square inside an accent row was a rectangle nobody could
-                    see. What it does instead is darken to the foreground
-                    colour, which is a difference that shows against the tint.
-                  */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      title="Rename or delete"
-                      className="hover:text-foreground data-[state=open]:text-foreground grid shrink-0 place-items-center rounded-[6px] p-1 opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-                    >
-                      <MoreHorizontal className="size-3.5" strokeWidth={1.6} />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-44">
-                      <DropdownMenuItem
-                        onSelect={() => setEditing({ id: s.id, title: s.title })}
-                      >
-                        <Pencil className="size-3.5" strokeWidth={1.6} />
-                        Rename
-                      </DropdownMenuItem>
-                      <DropdownMenuItem disabled={!!deleting} onSelect={() => void deleteSession(s.id, s.title)}>
-                        <Trash2 className="size-3.5" strokeWidth={1.6} />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              )}
-
-              {/*
-                WHAT A CHAT SET IN MOTION, NESTED UNDER IT.
-
-                The nesting itself is older than the thing it now holds: it was
-                built for sub-agent runs, carried unused through the sweep that
-                deleted the invented sessions, and this is the shape finally
-                being filled. A run dispatched by the chief of staff mid-chat
-                is filed under the conversation that asked for it — that is
-                what `parent_session_id` on the run means — so the rail shows
-                the conversation and the work hanging off it in one place.
-
-                A CHILD USUALLY IS NOT A CHAT, and that is the one change to
-                this block. `to` is where it actually lives, which for a run is
-                /apps/<app>/<runId>; without it the row falls back to being
-                treated as a conversation, which is what a child with no
-                address must be. Sending every child to /chat/<id> would open
-                an empty transcript at the id of a run.
-              */}
-              {!!s.children?.length && (
-                <div className="border-line-soft mt-px mb-1 ml-3 flex flex-col gap-px border-l pl-2.5">
-                  {s.children.map((c) => {
-                    /*
-                      THE SAME ROW, ONE INDENT IN. Same container, same radius,
-                      same tint, same truncation — the indent and the type size
-                      are the only differences, because a child is opened
-                      exactly like any other row and a second row shape would
-                      be a second thing to keep in step.
-
-                      No ⋯ here, and that is not an omission: rename and delete
-                      are the store's, and the store's session list is flat —
-                      `removeSession` would not find a child to remove. A menu
-                      offering two actions that quietly do nothing is worse
-                      than no menu.
-                    */
-                    const to = c.to ?? `/chat/${encodeURIComponent(c.id)}`;
-                    /* Only a child that really is a chat can be the open one.
-                       A run's id is not a session id and could never match,
-                       but saying so here is cheaper than relying on it. */
-                    const here = !c.to && c.id === openSessionId;
-                    return (
-                      <div
-                        key={c.id}
-                        className={cn(
-                          "relative flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-[7px] transition-colors",
-                          here
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                          "focus-within:bg-accent focus-within:text-foreground",
-                        )}
-                      >
-                        <Link
-                          to={to}
-                          aria-current={here ? "page" : undefined}
-                          className="block min-w-0 flex-1 truncate px-2 py-[5px] text-left text-[12px] outline-none"
-                        >
-                          {c.title}
-                        </Link>
-                        {/* The status as a WORD rather than a dot. A run under
-                            a chat is worth knowing the state of without
-                            hovering it, and "failed" is not a colour anybody
-                            should have to decode. */}
-                        {c.status && (
-                          <span className="text-muted-foreground mr-2 shrink-0 text-[10.5px]">
-                            {c.status}
-                          </span>
-                        )}
-                        {streaming.has(c.id) && (
-                          <span
-                            title="Still answering"
-                            aria-label="Still answering"
-                            className="bg-foreground/60 mr-2 size-1.5 shrink-0 animate-pulse rounded-full"
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ))}
+          {!visibleSessions.length && <p className="px-2 py-1.5 text-[11.5px] leading-relaxed text-muted-foreground" role="status">
+            {search.trim() ? "No matching sessions." : state.sessions.length ? "All sessions are pinned above." : "No conversations yet. Start a chat to see it here."}
+          </p>}
+          {visibleSessions.map(session => <div key={session.id}>{renderSession(session)}</div>)}
         </div>
       </section>
       </ScrollArea>
@@ -536,7 +316,7 @@ export function AppSidebar() {
 
             <DropdownMenuItem asChild>
               <Link to="/settings">
-                <SettingsIcon className="size-4" strokeWidth={1.6} />
+                <ModuleIcon path="/settings" className="size-4" />
                 Settings
               </Link>
             </DropdownMenuItem>

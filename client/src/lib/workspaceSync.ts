@@ -2,11 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, call } from "./api";
 import type { StoreState } from "./store";
 import { isWorkspacePreferences } from "../../../shared/workspace";
-type Preferences = Pick<StoreState, "workspace" | "sessions" | "dashboards" | "appOrder" | "seedVersion" | "favoritePaths">;
+type Preferences = Pick<StoreState, "workspace" | "sessions" | "dashboards" | "appOrder" | "seedVersion" | "favoritePaths" | "pinnedItems">;
 type Document = { revision: number; data: Preferences | null };
 const META = "opc-workspace-sync";
 export function preferences(s: StoreState): Preferences {
-  return { workspace: s.workspace, sessions: s.sessions, dashboards: s.dashboards, appOrder: s.appOrder, seedVersion: s.seedVersion, favoritePaths: s.favoritePaths };
+  return { workspace: s.workspace, sessions: s.sessions, dashboards: s.dashboards, appOrder: s.appOrder, seedVersion: s.seedVersion, favoritePaths: s.favoritePaths, pinnedItems: s.pinnedItems };
 }
 export function saveRecovery(state: StoreState) { localStorage.setItem("opc-workspace-recovery", JSON.stringify(state)); }
 function metadata(): { revision: number; saved: string | null; hasLocal: boolean } {
@@ -35,8 +35,10 @@ export function useWorkspaceSync(state: StoreState, setState: React.Dispatch<Rea
       revision.current = doc.revision;
       saved.current = doc.data ? JSON.stringify(doc.data) : null;
       if (doc.data) {
-        current.current = { ...current.current, ...doc.data };
-        setState(s => ({ ...s, ...doc.data }));
+        // An older workspace has favorites but no pinnedItems; accepting it must
+        // also clear a newer browser's pin list instead of silently merging it.
+        current.current = { ...current.current, pinnedItems: undefined, favoritePaths: undefined, ...doc.data };
+        setState(s => ({ ...s, pinnedItems: undefined, favoritePaths: undefined, ...doc.data }));
       }
       remember();
     };

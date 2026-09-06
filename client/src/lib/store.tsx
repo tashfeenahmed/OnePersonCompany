@@ -1,4 +1,4 @@
-import { sidebarPath } from "../../../shared/navigation";
+import { sidebarPins, togglePin, reorderPins, type SidebarPin } from "../../../shared/sidebarPins";
 import { isWorkspacePreferences } from "../../../shared/workspace";
 import { useWorkspaceSync, saveRecovery, preferences } from "./workspaceSync";
 import {
@@ -209,6 +209,8 @@ export type StoreState = {
    */
   appOrder?: string[];
   favoritePaths?: string[];
+  /** Pages and sessions in one shared, owner-ordered sidebar list. */
+  pinnedItems?: SidebarPin[];
 };
 
 export const VENTURE_COLORS = [
@@ -1517,7 +1519,8 @@ type StoreApi = {
   setAppOrder: (slugs: string[]) => void;
   setWidgets: (dashboardId: string, widgets: PlacedWidget[]) => void;
   setWorkspace: (patch: Partial<Workspace>) => void;
-  toggleFavorite: (path: string) => void;
+  togglePinned: (pin: SidebarPin) => void;
+  reorderPinned: (keys: string[]) => void;
   setPluginConnected: (id: string, connected: boolean) => void;
   /** Replace everything — the other half of the export on Settings → Data. */
   importState: (next: StoreState) => void;
@@ -1724,6 +1727,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setState((s) => ({
           ...s,
           sessions: s.sessions.filter((x) => x.id !== id),
+          pinnedItems: sidebarPins(s).filter(pin => pin.type !== "session" || pin.sessionId !== id),
         }));
       },
 
@@ -1889,12 +1893,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setState((s) => ({ ...s, appOrder: slugs }));
       },
 
-      toggleFavorite(path) {
-        setState(s => {
-          const favorites = [...new Set((s.favoritePaths ?? []).map(sidebarPath))];
-          const canonical = sidebarPath(path);
-          return { ...s, favoritePaths: favorites.includes(canonical) ? favorites.filter(p => p !== canonical) : [...favorites, canonical] };
-        });
+      togglePinned(pin) {
+        setState(s => ({ ...s, pinnedItems: togglePin(s, pin), favoritePaths: undefined }));
+      },
+      reorderPinned(keys) {
+        setState(s => ({ ...s, pinnedItems: reorderPins(s, keys), favoritePaths: undefined }));
       },
       setWorkspace(patch) {
         setState((s) => ({ ...s, workspace: { ...s.workspace, ...patch } }));
@@ -1912,7 +1915,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       reset() {
         saveRecovery(state);
-        setState(s => ({ ...s, workspace: structuredClone(SEED.workspace), dashboards: structuredClone(SEED.dashboards), appOrder: [], favoritePaths: [], seedVersion: SEED_VERSION }));
+        setState(s => ({ ...s, workspace: structuredClone(SEED.workspace), dashboards: structuredClone(SEED.dashboards), appOrder: [], favoritePaths: [], pinnedItems: [], seedVersion: SEED_VERSION }));
       },
     };
   }, [state, streamingSessions]);

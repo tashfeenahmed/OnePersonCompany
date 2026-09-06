@@ -44,8 +44,10 @@ import {
   playStats,
 } from "../db.ts";
 import { FINANCE_MONTHS } from "../providers/appstore.ts";
+import { mobileRevenue } from "./mobileRevenue.ts";
 
 export const mobile = new Hono();
+mobile.route("/revenue", mobileRevenue);
 
 const round = (n: number) => Number(n.toFixed(2));
 const connected = (id: string) => getPlugin(id)?.connected === 1;

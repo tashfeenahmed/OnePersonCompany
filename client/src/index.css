@@ -245,6 +245,21 @@
   opacity: 0;
   transition: grid-template-rows 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
 }
+
+/* Actions sit inside the row tint. Focus and touch get the same controls as hover. */
+.sidebar-row-action { opacity: 0; }
+.module-icon {
+  filter: drop-shadow(0 1px 1px rgb(30 20 45 / 0.10));
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sidebar-row:hover .module-icon,
+.sidebar-row:focus-within .module-icon { transform: translateY(-1px) rotate(-4deg) scale(1.06); }
+.sidebar-row:hover .sidebar-row-action,
+.sidebar-row:focus-within .sidebar-row-action,
+.sidebar-row-action[data-state="open"] { opacity: 1; }
+@media (hover: none) {
+  .sidebar-row-action { opacity: 1; }
+}
 .sidebar-section[data-open="true"] > .sidebar-section-panel {
   grid-template-rows: 1fr;
   opacity: 1;
@@ -257,5 +272,7 @@
   transform: rotate(90deg);
 }
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-section-panel, .sidebar-section-chevron { transition: none; }
+  .sidebar-section-panel, .sidebar-section-chevron, .module-icon { transition: none; }
+  .sidebar-row:hover .module-icon,
+  .sidebar-row:focus-within .module-icon { transform: none; }
 }

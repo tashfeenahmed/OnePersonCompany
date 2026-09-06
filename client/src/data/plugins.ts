@@ -187,8 +187,9 @@ export const PLUGINS: Plugin[] = [
       },
     ],
     usedBy: [
-      "collect_appstore.py (appstore.json)",
+      "App Store Connect collector — sales and financial reports",
       "/api/mobile (downloads, store state, proceeds and payouts)",
+      "Agent revenue tool: opc mobile revenue --store appstore --month YYYY-MM",
     ],
   },
   {
@@ -220,8 +221,9 @@ export const PLUGINS: Plugin[] = [
       },
     ],
     usedBy: [
-      "collect_playstore.py (playstore.json)",
+      "Google Play collector — sales and earnings reports",
       "/api/mobile (installs, ratings, earnings and sales)",
+      "Agent revenue tool: opc mobile revenue --store playstore --month YYYY-MM",
     ],
   },
   {
