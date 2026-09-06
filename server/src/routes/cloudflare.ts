@@ -31,7 +31,6 @@
  */
 import { Hono } from "hono";
 import {
-  allDomains,
   cloudflareRegistrar,
   cloudflareState,
   cloudflareTraffic,
@@ -40,7 +39,7 @@ import {
 } from "../db.ts";
 import { CANNOT, CLOUDFLARE_GRAPHQL, WINDOW_DAYS } from "../providers/cloudflare.ts";
 import { CLOUDFLARE_WINDOW_DAYS } from "../collector.ts";
-import { daysUntil } from "../providers/domains.ts";
+import { daysUntil, registeredDomains } from "../providers/domains.ts";
 
 export const cloudflareRoutes = new Hono();
 
@@ -122,7 +121,15 @@ cloudflareRoutes.get("/", (c) => {
 
   /* ------------------------------------------------------ the drift join */
 
-  const domains = allDomains();
+  /* EVERY REGISTERED NAME, INCLUDING THE ONES CLOUDFLARE ITSELF HOLDS —
+     through the portfolio reader `/api/domains` uses, so the two pages cannot
+     drift into two answers about one name again. They had: this page filed a
+     Cloudflare-registered zone under "no connected registrar holds this name"
+     three inches above printing that same name in its own `registrar` block.
+     A Cloudflare row reports no nameservers, so such a zone lands in `unknown`
+     — the registrar holds it and would not say where it points — which is the
+     honest verdict rather than a missing one. */
+  const domains = registeredDomains();
   const heldByName = new Map<string, (typeof domains)[number]>();
   const claimedTwice: string[] = [];
   for (const d of domains) {

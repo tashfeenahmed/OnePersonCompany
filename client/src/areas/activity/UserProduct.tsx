@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Bars } from "@/components/charts";
 import { cn } from "@/lib/utils";
-import { count } from "@/lib/format";
+import { count, day } from "@/lib/format";
 import { activityApi } from "@/lib/api/activity";
 
 /**
@@ -134,7 +134,7 @@ export function UserProduct({ product }: { product: string }) {
             {d.users.map((u) => (
               <tr key={u.id} className="border-line-soft border-t">
                 <td className="px-3.5 py-2 tabular-nums whitespace-nowrap">
-                  {new Date(u.createdAt).toLocaleDateString([], { day: "numeric", month: "short", year: "2-digit" })}
+                  {day(u.createdAt, { year: "2-digit" })}
                 </td>
                 <td className="text-muted-foreground max-w-[180px] truncate px-3.5 py-2 font-mono text-[11.5px]">
                   {u.id}
@@ -154,9 +154,7 @@ export function UserProduct({ product }: { product: string }) {
                 </td>
                 <td className="px-3.5 py-2">{u.country ?? <Dash />}</td>
                 <td className="px-3.5 py-2 tabular-nums whitespace-nowrap">
-                  {u.lastSeenAt
-                    ? new Date(u.lastSeenAt).toLocaleDateString([], { day: "numeric", month: "short" })
-                    : <Dash />}
+                  {u.lastSeenAt ? day(u.lastSeenAt) : <Dash />}
                 </td>
               </tr>
             ))}

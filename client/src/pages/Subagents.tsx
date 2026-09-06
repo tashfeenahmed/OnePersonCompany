@@ -11,13 +11,12 @@ import { RoleIcon } from "@/components/org/RoleIcon";
 import { runAddress, teamAddress } from "@/components/org/roleLook";
 import {
   backendPhrase,
-  duration,
   since,
   statusTone,
   statusWord,
 } from "@/components/runs/format";
 import { useApi } from "@/hooks/useApi";
-import { ago, count } from "@/lib/format";
+import { ago, count, duration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { isLive, runsApi, type RunSummary } from "@/lib/api/runs";
 import { subagentApi, type OrgVentureTeam } from "@/lib/api/subagents";
@@ -378,10 +377,12 @@ function Roster({
 
 /** The run in flight, with the two facts that change while you watch it. */
 function Working({ run }: { run: RunSummary }) {
-  const to = runAddress(run);
   const elapsed = since(run.startedAt);
-  const body = (
-    <>
+  return (
+    <Link
+      to={runAddress(run)}
+      className="bg-card hover:border-line-strong flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3 transition-colors"
+    >
       <span className="bg-ok mt-[7px] size-1.5 shrink-0 animate-pulse rounded-full" />
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-baseline gap-2">
@@ -402,47 +403,30 @@ function Working({ run }: { run: RunSummary }) {
           {backendPhrase(run)}
         </span>
       </span>
-    </>
-  );
-  return to ? (
-    <Link
-      to={to}
-      className="bg-card hover:border-line-strong flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3 transition-colors"
-    >
-      {body}
     </Link>
-  ) : (
-    <div className="bg-card flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3">
-      {body}
-    </div>
   );
 }
 
-/** A run's name, linked when this client has an app that can open it. */
+/** A run's name, linked. Every kind has an address — `runPage` falls back to
+ *  the kind's own outputs page — so there is no unlinked variant to draw. */
 function RunTitle({ run }: { run: RunSummary }) {
-  const to = runAddress(run);
-  const label = (
-    <>
+  return (
+    <Link to={runAddress(run)} className="min-w-0 truncate text-[12.5px] hover:underline">
       {run.title}
       {run.ventureName && (
         <span className="text-muted-foreground"> · {run.ventureName}</span>
       )}
-    </>
-  );
-  return to ? (
-    <Link to={to} className="min-w-0 truncate text-[12.5px] hover:underline">
-      {label}
     </Link>
-  ) : (
-    <span className="min-w-0 truncate text-[12.5px]">{label}</span>
   );
 }
 
 function HistoryRow({ run }: { run: RunSummary }) {
-  const to = runAddress(run);
-  const took = duration(run.ms);
-  const inner = (
-    <>
+  const took = duration(run.ms, { nullText: "" });
+  return (
+    <Link
+      to={runAddress(run)}
+      className="hover:bg-accent -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1.5 transition-colors"
+    >
       <span
         className={cn("size-1.5 shrink-0 rounded-full", statusTone(run.status))}
       />
@@ -463,18 +447,6 @@ function HistoryRow({ run }: { run: RunSummary }) {
           ? statusWord(run.status)
           : `${took ? `${took} · ` : ""}${ago(run.finishedAt ?? run.queuedAt)}`}
       </span>
-    </>
-  );
-  return to ? (
-    <Link
-      to={to}
-      className="hover:bg-accent -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1.5 transition-colors"
-    >
-      {inner}
     </Link>
-  ) : (
-    <div className="-mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1.5">
-      {inner}
-    </div>
   );
 }

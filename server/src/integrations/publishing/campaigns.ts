@@ -31,7 +31,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { db, now, type VentureRow } from "../../db.ts";
-import { studioRoutes } from "../ventures/studio.ts";
+import { createPost } from "../ventures/studio.ts";
 import { checkTopic, remember } from "../socialfeed/novelty.ts";
 import { createItem } from "./items.ts";
 import { destinationRows } from "./destinations.ts";
@@ -556,19 +556,6 @@ export async function campaignRun(args: {
 }
 
 /**
- * One variant: a Studio post, and a publish item where there is somewhere for
- * it to go.
- *
- * THE STUDIO'S OWN ROUTE HANDLER IS CALLED DIRECTLY, not over the network.
- * Hono apps are callable objects, so this runs the same handler the browser
- * reaches at `POST /api/studio/posts`, in this process. It is done this way
- * rather than by importing the generation functions because what a post IS
- * lives inside that handler — the caption turn, the image call, the row — and
- * a copy of it here would be a second definition of a post in a directory
- * another area owns. video/autopilot.ts makes the same call for the same
- * reason.
- */
-/**
  * The concept as a SUBJECT — what it is about, without the art direction.
  *
  * This is what the novelty gate fingerprints and what goes in the history, so
@@ -590,28 +577,19 @@ async function makeVariant(
     conceptTopic(concept) + (concept.image_note ? ` The picture: ${concept.image_note}` : "");
   const format = channel === "tiktok" || channel === "ig" ? "story" : "square";
 
-  let postId: string | null = null;
-  let error: string | null = null;
-  try {
-    const res = await studioRoutes.request("/posts", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ventureId: venture.id,
-        brief: brief.slice(0, 2_000),
-        format,
-        platform: channelLabel(channel),
-      }),
-    });
-    const body = (await res.json().catch(() => null)) as
-      | { post?: { id?: unknown }; error?: unknown }
-      | null;
-    if (!res.ok || !body?.post)
-      error = typeof body?.error === "string" ? body.error : `The Studio refused it (HTTP ${res.status}).`;
-    else postId = String((body.post as { id: unknown }).id);
-  } catch (err) {
-    error = err instanceof Error ? err.message : String(err);
-  }
+  /* THE STUDIO'S OWN `createPost`, which is where what a post IS lives — the
+     caption turn, the image call, the row. This used to compose an HTTP
+     request against that area's route handler and unwrap the reply; the
+     function never throws and carries its own `status`, so there is nothing
+     left to unwrap. */
+  const made = await createPost({
+    ventureId: venture.id,
+    brief: brief.slice(0, 2_000),
+    format,
+    platform: channelLabel(channel),
+  });
+  const postId = made.ok ? made.post.id : null;
+  const error = made.ok ? null : made.error;
 
   let itemId: string | null = null;
   if (postId) {

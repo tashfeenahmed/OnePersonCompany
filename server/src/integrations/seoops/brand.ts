@@ -43,7 +43,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { resolve } from "node:path";
 import { DATA_DIR } from "../../config.ts";
 import { db, now, ventureRowById, type VentureRow } from "../../db.ts";
-import { findBrowser } from "../ventures/capture.ts";
+import { findBrowser, SHOT_VIEWPORT } from "../../tools/chrome.ts";
 import { assignRoles, normaliseWebsite, type ColourCount, type Palette } from "../../ventures/enrich.ts";
 
 /* -------------------------------------------------------------- the shape */
@@ -285,8 +285,11 @@ const PORT_MS = 15_000;
 /** After the load event, how long the page is given to finish painting. Some
  *  frameworks paint on the frame after load. */
 const SETTLE_MS = 1_200;
-const WIDTH = 1280;
-const HEIGHT = 800;
+/** The same frame the venture capture asks Chrome for. Shared rather than
+ *  retyped: the two drive Chrome at the same site for the same class of
+ *  artefact, and a viewport raised in one of them silently stops the two
+ *  readings being comparable. */
+const { width: WIDTH, height: HEIGHT } = SHOT_VIEWPORT;
 
 function profileDir(): string {
   const base = resolve(DATA_DIR, "chrome-profile");

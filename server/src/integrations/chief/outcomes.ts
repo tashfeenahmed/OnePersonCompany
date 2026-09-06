@@ -33,9 +33,12 @@
  * value and the reason beside it. A zero would put a cliff in the chart that
  * the owner would read as a collapse in the business.
  */
-import { PORT } from "../../config.ts";
-import { serviceHeaders } from "../../auth.ts";
 import { db, now, ventureRowById } from "../../db.ts";
+import {
+  type Address,
+  paramsOf,
+  takeReading as readAddress,
+} from "../../shared/metrics-address.ts";
 
 /** When the scheduled readings are taken, in days after the ACTION. Seven for
  *  "did anything move at all", fourteen for "is it still moving", thirty for
@@ -82,135 +85,29 @@ export type ReadingRow = {
 /* ------------------------------------------------------------ the address */
 
 /**
- * WALK A DOTTED PATH INTO A JSON DOCUMENT.
+ * THE METRIC ADDRESS LIVES IN `shared/metrics-address.ts`.
  *
- * `totals.visitors`, `series[0].value`, `currency.combined`. Deliberately not
- * JSONPath: the expression language is the part that would let a caller write a
- * filter whose answer changes shape between two readings, and a metric whose
- * shape can change is not a metric.
- *
- * A MISSING SEGMENT IS `undefined` AND THE CALLER TURNS THAT INTO A NULL
- * READING WITH A REASON. It is never coerced: `null` in the document (asked and
- * not told) and "the path does not exist" (this address is wrong) are different
- * findings and the reading says which.
+ * This file used to hold its own path walker, its own parameter reader and its
+ * own URL builder, and alert rules held a second set. They had already drifted:
+ * the other one understood `@count(...)`, so a path copied from a working alert
+ * rule read here as "nothing at that path" — a null reading with a plausible
+ * reason, which is the worst kind of wrong answer. The shared one is the
+ * superset, and it omits `?view=default` rather than sending a literal that
+ * 404s on any skill whose first view is named something else.
  */
-export function walk(doc: unknown, path: string): { found: boolean; value: unknown } {
-  const segments = path
-    .split(".")
-    .flatMap((s) => s.split(/\[(\d+)\]/).filter(Boolean))
-    .map((s) => s.trim())
-    .filter(Boolean);
-  let cur: unknown = doc;
-  for (const seg of segments) {
-    if (cur === null || cur === undefined) return { found: false, value: undefined };
-    if (Array.isArray(cur)) {
-      const i = Number(seg);
-      if (!Number.isInteger(i) || i < 0 || i >= cur.length) return { found: false, value: undefined };
-      cur = cur[i];
-      continue;
-    }
-    if (typeof cur !== "object") return { found: false, value: undefined };
-    const obj = cur as Record<string, unknown>;
-    if (!(seg in obj)) return { found: false, value: undefined };
-    cur = obj[seg];
-  }
-  return { found: true, value: cur };
-}
-
-/** The skills surface, on this box. Composed here rather than imported from
- *  skills/registry.ts for that file's own reason: importing a VALUE out of the
- *  registry from a module the registry transitively imports is the cycle that
- *  crashes the server at boot. The port is the one thing this needs and
- *  config.ts owns it. */
-function skillsUrl(o: OutcomeRow): string {
-  const qs = new URLSearchParams();
-  if (o.view && o.view !== "default") qs.set("view", o.view);
-  for (const [k, v] of Object.entries(readParams(o.params))) qs.set(k, String(v));
-  const q = qs.toString();
-  return `http://127.0.0.1:${PORT}/api/skills/${encodeURIComponent(o.skill)}${q ? `?${q}` : ""}`;
-}
-
-export function readParams(raw: string): Record<string, string> {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(parsed as Record<string, unknown>))
-      if (typeof v === "string" || typeof v === "number") out[k] = String(v);
-    return out;
-  } catch {
-    return {};
-  }
-}
-
 export type ReadOut = { value: number | null; error: string | null; raw: string | null };
 
-/**
- * TAKE ONE READING.
- *
- * Every failure mode gets its own sentence, because "the figure is null" is
- * three very different findings — nobody connected the plugin, the address is
- * wrong, the number is genuinely not reported — and a chart with a gap in it
- * should be able to say which.
- *
- * A NON-NUMBER AT THE PATH IS AN ERROR AND NOT A ZERO. A string that happens to
- * parse ("1,204") is accepted, because several documents here publish formatted
- * figures; anything else is refused with what it actually found.
- */
+const addressOf = (o: OutcomeRow): Address => ({
+  skill: o.skill,
+  view: o.view,
+  params: o.params,
+  path: o.path,
+});
+
+/** One reading, narrowed to the three columns the readings table stores. */
 export async function takeReading(o: OutcomeRow, signal?: AbortSignal): Promise<ReadOut> {
-  const url = skillsUrl(o);
-  let res: Response;
-  try {
-    /* The service key: this box reading its own skills route, with no cookie
-       to offer. See auth.ts. */
-    res = await fetch(url, { headers: serviceHeaders(), signal });
-  } catch (err) {
-    const why = err instanceof Error ? err.message : String(err);
-    return { value: null, error: `The metric could not be fetched: ${why}`, raw: null };
-  }
-  const text = await res.text();
-  if (!res.ok) {
-    let why = `HTTP ${res.status}`;
-    try {
-      const body = JSON.parse(text) as { error?: unknown };
-      if (typeof body.error === "string") why = body.error;
-    } catch {
-      /* A non-JSON error body is the status and nothing else, which is what
-         `why` already says. */
-    }
-    return { value: null, error: why, raw: text.slice(0, 400) };
-  }
-
-  let doc: unknown;
-  try {
-    doc = JSON.parse(text);
-  } catch {
-    return { value: null, error: "The skill answered with something that is not JSON.", raw: text.slice(0, 400) };
-  }
-
-  const at = walk(doc, o.path);
-  if (!at.found)
-    return {
-      value: null,
-      error: `Nothing at "${o.path}" in that document — the field may have moved or been renamed.`,
-      raw: null,
-    };
-  if (at.value === null)
-    return {
-      value: null,
-      /* The document's own null, carried through as itself. This is the case
-         the universal rules are about: asked and not told. */
-      error: "The document reports null there — asked and not told, which is not zero.",
-      raw: "null",
-    };
-  const n = typeof at.value === "number" ? at.value : Number(String(at.value).replace(/[,\s]/g, ""));
-  if (!Number.isFinite(n))
-    return {
-      value: null,
-      error: `The value at "${o.path}" is not a number (${JSON.stringify(at.value).slice(0, 80)}).`,
-      raw: JSON.stringify(at.value).slice(0, 400),
-    };
-  return { value: n, error: null, raw: JSON.stringify(at.value).slice(0, 400) };
+  const { value, error, raw } = await readAddress(addressOf(o), { signal });
+  return { value, error, raw };
 }
 
 /* ---------------------------------------------------------------- storage */
@@ -392,7 +289,7 @@ export function shapeOutcome(o: OutcomeRow) {
     metric: {
       skill: o.skill,
       view: o.view,
-      params: readParams(o.params),
+      params: paramsOf(o.params),
       path: o.path,
       unit: o.unit,
       /* The address, spelled out, so a reader who doubts a figure can fetch

@@ -27,8 +27,13 @@
  * migration rather than a rewrite.
  */
 import { DatabaseSync } from "node:sqlite";
-import { DB_FILE, DATA_DIR, DEFAULT_DATA_DIR } from "./config.ts";
+import { DB_FILE, DATA_DIR, DEFAULT_DATA_DIR, LOAD_RETAIN_DAYS, RETAIN_DAYS } from "./config.ts";
 import { INTEGRATION_MIGRATIONS } from "./integrations/migrations.ts";
+/* A CYCLE, AND A DELIBERATE ONE: retention.ts reads `db` from here, and the
+   windows for this file's own tables are declared there rather than in a copy
+   of the list somebody else keeps. See `declareCentralWindows` for the one
+   thing that costs. */
+import { registerRetention } from "./shared/retention.ts";
 
 /* A TEST PROCESS MUST NEVER OPEN THE DEVELOPER'S DATABASE. `npm test` loads
    test/setup.mjs, which points OPC_DATA_DIR at a temp dir before this module
@@ -68,8 +73,12 @@ db.exec("PRAGMA busy_timeout = 5000");
  * Migrations are a numbered list, applied in order, recorded as they go. Each
  * one runs once; adding a step means appending to the array and never editing
  * a step that has shipped.
+ *
+ * Exported for the tests, which build a scratch database at a chosen step,
+ * write rows into it, and then apply the rest — the only way to check that a
+ * merge carried the owner's rows across rather than that it ran.
  */
-const MIGRATIONS: { name: string; sql: string }[] = [
+export const MIGRATIONS: { name: string; sql: string }[] = [
   {
     name: "001_init",
     sql: `
@@ -2591,7 +2600,109 @@ const MIGRATIONS: { name: string; sql: string }[] = [
   },
   /* The integration areas' own migrations — see integrations/manifest.ts. */
   ...INTEGRATION_MIGRATIONS,
-];
+
+  /* ------------------------------------------------------- 400+, this pass.
+     Steps that change a table THIS file owns. They sit after every area's
+     migrations so that a step here may refer to an area's tables; an area's
+     own 400s live in its own file. */
+
+  {
+    name: "400_domains_cloudflare",
+    sql: `
+      -- ONE ENTITY WAS BEING COLLECTED INTO TWO TABLES BY TWO COLLECTORS THAT
+      -- HAD NEVER LEARNED ABOUT EACH OTHER. \`domains\` held what the registrar
+      -- plugins report; \`cloudflare_registrar\` held what the Cloudflare
+      -- plugin reports — identical columns, identical meaning. Everything that
+      -- asked "what do I own and when does it lapse" read only the first, so a
+      -- name registered at Cloudflare was missing from the portfolio total,
+      -- from the lapsed and expiring counts, from auto-renew-off, from
+      -- unlocked and from the renewal runway. The Cloudflare page would then
+      -- file that same zone under "no connected registrar holds this name"
+      -- three inches above printing the name in its own registrar block.
+      --
+      -- \`source\` ALREADY MEANT "THE PLUGIN THAT READ IT", which is why this
+      -- is an INSERT and not a new schema: 'cloudflare' takes its place beside
+      -- 'dynadot' and 'spaceship', and the primary key (name, source,
+      -- account_id) keeps one account's answer separate from another's exactly
+      -- as it did before.
+      --
+      -- THE THREE FIELDS CLOUDFLARE'S REGISTRAR ENDPOINT DOES NOT REPORT stay
+      -- null rather than being invented — when it was registered, the privacy
+      -- setting, the nameservers. Null is "asked and not told" in this table,
+      -- never "no", and the counts keep it apart from "off".
+      --
+      -- The registrar of record is usually Cloudflare itself and the API
+      -- sometimes declines to say; \`domains.registrar\` is NOT NULL because a
+      -- portfolio row has to be filed under something a person can read, so a
+      -- silent answer becomes the name of the registrar we were asking.
+      INSERT INTO domains
+        (name, source, account_id, account_label, registrar, expires_at,
+         registered_on, auto_renew, locked, status, privacy, nameservers, seen_at)
+      SELECT c.name, 'cloudflare', c.account_id, c.account_label,
+             COALESCE(c.registrar, 'Cloudflare Registrar'),
+             c.expires_at, NULL, c.auto_renew, c.locked, c.status, NULL, NULL,
+             c.seen_at
+        FROM cloudflare_registrar c;
+
+      -- Dropped only now that every row is in \`domains\`, and safe to drop
+      -- because the accessor that named it reads the merged table instead.
+      DROP TABLE cloudflare_registrar;
+    `,
+  },
+
+  {
+    name: "402_first_run_ventures",
+    sql: `
+      -- FOUR OF ONE PERSON'S BUSINESSES WERE SEEDED STRAIGHT INTO 021_ventures.
+      -- This box is going out as source anybody can run, and a stranger who
+      -- clones it should get an EMPTY portfolio, not somebody else's.
+      --
+      -- 021 CANNOT BE EDITED — it has already run on the box this was written
+      -- on, and a migration is keyed by name with no checksum, so rewriting its
+      -- SQL changes nothing there and rewrites history everywhere else. The
+      -- seed is therefore UNDONE here, and only on a box where it is provably
+      -- still just a seed.
+      --
+      -- WHAT "PROVABLY" MEANS, because getting this wrong deletes a real
+      -- business and — through ON DELETE CASCADE — everything filed under it.
+      -- All four conditions have to hold at once:
+      --
+      --   1. 021 was applied in this same startup. On a box that has been
+      --      running, that row is months old. On a fresh clone it is seconds
+      --      old, because both steps ran in the same loop a moment ago. The
+      --      stamps are ISO instants written by the same code, so they compare
+      --      as strings.
+      --   2. The table still holds exactly these four rows and nothing else.
+      --      One venture the owner typed is enough to make this a portfolio.
+      --   3. Every one of the four is untouched: never edited (updated_at is
+      --      still created_at) and never enriched (brand is still '{}').
+      --   4. Nothing has been linked to a venture yet.
+      --
+      -- A box that fails any of them keeps every row it has. That is the whole
+      -- design: the default is DO NOTHING, and deleting is the special case
+      -- that has to earn its way past four separate proofs.
+      DELETE FROM ventures
+       WHERE id IN ('v-example-support', 'v-example-video', 'v-example-app-1', 'v-example-content')
+         AND EXISTS (
+               SELECT 1 FROM migrations
+                WHERE name = '021_ventures'
+                  AND applied_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-10 minutes')
+             )
+         AND (SELECT COUNT(*) FROM ventures) = 4
+         AND NOT EXISTS (
+               SELECT 1 FROM ventures
+                WHERE updated_at <> created_at OR brand <> '{}'
+             )
+         AND NOT EXISTS (SELECT 1 FROM venture_links);
+    `,
+  },
+/* SORTED BY NAME, NOT BY POSITION IN THIS FILE. The prefix is the order, and
+   it was not: this array ran 017 before 015, and the integration blocks
+   concatenated after it ran one area's 3xx steps ahead of another's 1xx. The
+   `migrations` table is keyed on the NAME with no checksum, so every step a
+   running box has applied is skipped wherever it now sits — which is why
+   sorting is safe and renumbering never is. See integrations/migrations.ts. */
+].sort((a, b) => a.name.localeCompare(b.name));
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
   name TEXT PRIMARY KEY,
@@ -3356,111 +3467,85 @@ export function forgetNpmPackages(keep: string[]) {
 }
 
 /**
- * Two retentions, because the two tables are two different weights.
+ * THE BOX'S OWN TABLES, AND HOW LONG EACH IS KEPT.
  *
- * `readings` is a handful of rows a day and worth keeping for a year — that is
- * how "what did this cost in March" stays answerable. `hetzner_load` is a few
- * thousand rows a day, and the questions it answers ("was the box busy last
- * night", "has this been climbing all week") are asked of recent history. A
- * year of it would be a million rows kept to answer nothing.
+ * DECLARED HERE RATHER THAN DELETED HERE. Every one of these used to be a
+ * hand-written DELETE inside `prune()`, with a copy of the list living in
+ * scheduler.ts so that `/api/health` had something to report — a list in one
+ * file describing DELETEs in another, which is exactly how a table gets added
+ * to the prune and stays invisible to the page that claims to describe it.
+ * Now there is one declaration, `pruneAll()` does the deleting, and a table
+ * added below is a table the health endpoint reports the same day.
+ *
+ * TWO WINDOWS, BECAUSE THE TABLES ARE TWO DIFFERENT WEIGHTS. `readings` is a
+ * handful of rows a day and worth keeping for a year — that is how "what did
+ * this cost in March" stays answerable. `hetzner_load` is a few thousand rows
+ * a day, and the questions it answers ("was the box busy last night", "has
+ * this been climbing all week") are asked of recent history. A year of it
+ * would be a million rows kept to answer nothing.
+ *
+ * THE DAY-GRAINED TABLES TAKE THE LONG WINDOW TOO, and `grain: "day"` slices
+ * the cutoff to match: a `YYYY-MM-DD` key compared against a full instant is a
+ * string comparison that keeps one extra day at every boundary.
+ *
+ * THE WINDOW IS A THUNK so nothing can print a number the prune has stopped
+ * using.
  */
-export function prune(retainDays: number, loadRetainDays = retainDays) {
-  const cutoff = new Date(Date.now() - retainDays * 86_400_000).toISOString();
-  const loadCutoff = new Date(Date.now() - loadRetainDays * 86_400_000).toISOString();
-  const readings = db.prepare("DELETE FROM readings WHERE ts < ?").run(cutoff);
-  const runs = db.prepare("DELETE FROM runs WHERE started_at < ?").run(cutoff);
-  const access = db.prepare("DELETE FROM secret_access WHERE ts < ?").run(cutoff);
-  const load = db.prepare("DELETE FROM hetzner_load WHERE ts < ?").run(loadCutoff);
-  // Quota readings age with the long retention: four rows a day is nothing to
-  // keep, and "what did the allowance do last quarter" is a real question.
-  db.prepare("DELETE FROM stock_quota WHERE ts < ?").run(cutoff);
-  /*
-    The two day-grained tables age out on the LONG retention, not the load
-    one. They are a few hundred rows a day between them, and the questions
-    they answer — "was this repo's traffic better before the launch", "what did
-    downloads look like the week the CLI shipped" — are asked of history, which
-    is exactly what hetzner_load's thirty days is not for. Their keys are
-    calendar days rather than instants, so the cutoff is sliced to match.
-  */
-  const dayCutoff = cutoff.slice(0, 10);
-  const traffic = db
-    .prepare("DELETE FROM github_traffic WHERE day < ?")
-    .run(dayCutoff);
-  const downloads = db
-    .prepare("DELETE FROM npm_downloads WHERE day < ?")
-    .run(dayCutoff);
-  /*
-    The cost tables keep the long retention for the same reason: "what did the
-    LLM habit cost in March" is the question a year of history exists to answer,
-    and a day of it is a few dozen rows. Replicate's predictions are keyed by a
-    full instant rather than a day, so they take the untrimmed cutoff.
-  */
-  /*
-    The ad account's daily spend ages with them, and for the same reason: it is
-    a handful of rows a day, and "what did the ads cost last spring" is a
-    question a year of history exists to answer. Its key is a calendar day, so
-    it takes the sliced cutoff.
-  */
-  db.prepare("DELETE FROM meta_ad_days WHERE day < ?").run(dayCutoff);
-  const costs =
-    Number(db.prepare("DELETE FROM openai_costs WHERE day < ?").run(dayCutoff).changes) +
-    Number(
-      db.prepare("DELETE FROM openrouter_activity WHERE day < ?").run(dayCutoff)
-        .changes,
-    ) +
-    Number(
-      db.prepare("DELETE FROM replicate_predictions WHERE created_at < ?").run(cutoff)
-        .changes,
-    );
+const CENTRAL: [table: string, column: string, grain: "instant" | "day", note: string][] = [
+  ["readings", "ts", "instant", "The box's own measurement history."],
+  ["runs", "started_at", "instant", "Collector run records."],
+  ["secret_access", "ts", "instant", "Who read which credential."],
+  ["stock_quota", "ts", "instant", "Four rows a day; “what did the allowance do last quarter” is a real question."],
+  ["replicate_predictions", "created_at", "instant", "What each generation cost, keyed by instant rather than day."],
+  ["github_traffic", "day", "day", "“Was this repo busier before the launch” is a question about history."],
+  ["npm_downloads", "day", "day", "“What did downloads look like the week the CLI shipped”."],
+  ["meta_ad_days", "day", "day", "A handful of rows a day; “what did the ads cost last spring”."],
+  ["openai_costs", "day", "day", "“What did the LLM habit cost in March” is why a year is kept."],
+  ["openrouter_activity", "day", "day", "The same question, the other provider."],
+  ["cloudflare_traffic", "day", "day", "Daily rollups; one row per zone per day."],
+  ["gsc_days", "day", "day", "“Were we ranking for this before the rewrite”."],
+  ["bing_traffic_days", "day", "day", "The same question, the other engine."],
+  ["bing_crawl_days", "day", "day", "Crawl history, a row a day per site."],
+  ["bing_queries", "day", "day", "The ranked snapshot's day series."],
+  /* THE ONE TABLE ON THE SHORT WINDOW, for the reason above. */
+  ["hetzner_load", "ts", "instant", "Server-load samples: a few thousand rows a day, read only for the last few nights."],
+];
+
+function declareCentralWindows() {
+  for (const [table, column, grain, note] of CENTRAL) {
+    const load = table === "hetzner_load";
+    registerRetention({
+      table, column, grain,
+      days: load ? () => LOAD_RETAIN_DAYS : () => RETAIN_DAYS,
+      source: "setting",
+      setting: load ? "OPC_LOAD_RETAIN_DAYS" : "OPC_RETAIN_DAYS",
+      note,
+    });
+  }
+}
+
+/* THE CYCLE, HANDLED RATHER THAN HOPED ABOUT. retention.ts imports this file
+   and this file registers into retention.ts, so when something imports
+   retention.ts FIRST its registry is still in its temporal dead zone while
+   this line runs. That is an import-order accident, not a bug in either file,
+   and it must not be a crash at boot: the retry runs once the module graph has
+   finished evaluating and long before anything can read the registry. */
+try { declareCentralWindows(); }
+catch { queueMicrotask(declareCentralWindows); }
+
+/**
+ * What the sweep cannot do: the three areas whose prune is a decision rather
+ * than a cutoff.
+ *
+ * Each of these keeps some of its tables and ages others — the monthly money
+ * rows, the contact fingerprints and the query states are all deliberately
+ * never pruned, and the reasons are written beside each function. A registry
+ * entry is a table and a window; these are neither.
+ */
+export function prune(retainDays: number) {
   return {
-    readings: Number(readings.changes),
-    runs: Number(runs.changes),
-    access: Number(access.changes),
-    load: Number(load.changes),
-    traffic: Number(traffic.changes),
-    downloads: Number(downloads.changes),
-    costs,
-    /* The day-grained store tables, on the same long retention and for the
-       same reason. The monthly money tables are never pruned — see
-       pruneMobile, which is where that decision is written down. */
     mobile: pruneMobile(retainDays),
-    /* The two mail history tables, on the same long retention. The contact
-       fingerprints beside them are deliberately never pruned — see pruneMail,
-       which is where that decision is written down. */
     mail: pruneMail(retainDays),
-    /* Cloudflare's daily rollups age with the rest of the day-grained tables.
-       "Was this zone busier before the launch" is a question about history, and
-       twenty-three zones is twenty-three rows a day — nothing worth trimming
-       early. The zone inventory beside it is replaced wholesale every run and
-       has nothing to prune. */
-    cloudflare: Number(
-      db.prepare("DELETE FROM cloudflare_traffic WHERE day < ?").run(dayCutoff).changes,
-    ),
-    /*
-      The search day tables age with the rest of the day-grained ones. Twenty-two
-      sites between the two engines is twenty-two rows a day, and "were we
-      ranking for this before the rewrite" is precisely the question a year of
-      history exists to answer. The ranked snapshots beside them are replaced
-      wholesale every run and have nothing to prune, and the keyword weeks are
-      left alone on purpose: they are a handful of rows per phrase and the point
-      of them is the multi-year seasonal shape. */
-    search: Number(
-      db.prepare("DELETE FROM gsc_days WHERE day < ?").run(dayCutoff).changes,
-    ) +
-      Number(
-        db.prepare("DELETE FROM bing_traffic_days WHERE day < ?").run(dayCutoff).changes,
-      ) +
-      Number(
-        db.prepare("DELETE FROM bing_crawl_days WHERE day < ?").run(dayCutoff).changes,
-      ) +
-      Number(
-        db.prepare("DELETE FROM bing_queries WHERE day < ?").run(dayCutoff).changes,
-      ),
-    /* Demand rows age on `seen_at` rather than on the thread's own date — see
-       pruneDemand, which is where that decision is written down. The query
-       states beside them are one row per phrase per source and are never
-       pruned: they are the answer to "when was this last asked", which a
-       cutoff would turn back into "never". */
     demand: pruneDemand(retainDays),
   };
 }
@@ -4829,6 +4914,9 @@ export type CloudflareTrafficRow = {
   fields: string;
 };
 
+/** A `domains` row that came from the Cloudflare collector, in the shape the
+ *  Cloudflare page has always read. `registrar` is nullable here and NOT NULL
+ *  in the table it now lives in — see migration 400. */
 export type CloudflareRegistrarRow = {
   account_id: number;
   account_label: string;
@@ -4838,6 +4926,7 @@ export type CloudflareRegistrarRow = {
   locked: number | null;
   registrar: string | null;
   status: string | null;
+  seen_at: string;
 };
 
 export type CloudflareStateRow = {
@@ -4971,9 +5060,21 @@ export function writeCloudflareTraffic(
   return rows.length;
 }
 
-/** One account's Cloudflare Registrar rows. Zero of them is the ordinary
- *  answer, and this still replaces — a domain moved away from Cloudflare
- *  Registrar should leave the table the way a decommissioned box does. */
+/**
+ * One account's Cloudflare Registrar names, INTO THE PORTFOLIO TABLE.
+ *
+ * These used to land in a table of their own, which is how a Cloudflare name
+ * came to be missing from every count the domains page publishes — see
+ * migration 400. They are `domains` rows with `source = 'cloudflare'` now, and
+ * `replaceDomains` already scopes its replace to one source and one account,
+ * which is exactly the rule this needed: zero names back from Cloudflare
+ * clears Cloudflare's rows and nobody else's.
+ *
+ * The three fields Cloudflare does not report stay null. The registrar of
+ * record is usually Cloudflare itself and the API sometimes declines to say;
+ * the column is NOT NULL, so a silent answer is filed under the registrar we
+ * asked rather than under a blank.
+ */
 export function replaceCloudflareRegistrar(
   accountId: number,
   accountLabel: string,
@@ -4986,27 +5087,22 @@ export function replaceCloudflareRegistrar(
     status: string | null;
   }[],
 ) {
-  const seen = now();
-  db.exec("BEGIN");
-  try {
-    db.prepare("DELETE FROM cloudflare_registrar WHERE account_id = ?").run(accountId);
-    const ins = db.prepare(
-      `INSERT INTO cloudflare_registrar
-         (account_id, name, account_label, expires_at, auto_renew, locked,
-          registrar, status, seen_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-    );
-    for (const r of rows)
-      ins.run(
-        accountId, r.name, accountLabel, r.expiresAt, flag(r.autoRenew),
-        flag(r.locked), r.registrar, r.status, seen,
-      );
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
-  return rows.length;
+  return replaceDomains(
+    "cloudflare",
+    accountId,
+    accountLabel,
+    rows.map((r) => ({
+      name: r.name,
+      registrar: r.registrar ?? "Cloudflare Registrar",
+      expiresAt: r.expiresAt,
+      registeredOn: null,
+      autoRenew: r.autoRenew,
+      locked: r.locked,
+      status: r.status,
+      privacy: null,
+      nameservers: null,
+    })),
+  );
 }
 
 export function writeCloudflareState(
@@ -5062,9 +5158,16 @@ export function cloudflareTraffic(days: number): CloudflareTrafficRow[] {
     .all(since) as unknown as CloudflareTrafficRow[];
 }
 
+/** The Cloudflare-registered slice of the portfolio, for the Cloudflare page,
+ *  which asks about its own account rather than about the portfolio. Everything
+ *  asking "what do I own" reads `allDomains()` and gets these rows in it. */
 export function cloudflareRegistrar(): CloudflareRegistrarRow[] {
   return db
-    .prepare("SELECT * FROM cloudflare_registrar ORDER BY name")
+    .prepare(
+      `SELECT account_id, account_label, name, expires_at, auto_renew, locked,
+              registrar, status, seen_at
+         FROM domains WHERE source = 'cloudflare' ORDER BY name`,
+    )
     .all() as unknown as CloudflareRegistrarRow[];
 }
 

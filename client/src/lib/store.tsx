@@ -341,7 +341,9 @@ const SEEDED_SESSION_IDS = new Set([
 
 const SEED: StoreState = {
   seedVersion: SEED_VERSION,
-  workspace: { name: "Solo workspace", owner: "Alex", defaultVentureId: null },
+  /* A NAME NOBODY IS. The owner types their own in Settings → General; the
+     shipped default must not be one person's first name. */
+  workspace: { name: "Solo workspace", owner: "Owner", defaultVentureId: null },
 
   plugins: Object.fromEntries(PLUGINS.map((p) => [p.id, p.connected])),
 

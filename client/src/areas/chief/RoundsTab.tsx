@@ -59,7 +59,7 @@ export function RoundsTab() {
           instead of leaving the owner looking at what they typed. No effect
           syncing props into state — the remount is the sync. */}
       <ScheduleForm
-        key={`${schedule.enabled}:${schedule.hour}:${schedule.timezone}:${schedule.roles.join(",")}:${schedule.maxRuns}:${schedule.daysBetween}:${schedule.quietStages.join(",")}`}
+        key={`${schedule.enabled}:${schedule.hour}:${schedule.timezone}:${schedule.zoneWasSet}:${schedule.roles.join(",")}:${schedule.maxRuns}:${schedule.daysBetween}:${schedule.quietStages.join(",")}`}
         schedule={schedule}
         onSaved={() => doc.reload()}
       />
@@ -231,7 +231,9 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
   const [form, setForm] = useState({
     enabled: schedule.enabled ? "on" : "off",
     hour: String(schedule.hour),
-    timezone: schedule.timezone ?? "",
+    /* EMPTY WHEN THE OWNER NEVER CHOSE ONE, so a Save does not quietly adopt
+       whatever zone this machine happens to be in as a deliberate setting. */
+    timezone: schedule.zoneWasSet ? schedule.timezone : "",
     roles: schedule.roles.join(", "),
     max: String(schedule.maxRuns),
     days: String(schedule.daysBetween),
@@ -254,7 +256,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
         </Button>
         <span className="text-muted-foreground text-[11.5px]">
           {schedule.nextRunAt
-            ? `Next run ${when(schedule.nextRunAt, { year: true })} (${schedule.timezone ?? schedule.resolvedTimezone})`
+            ? `Next run ${when(schedule.nextRunAt, { year: true })} (${schedule.timezone})`
             : "Nothing is scheduled while this is off."}
         </span>
       </div>
@@ -263,10 +265,17 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
         <Field label="Hour of the round" hint="0–23, in the time zone below.">
           <Input value={form.hour} onChange={(e) => set("hour", e.target.value)} />
         </Field>
-        <Field label="Time zone" hint={`Empty means this machine's own — ${schedule.resolvedTimezone}.`}>
+        <Field
+          label="Time zone"
+          hint={
+            schedule.zoneWasSet
+              ? "Yours. Emptying it falls back to this machine's own."
+              : `Empty, so this machine's own is used — ${schedule.timezone}.`
+          }
+        >
           <Input
             value={form.timezone}
-            placeholder={schedule.resolvedTimezone}
+            placeholder={schedule.timezone}
             onChange={(e) => set("timezone", e.target.value)}
           />
         </Field>

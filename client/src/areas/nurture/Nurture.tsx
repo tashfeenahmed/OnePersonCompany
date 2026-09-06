@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/hooks/useApi";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { day } from "@/lib/format";
 import {
   nurtureApi,
   type Enrollment,
@@ -44,7 +45,6 @@ import {
 const TABS = ["sequences", "enrollments", "identities", "style"] as const;
 type Tab = (typeof TABS)[number];
 
-const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—");
 
 /**
  * A state pill. FOUR TONES, AND THEY ARE THE SHARED ONES.
@@ -306,9 +306,9 @@ function Enrollments() {
                 <span className="text-muted-foreground text-[11.5px]">{e.sequenceName}</span>
               </div>
               <div className="text-muted-foreground mt-0.5 text-[11.5px]">
-                step {e.step} · enrolled {when(e.enrolledAt)}
-                {e.nextDue && e.status === "active" && ` · next due ${when(e.nextDue)}`}
-                {e.lastDraftAt && ` · last drafted ${when(e.lastDraftAt)}`}
+                step {e.step} · enrolled {day(e.enrolledAt)}
+                {e.nextDue && e.status === "active" && ` · next due ${day(e.nextDue)}`}
+                {e.lastDraftAt && ` · last drafted ${day(e.lastDraftAt)}`}
               </div>
               {e.blocked && (
                 <p className="text-warn mt-1.5 text-[12px]">
@@ -361,7 +361,7 @@ function Enrollments() {
                   <ul className="mt-1 space-y-0.5">
                     {e.history.map((h, i) => (
                       <li key={i} className="text-muted-foreground text-[11.5px]">
-                        {when(h.at)} — {h.what}
+                        {day(h.at)} — {h.what}
                       </li>
                     ))}
                   </ul>
@@ -574,7 +574,7 @@ function Style() {
         <>
           <p className="text-muted-foreground mb-3 text-[11.5px]">
             {d.edits.count} edited draft{d.edits.count === 1 ? "" : "s"} on file
-            {d.edits.newest && `, newest ${when(d.edits.newest)}`}. The pairs quote whole email bodies and are
+            {d.edits.newest && `, newest ${day(d.edits.newest)}`}. The pairs quote whole email bodies and are
             never shown here or sent anywhere but the derivation.
           </p>
           {d.rules.length === 0 && (
@@ -771,7 +771,7 @@ export function Nurture() {
           <ul className="mt-1 space-y-0.5">
             {d.optouts.map((o) => (
               <li key={o.address} className="text-muted-foreground text-[11.5px]">
-                {o.address} — {when(o.at)}
+                {o.address} — {day(o.at)}
                 {o.reason && ` · ${o.reason}`}
               </li>
             ))}

@@ -83,6 +83,24 @@ export function Num({
 }
 
 /**
+ * THE RULES A PANEL COUNTS BY, under the panel.
+ *
+ * Byte-identical in two area pages before this: the same list, the same middot,
+ * the same sizes. It belongs with the other three states because it is one —
+ * "here is the answer, and here is what the answer excludes". A page that drew
+ * its own would be free to quietly drop a caveat the figures depend on.
+ */
+export function Rules({ rules }: { rules: string[] }) {
+  return (
+    <ul className="text-muted-foreground mt-4 space-y-1 text-[11.5px]">
+      {rules.map((r) => (
+        <li key={r}>· {r}</li>
+      ))}
+    </ul>
+  );
+}
+
+/**
  * The titled block those same pages put each answer in.
  *
  * `flex-wrap` on the heading row, because the meta line beside a title is

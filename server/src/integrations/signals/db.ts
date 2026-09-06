@@ -64,6 +64,44 @@ export function backlinkSources(): BacklinkSourceRow[] {
     .all() as unknown as BacklinkSourceRow[];
 }
 
+/**
+ * REFERRING DOMAINS FOR ONE HOST, AS ONE ANSWER.
+ *
+ * Two surfaces used to answer this question and neither cited the other's
+ * rule: the backlinks route published a per-source list with an explicit
+ * refusal to total it, the authority estimate quietly took the largest single
+ * source and fed it into a difficulty ceiling — with its own SQL against this
+ * table, from another area. When a source's index moved, the two moved
+ * differently and a reader had no way to see why.
+ *
+ * BOTH RULES ARE TRUE AND BOTH ARE HERE. `combined` is null on principle —
+ * the sources overlap by an unknown amount and neither is a census, so a sum
+ * is a number in no unit at all. `best` is the largest single source WITH THE
+ * SOURCE NAMED, which is the most defensible single figure there is and the
+ * only one an estimate may be built on. `perSource` is what each said.
+ */
+export type ReferringDomains = {
+  /** The largest single source's count, or null when none answered. */
+  best: number | null;
+  /** Which source that was. Never a sum of two. */
+  source: string | null;
+  perSource: { source: string; ok: number | null; referringDomains: number | null }[];
+  /** NULL ON PRINCIPLE, not for want of data. See above. */
+  combined: null;
+};
+
+export function referringDomains(host: string): ReferringDomains {
+  const rows = db
+    .prepare("SELECT source, ok, referring_domains FROM backlink_sources WHERE host = ?")
+    .all(host) as unknown as { source: string; ok: number | null; referring_domains: number | null }[];
+  const perSource = rows.map((r) => ({ source: r.source, ok: r.ok, referringDomains: r.referring_domains }));
+  let best: { source: string; value: number } | null = null;
+  for (const r of perSource)
+    if (r.referringDomains !== null && (best === null || r.referringDomains > best.value))
+      best = { source: r.source, value: r.referringDomains };
+  return { best: best?.value ?? null, source: best?.source ?? null, perSource, combined: null };
+}
+
 /** When this host's cheapest source last answered, for the day clock. Null
  *  for a host nothing has ever been asked about — which is collected now,
  *  whatever the clock says, because the point of adding a host is to see it. */

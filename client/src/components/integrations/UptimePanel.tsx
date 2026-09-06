@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { integrations } from "@/lib/api/integrations";
 import { cn } from "@/lib/utils";
-import { ago, num, pct } from "./format";
+import { ago, count, pct } from "./format";
 import { EntityLinks } from "./EntityLinks";
 import { Note, PanelEmpty, PanelSection, Row, Rows, Suggest, Tiles } from "./Panel";
 
@@ -184,7 +184,7 @@ export function UptimePanel({ onCollected }: { onCollected?: () => void }) {
                     : `${av.ok} of ${av.checks} checks ok in ${av.hours}h`}
                 </span>
                 <span>
-                  p50 {num(h.latency.p50)} ms · p95 {num(h.latency.p95)} ms over{" "}
+                  p50 {count(h.latency.p50)} ms · p95 {count(h.latency.p95)} ms over{" "}
                   {h.latency.samples} successful
                 </span>
                 <span>

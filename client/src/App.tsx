@@ -123,7 +123,7 @@ export default function App() {
                     {/*
                       ONE OF A VENTURE'S SIX WORKERS. The address is the
                       venture and the ROLE rather than the worker's id —
-                      /ventures/example-app-1/team/seo is a sentence and
+                      /ventures/acme/team/seo is a sentence and
                       /subagents/sa-v-3f21-seo is a primary key — and the
                       pairing is the thing that is guaranteed: every venture is
                       provisioned with all six on every read.
@@ -142,7 +142,7 @@ export default function App() {
                     {/*
                       THE VENTURE'S OTHER TABS. Real addresses rather than
                       state, the same rule the boards follow: "what is
-                      Example App 1 connected to" is a place somebody sends a link
+                      a venture is connected to" is a place somebody sends a link
                       to. They render the same `<Venture />` element as the
                       overview, so moving between tabs reconciles as one
                       component instead of remounting the page under the

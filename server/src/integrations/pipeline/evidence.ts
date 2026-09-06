@@ -25,16 +25,20 @@
  * or for one.
  *
  * WINDOWS ARE STATED IN THE PACKET ITSELF because the model is going to quote
- * them. Revenue is monthly recurring dollars, now against the same measure
- * thirty days ago; traffic is Umami's own complete-days window against the
- * window immediately before it; alerts and runs are the last seven days. A
- * figure whose window is not stated is a figure an agent will caption wrongly.
+ * them. Revenue is monthly recurring revenue per currency, now against the
+ * same measure thirty days ago; traffic is Umami's own complete-days window
+ * against the window immediately before it; alerts and runs are the last seven
+ * days. A figure whose window is not stated is a figure an agent will caption
+ * wrongly.
  */
 import { db, ventureRowById, type VentureRow } from "../../db.ts";
 import { stripeSubscriptions } from "../../db.ts";
 import { ventureGoal } from "../chief/goals.ts";
 import { notes } from "../chief/memory.ts";
 import { linkedEntities } from "../ventures/links.ts";
+import { ventureMrr } from "../finance/attribution.ts";
+import { openEventsForVenture, ruleCountForVenture } from "../proactive/store.ts";
+import { currencyCode, money } from "../../shared/money.ts";
 /* PORT rather than `apiBase()` from the skill registry, and the difference is
    a module cycle: the registry imports `integrations/index.ts`, which imports
    this area's manifest, which imports this file. proactive/catalogue.ts makes
@@ -66,10 +70,12 @@ export type EvidencePacket = {
   revenue: Measure<{
     window: string;
     products: string[];
-    mrrUsd: number;
-    previousMrrUsd: number;
-    deltaUsd: number;
-    activeSubscriptions: number;
+    /** Live MRR keyed by currency code. Never one number: `monthly_usd` is the
+     *  plan's price in ITS OWN currency, normalised to a month, and adding a
+     *  euro to a dollar here would invent an exchange rate. */
+    mrr: Record<string, number>;
+    previous: Record<string, number>;
+    delta: Record<string, number>;
     note: string;
   }>;
   traffic: Measure<{
@@ -111,12 +117,14 @@ export type EvidencePacket = {
 /**
  * MRR FOR THE STRIPE PRODUCTS THIS VENTURE OWNS, now against thirty days ago.
  *
- * `monthly_usd` is the collector's own normalisation of a subscription to a
- * monthly dollar figure; this sums it over the subscriptions whose PRODUCT is
- * one the venture is linked to, which is exactly what `/api/venture-links`
- * offers as a Stripe entity. It never sums across ventures and it never adds a
- * currency to a dollar — the collector has already done the one conversion
- * there is, and this file does not invent a second.
+ * THE LIVE HALF IS `ventureMrr`, which is the figure the finance area
+ * publishes. Reducing the same rows a second time here is how the two came to
+ * disagree: this file counted `active || trialing`, and a trial has never sent
+ * a cent — counted in as revenue it comes back out as churn the day it ends.
+ *
+ * DESPITE THE COLUMN NAME, `monthly_usd` IS NOT DOLLARS. It is the plan's own
+ * price normalised to a month in the plan's own currency, so both halves are
+ * keyed by currency code and nothing here adds one to another.
  *
  * "Thirty days ago" is reconstructed from the subscription rows themselves: a
  * subscription counts in the past figure if it had been created by then and
@@ -135,42 +143,54 @@ function revenue(v: VentureRow): EvidencePacket["revenue"] {
       "no Stripe product is linked to this venture. Link one on the venture's connections page and this becomes a measured figure.",
     );
 
+  let mrr: Record<string, number>;
   let subs: ReturnType<typeof stripeSubscriptions>;
   try {
+    mrr = ventureMrr(v.id);
     subs = stripeSubscriptions();
   } catch {
     return missing("the Stripe subscription table could not be read.");
   }
-  const wanted = new Set(products);
-  const mine = subs.filter((s) => s.product && wanted.has(s.product));
+
+  /* Case-insensitively, as `ventureMrr` matches: a product linked as "Pro" and
+     billed as "pro" is one product, and matching exactly here would put the two
+     halves of the delta on different sets of rows. */
+  const wanted = new Set(products.map((e) => e.trim().toLowerCase()));
+  const mine = subs.filter((s) => s.product && wanted.has(s.product.trim().toLowerCase()));
   if (!mine.length)
     return missing(
       `Stripe products ${products.join(", ")} are linked, but the collector holds no subscription rows for them.`,
     );
 
   const then = Date.now() - REVENUE_WINDOW_DAYS * 86_400_000;
-  const live = (s: (typeof mine)[number]) => s.status === "active" || s.status === "trialing";
-  const now = mine.filter((s) => live(s) && !s.ended_at);
-  const before = mine.filter(
-    (s) => Date.parse(s.created_at) <= then && (!s.ended_at || Date.parse(s.ended_at) > then),
-  );
-  const sum = (rows: typeof mine) => rows.reduce((a, s) => a + (Number(s.monthly_usd) || 0), 0);
-  const mrr = sum(now);
-  const prev = sum(before);
+  const previous: Record<string, number> = {};
+  for (const s of mine) {
+    /* Status is deliberately NOT tested here: it is today's status, and a
+       subscription cancelled last week was billing thirty days ago. Testing it
+       would make the past figure a subset of the present one, so the delta
+       could never be negative. */
+    if (Date.parse(s.created_at) > then) continue;
+    if (s.ended_at && Date.parse(s.ended_at) <= then) continue;
+    previous[currencyCode(s.currency)] =
+      (previous[currencyCode(s.currency)] ?? 0) + (Number(s.monthly_usd) || 0);
+  }
+
+  const delta: Record<string, number> = {};
+  for (const code of new Set([...Object.keys(mrr), ...Object.keys(previous)]))
+    delta[code] = money((mrr[code] ?? 0) - (previous[code] ?? 0));
 
   return {
     measured: {
-      window: `monthly recurring USD, now against ${REVENUE_WINDOW_DAYS} days ago`,
+      window: `monthly recurring revenue per currency, now against ${REVENUE_WINDOW_DAYS} days ago`,
       products,
-      mrrUsd: Math.round(mrr * 100) / 100,
-      previousMrrUsd: Math.round(prev * 100) / 100,
-      deltaUsd: Math.round((mrr - prev) * 100) / 100,
-      activeSubscriptions: now.length,
+      mrr: Object.fromEntries(Object.entries(mrr).map(([c, n]) => [c, money(n)])),
+      previous: Object.fromEntries(Object.entries(previous).map(([c, n]) => [c, money(n)])),
+      delta,
       note:
         "The past figure is reconstructed from subscription start and end dates, " +
         "so it sees subscriptions that started or stopped and cannot see a price " +
-        "that changed. It is dollars only: the collector normalised each plan once, " +
-        "and nothing here converts a second time.",
+        "that changed. Currencies are kept apart: each plan was normalised to a " +
+        "month in its own currency and nothing here converts.",
     },
     why: null,
   };
@@ -245,30 +265,20 @@ async function traffic(v: VentureRow, signal?: AbortSignal): Promise<EvidencePac
 /* ------------------------------------------------------------------- alerts */
 
 function alerts(v: VentureRow): EvidencePacket["alerts"] {
-  const since = new Date(Date.now() - RECENT_DAYS * 86_400_000).toISOString();
-  let rows: { ts: string; name: string; message: string }[];
+  let rows: ReturnType<typeof openEventsForVenture>;
   try {
-    rows = db
-      .prepare(
-        `SELECT e.ts AS ts, r.name AS name, e.message AS message
-           FROM alert_events e JOIN alert_rules r ON r.id = e.rule_id
-          WHERE r.venture_id = ? AND e.ts >= ? AND e.kind IN ('trip','unreadable')
-            AND e.acknowledged_at IS NULL
-          ORDER BY e.ts DESC LIMIT 20`,
-      )
-      .all(v.id, since) as unknown as { ts: string; name: string; message: string }[];
+    rows = openEventsForVenture(v.id, { days: RECENT_DAYS });
   } catch {
     return missing("the alert tables could not be read.");
   }
-  const anyRule = db
-    .prepare("SELECT COUNT(*) AS n FROM alert_rules WHERE venture_id = ?")
-    .get(v.id) as { n: number };
-  if (!Number(anyRule.n))
+  /* "No rule watches this" and "nothing has tripped" are different findings,
+     and only one of them is about the business. */
+  if (!ruleCountForVenture(v.id))
     return missing("no alert rule on this box names this venture, so nothing is being watched for it.");
   return {
     measured: {
       window: `open trips and unreadable readings in the last ${RECENT_DAYS} days`,
-      open: rows.map((r) => ({ ts: r.ts, rule: r.name, message: r.message })),
+      open: rows.map((r) => ({ ts: r.ts, rule: r.rule, message: r.message })),
     },
     why: null,
   };

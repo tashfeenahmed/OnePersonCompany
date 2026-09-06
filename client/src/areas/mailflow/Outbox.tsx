@@ -4,7 +4,7 @@ import { useStore } from "@/lib/store";
 import { useEffect, useState } from "react";
 import { Check, Loader2, Pencil, Send, Trash2, X } from "lucide-react";
 import { SubTabs } from "@/components/TabStrip";
-import { when } from "@/lib/format";
+import { day, when } from "@/lib/format";
 import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -133,7 +133,7 @@ function Reasons({ id }: { id: number }) {
                   <span className="text-muted-foreground">
                     {" "}
                     — {f.source}
-                    {f.observed_at ? `; observed ${new Date(f.observed_at).toLocaleDateString()}` : ""}
+                    {f.observed_at ? `; observed ${day(f.observed_at)}` : ""}
                   </span>
                 </li>
               ))}

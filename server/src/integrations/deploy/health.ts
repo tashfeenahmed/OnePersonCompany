@@ -41,8 +41,11 @@
  */
 import { existsSync, statfsSync, statSync } from "node:fs";
 import { COLLECT_MINUTES, DATA_DIR, DB_FILE } from "../../config.ts";
-import { retentions, type RetentionEntry } from "../../shared/retention.ts";
+/* db.ts BEFORE retention.ts, and it matters: the two import each other and
+   db.ts registers its own windows at module scope, so retention.ts must not
+   be the one that starts the cycle. */
 import { allPlugins, db } from "../../db.ts";
+import { retentions, type RetentionEntry } from "../../shared/retention.ts";
 import { INTEGRATION_MIGRATIONS } from "../migrations.ts";
 import { intervalMinutes } from "./cadence.ts";
 import { lastStartedAt, schedulerState } from "./scheduler.ts";

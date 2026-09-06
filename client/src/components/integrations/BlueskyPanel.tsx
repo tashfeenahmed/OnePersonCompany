@@ -3,7 +3,7 @@ import { useApi } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { integrations } from "@/lib/api/integrations";
-import { ago, num } from "./format";
+import { ago, count } from "./format";
 import { EntityLinks } from "./EntityLinks";
 import { Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
 
@@ -67,12 +67,12 @@ export function BlueskyPanel({ onCollected }: { onCollected?: () => void }) {
       <Tiles
         items={[
           {
-            v: num(last30.posts),
+            v: count(last30.posts),
             k: last30.anyTruncated ? "posts in 30 days — at least" : "posts in 30 days",
           },
-          { v: num(last30.likes), k: "likes on those posts, now" },
-          { v: num(last30.reposts), k: "reposts by others" },
-          { v: num(last30.replies), k: "replies" },
+          { v: count(last30.likes), k: "likes on those posts, now" },
+          { v: count(last30.reposts), k: "reposts by others" },
+          { v: count(last30.replies), k: "replies" },
         ]}
       />
 
@@ -98,18 +98,18 @@ export function BlueskyPanel({ onCollected }: { onCollected?: () => void }) {
                 </span>
               </div>
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
-                <span>{num(h.profile.followers)} followers</span>
+                <span>{count(h.profile.followers)} followers</span>
                 <span className="text-muted-foreground">
                   {h.growth.change === null
                     ? "no growth figure yet"
-                    : `${h.growth.change >= 0 ? "+" : ""}${num(h.growth.change)} over ${h.growth.readings} readings`}
+                    : `${h.growth.change >= 0 ? "+" : ""}${count(h.growth.change)} over ${h.growth.readings} readings`}
                 </span>
                 <span className="text-muted-foreground">
-                  {num(h.profile.posts)} posts all told
+                  {count(h.profile.posts)} posts all told
                 </span>
                 {w30?.held && (
                   <span className="text-muted-foreground">
-                    {num(w30.posts)} in 30 days · {num(w30.likes)} likes ·{" "}
+                    {count(w30.posts)} in 30 days · {count(w30.likes)} likes ·{" "}
                     {w30.perPost === null
                       ? "no per-post rate"
                       : `${w30.perPost} engagements a post`}

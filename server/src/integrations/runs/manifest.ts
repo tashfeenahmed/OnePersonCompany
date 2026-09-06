@@ -236,9 +236,8 @@ const skills: Skill[] = [
       "What has the box been working on, and is anything running now?",
       "Read me the SEO review it wrote for Example App 1.",
     ],
-    /* A run reaches the internet on almost every kind — an agent's web search,
-       OpenAlex and arXiv for a paper — and `openWorldHint` is a claim a client
-       is entitled to trust when it decides whether to ask a person first. */
+    /* A run reaches the internet on almost every kind: an agent's web search,
+       OpenAlex and arXiv for a paper. */
     openWorld: true,
   },
 
@@ -302,12 +301,14 @@ export const manifest: IntegrationManifest = {
           hint:
             "The full path to the `typst` binary, which is what turns a planned " +
             "paper into a typeset PDF — two columns, numbered headings and " +
-            "figures, a real bibliography. Leave it EMPTY and this looks for one " +
-            "itself: /opt/homebrew/bin/typst, /usr/local/bin/typst, then typst on " +
-            "PATH. Fill it in only to point at one the search cannot find. With " +
-            "no typesetter anywhere a paper is still written — as markdown " +
-            "printed by the same Chrome the screenshots use — and the paper says " +
-            "which of the two made it.",
+            "figures, a real bibliography. THIS IS THE SAME TYPESETTER THE VIDEO " +
+            "AREA USES: there is one on a machine, so the path is shared and " +
+            "setting it in either place sets it for both. Leave it EMPTY and " +
+            "this looks for one itself, under the usual install prefixes and " +
+            "then on PATH. Fill it in only to point at one the search cannot " +
+            "find. With no typesetter anywhere a paper is still written — as " +
+            "markdown printed by the same Chrome the screenshots use — and the " +
+            "paper says which of the two made it.",
           ph: "/opt/homebrew/bin/typst",
           check(value) {
             if (!value) return null; // cleared means "find one yourself"

@@ -23,7 +23,7 @@ import {
 } from "./diagnose.ts";
 import { detectionMay } from "./listings.ts";
 import { safeAssetUrl, safeCount, safeFontName, safeHex, shapeReading, validateRaw } from "./brand.ts";
-import { imageTokens, pngSize } from "./vision.ts";
+import { imageTokens } from "./vision.ts";
 import { isInternalHost, normaliseWebsite } from "../../ventures/enrich.ts";
 import { reachableOffsets, type BaselineRow } from "./followup.ts";
 import { validateVisionAnswer } from "./vision.ts";
@@ -581,15 +581,4 @@ test("an image is priced by its tiles rather than by its bytes", () => {
      smallest: guessing low is how a budget stops being a budget. */
   assert.equal(imageTokens(null, null), imageTokens(2048, 2048));
   assert.ok(imageTokens(1280, 800) < 5_000);
-});
-
-test("a PNG's dimensions are read from its header, and a non-PNG is null", () => {
-  const png = Buffer.alloc(24);
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
-  png.write("IHDR", 12, "ascii");
-  png.writeUInt32BE(1280, 16);
-  png.writeUInt32BE(800, 20);
-  assert.deepEqual(pngSize(png), { width: 1280, height: 800 });
-  assert.equal(pngSize(Buffer.from("not a png at all, really not")), null);
-  assert.equal(pngSize(Buffer.alloc(4)), null);
 });

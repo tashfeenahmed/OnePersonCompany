@@ -46,8 +46,8 @@
  * missing directory must be one absent section of the packet rather than a
  * server that will not start.
  */
-import { createHash } from "node:crypto";
 import { db, ventureRowById } from "../../db.ts";
+import { lookupHash } from "../activity/users.ts";
 import type { Fact } from "./validate.ts";
 
 export type { Fact };
@@ -234,16 +234,6 @@ function ventureFacts(ventureId: string | null): Fact[] {
 
 /* ------------------------------------------------- the product's own user */
 
-/** The install salt, read the same way activity/users.ts writes it. Read only:
- *  a missing salt means no document has ever been collected, so there is
- *  nothing to look up and nothing to create. */
-function saltIfAny(): string | null {
-  const row = db.prepare("SELECT salt FROM activity_salt WHERE id = 1").get() as
-    | { salt: string }
-    | undefined;
-  return row?.salt ?? null;
-}
-
 export type ProductUser = {
   product: string;
   createdAt: string;
@@ -264,14 +254,17 @@ export type ProductUser = {
  * customer.
  */
 export function productUser(address: string): { user: ProductUser | null; reason: string | null } {
-  const salt = saltIfAny();
-  if (!salt)
+  /* READ-ONLY BY CONSTRUCTION. `lookupHash` returns null rather than minting a
+     salt, which is what keeps the two nulls above distinguishable: a salt
+     minted here would make every address hash to something no row can carry
+     and turn "nothing is connected" into "this person is a stranger". */
+  const hash = lookupHash(address);
+  if (hash === null)
     return {
       user: null,
       reason:
         "no product on this install publishes a users document (the `users` plugin is not connected), so nothing here knows who signed up or who is paying",
     };
-  const hash = createHash("sha256").update(`${salt}:${address.trim().toLowerCase()}`).digest("hex");
   const row = db
     .prepare(
       `SELECT product, created_at, plan, paid, last_seen, seen_at FROM activity_users

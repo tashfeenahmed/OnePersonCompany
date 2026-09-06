@@ -304,4 +304,33 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
         ON venture_assets (venture_id, created_at DESC);
     `,
   },
+
+  {
+    name: "403_publish_items_approved_content",
+    sql: `
+      -- WHAT WAS APPROVED, FROZEN AT THE MOMENT IT WAS APPROVED.
+      --
+      -- \`approved_at\` and \`approved_by\` say that somebody approved this row.
+      -- They do not say WHAT they approved, and the row goes on changing: the
+      -- caption is editable, the media path is rewritten by the job that
+      -- renders it, and the source document behind it can be edited in the
+      -- area that owns it. \`patchItem\` holds the honest half of that rule —
+      -- an edit through it withdraws the approval — but it is a rule enforced
+      -- by one function rather than a fact recorded on the row, and two other
+      -- areas already write to this table around it.
+      --
+      -- SO THE APPROVAL CARRIES ITS OWN SNAPSHOT: the caption, the media kind
+      -- and the media path as they stood when the press happened, as JSON.
+      -- "Is what is about to be sent still what was approved" becomes a
+      -- comparison rather than a belief, and an item that published something
+      -- else has the evidence of it afterwards.
+      --
+      -- NULL IS THE HONEST VALUE FOR EVERY EXISTING ROW, including the ones
+      -- already approved: nobody wrote a snapshot at the time and this
+      -- migration cannot invent one from the row as it is now — that would be
+      -- a snapshot of today dressed as a record of the press. Null means "no
+      -- frozen copy", which is exactly true, and the next approval writes one.
+      ALTER TABLE publish_items ADD COLUMN approved_content TEXT;
+    `,
+  },
 ];

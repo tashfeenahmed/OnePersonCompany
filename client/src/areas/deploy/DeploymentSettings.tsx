@@ -6,15 +6,16 @@ import { Section } from "@/components/settings/Section";
 import { PluginSettingsForm } from "@/components/settings/PluginSettingsForm";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
-import { deployApi, type Check, type Lease, type Schedule, type Verdict } from "@/lib/api/deploy";
+import { deployApi, type Check, type Lease, type RefusedRoute, type Retention, type Schedule, type Verdict } from "@/lib/api/deploy";
 
 /**
  * SETTINGS → DEPLOYMENT — the page you open when the dashboard was fine
  * yesterday and is silent today.
  *
- * IT ANSWERS FOUR QUESTIONS AND IN THIS ORDER, because that is the order they
- * are asked in: is this thing supervised at all, is it healthy, when is each
- * source next collected, and how boxed-in is the agent. Anything the server
+ * IT ANSWERS FIVE QUESTIONS AND IN THIS ORDER, because that is the order they
+ * are asked in: is this thing supervised at all, is it healthy, how long does
+ * it keep what it collects, when is each source next collected, and how
+ * boxed-in is the agent. Anything the server
  * would not say is drawn as "unknown" rather than guessed — `running: null` is
  * a supervisor that could not be asked, and printing that as "stopped" would
  * be the page inventing the one fact somebody came here for.
@@ -50,6 +51,67 @@ function CheckRow({ check }: { check: Check }) {
         <div className="text-[13px] capitalize">{check.key}</div>
         <div className="text-muted-foreground text-[12.5px]">{check.detail}</div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * ONE TABLE'S RETENTION WINDOW.
+ *
+ * WHERE THE NUMBER CAME FROM IS A COLUMN, not a footnote: "400 days because
+ * you set it" and "30 days because the fleet collector decided" are different
+ * answers to "can I keep more", and only one of them has a knob.
+ */
+function RetentionRow({ r }: { r: Retention }) {
+  return (
+    <tr className="border-line-soft border-t align-top">
+      <td className="py-1.5 pr-3 font-mono text-[11.5px]">{r.table}</td>
+      <td className="text-muted-foreground py-1.5 pr-3 font-mono text-[11.5px]">
+        {r.column}
+        {r.grain === "day" && " · day key"}
+        {r.where && <span className="block opacity-70">only where {r.where}</span>}
+      </td>
+      <td className="py-1.5 pr-3 text-[12.5px] tabular-nums whitespace-nowrap">{r.days}d</td>
+      <td className="text-muted-foreground py-1.5 text-[11.5px]">
+        {r.source === "setting" ? <span className="font-mono">{r.setting ?? "a setting"}</span> : "this area chose it"}
+        {r.note && <span className="block opacity-80">{r.note}</span>}
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * THE ROUTES THE AGENT KEY IS REFUSED ON, WITH THE WALL EACH ONE IS BEHIND.
+ *
+ * This was one joined line of prefixes, which said that a boundary exists and
+ * nothing about it. There are three walls — an owner proof, the owner's own
+ * browser, and a signed-in session — and which one guards restoring a backup
+ * is exactly the question somebody opens this page with.
+ *
+ * THE SENTENCE PER LEVEL IS DRAWN ONCE, under the list, rather than on every
+ * row: it is the same sentence for every route at that level and repeating it
+ * twenty times would bury the list it explains.
+ */
+function RefusedRoutes({ rows }: { rows: RefusedRoute[] }) {
+  const levels = [...new Map(rows.map((r) => [r.level, r.demands])).entries()];
+  return (
+    <div className="text-muted-foreground grid gap-1 text-[11.5px]">
+      <span>That key is refused on {rows.length} owner controls:</span>
+      <div className="grid gap-0.5">
+        {rows.map((r) => (
+          <div key={r.prefix} className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-mono">{r.paths ? r.paths.join("  ") : `${r.prefix}/*`}</span>
+            <span className="opacity-70">
+              {r.methods === "all" ? "reads and writes" : "writes"} · {r.level}
+            </span>
+          </div>
+        ))}
+      </div>
+      {levels.map(([level, demands]) => (
+        <p key={level} className="max-w-[620px]">
+          <span className="text-foreground">{level}</span> — {demands}
+        </p>
+      ))}
     </div>
   );
 }
@@ -315,6 +377,38 @@ export function DeploymentSettings() {
         </div>
       </Section>
 
+      {/* ---------------------------------------------------- the retention */}
+      <Section
+        title="How long history is kept"
+        hint="One row per table, verbatim from the registry the prune walks — not a setting that describes some of it. A table that is NOT on this list is a table nothing ages out."
+      >
+        {d.health.retention.length === 0 ? (
+          <p className="text-muted-foreground text-[12.5px]">
+            Nothing has registered a window, so nothing on this box is pruned.
+          </p>
+        ) : (
+          <div className="max-h-96 overflow-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="text-muted-foreground text-[11.5px]">
+                  <th className="pb-1 pr-3 font-normal">Table</th>
+                  <th className="pb-1 pr-3 font-normal">Aged on</th>
+                  <th className="pb-1 pr-3 font-normal">Kept</th>
+                  <th className="pb-1 font-normal">Where the number comes from</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...d.health.retention]
+                  .sort((a, b) => a.table.localeCompare(b.table))
+                  .map((r) => (
+                    <RetentionRow key={r.table} r={r} />
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
       {/* ----------------------------------------------------- the schedule */}
       <Section
         title="Collection schedule"
@@ -358,9 +452,7 @@ export function DeploymentSettings() {
           <div className="text-muted-foreground text-[11.5px]">
             Agent home: {iso.agentHome} · scoped key: {iso.scopedKey.file}
           </div>
-          <div className="text-muted-foreground text-[11.5px]">
-            That key is refused on: {iso.scopedKey.refusedPrefixes.map((r) => r.prefix).join(", ")}.
-          </div>
+          <RefusedRoutes rows={iso.scopedKey.refusedPrefixes} />
           {iso.agentKeyProblem && (
             <p className="text-destructive max-w-[620px]">
               {iso.agentKeyProblem}

@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { integrations } from "@/lib/api/integrations";
 import { cn } from "@/lib/utils";
-import { ago, num } from "./format";
+import { ago, count } from "./format";
 import { EntityLinks } from "./EntityLinks";
 import { Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
 
@@ -141,7 +141,7 @@ export function ProductsPanel({ onCollected }: { onCollected?: () => void }) {
                   >
                     <span className="text-muted-foreground">{m.label}</span>
                     <span className="tabular-nums">
-                      {m.value === null ? "—" : num(m.value)}
+                      {m.value === null ? "—" : count(m.value)}
                     </span>
                     {m.error && (
                       <span className="text-destructive text-[11.5px]">{m.error}</span>

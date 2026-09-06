@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { integrations } from "@/lib/api/integrations";
 import { cn } from "@/lib/utils";
-import { ago, bytes, duration, num } from "./format";
+import { ago, bytes, count, duration } from "./format";
 import { EntityLinks } from "./EntityLinks";
 import { MeterBar, Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
 
@@ -147,8 +147,8 @@ export function FleetPanel({ onCollected }: { onCollected?: () => void }) {
                   )}
                 </div>
                 <div className="text-muted-foreground mt-1.5 text-[12px] tabular-nums">
-                  load {num(b.sample.load.one)} / {num(b.sample.load.five)} /{" "}
-                  {num(b.sample.load.fifteen)} ·{" "}
+                  load {count(b.sample.load.one)} / {count(b.sample.load.five)} /{" "}
+                  {count(b.sample.load.fifteen)} ·{" "}
                   {b.sample.loadPerCpu === null
                     ? "core count unknown, so there is no per-cpu figure"
                     : `${b.sample.loadPerCpu} per cpu over ${b.sample.cpus} cores`}
@@ -170,7 +170,7 @@ export function FleetPanel({ onCollected }: { onCollected?: () => void }) {
                   >
                     <span className="text-muted-foreground">{counter.label}</span>
                     <span className="tabular-nums">
-                      {counter.latest ? num(counter.latest.value) : "—"}
+                      {counter.latest ? count(counter.latest.value) : "—"}
                     </span>
                     {counter.note && (
                       <span className="text-muted-foreground text-[11.5px]">

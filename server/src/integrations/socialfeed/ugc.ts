@@ -38,13 +38,14 @@
 import { closeSync, existsSync, mkdirSync, openSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 import { configValue, db, now, type VentureRow } from "../../db.ts";
-import { tokenAccounts, REPLICATE_API } from "../../providers/replicate.ts";
+import { tokenAccounts } from "../../providers/replicate.ts";
+import { download, firstUrl, predict } from "../../tools/replicate-run.ts";
 import { readBrand } from "../../ventures/enrich.ts";
-import { imageModel, makeImage, STUDIO_DIR } from "../ventures/studio.ts";
+import { formatForAspect, imageModel, makeImage, STUDIO_DIR } from "../ventures/studio.ts";
 import { assetAsDataUrl, assetAsText, assetRows, markUsed, modelImageInput } from "../publishing/assets.ts";
 import { correctMediaKind, createItem, sniff } from "../publishing/items.ts";
 import { runDir, StepError, type RunSession } from "../video/faceless.ts";
-import { ASPECTS, segment, type Fit } from "../video/assemble.ts";
+import { aspectFrame, segment, type Fit } from "../video/assemble.ts";
 import { pickCaptioner, stripPath, type CaptionStyle } from "../video/captions.ts";
 import { blurFilter } from "../video/assemble.ts";
 import { bytesOf, ffmpegFilters, findFfmpeg, findFfprobe, probeDuration } from "../video/tools.ts";
@@ -56,18 +57,9 @@ import { SOCIALFEED_PLUGIN } from "./novelty.ts";
  *  a social clip and is the default. */
 export const DEFAULT_UGC_SECONDS = 5;
 
-/** Replicate's synchronous door holds a connection for up to sixty seconds.
- *  Video models routinely take longer than that, so this is generous and the
- *  prediction is polled — see `animate`. */
-const PREDICT_MS = 90_000;
+/** How often the prediction is asked how it is going. Slower than the tool's
+ *  own default: a video model takes minutes, not seconds. */
 const POLL_MS = 5_000;
-/** One poll's own ceiling. Without it a hung connection hangs the whole run. */
-const POLL_TIMEOUT_MS = 20_000;
-/** Consecutive failed polls before the prediction is given up on. Three,
- *  because the money is already spent and a 502 is not a verdict. */
-const POLL_FAILURES_ALLOWED = 3;
-const POLL_FOR_MS = 12 * 60_000;
-const DOWNLOAD_MS = 120_000;
 /** A social clip bigger than this is not a social clip. */
 const VIDEO_CAP = 200 * 1024 * 1024;
 
@@ -176,17 +168,20 @@ export type AnimateResult =
 /**
  * One image-to-video prediction.
  *
- * `Prefer: wait` AND THEN A POLL, unlike the Studio's image call which only
- * waits. A four-step image model finishes inside the sixty seconds Replicate
- * will hold a connection; a video model usually does not, and a route that
- * gave up there would charge for a prediction it then threw away. So the wait
- * is tried first and the prediction is polled through its own `urls.get` after
- * — the money is already spent by then and abandoning it would be the worst of
- * both.
+ * THE PREDICTION ITSELF IS `tools/replicate-run.ts`, which polls — a video
+ * model rarely finishes inside the sixty seconds Replicate will hold a
+ * connection, and by then the money is spent. What stays here is what is
+ * genuinely this area's: no default model, and the sentence explaining why
+ * that is not a bug.
  *
  * THE FRAME TRAVELS AS A `data:` URI. Nothing on the internet can fetch a file
  * from this laptop; the same reason every upload in the publishing area is
  * multipart bytes rather than a URL.
+ *
+ * `skipped` IS THE FIELD THAT MATTERS TO THE CALLER. It separates "nothing ran
+ * and nothing was spent" from "the prediction ran and failed", which send the
+ * owner to two different places — and a skipped animation is not a failed run:
+ * what exists is still a product shot.
  */
 export async function animate(opts: {
   imagePath: string;
@@ -208,15 +203,6 @@ export async function animate(opts: {
         "Name one under Integrations → Social feed → “UGC video model”, as owner/name. There is deliberately " +
         "no default: image-to-video costs dollars a clip and the price differs by a hundredfold between models.",
     };
-  if (!/^[\w.-]+\/[\w.-]+$/.test(model))
-    return {
-      ok: false,
-      skipped: true,
-      model,
-      ms: 0,
-      error: `“${model}” is not a Replicate model. It wants owner/name. Nothing was spent.`,
-    };
-
   const tokens = tokenAccounts("socialfeed_ugc");
   if (!tokens.length)
     return {
@@ -226,7 +212,6 @@ export async function animate(opts: {
       ms: 0,
       error: "Replicate is not connected, so there is no animation. Paste an `r8_…` token under Integrations → Replicate.",
     };
-  const token = tokens[0]!.token;
 
   const { readFileSync, writeFileSync } = await import("node:fs");
   let dataUrl: string;
@@ -237,135 +222,35 @@ export async function animate(opts: {
     return { ok: false, skipped: false, model, ms: Date.now() - started, error: "The still frame is no longer on disk." };
   }
 
-  let doc: { id?: string; status?: string; output?: unknown; error?: unknown; detail?: string; urls?: { get?: string } };
-  try {
-    const res = await fetch(`${REPLICATE_API}/models/${model}/predictions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Prefer: "wait",
-      },
-      body: JSON.stringify({
-        input: {
-          prompt: opts.prompt,
-          /* `image` is the input property every image-to-video model on
-             Replicate uses for its first frame. Unlike the Studio's reference
-             field this is not probed, because a model that has no `image`
-             input is not an image-to-video model and the prediction's own
-             error is the right place for that to be said. */
-          image: dataUrl,
-          duration: opts.seconds,
-        },
-      }),
-      /* BOTH SIGNALS, NOT ONE OR THE OTHER. `opts.signal ?? timeout` meant a
-         run that had a cancellation signal made a request with NO timeout at
-         all, so a Replicate that stopped answering hung the run until somebody
-         cancelled it by hand. `any` fires on whichever comes first. */
-      signal: opts.signal
-        ? AbortSignal.any([opts.signal, AbortSignal.timeout(PREDICT_MS)])
-        : AbortSignal.timeout(PREDICT_MS),
-    });
-    doc = (await res.json().catch(() => ({}))) as typeof doc;
-    if (!res.ok)
-      return {
-        ok: false,
-        skipped: false,
-        model,
-        ms: Date.now() - started,
-        error: `Replicate answered HTTP ${res.status}${doc?.detail ? ` — ${doc.detail}` : ""}.`,
-      };
-  } catch (err) {
-    const name = err instanceof Error ? err.name : "Error";
-    return { ok: false, skipped: false, model, ms: Date.now() - started, error: `Could not reach Replicate (${name}).` };
-  }
+  const run = await predict({
+    token: tokens[0]!.token,
+    model,
+    input: {
+      prompt: opts.prompt,
+      /* `image` is the input property every image-to-video model on Replicate
+         uses for its first frame. Unlike the Studio's reference field this is
+         not probed, because a model that has no `image` input is not an
+         image-to-video model and the prediction's own error is the right place
+         for that to be said. */
+      image: dataUrl,
+      duration: opts.seconds,
+    },
+    poll: { everyMs: POLL_MS },
+    signal: opts.signal,
+  });
+  /* `spent: false` is the tool's way of saying no prediction was created — a
+     bad model name or a missing token — which is the same "nothing was spent"
+     this function's own two refusals above report. */
+  if (!run.ok)
+    return { ok: false, skipped: !run.spent, model, ms: Date.now() - started, error: run.error };
 
-  /*
-    THE POLL, AND WHY IT DOES NOT GIVE UP ON ONE BAD ANSWER.
-
-    By the time this loop runs the prediction has been PAID FOR. Abandoning it
-    because a single poll timed out or came back 502 is the "worst of both"
-    this function's header warns about: the money is spent and the file is
-    thrown away. So a failed poll is counted, not fatal — only
-    POLL_FAILURES_ALLOWED consecutive failures end it, and the error then says
-    the prediction may still have finished at Replicate.
-
-    EVERY POLL HAS ITS OWN TIMEOUT. Without one, a hung connection hangs the
-    run: `Date.now() < deadline` is only checked BETWEEN iterations and a fetch
-    that never settles never reaches the next one.
-  */
-  const deadline = Date.now() + POLL_FOR_MS;
-  let failures = 0;
-  while (doc.status && !["succeeded", "failed", "canceled"].includes(doc.status) && Date.now() < deadline) {
-    if (opts.signal?.aborted) return { ok: false, skipped: false, model, ms: Date.now() - started, error: "The run was cancelled while the prediction was still going." };
-    await new Promise((r) => setTimeout(r, POLL_MS));
-    const get = doc.urls?.get;
-    if (!get) break;
-    const poll = await fetch(get, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      signal: opts.signal
-        ? AbortSignal.any([opts.signal, AbortSignal.timeout(POLL_TIMEOUT_MS)])
-        : AbortSignal.timeout(POLL_TIMEOUT_MS),
-    }).catch(() => null);
-    if (!poll?.ok) {
-      failures += 1;
-      if (failures >= POLL_FAILURES_ALLOWED)
-        return {
-          ok: false,
-          skipped: false,
-          model,
-          ms: Date.now() - started,
-          error:
-            `Replicate stopped answering when asked how the prediction was going (${failures} tries in a row). ` +
-            `The prediction was paid for and may still have finished — look for it in Replicate's own dashboard.`,
-        };
-      continue;
-    }
-    failures = 0;
-    doc = (await poll.json().catch(() => doc)) as typeof doc;
-  }
-
-  if (doc.status !== "succeeded")
-    return {
-      ok: false,
-      skipped: false,
-      model,
-      ms: Date.now() - started,
-      error: `The prediction is “${doc.status ?? "unknown"}”${doc.error ? ` — ${String(doc.error).slice(0, 200)}` : ""}.`,
-    };
-
-  const url = firstUrl(doc.output);
+  const url = firstUrl(run.output);
   if (!url) return { ok: false, skipped: false, model, ms: Date.now() - started, error: "The prediction succeeded and produced no video URL." };
 
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_MS) });
-    if (!res.ok) return { ok: false, skipped: false, model, ms: Date.now() - started, error: `The video URL answered HTTP ${res.status}.` };
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    if (!bytes.length) return { ok: false, skipped: false, model, ms: Date.now() - started, error: "The video URL answered with nothing." };
-    if (bytes.length > VIDEO_CAP)
-      return { ok: false, skipped: false, model, ms: Date.now() - started, error: `The clip is ${Math.round(bytes.length / 1_048_576)} MB, larger than this stores.` };
-    writeFileSync(opts.out, bytes);
-    return { ok: true, path: opts.out, model, ms: Date.now() - started };
-  } catch (err) {
-    const name = err instanceof Error ? err.name : "Error";
-    return { ok: false, skipped: false, model, ms: Date.now() - started, error: `The finished clip could not be downloaded (${name}).` };
-  }
-}
-
-function firstUrl(output: unknown): string | null {
-  if (typeof output === "string") return output.startsWith("http") ? output : null;
-  if (Array.isArray(output)) for (const o of output) {
-    const u = firstUrl(o);
-    if (u) return u;
-  }
-  if (output && typeof output === "object") {
-    const o = output as Record<string, unknown>;
-    for (const key of ["video", "url", "output"]) {
-      const u = firstUrl(o[key]);
-      if (u) return u;
-    }
-  }
-  return null;
+  const got = await download({ url, cap: VIDEO_CAP, what: "clip", signal: opts.signal });
+  if (!got.ok) return { ok: false, skipped: false, model, ms: Date.now() - started, error: got.error };
+  writeFileSync(opts.out, got.bytes);
+  return { ok: true, path: opts.out, model, ms: Date.now() - started };
 }
 
 /* ---------------------------------------------------------------- the run */
@@ -396,7 +281,21 @@ export async function ugcVideo(opts: {
 
   const dir = runDir(opts.runId);
   mkdirSync(dir, { recursive: true });
-  const frame = ASPECTS[input.aspect] ?? ASPECTS["9:16"]!;
+  const frame = aspectFrame(input.aspect);
+
+  /* THE STUDIO'S NAME FOR THIS SHAPE, OR A REFUSAL — and the refusal is the
+     point. The conditional this replaces ended `: "story"`, so any aspect the
+     renderer supports and the Studio has no composition for was silently
+     rendered PORTRAIT and then animated and captioned in a frame it did not
+     fit. `formatForAspect` returns null instead, and null is refused here,
+     before a reference picture is read or a model is called. */
+  const format = formatForAspect(input.aspect);
+  if (!format)
+    throw new StepError(
+      "input",
+      `The Studio has no composition for ${input.aspect}, and a UGC shot starts with a Studio image, ` +
+        `so there is nothing to animate. GET /api/studio lists the shapes it cannot compose for.`,
+    );
   const steps: StepNote[] = [];
   const record = (step: string, ok: boolean, note: string) => steps.push({ step, ok, note });
 
@@ -453,7 +352,7 @@ export async function ugcVideo(opts: {
   const dataUrls = support.supported ? chosen.map((a) => assetAsDataUrl(a.id)).filter((u) => u !== null) : [];
   const image = await makeImage(
     imagePrompt,
-    input.aspect === "1:1" ? "square" : input.aspect === "16:9" ? "landscape" : "story",
+    format,
     `ugc-${opts.runId}`,
     support.supported ? { dataUrls, field: support.field, many: support.many } : undefined,
   );

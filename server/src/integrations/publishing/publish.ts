@@ -87,10 +87,11 @@ const READ_CAP = 1024 * 1024 * 1024;
  * `failed` IS IN THE LIST, and it is there because `retry` is a real button. A
  * failed item was approved by the owner before it was ever submitted, and
  * nothing since has withdrawn that — an EDIT would have, by returning it to
- * `draft` (see items.patchItem). Leaving it out made the retry route and the
- * `retry_item` skill action structurally unable to do anything but 422, which
- * is worse than either offering the retry or removing it: it looked like a
- * feature and was a dead end.
+ * `draft` (see items.patchItem). Leaving it out made the retry route
+ * structurally unable to do anything but 422, which is worse than either
+ * offering the retry or removing it: it looked like a feature and was a dead
+ * end. Retry is a button on the page and no longer a skill action — see
+ * skills.ts's header.
  *
  * `publishing` IS NOT IN THE LIST, AND THAT REMOVAL IS A BUG FIX. It used to
  * be, which meant "this item is being submitted right now" read as "the owner

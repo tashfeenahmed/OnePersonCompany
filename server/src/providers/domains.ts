@@ -19,7 +19,7 @@
  * null and the UI says "unknown" rather than drawing a warning it cannot
  * justify.
  */
-import { allDomains, cloudflareRegistrar, type DomainRecord } from "../db.ts";
+import { allDomains, type DomainRecord } from "../db.ts";
 
 export type DomainRow = {
   name: string;
@@ -179,62 +179,46 @@ export function describe(err: unknown): string {
 
 /**
  * EVERY REGISTERED NAME THIS BOX KNOWS ABOUT, FROM WHICHEVER COLLECTOR FOUND
- * IT — and there are two, which is the whole point of this function.
+ * IT.
  *
- * THE SAME ENTITY WAS BEING COLLECTED INTO TWO TABLES BY TWO COLLECTORS THAT
- * HAD NEVER LEARNED ABOUT EACH OTHER. `domains` holds what the registrar
- * plugins report; `cloudflare_registrar` holds what the Cloudflare plugin
- * reports, with identical columns and an identical meaning. Everything that
- * asked "what do I own and when does it lapse" read only the first, so a name
- * registered at Cloudflare was missing from the portfolio total, from the
- * lapsed and expiring counts, from auto-renew-off, from unlocked and from the
- * renewal runway — and the Cloudflare page itself would classify that same
- * zone as "no connected registrar holds this name" three inches above printing
- * the name in its own registrar block.
+ * There used to be two tables. `domains` held what the registrar plugins
+ * report and `cloudflare_registrar` held what the Cloudflare plugin reports —
+ * identical columns, identical meaning, and nothing that asked "what do I own
+ * and when does it lapse" read the second. A name registered at Cloudflare was
+ * therefore missing from the portfolio total, from the lapsed and expiring
+ * counts, from auto-renew-off, from unlocked and from the renewal runway,
+ * while the Cloudflare page filed that same zone under "no connected registrar
+ * holds this name" three inches above printing it in its own registrar block.
  *
- * SO THERE IS ONE READER AND BOTH SURFACES USE IT. The tables are still two
- * (merging them is a migration and belongs to a pass that is allowed to write
- * one); what is fixed here is that nothing has to know there are two in order
- * to answer the question correctly.
+ * Migration `400_domains_cloudflare` carried those rows across under
+ * `source = 'cloudflare'` and dropped the second table, so this is now one
+ * read. It stays a NAMED function rather than becoming `allDomains()` at every
+ * call site: it is the answer to "what does the portfolio contain", and the
+ * surfaces that ask it should not each have to remember which collectors there
+ * are.
  *
- * A NAME IN BOTH TABLES IS ONE NAME, AND THE REGISTRAR PLUGIN'S ROW WINS. It
- * carries fields Cloudflare's does not report at all — when it was registered,
- * the privacy setting, the nameservers — so preferring it loses nothing, and
- * the alternative is one name counted twice in the total.
+ * IT STILL HAS TO DEDUPE, and that is the whole reason it is not a synonym.
+ * One name can be read by two collectors — a domain registered at Cloudflare
+ * and also listed by a registrar plugin the owner has connected — and the
+ * merge into one table turned what used to be two rows in two tables into two
+ * rows in one. Counting the portfolio off the raw rows bills that name twice,
+ * inflates the total, and double-counts it in every lapsed and expiring
+ * bucket it falls into.
+ *
+ * THE REGISTRAR PLUGIN'S ROW WINS. Cloudflare's registrar endpoint reports
+ * neither `registered_on`, nor privacy, nor nameservers, so its row is a
+ * strict subset; preferring it would blank three fields the other collector
+ * actually read. `routes/cloudflare.ts` reports the same overlap as
+ * `claimedTwice`, which is the right answer to "who holds this name" — but it
+ * is not the right answer to "how many names are there".
  */
 export function registeredDomains(): DomainRecord[] {
-  const rows = allDomains();
-  const known = new Set(rows.map((r) => r.name.toLowerCase()));
-  const extra = cloudflareRegistrar()
-    .filter((r) => !known.has(r.name.toLowerCase()))
-    .map((r): DomainRecord => ({
-      name: r.name,
-      /* THE PLUGIN THAT READ IT, exactly as the registrar sources spell it, so
-         "where do I go to change this" has the same kind of answer for all
-         three. */
-      source: "cloudflare",
-      account_id: r.account_id,
-      account_label: r.account_label,
-      /* Cloudflare reports the registrar of record and it is usually itself;
-         null means it did not say, and a portfolio row has to be filed under
-         something a person can read. */
-      registrar: r.registrar ?? "Cloudflare Registrar",
-      expires_at: r.expires_at,
-      /* THE THREE FIELDS CLOUDFLARE'S REGISTRAR ENDPOINT DOES NOT REPORT stay
-         null rather than being invented. Null is "asked and not told" here as
-         it is everywhere else in this file, and the counts keep it apart from
-         "off". */
-      registered_on: null,
-      auto_renew: r.auto_renew,
-      locked: r.locked,
-      status: r.status,
-      privacy: null,
-      nameservers: null,
-      seen_at: (r as CloudflareRegistrarSeen).seen_at ?? "",
-    }));
-  return [...rows, ...extra].sort((a, b) => a.name.localeCompare(b.name));
+  const byName = new Map<string, DomainRecord>();
+  for (const d of allDomains()) {
+    const key = d.name.trim().toLowerCase();
+    const held = byName.get(key);
+    if (!held || (held.source === "cloudflare" && d.source !== "cloudflare"))
+      byName.set(key, d);
+  }
+  return [...byName.values()];
 }
-
-/** `cloudflare_registrar` carries `seen_at` and its exported row type does
- *  not. Widened here rather than in db.ts, which this pass does not edit. */
-type CloudflareRegistrarSeen = { seen_at?: string };

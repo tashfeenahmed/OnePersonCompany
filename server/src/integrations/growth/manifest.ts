@@ -265,8 +265,14 @@ const skills: Skill[] = [
           { name: "sitemap", type: "number", required: false, in: "body", about: "1 to submit the URLs listed in the host's sitemap." },
           { name: "dryRun", type: "number", required: false, in: "body", about: "1 to resolve and log the batch without sending it." },
         ],
+        /* A MESSAGE IT SENDS — the third of the four. The URLs go to Bing,
+           Yandex, Seznam and Naver, who keep them; nothing here can ask them
+           to forget one, and the local log surviving is not the point. */
+        destructive: true,
       },
     ],
+    /* Reaches off this box: the submission, and the view's `check` fetch. */
+    openWorld: true,
     asks: [
       "Have the pages that changed on this site been submitted, and did IndexNow accept them?",
       "What do I have to put on the site before IndexNow will work?",

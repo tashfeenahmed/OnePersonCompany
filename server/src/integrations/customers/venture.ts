@@ -28,8 +28,7 @@
  * not do is put another business's name on somebody's churn.
  */
 import { db } from "../../db.ts";
-
-type LinkRow = { venture_id: string; entity: string };
+import { linkIndex, normaliseEntity } from "../ventures/links.ts";
 
 export type VentureMap = {
   /** Product name (lowercased) → venture id. */
@@ -52,17 +51,15 @@ export type VentureMap = {
  * fix an attribution they just saw was wrong.
  */
 export function ventureMap(): VentureMap {
-  const links = db
-    .prepare("SELECT venture_id, entity FROM venture_links WHERE plugin = 'stripe'")
-    .all() as unknown as LinkRow[];
+  /* THE SAME READER FINANCE USES, so a product linked with different
+     capitalisation than Stripe stores it with cannot attribute a dispute here
+     and produce no revenue line there. Where two ventures are linked to one
+     product `linkIndex` lists both and this takes the first, which is the
+     venture `ventureOfEntity` would also name. */
+  const index = linkIndex("stripe");
+  const byProduct = new Map([...index].map(([entity, ids]) => [entity, ids[0]!]));
 
-  const byProduct = new Map<string, string>();
-  for (const l of links) {
-    const key = l.entity.trim().toLowerCase();
-    if (key) byProduct.set(key, l.venture_id);
-  }
-
-  const ventures = new Set(links.map((l) => l.venture_id));
+  const ventures = new Set([...index.values()].flat());
   const sole = ventures.size === 1 ? [...ventures][0]! : null;
 
   const bySubscription = new Map<string, string>();
@@ -71,7 +68,7 @@ export function ventureMap(): VentureMap {
       .prepare("SELECT id, product FROM stripe_subscriptions WHERE product IS NOT NULL")
       .all() as unknown as { id: string; product: string }[];
     for (const s of subs) {
-      const v = byProduct.get(s.product.trim().toLowerCase());
+      const v = byProduct.get(normaliseEntity(s.product));
       if (v) bySubscription.set(s.id, v);
     }
   }
@@ -85,7 +82,7 @@ export const ventureOfSubscription = (m: VentureMap, subscription: string | null
 
 /** Rule one, for anything that names a product. */
 export const ventureOfProduct = (m: VentureMap, product: string | null) =>
-  product ? (m.byProduct.get(product.trim().toLowerCase()) ?? null) : null;
+  m.byProduct.get(normaliseEntity(product)) ?? null;
 
 /** Rule two. Only ever reached where rule one had nothing to work with. */
 export const soleVenture = (m: VentureMap) => m.sole;

@@ -77,6 +77,63 @@ export function linkedEntities(ventureId: string, plugin: string): string[] {
   ).map((r) => r.entity);
 }
 
+/* ---------------------------------------------------- the entity resolvers */
+
+/**
+ * THE ONE SPELLING AN ENTITY IS COMPARED UNDER.
+ *
+ * A product linked as "Widget Pro" and a subscription carrying "widget pro"
+ * are the same product. Matching them exactly — which two of the four readers
+ * of this table did — meant a venture showed churn cases in the customers area
+ * and zero revenue in the P&L for the same product, because one side
+ * lowercased and the other did not. Case is not evidence of a different
+ * business.
+ */
+export const normaliseEntity = (entity: string | null | undefined): string =>
+  String(entity ?? "").trim().toLowerCase();
+
+/**
+ * Every entity of one plugin, keyed under `normaliseEntity`, to the ventures
+ * that own it.
+ *
+ * A LIST rather than one id, because nothing stops two ventures being linked
+ * to one entity and a reader that assumed otherwise would silently drop one.
+ * `ORDER BY venture_id` so the first element is the same venture
+ * `ventureOfEntity` below returns — four readers of one table giving two
+ * answers is the bug this pair exists to close.
+ */
+export function linkIndex(plugin: string): Map<string, string[]> {
+  const rows = db
+    .prepare("SELECT venture_id, entity FROM venture_links WHERE plugin = ? ORDER BY venture_id")
+    .all(plugin) as { venture_id: string; entity: string }[];
+  const out = new Map<string, string[]>();
+  for (const r of rows) {
+    const key = normaliseEntity(r.entity);
+    if (key) out.set(key, [...(out.get(key) ?? []), r.venture_id]);
+  }
+  return out;
+}
+
+/**
+ * Which venture, if any, is linked to this entity at this plugin.
+ *
+ * NULL IS THE ORDINARY ANSWER and it means unlinked — shared, unattributed,
+ * nobody's yet — never "the first venture". For the callers that ask this of
+ * many rows at once, `linkIndex` is the same question asked in one query.
+ */
+export function ventureOfEntity(plugin: string, entity: string | null | undefined): string | null {
+  const key = normaliseEntity(entity);
+  if (!key) return null;
+  const row = db
+    .prepare(
+      `SELECT venture_id FROM venture_links
+       WHERE plugin = ? AND LOWER(TRIM(entity)) = ?
+       ORDER BY venture_id LIMIT 1`,
+    )
+    .get(plugin, key) as { venture_id: string } | undefined;
+  return row?.venture_id ?? null;
+}
+
 const shape = (r: LinkRow) => ({
   plugin: r.plugin,
   entity: r.entity,

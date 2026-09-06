@@ -43,7 +43,6 @@ import {
   allGithubRepos,
   appStoreApps,
   bingSites,
-  cloudflareRegistrar,
   cloudflareZones,
   db,
   gmailMailboxes,
@@ -54,6 +53,7 @@ import {
   stripeSubscriptions,
   type VentureRow,
 } from "../../db.ts";
+import { hostMatch, hostOf } from "../../shared/host.ts";
 import { PORT } from "../../config.ts";
 import { serviceHeaders } from "../../auth.ts";
 
@@ -79,50 +79,6 @@ export type SourceNote = {
   entities: number;
   note: string | null;
 };
-
-/* ------------------------------------------------------------------ hosts */
-
-/**
- * A hostname out of whatever the provider stored — a bare host, a URL, or
- * Search Console's `sc-domain:` prefix.
- *
- * Lowercased, `www.` removed and the trailing dot dropped, because the
- * ventures table stores hosts that way (see the `host` column's comment in
- * db.ts) and two spellings of one host is two things that never match.
- */
-export function hostOf(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  let v = String(raw).trim().toLowerCase();
-  if (!v) return null;
-  if (v.startsWith("sc-domain:")) v = v.slice("sc-domain:".length);
-  if (v.includes("://")) {
-    try {
-      v = new URL(v).hostname;
-    } catch {
-      return null;
-    }
-  } else {
-    v = v.split("/")[0]!.split("?")[0]!;
-  }
-  v = v.replace(/\.$/, "").replace(/^www\./, "");
-  if (!v || !v.includes(".") || /\s/.test(v)) return null;
-  return v;
-}
-
-/**
- * Does this entity's host belong to this venture's?
- *
- * EQUAL, OR A SUBDOMAIN OF IT — and in that direction only. `api.acme.ie`
- * belongs to `acme.ie`; `acme.ie` does not belong to `api.acme.ie`, and
- * neither of them has anything to do with `acme.so`. The one-directional rule is the
- * whole of the protection against filing two businesses under one name, and
- * this box has exactly that pair in it.
- */
-function hostMatch(ventureHost: string, entityHost: string): "same" | "sub" | null {
-  if (ventureHost === entityHost) return "same";
-  if (entityHost.endsWith(`.${ventureHost}`)) return "sub";
-  return null;
-}
 
 /* ------------------------------------------------------------------ names */
 
@@ -179,15 +135,13 @@ export function builtinEntities(): Entity[] {
   for (const z of cloudflareZones())
     out.push({ plugin: "cloudflare", entity: z.zone_id, label: z.name, host: hostOf(z.name) });
 
-  /* Cloudflare's registrar side, which is a different list from the zones: a
-     domain can be registered here and served elsewhere, or the reverse. */
-  for (const d of cloudflareRegistrar())
-    out.push({
-      plugin: "cloudflare",
-      entity: `registrar:${d.name}`,
-      label: `${d.name} (registrar)`,
-      host: hostOf(d.name),
-    });
+  /* Cloudflare's registrar side used to be a second loop here, filing each
+     name as `registrar:<name>`. Migration `400_domains_cloudflare` moved those
+     rows into `domains` under `source = 'cloudflare'`, so the `allDomains()`
+     loop below already emits every one of them under plugin `cloudflare` with
+     the bare name as the entity. Keeping both would offer the owner two chips
+     for one domain, and a link made against either key would not resolve from
+     the other. The bare name is the survivor. */
 
   /* The two registrars. `source` IS the plugin id — a domain row knows which
      door read it — so a link points at dynadot or spaceship rather than at a

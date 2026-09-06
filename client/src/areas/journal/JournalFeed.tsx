@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
 import { useStore } from "@/lib/store";
+import { day } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { catalogueApi } from "@/lib/api/chief";
 import { journalApi, type JournalEntry, type Streak } from "@/lib/api/journal";
@@ -67,17 +68,13 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function dayLabel(day: string): string {
+function dayLabel(iso: string): string {
   const t = todayLocal();
-  if (day === t) return "Today";
+  if (iso === t) return "Today";
   const y = new Date(`${t}T12:00:00Z`);
   y.setUTCDate(y.getUTCDate() - 1);
-  if (day === y.toISOString().slice(0, 10)) return "Yesterday";
-  return new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
+  if (iso === y.toISOString().slice(0, 10)) return "Yesterday";
+  return day(iso, { long: true });
 }
 
 export function JournalFeed({

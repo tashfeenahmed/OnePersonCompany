@@ -31,13 +31,9 @@
  * seventh role added later needs no edit here. That is the same argument the
  * runs manifest makes about kinds, applied one layer up.
  *
- * `dispatch` IS NOT MARKED DESTRUCTIVE, on the runs area's test: `destructive`
- * means the change cannot be undone from here, and a dispatch writes a run row
- * that can be cancelled and deleted. What it COSTS is real — minutes of the one
- * slot, tokens on the owner's account — and that is said in the action's own
- * text, where a caller deciding whether to ask first will actually read it.
- * `configure` is not destructive either: every field it writes is a field it
- * can write back.
+ * `configure` IS NOT DESTRUCTIVE: every field it writes is a field it can write
+ * back. `dispatch` IS — it spends the one run slot and real tokens — see the
+ * action.
  */
 import type { IntegrationManifest } from "../manifest.ts";
 import type { Skill } from "../../skills/registry.ts";
@@ -132,6 +128,11 @@ const skills: Skill[] = [
         key: "dispatch",
         method: "POST",
         path: "/api/subagents/dispatch",
+        /* DESTRUCTIVE on the registry's MONEY limb: it spends the single run
+           slot and tokens on the owner's account, and cancelling the run does
+           not get either back. The row being deletable is not the question the
+           field answers. */
+        destructive: true,
         about:
           "Give one worker a job. It queues a run of that worker's kind for that " +
           "worker's venture and answers immediately with the queued run — there " +

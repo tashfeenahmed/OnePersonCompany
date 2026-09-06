@@ -1,37 +1,15 @@
 /**
- * The pure logic of the chief-of-staff area, which is the half that can be
- * tested without a database or a model: the JSON path walker every outcome
- * reading goes through, the numbers gate that keeps measurements out of the
- * memory, and the ISO week the weekly pass is idempotent on.
+ * The rules of the chief-of-staff area whose breach is a wrong answer rather
+ * than a crash: the two gates on the memory, and the ISO week the weekly pass
+ * is idempotent on.
  *
- * NOTHING HERE TOUCHES THE DATABASE. The rest of the area is SQL and HTTP and
- * is verified against the running server, where a test with its own schema
- * would be testing a copy.
+ * The JSON path walker moved to `shared/metrics-address.ts` and is tested
+ * there, against the superset both areas now read through.
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { isoWeek, looksLikeAMeasurement } from "./memory.ts";
-import { walk } from "./outcomes.ts";
-
-test("walk finds a nested field", () => {
-  const doc = { portfolio: { window: { visits: 89_621 } } };
-  assert.deepEqual(walk(doc, "portfolio.window.visits"), { found: true, value: 89_621 });
-});
-
-test("walk indexes arrays", () => {
-  const doc = { sites: [{ views: 1 }, { views: 2 }] };
-  assert.deepEqual(walk(doc, "sites[1].views"), { found: true, value: 2 });
-  assert.equal(walk(doc, "sites[9].views").found, false);
-});
-
-test("walk tells a missing field from a null one", () => {
-  const doc = { a: { b: null } };
-  /* The distinction the whole readings table is built on: `found` with a null
-     value is "asked and not told"; not found is "this address is wrong". */
-  assert.deepEqual(walk(doc, "a.b"), { found: true, value: null });
-  assert.equal(walk(doc, "a.c").found, false);
-  assert.equal(walk(doc, "a.b.c").found, false);
-});
+import { db, now } from "../../db.ts";
+import { isoWeek, looksLikeAMeasurement, remember } from "./memory.ts";
 
 test("the numbers gate refuses a metrics snapshot", () => {
   assert.equal(looksLikeAMeasurement("MRR is €412 and there are 14 subscriptions"), true);
@@ -59,4 +37,40 @@ test("isoWeek follows the Thursday rule", () => {
      it is not — which is what makes "one pass a week" mean one pass. */
   assert.equal(isoWeek(new Date(2026, 8, 7)), isoWeek(new Date(2026, 8, 13)));
   assert.notEqual(isoWeek(new Date(2026, 8, 6)), isoWeek(new Date(2026, 8, 7)));
+});
+
+/* --------------------------------------------------------- the venture gate */
+
+/* A venture-scoped note lands in the system turn of every later conversation
+   about that business. So an AGENT cannot write one — a claim about a product
+   goes to the fact store, where it waits for confirmation — and the OWNER can,
+   because the owner IS that confirmation. */
+function aVenture(): string {
+  const ts = now();
+  db.prepare(
+    `INSERT INTO ventures (id, slug, name, description, website, host, stage, color, color_source, position, brand, created_at, updated_at)
+     VALUES ('v-gate','gate','Gate','A test','https://gate.invalid','gate.invalid','launched','#123456','default',0,'{}',?,?)`,
+  ).run(ts, ts);
+  return "v-gate";
+}
+
+test("an agent cannot scope a note to a venture, and the owner can", () => {
+  const id = aVenture();
+  const claim = "The billing page explains the annual discount clearly.";
+
+  const byAgent = remember({ text: claim, scope: "venture", ventureId: id, source: "agent" });
+  assert.equal(byAgent.ok, false);
+  assert.equal(byAgent.ok === false && byAgent.status, 422);
+  assert.match(byAgent.ok === false ? byAgent.error : "", /propose_fact/);
+
+  const byOwner = remember({ text: claim, scope: "venture", ventureId: id, source: "owner" });
+  assert.equal(byOwner.ok, true);
+  assert.equal(byOwner.ok === true && byOwner.note.scope, "venture");
+  assert.equal(byOwner.ok === true && byOwner.note.ventureId, id);
+
+  /* The agent is refused the VENTURE and not the note. The same sentence
+     global is the thing it was supposed to write instead. */
+  const global = remember({ text: "The owner will not run paid acquisition.", source: "agent" });
+  assert.equal(global.ok, true);
+  assert.equal(global.ok === true && global.note.scope, "global");
 });

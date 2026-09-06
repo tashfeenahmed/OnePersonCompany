@@ -477,4 +477,96 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE web_dimensions ADD COLUMN capped INTEGER NOT NULL DEFAULT 0;
     `,
   },
+
+  {
+    name: "401_site_windows",
+    sql: `
+      -- ONE WINDOW TABLE, BECAUSE TWO OF THEM WERE TWO CLOCKS ON THE SAME
+      -- MEASUREMENT.
+      --
+      -- \`umami_windows\` is written by the traffic collector every six hours
+      -- for every website. \`web_site_windows\` is written by this area's own
+      -- collector on a twelve-hour ROTATION that reaches a few sites a pass.
+      -- Both ask the same analytics instance for the last 30 complete days, so
+      -- the two rows are read hours to days apart — and the two surfaces that
+      -- publish them, a traffic headline and an audience breakdown, are
+      -- registered as agent skills on the SAME plugin. An agent's answer to
+      -- "how many visitors last month" depended on which skill it picked.
+      --
+      -- THE KEY IS (account, website, window_days, offset_days).
+      -- \`umami_windows\` had no offset — every row of it is the window ending
+      -- yesterday — so it carries across as offset 0, which is what
+      -- \`web_site_windows\` already calls that window.
+      --
+      -- THE PREVIOUS-WINDOW COLUMNS COME ACROSS TOO, and stay nullable.
+      -- \`umami_windows\` fetched the same length of window immediately before
+      -- this one as a second call rather than reading Umami's own \`prev\`
+      -- field, which some versions omit and others compute over a range this
+      -- code did not choose; a delta computed from two windows this box asked
+      -- for is a delta whose denominator is knowable. The rotation collector
+      -- never asked for one, and null says exactly that.
+      --
+      -- \`source\` IS KEPT ON THE ROW rather than dropped as an implementation
+      -- detail, because two collectors still write here and "which one last
+      -- touched this figure" is the question that could not be answered when
+      -- the two disagreed.
+      CREATE TABLE IF NOT EXISTS site_windows (
+        account_id      INTEGER NOT NULL REFERENCES plugin_accounts(id) ON DELETE CASCADE,
+        website_id      TEXT NOT NULL,
+        window_days     INTEGER NOT NULL,
+        offset_days     INTEGER NOT NULL,  -- 0 = the window ending yesterday
+        start_day       TEXT NOT NULL,
+        end_day         TEXT NOT NULL,
+        pageviews       INTEGER,
+        visitors        INTEGER,
+        visits          INTEGER,
+        bounces         INTEGER,
+        totaltime       INTEGER,
+        prev_pageviews  INTEGER,
+        prev_visitors   INTEGER,
+        prev_visits     INTEGER,
+        prev_bounces    INTEGER,
+        prev_totaltime  INTEGER,
+        seen_at         TEXT NOT NULL,
+        source          TEXT NOT NULL,
+        PRIMARY KEY (account_id, website_id, window_days, offset_days)
+      );
+
+      -- THE AUTHORITATIVE TABLE GOES IN FIRST, and the rotation's rows follow
+      -- with OR IGNORE, so a key both tables hold keeps the traffic
+      -- collector's figure. That is the same winner the read half already
+      -- names: it is the fresher and the complete one — every site, four times
+      -- a day, against a rotation that may not have reached this site yet.
+      INSERT INTO site_windows
+        (account_id, website_id, window_days, offset_days, start_day, end_day,
+         pageviews, visitors, visits, bounces, totaltime,
+         prev_pageviews, prev_visitors, prev_visits, prev_bounces, prev_totaltime,
+         seen_at, source)
+      SELECT account_id, website_id, window_days, 0, start_day, end_day,
+             pageviews, visitors, visits, bounces, totaltime,
+             prev_pageviews, prev_visitors, prev_visits, prev_bounces, prev_totaltime,
+             seen_at, 'umami_windows'
+        FROM umami_windows;
+
+      INSERT OR IGNORE INTO site_windows
+        (account_id, website_id, window_days, offset_days, start_day, end_day,
+         pageviews, visitors, visits, bounces, totaltime,
+         prev_pageviews, prev_visitors, prev_visits, prev_bounces, prev_totaltime,
+         seen_at, source)
+      SELECT account_id, website_id, window_days, offset_days, start_day, end_day,
+             pageviews, visitors, visits, bounces, totaltime,
+             NULL, NULL, NULL, NULL, NULL,
+             seen_at, 'web_site_windows'
+        FROM web_site_windows;
+
+      -- THE TWO SOURCE TABLES ARE STILL HERE, AND THAT IS THE UNFINISHED HALF.
+      -- Their writers live in two areas this step may not edit
+      -- (\`analytics/store.ts::writeUmamiWindow\` and
+      -- \`webanalytics/store.ts::writeSiteWindow\`), and dropping a table whose
+      -- writer still names it is an outage. Repointing both writers and both
+      -- readers at \`site_windows\` is one commit; the DROP is the migration
+      -- after it, and until then this table is a complete copy that nothing
+      -- reads.
+    `,
+  },
 ];

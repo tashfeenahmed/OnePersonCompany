@@ -82,7 +82,7 @@ export function PipelineTab() {
       </p>
 
       <ScheduleForm
-        key={`${schedule.enabled}:${schedule.hour}:${schedule.timezone}:${schedule.maxMinutes}:${schedule.maxUsd}:${schedule.blackouts.map((b) => b.raw).join("|")}`}
+        key={`${schedule.enabled}:${schedule.hour}:${schedule.timezone}:${schedule.zoneWasSet}:${schedule.maxMinutes}:${schedule.maxUsd}:${schedule.blackouts.map((b) => b.raw).join("|")}`}
         schedule={schedule}
         onSaved={() => doc.reload()}
       />
@@ -370,7 +370,10 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
   const [values, setValues] = useState<Record<string, string>>({
     enabled: schedule.enabled ? "on" : "",
     hour: String(schedule.hour),
-    timezone: schedule.timezone ?? "",
+    /* EMPTY WHEN THE OWNER NEVER CHOSE ONE. `timezone` is now always a real
+       zone, so filling the box with it would turn "this machine's, whatever it
+       is" into "Europe/Dublin, chosen" the next time Save is pressed. */
+    timezone: schedule.zoneWasSet ? schedule.timezone : "",
     blackouts: schedule.blackouts.map((b) => b.raw).join("\n"),
     "max-minutes": schedule.maxMinutes === null ? "0" : String(schedule.maxMinutes),
     "max-usd": schedule.maxUsd === null ? "" : String(schedule.maxUsd),
@@ -399,10 +402,13 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
         <Field label="Hour" width="w-20">
           <Input value={values.hour} onChange={(e) => set("hour", e.target.value)} />
         </Field>
-        <Field label={`Time zone (${schedule.resolvedTimezone})`} width="w-52">
+        <Field
+          label={schedule.zoneWasSet ? "Time zone" : `Time zone (this machine's — ${schedule.timezone})`}
+          width="w-52"
+        >
           <Input
             value={values.timezone}
-            placeholder={schedule.resolvedTimezone}
+            placeholder={schedule.timezone}
             onChange={(e) => set("timezone", e.target.value)}
           />
         </Field>

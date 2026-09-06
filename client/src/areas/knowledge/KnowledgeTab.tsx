@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/hooks/useApi";
+import { day } from "@/lib/format";
 import {
   knowledgeApi,
   type FactKind,
@@ -200,9 +201,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
             <span className="text-muted-foreground text-[11.5px]">
               {repo?.head
                 ? `read at ${repo.head.slice(0, 7)}${
-                    repo.extractedAt
-                      ? `, ${new Date(repo.extractedAt).toLocaleDateString()}`
-                      : ""
+                    repo.extractedAt ? `, ${day(repo.extractedAt)}` : ""
                   }`
                 : repo?.repo
                   ? "never read"

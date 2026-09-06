@@ -150,10 +150,14 @@ export const SKILLS: Skill[] = [
         "constraint, a decision, a thing that turned out not to work. Not the " +
         "contents of this conversation, and not something already on a record " +
         "this box serves — a venture's stage is in the venture, not in here.",
-      "SCOPE A NOTE TO A VENTURE WHEN IT IS ABOUT ONE. Venture notes are only " +
-        "shown in conversations about that venture; a global note is shown in " +
-        "every one, which is why a global note about one business is noise in " +
-        "eighteen others.",
+      "A NOTE IS ABOUT THE OWNER, NEVER ABOUT A PRODUCT. Preferences, " +
+        "constraints, decisions, things that turned out not to work — all of " +
+        "which are global, which is why you cannot scope one to a venture. A " +
+        "claim about a business goes to the `knowledge` skill's " +
+        "`propose_fact`, where it carries a kind, a source and a date and " +
+        "waits for the owner to confirm it. A note here waits for nobody: it " +
+        "is in the system turn of every conversation from the moment you " +
+        "write it.",
       "`forget` IS IRREVERSIBLE FROM HERE. There is no undo on a single note — " +
         "the undo covers the weekly consolidation pass, not your delete.",
     ],
@@ -197,15 +201,6 @@ export const SKILLS: Skill[] = [
             type: "string",
             required: true,
             about: `One sentence, at most ${MAX_NOTE} characters. Longer than that is a report.`,
-          },
-          {
-            name: "venture",
-            type: "string",
-            required: false,
-            exampled: true,
-            about:
-              "The venture's id or slug when the note is about one business. " +
-              "Left out, the note is global and appears in every conversation.",
           },
         ],
       },
@@ -292,6 +287,11 @@ export const SKILLS: Skill[] = [
         key: "start_now",
         method: "POST",
         path: "/api/rounds/now",
+        /* DESTRUCTIVE on the registry's MONEY limb, and more so than the single
+           `runs.start` that carries the flag: this dispatches up to the round's
+           cap of them in one call. Cancelling them afterwards does not refund
+           the tokens. */
+        destructive: true,
         about:
           "Walk the estate now, with the owner's own settings — the same walk " +
           "the timer does, not a wider one. It dispatches real runs into the " +

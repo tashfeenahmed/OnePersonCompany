@@ -5,7 +5,7 @@ import { SubTabs } from "@/components/TabStrip";
 import { PageShell } from "@/components/PageShell";
 import { RankedBars, type RankedRow } from "@/components/RankedBars";
 import { Button } from "@/components/ui/button";
-import { Failed, Loading, Num, SectionCard } from "@/components/ui/state";
+import { Failed, Loading, Num, Rules, SectionCard } from "@/components/ui/state";
 import { WindowPicker } from "@/components/WindowPicker";
 import { useApi } from "@/hooks/useApi";
 import { pct } from "@/lib/format";
@@ -109,16 +109,6 @@ export function MobileHealth() {
 }
 
 /* ------------------------------------------------------------ small parts */
-
-function Rules({ rules }: { rules: string[] }) {
-  return (
-    <ul className="text-muted-foreground mt-4 space-y-1 text-[11.5px]">
-      {rules.map((r) => (
-        <li key={r}>· {r}</li>
-      ))}
-    </ul>
-  );
-}
 
 /**
  * A slice bar over the shared ranked list.

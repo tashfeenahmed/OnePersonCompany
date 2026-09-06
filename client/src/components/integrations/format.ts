@@ -7,8 +7,8 @@
  * a panel can keep importing its formatters from one place, and the re-exports
  * carry the two corrections that came with the merge:
  *
- *   - `num` is `count`, which groups in en-GB rather than en-IE. The two agree
- *     on every figure a panel draws, and one locale is one locale.
+ *   - the old `num` is `count`, which groups in en-GB rather than en-IE. The
+ *     two agree on every figure a panel draws, and one locale is one locale.
  *   - `pct` NOW TAKES A 0–1 FRACTION. This copy took an already-scaled percent
  *     and two other exported `pct`s took a fraction, all three with the
  *     signature `(number) => string`, so an editor's auto-import silently
@@ -24,8 +24,6 @@
 export {
   ago,
   bytes,
-  /** DEPRECATED: import `count` from @/lib/format */
-  count as num,
   count,
   /** Seconds, not milliseconds — average visit length and box uptime. */
   durationS as duration,

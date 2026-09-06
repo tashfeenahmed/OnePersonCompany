@@ -12,15 +12,24 @@
  * exactly one thing: an agent must never be the reason a post went out that a
  * person had not read.
  *
- * WHAT IS DELIBERATELY NOT HERE. There is no action that submits a DRAFT — the
- * only two that reach a network are `approve_item`, which authorises a send
- * that the owner then schedules, and `retry_item`, which resubmits something
- * the owner already approved and that already failed. There is no destination
- * creation, no credential write and no way to change a caption's destination
- * to another venture's account. And there is a `rehearse_item`, which runs the
- * entire pipeline against a mock transport and posts nothing at all — the
- * thing an agent should reach for when it wants to know whether something
- * WOULD work.
+ * WHAT IS DELIBERATELY NOT HERE. NO ACTION REACHES A LIVE SUBMISSION. Not
+ * `publish`, and — since this pass — not `retry_item` either: both of those
+ * routes are `requireBrowser`, so the action was a published promise that
+ * could only ever return 403, telling an agent it could retry a failed post
+ * and then refusing. The action is gone rather than the guard, because the
+ * guard is the surface routes.ts spends thirty lines protecting and the
+ * structural wall — no URL for the proxy to compose — is the one that does not
+ * depend on a header being unforgeable. A failed item is retried by a person,
+ * on the page, which is where consent to put something in front of strangers
+ * has always lived.
+ *
+ * What is left that reaches a network at all is `approve_item`, which
+ * authorises a send the owner then schedules, and `probe_destinations`, which
+ * asks credentials what they can reach. There is no destination creation, no
+ * credential write and no way to change a caption's destination to another
+ * venture's account. And there is a `rehearse_item`, which runs the entire
+ * pipeline against a mock transport and posts nothing at all — the thing an
+ * agent should reach for when it wants to know whether something WOULD work.
  */
 import type { Skill } from "../../skills/registry.ts";
 
@@ -220,10 +229,8 @@ export const SKILLS: Skill[] = [
           parameter as a STRING — so the flag was compared against a boolean,
           read false, and a rehearsal published a real post to a real Page.
           A route that cannot publish is the only version of this that is
-          safe to hand an agent, and there is now no skill action anywhere
-          that reaches the live submission except `retry_item`, which
-          resubmits something the owner already approved and that already
-          failed.
+          safe to hand an agent, and it is now the ONLY submission-shaped
+          action here: see this file's header for why `retry_item` went.
         */
         path: "/api/publishing/items/:id/rehearse",
         about:
@@ -231,17 +238,6 @@ export const SKILLS: Skill[] = [
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "The item's id." },
         ],
-      },
-      {
-        key: "retry_item",
-        method: "POST",
-        path: "/api/publishing/items/:id/retry",
-        about:
-          "Submit a FAILED item again. It was already approved by the owner; this does not re-ask. Refused for anything that already carries an external id.",
-        params: [{ name: "id", type: "string", required: true, in: "path", about: "The item's id." }],
-        /* Irreversible by construction: it puts a post in front of an
-           audience, and there is no un-post here. */
-        destructive: true,
       },
       {
         key: "probe_destinations",
@@ -259,10 +255,10 @@ export const SKILLS: Skill[] = [
       "Can we actually post to the Instagram account, and if not what is missing?",
       "What is going out this week?",
     ],
-    /* REACHES OFF THIS MACHINE, so the annotation says so. `retry_item` POSTs
-       to somebody else's API and `probe_destinations` calls three networks;
-       `openWorldHint: false` is a claim a client may act on without asking,
-       and it would be a lie here. */
+    /* REACHES OFF THIS MACHINE, so the annotation says so.
+       `probe_destinations` calls three networks and `approve_item` authorises
+       a send; `openWorldHint: false` is a claim a client may act on without
+       asking, and it would be a lie here. */
     openWorld: true,
   },
 

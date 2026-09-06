@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, FileText, X } from "lucide-react";
-import { ago, money } from "@/lib/format";
+import { ago, day, money } from "@/lib/format";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import {
@@ -47,12 +47,9 @@ const KIND_LABEL: Record<CaseKind, string> = {
 
 function deadlineText(c: RecoveryCase): string {
   if (!c.deadline) return "No deadline";
-  const d = new Date(c.deadline).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  /* UTC, because the server counted `daysLeft` against the UTC day and a page
+     that read it locally would say "in 1d" beside yesterday's date. */
+  const d = day(c.deadline, { year: true, utc: true });
   if (c.daysLeft === null) return d;
   if (c.daysLeft < 0) return `${d} · ${Math.abs(c.daysLeft)}d ago`;
   if (c.daysLeft === 0) return `${d} · today`;

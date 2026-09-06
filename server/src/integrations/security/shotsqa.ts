@@ -46,6 +46,8 @@ import { inflateSync } from "node:zlib";
 import { readFileSync, statSync } from "node:fs";
 import { db, now, ventureRows, type VentureRow } from "../../db.ts";
 import { pruneOne, registerRetention, retentionFor } from "../../shared/retention.ts";
+import { imageDimensions, SHOT_FLOOR } from "../../tools/chrome.ts";
+import { lastRendered, lastShot } from "../ventures/capture.ts";
 
 /* ------------------------------------------------------------- the decoder */
 
@@ -86,9 +88,11 @@ export function decodePng(bytes: Buffer): Decoded {
   for (let i = 0; i < PNG_SIG.length; i++)
     if (bytes[i] !== PNG_SIG[i]) return { stats: null, error: "The file does not start with a PNG signature." };
 
+  const size = imageDimensions(bytes);
+  if (!size) return { stats: null, error: "The PNG has no readable IHDR." };
+  const { width, height } = size;
+
   let at = 8;
-  let width = 0;
-  let height = 0;
   let depth = 0;
   let colorType = -1;
   let interlace = 0;
@@ -100,8 +104,6 @@ export function decodePng(bytes: Buffer): Decoded {
     const body = at + 8;
     if (body + len > bytes.length) break;
     if (type === "IHDR") {
-      width = bytes.readUInt32BE(body);
-      height = bytes.readUInt32BE(body + 4);
       depth = bytes[body + 8]!;
       colorType = bytes[body + 9]!;
       interlace = bytes[body + 12]!;
@@ -113,7 +115,6 @@ export function decodePng(bytes: Buffer): Decoded {
     at = body + len + 4;
   }
 
-  if (!width || !height) return { stats: null, error: "The PNG has no readable IHDR." };
   if (depth !== 8) return { stats: null, error: `This reader handles 8-bit samples; that file is ${depth}-bit.` };
   if (interlace !== 0) return { stats: null, error: "That PNG is interlaced, which this reader does not undo." };
   const channels = colorType === 0 ? 1 : colorType === 2 ? 3 : colorType === 4 ? 2 : colorType === 6 ? 4 : 0;
@@ -230,12 +231,6 @@ export type Check = { key: string; label: string; verdict: Verdict; detail: stri
 const BLANK_STDEV = 4;
 const BLANK_DOMINANT = 0.985;
 
-/** Under this, a capture is not a picture of a page. 1280x800 is what
- *  capture.ts asks Chrome for; anything under half of that in either dimension
- *  is a thumbnail, an error image or a window that never opened. */
-const MIN_WIDTH = 640;
-const MIN_HEIGHT = 400;
-
 /** capture.ts refreshes a picture after 7 days. Twice that is the point at
  *  which a picture is describing a site that may have changed twice since. */
 const STALE_DAYS = 14;
@@ -260,38 +255,6 @@ export type ShotFacts = {
   title: string | null;
   titleSource: string | null;
 };
-
-/** The newest CAPTURE row of a venture — the picture rows only, which is what
- *  `brand_rendered IS NULL` means in that table (see its migration). */
-function newestCapture(ventureId: string): {
-  ts: string;
-  path: string | null;
-  bytes: number | null;
-  width: number | null;
-  height: number | null;
-  error: string | null;
-} | undefined {
-  return db
-    .prepare(
-      `SELECT ts, path, bytes, width, height, error FROM venture_shots
-        WHERE venture_id = ? AND brand_rendered IS NULL
-        ORDER BY ts DESC LIMIT 1`,
-    )
-    .get(ventureId) as ReturnType<typeof newestCapture>;
-}
-
-/** The newest RENDERED-DOM row, which is where a title read by the browser
- *  lives. A different row from the picture and often a different moment; the
- *  report says which it used. */
-function newestRendered(ventureId: string): { ts: string; brand_rendered: string } | undefined {
-  return db
-    .prepare(
-      `SELECT ts, brand_rendered FROM venture_shots
-        WHERE venture_id = ? AND brand_rendered IS NOT NULL
-        ORDER BY ts DESC LIMIT 1`,
-    )
-    .get(ventureId) as ReturnType<typeof newestRendered>;
-}
 
 type AuditFacts = {
   ts: string;
@@ -427,7 +390,13 @@ const ageDays = (ts: string | null): number | null => {
  */
 export function judge(v: VentureRow): VentureQa {
   const checks: Check[] = [];
-  const cap = newestCapture(v.id);
+  /* THE NEWEST ROW, not the newest SUCCESSFUL one — `lastShot(v.id)` rather
+     than `lastShot(v.id, true)`, which is what seoops/vision.ts asks for. The
+     disagreement is deliberate and it is this file's whole subject: a failed
+     attempt is a fact this pass has to REPORT ("the last attempt failed"),
+     while the vision pass wants a picture it can actually look at and a
+     failure there is nothing to judge. */
+  const cap = lastShot(v.id);
 
   if (!v.website)
     checks.push({
@@ -488,12 +457,12 @@ export function judge(v: VentureRow): VentureQa {
       verdict: "unchecked",
       detail: "The capture row has no width or height — the IHDR was not read when it was taken.",
     });
-  } else if (cap.width < MIN_WIDTH || cap.height < MIN_HEIGHT) {
+  } else if (cap.width < SHOT_FLOOR.width || cap.height < SHOT_FLOOR.height) {
     checks.push({
       key: "dimensions",
       label: "Sensible dimensions",
       verdict: "fail",
-      detail: `${cap.width}x${cap.height}, under the ${MIN_WIDTH}x${MIN_HEIGHT} floor. A window that small is not a picture of a page.`,
+      detail: `${cap.width}x${cap.height}, under the ${SHOT_FLOOR.width}x${SHOT_FLOOR.height} floor. A window that small is not a picture of a page.`,
     });
   } else {
     checks.push({
@@ -557,14 +526,15 @@ export function judge(v: VentureRow): VentureQa {
     }
   }
 
-  /* ---- the title */
-  const rendered = newestRendered(v.id);
+  /* ---- the title, off the newest RENDERED-DOM row. A different row from the
+     picture and often a different moment; the report says which it used. */
+  const rendered = lastRendered(v.id);
   const audit = newestAudit(v.id);
   let title: string | null = null;
   let titleSource: string | null = null;
   if (rendered) {
     try {
-      const doc = JSON.parse(rendered.brand_rendered) as { title?: string | null };
+      const doc = JSON.parse(rendered.brand_rendered!) as { title?: string | null };
       if (typeof doc.title === "string" && doc.title.trim()) {
         title = doc.title.trim();
         titleSource = `rendered DOM, ${rendered.ts}`;

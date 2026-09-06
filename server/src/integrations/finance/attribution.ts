@@ -44,36 +44,14 @@ import {
   ventureRows,
   type VentureRow,
 } from "../../db.ts";
+import { linkedEntities, linkIndex, normaliseEntity } from "../ventures/links.ts";
 import { payoutsForMonth } from "../mobilehealth/payouts.ts";
 import { isBilling } from "../../providers/stripe.ts";
 import { PLUGIN } from "./expenses.ts";
 import { addTo, currencyCode, daysInMonth, emptyTotals, money, type CurrencyTotals } from "./money.ts";
 
-/**
- * The one spelling an entity is compared under.
- *
- * A product linked as "Example App 1 Pro" and a subscription carrying "example-app-1
- * pro" are the same product; matching them exactly meant the venture showed
- * churn cases on one page — where the lookup lowercased — and zero revenue
- * here, where it did not. Case is not evidence of a different business.
- */
-const normaliseEntity = (entity: string): string => entity.trim().toLowerCase();
-
-/** entity → the ventures that own it at one plugin, keyed case-insensitively. */
-function linkIndex(plugin: string): Map<string, string[]> {
-  const rows = db
-    .prepare("SELECT venture_id, entity FROM venture_links WHERE plugin = ?")
-    .all(plugin) as { venture_id: string; entity: string }[];
-  const out = new Map<string, string[]>();
-  for (const r of rows) {
-    const key = normaliseEntity(r.entity);
-    if (key) out.set(key, [...(out.get(key) ?? []), r.venture_id]);
-  }
-  return out;
-}
-
 const owns = (index: Map<string, string[]>, entity: string | null, ventureId: string): boolean =>
-  Boolean(entity) && (index.get(normaliseEntity(entity!)) ?? []).includes(ventureId);
+  (index.get(normaliseEntity(entity)) ?? []).includes(ventureId);
 
 export type RevenueLine = {
   source: "appstore" | "playstore" | "adsense" | "stripe";
@@ -362,9 +340,7 @@ export function ventureRevenue(venture: VentureRow, month: string): VentureReven
  * such a venture a zero share would hand its costs to its neighbours.
  */
 export function ventureTraffic(ventureId: string, month: string): number | null {
-  const zones = (db
-    .prepare("SELECT entity FROM venture_links WHERE venture_id = ? AND plugin = 'cloudflare'")
-    .all(ventureId) as { entity: string }[]).map((r) => r.entity);
+  const zones = linkedEntities(ventureId, "cloudflare");
   if (!zones.length) return null;
   const placeholders = zones.map(() => "?").join(",");
   const row = db

@@ -1275,7 +1275,7 @@ chat.get("/runs/:id/events", (c) => {
  * before the run reports itself cancelled, so pressing this loses nothing that
  * was on screen.
  *
- * IT ANSWERS `stopping`, NOT `cancelled`, and the difference is a real one.
+ * IT ANSWERS `cancelling`, NOT `cancelled`, and the difference is a real one.
  * Aborting is a request the run honours in its own `finally` — it still has a
  * partial row to write — so reporting the outcome here would be reporting it
  * before it happened. It used to, and the race was reachable: a cancel landing

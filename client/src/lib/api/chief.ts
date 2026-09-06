@@ -174,8 +174,10 @@ export type Job = {
 export type Schedule = {
   enabled: boolean;
   hour: number;
-  timezone: string | null;
-  resolvedTimezone: string;
+  /** ALWAYS A REAL ZONE — this machine's own where the owner never typed one.
+   *  `zoneWasSet` is what the old null carried, said separately. */
+  timezone: string;
+  zoneWasSet: boolean;
   roles: string[];
   maxRuns: number;
   daysBetween: number;

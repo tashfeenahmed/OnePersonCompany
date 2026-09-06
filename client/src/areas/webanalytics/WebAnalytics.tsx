@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { SubTabs } from "@/components/TabStrip";
 import { PageShell } from "@/components/PageShell";
 import { RankedBars } from "@/components/RankedBars";
-import { Failed, Loading, Num, SectionCard } from "@/components/ui/state";
+import { Failed, Loading, Num, Rules, SectionCard } from "@/components/ui/state";
 import { WindowPicker } from "@/components/WindowPicker";
 import { useApi } from "@/hooks/useApi";
 import { count, money } from "@/lib/format";
@@ -91,16 +91,6 @@ export function WebAnalytics() {
 }
 
 /* ------------------------------------------------------------ small parts */
-
-function Rules({ rules }: { rules: string[] }) {
-  return (
-    <ul className="text-muted-foreground mt-4 space-y-1 text-[11.5px]">
-      {rules.map((r) => (
-        <li key={r}>· {r}</li>
-      ))}
-    </ul>
-  );
-}
 
 function Notes({ notes }: { notes: string[] }) {
   if (!notes.length) return null;

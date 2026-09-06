@@ -43,6 +43,8 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { db, now, type VentureRow } from "../../db.ts";
 import { activeProvider, complete, type VisionTurn } from "../../models/provider.ts";
+import { imageDimensions } from "../../tools/chrome.ts";
+import { lastShot } from "../ventures/capture.ts";
 import { optedIn, settings } from "./settings.ts";
 
 /* ------------------------------------------------------------- the probe */
@@ -410,16 +412,6 @@ export function imageTokens(width: number | null, height: number | null): number
   return IMAGE_BASE_TOKENS + IMAGE_TILE_TOKENS * Math.ceil(w / 512) * Math.ceil(h / 512);
 }
 
-/** Width and height out of a PNG's IHDR, without decoding it. The eight-byte
- *  signature, then a length and a type, then the two 32-bit dimensions. */
-export function pngSize(bytes: Buffer): { width: number; height: number } | null {
-  if (bytes.length < 24) return null;
-  if (bytes.toString("ascii", 12, 16) !== "IHDR") return null;
-  const width = bytes.readUInt32BE(16);
-  const height = bytes.readUInt32BE(20);
-  return width > 0 && height > 0 ? { width, height } : null;
-}
-
 export type VisionResult = {
   ventureId: string;
   venture: string;
@@ -433,28 +425,6 @@ export type VisionResult = {
   dropped: string[];
   error: string | null;
 };
-
-/** The newest picture row of a venture, which is what `brand_rendered IS NULL`
- *  means in `venture_shots` — see that table's migration. */
-function newestCapture(ventureId: string): { ts: string; path: string | null; error: string | null } | undefined {
-  try {
-    /* THE NEWEST SUCCESSFUL ONE, not the newest ROW. capture.ts's own reader
-       makes the same distinction: a single failed attempt writes a row with a
-       null path, and taking that as "the newest capture" hid a perfectly good
-       picture from last week behind "no capture to look at. Press Capture" —
-       until a capture happened to succeed. A failure is a fact about the
-       attempt, not about what is on disk. */
-    return db
-      .prepare(
-        `SELECT ts, path, error FROM venture_shots
-          WHERE venture_id = ? AND brand_rendered IS NULL AND path IS NOT NULL AND error IS NULL
-          ORDER BY ts DESC LIMIT 1`,
-      )
-      .get(ventureId) as { ts: string; path: string | null; error: string | null } | undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * ONE VENTURE, LOOKED AT.
@@ -495,7 +465,13 @@ export async function lookAt(v: VentureRow, opts: { force?: boolean } = {}): Pro
         `Add its slug to "Vision ventures" under Integrations -> SEO Ops.`,
     };
 
-  const cap = newestCapture(v.id);
+  /* THE NEWEST SUCCESSFUL CAPTURE, not the newest ROW — `okOnly`. A single
+     failed attempt writes a row with a null path, and taking that as "the
+     newest capture" hid a perfectly good picture from last week behind "no
+     capture to look at" until one happened to succeed. security/shotsqa.ts
+     asks the same query WITHOUT the flag, on purpose: reporting the failure is
+     its job, and there is nothing here for a model to look at. */
+  const cap = lastShot(v.id, true);
   if (!cap?.path)
     return { ...blank, error: "This venture has no capture to look at. Press Capture on its page first." };
 
@@ -561,7 +537,7 @@ export async function lookAt(v: VentureRow, opts: { force?: boolean } = {}): Pro
   let model: string | null = null;
   let provider: string | null = null;
   try {
-    const size = pngSize(bytes);
+    const size = imageDimensions(bytes);
     const reply = await complete(turns, { imageTokens: imageTokens(size?.width ?? null, size?.height ?? null) });
     text = reply.text;
     model = reply.model;

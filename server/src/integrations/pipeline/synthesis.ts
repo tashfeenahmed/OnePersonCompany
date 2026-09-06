@@ -119,9 +119,17 @@ const STOPWORDS = new Set([
   "is", "are", "be", "it", "its", "this", "that", "as", "into", "up", "out", "over", "more", "our",
 ]);
 
-/** Normalise an action for comparison: lowercase, figures gone, punctuation
- *  gone, stopwords gone. Figures go because "reply to 12 reviews" and "reply to
- *  40 reviews" are the same job on two different days. */
+/**
+ * Normalise an action for comparison: lowercase, figures gone, punctuation
+ * gone, stopwords gone. Figures go because "reply to 12 reviews" and "reply to
+ * 40 reviews" are the same job on two different days.
+ *
+ * NOT `shared/textkey.ts`, and deliberately. That module answers "is this the
+ * same sentence" and keeps digits and stopwords for exactly that reason; this
+ * one feeds a Jaccard similarity, where both are noise. Folding it into the
+ * identity key would make every re-proposal with a different number read as a
+ * new action — which is the duplicate this gate exists to catch.
+ */
 export function normalise(text: string): string {
   return String(text ?? "")
     .toLowerCase()
@@ -315,8 +323,16 @@ export function renderPacket(p: EvidencePacket): string {
     const r = p.revenue.measured!;
     return [
       `Window: ${r.window}.`,
-      `MRR now $${r.mrrUsd.toFixed(2)} across ${r.activeSubscriptions} active subscription(s); ` +
-        `$${r.previousMrrUsd.toFixed(2)} thirty days ago; change $${r.deltaUsd.toFixed(2)}.`,
+      /* Per currency, each on its own line. One "MRR: $412" across a book
+         holding euros too is a figure the model would quote and nobody could
+         reproduce. */
+      ...Object.keys(r.delta)
+        .sort()
+        .map(
+          (c) =>
+            `MRR now ${r.mrr[c] ?? 0} ${c}; ${r.previous[c] ?? 0} ${c} thirty days ago; ` +
+            `change ${r.delta[c]} ${c}.`,
+        ),
       `Products: ${r.products.join(", ")}.`,
       r.note,
     ];

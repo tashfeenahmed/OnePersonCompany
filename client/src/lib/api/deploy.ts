@@ -28,8 +28,36 @@ export type Health = {
   collectEveryMinutes: number;
   status: Verdict;
   checks: Check[];
-  retainDays: { readings: number; load: number };
+  /**
+   * HOW LONG HISTORY IS KEPT, TABLE BY TABLE, verbatim from the registry the
+   * prune itself walks. It replaces `retainDays: { readings, load }`, which
+   * was read out of config and described neither the uptime checks, the fleet
+   * samples, the workstation states nor the job leases — and certainly not the
+   * three tables nothing pruned at all. A table ABSENT from this list is a
+   * table nothing ages out, which is a fact rather than an absence.
+   */
+  retention: Retention[];
   note: string;
+};
+
+/** One table's window. `days` is already resolved to a number by the server,
+ *  so a window that follows a setting cannot be reported stale. */
+export type Retention = {
+  table: string;
+  /** The column the cutoff is compared against. */
+  column: string;
+  days: number;
+  /** `setting` is a number the owner can change, named in `setting`; `area` is
+   *  a number the owning area chose, for the reason in `note`. Different
+   *  answers to "can I keep more". */
+  source: "setting" | "area";
+  setting?: string;
+  /** `day` means the column is a `YYYY-MM-DD` key rather than an instant. */
+  grain?: "instant" | "day";
+  /** An extra predicate ANDed onto the cutoff — `job_leases` ages only rows
+   *  that were RELEASED, because an open lease is a claim and not history. */
+  where?: string;
+  note?: string;
 };
 
 export type ServiceStatus = {
@@ -89,6 +117,26 @@ export type FileFacts = {
   intended: string;
 };
 
+/**
+ * ONE RULE OFF THE OWNER SURFACE, as the gate itself holds it.
+ *
+ * THE LEVEL IS THE INTERESTING HALF and the page draws it: `proof`, `browser`
+ * and `session` are three different walls, and "the agent key is refused here"
+ * says none of which one. `demands` is the gate's own sentence for that level.
+ *
+ * `paths` is the exact-route form and null for a prefix rule; `prefix` is the
+ * first path in that case, so a caller that only wants a name has one.
+ */
+export type RefusedRoute = {
+  prefix: string;
+  paths: string[] | null;
+  /** `write` is everything but GET/HEAD/OPTIONS; `all` includes reads. */
+  methods: "write" | "all";
+  level: "proof" | "browser" | "session";
+  demands: string;
+  why: string;
+};
+
 export type Isolation = {
   /** TWO LEVELS, NOT THREE. A container is a real arrangement and the server
    *  deliberately does not report it as a level, because nothing there can
@@ -101,7 +149,7 @@ export type Isolation = {
   agentHome: string;
   files: FileFacts[];
   secretsLocked: boolean;
-  scopedKey: { file: string; refusedPrefixes: { prefix: string; methods: string; why: string }[] };
+  scopedKey: { file: string; refusedPrefixes: RefusedRoute[] };
   /** The agent's key file could not be read or written. The agent is locked
    *  out at the gate until somebody fixes it, and the page must say so. */
   agentKeyProblem: string | null;

@@ -161,4 +161,31 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX studio_posts_venture ON studio_posts(venture_id, ts DESC);
     `,
   },
+
+  {
+    name: "404_venture_links_evidence",
+    sql: `
+      -- WHY THIS LINK EXISTS, IN THE SENTENCE THAT MADE IT.
+      --
+      -- \`source\` already separates a link the owner pressed from one this box
+      -- derived, which is the half that decides who may overwrite it. It does
+      -- not say WHAT was derived: six months later "why is this campaign filed
+      -- under that business" has no answer but a guess about what the matcher
+      -- used to do.
+      --
+      -- \`campaign_ventures\` — a second links table with the same contract,
+      -- built for Meta campaigns — got this right and has carried an
+      -- \`evidence\` column from the day it was written. It is the column this
+      -- table is missing, and it is the one thing standing between the two
+      -- tables being one: a merge that dropped the sentence would be a merge
+      -- that lost the only field the second table had and the first did not.
+      --
+      -- NULL ON EVERY EXISTING ROW, and it stays null rather than being
+      -- backfilled with a reconstruction. A derived link whose sentence was
+      -- never recorded has no sentence, and inventing today's matcher output
+      -- as the reason for a link made in March is the failure this column
+      -- exists to prevent.
+      ALTER TABLE venture_links ADD COLUMN evidence TEXT;
+    `,
+  },
 ];

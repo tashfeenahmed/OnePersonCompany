@@ -23,7 +23,7 @@
  */
 import { Hono } from "hono";
 import * as accounts from "../../accounts.ts";
-import { db, now, ventureRows } from "../../db.ts";
+import { now, ventureRows } from "../../db.ts";
 import { GmailError, NoMailbox, listThreads, open } from "../../providers/gmail.ts";
 import {
   MAX_WINDOW_DAYS,
@@ -31,6 +31,7 @@ import {
   SCAN_MAX,
   WINDOW_DAYS,
   lastRun,
+  markThread,
   scanAccount,
   storedFor,
   ventureByHost,
@@ -189,18 +190,6 @@ triageRoutes.get("/", async (c) => {
 
 const THREAD_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
-/** The owner's verbs write a row even for a thread nobody has scored, with a
- *  NULL score. See migrations.ts: a row can carry a verb without carrying an
- *  opinion, and giving it one to satisfy a NOT NULL would be this route
- *  inventing the model's answer. */
-const verb = db.prepare(
-  `INSERT INTO mailflow_triage
-     (account_id, thread_id, score, reason, urgency, venture, venture_by, at_ms, scored_at, model, snoozed_until, done_at)
-   VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
-   ON CONFLICT(account_id, thread_id) DO UPDATE SET
-     snoozed_until = excluded.snoozed_until, done_at = excluded.done_at`,
-);
-
 triageRoutes.post("/run", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     account?: number;
@@ -229,9 +218,8 @@ triageRoutes.post("/:threadId/done", async (c) => {
   const accountId = accountParam(String(body.account ?? "")) ?? firstGmail();
   if (accountId === null) return c.json({ error: "No Gmail account is connected." }, 404);
 
-  const existing = storedFor(accountId).get(threadId);
   const doneAt = body.undo === true ? null : now();
-  verb.run(accountId, threadId, existing?.snoozed_until ?? null, doneAt);
+  markThread(accountId, threadId, { doneAt });
   return c.json({
     threadId,
     accountId,
@@ -252,8 +240,7 @@ triageRoutes.post("/:threadId/snooze", async (c) => {
 
   const days = intParam(String(body.days ?? ""), 1, 1, MAX_SNOOZE_DAYS);
   const until = new Date(Date.now() + days * 86_400_000).toISOString();
-  const existing = storedFor(accountId).get(threadId);
-  verb.run(accountId, threadId, until, existing?.done_at ?? null);
+  markThread(accountId, threadId, { snoozedUntil: until });
   return c.json({
     threadId,
     accountId,

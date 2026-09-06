@@ -22,7 +22,7 @@
 import { Hono } from "hono";
 import { configValue } from "../../../db.ts";
 import { CONFIDENCE, SOURCE_LABEL, INDEGREE_NOTE, parseHosts, type Source } from "./sources.ts";
-import { backlinkRows, backlinkSources } from "../db.ts";
+import { backlinkRows, backlinkSources, referringDomains } from "../db.ts";
 import { EVERY_HOURS } from "./collect.ts";
 
 export const backlinkRoutes = new Hono();
@@ -65,17 +65,18 @@ backlinkRoutes.get("/", (c) => {
     return {
       host,
       sources,
-      /* The one figure a reader always reaches for, published as a per-source
-         list with an explicit refusal to total it. */
+      /* From `referringDomains` in the area's own db.ts — the same answer the
+         authority estimate is built on, so the two cannot drift. `bySource`
+         keeps a key for every source including the never-asked ones;
+         `perSource` carries only the rows that exist. */
       referringDomains: {
-        bySource: Object.fromEntries(
-          sources.map((s) => [s.source, s.referringDomains]),
-        ),
-        combined: null,
+        ...referringDomains(host),
+        bySource: Object.fromEntries(sources.map((s) => [s.source, s.referringDomains])),
         note:
           "not summed. The sources overlap and do not agree — a host both Bing " +
           "and the crawler know about would be counted twice — and neither is a " +
-          "census. Read them apart, weighted by the confidence on each row.",
+          "census. Read them apart, weighted by the confidence on each row. " +
+          "`best` is the largest single source with that source named — never a total.",
       },
       links: links.map((l) => ({
         source: l.source,

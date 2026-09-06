@@ -190,15 +190,21 @@ export type Skill = {
    *  shape of the question rather than matching on the noun. */
   asks: string[];
   /**
-   * Does calling this reach off this machine?
+   * THE `openWorld` RULE, STATED HERE AND NOWHERE ELSE.
    *
-   * FALSE FOR ALL BUT ONE, and the exception is `search`, which performs a live
-   * web search. It exists because the MCP layer publishes it as an
-   * `openWorldHint` annotation, and an annotation is a machine-readable CLAIM:
-   * a client that reads `openWorldHint: false` may decide a tool is safe to
-   * call without asking, and saying that about a request to the open internet
-   * would be a lie told in a field designed to be trusted. Everything else here
-   * is a loopback read of a document a collector already wrote.
+   * TRUE WHEN CALLING THIS REACHES A MACHINE THAT IS NOT THIS ONE — in either
+   * direction. Fetching the open web (a live search, a competitor's page,
+   * OpenAlex), sending the owner's data to a third party (a URL submitted to a
+   * search engine, an image posted to an inference API, a video handed to a
+   * platform), or publishing anything anywhere. FALSE only for a loopback read
+   * of a document a collector on this box already wrote.
+   *
+   * IT IS A CLAIM AND NOT A CATEGORY. The MCP layer publishes it as an
+   * `openWorldHint` annotation, and a client that reads `openWorldHint: false`
+   * may decide the tool is safe to call without asking a person. Saying that
+   * about a request that leaves the machine is a lie told in a field designed
+   * to be trusted — so an entry with ANY action that reaches out declares it,
+   * even where most of its views do not.
    */
   openWorld?: boolean;
 };

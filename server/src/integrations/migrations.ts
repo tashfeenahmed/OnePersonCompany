@@ -1,4 +1,4 @@
-/** Every area's migrations, in area order. Pure — see manifest.ts. */
+/** Every area's migrations, sorted by name. Pure — see manifest.ts. */
 import { MIGRATIONS as analytics } from "./analytics/migrations.ts";
 import { MIGRATIONS as ops } from "./ops/migrations.ts";
 import { MIGRATIONS as signals } from "./signals/migrations.ts";
@@ -30,7 +30,26 @@ import { MIGRATIONS as socialfeed } from "./socialfeed/migrations.ts";
 import { MIGRATIONS as journal } from "./journal/migrations.ts";
 import { MIGRATIONS as runtime } from "./runtime/migrations.ts";
 
-export const INTEGRATION_MIGRATIONS = [...analytics, ...ops, ...signals, ...ventures, ...runs, ...subagents, ...chief, ...mailflow, ...activity, ...proactive, ...people, ...security, ...video, ...videoplus, ...growth, ...publishing, ...mobilehealth, ...agentcore, ...knowledge, ...deploy, ...finance, ...customers, ...pipeline, ...webanalytics, ...nurture, ...migrate, ...seoops, ...socialfeed, ...runtime, ...journal, { name: "190_workspace_preferences", sql: `CREATE TABLE workspace_preferences (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL);` },
+/**
+ * SORTED BY NAME AT BUILD TIME, NOT RENUMBERED.
+ *
+ * The numeric prefix says when a step was written; concatenating the areas in
+ * area order said something else, and the two disagreed in eleven places — an
+ * area whose block sits early carried its 3xx migrations ahead of another
+ * area's 1xx ones. Reading the list therefore told you the wrong story about
+ * what runs before what, which is the only thing a prefix is for.
+ *
+ * SORTING IS SAFE AND RENUMBERING IS NOT. `migrations` is keyed on the NAME
+ * with no checksum, so every step already applied on a running box is skipped
+ * wherever it now sits; renaming one would re-run it against a schema it has
+ * already changed. The order only matters for a box seeing them for the first
+ * time, and there the prefix order is the one that was meant.
+ *
+ * The invariant — sorted, and no two steps sharing a name — is asserted in
+ * migrations.test.ts, because a name is a primary key and a duplicate would
+ * mean the second step silently never running.
+ */
+export const INTEGRATION_MIGRATIONS: { name: string; sql: string }[] = [...analytics, ...ops, ...signals, ...ventures, ...runs, ...subagents, ...chief, ...mailflow, ...activity, ...proactive, ...people, ...security, ...video, ...videoplus, ...growth, ...publishing, ...mobilehealth, ...agentcore, ...knowledge, ...deploy, ...finance, ...customers, ...pipeline, ...webanalytics, ...nurture, ...migrate, ...seoops, ...socialfeed, ...runtime, ...journal, { name: "190_workspace_preferences", sql: `CREATE TABLE workspace_preferences (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL);` },
   { name: "191_action_inbox", sql: `CREATE TABLE action_inbox_state (id TEXT PRIMARY KEY, resolved_at TEXT, snoozed_until TEXT);` },
   { name: "192_job_controls", sql: `
     ALTER TABLE agent_runs ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;
@@ -42,4 +61,4 @@ export const INTEGRATION_MIGRATIONS = [...analytics, ...ops, ...signals, ...vent
     CREATE INDEX budget_usage_run ON budget_usage(run_id);
     CREATE TABLE run_checkpoints (run_id TEXT NOT NULL, step_key TEXT NOT NULL, reply TEXT NOT NULL, PRIMARY KEY(run_id,step_key));
   ` },
-];
+].sort((a, b) => a.name.localeCompare(b.name));

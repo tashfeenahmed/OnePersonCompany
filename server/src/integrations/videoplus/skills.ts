@@ -173,6 +173,10 @@ export const SKILLS: Skill[] = [
       "Draft a motion video for this venture about what it does, and show me the scenes.",
       "What would rendering that spec cost, and what does the first frame of each scene look like?",
     ],
+    /* `draft` AND `render` BOTH LEAVE THIS MACHINE: a `complete()` call to
+       whichever model provider is configured, and for a spoken render the
+       voice endpoint as well. The brief and the venture record go with them. */
+    openWorld: true,
   },
 ];
 

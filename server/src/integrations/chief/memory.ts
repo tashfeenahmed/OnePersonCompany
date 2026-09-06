@@ -39,6 +39,8 @@
  */
 import { db, now, ventureRowById } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
+import { ventureClaimRefusal } from "../knowledge/store.ts";
+import { textKey } from "../../shared/textkey.ts";
 
 /** A note is a sentence, not a document. Past this it is a report, and a
  *  report belongs in a run. */
@@ -168,16 +170,6 @@ function mintId(): string {
   return `mem-${Date.now().toString(36)}-${seq.toString(36)}`;
 }
 
-/** The dedup key: the sentence with case, punctuation and spacing removed. A
- *  fact restated in the same words is the same fact, and storing it twice
- *  would let a note win the context cap by being repeated. */
-function key(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
 export type RememberResult =
   | { ok: true; note: MemoryNote; confirmed: boolean }
   | { ok: false; status: 400 | 413 | 422; error: string };
@@ -233,6 +225,14 @@ export function remember(input: {
         "carries a source and a date.",
     };
 
+  /* THE VENTURE GATE. A note the agent scopes to a venture is a claim about
+     that business, and it lands unconfirmed in the system turn of every later
+     conversation about it. Claims about a product go to the fact store, which
+     holds them behind a kind, a source, a date and the owner's confirmation.
+     The owner is never refused — they are that confirmation. */
+  const claim = ventureClaimRefusal({ ventureId: input.ventureId, scope: input.scope, source });
+  if (claim) return { ok: false, ...claim };
+
   let scope = input.scope === "venture" ? "venture" : "global";
   let ventureId = (input.ventureId ?? "").trim();
   if (scope === "venture") {
@@ -249,10 +249,14 @@ export function remember(input: {
   if (!ventureId) scope = "global";
 
   const ts = now();
-  const k = key(text);
+  /* The dedup key. Storing one sentence twice would let a note win the context
+     cap by being repeated, so a restatement confirms rather than inserts.
+     `textKey` keeps digits, which is right here: a note that differs by a
+     figure is a different note. */
+  const k = textKey(text);
   const existing = (
     db.prepare("SELECT * FROM chief_memory WHERE venture_id = ?").all(ventureId) as unknown as MemoryRow[]
-  ).find((r) => key(r.text) === k);
+  ).find((r) => textKey(r.text) === k);
   if (existing) {
     db.prepare("UPDATE chief_memory SET last_confirmed_at = ? WHERE id = ?").run(ts, existing.id);
     return { ok: true, note: shapeNote(noteRow(existing.id)!), confirmed: true };
@@ -428,6 +432,13 @@ export function passes(limit = 12): PassRow[] {
  * restart at the wrong moment run two passes three days apart. ISO weeks start
  * on Monday and the year they belong to is the year of their Thursday, which is
  * why this is eight lines rather than a division.
+ *
+ * THE WEEK IS THE OWNER'S, not UTC's: the day is read off the LOCAL calendar
+ * before the Thursday rule is applied. A box east of Greenwich reading UTC
+ * would file everything after 22:00 on a Sunday into the week that had just
+ * ended, which is the wrong week on the only calendar anybody here looks at.
+ * Exported because it is the one implementation — any other weekly pass on
+ * this box imports it rather than writing a ninth version of the same rule.
  */
 export function isoWeek(d = new Date()): string {
   const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));

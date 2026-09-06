@@ -4,7 +4,7 @@ import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Bars } from "@/components/charts";
 import { cn } from "@/lib/utils";
-import { ago, count } from "@/lib/format";
+import { ago, count, day } from "@/lib/format";
 import { activityApi, type ActivityEvent } from "@/lib/api/activity";
 
 /**
@@ -50,12 +50,12 @@ const KIND_TONE: Record<string, string> = {
 
 function when(e: ActivityEvent): string {
   const at = new Date(e.ts);
-  const day = at.toLocaleDateString([], { day: "numeric", month: "short" });
+  const d = day(at);
   /* THE WHOLE POINT. An exact event gets a clock; a day-resolution one gets the
      date and the word, because there is no clock to print. */
   return e.exact
-    ? `${day} ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-    : `${day} · day`;
+    ? `${d} ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+    : `${d} · day`;
 }
 
 export function Feed({ days }: { days: number }) {

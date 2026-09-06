@@ -20,7 +20,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { db, now, upsertPlugin } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
-import { parseBatch, ventureByHost } from "./triage.ts";
+import { markThread, parseBatch, storedFor, ventureByHost } from "./triage.ts";
 import { validAddress } from "./gmail-send.ts";
 import { approveDraft, prepareDraft, row as outboxRow, SendRefused, sendApproved } from "./outbox.ts";
 import { optOut } from "../nurture/sequences.ts";
@@ -191,4 +191,31 @@ test("P0: an address that opted out AFTER approval is refused at the send door",
   assert.equal(after.status, "approved");
   assert.equal(after.sent_at, null);
   assert.equal(after.sending_at, null);
+});
+
+/* -------------------------------------------------------------- the verbs */
+
+/* The property that let three surfaces drop their read-before-write. */
+test("a verb keeps the column it did not name, and invents no score", () => {
+  const account = 4242;
+  const thread = "verbs";
+
+  markThread(account, thread, { doneAt: "2026-09-06T10:00:00.000Z" });
+  const first = storedFor(account).get(thread)!;
+  assert.equal(first.done_at, "2026-09-06T10:00:00.000Z");
+  assert.equal(first.snoozed_until, null);
+  /* A thread acted on before any pass read it carries a verb and NO opinion. */
+  assert.equal(first.score, null);
+
+  markThread(account, thread, { snoozedUntil: "2026-09-13T10:00:00.000Z" });
+  const second = storedFor(account).get(thread)!;
+  assert.equal(second.snoozed_until, "2026-09-13T10:00:00.000Z");
+  assert.equal(second.done_at, "2026-09-06T10:00:00.000Z");
+
+  /* An explicit null is the undo and it clears — which is a different thing
+     from omitting the field. */
+  markThread(account, thread, { doneAt: null });
+  const third = storedFor(account).get(thread)!;
+  assert.equal(third.done_at, null);
+  assert.equal(third.snoozed_until, "2026-09-13T10:00:00.000Z");
 });

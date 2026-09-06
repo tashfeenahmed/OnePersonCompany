@@ -197,6 +197,43 @@ export function when(
 }
 
 /**
+ * A DATE WITH NO CLOCK ON IT: "5 Sep".
+ *
+ * `when` always appends a time, which is right for a stamp and wrong for the
+ * eleven surfaces that carry a DAY — a card's due date, a deadline, a signup
+ * date, a mail list column. All eleven had written their own
+ * `toLocaleDateString` rather than print "5 Sep, 00:00" beside a date nobody
+ * recorded an hour for, and they had drifted into four different shapes.
+ *
+ * A BARE `YYYY-MM-DD` IS READ IN UTC, and that is the bug this closes rather
+ * than a preference. `Date.parse("2026-09-05")` is midnight UTC, so anywhere
+ * west of Greenwich the reader's own zone drew the day before — a card due on
+ * the 5th listed as due on the 4th. A caller holding an INSTANT that is
+ * nonetheless a UTC day — a deadline the server counted days against — asks
+ * for the same treatment with `{ utc: true }`, so the page and the server
+ * agree about which day it is.
+ *
+ * `long` is the section-heading shape, "Friday, 5 September": a date drawn as
+ * a separator between groups is read at a glance and wants the weekday.
+ */
+export function day(
+  value: string | number | Date | null | undefined,
+  opts: Absent & { year?: boolean | "2-digit"; long?: boolean; utc?: boolean } = {},
+): string {
+  if (value === null || value === undefined || value === "") return opts.nullText ?? DASH;
+  const dayKey = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const ms = at(dayKey ? `${value}T00:00:00Z` : value);
+  if (ms === null) return String(value);
+  return new Date(ms).toLocaleDateString(undefined, {
+    ...(opts.long ? { weekday: "long" as const } : {}),
+    day: "numeric",
+    month: opts.long ? ("long" as const) : ("short" as const),
+    ...(opts.year ? { year: opts.year === "2-digit" ? ("2-digit" as const) : ("numeric" as const) } : {}),
+    ...(dayKey || opts.utc ? { timeZone: "UTC" } : {}),
+  });
+}
+
+/**
  * A DISTANCE IN DAYS: "today", "in 41d", "in 8mo", "12d ago".
  *
  * A renewal date's whole value is the distance to it. Past dates say "ago" in

@@ -50,8 +50,11 @@ export type Blackout = {
 export type Schedule = {
   enabled: boolean;
   hour: number;
-  timezone: string | null;
-  resolvedTimezone: string;
+  /** ALWAYS A REAL ZONE — this machine's own where the owner never typed one.
+   *  It used to be `string | null` beside a second `resolvedTimezone`, two
+   *  fields for one fact. `zoneWasSet` carries the only thing the null said. */
+  timezone: string;
+  zoneWasSet: boolean;
   today: string;
   blackouts: Blackout[];
   blackoutErrors: string[];

@@ -112,7 +112,10 @@ const MULTIPART_SLACK = 256 * 1024;
  *
  * SO THE WALLS ARE THREE, AND THEY ARE DIFFERENT KINDS:
  *   the registry names no action pointing at either route, so the proxy has
- *   no URL to compose — the structural one;
+ *   no URL to compose — the structural one. It was briefly false: a
+ *   `retry_item` action pointed here and could only ever have been answered
+ *   with a 403. It was deleted rather than the guard, and skills.ts's header
+ *   says why;
  *   `requireBrowser` refuses the proxy's header and both keys, so adding such
  *   an action by accident is a 403 rather than a post;
  *   and `publishItem` refuses anything the owner has not approved, which is

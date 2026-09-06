@@ -43,8 +43,7 @@
  * at once. This is the same argument leases.ts makes about its own rows.
  */
 import { allPlugins, db, prune as pruneDb } from "../../db.ts";
-import { LOAD_RETAIN_DAYS, RETAIN_DAYS } from "../../config.ts";
-import { pruneAll, registerRetention } from "../../shared/retention.ts";
+import { pruneAll } from "../../shared/retention.ts";
 import { intervalMinutes, isCustom } from "./cadence.ts";
 /* IMPORTED FOR ITS REGISTRATION. leases.ts declares `job_leases`' window as a
    side effect of being loaded, and this is the file whose sweep deletes the
@@ -81,67 +80,6 @@ export function collectorIds(): string[] {
 export function collectorMap(): Collectors {
   return registry;
 }
-
-/**
- * THE WINDOWS THE CENTRAL PRUNE APPLIES, DECLARED BESIDE THE CALL THAT APPLIES
- * THEM.
- *
- * `db.ts` deletes from these tables itself, in one function, on the two
- * settings below. What it did NOT do is say so anywhere a reader could find:
- * `/api/health` published `retainDays` out of config, which reads as a
- * description of the box and was not one — it did not describe the fleet
- * samples, the uptime checks, the workstation states or the job leases, and it
- * certainly did not describe the three tables that nothing pruned at all.
- *
- * So they are registered, and `/api/health` reports the registry rather than a
- * number. They are declared HERE, next to `pruneDb`, rather than in db.ts,
- * because db.ts is the core module this pass does not edit — and that is the
- * one thing wrong with this block: the declarations belong beside the DELETEs
- * they describe, and a table added to `prune()` without a line added here is
- * invisible again. Moving them into `prune()` itself, and letting the sweep
- * below do the deleting, is the finishing of this and is written up as such.
- *
- * DECLARING IS NOT A SECOND PRUNE IN ANY MEANINGFUL SENSE: `pruneAll()` runs
- * immediately after `pruneDb()` and finds nothing left in these tables. It is
- * one extra DELETE per table per collection interval, and it is what keeps the
- * registry — the thing the owner reads — the same list as the behaviour.
- */
-const CENTRAL: [table: string, column: string, grain: "instant" | "day", load?: "load"][] = [
-  ["readings", "ts", "instant"],
-  ["runs", "started_at", "instant"],
-  ["secret_access", "ts", "instant"],
-  ["stock_quota", "ts", "instant"],
-  ["replicate_predictions", "created_at", "instant"],
-  ["github_traffic", "day", "day"],
-  ["npm_downloads", "day", "day"],
-  ["meta_ad_days", "day", "day"],
-  ["openai_costs", "day", "day"],
-  ["openrouter_activity", "day", "day"],
-  ["cloudflare_traffic", "day", "day"],
-  ["gsc_days", "day", "day"],
-  ["bing_traffic_days", "day", "day"],
-  ["bing_crawl_days", "day", "day"],
-  ["bing_queries", "day", "day"],
-  /* THE ONE TABLE ON THE SHORT WINDOW. A few thousand rows a day, and the
-     questions it answers — "was the box busy last night", "has this been
-     climbing all week" — are asked of recent history. A year of it would be a
-     million rows kept to answer nothing. */
-  ["hetzner_load", "ts", "instant", "load"],
-];
-
-for (const [table, column, grain, load] of CENTRAL)
-  registerRetention({
-    table,
-    column,
-    grain,
-    /* A THUNK, so nothing can print a window the prune has stopped using. */
-    days: load ? () => LOAD_RETAIN_DAYS : () => RETAIN_DAYS,
-    source: "setting",
-    setting: load ? "OPC_LOAD_RETAIN_DAYS" : "OPC_RETAIN_DAYS",
-    note: load
-      ? "Server-load samples, on the short window: a few thousand rows a day, read only for the last few nights."
-      : "The box's own history, on the setting the owner can change. Deleted by db.ts's central prune().",
-  });
 
 let inFlight = false;
 let started = false;
@@ -214,6 +152,9 @@ export function dueNow(collectors: Collectors, defaultMinutes: number): string[]
 export async function tick(
   collectors: Collectors,
   defaultMinutes: number,
+  /* `load` is still taken, and still passed by index.ts, because the short
+     window is a setting the owner sets; it reaches the prune through the
+     retention registry now rather than through this argument. */
   retain: { readings: number; load: number },
 ): Promise<{ ran: string[]; skipped: boolean }> {
   if (inFlight) return { ran: [], skipped: true };
@@ -243,29 +184,28 @@ export async function tick(
     }
 
     /* PRUNING KEEPS THE OLD CADENCE rather than following any source's. It is
-       a housekeeping pass over three tables and belongs to the box, not to a
-       plugin; running it every minute would be a DELETE every minute for no
-       reason. It runs when a collection ran, and at most once per default
-       interval otherwise. */
+       housekeeping and belongs to the box rather than to a plugin; running it
+       every minute would be a DELETE every minute for no reason. It runs when
+       a collection ran, and at most once per default interval otherwise. */
     const pruneEvery = Math.max(1, defaultMinutes) * 60_000;
     const prunedDue = !lastPruneAt || Date.now() - Date.parse(lastPruneAt) >= pruneEvery;
     if (ran.length || prunedDue) {
       lastPruneAt = new Date().toISOString();
       try {
-        const pruned = pruneDb(retain.readings, retain.load);
-        /* EVERY REGISTERED WINDOW, INCLUDING THE ONES NO SETTING REACHES and
-           the three tables that nothing pruned at all before this. One sweep
-           over one list, so "what is kept, and for how long" has a single
-           answer that /api/health can report verbatim. */
+        /* EVERY REGISTERED WINDOW, IN ONE SWEEP — the box's own tables
+           included, since db.ts declares them here rather than deleting them
+           itself. One pass over one list, so "what is kept, and for how long"
+           has a single answer that /api/health reports verbatim. */
         const swept = pruneAll().filter((p) => p.deleted || p.error);
         for (const p of swept)
           if (p.error) console.error(`[prune] ${p.table} could not be pruned — ${p.error}`);
         const aged = swept.reduce((n, p) => n + p.deleted, 0);
-        if (pruned.readings || pruned.runs || pruned.load || aged)
-          console.log(
-            `[prune] ${pruned.readings} readings, ${pruned.runs} runs, ` +
-              `${pruned.load} load samples${aged ? `, ${aged} row(s) past their window` : ""}`,
-          );
+        /* The three areas whose prune is a decision rather than a cutoff, and
+           so cannot be a registry row. See `prune` in db.ts. */
+        const decided = pruneDb(retain.readings);
+        const byHand = decided.mobile + decided.mail + decided.demand;
+        if (aged || byHand)
+          console.log(`[prune] ${aged} row(s) past their window, ${byHand} aged by an area's own rule`);
       } catch (err) {
         /* A DELETE that lost a race with a writer is a row that ages out next
            cycle, not a reason to end the pass. */

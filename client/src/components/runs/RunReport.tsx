@@ -6,14 +6,13 @@ import { RunCards } from "@/components/runs/RunCards";
 import { RunSteps } from "@/components/runs/RunSteps";
 import {
   backendPhrase,
-  duration,
   since,
   statusTone,
   statusWord,
 } from "@/components/runs/format";
 import { readCards, runFileUrl, type RunDetail } from "@/lib/api/runs";
 import { cn } from "@/lib/utils";
-import { count } from "@/lib/format";
+import { count, duration } from "@/lib/format";
 
 /**
  * ONE RUN, OPEN.
@@ -65,7 +64,7 @@ export function RunReport({
   const { cards, body } = useMemo(() => readCards(run.output), [run.output]);
 
   const live = run.status === "queued" || run.status === "running";
-  const took = duration(run.ms) ?? (run.status === "running" ? since(run.startedAt) : null);
+  const took = duration(run.ms, { nullText: "" }) || (run.status === "running" ? since(run.startedAt) : null);
 
   return (
     <div className="bg-card rounded-[10px] border p-3.5">

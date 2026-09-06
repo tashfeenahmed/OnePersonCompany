@@ -309,5 +309,10 @@ export const skills: Skill[] = [
       "Does any of my sites look broken in its latest screenshot?",
       "Can the model I have connected even look at an image?",
     ],
+    /* BOTH ACTIONS SEND A PICTURE TO SOMEBODY ELSE'S SERVER — `probe` a 1x1
+       PNG, `run` the site's own full screenshot — so the annotation says so.
+       `openWorldHint: false` is a claim a client may act on without asking a
+       person, and here that would be a lie. */
+    openWorld: true,
   },
 ];

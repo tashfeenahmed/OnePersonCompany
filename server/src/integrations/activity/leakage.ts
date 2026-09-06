@@ -46,11 +46,10 @@ import {
   stripeSubscriptions,
 } from "../../db.ts";
 import { NEEDS_RESPONSE_STATUSES, OPEN_DISPUTE_STATUSES } from "../../providers/stripe.ts";
-import { disputes as disputeCases, disputeCount } from "../customers/store.ts";
+import { currencyCode, money } from "../../shared/money.ts";
+import { disputes as disputeCases, disputeCount, ledgerDisputes } from "../customers/store.ts";
 
 export const leakageRoutes = new Hono();
-
-const money = (n: number) => Math.round(n * 100) / 100;
 
 function clamp(value: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, value));
@@ -98,6 +97,10 @@ leakageRoutes.get("/", (c) => {
      current state — a chargeback opened in June and still under review is open
      today, and a window would hide the one that still needs answering. */
   const allCases = disputeCases({ limit: 2000 });
+  /* The dispute DEBITS, from the customers area's own accessor rather than a
+     second reduction here. It keys on the upper-case currency code, so a
+     ledger holding both "usd" and "USD" is one bucket there and was two here. */
+  const disputeDebits = ledgerDisputes(fromDay);
 
   const currencies = [
     ...new Set([
@@ -119,8 +122,8 @@ leakageRoutes.get("/", (c) => {
     const failed = ch.reduce((n, r) => n + r.failed, 0);
     const refunds = money(le.reduce((n, r) => n + r.refunds, 0));
     const refundCount = ch.reduce((n, r) => n + r.refunds, 0);
-    const disputes = money(le.reduce((n, r) => n + r.disputes, 0));
-    const disputeFees = money(le.reduce((n, r) => n + r.dispute_fees, 0));
+    const { disputes, disputeFees } =
+      disputeDebits.get(currencyCode(currency)) ?? { disputes: 0, disputeFees: 0 };
 
     /* THE CASES, WHICH THIS DOCUMENT USED TO SAY IT DID NOT HAVE.
        The comment on the `disputes` bucket below read "the COUNT is 0 because

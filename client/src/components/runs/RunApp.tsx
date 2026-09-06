@@ -9,14 +9,13 @@ import { VentureSelect } from "@/components/VentureSelect";
 import { RunReport } from "@/components/runs/RunReport";
 import {
   backendPhrase,
-  duration,
   ordinal,
   statusTone,
   statusWord,
 } from "@/components/runs/format";
 import { useApi } from "@/hooks/useApi";
 import { useStore, type Venture } from "@/lib/store";
-import { ago } from "@/lib/format";
+import { ago, duration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   isLive,
@@ -543,7 +542,7 @@ function HistoryRow({
   open: boolean;
   onOpen: () => void;
 }) {
-  const took = duration(run.ms);
+  const took = duration(run.ms, { nullText: "" });
   return (
     <button
       onClick={onOpen}

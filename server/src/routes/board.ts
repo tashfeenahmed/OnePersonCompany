@@ -817,25 +817,20 @@ boardRoutes.post("/columns/:id/move", async (c) => {
 /* ------------------------------------------------------------------- seam */
 
 /**
- * THE DOOR A FILER WOULD COME IN THROUGH — and the only thing here that is
- * built for a caller that does not exist yet.
+ * THE DOOR A FILER COMES IN THROUGH.
  *
- * Nothing calls this. It is exported, it is twenty lines, and it is here
- * because the shape of "something filed a card automatically" is known and the
+ * Two callers today — the synthesis pass and the action inbox — and the
  * expensive half of it is the idempotency, not the INSERT. `origin` is the
- * derivation's own id with a namespace on it — `issue:disk-dell`,
- * `renewal:example.com` — and the unique index in `020_board` is what lets a sweep
- * run twice, or in two tabs, and leave one card behind rather than two. A
+ * derivation's own id with a namespace on it — `inbox:disk-dell`,
+ * `synthesis:<proposal>` — and the unique index in `020_board` is what lets a
+ * sweep run twice, or in two tabs, and leave one card behind rather than two. A
  * caller that had to do that itself would have to read the board first, which
  * is a race it cannot win.
  *
  * WHAT IS DELIBERATELY NOT HERE: the ranking, the snoozing, the re-filing of a
  * card somebody already dealt with, and any notion of a card the owner cannot
- * delete. Workdash has all of that and it is a real feature with real
- * arguments in it; this board is the owner's own cards, and a board that fills
- * itself is a different product decision than the one being made here. This
- * function does not make it — it just means that when it IS made, the schema
- * and the dedup rule are already right.
+ * delete. A board that manages itself is a different product decision than the
+ * one being made here, and filing a card is as far as this goes.
  */
 export function fileCard(input: {
   origin: string;

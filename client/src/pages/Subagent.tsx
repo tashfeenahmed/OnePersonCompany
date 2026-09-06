@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { backendPhrase, duration, statusTone, statusWord } from "@/components/runs/format";
+import { backendPhrase, statusTone, statusWord } from "@/components/runs/format";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { runAddress, standing } from "@/components/org/roleLook";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/format";
+import { ago, duration } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { isLive, runsApi } from "@/lib/api/runs";
@@ -181,10 +181,8 @@ export function Subagent() {
       const { run } = await subagentApi.dispatch(sa.id, {
         brief: brief.trim(),
       });
-      const to = runAddress(run);
       setBrief("");
-      if (to) navigate(to);
-      else detail.reload();
+      navigate(runAddress(run));
     } catch (e) {
       setProblem(e instanceof Error ? e.message : String(e));
     } finally {
@@ -431,10 +429,13 @@ export function Subagent() {
               {sa.runs.length ? (
                 <div className="flex flex-col gap-px">
                   {sa.runs.map((r) => {
-                    const to = runAddress(r);
-                    const took = duration(r.ms);
-                    const row = (
-                      <>
+                    const took = duration(r.ms, { nullText: "" });
+                    return (
+                      <Link
+                        key={r.id}
+                        to={runAddress(r)}
+                        className="hover:bg-accent -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1.5 transition-colors"
+                      >
                         <span
                           className={cn(
                             "size-1.5 shrink-0 rounded-full",
@@ -452,23 +453,7 @@ export function Subagent() {
                             ? statusWord(r.status)
                             : `${took ? `${took} · ` : ""}${ago(r.finishedAt ?? r.queuedAt)}`}
                         </span>
-                      </>
-                    );
-                    return to ? (
-                      <Link
-                        key={r.id}
-                        to={to}
-                        className="hover:bg-accent -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1.5 transition-colors"
-                      >
-                        {row}
                       </Link>
-                    ) : (
-                      <div
-                        key={r.id}
-                        className="-mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1.5"
-                      >
-                        {row}
-                      </div>
                     );
                   })}
                 </div>

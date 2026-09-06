@@ -228,6 +228,12 @@ export const SKILLS: Skill[] = [
       "Is the autopilot on, and what is it going to make tomorrow?",
       "Why has nothing been queued for this venture this week?",
     ],
+    /* `run_now` REACHES THREE THIRD PARTIES — a model provider for the
+       caption, Replicate for the picture, Pexels for the footage — and the
+       venture's own record goes with the prompt. The `video` skill above
+       declares nothing because it has no actions at all: its two views are
+       loopback reads of rows this box already wrote. */
+    openWorld: true,
   },
 ];
 

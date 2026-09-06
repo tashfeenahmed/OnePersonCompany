@@ -41,6 +41,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSyn
 import { resolve } from "node:path";
 import { db, now, ventureRowById } from "../../db.ts";
 import { REPLICATE_API, tokenAccounts } from "../../providers/replicate.ts";
+import { imageDimensions } from "../../tools/chrome.ts";
 import { STUDIO_DIR } from "../ventures/studio.ts";
 import { sniff } from "./items.ts";
 
@@ -127,39 +128,6 @@ export function shapeAsset(r: AssetRow) {
   };
 }
 
-/**
- * PNG and JPEG dimensions, read from the header.
- *
- * Two formats and no more, deliberately: those are the two the Studio and
- * every camera produce, and a WebP or GIF whose size this cannot read is
- * stored with null dimensions rather than with a guess. Null here means "not
- * measured" everywhere it is shown.
- */
-export function dimensions(bytes: Uint8Array): { width: number; height: number } | null {
-  if (bytes.length > 24 && bytes[0] === 0x89 && bytes[1] === 0x50) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    return { width: view.getUint32(16), height: view.getUint32(20) };
-  }
-  if (bytes.length > 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
-    let i = 2;
-    while (i + 9 < bytes.length) {
-      if (bytes[i] !== 0xff) {
-        i += 1;
-        continue;
-      }
-      const marker = bytes[i + 1]!;
-      const length = (bytes[i + 2]! << 8) | bytes[i + 3]!;
-      /* SOF0..SOF3 and SOF5..SOF15 carry the frame size; the rest are skipped
-         by their own declared length, which is what makes this a walk rather
-         than a scan for a byte pattern that also occurs inside the data. */
-      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc)
-        return { height: (bytes[i + 5]! << 8) | bytes[i + 6]!, width: (bytes[i + 7]! << 8) | bytes[i + 8]! };
-      i += 2 + length;
-    }
-  }
-  return null;
-}
-
 export type AddResult = { ok: true; asset: AssetRow } | { ok: false; error: string };
 
 /**
@@ -199,7 +167,10 @@ export function addAsset(input: {
   const path = resolve(dir, `${id}.${ext}`);
   writeFileSync(path, input.bytes);
 
-  const size = dimensions(input.bytes);
+  /* PNG and JPEG only, which is what `imageDimensions` reads. A WebP or GIF is
+     stored with null dimensions rather than with a guess: null means "not
+     measured" everywhere this is shown. */
+  const size = imageDimensions(input.bytes);
   const ts = now();
   db.prepare(
     `INSERT INTO venture_assets

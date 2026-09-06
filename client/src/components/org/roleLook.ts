@@ -52,39 +52,21 @@ export const ROLE_ICONS: Record<string, LucideIcon> = {
 export const FALLBACK_ROLE_ICON = Bot;
 
 /**
- * Where a run of this kind is readable, when the server has not said.
+ * A RUN'S ADDRESS.
  *
- * THE SERVER SAYS, NORMALLY: `RoleInfo.app` is on the org document precisely
- * so this client is not the thing that decides a `geo` run belongs to the AI
- * visibility tab. This map is the fallback for the two places that have a
- * worker without the roles beside it — the detail response and the venture
- * overview — and it is the same map `pages/Subagents.tsx` has always carried,
- * kept in one file now that three pages want it.
+ * THIS FILE NO LONGER CARRIES A TABLE OF KINDS. It had one — ten entries, a
+ * fourth copy of a list the server and `shared/runRoutes.ts` also held — and
+ * it disagreed with both: `campaign` and `mobilehealth` were absent, so a run
+ * of either was drawn as plain text while the server happily linked it.
  *
- * A kind with no app here is NOT linked, which is the correct offer for a run
- * this client cannot open.
+ * IT ALSO NO LONGER ANSWERS NULL. The old map returned null for a kind it had
+ * never heard of, which meant a kind added by the runs area silently stopped
+ * being clickable in this client until somebody edited this file. `runPage`
+ * falls back to the kind's own slug, and `/outputs/:output/:runId` is a real
+ * route, so a new kind opens at its own page instead of at nothing.
  */
-const KIND_APPS: Record<string, string> = {
-  research: "research",
-  competitors: "competitors",
-  seo: "seo",
-  demand: "demand",
-  geo: "visibility",
-  papers: "papers",
-  video: "video",
-  shotsqa: "ops",
-  serp: "serp",
-  aso: "aso",
-};
-
-export const appForKind = (kind: string): string | null =>
-  KIND_APPS[kind] ?? null;
-
-/** A run's address, or null for a kind this client has no app for. */
-export function runAddress(run: { kind: string; id: string }): string | null {
-  const app = appForKind(run.kind);
-  return app ? runPage(run.kind, run.id) : null;
-}
+export const runAddress = (run: { kind: string; id: string }): string =>
+  runPage(run.kind, run.id);
 
 /**
  * A worker's name with the venture's own name taken off the front.

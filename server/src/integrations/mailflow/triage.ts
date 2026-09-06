@@ -134,6 +134,42 @@ export function storedFor(accountId: number): Map<string, TriageRow> {
   return new Map(rows.map((r) => [r.thread_id, r]));
 }
 
+/**
+ * THE OWNER'S TWO VERBS, written the one way.
+ *
+ * AN OMITTED FIELD KEEPS WHAT IS STORED, decided in SQL against the
+ * conflicting row. Three surfaces wrote these columns and each named BOTH in
+ * its upsert — which clears the one the caller did not mean — so each had to
+ * re-read the row first. Nothing now happens between the read and the write.
+ *
+ * The insert leaves `score` NULL: a thread acted on before any pass read it
+ * carries a verb and no opinion, and inventing one to fill a column would be
+ * this function answering a question only the model may answer.
+ */
+export function markThread(
+  accountId: number,
+  threadId: string,
+  patch: { snoozedUntil?: string | null; doneAt?: string | null },
+): void {
+  db.prepare(
+    `INSERT INTO mailflow_triage
+       (account_id, thread_id, score, reason, urgency, venture, venture_by, at_ms, scored_at, model, snoozed_until, done_at)
+     VALUES (@account, @thread, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, @snoozed, @done)
+     ON CONFLICT(account_id, thread_id) DO UPDATE SET
+       snoozed_until = CASE WHEN @setSnoozed THEN excluded.snoozed_until ELSE mailflow_triage.snoozed_until END,
+       done_at       = CASE WHEN @setDone    THEN excluded.done_at       ELSE mailflow_triage.done_at       END`,
+  ).run({
+    account: accountId,
+    thread: threadId,
+    snoozed: patch.snoozedUntil ?? null,
+    done: patch.doneAt ?? null,
+    /* `undefined` is "leave it", `null` is "clear it". They are different
+       instructions and the CASE above is where they part. */
+    setSnoozed: patch.snoozedUntil !== undefined ? 1 : 0,
+    setDone: patch.doneAt !== undefined ? 1 : 0,
+  });
+}
+
 export function lastRun(accountId: number): TriageRunRow | undefined {
   return db.prepare("SELECT * FROM mailflow_triage_runs WHERE account_id = ?").get(accountId) as
     | TriageRunRow

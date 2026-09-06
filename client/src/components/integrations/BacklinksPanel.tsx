@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { integrations } from "@/lib/api/integrations";
 import { cn } from "@/lib/utils";
-import { ago, num } from "./format";
+import { ago, count } from "./format";
 import { EntityLinks } from "./EntityLinks";
 import { Note, PanelEmpty, PanelSection, Row, Rows, Suggest, Tiles } from "./Panel";
 
@@ -161,14 +161,14 @@ export function BacklinksPanel({ onCollected }: { onCollected?: () => void }) {
                     </span>
                   </div>
                   <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
-                    <span>referring domains {num(src.referringDomains)}</span>
-                    <span>inbound links {num(src.backlinks)}</span>
-                    <span>linked pages {num(src.linkedPages)}</span>
-                    <span>crawl presence {num(src.crawlPages)}</span>
+                    <span>referring domains {count(src.referringDomains)}</span>
+                    <span>inbound links {count(src.backlinks)}</span>
+                    <span>linked pages {count(src.linkedPages)}</span>
+                    <span>crawl presence {count(src.crawlPages)}</span>
                     {src.verified && (
                       <span>
                         verified {src.verified.checked} checked ·{" "}
-                        {num(src.verified.live)} live · {num(src.verified.followed)}{" "}
+                        {count(src.verified.live)} live · {count(src.verified.followed)}{" "}
                         followed
                       </span>
                     )}

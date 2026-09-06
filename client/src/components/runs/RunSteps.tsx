@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { RunStep } from "@/lib/api/runs";
-import { duration } from "@/components/runs/format";
+import { duration } from "@/lib/format";
 
 /**
  * WHAT THE RUN DID WHILE IT WAS WRITING, AS GREY LINES.
@@ -43,7 +43,7 @@ function StepLine({ step }: { step: RunStep }) {
   const [open, setOpen] = useState(false);
   const ms = took(step);
   const running = !step.finishedAt;
-  const took_ = duration(ms);
+  const took_ = duration(ms, { nullText: "" });
 
   return (
     <div>

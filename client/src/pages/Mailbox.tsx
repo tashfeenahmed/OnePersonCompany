@@ -12,7 +12,7 @@ import {
   Search,
   Send,
 } from "lucide-react";
-import { bytes, when } from "@/lib/format";
+import { bytes, day, when } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
@@ -487,9 +487,9 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
  *
  * VENTURES HERE HAVE NO DOMAIN FIELD. A venture is a name, a description and a
  * colour, and there is no join to make — so this matches the venture's NAME
- * against the domain, both normalised, either whole (`example.ie` ↔ "example.ie") or
+ * against the domain, both normalised, either whole (`acme.ie` ↔ "acme.ie") or
  * against the domain's stem (`acme.ie` ↔ "Acme"). Equality, never a
- * substring: "neu" inside "neurotech.io" is a coincidence, and a chip labelled
+ * substring: "acme" inside "acmenauts.io" is a coincidence, and a chip labelled
  * with the wrong business is worse than one labelled with a domain.
  *
  * A DOMAIN THAT MATCHES NOTHING KEEPS ITS OWN NAME. A hard-coded table —
@@ -525,9 +525,7 @@ function listTime(ms: number | null): string {
   const now = new Date();
   if (d.toDateString() === now.toDateString())
     return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  if (d.getFullYear() === now.getFullYear())
-    return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return day(d, { year: d.getFullYear() !== now.getFullYear() });
 }
 
 /* A MESSAGE'S OWN STAMP AND AN ATTACHMENT'S SIZE both come from `@/lib/format`

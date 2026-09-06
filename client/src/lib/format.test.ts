@@ -15,6 +15,7 @@ import {
   bytes,
   compact,
   count,
+  day,
   duration,
   durationS,
   inDays,
@@ -125,6 +126,35 @@ test("when draws a real date", () => {
   const rendered = when("2026-09-06T14:02:00Z");
   assert.notEqual(rendered, DASH);
   assert.ok(!rendered.includes("Invalid"));
+});
+
+/* ------------------------------------------------------------------ day */
+
+test("a bare YYYY-MM-DD is read in UTC, so the day drawn is the day stored", () => {
+  /* The bug: `Date.parse("2026-09-05")` is midnight UTC, so every zone west of
+     Greenwich drew a card due on the 5th as due on the 4th. This case holds in
+     every zone — run the suite under TZ=Pacific/Midway and TZ=Pacific/Kiritimati
+     and it is the same day both times, which is the point. */
+  const rendered = day("2026-09-05");
+  assert.ok(rendered.includes("5"), rendered);
+  assert.ok(!rendered.includes("4"), rendered);
+});
+
+test("day carries no clock, which is the whole reason it is not when", () => {
+  const rendered = day("2026-09-05T23:30:00Z");
+  assert.ok(!rendered.includes(":"), rendered);
+});
+
+test("day takes the year in either width, and omits it unasked", () => {
+  assert.ok(!day("2026-09-05").includes("26"));
+  assert.ok(day("2026-09-05", { year: true }).includes("2026"));
+  assert.ok(day("2026-09-05", { year: "2-digit" }).includes("26"));
+});
+
+test("day is absent as the dash and echoes what will not parse", () => {
+  assert.equal(day(null), DASH);
+  assert.equal(day(null, { nullText: "no deadline" }), "no deadline");
+  assert.equal(day("whenever"), "whenever");
 });
 
 /* --------------------------------------------------------------- inDays */

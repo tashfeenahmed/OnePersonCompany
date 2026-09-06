@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { api } from "@/lib/api";
 import { integrations } from "@/lib/api/integrations";
-import { ago, duration, num, pct } from "./format";
+import { ago, count, duration, pct } from "./format";
 import { EntityLinks } from "./EntityLinks";
 import { Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
 
@@ -61,8 +61,8 @@ export function UmamiPanel({ onCollected }: { onCollected?: () => void }) {
     >
       <Tiles
         items={[
-          { v: num(w.pageviews), k: `pageviews, ${w.days} days` },
-          { v: num(w.visits), k: "visits" },
+          { v: count(w.pageviews), k: `pageviews, ${w.days} days` },
+          { v: count(w.visits), k: "visits" },
           /* The server scales this one to 0–100; `pct` takes a fraction, and the
              division is here rather than hidden inside an import. */
           { v: pct(w.bounceRate === null ? null : w.bounceRate / 100), k: "bounce rate" },
@@ -84,9 +84,9 @@ export function UmamiPanel({ onCollected }: { onCollected?: () => void }) {
             </div>
             {site.window ? (
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
-                <span>{num(site.window.pageviews)} pageviews</span>
-                <span>{num(site.window.visitors)} visitors</span>
-                <span>{num(site.window.visits)} visits</span>
+                <span>{count(site.window.pageviews)} pageviews</span>
+                <span>{count(site.window.visitors)} visitors</span>
+                <span>{count(site.window.visits)} visits</span>
                 <span className="text-muted-foreground">
                   {pct(site.window.bounceRate === null ? null : site.window.bounceRate / 100)} bounce ·{" "}
                   {duration(site.window.avgVisitSeconds)} average visit
@@ -115,7 +115,7 @@ export function UmamiPanel({ onCollected }: { onCollected?: () => void }) {
         </b>{" "}
         {d.portfolio.visitors.note} Per site over this window:{" "}
         {d.portfolio.visitors.perSite
-          .map((s) => `${s.domain ?? s.entity} ${num(s.visitors)}`)
+          .map((s) => `${s.domain ?? s.entity} ${count(s.visitors)}`)
           .join(" · ") || "nothing read yet"}
         .
       </Note>

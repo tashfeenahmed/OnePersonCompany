@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { integrations } from "@/lib/api/integrations";
 import { cn } from "@/lib/utils";
-import { ago, num } from "./format";
+import { ago, count } from "./format";
 import { EntityLinks } from "./EntityLinks";
 import { Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
 import { activityApi } from "@/lib/api/activity";
@@ -108,7 +108,7 @@ export function UsersPanel({ onCollected }: { onCollected?: () => void }) {
             items={[
               { v: `${d.summary.answering}/${d.summary.configured}`, k: "endpoints answering" },
               { v: String(d.summary.failing), k: "refusing or invalid" },
-              { v: num(d.summary.totalUsers), k: d.summary.complete === false ? "users (a floor)" : "users" },
+              { v: count(d.summary.totalUsers), k: d.summary.complete === false ? "users (a floor)" : "users" },
               { v: String(d.summary.countsOnly), k: "counts-only" },
             ]}
           />
@@ -152,22 +152,22 @@ export function UsersPanel({ onCollected }: { onCollected?: () => void }) {
                     <span>
                       total{" "}
                       <span className="text-foreground tabular-nums">
-                        {p.total === null ? "not published" : num(p.total)}
+                        {p.total === null ? "not published" : count(p.total)}
                       </span>
                     </span>
                     <span>
-                      rows held <span className="text-foreground tabular-nums">{num(p.rowsHeld)}</span>
+                      rows held <span className="text-foreground tabular-nums">{count(p.rowsHeld)}</span>
                     </span>
                     <span>
                       new 7d{" "}
                       <span className="text-foreground tabular-nums">
-                        {p.new7d === null ? "—" : num(p.new7d)}
+                        {p.new7d === null ? "—" : count(p.new7d)}
                       </span>
                     </span>
                     <span>
                       paying{" "}
                       <span className="text-foreground tabular-nums">
-                        {p.paid === null ? "—" : num(p.paid)}
+                        {p.paid === null ? "—" : count(p.paid)}
                       </span>
                     </span>
                     {p.generatedAt && <span>the product stamped it {ago(p.generatedAt)}</span>}

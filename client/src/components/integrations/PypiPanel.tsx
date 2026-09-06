@@ -3,7 +3,7 @@ import { useApi } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { integrations } from "@/lib/api/integrations";
-import { ago, num } from "./format";
+import { ago, count } from "./format";
 import { EntityLinks } from "./EntityLinks";
 import { Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
 
@@ -61,14 +61,14 @@ export function PypiPanel({ onCollected }: { onCollected?: () => void }) {
     >
       <Tiles
         items={[
-          { v: num(d.summary.last30), k: "downloads, last 30 days" },
+          { v: count(d.summary.last30), k: "downloads, last 30 days" },
           {
-            v: num(d.summary.lastCompleteWeek?.downloads ?? null),
+            v: count(d.summary.lastCompleteWeek?.downloads ?? null),
             k: d.summary.lastCompleteWeek
               ? `last complete week (${d.summary.lastCompleteWeek.week})`
               : "no complete week held yet",
           },
-          { v: num(d.summary.total), k: "over the whole history held" },
+          { v: count(d.summary.total), k: "over the whole history held" },
           {
             v: String(d.summary.failing),
             k: d.summary.failing === 1 ? "package failing" : "packages failing",
@@ -96,18 +96,18 @@ export function PypiPanel({ onCollected }: { onCollected?: () => void }) {
               </p>
             )}
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
-              <span>{num(p.last30)} in 30 days</span>
+              <span>{count(p.last30)} in 30 days</span>
               <span className="text-muted-foreground">
-                {num(p.lastCompleteWeek?.downloads ?? null)} last complete week
+                {count(p.lastCompleteWeek?.downloads ?? null)} last complete week
               </span>
               {p.currentWeek && (
                 <span className="text-muted-foreground">
-                  {num(p.currentWeek.downloads)} this week so far — partial, not
+                  {count(p.currentWeek.downloads)} this week so far — partial, not
                   comparable
                 </span>
               )}
               <span className="text-muted-foreground">
-                pypistats' own rolling month: {num(p.recent.lastMonth)}
+                pypistats' own rolling month: {count(p.recent.lastMonth)}
               </span>
             </div>
             {p.lastError && (

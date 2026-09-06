@@ -25,6 +25,7 @@
  * profit.ts — and the ledger stays a list of things that recur.
  */
 import { db, allDomains, now, ventureRowById } from "../../db.ts";
+import { ventureOfEntity } from "../ventures/links.ts";
 import {
   CATEGORIES,
   DECISIONS,
@@ -390,27 +391,6 @@ export function archiveMissing(source: string, keep: Set<string>): number {
     gone += 1;
   }
   return gone;
-}
-
-/**
- * Which venture, if any, is linked to this entity at this plugin. Null is the
- * ordinary answer and means SHARED — see finance_allocations.
- *
- * THE COMPARISON IS CASE-INSENSITIVE, which the exact-match version was not.
- * A thing linked with different capitalisation than the collector stores it
- * with matched on one page and not on another, so a venture could show cases
- * against a product it also showed no revenue for. Case is not evidence of a
- * different business.
- */
-function ventureOfEntity(plugin: string, entity: string): string | null {
-  const row = db
-    .prepare(
-      `SELECT venture_id FROM venture_links
-       WHERE plugin = ? AND LOWER(TRIM(entity)) = LOWER(TRIM(?))
-       ORDER BY venture_id LIMIT 1`,
-    )
-    .get(plugin, entity) as { venture_id: string } | undefined;
-  return row?.venture_id ?? null;
 }
 
 export type SeedCounts = { added: number; refreshed: number; unchanged: number; archived: number };

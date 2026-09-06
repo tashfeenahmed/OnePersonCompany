@@ -23,6 +23,7 @@ import {
 import { VentureMark } from "@/components/VentureChrome";
 import { useStore, type Venture } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { day } from "@/lib/format";
 
 /**
  * WHAT THIS PAGE NEEDS TO DRAW A VENTURE, which is less than a venture is.
@@ -852,7 +853,7 @@ function CardTile({
               )}
             >
               {overdue ? "overdue · " : ""}
-              {formatDay(card.due)}
+              {day(card.due)}
             </span>
           )}
         </div>
@@ -924,8 +925,8 @@ function CardForm({
         <DialogTitle>Card</DialogTitle>
         <DialogDescription>
           In {column?.title ?? "a column that has gone"} · added{" "}
-          {formatStamp(card.createdAt)}
-          {card.doneAt && ` · done ${formatStamp(card.doneAt)}`}
+          {day(card.createdAt)}
+          {card.doneAt && ` · done ${day(card.doneAt)}`}
         </DialogDescription>
       </DialogHeader>
 
@@ -1129,23 +1130,8 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** '2026-09-05' as "5 Sep". Read back in UTC because that is how it was
- *  built — anything else can print the day before. */
-function formatDay(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return iso;
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  });
-}
-
-/** A server timestamp as a day, in the reader's own zone — this one IS a
- *  moment, so it is read as one. */
-function formatStamp(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-}
+/* THE DUE DAY AND THE CREATED STAMP BOTH GO THROUGH `day`. They used to be
+   two local helpers because one is a `YYYY-MM-DD` key that must be read in UTC
+   (anything else prints the day before, west of Greenwich) and the other is a
+   real moment read in the reader's own zone. `day` tells them apart by shape,
+   so the difference is kept without two functions to keep it in. */

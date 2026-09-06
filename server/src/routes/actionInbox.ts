@@ -29,6 +29,7 @@ import { fileCard } from "./board.ts";
 import { runPage } from "../../../shared/runRoutes.ts";
 import { ackEvent, openEvents } from "../integrations/proactive/store.ts";
 import { commitmentRows, decide } from "../integrations/people/commitments.ts";
+import { markThread } from "../integrations/mailflow/triage.ts";
 
 type Item = { id: string; source: string; title: string; detail: string; priority: number; at: string; href: string; venture: string | null; resolution: string };
 type Row = Record<string, string | number | null>;
@@ -38,23 +39,6 @@ const select = (sql: string) => db.prepare(sql).all() as Row[];
  *  is a list a person reads, and the ordering below is what decides which of
  *  them they read first. */
 const PER_KIND = 500;
-
-/* The mail triage's two columns, written the way that area writes them —
-   upsert included, because a thread the owner acts on may have no scored row
-   and a NULL score is a row without an opinion rather than an invented one.
-   THIS SHOULD NOT BE HERE: it is a copy of `mailflow/triage-routes.ts`'s own
-   `verb`, kept only because that statement is module-private there. The moment
-   mailflow exports it this goes and an import takes its place. */
-const triageVerb = db.prepare(
-  `INSERT INTO mailflow_triage
-     (account_id, thread_id, score, reason, urgency, venture, venture_by, at_ms, scored_at, model, snoozed_until, done_at)
-   VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
-   ON CONFLICT(account_id, thread_id) DO UPDATE SET
-     snoozed_until = excluded.snoozed_until, done_at = excluded.done_at`,
-);
-const triageRow = db.prepare(
-  "SELECT snoozed_until, done_at FROM mailflow_triage WHERE account_id = ? AND thread_id = ?",
-);
 
 /** How long a snooze lasts when the item's own area has no setting for it. */
 const SNOOZE_MS = 86_400_000;
@@ -97,14 +81,10 @@ actionInboxRoutes.post("/:id/:action", async c => {
   try {
     if (kind === "alert" && action === "resolve") { ackEvent(Number(parts[0])); wroteThrough = true; }
     if (kind === "commitment" && action === "resolve") { decide(parts.join(":"), "done"); wroteThrough = true; }
+    /* Mailflow's own verb. An omitted field keeps what is stored, so snoozing
+       from here cannot clear a "done" set on the Mail page. */
     if (kind === "triage") {
-      const held = triageRow.get(Number(parts[0]), parts[1]!) as { snoozed_until: string | null; done_at: string | null } | undefined;
-      triageVerb.run(
-        Number(parts[0]),
-        parts[1]!,
-        action === "snooze" ? until : (held?.snoozed_until ?? null),
-        action === "resolve" ? ts : (held?.done_at ?? null),
-      );
+      markThread(Number(parts[0]), parts[1]!, action === "snooze" ? { snoozedUntil: until } : { doneAt: ts });
       wroteThrough = true;
     }
     if (!wroteThrough)

@@ -14,19 +14,6 @@ import type { RunStatus, RunSummary } from "@/lib/api/runs";
  * one drew a four-second run as "1h 6m" with nothing to catch it.
  */
 
-/**
- * DEPRECATED: call `duration` from `@/lib/format` and pass the word absence
- * means as `nullText`.
- *
- * The shared one answers with a word for a run that has not finished; this
- * shim answers with `null` so the callers that still write `?? "still going"`
- * keep meaning it. Nothing here computes a duration — only the absent case
- * differs.
- */
-export function duration(ms: number | null): string | null {
-  return ms === null || !Number.isFinite(ms) || ms < 0 ? null : span(ms);
-}
-
 /** How long a run has been going, from its start to now. Used only while it is
  *  running, where the server's `ms` is not written yet. */
 export function since(iso: string | null): string | null {

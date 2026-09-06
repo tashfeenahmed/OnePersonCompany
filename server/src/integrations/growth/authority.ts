@@ -52,6 +52,7 @@
  */
 import { db } from "../../db.ts";
 import { hostMatch, hostOf } from "../../shared/host.ts";
+import { referringDomains } from "../signals/db.ts";
 
 /** The sentence that travels with every estimate, in one place so the page and
  *  the agent cannot drift apart, and so grepping for it finds every claim. */
@@ -103,43 +104,6 @@ type LinkInput = {
   verifiedLive: number | null;
   sources: { source: string; ok: number | null; referringDomains: number | null }[];
 };
-
-/**
- * REFERRING DOMAINS FOR ONE HOST, AS ONE ANSWER.
- *
- * Two surfaces used to answer this question and neither cited the other's
- * rule: one published a per-source list with an explicit refusal to total it,
- * the other quietly took the largest single source and fed it into a
- * difficulty ceiling. When a source's index moved, the two moved differently
- * and a reader had no way to see why.
- *
- * BOTH RULES ARE TRUE AND BOTH ARE HERE. `combined` is null on principle —
- * the sources overlap by an unknown amount and neither is a census, so a sum
- * is a number in no unit at all. `best` is the largest single source WITH THE
- * SOURCE NAMED, which is the most defensible single figure there is and the
- * only one an estimate may be built on. `perSource` is what each said.
- */
-export type ReferringDomains = {
-  /** The largest single source's count, or null when none answered. */
-  best: number | null;
-  /** Which source that was. Never a sum of two. */
-  source: string | null;
-  perSource: { source: string; ok: number | null; referringDomains: number | null }[];
-  /** NULL ON PRINCIPLE, not for want of data. See above. */
-  combined: null;
-};
-
-export function referringDomains(host: string): ReferringDomains {
-  const rows = db
-    .prepare("SELECT source, ok, referring_domains FROM backlink_sources WHERE host = ?")
-    .all(host) as unknown as { source: string; ok: number | null; referring_domains: number | null }[];
-  const perSource = rows.map((r) => ({ source: r.source, ok: r.ok, referringDomains: r.referring_domains }));
-  let best: { source: string; value: number } | null = null;
-  for (const r of perSource)
-    if (r.referringDomains !== null && (best === null || r.referringDomains > best.value))
-      best = { source: r.source, value: r.referringDomains };
-  return { best: best?.value ?? null, source: best?.source ?? null, perSource, combined: null };
-}
 
 function linksFor(host: string): LinkInput {
   const links = referringDomains(host);
