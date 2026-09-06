@@ -18,7 +18,9 @@
  *         "plan": "pro",                   // optional
  *         "paid": true,                    // optional
  *         "lastSeenAt": "2026-09-01T…",    // optional, ISO 8601
- *         "country": "IE" }                // optional
+ *         "country": "IE",                 // optional
+ *         "population": "customer",        // optional; missing means customer
+ *         "contactPermitted": false }      // optional; missing means false
  *     ],
  *     "total": 4873,                       // optional, the product's own count
  *     "generatedAt": "2026-09-05T…"        // optional, ISO 8601
@@ -50,6 +52,17 @@
  * `users[3].createdAt is "yesterday", which is not an ISO 8601 timestamp` sends
  * them to line 3. That is the whole difference between a validator worth
  * running at connect time and one worth ignoring.
+ *
+ * TWO FIELDS WERE ADDED AFTER THE FACT AND BOTH DEFAULT TO THE OLD MEANING.
+ * `population` says who this person is to the business — customer, participant,
+ * admin, trial or internal — because a portfolio whose products each mean
+ * something different by "user" produces a total that is true of nothing;
+ * missing is `customer`, which is what the contract always implied.
+ * `contactPermitted` is false unless the document said true, and the only
+ * legitimate source for a true is the product's own consent record; see the
+ * ContractUser type for why nothing here will ever infer one. Every endpoint
+ * written against the original contract is still valid and still means the
+ * same thing.
  *
  * ADDRESSES ARE HASHED AND THE SALT IS PER INSTALL. See 130_activity_users:
  * the address is needed for identity across collections and for nothing else,
@@ -115,6 +128,35 @@ export function hashEmail(email: string): { hash: string; domain: string | null 
 
 /* --------------------------------------------------------------- contract */
 
+/**
+ * WHO THIS PERSON IS TO THE BUSINESS — the field added when the portfolio's
+ * products started disagreeing about what "user" means.
+ *
+ * One product's user table holds people who signed up and pay. Another's holds
+ * everyone who was ever invited into somebody else's session and never had an
+ * account of their own. A third's holds the two staff logins that operate it.
+ * Adding those three together produces a headline that is true of nothing, and
+ * the predecessor of this box learned that by publishing it — see
+ * deploy/adapters/CHECKLIST.md, which carries the distinctions over.
+ *
+ * FIVE VALUES AND NO OTHERS, because a free-text field here becomes twelve
+ * spellings of "admin" inside a year:
+ *   customer     signed up for this product on their own behalf
+ *   participant  present because somebody else invited them
+ *   admin        operates the product
+ *   trial        signed up, has not paid, and the product tracks the difference
+ *   internal     the owner's own accounts, test rows, seed data
+ *
+ * MISSING MEANS `customer`, and that is what makes this backwards compatible:
+ * every endpoint written against the original contract keeps meaning exactly
+ * what it meant, because "a user of this product" was always what it was
+ * saying. A product that has participants and does not distinguish them is
+ * over-reporting customers, which is a mapping to fix in the adapter and not a
+ * reason to make every existing endpoint invalid overnight.
+ */
+export const POPULATIONS = ["customer", "participant", "admin", "trial", "internal"] as const;
+export type Population = (typeof POPULATIONS)[number];
+
 export type ContractUser = {
   id: string;
   email: string | null;
@@ -123,6 +165,26 @@ export type ContractUser = {
   paid: boolean | null;
   lastSeenAt: string | null;
   country: string | null;
+  /** See POPULATIONS. Never null on a parsed row: an absent field is
+   *  `customer`, stated once here rather than defaulted by every reader. */
+  population: Population;
+  /**
+   * MAY ANYBODY WRITE TO THIS PERSON.
+   *
+   * False unless the document said true, and the document is only allowed to
+   * say true when the adapter was configured with an explicit consent mapping
+   * — a column in the product's own database that records the person agreeing.
+   * There is no inference here and there is deliberately no way to add one:
+   * "we hold an address" is not consent, and a field that quietly derived one
+   * from the other would make this box the place a mailing list came from.
+   *
+   * It is stored beside a hash, not an address. Nothing in this application
+   * can turn a permitted row back into somebody to write to; what the flag is
+   * for is COUNTING — how many of a population could lawfully be contacted, so
+   * a recovery campaign can be sized before anyone decides to run it, and
+   * exported deliberately from the product that holds the consent.
+   */
+  contactPermitted: boolean;
 };
 
 export type Parsed =
@@ -298,6 +360,32 @@ export function validate(doc: unknown): Validation {
     if (u.paid !== undefined && u.paid !== null && typeof u.paid !== "boolean")
       return note(`paid is ${show(u.paid)}. It is true or false, and it is left out entirely for a product that cannot say — which is not the same as false.`);
 
+    /* POPULATION. Absent is `customer` and a WRONG value is a refused row, not
+       a quiet fallback: "subscriber" arriving where "customer" was meant is a
+       mapping the owner can fix in a minute if they are told, and a silent
+       coercion is a portfolio-wide miscount nobody ever finds. */
+    let population: Population = "customer";
+    if (u.population !== undefined && u.population !== null && u.population !== "") {
+      if (typeof u.population !== "string" || !POPULATIONS.includes(u.population as Population))
+        return note(
+          `population is ${show(u.population)}. It is one of ${POPULATIONS.join(", ")}, or left out entirely — a missing population is “customer”.`,
+        );
+      population = u.population as Population;
+    }
+
+    /* CONTACT PERMITTED. Only a literal `true` is consent. A string "true", a
+       1, or anything else is refused rather than read generously, because this
+       is the one field where a lenient parse would turn a type error into
+       permission to write to somebody. */
+    if (
+      u.contactPermitted !== undefined &&
+      u.contactPermitted !== null &&
+      typeof u.contactPermitted !== "boolean"
+    )
+      return note(
+        `contactPermitted is ${show(u.contactPermitted)}. It is true or false and nothing else — a "true" in quotes is not consent, and this is the one field that will not be read generously.`,
+      );
+
     users.push({
       id,
       email,
@@ -309,6 +397,8 @@ export function validate(doc: unknown): Validation {
         typeof u.country === "string" && u.country.trim()
           ? u.country.trim().slice(0, 40)
           : null,
+      population,
+      contactPermitted: u.contactPermitted === true,
     });
   });
 
@@ -550,10 +640,18 @@ function writeUsers(accountId: number, product: string, users: ContractUser[]) {
   const seen = now();
   const stmt = db.prepare(
     `INSERT INTO activity_users
-       (account_id, product, user_id, email_hash, email_domain, created_at, plan, paid, last_seen, country, seen_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)
+       (account_id, product, user_id, email_hash, email_domain, created_at, plan, paid, last_seen, country, seen_at,
+        population, contact_permitted)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(account_id, user_id) DO UPDATE SET
        product = excluded.product,
+       -- Both of these follow the document every time, including downwards.
+       -- A product that revokes consent, or reclassifies somebody from
+       -- customer to internal, is correcting the record, and a COALESCE here
+       -- would make consent a thing this box could be told once and never
+       -- told back.
+       population = excluded.population,
+       contact_permitted = excluded.contact_permitted,
        email_hash = COALESCE(excluded.email_hash, activity_users.email_hash),
        email_domain = COALESCE(excluded.email_domain, activity_users.email_domain),
        -- createdAt is NOT updated. A signup happened once; a product that
@@ -581,6 +679,8 @@ function writeUsers(accountId: number, product: string, users: ContractUser[]) {
         u.lastSeenAt,
         u.country,
         seen,
+        u.population,
+        u.contactPermitted ? 1 : 0,
       );
     }
     db.exec("COMMIT");

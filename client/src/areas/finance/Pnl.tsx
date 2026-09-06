@@ -1,0 +1,289 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useApi } from "@/hooks/useApi";
+import { cn } from "@/lib/utils";
+import { finance } from "@/lib/api/finance";
+import { amount, currencies, pct } from "./format";
+
+/**
+ * PROFIT AND LOSS — the portfolio in one table, and one venture in full.
+ *
+ * THE ACTUAL / PROJECTED BADGE IS THE FIRST THING ON THE PAGE, because it is
+ * the first thing a reader gets wrong. A month in progress is a part-month:
+ * its revenue is what has landed so far and its costs are the whole month's
+ * bill, so the margin shown mid-month is always worse than the month will be.
+ * The badge says which, and the projection panel says the method.
+ *
+ * A MARGIN IS ONE ROW PER CURRENCY. There is no total column anywhere on this
+ * page and there is not going to be one: a venture earning dollars on the App
+ * Store and paying euro for a server has two margins.
+ *
+ * EVERY ALLOCATED COST LINE WEARS ITS SHARE AND ITS BASIS, because "Example App 1
+ * costs €14" and "Example App 1 is charged a quarter of a €57 control plane by a
+ * rule you chose in March" are different claims and only the second is true.
+ */
+
+function monthOptions(): string[] {
+  const out: string[] = [];
+  const d = new Date();
+  for (let i = 0; i < 13; i++) {
+    out.push(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
+  }
+  return out;
+}
+
+function Badge({ actual }: { actual: boolean }) {
+  return (
+    <span
+      className={cn(
+        "rounded-full px-1.5 py-0.5 text-[10.5px] font-medium",
+        actual ? "bg-ok/20 text-foreground" : "bg-warn/25 text-foreground",
+      )}
+      title={actual ? "The month has closed; these are measurements of it." : "The month is still running. Revenue is the part measured so far; costs are the whole month's bill."}
+    >
+      {actual ? "actual" : "part-month"}
+    </span>
+  );
+}
+
+export function Pnl() {
+  const months = monthOptions();
+  const [month, setMonth] = useState(months[1] ?? months[0]!);
+  const [open, setOpen] = useState<string | null>(null);
+  const doc = useApi(() => finance.portfolio(month), [month]);
+
+  if (doc.error) return <p className="text-muted-foreground text-[13px]">The API is not answering: {doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground text-[13px]">Computing…</p>;
+  const d = doc.data;
+
+  return (
+    <>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <select
+          value={month}
+          onChange={(e) => setMonth(e.target.value)}
+          className="bg-card rounded-md border px-2 py-1 text-[12.5px]"
+        >
+          {months.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <Badge actual={d.actual} />
+        <span className="text-muted-foreground text-[11.5px]">
+          ledger {currencies(d.ledger.monthly)} / month · {currencies(d.ledger.unallocatedShared)} of it unallocated
+        </span>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse">
+          <thead>
+            <tr className="text-muted-foreground border-b text-left text-[11px]">
+              <th className="pb-1.5 pr-3 font-normal">Venture</th>
+              <th className="pb-1.5 pr-3 text-right font-normal">Revenue (net)</th>
+              <th className="pb-1.5 pr-3 text-right font-normal">Costs</th>
+              <th className="pb-1.5 pr-3 text-right font-normal">Model $</th>
+              <th className="pb-1.5 pr-3 text-right font-normal">Margin</th>
+              <th className="pb-1.5 font-normal" />
+            </tr>
+          </thead>
+          <tbody>
+            {d.ventures.map((v) => (
+              <tr key={v.venture.id} className="border-line-soft border-b align-top">
+                <td className="py-1.5 pr-3 text-[12.5px]">
+                  <Link to={`/ventures/${v.venture.slug}`} className="hover:underline">{v.venture.name}</Link>
+                  <span className="text-muted-foreground ml-1.5 text-[11px]">{v.venture.stage}</span>
+                </td>
+                <td className="py-1.5 pr-3 text-right text-[12.5px] tabular-nums">{currencies(v.revenueNet)}</td>
+                <td className="py-1.5 pr-3 text-right text-[12.5px] tabular-nums">{currencies(v.costTotal)}</td>
+                <td className="py-1.5 pr-3 text-right text-[12.5px] tabular-nums">{amount(v.modelUsd, "USD")}</td>
+                <td className="py-1.5 pr-3 text-right text-[12.5px] tabular-nums">
+                  {v.margin.length === 0 ? "—" : v.margin.map((m) => (
+                    <div key={m.currency} className={cn(m.margin < 0 && "text-destructive")}>
+                      {amount(m.margin, m.currency)}
+                    </div>
+                  ))}
+                  {!v.complete && <div className="text-muted-foreground text-[10.5px]">at best — a cost has no price</div>}
+                </td>
+                <td className="py-1.5 text-right">
+                  <button
+                    onClick={() => setOpen(open === v.venture.slug ? null : v.venture.slug)}
+                    className="hover:bg-accent rounded-lg border px-2 py-0.5 text-[11px]"
+                  >
+                    {open === v.venture.slug ? "hide" : "detail"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {open && <VentureDetail slug={open} month={month} />}
+
+      <section className="mt-6 grid gap-3 sm:grid-cols-2">
+        <div className="bg-card rounded-[10px] border px-3.5 py-3">
+          <div className="text-[12.5px] font-medium">Stripe, settled — the portfolio</div>
+          {d.stripeSettled.length === 0 ? (
+            <p className="text-muted-foreground mt-1 text-[12px]">Nothing settled in {d.month}, or Stripe is not connected.</p>
+          ) : (
+            <ul className="mt-1.5 space-y-0.5 text-[12px] tabular-nums">
+              {d.stripeSettled.map((s) => (
+                <li key={s.currency}>
+                  {amount(s.net, s.currency)} net · gross {amount(s.gross, s.currency)} · fees {amount(s.fees, s.currency)} · tax withheld {amount(s.taxWithheld, s.currency)}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-muted-foreground mt-2 text-[11px] leading-relaxed">
+            Measured here and only here: Stripe's ledger has no product dimension, so a per-venture settled figure is
+            not a measurement.
+          </p>
+        </div>
+
+        <div className="bg-card rounded-[10px] border px-3.5 py-3">
+          <div className="text-[12.5px] font-medium">Nobody's margin is carrying</div>
+          <div className="mt-1 text-[19px] tabular-nums">{currencies(d.ledger.unallocatedShared)}</div>
+          <ul className="text-muted-foreground mt-1.5 space-y-0.5 text-[11.5px]">
+            {d.ledger.unallocatedLines.slice(0, 6).map((l) => (
+              <li key={l.expenseId}>
+                {l.label} — {amount(l.monthly, l.currency)}{l.allocated > 0 ? ` (${pct(l.allocated)} assigned)` : ""}
+              </li>
+            ))}
+          </ul>
+          <p className="text-muted-foreground mt-2 text-[11px] leading-relaxed">
+            Every venture's margin above is this much too good until these are allocated. Default rule:{" "}
+            {d.ledger.defaultRule}.
+          </p>
+        </div>
+      </section>
+
+      {d.power.length > 0 && (
+        <section className="mt-3">
+          <div className="text-[12.5px] font-medium">Electricity, beside the model spend</div>
+          <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+            {d.power.map((p) => (
+              <div key={p.machineId} className="bg-card rounded-[10px] border px-3.5 py-2.5">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[16px] tabular-nums">{amount(p.amount, p.currency)}</span>
+                  <span className="text-[12px] font-medium">{p.label}</span>
+                  {p.confidence && (
+                    <span className="bg-accent rounded-full px-1.5 py-0.5 text-[10.5px]">{p.confidence} hours</span>
+                  )}
+                </div>
+                <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">{p.note}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+            Model spend through this box's runtime in {d.month}: {amount(d.modelSpend.usd, "USD")} over{" "}
+            {d.modelSpend.tokens.toLocaleString()} tokens in {d.modelSpend.calls} calls. {d.modelSpend.note}
+          </p>
+        </section>
+      )}
+
+      <ul className="text-muted-foreground mt-5 space-y-1 border-t pt-2 text-[11px] leading-relaxed">
+        {d.rules.map((r) => <li key={r}>{r}</li>)}
+      </ul>
+    </>
+  );
+}
+
+function VentureDetail({ slug, month }: { slug: string; month: string }) {
+  const doc = useApi(() => finance.venture(slug, month), [slug, month]);
+  if (doc.error) return <p className="text-destructive mt-3 text-[12px]">{doc.error}</p>;
+  if (!doc.data) return <p className="text-muted-foreground mt-3 text-[12px]">Computing…</p>;
+  const d = doc.data;
+
+  return (
+    <section className="bg-card mt-3 rounded-[10px] border px-4 py-3.5">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h2 className="text-[15px]">{d.venture.name} · {d.month}</h2>
+        <Badge actual={d.actual} />
+        <span className="text-muted-foreground text-[11.5px]">
+          {d.elapsedDays.toFixed(1)} of {d.daysInMonth} days
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <div>
+          <div className="text-muted-foreground text-[11px]">Revenue, measured</div>
+          <div className="text-[17px] tabular-nums">{currencies(d.revenue.net)}</div>
+          {d.revenue.subscriptionRunRate.length > 0 && (
+            <div className="text-muted-foreground mt-1 text-[11.5px]">
+              live MRR {currencies(d.revenue.subscriptionRunRate)} — a run rate, not this month's money, and never
+              added to the figure above
+            </div>
+          )}
+          <ul className="mt-1.5 space-y-1 text-[11.5px]">
+            {d.revenue.lines.map((l, i) => (
+              <li key={i}>
+                <span className="tabular-nums">{amount(l.net, l.currency)}</span>{" "}
+                <span className="text-muted-foreground">{l.source}{l.estimated ? " · estimated" : ""} · {l.kind}</span>
+              </li>
+            ))}
+            {d.revenue.lines.length === 0 && <li className="text-muted-foreground">No measured revenue for this month.</li>}
+          </ul>
+          {d.revenue.unavailable.map((u) => (
+            <p key={u} className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">{u}</p>
+          ))}
+        </div>
+
+        <div>
+          <div className="text-muted-foreground text-[11px]">Costs</div>
+          <div className="text-[17px] tabular-nums">{currencies(d.costs.ledgerTotal)}</div>
+          <div className="text-muted-foreground mt-1 text-[11.5px]">
+            direct {currencies(d.costs.direct)} · allocated {currencies(d.costs.allocated)}
+          </div>
+          <ul className="mt-1.5 space-y-1 text-[11.5px]">
+            {d.costs.lines.slice(0, 12).map((l) => (
+              <li key={l.expenseId}>
+                <span className="tabular-nums">{amount(l.monthly, l.currency)}</span>{" "}
+                <span className="text-muted-foreground">
+                  {l.label}
+                  {l.direct ? "" : ` · ${pct(l.share)} of it, basis ${l.basis}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!d.costs.complete && (
+            <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+              No price yet for {d.costs.unpriced.join(", ")} — the margin below is a ceiling.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 border-t pt-2.5">
+        <div className="text-muted-foreground text-[11px]">Margin, one row per currency</div>
+        <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1">
+          {d.margin.length === 0 && <span className="text-muted-foreground text-[12px]">Nothing measured on either side.</span>}
+          {d.margin.map((m) => (
+            <div key={m.currency}>
+              <div className={cn("text-[19px] tabular-nums", m.margin < 0 && "text-destructive")}>
+                {amount(m.margin, m.currency)}
+              </div>
+              <div className="text-muted-foreground text-[11px]">
+                {amount(m.revenue, m.currency)} in, {amount(m.cost, m.currency)} out
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {d.projected && (
+        <div className="mt-3 border-t pt-2.5">
+          <div className="text-muted-foreground text-[11px]">
+            Projected to the end of {d.month} — revenue and model spend only
+          </div>
+          <div className="mt-1 text-[13px] tabular-nums">
+            {d.projected.revenueNet.map((r) => `${amount(r.amount, r.currency)}`).join("  ·  ") || "—"}
+          </div>
+          <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">{d.projected.method}</p>
+          <p className="text-muted-foreground text-[11px] leading-relaxed">Costs: {d.projected.costs}.</p>
+        </div>
+      )}
+
+      <ul className="text-muted-foreground mt-3 space-y-1 border-t pt-2 text-[11px] leading-relaxed">
+        {d.rules.map((r) => <li key={r}>{r}</li>)}
+      </ul>
+    </section>
+  );
+}

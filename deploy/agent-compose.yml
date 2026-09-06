@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# The container path, as a compose file. Read deploy/agent.Dockerfile first —
+# it says what you give up.
+#
+#   docker compose -f deploy/agent-compose.yml up -d --build
+#
+# THREE THINGS ARE DELIBERATE HERE AND EACH IS A REFUSAL:
+#
+#   NO `volumes:` KEY AT ALL. Not an empty one, not a read-only one. Nothing
+#   from this machine is inside that container — which is what makes this
+#   stronger than the separate-user level, where the agent can still read
+#   whatever its uid can.
+#
+#   THE PORT IS BOUND TO 127.0.0.1. `18789:18789` would publish the gateway on
+#   every interface, and the gateway's bearer is operator access to the whole
+#   of it. The dashboard is on loopback for the same reason.
+#
+#   THE API IS REACHED THROUGH host.docker.internal, WITH THE SCOPED KEY. Paste
+#   the contents of server/data/agent-home/service-key.agent into OPC_KEY below,
+#   or put it in an env file beside this one. It is NOT the owner key at
+#   server/data/service-key — that one opens the credential routes, the backups
+#   and the restore, and handing it to a container would undo the point of the
+#   container.
+#
+# On Linux, `host.docker.internal` needs the extra_hosts line below; on macOS
+# and Windows Docker Desktop provides it and the line is harmless.
+# ---------------------------------------------------------------------------
+services:
+  opc-agent:
+    build:
+      context: .
+      dockerfile: agent.Dockerfile
+    container_name: opc-agent
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18789:18789"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OPC_API: "http://host.docker.internal:8787"
+      # Paste the SCOPED key here — server/data/agent-home/service-key.agent.
+      OPC_KEY: ""
+    # A container that only talks to an API needs no privilege at all.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

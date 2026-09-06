@@ -190,6 +190,7 @@ export const PLUGINS: Plugin[] = [
       "App Store Connect collector — sales and financial reports",
       "/api/mobile (downloads, store state, proceeds and payouts)",
       "Agent revenue tool: opc mobile revenue --store appstore --month YYYY-MM",
+      "/api/mobilehealth (analytics reports, reviews and version history — a separate permission path that cannot blank out the money above)",
     ],
   },
   {
@@ -224,6 +225,7 @@ export const PLUGINS: Plugin[] = [
       "Google Play collector — sales and earnings reports",
       "/api/mobile (installs, ratings, earnings and sales)",
       "Agent revenue tool: opc mobile revenue --store playstore --month YYYY-MM",
+      "/api/mobilehealth (install segments, listing conversion, crash and ANR figures, reviews — each on its own grant, and a refusal there costs nothing above)",
     ],
   },
   {
@@ -685,6 +687,32 @@ export const PLUGINS: Plugin[] = [
     usedBy: [
       "GET /api/briefing/latest — the newest briefing, its facts and where it went",
       "POST /api/briefing/now — build today now and deliver it",
+    ],
+  },
+  {
+    /* THE AGENT'S RUNTIME IS SETTINGS AND NOT A CONNECTION, on `briefing`'s
+       argument: there is no credential, no account and no collector — `secret:
+       null` and `fields: []` say so — and it is in this catalog because this is
+       the page that draws a plugin's settings, and the response budget has to
+       be somewhere the owner can reach. `connected: false` here because the
+       server owns that flag and always reports it connected. */
+    id: "agentcore",
+    name: "Agent runtime",
+    icon: null,
+    mono: "A",
+    tint: "#5B7FB8",
+    cat: "ai",
+    connected: false,
+    secret: null,
+    desc: "How chat turns are owned and how much of a tool answer the agent may read.",
+    help: "A CHAT TURN IS THE SERVER'S WORK, NOT THE BROWSER'S. Asking a question starts a RUN with an id; its events are buffered with sequence numbers and the answer keeps being written whether or not the tab is open. Reload mid-answer and the page reattaches and carries on drawing; close the tab and the answer is still finished and stored. Stopping is now an explicit cancel — what was said by then is kept, flagged as cut off. A restart is the one thing a run cannot survive, and the runs it interrupts are marked as such rather than left claiming to be running. A TOOL ANSWER HAS A CEILING, and shaping is not truncation: a document over the budget keeps every scalar and summary field, the longest lists lose rows, and each shortened list ends with {\"truncated\":true,\"shown\":N,\"total\":T} so the agent reports the real total and knows how to ask for the rest. Nothing is ever cut mid-value, which is what used to make a long document read as a short complete one. The budget applies to every skill read through the MCP server and the `opc` command.",
+    docs: null,
+    fields: [],
+    usedBy: [
+      "GET /api/agentcore/limits — the response budget and the paging parameters",
+      "GET /api/agentcore/runs — which chat turns this server is answering now",
+      "GET /api/chat/runs/<id>/events?since=N — reattach to an answer in progress",
+      "POST /api/chat/runs/<id>/cancel — stop one turn",
     ],
   },
   {

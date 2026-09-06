@@ -1,4 +1,5 @@
 import { appPage } from "../../../shared/navigation";
+import { VentureProposals } from "@/areas/pipeline/VentureProposals";
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -21,6 +22,7 @@ import { teamAddress } from "@/components/org/roleLook";
 import { Audit } from "@/components/ventures/Audit";
 import { Connections } from "@/components/ventures/Connections";
 import { Site } from "@/components/ventures/Site";
+import { KnowledgeTab } from "@/areas/knowledge/KnowledgeTab";
 import { useApi } from "@/hooks/useApi";
 import { api, VENTURE_STAGES, type Venture as VentureDoc } from "@/lib/api";
 import { ventureApi, type VentureLinks } from "@/lib/api/ventures";
@@ -54,7 +56,7 @@ import { useStore } from "@/lib/store";
  */
 /** The tabs that are not dashboards. Named once, because the strip builds them
  *  and the reorder handler has to be able to throw them away again. */
-const FIXED_TABS = new Set(["overview", "connections", "site", "audit"]);
+const FIXED_TABS = new Set(["overview", "connections", "site", "audit", "knowledge"]);
 
 /**
  * What the board says it was narrowed to.
@@ -229,6 +231,9 @@ export function Venture() {
             },
             { key: "site", to: `/ventures/${venture.slug}/site`, label: "Site" },
             { key: "audit", to: `/ventures/${venture.slug}/audit`, label: "Audit" },
+            /* WHAT THE PRODUCT IS, beside what it measures. See
+               areas/knowledge/KnowledgeTab. */
+            { key: "knowledge", to: `/ventures/${venture.slug}/knowledge`, label: "Knowledge" },
             ...boards.map((d) => ({
               key: d.id,
               to: `${basePath}/${d.slug}`,
@@ -301,6 +306,8 @@ export function Venture() {
       {tab === "site" && <Site venture={venture} />}
 
       {tab === "audit" && <Audit venture={venture} />}
+
+      {tab === "knowledge" && slug && <KnowledgeTab slug={slug} />}
 
       <NewDashboardDialog
         open={creating}
@@ -454,6 +461,12 @@ function Overview({
             one at a time, and it carries on with this tab shut.
           </p>
         </Section>
+
+        {/* --------------------------------------------------- proposals
+            WHAT THE EVIDENCE SAYS TO DO NEXT, and what the gate refused. The
+            section draws nothing at all when the synthesis document cannot be
+            read, so a box without that area is unchanged. */}
+        <VentureProposals ventureId={venture.id} />
 
         {/* --------------------------------------------------- team
             WHO WORKS ON THIS ONE. Six of them, one per app, provisioned with

@@ -176,7 +176,18 @@ test("Hermes packs and OpenClaw servers update when store plugins connect and di
   assert.match(pack, /Google Play/);
   connect("playstore");
   upsertPlugin("appstore", false, null);
-  assert.equal(syncOpenClawSkills(file), false); // The other store still enables the same tool.
+  /* THE CLAIM IS ABOUT `opc-mobile`, NOT ABOUT THE WHOLE SERVER LIST. The
+     other store still enables the same tool, which is what this line has
+     always been for. It used to be spelled as "nothing changed at all", and
+     that stopped being the same statement once other skills were keyed to one
+     store or the other — `mobilehealth`'s `ios` needs App Store Connect and
+     its `android` needs Play, so swapping which store is connected genuinely
+     changes the list while leaving this tool exactly where it was. */
+  syncOpenClawSkills(file);
+  assert.equal(
+    JSON.parse(readFileSync(file, "utf8")).mcp.servers["opc-mobile"].env.OPC_SKILL,
+    "mobile",
+  );
   assert.equal(syncHermesSkills(packs).removed.includes("finance/app-store-revenue"), false);
   upsertPlugin("playstore", false, null);
   assert.ok(syncOpenClawSkills(file));

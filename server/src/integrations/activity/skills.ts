@@ -203,11 +203,18 @@ export const SKILLS: Skill[] = [
         "`noAmount` is non-empty every total is a FLOOR.",
       "THERE IS NO DISPUTE RATE ON THIS DOCUMENT AND YOU MUST NOT COMPUTE ONE. " +
         "Stripe measures disputes against lifetime successful transactions and " +
-        "this box holds neither a lifetime charge count nor a dispute-level " +
-        "table. Any ratio you could build here has the wrong denominator and is " +
-        "exactly the figure a risk reviewer would be quoted. `wrongFigures` " +
-        "lists this and three others the route refuses; read it before " +
-        "dividing anything.",
+        "this box holds no lifetime charge count. Any ratio you could build " +
+        "here has the wrong denominator and is exactly the figure a risk " +
+        "reviewer would be quoted. `wrongFigures` lists this and three others " +
+        "the route refuses; read it before dividing anything.",
+      "THE DISPUTE BUCKET NOW CARRIES TWO MEASUREMENTS AND THEY ARE NOT THE " +
+        "SAME NUMBER. Its `amount` is the LEDGER's — money that moved, dated by " +
+        "the balance posting, with Stripe's dispute fee in it. Its `count` and " +
+        "everything under `disputeCases` are CASES from stripe_disputes, dated " +
+        "by when the bank opened them, with no fee. Say which you used. " +
+        "`disputeCases.openNow` is current state and has no window; " +
+        "`coverage.disputeCases: 0` means none was ingested, which is not " +
+        "the same as an account with none.",
       "`listedIfBilled` IS A HYPOTHETICAL and is in no total: what the " +
         "abandoned checkouts would be worth at list price if every one of them " +
         "had paid. It is not money that was lost.",

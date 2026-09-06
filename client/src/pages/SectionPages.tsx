@@ -6,14 +6,17 @@ import { cn } from "@/lib/utils";
 const Mailbox = lazy(() => import("@/pages/Mailbox").then(m => ({ default: m.Mailbox })));
 const Triage = lazy(() => import("@/areas/mailflow/Triage").then(m => ({ default: m.Triage })));
 const Outbox = lazy(() => import("@/areas/mailflow/Outbox").then(m => ({ default: m.Outbox })));
+const Nurture = lazy(() => import("@/areas/nurture/Nurture").then(m => ({ default: m.Nurture })));
 const Studio = lazy(() => import("@/pages/Studio").then(m => ({ default: m.Studio })));
 const Autopilot = lazy(() => import("@/areas/video/Autopilot").then(m => ({ default: m.Autopilot })));
 const Video = lazy(() => import("@/areas/video/Video").then(m => ({ default: m.Video })));
+const Publishing = lazy(() => import("@/areas/publishing/Publishing").then(m => ({ default: m.Publishing })));
 const Seo = lazy(() => import("@/pages/runs/Seo").then(m => ({ default: m.Seo })));
 const Serp = lazy(() => import("@/areas/growth/pages/Serp").then(m => ({ default: m.Serp })));
 const Aso = lazy(() => import("@/areas/growth/pages/Aso").then(m => ({ default: m.Aso })));
 const Growth = lazy(() => import("@/areas/growth/pages/Growth").then(m => ({ default: m.Growth })));
-const PAGES = { email: Mailbox, triage: Triage, outbox: Outbox, studio: Studio, autopilot: Autopilot, video: Video, seo: Seo, serp: Serp, aso: Aso, overview: Growth };
+const MobileHealth = lazy(() => import("@/areas/mobilehealth/MobileHealth").then(m => ({ default: m.MobileHealth })));
+const PAGES = { email: Mailbox, triage: Triage, outbox: Outbox, nurture: Nurture, studio: Studio, autopilot: Autopilot, video: Video, publishing: Publishing, seo: Seo, serp: Serp, aso: Aso, mobilehealth: MobileHealth, overview: Growth };
 const SECTIONS = {
   mail: { pages: MAIL_PAGES, label: "Mail" },
   social: { pages: SOCIAL_PAGES, label: "Social media" },

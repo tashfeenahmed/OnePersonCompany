@@ -47,6 +47,7 @@
  */
 import { inflateSync } from "node:zlib";
 import { ventureRowById, writeVentureBrand, type VentureRow } from "../db.ts";
+import { startKnowledgeRead } from "../integrations/knowledge/first-read.ts";
 
 /* ------------------------------------------------------------------ shapes */
 
@@ -1223,6 +1224,25 @@ export async function enrich(
 export async function enrichVenture(id: string): Promise<VentureRow | undefined> {
   const row = ventureRowById(id);
   if (!row || !row.website) return row;
+  /*
+    THE PRODUCT'S OWN SOURCE, ONCE, BESIDE THE SITE READING.
+
+    A site reading is the venture's MARKETING COPY measured; the repository is
+    the product. They belong to different areas and this is the only place both
+    are known to be wanted at the same moment, so the extractor is CALLED here
+    and nothing else about it lives in this file — see
+    integrations/knowledge/extract.ts.
+
+    THREE CONSTRAINTS, and each is why this is two lines rather than an await:
+      * it is FIRST TIME ONLY. `startKnowledgeRead` returns immediately unless a
+        repository is mapped and has never been read, so pressing "read the
+        site again" never spends a completion.
+      * it is NOT AWAITED. A venture create must not wait on GitHub, and a
+        GitHub outage must not stop a colour being stored.
+      * it cannot throw into this function. The helper swallows its own errors
+        onto the knowledge row, where the Knowledge tab draws them.
+  */
+  startKnowledgeRead(id);
   const { brand, host } = await enrich(row.website);
   return writeVentureBrand(id, {
     host: host ?? row.host,

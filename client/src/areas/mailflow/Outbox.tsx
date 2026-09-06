@@ -15,6 +15,7 @@ import {
   type OutboxItem,
   type OutboxStatus,
 } from "@/lib/api/mailflow";
+import { nurtureApi, type DraftReasons } from "@/lib/api/nurture";
 
 /**
  * THE OUTBOX — mail this box has written, and the two presses that send it.
@@ -66,6 +67,98 @@ function when(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : "—";
 }
 
+/**
+ * THE REASONS BEHIND THE WORDS — the plan, the facts and what the validator
+ * said, fetched on demand for the one card the owner opened.
+ *
+ * WHY IT IS A SEPARATE REQUEST. A fact packet is a dozen rows with a source
+ * sentence each; forty of them in the listing would be most of the response and
+ * none of it read. The card asks for its own when it is opened, which is the
+ * moment somebody actually wants to know where a figure came from.
+ *
+ * `validation.by === "template"` IS DRAWN AS A WARNING RATHER THAN HIDDEN. It
+ * means the model's wording was refused by the fact check — it wrote a number
+ * or a date the packet does not carry — and the deterministic wording was used
+ * instead. That is the guard working, and a card that concealed it would be a
+ * card that made the guard invisible.
+ */
+function Reasons({ id }: { id: number }) {
+  const [open, setOpen] = useState(false);
+  const [doc, setDoc] = useState<DraftReasons | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || doc) return;
+    nurtureApi
+      .reasons(id)
+      .then(setDoc)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  }, [open, id, doc]);
+
+  return (
+    <div className="border-line-soft mt-2 rounded-lg border px-3 py-2">
+      <button
+        className="text-muted-foreground text-[11.5px] underline"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? "Hide" : "Show"} the facts this was written from
+      </button>
+      {open && error && <p role="alert" className="text-destructive mt-1.5 text-[12px]">{error}</p>}
+      {open && doc && (
+        <div className="mt-2 space-y-2">
+          {doc.plan && (
+            <p className="text-muted-foreground text-[11.5px]">
+              {doc.plan.whyNow}. From {doc.plan.from} by {doc.plan.via}.
+            </p>
+          )}
+          {doc.validation && (
+            <p
+              className={cn(
+                "text-[11.5px]",
+                doc.validation.by === "template" ? "text-warn" : "text-muted-foreground",
+              )}
+            >
+              {doc.validation.by === "model"
+                ? `Worded by ${doc.validation.model ?? "the model"}; every number, amount, date, link and address in it was checked against the facts below.`
+                : `The model's wording was NOT used — ${doc.validation.why}. This is the deterministic wording built from the same facts.`}
+              {doc.validation.refusals.length > 0 && ` (${doc.validation.refusals.join("; ")})`}
+            </p>
+          )}
+          {doc.facts && doc.facts.length > 0 && (
+            <ul className="space-y-1">
+              {doc.facts.map((f, i) => (
+                <li key={i} className="text-[11.5px]">
+                  <span className="font-mono">{f.key}</span>:{" "}
+                  <span>{String(f.value)}</span>
+                  {f.unit ? ` ${f.unit}` : ""}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — {f.source}
+                    {f.observed_at ? `; observed ${new Date(f.observed_at).toLocaleDateString()}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {doc.validation && doc.validation.cannotSay.length > 0 && (
+            <details>
+              <summary className="text-muted-foreground cursor-pointer text-[11.5px]">
+                What nothing here measured, so the message must not mention it
+              </summary>
+              <ul className="mt-1 space-y-0.5">
+                {doc.validation.cannotSay.map((s, i) => (
+                  <li key={i} className="text-muted-foreground text-[11.5px]">{s}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <p className="text-muted-foreground/70 text-[11.5px]">{doc.note}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Card({
   item,
   requireApproval,
@@ -109,9 +202,24 @@ function Card({
             </span>
           </div>
           <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px]">
-            <span>from {item.from ?? "unknown mailbox"} → {item.to}</span>
+            <span>from {item.fromName ?? item.from ?? "unknown mailbox"} → {item.to}</span>
+            {item.via && (
+              <>
+                <span>·</span>
+                {/* WHICH DOOR IT LEAVES BY. A product-domain message going out
+                    through Gmail would land in spam; the card says which
+                    transport before anybody approves it, not after. */}
+                <span className="border-line-soft rounded border px-1 py-px">via {item.via}</span>
+              </>
+            )}
             <span>·</span>
             <span>written by {item.createdBy}</span>
+            {item.sequenceId !== null && (
+              <>
+                <span>·</span>
+                <span>sequence step {item.sequenceStep}</span>
+              </>
+            )}
             <span>·</span>
             <span>{when(item.createdAt)}</span>
             {item.ventureName && (
@@ -175,13 +283,31 @@ function Card({
             <Markdown text={item.preview} />
           </div>
 
+          {item.hasReasons && <Reasons id={item.id} />}
+
+          {item.fromError && (
+            <p role="alert" className="text-warn mt-2 text-[12.5px]">
+              This cannot be sent as written: {item.fromError}
+            </p>
+          )}
           {item.error && (
             <p role="alert" className="text-destructive mt-2 text-[12.5px]">{item.error}</p>
           )}
           {item.status === "sent" && (
             <p className="text-muted-foreground mt-2 text-[11.5px]">
-              Sent {when(item.sentAt)} · Gmail message id{" "}
+              Sent {when(item.sentAt)} · {item.sentVia === "resend" ? "Resend" : "Gmail"} message id{" "}
               <span className="font-mono">{item.messageId}</span>
+              {item.sentVia === "resend" && (
+                <>
+                  {" · "}
+                  {/* NULL is NOT READ, never "not delivered". A message accepted
+                      a second ago normally reads as "sent" rather than
+                      "delivered", so the reading is dated. */}
+                  {item.deliveryEvent
+                    ? `Resend last reported “${item.deliveryEvent}” at ${when(item.deliveryReadAt)}`
+                    : "Resend's delivery event was not read; that is not the same as not delivered"}
+                </>
+              )}
             </p>
           )}
           {refused && <p role="alert" className="text-destructive mt-2 text-[12.5px]">{refused}</p>}

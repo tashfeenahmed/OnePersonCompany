@@ -40,6 +40,13 @@
  * wrapper skills/cli.ts writes for the agent.
  */
 import { PRESENT_GUIDE } from "../skills/present.ts";
+/*
+  THE RESPONSE BUDGET, and the shaper that applies it. `bound.ts` imports
+  nothing and `budgetClient.ts` imports only `bound.ts`, so this stays a
+  command with no database handle and no dependency — see `passThrough`.
+*/
+import { boundResponse } from "../integrations/agentcore/bound.ts";
+import { responseBudgetOverLoopback } from "../integrations/agentcore/budgetClient.ts";
 
 const API = (process.env.OPC_API ?? "http://127.0.0.1:8787").replace(/\/+$/, "");
 
@@ -113,6 +120,16 @@ async function catalog(): Promise<Catalog> {
 
 /* ------------------------------------------------------------------- argv */
 
+/** `--fields a, b ,c` -> ["a","b","c"]. Commas because that is what a shell
+ *  makes easy and what the MCP layer's own `fields` takes, and one spelling of
+ *  a parameter is worth more than two ways of writing it. */
+function splitFields(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((f) => f.trim())
+    .filter(Boolean);
+}
+
 class Fail extends Error {
   code: number;
   constructor(message: string, code: number) {
@@ -127,6 +144,10 @@ type Parsed = {
   raw: boolean;
   json: string | null;
   help: boolean;
+  /** `--fields a,b` — TOP-LEVEL keys to keep. Universal, like `--raw`, and
+   *  never sent to the API: the proxy refuses a parameter the view does not
+   *  have, so this one is applied here to the document that comes back. */
+  fields: string[];
 };
 
 /**
@@ -136,13 +157,15 @@ type Parsed = {
  * required, so an empty one fails there with the right sentence.
  */
 function parse(argv: string[]): Parsed {
-  const out: Parsed = { words: [], flags: {}, raw: false, json: null, help: false };
+  const out: Parsed = { words: [], flags: {}, raw: false, json: null, help: false, fields: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--raw") out.raw = true;
     else if (a === "--help" || a === "-h") out.help = true;
     else if (a === "--json") out.json = argv[++i] ?? "";
     else if (a.startsWith("--json=")) out.json = a.slice(7);
+    else if (a === "--fields") out.fields = splitFields(argv[++i] ?? "");
+    else if (a.startsWith("--fields=")) out.fields = splitFields(a.slice(9));
     else if (a.startsWith("--")) {
       const eq = a.indexOf("=");
       if (eq > 2) out.flags[a.slice(2, eq)] = a.slice(eq + 1);
@@ -170,12 +193,20 @@ opc — this dashboard's own live data, as a command
   opc present                 how to draw cards, charts, bars, meters and tables in the chat
 
   --raw          print the document compact rather than indented
+  --fields a,b   keep only these TOP-LEVEL keys of the answer (an error key is always kept)
   --json '{…}'   the whole body of an action as one JSON object (flags still apply on top)
 
-Reads pass the document through exactly as the dashboard answered it, status
-code and all; an error is printed and the exit code is 2. A parameter the skill
-does not have is refused rather than ignored, because a silently dropped
-\`--month=august\` is how a 30-day window gets captioned as August.`;
+A long answer is SHORTENED, never cut mid-document: every scalar survives, the
+longest lists lose rows, and each one ends with
+{"truncated":true,"shown":N,"total":T,"next":"…"}. Report T, not N, and fetch
+the rest with --limit/--offset where the view takes them, a narrower window, or
+--fields.
+
+A read is printed as the dashboard answered it, shortened only if it is over
+the response budget; an error is printed whole to stderr and the exit code is
+2. A parameter the skill does not have is refused rather than ignored, because
+a silently dropped --month=august is how a 30-day window gets captioned as
+August.`;
 
 function fmtValue(p: Param): string {
   if (p.required) return "required";
@@ -254,40 +285,57 @@ function listing(cat: Catalog): string {
 
 /* ------------------------------------------------------------------ calls */
 
-/** The document, as the dashboard answered it. Indented when it is JSON and
- *  `--raw` was not asked for; otherwise byte for byte. */
-async function passThrough(res: Response, raw: boolean): Promise<number> {
+/**
+ * The document, as the dashboard answered it — inside the response budget.
+ *
+ * Indented when it is JSON and `--raw` was not asked for; otherwise byte for
+ * byte. What is new here is the SHAPE. This used to print whatever came back
+ * and then, past 24 KB, write a note to stderr saying the terminal tool was
+ * about to truncate it and the agent should ask for less. That note was
+ * honest and useless: by the time it is read the document has already been cut
+ * at a byte boundary somewhere the model cannot see, and a JSON document
+ * ending mid-string is read as far as it parses and reported as complete.
+ *
+ * So the same threshold is now a BUDGET rather than a warning. `bound.ts`
+ * keeps every scalar, shortens the longest lists, marks each one with the real
+ * total and the way to get the rest, and never cuts a value in half. What goes
+ * to stderr is what it did, which the terminal tool shows beside stdout.
+ *
+ * A REFUSAL IS PRINTED WHOLE. The 404 that lists the skills and the 409 that
+ * names the missing credential are short documents whose value is that they
+ * are complete; a budget applied to one could only take something away.
+ */
+async function passThrough(
+  res: Response,
+  raw: boolean,
+  opts: { fields?: string[]; how?: string } = {},
+): Promise<number> {
   const text = await res.text();
-  let out = text;
-  if (!raw) {
-    try {
-      out = JSON.stringify(JSON.parse(text), null, 2);
-    } catch {
-      /* not JSON — printed as it came */
-    }
-  }
-  const stream = res.ok ? process.stdout : process.stderr;
-  stream.write(out.endsWith("\n") ? out : `${out}\n`);
-  /*
-    THE SIZE, SAID OUT LOUD WHEN IT MATTERS. Hermes' terminal tool truncates
-    long output and files the rest away where the model does not look, so a
-    document past this size is a document the agent will read the front of and
-    believe it read whole — which is how a venture at the end of a list came
-    to be reported as not existing. The note goes to stderr, which the tool
-    shows beside stdout, and names the way out.
-  */
-  if (res.ok && out.length > BIG_DOC_BYTES)
-    process.stderr.write(
-      `note: this document is ${Math.round(out.length / 1024)} KB. Long terminal output is ` +
-        `truncated for you, so prefer a narrower view (\`opc help <id>\`) or pick the ` +
-        `fields you need: \`opc … --raw | jq '.path.to.it'\`.\n`,
-    );
-  return res.ok ? 0 : 2;
-}
 
-/** Past this, the note above is printed. Well under the terminal tool's own
- *  cut, so the note is the first thing lost rather than the last. */
-const BIG_DOC_BYTES = 24 * 1024;
+  if (!res.ok) {
+    let out = text;
+    if (!raw) {
+      try {
+        out = JSON.stringify(JSON.parse(text), null, 2);
+      } catch {
+        /* not JSON — printed as it came */
+      }
+    }
+    process.stderr.write(out.endsWith("\n") ? out : `${out}\n`);
+    return 2;
+  }
+
+  const budget = await responseBudgetOverLoopback(API, AUTH);
+  const bound = boundResponse(text, {
+    budget,
+    pretty: !raw,
+    fields: opts.fields ?? null,
+    how: opts.how ?? "run the command again with a narrower window or --fields",
+  });
+  process.stdout.write(bound.text.endsWith("\n") ? bound.text : `${bound.text}\n`);
+  if (bound.note) process.stderr.write(`note: ${bound.note}\n`);
+  return 0;
+}
 
 function typed(p: Param, v: string): string | number {
   if (p.type !== "number") return v;
@@ -297,7 +345,13 @@ function typed(p: Param, v: string): string | number {
   return n;
 }
 
-async function read(s: CatalogSkill, v: View, flags: Record<string, string>, raw: boolean) {
+async function read(
+  s: CatalogSkill,
+  v: View,
+  flags: Record<string, string>,
+  raw: boolean,
+  fields: string[],
+) {
   const known = new Set(v.params.map((p) => p.name));
   const unknown = Object.keys(flags).filter((k) => !known.has(k));
   if (unknown.length)
@@ -316,7 +370,18 @@ async function read(s: CatalogSkill, v: View, flags: Record<string, string>, raw
     headers: AUTH,
     signal: AbortSignal.timeout(60_000),
   });
-  return passThrough(res, raw);
+  /* The way out, spelled in THIS command's own flags and naming the parameters
+     this view actually has — a generic "narrow it" is advice, and a line the
+     agent can copy is a next call. */
+  const paged = v.params.filter((p) => p.name === "limit" || p.name === "offset");
+  const how =
+    (paged.length
+      ? `page it with ${paged.map((p) => `--${p.name}`).join(" and ")}: `
+      : `narrow it: `) +
+    `\`opc ${s.id}${v.key === s.views[0]?.key ? "" : ` ${v.key}`}` +
+    `${paged.length ? ` ${paged.map((p) => `--${p.name} N`).join(" ")}` : ""}\`` +
+    `, or keep part of it with --fields a,b (\`opc help ${s.id}\` lists every parameter)`;
+  return passThrough(res, raw, { fields, how });
 }
 
 async function act(s: CatalogSkill, a: Action, parsed: Parsed) {
@@ -417,9 +482,9 @@ async function main(argv: string[]): Promise<number> {
   /* The word after the id: a view, an action, or a mistake — never a guess. */
   if (parsed.words.length > 2)
     throw new Fail(`Too many words: "${parsed.words.slice(1).join(" ")}". It is opc ${s.id} [view|action] --flag value.`, 1);
-  if (!second) return read(s, s.views[0]!, parsed.flags, parsed.raw);
+  if (!second) return read(s, s.views[0]!, parsed.flags, parsed.raw, parsed.fields);
   const view = s.views.find((v) => v.key === second);
-  if (view) return read(s, view, parsed.flags, parsed.raw);
+  if (view) return read(s, view, parsed.flags, parsed.raw, parsed.fields);
   const action = s.actions.find((a) => a.key === second);
   if (action) return act(s, action, parsed);
   const views = s.views.filter((v) => v.key !== s.views[0]?.key).map((v) => v.key);

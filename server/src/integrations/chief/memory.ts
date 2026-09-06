@@ -220,7 +220,17 @@ export function remember(input: {
         "the day after it is written. Every live figure is already one skill " +
         "call away. Memory is for what does not move: what the owner decided, " +
         "what a thing IS, what was tried and what happened. If there is a " +
-        "durable conclusion behind those figures, save that, without them.",
+        "durable conclusion behind those figures, save that, without them. " +
+        /* THE OTHER STORE, named at the moment somebody is looking for it.
+           A belief about the OWNER belongs here; a statement about a PRODUCT
+           with a source under it belongs in the fact store, where it carries a
+           tier, a citation and a date and can be corrected rather than argued
+           with. Before the `knowledge` skill existed this refusal had nowhere
+           to send anybody, and product facts were written here without their
+           evidence. */
+        "If it is a fact about a PRODUCT — what it does, what it costs, what it " +
+        "integrates with — it belongs in the `knowledge` skill instead, where it " +
+        "carries a source and a date.",
     };
 
   let scope = input.scope === "venture" ? "venture" : "global";

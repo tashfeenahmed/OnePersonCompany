@@ -1,0 +1,77 @@
+# POSTGRES IN A CONTAINER, REACHED OVER SSH — the commonest shape.
+#
+# The predecessor dashboard did this with a restricted SSH forced command: a
+# key on the dashboard whose authorized_keys line pinned one program, so the
+# key could run that probe and nothing else. That is a good arrangement and it
+# is worth keeping — this mapping is the version of it where the program is
+# `psql` and the pinning is a read-only database role.
+#
+# The distinction it carries over is the important part: this product's user
+# table holds BOTH SIDES of a two-sided market in one table, told apart by a
+# role column. Counting them together over-reports customers by roughly the
+# ratio between the two sides, which on a product like this is ten to twenty
+# times. See CHECKLIST.md step 3.
+#
+# WHAT TO CHANGE: the ssh host, the DSN's environment variable, the table and
+# column names, and the role values in population.map.
+
+contract: users
+product: Example two-sided product
+
+source:
+  driver: postgres
+  # Set EXAMPLE_DSN in a mode-600 environment file. An unset variable is a
+  # refusal naming it, never an empty password quietly tried.
+  dsn: ${EXAMPLE_DSN}
+
+  # Run psql on the box that has the database, not on this one. Omit both of
+  # these when the adapter already runs there.
+  ssh: deploy@10.0.0.4
+  ssh_key: ~/.ssh/opc-adapter
+
+  # The aliases ARE the contract field names. Quote them: Postgres folds
+  # unquoted identifiers to lower case and "createdAt" would become "createdat".
+  #
+  # THE WHERE CLAUSE IS THE SOFT-DELETE DECISION. A banned account is not a
+  # signup that reversed itself, but it is not a live user either, and which
+  # one you mean has to be written down somewhere. Here it is.
+  query: |
+    SELECT u.id::text                                AS "id",
+           u.email                                   AS "email",
+           to_char(u."created_at" AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"')     AS "createdAt",
+           u.plan                                    AS "plan",
+           to_char(u."last_seen_at" AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"')     AS "lastSeenAt",
+           u.country_code                            AS "country",
+           lower(u."platform_role"::text)            AS "role",
+           (s.id IS NOT NULL)                        AS "paid"
+      FROM "user" u
+      LEFT JOIN subscription s
+             ON s.user_id = u.id AND s.status = 'active'
+     WHERE NOT u."banned"
+
+# WHO THESE PEOPLE ARE TO THE BUSINESS.
+#
+# `column` names a column in the result set above; `map` translates its values.
+# Anything not in the map falls to `default` AND IS COUNTED AND REPORTED by
+# --check, so a role somebody added last month shows up as a number rather than
+# as silently-more-customers.
+population:
+  default: customer
+  column: role
+  map:
+    owner: admin
+    teacher: customer
+    # The invited side. These people never signed up for this product on their
+    # own behalf and are not customers of it, however many of them there are.
+    student: participant
+    learner: participant
+    staff: internal
+
+# NO contact_mapping BLOCK, so every row is contactPermitted: false.
+# That is deliberate. See CHECKLIST.md step 6 before adding one.
+
+output:
+  path: /var/www/example.com/public/opc/users.json
+  shape: users

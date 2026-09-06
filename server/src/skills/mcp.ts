@@ -45,6 +45,15 @@
  * and pipe JSON-RPC frames at it, one per line.
  */
 
+/*
+  THE ONLY TWO IMPORTS, AND BOTH ARE PURE. `bound.ts` imports nothing at all
+  and `budgetClient.ts` imports only `bound.ts`, so this process still has no
+  database handle and no dependency it did not have before — which is the
+  claim the header makes and this is the line that keeps it true.
+*/
+import { boundResponse } from "../integrations/agentcore/bound.ts";
+import { responseBudgetOverLoopback } from "../integrations/agentcore/budgetClient.ts";
+
 /* ------------------------------------------------------------------- wire */
 
 type Id = string | number | null;
@@ -199,6 +208,22 @@ function toolFor(s: CatalogSkill) {
   for (const [name, lines] of said)
     (properties[name] as { description?: string }).description = lines.join(" — or — ");
 
+  /*
+    `fields` IS ON EVERY READ AND IS NOT THE ROUTE'S. The proxy behind this
+    would refuse an unknown parameter — rightly, because a silently ignored
+    `month=august` is how a 30-day window gets captioned as August — so this
+    one is consumed HERE and never forwarded. It exists because the cheapest
+    way to fit a big document inside the budget is to ask for less of it, and
+    an agent that only wants the totals should be able to say so.
+  */
+  properties.fields = {
+    type: "string",
+    description:
+      "Optional. Comma-separated TOP-LEVEL keys to keep, e.g. \"totals,window\". " +
+      "Everything else is left out. Use it when you know which part of the " +
+      "document you need; an `error` field is always kept.",
+  };
+
   const rules = s.rules.map((r) => `- ${r}`).join("\n");
   return {
     name: `opc_${s.id}`,
@@ -228,6 +253,10 @@ function toolFor(s: CatalogSkill) {
     },
     description:
       `${s.about}\n\nAnswers questions like: ${s.asks.join(" / ")}\n\n` +
+      `A LARGE ANSWER IS SHORTENED, NOT CUT. Lists lose rows and end with ` +
+      `{"truncated":true,"shown":N,"total":T,"next":"…"} — T is the real total, so ` +
+      `report T and not N, and fetch the rest with limit/offset where this tool ` +
+      `lists them, a narrower window, or fields=<top-level keys>.\n\n` +
       `RULES FOR REPORTING THIS — they are not optional:\n${rules}`,
     inputSchema: { type: "object", properties, required },
   };
@@ -312,62 +341,113 @@ function route(name: string): { id: string; action: string | null } {
 
 /**
  * Run one tool: GET the proxy for a read, POST it for an action, hand back
- * whatever it answered.
+ * what it answered — inside a budget.
  *
  * The JSON is returned as TEXT rather than as structured content, because the
  * documents behind these routes are deep and irregular — Stripe's carries a
  * currency-keyed list of objects — and a client that flattens structured
  * content into a table would be flattening exactly the nesting the honesty
- * rules are about. Text is what the model reads anyway. It is also why an
- * action's answer travels whole: every board mutation replies with the entire
- * board, and the id of what was just created is in there and nowhere else.
+ * rules are about. Text is what the model reads anyway.
+ *
+ * WHAT USED TO HAPPEN HERE AND WHY IT STOPPED. This function forwarded the
+ * response body whole, and the comment above it said an action's answer
+ * "travels whole" because the id of what was just created is in it and nowhere
+ * else. That is still true of an ACTION and it is why writes are still
+ * forwarded untouched — they answer with the thing they changed, and it is
+ * small. It was never true of a READ. A board with every card on it, a mailbox
+ * page, a run ledger: those are tens of kilobytes, and a tens-of-kilobytes tool
+ * result either eats the context the ANSWER needed or gets cut by the client at
+ * a byte boundary, which leaves a JSON document ending mid-string. The model
+ * then reads as far as it parses and reports the rest as not existing.
+ *
+ * SO EVERY READ IS SHAPED, and shaped is not truncated: scalars and summary
+ * fields all survive, the longest lists lose rows, and each shortened list ends
+ * with `{"truncated":true,"shown":…,"total":…,"next":…}`. Nothing is ever cut
+ * mid-string. See integrations/agentcore/bound.ts.
+ *
+ * THE NOTE IS A SECOND CONTENT BLOCK rather than a line appended to the
+ * document, so the first block is still a parseable JSON document for any
+ * client that parses it. The model reads both.
  */
 async function call(name: string, args: Record<string, unknown>) {
   const { id, action } = route(name);
 
-  const res = action
-    ? await fetch(
-        `${API}/api/skills/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", ...AUTH },
-          /*
-            THE ARGUMENTS VERBATIM, NULLS INCLUDED. A null is how a field is
-            CLEARED — see routes/board.ts on absent versus null — so dropping
-            them the way the query string below has to would turn "remove the
-            due date" into a call that changes nothing and reports success.
-            `JSON.stringify` drops `undefined` on its own, which is the same
-            thing as never having sent the key.
-          */
-          body: JSON.stringify(args ?? {}),
-          signal: AbortSignal.timeout(60_000),
-        },
-      )
-    : await (async () => {
-        const qs = new URLSearchParams();
-        for (const [k, v] of Object.entries(args ?? {})) {
-          if (v === undefined || v === null) continue;
-          qs.set(k, String(v));
-        }
-        /* A view's path parameter goes out as a query parameter here too: the
-           proxy is what knows it belongs in a segment. */
-        return fetch(`${API}/api/skills/${encodeURIComponent(id)}${qs.size ? `?${qs}` : ""}`, {
-          method: "GET",
-          headers: AUTH,
-          signal: AbortSignal.timeout(60_000),
-        });
-      })();
+  if (action) {
+    const res = await fetch(
+      `${API}/api/skills/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", ...AUTH },
+        /*
+          THE ARGUMENTS VERBATIM, NULLS INCLUDED. A null is how a field is
+          CLEARED — see routes/board.ts on absent versus null — so dropping
+          them the way the query string below has to would turn "remove the
+          due date" into a call that changes nothing and reports success.
+          `JSON.stringify` drops `undefined` on its own, which is the same
+          thing as never having sent the key.
+        */
+        body: JSON.stringify(args ?? {}),
+        signal: AbortSignal.timeout(60_000),
+      },
+    );
+    const text = await res.text();
+    return {
+      content: [{ type: "text", text }],
+      /* A non-200 is reported as a tool ERROR rather than as content, so the
+         model is told the call failed instead of being handed an error document
+         to read as data. The body still travels, because these routes explain
+         themselves: a 409 here names the credential that is missing, or says
+         the board moved under the drag. */
+      isError: !res.ok,
+    };
+  }
 
-  const text = await res.text();
-  return {
-    content: [{ type: "text", text }],
-    /* A non-200 is reported as a tool ERROR rather than as content, so the model
-       is told the call failed instead of being handed an error document to read
-       as data. The body still travels, because these routes explain themselves:
-       a 409 here names the credential that is missing, or says the board moved
-       under the drag. */
-    isError: !res.ok,
-  };
+  /*
+    `fields` IS THIS LAYER'S AND IS NOT SENT. The proxy refuses a parameter the
+    view does not have, which is right — see routes/skills.ts — so a key it has
+    never heard of has to be consumed before the request is composed rather than
+    forwarded and rejected.
+  */
+  const fields = String(args?.fields ?? "")
+    .split(",")
+    .map((f) => f.trim())
+    .filter(Boolean);
+
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(args ?? {})) {
+    if (k === "fields") continue;
+    if (v === undefined || v === null) continue;
+    qs.set(k, String(v));
+  }
+  /* A view's path parameter goes out as a query parameter here too: the proxy
+     is what knows it belongs in a segment. */
+  const res = await fetch(`${API}/api/skills/${encodeURIComponent(id)}${qs.size ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: AUTH,
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  const body = await res.text();
+  /*
+    A REFUSAL IS NOT SHAPED. These routes answer a 404 with the list of skills
+    and a 409 with the credential that is missing — short documents whose whole
+    value is that they are complete, and a budget applied to one could only take
+    something away.
+  */
+  if (!res.ok) return { content: [{ type: "text", text: body }], isError: true };
+
+  const budget = await responseBudgetOverLoopback(API, AUTH);
+  const bound = boundResponse(body, {
+    budget,
+    fields,
+    how:
+      `call opc_${id} again with a narrower window, or with limit/offset where the ` +
+      `parameters below list them, or with fields=<top-level keys> to keep only part of it`,
+  });
+
+  const content: { type: "text"; text: string }[] = [{ type: "text", text: bound.text }];
+  if (bound.note) content.push({ type: "text", text: `NOTE: ${bound.note}` });
+  return { content, isError: false };
 }
 
 /* ------------------------------------------------------------- the dispatch */

@@ -18,6 +18,7 @@ import { Hono } from "hono";
 import {
   DOCUMENTED,
   findMachine,
+  leaseResource,
   machines,
   noCommandYet,
   power,
@@ -26,6 +27,18 @@ import {
   sendMagicPacket,
   statesSince,
 } from "./workstation.ts";
+/*
+  THE LEASE REGISTRY, AND WHY A POWER ROUTE CONSULTS IT.
+
+  These four routes are the only thing on this box that can turn a machine off,
+  and until now the only question they asked was whether the owner had typed a
+  command. That is the right question for "is this allowed" and the wrong one
+  for "is this a good idea": a desk machine is shared infrastructure, and the
+  half-hour render that this route can end has no way to object. So sleep now
+  asks integrations/deploy/leases.ts first, and wake records who woke it —
+  because a machine this app did not wake is one it has no business sleeping.
+*/
+import { recordWake, sleepCheck } from "../deploy/leases.ts";
 
 export const workstationRoutes = new Hono();
 
@@ -79,12 +92,28 @@ workstationRoutes.post("/:id/wake", async (c) => {
       400,
     );
 
+  /*
+    WHAT WAS TRUE BEFORE THE PACKET WENT, read here and not inferred later.
+
+    Ownership is decided by the state the machine was in at the moment of the
+    wake: a machine that was already answering is up for somebody else's
+    reasons, and this app is a guest that leaves it running. Asking afterwards
+    could not tell the two apart. It costs one ssh attempt against a machine
+    that is probably asleep, which is the same attempt the state route makes.
+  */
+  const before = await readState(m);
   const res = await sendMagicPacket(m.mac, m.broadcast);
   if (res.error) return c.json({ ok: false, error: `The packet could not be sent: ${res.error}` }, 502);
+  const wake = recordWake({
+    resource: leaseResource(m),
+    by: "the workstation wake button",
+    foundState: before.reachable ? "awake" : "asleep",
+  });
 
   return c.json({
     ok: true,
     sent: res.sent,
+    wake,
     to: m.broadcast,
     mac: m.mac.map((b) => b.toString(16).padStart(2, "0")).join(":"),
     note:
@@ -100,6 +129,21 @@ for (const action of ["sleep", "shutdown"] as const) {
   workstationRoutes.post(`/:id/${action}`, async (c) => {
     const m = findMachine(c.req.param("id"));
     if (!m) return c.json({ error: `No connected workstation is called “${c.req.param("id")}”.` }, 404);
+
+    /*
+      NOBODY SLEEPS A BUSY BOX, and nothing powers off a machine it did not
+      power on. Both refusals come from one function so that this route and the
+      `leases` skill say the same words; see integrations/deploy/leases.ts.
+      SHUTDOWN IS CHECKED TOO — it is the more irreversible of the two, and a
+      render killed by a poweroff is no less killed for the verb being
+      different. The owner can override from the Deployment page by releasing
+      the lease, which is a decision with a record rather than a flag on a URL.
+    */
+    if (action === "sleep" || action === "shutdown") {
+      const check = sleepCheck(leaseResource(m));
+      if (!check.allowed)
+        return c.json({ ok: false, error: check.refusal, reason: check.reason, holders: check.holders, wake: check.wake }, 409);
+    }
 
     const command = powerCommand(action);
     if (!command)

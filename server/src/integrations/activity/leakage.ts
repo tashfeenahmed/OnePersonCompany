@@ -45,6 +45,8 @@ import {
   stripeLedgerDays,
   stripeSubscriptions,
 } from "../../db.ts";
+import { NEEDS_RESPONSE_STATUSES, OPEN_DISPUTE_STATUSES } from "../../providers/stripe.ts";
+import { disputes as disputeCases, disputeCount } from "../customers/store.ts";
 
 export const leakageRoutes = new Hono();
 
@@ -76,9 +78,15 @@ leakageRoutes.get("/", (c) => {
   const days = clamp(Number(c.req.query("days") ?? 30) || 30, 1, 400);
   const fromDay = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
 
+  const fromIso = `${fromDay}T00:00:00.000Z`;
+
   const charges = stripeChargeDays(fromDay);
   const ledger = stripeLedgerDays(fromDay);
   const subs = stripeSubscriptions();
+  /* The dispute CASES. Read whole rather than windowed, because "open now" is
+     current state — a chargeback opened in June and still under review is open
+     today, and a window would hide the one that still needs answering. */
+  const allCases = disputeCases({ limit: 2000 });
 
   const currencies = [
     ...new Set([
@@ -102,6 +110,20 @@ leakageRoutes.get("/", (c) => {
     const refundCount = ch.reduce((n, r) => n + r.refunds, 0);
     const disputes = money(le.reduce((n, r) => n + r.disputes, 0));
     const disputeFees = money(le.reduce((n, r) => n + r.dispute_fees, 0));
+
+    /* THE CASES, WHICH THIS DOCUMENT USED TO SAY IT DID NOT HAVE.
+       The comment on the `disputes` bucket below read "the COUNT is 0 because
+       there is no dispute-level table on this box". There is one now —
+       stripe_disputes, walked by the customers area — so the count is real.
+       The ledger figure stays exactly where it was, because the two measure
+       different things and replacing one with the other would silently change
+       what every reader of this bucket has been quoting. */
+    const cs = allCases.filter((d) => d.currency === currency);
+    const csWindow = cs.filter((d) => d.created_at >= fromIso);
+    const csOpen = cs.filter((d) => d.outcome === null && OPEN_DISPUTE_STATUSES.has(d.status));
+    const csLost = csWindow.filter((d) => d.outcome === "lost");
+    const csWon = csWindow.filter((d) => d.outcome === "won");
+    const needsResponse = csOpen.filter((d) => NEEDS_RESPONSE_STATUSES.has(d.status));
     const pastDueMonthly = money(pastDue.reduce((n, s) => n + s.monthly_usd, 0));
     const discountedAway = money(
       active.reduce((n, s) => n + (s.listed_monthly_usd - s.monthly_usd), 0),
@@ -140,15 +162,23 @@ leakageRoutes.get("/", (c) => {
       },
       {
         id: "disputes",
+        /* THE MONEY IS STILL THE LEDGER'S, and that has not changed. What is
+           new is that the COUNT is now a count of CASES rather than a zero
+           standing in for "no such table". The two are labelled apart in
+           `arithmetic` and in `cases` below, because they are dated
+           differently — a case by when the bank opened it, a debit by when the
+           balance posted — and the ledger figure includes the dispute fee
+           while the case amount does not. */
         label: "Lost to disputes",
-        count: 0,
+        count: csLost.length,
         amount: money(disputes + disputeFees),
         window: `${days}d`,
         arithmetic:
-          `SUM(disputes) + SUM(dispute_fees) over stripe_ledger_days for the last ${days} days = ` +
-          `${disputes} + ${disputeFees}. The fee is added because it is charged whatever the outcome and is ` +
-          `real money out. The COUNT is 0 because there is no dispute-level table on this box: the ledger ` +
-          `records the debit, not the case.`,
+          `MONEY: SUM(disputes) + SUM(dispute_fees) over stripe_ledger_days for the last ${days} days = ` +
+          `${disputes} + ${disputeFees} — settlement, dated by the balance posting, fee included because it ` +
+          `is charged whatever the outcome. COUNT: disputes in stripe_disputes with outcome 'lost' whose ` +
+          `case was OPENED in the same window (${csLost.length}). The two are measured and dated ` +
+          `differently and are never divided into each other.`,
         why: "Gone with the fee on top, and each one counts against the Stripe account.",
         floor: false,
       },
@@ -220,6 +250,38 @@ leakageRoutes.get("/", (c) => {
           "A window figure and a per-month rate are different units and are never added. " +
           "Two buckets carry no amount at all (declines, abandoned checkouts) and add to neither.",
       },
+      /**
+       * THE SAME SUBJECT, MEASURED THE OTHER WAY, and kept beside the ledger
+       * figure rather than instead of it.
+       *
+       * A case is dated by when the cardholder's bank OPENED it and carries
+       * the disputed amount with no fee. A ledger debit is dated by the
+       * balance POSTING and includes the fee, which Stripe charges whatever
+       * the outcome. So a case opened on the 28th and debited on the 2nd is
+       * in one window and not the other, and a case WON returns money the
+       * ledger already took. The two disagree, on purpose, and the full
+       * breakdown with the difference is at /api/disputes.
+       */
+      disputeCases: {
+        openNow: csOpen.length,
+        openNowAmount: money(csOpen.reduce((n, d) => n + d.amount, 0)),
+        needsResponseNow: needsResponse.length,
+        /** The soonest evidence cut-off among cases still needing a response.
+         *  Null where none is open or Stripe published no date. */
+        nextEvidenceDueBy:
+          needsResponse
+            .filter((d) => d.evidence_due_by)
+            .map((d) => d.evidence_due_by!)
+            .sort()[0] ?? null,
+        openedInWindow: csWindow.length,
+        lostInWindow: csLost.length,
+        lostAmountInWindow: money(csLost.reduce((n, d) => n + d.amount, 0)),
+        wonInWindow: csWon.length,
+        wonAmountInWindow: money(csWon.reduce((n, d) => n + d.amount, 0)),
+        basis:
+          "CASE-BASED, from stripe_disputes. The disputed amount only — Stripe's dispute fee " +
+          "is not in any figure here and IS in the ledger money above. openNow has no window.",
+      },
       counts: {
         declined,
         /** Never added to `declined`. Radar stopping card testing is not a
@@ -252,6 +314,10 @@ leakageRoutes.get("/", (c) => {
       currencies: currencies.length,
       chargeDaysFrom: oldestCharge,
       subscriptions: subs.length,
+      /** How many dispute cases this box holds. 0 is either an account with no
+       *  disputes or a Stripe key that cannot read them — the Customers
+       *  integration's last run says which. It is not a zero. */
+      disputeCases: disputeCount(),
       note:
         currencies.length === 0
           ? "No Stripe account is connected, or none has been collected yet. Nothing here is zero — it is unread."
@@ -270,7 +336,9 @@ leakageRoutes.get("/", (c) => {
           "count of successful charges. Dividing disputes by customers, or by the charges inside a 30-day " +
           "window, produces a number of roughly the right order and entirely the wrong denominator — and it " +
           "is the number a risk reviewer would be quoted. So it is not computed here at all. The absolute " +
-          "figures are: disputes are in the ledger, and the count of CASES is not on this box.",
+          "figures are published two ways instead: the ledger's dispute money above, and the CASE counts in " +
+          "`disputeCases`. There is now a dispute-level table (stripe_disputes, walked by the customers " +
+          "area); what there is still no honest denominator for is a rate.",
       },
       {
         figure: "A payment failure rate",

@@ -24,10 +24,37 @@ Board has its own sidebar entry. Mail contains Email, Triage and Outbox; Social 
 | `npm run build` | Typecheck the server and build the production client. |
 | `npm start` | Serve the API and built client on the API port; build first. |
 | `npm run doctor` | Print local runtime, storage, configuration, model/tool availability, build and last-backup information. Initializes the database if needed. Missing optional tools do not make it fail. |
+| `npm run install-service` | Print the launchd/systemd unit this machine would get and write it to `deploy/out/`. Installs nothing without `-- --install`. |
+| `npm run uninstall-service` | Stop the service and remove its unit. The environment file and the logs stay. |
+| `npm run service-status` | What the supervisor says, the isolation level and the last lines of the error log. Exits non-zero when the service is installed and not running. |
 | `npm test` | Run server/client tests with isolated server databases. |
 | `npm run check` | Tests, typechecks, production build, lint and widget catalog checks; also used by CI. |
 
 Production startup supports direct navigation to app pages. Unknown API/asset URLs keep their error responses. The server binds to loopback; public hosting and TLS termination require separate deployment configuration.
+
+## Running unattended
+
+`npm run dev` is two processes in a terminal; closing the lid stops the collectors, the agent and the nightly work. `npm run install-service` packages the same process as a supervised service for the platform you are on.
+
+It defaults to a **dry run**: the unit and an environment template are written to `deploy/out/` and printed, and nothing is installed. `npm run install-service -- --install` performs it. Settings → Deployment does the same from the browser and shows the unit before offering the button.
+
+| Platform | What is installed | Where |
+|---|---|---|
+| macOS | A launchd **user agent** with `RunAtLoad` and `KeepAlive: SuccessfulExit=false` — restarted when it dies badly, not when it is stopped deliberately. | `~/Library/LaunchAgents/com.opc.server.plist` |
+| Linux | A systemd **user service** with `Restart=on-failure`, `RestartSec=30` and a start-rate cap of four in ten minutes. | `~/.config/systemd/user/opc.service` |
+
+Neither needs root and neither writes outside your account. Both log to `server/data/logs/opc.out.log` and `opc.err.log` and read their environment from `deploy/opc.env`, which the installer creates once and never overwrites.
+
+Two limits are stated rather than worked around. A launchd **agent** runs only while you are logged in; a Mac that must serve this across a reboot with nobody at the keyboard wants a LaunchDaemon, which runs as root before login. A systemd **user** service stops at logout unless you run `sudo loginctl enable-linger <user>`.
+
+`GET /api/health` still answers `ok: true` whenever the process replies — `npm run restore` depends on that — and now also carries a `status` of `ok`/`warn`/`fail` over five checks: the database opens and passes `quick_check`, every migration this build ships is applied, connected sources have collected within their own cadence, the managed agent is in the state it was asked to be in, and there is disk left. Each check reports the figures and thresholds it used. Settings → Deployment draws the same document, plus the service state, a log tail and the schedule.
+
+### Per-source collection cadence
+
+`OPC_COLLECT_MINUTES` is now the **default** rather than the only schedule. Every plugin with a collector has a **Collect every (minutes)** setting on its own Integrations page: empty means the box default, `0` means never on a schedule (its Collect button still works), and the scheduler checks once a minute so a cadence is honoured to within a minute. A collection still running when the next is due does not start twice. Nothing changes on an installation that sets none of them.
+
+`npm start` serves the built client from `client/dist` on the API port, so one supervised process is the whole app. Build first.
+
 
 ## Configuration
 
@@ -64,7 +91,19 @@ Replaced files are moved aside with a `.replaced-<timestamp>` suffix. Archives c
 
 Set the owner password before enabling agents. Browser sessions have separate random cookie tokens, stored only as hashes; public session IDs cannot sign in. Sessions expire after 30 days or seven idle days. Migration revokes old-format sessions, so existing browsers may need to sign in again.
 
-Mail approval/sending, uncertain-delivery resolution and usage-limit changes require owner sign-in. Service credentials cannot access those controls or owner login/password/session-management endpoints. This is an API permission boundary: an unrestricted agent under the same OS account can still modify the database or read credential files. OS-level isolation is not implemented.
+Mail approval/sending, uncertain-delivery resolution and usage-limit changes require owner sign-in. Service credentials cannot access those controls or owner login/password/session-management endpoints.
+
+### What the agent can and cannot reach
+
+There are two service keys, not one. The **owner key** (`server/data/service-key`) is this process calling itself and opens everything. The **agent key** (`server/data/agent-home/service-key.agent`) is what is handed out — to the `opc` wrapper the agent types and to the MCP subprocess — and is refused, with a 403 naming the reason, on `/api/plugins` writes, the whole of `/api/backups` (a restore replaces the live database), `/api/security` writes, `/api/agents` writes, `/api/models`, `/api/freellmapi` and `/api/searxng` writes, `/api/workspace` writes and `/api/setup` writes. That refusal applies whether or not a password is set, because a box with no password is the shipped state.
+
+Settings → Deployment reports the **measured** isolation level and `npm run service-status` prints it:
+
+- **same-user** — the default. The gateway runs as you, with a built (not inherited) environment, its own empty working directory under `server/data/agent-home/<agent>/`, and only the scoped key. The API boundary above holds; the **filesystem** does not stop it reading `vault.key` or the database.
+- **separate-user** — name an account in Settings → Deployment (or `OPC_AGENT_USER`) and the gateway is spawned through `sudo -n -u <user>`. `deploy/agent-user.sh` is the one-time setup: run it with no arguments to see exactly what it would do, `--apply` to perform it. That account owns the agent home and nothing else, so `vault.key`, the database and the owner key are unreadable to it.
+- **container** — `deploy/agent.Dockerfile` and `deploy/agent-compose.yml` run only the gateway, with nothing mounted and the API reached over the network. Strongest, and it takes the agent's shell on your machine away with it. Not driven by the app; the page reports this level only when the gateway is genuinely not a child of this process.
+
+Moving up a level costs the agent capabilities. Read `deploy/agent.Dockerfile` before choosing the last one.
 
 Approval captures the exact account, sender, recipient, subject, text and signature. Editing invalidates approval. An atomic send claim prevents concurrent delivery and reserves daily capacity. Interrupted or ambiguous sends become **Check delivery** items. Inspect that account's Gmail Sent folder before marking a message as not sent and retrying; uncertain deliveries are never automatically retried.
 

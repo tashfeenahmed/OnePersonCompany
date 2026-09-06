@@ -1221,3 +1221,322 @@ function describe(err: unknown): string {
 }
 
 export type { Account };
+
+/* ------------------------------------------------- cases, disputes, events */
+
+/**
+ * THE FOUR READS THE CUSTOMERS AREA ADDED, and why they are here rather than
+ * in that area's own file.
+ *
+ * `get()` above is the only HTTP call in this integration and takes no body,
+ * which is what makes "this cannot write to Stripe" a property of the code
+ * rather than a promise. A second module holding a second fetch would end
+ * that guarantee the day somebody needed a POST. So the customers area asks
+ * for its four lists here, through the same GET, behind the same key reader,
+ * and the enforcement stays structural.
+ *
+ * NONE OF THESE RUNS INSIDE `collect()`. The collector above is the revenue
+ * walk and its cost is already understood — ninety days rewalked plus one
+ * history chunk. Disputes, events, open invoices and customer lookups are the
+ * customers area's own pass on its own clock, and a Stripe key that cannot
+ * read them must not be able to take MRR off the page.
+ */
+
+/** Stripe's own dispute statuses that mean the case is still LIVE. Taken from
+ *  the statuses Stripe documents and kept as a set rather than a "not won and
+ *  not lost" test: `warning_closed` is neither won nor lost and is over. */
+export const OPEN_DISPUTE_STATUSES = new Set([
+  "warning_needs_response",
+  "warning_under_review",
+  "needs_response",
+  "under_review",
+]);
+
+/** The statuses that mean the bank is waiting on the merchant. These are the
+ *  only ones for which `evidence_due_by` is a date anybody must act on. */
+export const NEEDS_RESPONSE_STATUSES = new Set([
+  "warning_needs_response",
+  "needs_response",
+]);
+
+export type DisputeRow = {
+  id: string;
+  charge: string | null;
+  paymentIntent: string | null;
+  /** Major units of `currency`, converted once here like every other money
+   *  figure this file produces. */
+  amount: number;
+  currency: string;
+  reason: string | null;
+  status: string;
+  evidenceDueBy: string | null;
+  submissionCount: number | null;
+  isChargeRefundable: boolean | null;
+  createdAt: string;
+  /** won | lost | null. NULL is "still live or closed without a verdict" and
+   *  is never read as a win. */
+  outcome: "won" | "lost" | null;
+};
+
+type StripeDispute = {
+  id: string;
+  charge?: string | { id?: string } | null;
+  payment_intent?: string | { id?: string } | null;
+  amount?: number;
+  currency?: string;
+  reason?: string | null;
+  status?: string;
+  created?: number;
+  is_charge_refundable?: boolean;
+  evidence_details?: { due_by?: number | null; submission_count?: number } | null;
+};
+
+const idOf = (v: unknown): string | null =>
+  typeof v === "string" ? v : v && typeof v === "object" ? ((v as { id?: string }).id ?? null) : null;
+
+/**
+ * The dispute CASES on one account, from `created[gte]` forward.
+ *
+ * `since` is a unix second and the caller is expected to overlap it — the
+ * status of a case changes for months after it was opened, so a walk that
+ * only ever read new cases would show every dispute as permanently open. The
+ * customers pass rewalks ninety days on every run and adds older history the
+ * way the charge walk does.
+ *
+ * NO `expand`. The charge id is enough to hold the case to a payment, and
+ * expanding the charge on every dispute would multiply the payload for a
+ * field nothing here reads.
+ */
+export async function walkDisputes(
+  key: string,
+  since: number,
+  truncated: Set<string> = new Set(),
+): Promise<DisputeRow[]> {
+  const out: DisputeRow[] = [];
+  for await (const d of page<StripeDispute & { id: string }>(
+    "disputes",
+    key,
+    { "created[gte]": since },
+    truncated,
+    2000,
+  )) {
+    const status = d.status ?? "unknown";
+    out.push({
+      id: d.id,
+      charge: idOf(d.charge),
+      paymentIntent: idOf(d.payment_intent),
+      amount: money(d.amount ?? 0),
+      currency: d.currency ?? "usd",
+      reason: d.reason ?? null,
+      status,
+      evidenceDueBy: iso(d.evidence_details?.due_by ?? null),
+      submissionCount: d.evidence_details?.submission_count ?? null,
+      isChargeRefundable:
+        typeof d.is_charge_refundable === "boolean" ? d.is_charge_refundable : null,
+      createdAt: iso(d.created ?? 0)!,
+      outcome: status === "won" ? "won" : status === "lost" ? "lost" : null,
+    });
+  }
+  return out;
+}
+
+/** An invoice that is still open — issued, not paid, not voided. The only
+ *  place `next_payment_attempt` exists, which is the deadline on a failing
+ *  payment. */
+export type OpenInvoiceRow = {
+  id: string;
+  customer: string | null;
+  customerEmail: string | null;
+  subscription: string | null;
+  amountDue: number;
+  amountRemaining: number;
+  currency: string;
+  attemptCount: number;
+  /** ISO 8601 UTC, or null when Stripe has scheduled no further attempt —
+   *  which means dunning is finished, not that a payment is imminent. */
+  nextPaymentAttempt: string | null;
+  dueDate: string | null;
+  createdAt: string;
+  hostedInvoiceUrl: string | null;
+  number: string | null;
+};
+
+type StripeInvoice = {
+  id: string;
+  customer?: string | { id?: string } | null;
+  customer_email?: string | null;
+  subscription?: string | { id?: string } | null;
+  parent?: { subscription_details?: { subscription?: string | { id?: string } } } | null;
+  amount_due?: number;
+  amount_remaining?: number;
+  currency?: string;
+  attempt_count?: number;
+  next_payment_attempt?: number | null;
+  due_date?: number | null;
+  created?: number;
+  hosted_invoice_url?: string | null;
+  number?: string | null;
+};
+
+/**
+ * Every OPEN invoice on the account.
+ *
+ * `status=open` rather than a date window, because "is this invoice still
+ * unpaid" is current state and an unpaid invoice from March is exactly the
+ * one worth chasing. The cap is deliberate and reported: an account with more
+ * than two thousand open invoices has a dunning problem this queue is the
+ * wrong tool for.
+ *
+ * `subscription` MOVED ON NEWER API VERSIONS. It used to be a top-level field
+ * and is now `parent.subscription_details.subscription`; both are read,
+ * because the key the owner pasted decides which version answers and a
+ * customers queue that lost its subscription link on an upgrade would silently
+ * stop attributing invoices to plans.
+ */
+export async function walkOpenInvoices(
+  key: string,
+  truncated: Set<string> = new Set(),
+): Promise<OpenInvoiceRow[]> {
+  const out: OpenInvoiceRow[] = [];
+  for await (const inv of page<StripeInvoice & { id: string }>(
+    "invoices",
+    key,
+    { status: "open" },
+    truncated,
+    2000,
+  )) {
+    out.push({
+      id: inv.id,
+      customer: idOf(inv.customer),
+      customerEmail: (inv.customer_email ?? "").trim() || null,
+      subscription:
+        idOf(inv.subscription) ?? idOf(inv.parent?.subscription_details?.subscription),
+      amountDue: money(inv.amount_due ?? 0),
+      amountRemaining: money(inv.amount_remaining ?? inv.amount_due ?? 0),
+      currency: inv.currency ?? "usd",
+      attemptCount: inv.attempt_count ?? 0,
+      nextPaymentAttempt: iso(inv.next_payment_attempt ?? null),
+      dueDate: iso(inv.due_date ?? null),
+      createdAt: iso(inv.created ?? 0)!,
+      hostedInvoiceUrl: inv.hosted_invoice_url ?? null,
+      number: (inv.number ?? "").trim() || null,
+    });
+  }
+  return out;
+}
+
+/** One customer, for an address. Asked once per case and never in a loop over
+ *  the book — see customers/collect.ts for the cap. */
+export type CustomerRow = { id: string; email: string | null; name: string | null; deleted: boolean };
+
+export async function fetchCustomer(key: string, id: string): Promise<CustomerRow> {
+  const c = await get<{ id: string; email?: string | null; name?: string | null; deleted?: boolean }>(
+    `customers/${encodeURIComponent(id)}`,
+    key,
+  );
+  return {
+    id: c.id,
+    email: (c.email ?? "").trim() || null,
+    name: (c.name ?? "").trim() || null,
+    deleted: Boolean(c.deleted),
+  };
+}
+
+/**
+ * The customer id on one subscription.
+ *
+ * `stripe_subscriptions` holds no customer column — the revenue walk never
+ * needed one, because MRR is a property of a price rather than of a person —
+ * so a churn case reaches its customer through one extra GET. It is asked
+ * once per case, for a set measured in the low tens, and never in a loop over
+ * the book. Adding the column to the revenue table instead would mean editing
+ * the shared writer and re-collecting the whole account for a field only this
+ * area reads.
+ */
+export async function fetchSubscriptionCustomer(
+  key: string,
+  id: string,
+): Promise<string | null> {
+  const sub = await get<{ customer?: string | { id?: string } | null }>(
+    `subscriptions/${encodeURIComponent(id)}`,
+    key,
+  );
+  return idOf(sub.customer);
+}
+
+/** The event types the customers area watches. Named here beside the walk
+ *  that asks for them so the request and the list cannot drift. */
+export const WATCHED_EVENTS = [
+  "customer.subscription.created",
+  "customer.subscription.deleted",
+  "customer.subscription.updated",
+  "invoice.payment_failed",
+  "invoice.paid",
+  "charge.dispute.created",
+  "charge.dispute.closed",
+  "checkout.session.completed",
+] as const;
+
+export type StripeEventRow = {
+  id: string;
+  type: string;
+  createdAt: string;
+  created: number;
+  /** The object the event is about, as Stripe sent it. Read for its own
+   *  fields and never stored whole — a stored copy is a second, ageing
+   *  version of a row Stripe still owns. */
+  object: Record<string, unknown>;
+  previous: Record<string, unknown> | null;
+};
+
+/**
+ * Events since a cursor, oldest first.
+ *
+ * `types[]` IS SENT TO STRIPE rather than filtered here. WorkDash's notifier
+ * pulled every event and dropped what it did not want, which works and costs
+ * a page of JSON per unwatched burst; Stripe filters server-side for free and
+ * the request then documents itself.
+ *
+ * THE CURSOR IS A TIMESTAMP AND THE DEDUPE IS THE PRIMARY KEY. `created[gt]`
+ * cannot express "everything after this exact event" — two events can share a
+ * second — so the walk overlaps by asking from the last second it saw, and
+ * the events table's INSERT OR IGNORE on Stripe's own event id makes the
+ * overlap free. A cursor of event ids alone would break the first time an
+ * event aged out of Stripe's thirty-day retention.
+ *
+ * RETURNED OLDEST FIRST because that is the order they will be read in on a
+ * phone. Stripe answers newest first.
+ */
+export async function walkEvents(
+  key: string,
+  sinceSeconds: number,
+  truncated: Set<string> = new Set(),
+  cap = 500,
+): Promise<StripeEventRow[]> {
+  const params: Params = { "created[gte]": sinceSeconds };
+  WATCHED_EVENTS.forEach((t, i) => {
+    params[`types[${i}]`] = t;
+  });
+  const out: StripeEventRow[] = [];
+  for await (const e of page<{
+    id: string;
+    type?: string;
+    created?: number;
+    data?: { object?: Record<string, unknown>; previous_attributes?: Record<string, unknown> };
+  }>("events", key, params, truncated, cap)) {
+    out.push({
+      id: e.id,
+      type: e.type ?? "unknown",
+      created: e.created ?? 0,
+      createdAt: iso(e.created ?? 0)!,
+      object: e.data?.object ?? {},
+      previous: e.data?.previous_attributes ?? null,
+    });
+  }
+  return out.sort((a, b) => a.created - b.created || a.id.localeCompare(b.id));
+}
+
+/** The one place this file's error prose is reused outside `collect()`. The
+ *  customers pass reports a missing Stripe permission with the same sentence
+ *  the revenue collector would. */
+export const describeStripeError = describe;

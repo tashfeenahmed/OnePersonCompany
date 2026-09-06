@@ -3,7 +3,10 @@
  * from Replicate, both in the venture's own brand.
  *
  * WHY THIS IS A VENTURE ROUTE AND NOT A "SOCIAL" INTEGRATION. Nothing here
- * measures anything and nothing here publishes anything. It takes what the box
+ * measures anything and nothing here publishes anything — which is STILL TRUE
+ * after `integrations/publishing/` arrived: a finished post is FILED there as
+ * a draft by a button on the page, and every route in this file remains unable
+ * to send anything anywhere. It takes what the box
  * already KNOWS about a business — the name, the sentence the owner wrote, the
  * stage it is at, the palette and the fonts read off its own site — and turns
  * a one-line brief into a caption and an image that look like they came from
@@ -43,6 +46,7 @@ import { Hono } from "hono";
 import { DATA_DIR } from "../../config.ts";
 import { configValue, db, now, ventureRow, ventureRowById, type VentureRow } from "../../db.ts";
 import { readBrand } from "../../ventures/enrich.ts";
+import { factsForPrompt } from "../knowledge/store.ts";
 import { REPLICATE_API, tokenAccounts } from "../../providers/replicate.ts";
 import { activeProvider, complete, NoProviderError } from "../../models/provider.ts";
 
@@ -53,6 +57,74 @@ export const studioRoutes = new Hono();
 export const STUDIO_PLUGIN = "studio";
 
 export const STUDIO_DIR = resolve(DATA_DIR, "studio");
+
+/* ------------------------------------------------- reference images (2026-09-06)
+ *
+ * THE STUDIO CAN NOW BE HANDED A VENTURE'S OWN PICTURES — a logo, a reference,
+ * a screenshot out of the asset library — and it reaches them through a
+ * FUNCTION SOMEBODY ELSE INSTALLS rather than by importing the library.
+ *
+ * That is not politeness. The library stores its files under this module's
+ * STUDIO_DIR and therefore imports this file; an import back would be a cycle,
+ * and a cycle through a module that `integrations/index.ts` loads at import
+ * time does not start the process at all. So the publishing area calls
+ * `setReferenceResolver` from its manifest, and this file never learns what an
+ * asset is.
+ *
+ * THE THREE-VALUED ANSWER IS THE POINT. `field` names the input property the
+ * image model actually takes a picture in — read off that model's own schema,
+ * not guessed from its name — and a model that has none gets `field: null`,
+ * the pictures DESCRIBED IN WORDS in the prompt, and a note saying so on the
+ * post. A reference silently dropped would be the worst of the three
+ * outcomes, because the post would look like it had been used.
+ */
+export type ResolvedReferences = {
+  /** `data:` URIs, in the order the caller asked for them. Empty when the
+   *  model cannot take an image at all. */
+  dataUrls: string[];
+  /** The model's own input property for an image, or null. */
+  field: string | null;
+  /** Whether that property takes a list rather than one image. */
+  many: boolean;
+  /** One sentence per asset, for the prompt, when the model takes no image. */
+  texts: string[];
+  /** What happened, in words, for the post's `error`/note. */
+  note: string;
+};
+
+export type ReferenceResolver = (
+  ventureId: string,
+  assetIds: string[],
+  model: string,
+) => Promise<ResolvedReferences>;
+
+let referenceResolver: ReferenceResolver | null = null;
+
+/** Installed by the publishing area's manifest. Absent, `assetIds` is refused
+ *  with a sentence rather than ignored. */
+export function setReferenceResolver(fn: ReferenceResolver) {
+  referenceResolver = fn;
+}
+
+export function hasReferenceResolver(): boolean {
+  return referenceResolver !== null;
+}
+
+async function resolveReferences(
+  ventureId: string,
+  assetIds: string[],
+  model: string,
+): Promise<ResolvedReferences> {
+  if (!referenceResolver)
+    return {
+      dataUrls: [],
+      field: null,
+      many: false,
+      texts: [],
+      note: "No asset library is installed on this server, so no reference was used.",
+    };
+  return referenceResolver(ventureId, assetIds, model);
+}
 
 /**
  * The default image model.
@@ -192,8 +264,18 @@ function captionTurns(v: VentureRow, brief: string, platform: string | null, for
     (platform ? ` The post is for ${platform}; write to that platform's length and register.` : "") +
     ` The image beside it is ${FORMATS[format].about}`;
 
+  /* WHAT IS KNOWN ABOUT THE PRODUCT, WITH THE EVIDENCE — added beside the
+     brand facts rather than mixed into them, because the two are different
+     kinds of claim: the block above is the owner's words and a reading of the
+     site, and this one carries a tier and a date per line. It is capped small
+     and excludes unconfirmed proposals, which matters more here than anywhere
+     else on this box: a caption is published, and a proposal turned into a
+     marketing sentence is a claim made to a customer. See
+     integrations/knowledge/store.ts. */
+  const known = factsForPrompt(v.id, ["capability", "pricing", "integration", "limitation"], 900);
   const user =
     `The business:\n${brandFacts(v).map((f) => `- ${f}`).join("\n")}\n\n` +
+    (known ? `${known}\n\n` : "") +
     `The brief: ${brief}`;
 
   return [
@@ -307,6 +389,10 @@ export async function makeImage(
   prompt: string,
   format: Format,
   id: string,
+  /** What the asset library resolved, when a caller selected references. The
+   *  images go into the model's OWN image field; a model with none gets
+   *  nothing here and the words in the prompt instead. */
+  refs?: { dataUrls: string[]; field: string | null; many: boolean },
 ): Promise<ImageResult> {
   const model = imageModel();
   const started = Date.now();
@@ -346,6 +432,13 @@ export async function makeImage(
       body: JSON.stringify({
         input: {
           prompt,
+          /* THE REFERENCE, UNDER THE NAME THIS MODEL ACTUALLY USES. Spread
+             rather than assigned so a model with no image field gets a body
+             byte-identical to the one it got before this existed — a new key
+             holding `undefined` is a key Replicate would reject. */
+          ...(refs?.field && refs.dataUrls.length
+            ? { [refs.field]: refs.many ? refs.dataUrls : refs.dataUrls[0] }
+            : {}),
           aspect_ratio: FORMATS[format].ratio,
           /* PNG rather than the WebP default: the file is served to a browser
              and stored in a backup, and a format every tool opens is worth a
@@ -483,6 +576,7 @@ studioRoutes.post("/posts", async (c) => {
     brief?: unknown;
     format?: unknown;
     platform?: unknown;
+    assetIds?: unknown;
   } | null;
   if (!body) return c.json({ error: "Expected a JSON body." }, 400);
 
@@ -513,9 +607,24 @@ studioRoutes.post("/posts", async (c) => {
     platform = body.platform.trim().slice(0, MAX_PLATFORM) || null;
   }
 
+  const assetIds = Array.isArray(body.assetIds)
+    ? body.assetIds.filter((a): a is string => typeof a === "string").slice(0, 4)
+    : [];
+
   const started = Date.now();
   const id = newId();
-  const prompt = imagePrompt(v, brief, format);
+
+  /* THE REFERENCES ARE RESOLVED BEFORE THE PROMPT IS BUILT, because whether
+     the model can be handed a picture decides whether the picture has to be
+     DESCRIBED in the prompt instead. See setReferenceResolver above. */
+  const refs = assetIds.length
+    ? await resolveReferences(v.id, assetIds, imageModel())
+    : null;
+  const prompt =
+    imagePrompt(v, brief, format) +
+    (refs && refs.texts.length
+      ? ` Take visual direction from ${refs.texts.join("; ")}.`
+      : "");
 
   /* --- the caption, which is the half without which there is no post --- */
   let caption: string | null = null;
@@ -545,8 +654,12 @@ studioRoutes.post("/posts", async (c) => {
   }
 
   /* --- the image, which may legitimately not happen ------------------- */
-  const image = await makeImage(prompt, format, id);
+  const image = await makeImage(prompt, format, id, refs ?? undefined);
   if (!image.ok && image.error) problems.push(image.error);
+  /* A reference that could not be passed is recorded on the post rather than
+     forgotten: a picture the owner selected and the model never saw is the one
+     outcome that must not look like success. */
+  if (refs && !refs.field && assetIds.length) problems.push(refs.note);
 
   const ms = Date.now() - started;
   db.prepare(
@@ -621,7 +734,7 @@ studioRoutes.post("/posts/:id/regenerate", async (c) => {
       404,
     );
 
-  const body = (await c.req.json().catch(() => null)) as { what?: unknown } | null;
+  const body = (await c.req.json().catch(() => null)) as { what?: unknown; assetIds?: unknown } | null;
   const what = String(body?.what ?? "");
   if (what !== "caption" && what !== "image")
     return c.json({ error: 'Expected { what: "caption" } or { what: "image" }.' }, 400);
@@ -655,8 +768,14 @@ studioRoutes.post("/posts/:id/regenerate", async (c) => {
     }
   }
 
-  const prompt = imagePrompt(v, row.brief, format);
-  const image = await makeImage(prompt, format, row.id);
+  const assetIds = Array.isArray(body?.assetIds)
+    ? body.assetIds.filter((a): a is string => typeof a === "string").slice(0, 4)
+    : [];
+  const refs = assetIds.length ? await resolveReferences(v.id, assetIds, imageModel()) : null;
+  const prompt =
+    imagePrompt(v, row.brief, format) +
+    (refs && refs.texts.length ? ` Take visual direction from ${refs.texts.join("; ")}.` : "");
+  const image = await makeImage(prompt, format, row.id, refs ?? undefined);
   db.prepare(
     "UPDATE studio_posts SET image_prompt = ?, image_path = ?, model = ?, ms = ?, error = ? WHERE id = ?",
   ).run(

@@ -87,7 +87,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { connect } from "node:net";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
+/* WHERE THE AGENT IS ALLOWED TO STAND, and under which account — the deploy
+   area owns both, and reports what is actually true on Settings → Deployment. */
+import { agentUser, agentWorkDir } from "../integrations/deploy/isolation.ts";
 import { dirname, join } from "node:path";
 import { DATA_DIR } from "../config.ts";
 import { configValue, getPlugin, setConfig, upsertPlugin } from "../db.ts";
@@ -1235,18 +1238,67 @@ export async function start(id: AgentId): Promise<{ ok: boolean; error?: string 
   }
 }
 
+/**
+ * HOW THE GATEWAY IS ACTUALLY LAUNCHED, which is the whole of this app's
+ * OS-level containment and is therefore worth being explicit about.
+ *
+ * THREE THINGS, IN ORDER OF HOW MUCH THEY BUY:
+ *
+ *   THE ENVIRONMENT IS BUILT, NOT INHERITED. `childEnv` gives a PATH, a HOME
+ *   inside DATA_DIR and a locale, and nothing else. That has been true since
+ *   this file was written and the header above says why.
+ *
+ *   THE WORKING DIRECTORY IS AN EMPTY DIRECTORY OF ITS OWN, under
+ *   `data/agent-home/<id>`, rather than the agent's install root. Nothing the
+ *   gateway runs needs a particular cwd — every path in `cmd` is absolute —
+ *   and a tool the agent shells out to that writes a relative file writes it
+ *   somewhere disposable instead of into the installation.
+ *
+ *   AND, IF THE OWNER HAS ASKED FOR IT, ANOTHER OS ACCOUNT. `sudo -n -u
+ *   <user>` with the environment passed through `env`, because sudo discards
+ *   the parent's. `-n` rather than a prompt: this process has no terminal, and
+ *   a sudo that blocked on a password would present as an agent that starts
+ *   and never answers. The failure is sudo's own message in the agent log,
+ *   which is the right place for it.
+ *
+ * IT IS OFF BY DEFAULT AND THE DEFAULT IS UNCHANGED. With no `OPC_AGENT_USER`
+ * setting and no environment variable, this returns exactly the spawn this
+ * file always did, one directory to the left.
+ */
+function launchPlan(s: Spec, cmd: { file: string; args: string[]; env: Record<string, string> }) {
+  const cwd = agentWorkDir(s.id);
+  const env = childEnv(s, cmd.env);
+  const user = agentUser();
+  if (!user || user === userInfo().username) return { file: cmd.file, args: cmd.args, cwd, env, as: null as string | null };
+  /* `env` takes KEY=VALUE pairs; nothing here can hold a secret — the gateway
+     reads its key out of a file in its own home — so nothing lands in `ps`
+     that was not already in the environment of a process that user owns. */
+  const pairs = Object.entries(env).map(([k, v]) => `${k}=${v}`);
+  return {
+    file: "sudo",
+    args: ["-n", "-u", user, "-H", "env", ...pairs, cmd.file, ...cmd.args],
+    cwd,
+    env,
+    as: user,
+  };
+}
+
 function spawnChild(id: AgentId) {
   const s = SPECS[id];
   const r = RUNTIME[id];
   const log = logger(s);
   const cmd = s.command(s);
+  const launch = launchPlan(s, cmd);
 
   setState(id, "starting", null);
-  log(`starting: ${cmd.file} ${cmd.args.join(" ")}`);
+  log(
+    `starting: ${cmd.file} ${cmd.args.join(" ")}` +
+      (launch.as ? ` — as ${launch.as} through sudo, cwd ${launch.cwd}` : ` — cwd ${launch.cwd}`),
+  );
 
-  const proc = spawn(cmd.file, cmd.args, {
-    cwd: s.root,
-    env: childEnv(s, cmd.env),
+  const proc = spawn(launch.file, launch.args, {
+    cwd: launch.cwd,
+    env: launch.env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   r.child = proc;

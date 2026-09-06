@@ -48,6 +48,7 @@ const NAV = [
   { to: "/subagents", label: "Sub-agents" },
   { to: "/org", label: "Org chart" },
   { to: "/activity", label: "Activity" },
+  { to: "/customers", label: "Customers" },
   { to: "/alerts", label: "Alerts" },
   { to: "/people", label: "People" },
   { to: "/workflows", label: "Workflows" },
@@ -64,7 +65,7 @@ const NAV_GROUPS = [
   { name: "Mail", paths: MAIL_PAGES.map(page => page.to), expanded: true },
   { name: "Social media", paths: SOCIAL_PAGES.map(page => page.to), expanded: true },
   { name: "SEO & growth", paths: GROWTH_PAGES.map(page => page.to), expanded: true },
-  { name: "Insights", paths: ["/activity", "/alerts", "/dashboards"], expanded: false },
+  { name: "Insights", paths: ["/activity", "/customers", "/alerts", "/dashboards"], expanded: false },
   { name: "Manage", paths: ["/subagents", "/org", "/integrations", "/ops"], expanded: false },
 ];
 

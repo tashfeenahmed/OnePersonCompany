@@ -983,3 +983,320 @@ function describe(err: unknown): string {
 }
 
 export type { Account };
+
+/* ==========================================================================
+ * PUBLISHING — added by the publishing area, 2026-09-06.
+ *
+ * EVERYTHING ABOVE THIS LINE IS A GET AND STAYS ONE. The header of this file
+ * says, as a property of the code rather than a promise, that nothing here
+ * sends anything but GET. That sentence was true and is now qualified: it is
+ * true of the COLLECTOR, which is what it was about, and everything below is
+ * a separate, named surface that only the publishing pipeline reaches. The
+ * collector does not import any of it, and nothing below is called except
+ * from `integrations/publishing/`.
+ *
+ * WHY IT LIVES HERE RATHER THAN IN THE PUBLISHING AREA. The Graph API's traps
+ * are documented at the top of this file — the comment-annotated credential
+ * file, the appsecret proof, the pinned version, and the one that decides this
+ * whole feature: A SYSTEM USER TOKEN CAN LIST PAGES AND CANNOT NECESSARILY
+ * MINT A PAGE TOKEN. Publishing needs the Page token; a second module that
+ * re-derived the graph call would eventually re-learn all of that the
+ * expensive way.
+ *
+ * THE TRANSPORT IS INJECTED so the whole path can be rehearsed. See
+ * providers/social.ts.
+ * ======================================================================= */
+
+import { describeBody, failed, redact, type PublishOutcome, type Transport } from "./social.ts";
+
+/** One Page a token administers, with the credential that can actually post
+ *  as it. `token` null is the finding CANNOT documents above: the scope is
+ *  granted and the system user's ROLE on the Page is not. */
+export type PublishablePage = {
+  id: string;
+  name: string | null;
+  /** The PAGE access token. Null means one could not be minted, and
+   *  `tokenError` says what Meta answered. */
+  token: string | null;
+  tokenError: string | null;
+  instagram: { id: string | null; username: string | null };
+};
+
+/**
+ * The Pages of one Meta account, asked WITH `access_token` in the field list.
+ *
+ * This is the single most informative call in the whole publishing area, and
+ * it is the one the collector above deliberately does not make. Asking for
+ * `access_token` either returns a per-Page credential — in which case this
+ * box can post — or refuses the whole edge with 403 (#200), which is Meta
+ * saying the system user's role on the Pages does not permit it. Both answers
+ * are recorded verbatim on the destination's probe.
+ */
+export async function publishablePages(
+  token: string,
+  proof: string | null,
+  t: Transport,
+): Promise<{ ok: boolean; pages: PublishablePage[]; error: string | null }> {
+  const fields =
+    "id,name,access_token,instagram_business_account{id,username}";
+  const url =
+    `${GRAPH}/me/accounts?fields=${encodeURIComponent(fields)}&limit=${MAX_PAGES}` +
+    (proof ? `&appsecret_proof=${proof}` : "");
+  let res: Response;
+  try {
+    res = await t.fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    return { ok: false, pages: [], error: describe(err) };
+  }
+  const body = (await res.json().catch(() => null)) as
+    | { data?: RawPage[]; error?: { message?: string; code?: number } }
+    | null;
+  if (!res.ok) {
+    const message = body?.error?.message ?? `HTTP ${res.status}`;
+    /* (#200) IS THE ONE WORTH ITS OWN SENTENCE, because it is the answer this
+       account actually gives and it sends people to the wrong place: the
+       scope IS granted, and it is the system user's ROLE on the Pages that is
+       not. Re-granting pages_read_engagement fixes nothing. */
+    return {
+      ok: false,
+      pages: [],
+      error:
+        body?.error?.code === 200
+          ? `${message} — this is a PAGE ROLE, not a scope: give the system ` +
+            "user a role on the Page in Business settings → Accounts → Pages, " +
+            "with Create content and Manage Page permissions."
+          : message.slice(0, 240),
+    };
+  }
+  const pages: PublishablePage[] = [];
+  for (const raw of (body?.data ?? []).slice(0, MAX_PAGES)) {
+    if (!raw?.id) continue;
+    const withToken = raw as RawPage & { access_token?: string };
+    pages.push({
+      id: raw.id,
+      name: str(raw.name),
+      token: str(withToken.access_token),
+      tokenError: withToken.access_token
+        ? null
+        : "Meta listed this Page and sent no access token for it, so nothing here can post as it.",
+      instagram: {
+        id: str(raw.instagram_business_account?.id),
+        username: str(raw.instagram_business_account?.username),
+      },
+    });
+  }
+  return { ok: true, pages, error: null };
+}
+
+/** What this token is granted, as Meta reports it. Best effort: a system user
+ *  token answers 400 here on some setups, and that is a note rather than a
+ *  failure — the page listing above is the authoritative probe. */
+export async function tokenPermissions(
+  token: string,
+  proof: string | null,
+  t: Transport,
+): Promise<{ granted: string[]; declined: string[]; error: string | null }> {
+  try {
+    const res = await t.fetch(
+      `${GRAPH}/me/permissions${proof ? `?appsecret_proof=${proof}` : ""}`,
+      {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      },
+    );
+    const body = (await res.json().catch(() => null)) as {
+      data?: { permission?: string; status?: string }[];
+      error?: { message?: string };
+    } | null;
+    if (!res.ok)
+      return { granted: [], declined: [], error: (body?.error?.message ?? `HTTP ${res.status}`).slice(0, 200) };
+    const granted: string[] = [];
+    const declined: string[] = [];
+    for (const row of body?.data ?? []) {
+      if (!row?.permission) continue;
+      (row.status === "granted" ? granted : declined).push(row.permission);
+    }
+    return { granted, declined, error: null };
+  } catch (err) {
+    return { granted: [], declined: [], error: describe(err) };
+  }
+}
+
+/** A Graph write. The token goes in the body the way Meta's own upload
+ *  examples do, because a multipart POST cannot carry a bearer through every
+ *  proxy the file passes; `redact` keeps it out of the record either way. */
+async function graphWrite(
+  t: Transport,
+  path: string,
+  body: FormData | URLSearchParams,
+  timeoutMs: number,
+): Promise<{ ok: boolean; doc: Record<string, unknown>; error: string | null }> {
+  let res: Response;
+  try {
+    res = await t.fetch(`${GRAPH}/${path}`, {
+      method: "POST",
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    return { ok: false, doc: {}, error: describe(err) };
+  }
+  const doc = ((await res.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
+  const err = doc.error as { message?: string; code?: number } | undefined;
+  if (!res.ok || err)
+    return {
+      ok: false,
+      doc,
+      error: (err?.message ?? `HTTP ${res.status}`).slice(0, 240),
+    };
+  return { ok: true, doc, error: null };
+}
+
+/** A caption on a Page's timeline, with no picture. */
+export async function postPageFeed(
+  page: { id: string; token: string },
+  caption: string,
+  t: Transport,
+): Promise<PublishOutcome> {
+  const form = new URLSearchParams({ message: caption, access_token: page.token });
+  const out = await graphWrite(t, `${page.id}/feed`, form, 45_000);
+  if (!out.ok) return failed(`Facebook refused the post — ${out.error}`);
+  const id = typeof out.doc.id === "string" ? out.doc.id : null;
+  return {
+    ok: true,
+    id,
+    url: id ? `https://www.facebook.com/${id.replace("_", "/posts/")}` : null,
+    configured: true,
+    error: null,
+    note: null,
+  };
+}
+
+/**
+ * A photo post. `/photos` rather than `/feed`, because the picture IS the post
+ * — a feed post with a link would show the caption and drop the image the
+ * Studio just paid to render.
+ *
+ * `post_id` is the story on the timeline and `id` is the photo object; the
+ * permalink wants the first, and Meta only returns it for a published upload.
+ */
+export async function postPagePhoto(
+  page: { id: string; token: string },
+  caption: string,
+  media: { bytes: Uint8Array; mime: string; name: string },
+  t: Transport,
+): Promise<PublishOutcome> {
+  const form = new FormData();
+  form.set("caption", caption);
+  form.set("published", "true");
+  form.set("access_token", page.token);
+  form.set("source", new Blob([media.bytes], { type: media.mime }), media.name);
+  const out = await graphWrite(t, `${page.id}/photos`, form, 180_000);
+  if (!out.ok) return failed(`Facebook refused the photo — ${out.error}`);
+  const postId =
+    (typeof out.doc.post_id === "string" && out.doc.post_id) ||
+    (typeof out.doc.id === "string" && out.doc.id) ||
+    null;
+  return {
+    ok: true,
+    id: postId,
+    url: postId ? `https://www.facebook.com/${postId.replace("_", "/posts/")}` : null,
+    configured: true,
+    error: null,
+    note: null,
+  };
+}
+
+/** A video on the Page. The `videos` edge answers with the video's own id and
+ *  no `post_id`, so the permalink is built from that rather than split. */
+export async function postPageVideo(
+  page: { id: string; token: string },
+  caption: string,
+  media: { bytes: Uint8Array; mime: string; name: string },
+  t: Transport,
+): Promise<PublishOutcome> {
+  const form = new FormData();
+  form.set("description", caption);
+  form.set("published", "true");
+  form.set("access_token", page.token);
+  form.set("source", new Blob([media.bytes], { type: media.mime }), media.name);
+  const out = await graphWrite(t, `${page.id}/videos`, form, 600_000);
+  if (!out.ok) return failed(`Facebook refused the video — ${out.error}`);
+  const id = typeof out.doc.id === "string" ? out.doc.id : null;
+  return {
+    ok: true,
+    id,
+    url: id ? `https://www.facebook.com/${page.id}/videos/${id}` : null,
+    configured: true,
+    error: null,
+    note: null,
+  };
+}
+
+/**
+ * Instagram, in two steps against a URL this box does not own the fetch of.
+ *
+ * `/media` takes an `image_url` and FETCHES IT ITSELF, asynchronously, from
+ * Meta's network — which is why the publishing area refuses to attempt this
+ * without a public base URL, and why the picture has to still be there
+ * afterwards. The caption goes on the CONTAINER; putting it on `/media_publish`
+ * is a documented way to publish a post with no caption at all.
+ *
+ * The permalink is read back on a third call and its failure is not the
+ * post's: a link we could not look up is a missing link, not a failed publish.
+ */
+export async function postInstagramImage(
+  ig: { id: string; token: string },
+  caption: string,
+  imageUrl: string,
+  t: Transport,
+): Promise<PublishOutcome> {
+  const container = await graphWrite(
+    t,
+    `${ig.id}/media`,
+    new URLSearchParams({ image_url: imageUrl, caption, access_token: ig.token }),
+    60_000,
+  );
+  if (!container.ok) return failed(`Instagram refused the container — ${container.error}`);
+  const creationId = typeof container.doc.id === "string" ? container.doc.id : null;
+  if (!creationId) return failed("Instagram made no media container and gave no reason.");
+
+  const published = await graphWrite(
+    t,
+    `${ig.id}/media_publish`,
+    new URLSearchParams({ creation_id: creationId, access_token: ig.token }),
+    60_000,
+  );
+  if (!published.ok) return failed(`Instagram refused to publish the container — ${published.error}`);
+  const mediaId = typeof published.doc.id === "string" ? published.doc.id : null;
+
+  let url: string | null = null;
+  if (mediaId) {
+    try {
+      const res = await t.fetch(
+        `${GRAPH}/${mediaId}?fields=permalink&access_token=${encodeURIComponent(ig.token)}`,
+        { signal: AbortSignal.timeout(TIMEOUT_MS) },
+      );
+      const doc = (await res.json().catch(() => null)) as { permalink?: string } | null;
+      url = str(doc?.permalink);
+    } catch {
+      /* The post is live either way. */
+    }
+  }
+  return {
+    ok: true,
+    id: mediaId,
+    url,
+    configured: true,
+    error: null,
+    note: url ? null : "Posted; the permalink could not be read back.",
+  };
+}
+
+/* `redact` and `describeBody` are imported for the transport contract's sake
+   and re-exported so a caller holding only this module can compose the same
+   record — see providers/social.ts. */
+export { redact, describeBody };

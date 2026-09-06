@@ -43,7 +43,7 @@ import { readBrand } from "../../ventures/enrich.ts";
 
 /* -------------------------------------------------------------- the roles */
 
-export type Role = "researcher" | "competitors" | "seo" | "demand" | "visibility" | "writer" | "producer" | "serp" | "aso";
+export type Role = "researcher" | "competitors" | "seo" | "demand" | "visibility" | "writer" | "producer" | "serp" | "aso" | "campaigns";
 
 export type RoleDef = {
   role: Role;
@@ -66,6 +66,9 @@ export const ROLES: RoleDef[] = [
   { role: "producer", kind: "video", title: "Video producer", suffix: "Video Producer", app: "video" },
   { role: "serp", kind: "serp", title: "SERP analyst", suffix: "SERP Analyst", app: "serp" },
   { role: "aso", kind: "aso", title: "Store listing auditor", suffix: "ASO Auditor", app: "aso" },
+  /* The campaign planner, owned by integrations/publishing/. A worker per
+     venture, so switching one off is how the owner says "not this business". */
+  { role: "campaigns", kind: "campaign", title: "Campaign planner", suffix: "Campaign Planner", app: "campaign" },
 ];
 
 export function roleDef(role: string): RoleDef | null {

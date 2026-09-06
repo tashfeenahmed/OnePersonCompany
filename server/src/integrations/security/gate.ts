@@ -49,7 +49,7 @@ import { PORT } from "../../config.ts";
  * before the lock existed.
  */
 import type { Context, Next } from "hono";
-import { isServiceKey, presentedKey, SERVICE_HEADER, SERVICE_KEY_FILE } from "../../auth.ts";
+import { keyScope, presentedKey, SERVICE_HEADER, SERVICE_KEY_FILE } from "../../auth.ts";
 import { cookieValue, liveSession, passwordSet, touchSession } from "./owner.ts";
 
 /** Paths that answer with no credential at all once a password exists. Exact
@@ -66,11 +66,93 @@ const OPEN = new Set([
 export type AuthHow = "cookie" | "service-key" | null;
 
 /**
+ * THE OWNER SURFACE — the routes an AGENT-scoped key may not write to, even
+ * though it is a perfectly good service key.
+ *
+ * WHY THIS LIST EXISTS. Everything here changes what the box IS rather than
+ * what it has measured: which credentials it holds, which archive its database
+ * came from, what its password is, which agent process is running, and where
+ * the model traffic goes. An agent that could reach any of them could rewrite
+ * the door it came in through — restore a month-old backup, re-point the model
+ * gateway, or hand itself a credential — and every one of those is a change
+ * the owner would find later rather than be asked about.
+ *
+ * IT IS A DENY LIST AND NOT AN ALLOW LIST, deliberately, and the reason is
+ * that the allow list already exists somewhere better: skills/registry.ts,
+ * which names every path an agent may reach and refuses to compose a URL for
+ * anything else. This is the second lock for the case that registry cannot
+ * cover — the agent has a shell, and a shell can curl. So it guards the small
+ * set of prefixes that must never be reachable that way, and a route added to
+ * this app tomorrow is reachable by an agent exactly as it was yesterday.
+ *
+ * READS ARE LEFT ALONE. A GET of the plugin list or the agent panel tells an
+ * agent what is connected, which is the same thing the skills catalogue
+ * already tells it, and no secret is on any of those documents by
+ * construction. Only the methods that change something are refused — plus
+ * `/api/backups`, where GET lists archive filenames and POST /restore replaces
+ * the database, so the whole family is refused rather than half of it.
+ */
+const OWNER_SURFACE: { prefix: string; methods: "write" | "all"; why: string }[] = [
+  { prefix: "/api/plugins", methods: "write", why: "connecting, disconnecting and configuring accounts is the owner's" },
+  { prefix: "/api/backups", methods: "all", why: "an archive can be restored over the live database" },
+  { prefix: "/api/security", methods: "write", why: "the password and the sessions are the lock itself" },
+  { prefix: "/api/agents", methods: "write", why: "an agent must not install, reconfigure or restart an agent" },
+  { prefix: "/api/models", methods: "write", why: "which provider completes, and at whose expense, is the owner's" },
+  { prefix: "/api/freellmapi", methods: "write", why: "the model gateway is a process on this machine" },
+  { prefix: "/api/searxng", methods: "write", why: "the search node is a process on this machine" },
+  { prefix: "/api/workspace", methods: "write", why: "the workspace layout is what the owner sees" },
+  { prefix: "/api/setup", methods: "write", why: "setup writes the box's own configuration" },
+];
+
+/** Would an agent-scoped key be refused this request? Exported for the
+ *  deployment page and the doctor, which both report the boundary rather than
+ *  asking anybody to take it on trust. */
+export function agentRefusal(method: string, path: string): string | null {
+  const write = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+  for (const rule of OWNER_SURFACE) {
+    if (path !== rule.prefix && !path.startsWith(`${rule.prefix}/`)) continue;
+    if (rule.methods === "write" && !write) continue;
+    return (
+      `${method} ${path} is an owner control — ${rule.why}. The key you sent is the AGENT key, which the skills ` +
+      `surface uses and which is deliberately refused here. Owner controls are the dashboard in a signed-in ` +
+      `browser, or the owner key at server/data/service-key.`
+    );
+  }
+  return null;
+}
+
+/** The prefixes, for the page. */
+export const OWNER_SURFACE_PREFIXES = OWNER_SURFACE.map((r) => ({ prefix: r.prefix, methods: r.methods, why: r.why }));
+
+/**
  * The one thing index.ts imports. Never throws: a middleware that threw would
  * take out every route behind it, and the failure would look like the whole
  * API being down rather than like a lock being stuck.
  */
 export async function ownerGate(c: Context, next: Next) {
+  /*
+    THE AGENT SCOPE IS CHECKED BEFORE THE PASSWORD, AND THAT ORDER IS THE
+    WHOLE POINT.
+
+    Everything below this block is about the OWNER's lock and does nothing
+    until a password exists. The agent boundary is not that lock: it is the
+    answer to "the thing holding this key is a child process I started, and it
+    may not restore a backup", which is true on a box with no password at all —
+    which is the shipped state and the state most boxes stay in. A boundary
+    that only appeared once somebody typed a password would be a boundary
+    almost nobody has.
+
+    Nothing but a spawned agent ever presents this key: it is written to a
+    separate file, in a separate directory, handed only to the `opc` wrapper
+    and the MCP subprocess. A request carrying it is an agent request by
+    construction, and this is where an agent request is told no.
+  */
+  const presentedScope = keyScope(presentedKey(c.req.raw.headers));
+  if (presentedScope === "agent") {
+    const refusal = agentRefusal(c.req.method, c.req.path);
+    if (refusal) return c.json({ error: refusal }, 403);
+  }
+
   /* THE FIRST AND LAST QUESTION. No password, no gate — not "an empty
      allow-list", not "a check that always passes": the request goes straight
      through, exactly as it did before this file existed. */
@@ -84,7 +166,9 @@ export async function ownerGate(c: Context, next: Next) {
 
   if (OPEN.has(`${c.req.method} ${c.req.path}`)) return next();
 
-  if (isServiceKey(presentedKey(c.req.raw.headers))) return next();
+  /* Either key opens the lock; what the AGENT one may then reach was already
+     decided at the top of this function. */
+  if (presentedScope) return next();
 
   const session = liveSession(cookieValue(c.req.header("cookie")));
   if (session) {

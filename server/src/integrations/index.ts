@@ -12,14 +12,24 @@ import { manifest as runs } from "./runs/manifest.ts";
 import { manifest as subagents } from "./subagents/manifest.ts";
 import { manifest as chief } from "./chief/manifest.ts";
 import { manifest as mailflow } from "./mailflow/manifest.ts";
+import { manifest as migrate } from "./migrate/manifest.ts";
 import { manifest as activity } from "./activity/manifest.ts";
 import { manifest as proactive } from "./proactive/manifest.ts";
 import { manifest as people } from "./people/manifest.ts";
 import { manifest as security } from "./security/manifest.ts";
 import { manifest as video } from "./video/manifest.ts";
 import { manifest as growth } from "./growth/manifest.ts";
+import { manifest as publishing } from "./publishing/manifest.ts";
+import { manifest as nurture } from "./nurture/manifest.ts";
+import { manifest as mobilehealth } from "./mobilehealth/manifest.ts";
+import { manifest as agentcore } from "./agentcore/manifest.ts";
+import { manifest as knowledge } from "./knowledge/manifest.ts";
+import { manifest as deploy } from "./deploy/manifest.ts";
+import { manifest as finance } from "./finance/manifest.ts";
+import { manifest as customers } from "./customers/manifest.ts";
+import { manifest as pipeline } from "./pipeline/manifest.ts";
 
-export const MANIFESTS: IntegrationManifest[] = [analytics, ops, signals, ventures, runs, subagents, chief, mailflow, activity, proactive, people, security, video, growth];
+export const MANIFESTS: IntegrationManifest[] = [analytics, ops, signals, ventures, runs, subagents, chief, mailflow, activity, proactive, people, security, video, growth, mobilehealth, agentcore, knowledge, deploy, finance, pipeline, customers, migrate, nurture, publishing];
 
 export function manifestPlugins(): Record<string, PluginRegistryEntry> {
   return Object.assign({}, ...MANIFESTS.map((m) => m.plugins ?? {}));

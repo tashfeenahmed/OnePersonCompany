@@ -214,12 +214,14 @@ import { VentureMark } from "@/components/VentureChrome";
 import { Markdown } from "@/components/Markdown";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { ToolCallLine } from "@/components/ToolCallLine";
+import { attachChatRun, cancelChatRun, type ChatRunHandlers } from "@/lib/chatRuns";
 import {
   ApiError,
   api,
   type ChatBackendId,
   type ChatBackends,
   type ChatMessage,
+  type ChatRunState,
   type ChatToolCall,
   type MessageBackendId,
   type ModelProviders,
@@ -518,8 +520,25 @@ function Thinking({ text, done }: { text: string; done: boolean }) {
  * conversation does not have the sentence currently arriving in it.
  */
 type Flight = {
-  /** The stop button's other end, for THIS chat and no other. */
+  /**
+   * DETACHES THIS PAGE FROM THE STREAM — it does not stop the turn.
+   *
+   * It used to be the stop button's other end, back when a closed socket
+   * cancelled the agent. The server owns the run now, so this only ends the
+   * reading; `runId` below is what stops the answer.
+   */
   controller: AbortController;
+  /**
+   * The server-side run this turn is, once it has said so.
+   *
+   * Null for the moment between the request leaving and the first frame
+   * arriving — which is why `stopRequested` exists, so a button pressed inside
+   * that moment is honoured rather than lost.
+   */
+  runId: string | null;
+  /** The owner has pressed stop; send the cancel as soon as there is an id to
+   *  send it against. */
+  stopRequested: boolean;
   /** The answer so far. */
   text: string;
   /** The model's working so far, if it shows any. Never drawn as the answer. */
@@ -1017,6 +1036,24 @@ export function Chat() {
         /* The session read carries the backend state with it — one fetch for
            two things wanted at the same instant. */
         setBackends(doc);
+        /*
+          AND IF IT IS STILL BEING ANSWERED, PICK THE ANSWER BACK UP.
+
+          This is the reload the page used to say it could not survive. The
+          transcript above is what was STORED — the question, and any earlier
+          turns — and `doc.run` says whether the server is still writing the
+          next one. When it is, the flight is rebuilt from the stored rows and
+          the run is replayed from its first frame: `since=0`, because a page
+          that has just loaded has no words on screen and needs all of them.
+          The buffer is on the server, so what arrives is the answer as it was
+          watched, tool lines and all, continuing live from wherever it has got
+          to.
+
+          It comes from the SAME fetch as the messages, which is what keeps the
+          reload from flickering between "cut off" and "still writing".
+        */
+        if (doc.run && doc.run.status === "running" && doc.run.attachable)
+          reattach(sessionId, doc.run, doc.messages);
       })
       .catch((e: unknown) => {
         if (showing.current !== sessionId || flights.has(sessionId))
@@ -1030,6 +1067,12 @@ export function Chat() {
               : "The API did not answer. Is the server running?",
         });
       });
+    /* `reattach` is a plain function on the component and is recreated every
+       render; listing it would re-run this loader on every render and re-fetch
+       the transcript with it. It is called from a promise that has already
+       checked `showing.current`, so a stale one cannot write into the wrong
+       chat. */
+    /* eslint-disable-next-line react-hooks/exhaustive-deps -- see above */
   }, [sessionId, refreshBackends]);
 
   /*
@@ -1182,113 +1225,84 @@ export function Chat() {
 
   /* ------------------------------------------------------------- sending */
 
-  async function send() {
-    const trimmed = text.trim();
-    /*
-      A CHAT THAT IS ALREADY ANSWERING DOES NOT TAKE A SECOND QUESTION — and
-      that is now the ONLY thing being refused. The guard used to be a
-      page-wide `sending` flag, which also refused a question put to a
-      DIFFERENT chat while any answer anywhere was being written. With one
-      record per session there is no reason for that: the composer of a quiet
-      chat works while three others are streaming.
-    */
-    if (!trimmed || (sessionId && flights.has(sessionId))) return;
-
-    /*
-      A SESSION IS CREATED ONLY WHEN THERE IS NOT ONE ALREADY, and being at `/`
-      is what makes that happen — no id in the address is the empty composer,
-      and this is the line that finally makes the row, on the first thing said
-      and named after it. The old mock made a new session on EVERY send, which
-      was harmless when nothing was stored and would now start a fresh
-      conversation with every sentence, the agent losing the thread between one
-      message and the next.
-
-      The title comes from the same rule the rail uses when a conversation
-      arrives from the server with no name in the store — one function, so a
-      chat started here and the same chat seen from another door get one name.
-    */
-    const id =
-      sessionId ?? addSession(sessionTitle(trimmed), target?.id ?? null).id;
-    showing.current = id;
-
-    setText("");
-    setSwitchFailure(null);
-    /* Last time's failure and last time's queue wait are about last time. */
-    lastTurn.delete(id);
-
-    /*
-      The owner's own words go on screen immediately, with a negative id so it
-      cannot collide with a real row. The server stores the user message BEFORE
-      it asks the agent, so this optimistic row is replaced by a real one that
-      is genuinely there — including when the turn then fails, which is exactly
-      when somebody wants their question back.
-    */
-    const optimistic: ChatMessage = {
-      id: -Date.now(),
-      ts: new Date().toISOString(),
-      role: "user",
-      content: trimmed,
-      backend: null,
-      channel: "web",
-      model: null,
-      usage: null,
-      ms: null,
-      tools: null,
-      partial: false,
-    };
-
-    /*
-      THE RECORD, MADE BEFORE THE REQUEST LEAVES.
-
-      One fact, read by everything downstream: the loader's guard, the
-      composer's button, the rail's mark, and the bubble the answer grows into.
-      The alternative — a boolean for busy, a controller in one ref, a bubble
-      in state — is four things that have to be kept in step, and they were
-      exactly the four that could only ever describe one conversation.
-
-      Its `messages` are the rows on screen for THIS chat plus the question
-      just asked. They live on the record rather than in `convo` because
-      `convo` is about the chat being LOOKED AT, and this one may stop being
-      that a second from now.
-    */
+  /**
+   * PICK UP AN ANSWER THIS PAGE DID NOT ASK FOR.
+   *
+   * Called when a conversation is opened and the server says a run is still
+   * writing into it — after a reload, in a second tab, or on the phone that was
+   * not the device the question was typed on. It builds the same record a
+   * `send` would have built, from the rows the transcript already has, and
+   * hands it the reattach door instead of the composer's.
+   *
+   * `since` IS 0 AND NOT THE RUN'S `lastSeq`. The two are different requests:
+   * "give me the tail" is for a client that was reading and dropped, and
+   * "give me the whole turn" is for one that has just arrived with an empty
+   * bubble. This is always the second — the words are not on screen, so
+   * resuming from the end would show a paragraph that begins in the middle.
+   *
+   * GUARDED, because two effects can race: a rail click and a URL change can
+   * both land on the same session in one tick, and two flights for one chat
+   * would be two readers writing into one buffer.
+   */
+  function reattach(id: string, run: ChatRunState, stored: ChatMessage[]) {
+    if (flights.has(id)) return;
     const controller = new AbortController();
     const flight: Flight = {
       controller,
+      runId: run.runId,
+      stopRequested: false,
       text: "",
       reasoning: "",
       tools: [],
-      startedAt: Date.now(),
-      messages: [...(convo.id === id ? convo.messages : []), optimistic],
+      /* When the TURN started, not when this page found it. The field is what a
+         "still going after two minutes" line would be measured from, and
+         measuring it from the reload would restart that clock. */
+      startedAt: Date.parse(run.startedAt) || Date.now(),
+      messages: [...stored],
       queuedMs: null,
       failure: null,
     };
     flights.set(id, flight);
     pending.delete(id);
-    /* The rail's mark, from the moment the request leaves rather than from the
-       first byte: what it reports is "this chat is answering", and that is
-       true while the gateway is still deciding to say anything. */
+    lastTurn.delete(id);
+    /* The rail's mark, from the moment this page knows there is an answer
+       coming — the same fact `send` sets, arrived at from the other direction. */
     setSessionStreaming(id, true);
-
-    /*
-      THE NEW CHAT TAKES ITS OWN ADDRESS, the moment it has one.
-
-      REPLACE, NOT PUSH. `/` and the conversation it just became are one place
-      — the composer did not move, it acquired a name — so a history entry
-      between them would give Back a step that leads to an empty composer for a
-      chat that now exists, one press away from the page the owner actually
-      came from.
-
-      AFTER THE RECORD IS IN THE MAP, deliberately. Navigating re-runs the
-      transcript loader for this id, and the only thing that stops it fetching
-      a conversation the server has not been told about yet — and painting its
-      empty answer over the question just asked — is finding the flight
-      already there. React batches both into one render, so the order is not
-      strictly load-bearing today; it is written this way so that it cannot
-      become load-bearing later without somebody noticing.
-    */
-    if (!sessionId) navigate(`/chat/${encodeURIComponent(id)}`, { replace: true });
     forceRepaint();
 
+    void consume(
+      id,
+      flight,
+      (handlers, signal) => attachChatRun(run.runId, 0, handlers, signal),
+      null,
+    );
+  }
+
+  /**
+   * READ ONE TURN'S EVENTS INTO A FLIGHT, whichever door they came through.
+   *
+   * TWO DOORS AND ONE BODY, which is the whole reason this is a function. A
+   * turn arrives here either because this page asked the question — `POST
+   * /chat/stream`, the composer's door — or because the page was RELOADED
+   * while an answer was being written and reattached to it — `GET
+   * /chat/runs/<id>/events`, which replays the buffer and then continues live.
+   * Those two produce identical events, and the moment they had two readers
+   * they would begin to differ: the reattached one would merge a tool call
+   * slightly differently, or forget to flush before applying an offset, and a
+   * refresh would quietly redraw a transcript that had been right.
+   *
+   * So `open` is the only difference. Everything below — the buffering, the
+   * tool merge, what a failure leaves behind, who is told — happens once.
+   */
+  async function consume(
+    id: string,
+    flight: Flight,
+    open: (handlers: ChatRunHandlers, signal: AbortSignal) => Promise<void>,
+    /** The negative id of the row put on screen before the server answered, or
+     *  null when reattaching — there is nothing optimistic about a question the
+     *  transcript already contains. */
+    optimisticId: number | null,
+  ) {
     /* Whether a `done` arrived. Everything else — a stop, a dead gateway, an
        error event — is the other case, and it has one recovery: re-read the
        transcript, because the server has already written down whatever was
@@ -1296,11 +1310,25 @@ export function Chat() {
     let completed = false;
 
     try {
-      await api.chatStream(
-        id,
-        trimmed,
+      await open(
         {
+          /*
+            THE RUN'S ID, WHICH IS WHAT THE STOP BUTTON NEEDS. Closing a socket
+            no longer stops an answer — the server owns the turn — so cancelling
+            is a request, and this is the only place the id arrives on the
+            composer's door. A stop pressed before it got here is remembered on
+            the record and sent the moment it does.
+          */
+          onRun: (e) => {
+            flight.runId = e.runId;
+            if (flight.stopRequested) void cancelChatRun(e.runId).catch(() => {});
+          },
+
           onStart: (e) => {
+            if (e.runId) {
+              flight.runId = e.runId;
+              if (flight.stopRequested) void cancelChatRun(e.runId).catch(() => {});
+            }
             /*
               The optimistic row is replaced by the STORED one the moment the
               server confirms it. Not cosmetic: the optimistic id is negative
@@ -1308,9 +1336,10 @@ export function Chat() {
               keeps the fake id would break the moment anything wanted to
               address that message.
             */
-            flight.messages = flight.messages.map((m) =>
-              m.id === optimistic.id ? e.user : m,
-            );
+            if (optimisticId !== null)
+              flight.messages = flight.messages.map((m) =>
+                m.id === optimisticId ? e.user : m,
+              );
             announce(id);
           },
 
@@ -1393,31 +1422,24 @@ export function Chat() {
             /* The server has already written the partial row by the time this
                arrives — that ordering is its guarantee — so there is nothing
                to keep on screen here. The reload below picks up what was
-               stored, flagged as cut off. */
-            flight.failure = e.message;
+               stored, flagged as cut off.
+
+               A CANCEL IS NOT A FAILURE. The owner pressed the button; the
+               answer so far is about to appear as a partial message, which says
+               everything the interface needs to, and a red banner under it
+               would be the page reporting the owner to themselves. */
+            if (!e.cancelled) flight.failure = e.message;
             announce(id);
           },
         },
-        controller.signal,
-        /*
-          THE VENTURE GOES WITH THE QUESTION, not with the session.
-
-          It is read from the picker at the moment of sending rather than from
-          the session's stored `ventureId`, because the picker is what the
-          owner just looked at — changing it and asking is one gesture. The
-          server turns it into one system turn of context (name, stage, what
-          the owner said it is) and stores none of it, so a chat re-filed
-          tomorrow does not carry today's answer to "how is it doing".
-        */
-        target?.id ?? null,
+        flight.controller.signal,
       );
     } catch (e: unknown) {
       /*
-        A REFUSAL, OR A STOP. `chatStream` throws for the errors that happen
+        A REFUSAL, OR A DETACH. `chatStream` throws for the errors that happen
         BEFORE the stream opens — no agent live, message too long, API down —
-        and for an abort. The abort is not a failure and gets no banner: the
-        owner pressed the button, and the answer so far is about to appear as
-        a partial message, which says everything the interface needs to.
+        and for an abort. An abort no longer means the turn stopped: it means
+        this page stopped READING it, which is not a failure and gets no banner.
 
         The failure goes on the RECORD whether or not this chat is the one on
         screen — and it is only ever drawn under the chat it happened in, so a
@@ -1426,8 +1448,8 @@ export function Chat() {
         after the record is dropped, which is what lets it survive this page
         being unmounted altogether.
       */
-      const stopped = controller.signal.aborted;
-      if (!stopped)
+      const detached = flight.controller.signal.aborted;
+      if (!detached)
         flight.failure =
           e instanceof Error
             ? e.message
@@ -1442,7 +1464,7 @@ export function Chat() {
     } finally {
       /*
         EVERYTHING STILL BUFFERED GOES IN BEFORE THE RECORD IS DROPPED —
-        including other chats’, which costs nothing: `flush` is the one frame
+        including other chats', which costs nothing: `flush` is the one frame
         they were already waiting for, and a buffer whose record has gone is
         discarded by it rather than stranded.
       */
@@ -1483,12 +1505,152 @@ export function Chat() {
     }
   }
 
+  async function send() {
+    const trimmed = text.trim();
+    /*
+      A CHAT THAT IS ALREADY ANSWERING DOES NOT TAKE A SECOND QUESTION — and
+      that is now the ONLY thing being refused. The guard used to be a
+      page-wide `sending` flag, which also refused a question put to a
+      DIFFERENT chat while any answer anywhere was being written. With one
+      record per session there is no reason for that: the composer of a quiet
+      chat works while three others are streaming.
+    */
+    if (!trimmed || (sessionId && flights.has(sessionId))) return;
+
+    /*
+      A SESSION IS CREATED ONLY WHEN THERE IS NOT ONE ALREADY, and being at `/`
+      is what makes that happen — no id in the address is the empty composer,
+      and this is the line that finally makes the row, on the first thing said
+      and named after it. The old mock made a new session on EVERY send, which
+      was harmless when nothing was stored and would now start a fresh
+      conversation with every sentence, the agent losing the thread between one
+      message and the next.
+
+      The title comes from the same rule the rail uses when a conversation
+      arrives from the server with no name in the store — one function, so a
+      chat started here and the same chat seen from another door get one name.
+    */
+    const id =
+      sessionId ?? addSession(sessionTitle(trimmed), target?.id ?? null).id;
+    showing.current = id;
+
+    setText("");
+    setSwitchFailure(null);
+    /* Last time's failure and last time's queue wait are about last time. */
+    lastTurn.delete(id);
+
+    /*
+      The owner's own words go on screen immediately, with a negative id so it
+      cannot collide with a real row. The server stores the user message BEFORE
+      it asks the agent, so this optimistic row is replaced by a real one that
+      is genuinely there — including when the turn then fails, which is exactly
+      when somebody wants their question back.
+    */
+    const optimistic: ChatMessage = {
+      id: -Date.now(),
+      ts: new Date().toISOString(),
+      role: "user",
+      content: trimmed,
+      backend: null,
+      channel: "web",
+      model: null,
+      usage: null,
+      ms: null,
+      tools: null,
+      partial: false,
+    };
+
+    /*
+      THE RECORD, MADE BEFORE THE REQUEST LEAVES.
+
+      One fact, read by everything downstream: the loader's guard, the
+      composer's button, the rail's mark, and the bubble the answer grows into.
+      The alternative — a boolean for busy, a controller in one ref, a bubble
+      in state — is four things that have to be kept in step, and they were
+      exactly the four that could only ever describe one conversation.
+
+      Its `messages` are the rows on screen for THIS chat plus the question
+      just asked. They live on the record rather than in `convo` because
+      `convo` is about the chat being LOOKED AT, and this one may stop being
+      that a second from now.
+    */
+    const controller = new AbortController();
+    const flight: Flight = {
+      controller,
+      runId: null,
+      stopRequested: false,
+      text: "",
+      reasoning: "",
+      tools: [],
+      startedAt: Date.now(),
+      messages: [...(convo.id === id ? convo.messages : []), optimistic],
+      queuedMs: null,
+      failure: null,
+    };
+    flights.set(id, flight);
+    pending.delete(id);
+    /* The rail's mark, from the moment the request leaves rather than from the
+       first byte: what it reports is "this chat is answering", and that is
+       true while the gateway is still deciding to say anything. */
+    setSessionStreaming(id, true);
+
+    /*
+      THE NEW CHAT TAKES ITS OWN ADDRESS, the moment it has one.
+
+      REPLACE, NOT PUSH. `/` and the conversation it just became are one place
+      — the composer did not move, it acquired a name — so a history entry
+      between them would give Back a step that leads to an empty composer for a
+      chat that now exists, one press away from the page the owner actually
+      came from.
+
+      AFTER THE RECORD IS IN THE MAP, deliberately. Navigating re-runs the
+      transcript loader for this id, and the only thing that stops it fetching
+      a conversation the server has not been told about yet — and painting its
+      empty answer over the question just asked — is finding the flight
+      already there. React batches both into one render, so the order is not
+      strictly load-bearing today; it is written this way so that it cannot
+      become load-bearing later without somebody noticing.
+    */
+    if (!sessionId) navigate(`/chat/${encodeURIComponent(id)}`, { replace: true });
+    forceRepaint();
+
+    /*
+      THE VENTURE GOES WITH THE QUESTION, not with the session.
+
+      It is read from the picker at the moment of sending rather than from the
+      session's stored `ventureId`, because the picker is what the owner just
+      looked at — changing it and asking is one gesture. The server turns it
+      into one system turn of context (name, stage, what the owner said it is)
+      and stores none of it, so a chat re-filed tomorrow does not carry today's
+      answer to "how is it doing".
+    */
+    await consume(
+      id,
+      flight,
+      (handlers, signal) =>
+        api.chatStream(id, trimmed, handlers, signal, target?.id ?? null),
+      optimistic.id,
+    );
+  }
+
   /**
    * Stop the agent mid-answer — THIS chat's answer, and no other.
    *
-   * One abort, all the way down: the fetch body closes, the server sees a
-   * disconnect, and its own call to the agent is cancelled. What was already
-   * said is stored as partial, so nothing on screen is lost by pressing this.
+   * A REQUEST NOW, NOT AN ABORT. Closing the socket used to be the whole of
+   * this: the fetch body closed, the server saw a disconnect and cancelled its
+   * own call to the agent. That chain is deliberately broken — a turn is the
+   * server's work and survives a closed tab — so stopping is
+   * `POST /chat/runs/<id>/cancel`, and aborting the fetch would now only mean
+   * this page stopped watching an answer that kept being written.
+   *
+   * WHAT WAS SAID IS STILL KEPT: the server writes the partial row before it
+   * reports the run cancelled, exactly as it did before.
+   *
+   * A STOP PRESSED BEFORE THE RUN HAS AN ID is remembered rather than dropped.
+   * There is a moment between the request leaving and the `run` frame arriving,
+   * and a button that did nothing in it would be a button that occasionally
+   * does nothing — which is worse than one that is slow, because nobody can
+   * tell which press was the one that missed.
    *
    * A CHAT THAT IS NOT ON SCREEN HAS NO STOP BUTTON, deliberately. The control
    * lives in the composer, the composer belongs to the conversation being
@@ -1498,7 +1660,10 @@ export function Chat() {
    */
   function stop() {
     if (!sessionId) return;
-    flights.get(sessionId)?.controller.abort();
+    const inFlight = flights.get(sessionId);
+    if (!inFlight) return;
+    inFlight.stopRequested = true;
+    if (inFlight.runId) void cancelChatRun(inFlight.runId).catch(() => {});
   }
 
   async function chooseBackend(id: ChatBackendId | null) {

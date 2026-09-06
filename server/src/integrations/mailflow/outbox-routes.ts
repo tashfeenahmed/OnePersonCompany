@@ -38,6 +38,7 @@ import {
   floorBlocker,
   fromAddress,
   preview,
+  routeOrReason,
   row,
   rows,
   sendApproved,
@@ -66,10 +67,30 @@ function viaSkills(c: { req: { header: (n: string) => string | undefined } }): b
 
 function shape(r: OutboxRow, names: Map<string, string>) {
   const s = settings();
+  /* The From line comes from the ROUTE now, not from the Gmail mailbox alone.
+     A row with no identity resolves to exactly what it always did; a row with
+     one resolves through the identity, and a route that REFUSES (a Resend key
+     re-pointed at another domain) comes back as a sentence rather than as a
+     failed listing — the card has to be readable in order to be fixed. */
+  const { route, reason } = routeOrReason(r);
   return {
     id: r.id,
     approvalKey: approvalKey(r),
-    from: fromAddress(r.account_id),
+    from: route?.address ?? fromAddress(r.account_id),
+    fromName: route?.line !== route?.address ? (route?.line ?? null) : null,
+    via: route?.via ?? null,
+    replyTo: route?.replyTo ?? null,
+    fromError: reason,
+    identityId: r.identity_id,
+    /** Whether this draft carries a plan and a fact packet. The Outbox card
+     *  fetches them from /api/nurture/drafts/:id on demand; fanning a packet
+     *  out forty times in one listing would be most of the response. */
+    hasReasons: r.plan !== null,
+    sequenceId: r.sequence_id,
+    sequenceStep: r.sequence_step,
+    sentVia: r.sent_via,
+    deliveryEvent: r.delivery_event,
+    deliveryReadAt: r.delivery_read_at,
     accountId: r.account_id,
     to: r.to_address,
     subject: r.subject,

@@ -17,7 +17,7 @@
  */
 import { fileURLToPath } from "node:url";
 import { apiBase } from "./registry.ts";
-import { serviceKey } from "../auth.ts";
+import { agentKey } from "../auth.ts";
 
 export type McpCommand = {
   command: string;
@@ -49,7 +49,7 @@ export function mcpCommand(): McpCommand {
   return {
     command: process.execPath,
     args: ["--experimental-strip-types", fileURLToPath(new URL("mcp.ts", import.meta.url))],
-    env: { OPC_API: apiBase(), OPC_KEY: serviceKey() },
+    env: { OPC_API: apiBase(), OPC_KEY: agentKey() },
   };
 }
 

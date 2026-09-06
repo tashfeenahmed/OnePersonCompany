@@ -106,14 +106,25 @@ const b64url = (b: Buffer | string) => Buffer.from(b).toString("base64url");
  * and both of them are Hono — a library that compiles at install time is a
  * library that eventually fails to install on the Pi this is meant to run on.
  */
-export async function accessToken(sa: ServiceAccount): Promise<string> {
+/**
+ * `scope` IS A PARAMETER AND DEFAULTS TO THE BUCKET'S. That is the whole of
+ * what this file ever asks for and the header above explains why. It is
+ * overridable because the mobilehealth area mints SEPARATE tokens against the
+ * same key file — one for the Play Developer Reporting API, one for
+ * androidpublisher — and each of those APIs can be switched off on the project
+ * on its own. Minting them apart is precisely what stops an API nobody has
+ * enabled from costing this integration its installs: a token carrying a scope
+ * the project does not allow fails at the token endpoint, and a token minted
+ * for the bucket alone never sees that failure.
+ */
+export async function accessToken(sa: ServiceAccount, scope = SCOPE): Promise<string> {
   const uri = sa.token_uri ?? "https://oauth2.googleapis.com/token";
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(
     JSON.stringify({ alg: "RS256", typ: "JWT", kid: sa.private_key_id }),
   );
   const claims = b64url(
-    JSON.stringify({ iss: sa.client_email, scope: SCOPE, aud: uri, iat: now, exp: now + 3600 }),
+    JSON.stringify({ iss: sa.client_email, scope, aud: uri, iat: now, exp: now + 3600 }),
   );
 
   let key;

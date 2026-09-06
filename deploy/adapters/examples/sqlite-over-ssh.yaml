@@ -1,0 +1,69 @@
+# SQLITE ON A SMALL BOX, REACHED OVER SSH.
+#
+# The shape of a self-hosted single-binary product: one file, one users table,
+# timestamps stored as whatever the framework felt like, and the only real
+# signal about who is a customer being whether a payment-provider id was ever
+# written onto the row.
+#
+# TWO THINGS THIS EXAMPLE EXISTS TO SHOW.
+#
+# 1. THE DATABASE IS OPENED READ-ONLY, through the `file:…?mode=ro` URI the
+#    driver builds. An adapter must not be able to write to the product's own
+#    database even by accident, and `-readonly` is not on every sqlite3 build.
+#
+# 2. `created_at` IS A LOCAL-TIME STRING WITH NO ZONE, which is the most common
+#    honest-looking mistake in this whole directory: it validates, it charts,
+#    and every signup is an hour out for half the year. It is fixed HERE, in
+#    the query, where the timezone is known — never downstream.
+#
+# WHAT TO CHANGE: the ssh host, the database path, the table and column names,
+# and the timezone in the datetime() call.
+
+contract: users
+product: Example self-hosted product
+
+source:
+  driver: sqlite
+  dsn: /var/lib/example/app.db
+  ssh: root@10.0.0.9
+  ssh_key: ~/.ssh/opc-adapter
+
+  query: |
+    SELECT CAST(id AS TEXT)                                          AS id,
+           email                                                     AS email,
+           strftime('%Y-%m-%dT%H:%M:%SZ',
+                    datetime(created_at, 'utc'))                     AS createdAt,
+           CASE WHEN stripe_customer_id IS NOT NULL
+                 AND stripe_customer_id <> '' THEN 1 ELSE 0 END      AS paid,
+           strftime('%Y-%m-%dT%H:%M:%SZ',
+                    datetime(last_login, 'utc'))                     AS lastSeenAt,
+           CASE WHEN is_admin = 1            THEN 'admin'
+                WHEN email LIKE '%@example.com' THEN 'internal'
+                WHEN stripe_customer_id IS NOT NULL
+                 AND stripe_customer_id <> '' THEN 'customer'
+                ELSE 'free' END                                      AS kind
+      FROM users
+     WHERE deleted_at IS NULL
+
+# The classification is done in SQL here rather than by a value map, because
+# "is a customer" on this product is a condition and not a column. `map` still
+# translates the labels the query invents, so both halves are visible in one
+# place and neither can drift from the other.
+population:
+  default: customer
+  column: kind
+  map:
+    admin: admin
+    internal: internal
+    customer: customer
+    # Signed up, never paid, and the product genuinely tracks the difference —
+    # which is what `trial` is for. If it did not track it, these would be
+    # `customer` and the note in step 8 would say so.
+    free: trial
+
+# paid arrives as 1 or 0 out of SQLite, which has no boolean type.
+paid_true_values: [1, "1", "t", "true"]
+
+output:
+  path: /var/lib/example/opc-users.json
+  shape: users

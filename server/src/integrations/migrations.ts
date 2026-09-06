@@ -13,8 +13,18 @@ import { MIGRATIONS as people } from "./people/migrations.ts";
 import { MIGRATIONS as security } from "./security/migrations.ts";
 import { MIGRATIONS as video } from "./video/migrations.ts";
 import { MIGRATIONS as growth } from "./growth/migrations.ts";
+import { MIGRATIONS as publishing } from "./publishing/migrations.ts";
+import { MIGRATIONS as nurture } from "./nurture/migrations.ts";
+import { MIGRATIONS as mobilehealth } from "./mobilehealth/migrations.ts";
+import { MIGRATIONS as agentcore } from "./agentcore/migrations.ts";
+import { MIGRATIONS as knowledge } from "./knowledge/migrations.ts";
+import { MIGRATIONS as deploy } from "./deploy/migrations.ts";
+import { MIGRATIONS as finance } from "./finance/migrations.ts";
+import { MIGRATIONS as customers } from "./customers/migrations.ts";
+import { MIGRATIONS as pipeline } from "./pipeline/migrations.ts";
+import { MIGRATIONS as migrate } from "./migrate/migrations.ts";
 
-export const INTEGRATION_MIGRATIONS = [...analytics, ...ops, ...signals, ...ventures, ...runs, ...subagents, ...chief, ...mailflow, ...activity, ...proactive, ...people, ...security, ...video, ...growth, { name: "190_workspace_preferences", sql: `CREATE TABLE workspace_preferences (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL);` },
+export const INTEGRATION_MIGRATIONS = [...analytics, ...ops, ...signals, ...ventures, ...runs, ...subagents, ...chief, ...mailflow, ...activity, ...proactive, ...people, ...security, ...video, ...growth, ...publishing, ...mobilehealth, ...agentcore, ...knowledge, ...deploy, ...finance, ...customers, ...pipeline, ...nurture, ...migrate, { name: "190_workspace_preferences", sql: `CREATE TABLE workspace_preferences (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL);` },
   { name: "191_action_inbox", sql: `CREATE TABLE action_inbox_state (id TEXT PRIMARY KEY, resolved_at TEXT, snoozed_until TEXT);` },
   { name: "192_job_controls", sql: `
     ALTER TABLE agent_runs ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;

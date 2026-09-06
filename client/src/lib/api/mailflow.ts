@@ -121,6 +121,27 @@ export type OutboxItem = {
   /** Gmail's own id for the sent copy. The only proof anything left. */
   messageId: string | null;
   error: string | null;
+  /** The sending identity this is written FROM, when it has one. NULL is the
+   *  original behaviour: the Gmail account on the row, from the address Google
+   *  itself reported. `via` says which door it would leave by. */
+  identityId: number | null;
+  fromName: string | null;
+  via: "gmail" | "resend" | null;
+  replyTo: string | null;
+  /** Why the From line could not be resolved — a Resend key pointed at another
+   *  domain, a Gmail account disconnected. NULL when it resolved. */
+  fromError: string | null;
+  /** Whether this draft carries a plan and a fact packet. A draft typed by hand
+   *  does not, and that absence is honest: nobody validated it against
+   *  anything. */
+  hasReasons: boolean;
+  sequenceId: number | null;
+  sequenceStep: number | null;
+  sentVia: string | null;
+  /** Resend's own last event for a sent copy. NULL means NOT READ — never "not
+   *  delivered". */
+  deliveryEvent: string | null;
+  deliveryReadAt: string | null;
 };
 
 export type OutboxDoc = {

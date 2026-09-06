@@ -1,12 +1,17 @@
 import { useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { CalendarClock, Compass, Brain, Target } from "lucide-react";
+import { CalendarClock, Compass, Brain, Target, Workflow } from "lucide-react";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { TabStrip, type Tab } from "@/components/TabStrip";
 import { GoalsTab } from "./GoalsTab";
 import { MemoryTab } from "./MemoryTab";
 import { OutcomesTab } from "./OutcomesTab";
 import { RoundsTab } from "./RoundsTab";
+/* The pipeline lives in its own area directory and is reached from here rather
+   than from a rail row of its own: it answers the same question this page
+   already exists to answer — what the estate does when nobody is looking —
+   only one level up from the rounds, which are now one of its stages. */
+import { PipelineTab } from "@/areas/pipeline/PipelineTab";
 
 /**
  * THE CHIEF OF STAFF'S OWN PAGE.
@@ -24,6 +29,7 @@ import { RoundsTab } from "./RoundsTab";
  */
 
 const TABS: { key: string; label: string; icon: typeof Compass }[] = [
+  { key: "pipeline", label: "Pipeline", icon: Workflow },
   { key: "rounds", label: "Rounds", icon: CalendarClock },
   { key: "goals", label: "Goals", icon: Target },
   { key: "memory", label: "Memory", icon: Brain },
@@ -31,6 +37,8 @@ const TABS: { key: string; label: string; icon: typeof Compass }[] = [
 ];
 
 const SUB: Record<string, string> = {
+  pipeline:
+    "One schedule for everything that runs on its own: the stages, the night's result, and the actions it proposed.",
   rounds: "What the estate does on its own, and every job it decided not to do.",
   goals: "What you are trying to do — read into every conversation, and into every scheduled brief.",
   memory: "What the assistant knows about you, dated, and yours to correct.",
@@ -58,6 +66,7 @@ export function Workflows() {
       <TopBar label="Workflows" />
       <PageShell title="Workflows" sub={SUB[tab]} wide>
         <TabStrip tabs={tabs} activeKey={tab} onReorder={setOrder} className="mb-5" />
+        {tab === "pipeline" && <PipelineTab />}
         {tab === "rounds" && <RoundsTab />}
         {tab === "goals" && <GoalsTab />}
         {tab === "memory" && <MemoryTab />}

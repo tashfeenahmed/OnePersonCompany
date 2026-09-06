@@ -132,6 +132,32 @@ export const DEFAULTS: Record<string, Default[]> = {
     },
   ],
 
+  stability: [
+    {
+      name: "Crash rate rose against last week",
+      skill: "stability",
+      view: "default",
+      params: { days: 30 },
+      path: "alerting.worstCrashRate",
+      op: "rose_by_pct",
+      threshold: 25,
+      windowMinutes: 7 * 24 * 60,
+      ventureId: null,
+      enabled: true,
+      cooldownMinutes: 720,
+      why:
+        "The worst crash rate any app reported over its vitals window, as a " +
+        "fraction of distinct users, compared with the figure THIS BOX RECORDED " +
+        "a week ago. `alerting.worstCrashRateApp` beside it names which app it " +
+        "is, and the document's `rates` block breaks it down by version code. " +
+        "The Play Developer Reporting API's window ends at its own freshness " +
+        "several days back, so this cannot speak about a release shipped " +
+        "yesterday. It says nothing at all until there are two weeks of " +
+        "readings, and a week with no crash data is `unreadable` rather than a " +
+        "rate of zero.",
+    },
+  ],
+
   umami: [
     {
       name: "Pageviews dropped by half against last week",

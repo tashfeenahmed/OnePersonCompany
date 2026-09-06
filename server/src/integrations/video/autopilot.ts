@@ -53,6 +53,12 @@ import { studioRoutes } from "../ventures/studio.ts";
 import { queuedCount, runningRow } from "../runs/store.ts";
 import { dispatch, type DispatchBody } from "../subagents/routes.ts";
 import { ensureTeam, subagentId, subagentRow } from "../subagents/store.ts";
+/* THE ONE LINE THAT CONNECTS THIS TO PUBLISHING, added 2026-09-06. A finished
+   post is filed into the publishing queue AS A DRAFT — see
+   integrations/publishing/autopilot-hook.ts, which explains why the strongest
+   thing a setting there can do is propose a date. The claim in this file's
+   header stands: nothing here publishes anything anywhere. */
+import { onAutopilotAsset } from "../publishing/autopilot-hook.ts";
 
 export const AUTOPILOT_PLUGIN = "autopilot";
 
@@ -409,7 +415,25 @@ export async function runPass(trigger: "clock" | "manual"): Promise<PassResult> 
           else {
             const post = await makePost(v, topic.topic);
             if ("error" in post) record({ v, kind: "post", action: "failed", note: post.error });
-            else record({ v, kind: "post", action: "queued", ref: post.id, note: topic.topic });
+            else {
+              /* Filed into the publishing queue as a draft. Its outcome is
+                 appended to the log line rather than being a log line of its
+                 own: the thing that happened is that a post was queued, and a
+                 second row saying "and it was also put in a list" would double
+                 every count on the Autopilot page. */
+              const filed = onAutopilotAsset({
+                ventureId: v.id,
+                ventureSlug: v.slug,
+                source: { kind: "studio_post", id: post.id },
+              });
+              record({
+                v,
+                kind: "post",
+                action: "queued",
+                ref: post.id,
+                note: `${topic.topic} — ${filed.note}`,
+              });
+            }
           }
         }
       }

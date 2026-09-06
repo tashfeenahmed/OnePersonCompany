@@ -24,6 +24,8 @@
  */
 import { Hono } from "hono";
 import { configValue, configValues, getPlugin, setConfig, upsertPlugin } from "../db.ts";
+import { COLLECT_MINUTES } from "../config.ts";
+import { withCollectCadence } from "../integrations/deploy/cadence.ts";
 import { parsePackages, validName } from "../providers/npm.ts";
 import { MAX_KEYWORDS, parseKeywords } from "../providers/bing.ts";
 import { MAX_TERMS, parseTerms } from "../providers/demand.ts";
@@ -648,7 +650,23 @@ const BUILTIN: Record<
   },
 };
 
-const REGISTRY: Record<string, ConfigRegistryEntry> = { ...manifestConfig(), ...BUILTIN };
+/*
+  EVERY COLLECTABLE PLUGIN GAINS ONE KEY HERE, and it is not declared by any
+  area's manifest. `collect_interval_minutes` is a property of the SCHEDULER
+  rather than of any one integration — twenty copies of one key would be twenty
+  chances for the hint to drift — so it is added in one line, over the ids that
+  actually have a collector. See integrations/deploy/cadence.ts for what empty
+  and 0 mean, and integrations/deploy/scheduler.ts for what reads it.
+
+  A PLUGIN THAT HAD NO SETTINGS PAGE NOW HAS ONE with this single key on it.
+  That is a visible change and it is the point: a source you can schedule is a
+  source whose schedule you can see.
+*/
+const REGISTRY: Record<string, ConfigRegistryEntry> = withCollectCadence(
+  { ...manifestConfig(), ...BUILTIN },
+  Object.keys(COLLECTORS),
+  COLLECT_MINUTES,
+);
 
 /**
  * Does this plugin have settings here?

@@ -119,16 +119,21 @@ export const studioApi = {
     brief: string;
     format: StudioFormat;
     platform: string | null;
+    /** Assets from the venture's library to take visual direction from. They
+     *  reach the image model only where that model HAS an image input — the
+     *  server reads the model's own schema and puts what it did in the post's
+     *  `error` when it could not. At most four. */
+    assetIds?: string[];
   }) =>
     call<StudioCreated>("/studio/posts", {
       method: "POST",
       body: JSON.stringify(body),
     }),
 
-  regenerate: (id: string, what: "caption" | "image") =>
+  regenerate: (id: string, what: "caption" | "image", assetIds?: string[]) =>
     call<StudioRegenerated>(`/studio/posts/${id}/regenerate`, {
       method: "POST",
-      body: JSON.stringify({ what }),
+      body: JSON.stringify({ what, assetIds }),
     }),
 
   remove: (id: string) =>

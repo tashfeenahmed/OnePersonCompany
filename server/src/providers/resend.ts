@@ -583,7 +583,41 @@ export async function collect(reader = "collect_resend"): Promise<CollectResult>
    "nothing here sends" is still a property of the code: `method: "GET"` is
    written once, there is still no body parameter, and `POST /emails` is still
    not reachable from this module by any argument.
+
+   THAT SENTENCE IS STILL TRUE AND IT IS NOW NARROWER, so it is written down
+   here rather than left to be discovered. Since the nurture area landed there
+   IS a `POST /emails` on this box, in
+   `integrations/nurture/resend-send.ts` — one function, called from exactly one
+   place, behind the outbox's approve. It deliberately does not live in this
+   file, for the reason `integrations/mailflow/gmail-send.ts` does not live in
+   providers/gmail.ts: adding a send here would quietly falsify a paragraph
+   other people have read and believed. This module is still every read and no
+   write; the send is next door, where the queue that is the only thing allowed
+   to call it is.
 */
+
+/**
+ * One key's sending domains, with the status Resend itself gives each.
+ *
+ * A READ, through the same `get` as everything else — the identity checker in
+ * `integrations/nurture/identities.ts` needs to know whether a domain is
+ * verified before it lets a message claim to be from it, and asking Resend is
+ * the only honest way to answer that. `collect()` above already reads this
+ * endpoint but pays for a full email walk on the way past, which is far too
+ * much for a question asked when somebody presses a button.
+ *
+ * The status is Resend's own word and is never reduced to a boolean here:
+ * "pending" is a domain whose DNS has not propagated, "failed" is a domain that
+ * will bounce, and a caller shown one flag for both would fix the wrong thing.
+ */
+export async function domains(
+  accountId: number,
+  reader = "resend_domains",
+): Promise<DomainRow[]> {
+  const { key } = keyOf(accountId, reader);
+  const doc = await get<{ data?: ApiDomain[] }>("/domains", key);
+  return (doc.data ?? []).filter((d) => d.name).map((d) => shapeDomain(d, false));
+}
 
 /** One row of the sent list, as Resend gives it. `to` is a list because Resend
  *  sends one back, and joining it here would lose the difference between two

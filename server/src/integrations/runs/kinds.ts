@@ -308,6 +308,51 @@ export const KINDS: KindDef[] = [
     ],
   },
 
+  /* THE CAMPAIGN KIND, owned by integrations/publishing/. It is a run because
+     the fan-out is minutes of model calls and image renders that must survive
+     a tab closing, be cancellable and be queued behind everything else. */
+  {
+    kind: "campaign",
+    name: "Campaign",
+    what:
+      "Plans a social campaign for the venture — a small number of non-overlapping concepts from one goal — and then writes each concept once per channel, as Studio drafts. Every variant becomes a DRAFT in the publishing queue; nothing is approved, scheduled or published by running it.",
+    needsVenture: true,
+    inputs: [
+      {
+        key: "goal",
+        label: "What the campaign is for",
+        hint: "One or two lines, in your own words. “Get the first ten beta users for the planning tool.”",
+        kind: "textarea",
+        required: true,
+        default: "",
+      },
+      {
+        key: "channels",
+        label: "Channels",
+        hint: "Comma separated. `page`, `ig`, `linkedin` and `tiktok` are the ones this box can publish to; any other name is written for and produces drafts with nowhere to go.",
+        kind: "text",
+        required: true,
+        default: "page",
+      },
+      {
+        key: "audience",
+        label: "Who it is aimed at",
+        hint: "Optional, in your own words. Empty lets the planner use the audience the venture record implies.",
+        kind: "text",
+        required: false,
+        default: "",
+      },
+      {
+        key: "concepts",
+        label: "How many concepts",
+        hint: "Each concept is a different argument, written once per channel — so this times the channel count is how many posts get made, and how many image renders get paid for. Clamped to 1-5.",
+        kind: "number",
+        required: false,
+        default: "3",
+      },
+    ],
+  },
+
 ];
 
 export const KIND_KEYS = KINDS.map((k) => k.kind);

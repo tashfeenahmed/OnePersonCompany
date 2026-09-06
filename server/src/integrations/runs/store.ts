@@ -18,7 +18,7 @@ import { forgetVideo } from "../video/execute.ts";
 
 /* ------------------------------------------------------------------- rows */
 
-export type RunKind = "research" | "competitors" | "seo" | "demand" | "geo" | "papers" | "shotsqa" | "video" | "serp" | "aso";
+export type RunKind = "research" | "competitors" | "seo" | "demand" | "geo" | "papers" | "shotsqa" | "video" | "serp" | "aso" | "campaign";
 export type RunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 export type RunRow = {

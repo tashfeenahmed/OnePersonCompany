@@ -37,7 +37,7 @@
  * owner typed a password.
  */
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DATA_DIR } from "./config.ts";
 
@@ -100,13 +100,12 @@ export function serviceHeaders(extra?: Record<string, string>): Record<string, s
  *  mismatch, which would turn a wrong-length key into a 500 rather than a 401
  *  and leak the right length in the process. */
 export function isServiceKey(presented: string | null | undefined): boolean {
-  const value = (presented ?? "").trim();
-  if (!value) return false;
-  const key = serviceKey();
-  const a = Buffer.from(value, "utf8");
-  const b = Buffer.from(key, "utf8");
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+  /* EITHER OF THE TWO KEYS. This is the "may you through the door at all"
+     question and both answer it yes; which one it was decides what may be
+     reached afterwards, and that is `keyScope` below. Widening this rather
+     than adding a second call site keeps every existing caller — the gate, the
+     security status route, the tests — reading one predicate. */
+  return keyScope(presented) !== null;
 }
 
 /** The key off a request's headers, from either spelling. */
@@ -118,4 +117,104 @@ export function presentedKey(headers: {
   const auth = headers.get("authorization");
   if (auth && /^bearer\s+/i.test(auth)) return auth.replace(/^bearer\s+/i, "").trim();
   return null;
+}
+
+/* ---------------------------------------------------- the agent's own key */
+
+/**
+ * THE SCOPED AGENT KEY — a second file, worth strictly less than the first.
+ *
+ * WHY THE HEADER ABOVE IS NOW ONLY HALF TRUE. It says there are no scopes and
+ * that a scope nobody checks is worse than no scope at all. The second half of
+ * that sentence is still the rule; what changed is that there is now something
+ * that checks. The gap this closes is the one the README states plainly: an
+ * agent running under the owner's own account can read `service-key`, and with
+ * it POST `/api/backups/restore` or rewrite a credential — bypassing every
+ * owner control the API enforces. `requireOwner` already refuses a service key
+ * for the mail and password routes; nothing refused it for the rest.
+ *
+ * SO THERE ARE TWO KEYS AND THEY ARE NOT EQUIVALENT.
+ *
+ *   THE OWNER KEY (`service-key`) is this process talking to itself — the
+ *   skills proxy, a run assembling its brief, the MCP layer's own loopback
+ *   calls. It opens everything, exactly as before. Nothing about it changed.
+ *
+ *   THE AGENT KEY (`agent-home/service-key.agent`) is what is handed OUT: the
+ *   `opc` wrapper the agent types and the MCP subprocess's environment. It
+ *   opens every read and every write the skills surface publishes, and it is
+ *   refused on the owner surface — credentials, backups and restore, the
+ *   password, the agent processes themselves, the workspace and the model
+ *   gateways. See integrations/security/gate.ts for the list and for why a
+ *   deny list rather than an allow list.
+ *
+ * IT LIVES UNDER `agent-home/` FOR A REASON THAT IS NOT TIDINESS. When the
+ * owner runs the gateway as a SEPARATE OS USER (deploy/agent-user.sh), that
+ * user is given exactly one directory: the agent home. A key the agent has to
+ * read has to be inside it, and the owner key — which sits beside vault.key —
+ * must stay somewhere that user cannot reach. Two files in two directories is
+ * what makes the separate-user story possible at all.
+ *
+ * WHAT IT IS STILL WORTH. Everything the skills surface can do, which includes
+ * moving board cards, dismissing commitments, sleeping a machine and reading
+ * the mailbox. It is a narrower key, not a safe one.
+ */
+export const AGENT_HOME = resolve(DATA_DIR, "agent-home");
+export const AGENT_KEY_FILE = resolve(AGENT_HOME, "service-key.agent");
+
+let cachedAgent: string | null = null;
+
+/** The agent's key, minted on first use. Same shape and same 0600 as the
+ *  owner's; a different file so a different reader can be given it. */
+export function agentKey(): string {
+  if (cachedAgent) return cachedAgent;
+  try {
+    if (existsSync(AGENT_KEY_FILE)) {
+      const raw = readFileSync(AGENT_KEY_FILE, "utf8").trim();
+      if (raw) {
+        cachedAgent = raw;
+        return raw;
+      }
+    }
+  } catch {
+    /* An unreadable agent key is treated as absent and rewritten, for the
+       reason the owner key gives: throwing here would take the API down over
+       a file that only matters to a child process. */
+  }
+  const minted = randomBytes(32).toString("hex");
+  mkdirSync(AGENT_HOME, { recursive: true, mode: 0o700 });
+  writeFileSync(AGENT_KEY_FILE, `${minted}\n`, { mode: 0o600 });
+  chmodSync(AGENT_KEY_FILE, 0o600);
+  cachedAgent = minted;
+  return minted;
+}
+
+/** What a presented key is allowed to be. `null` means it is not one of ours. */
+export type KeyScope = "owner" | "agent";
+
+function sameKey(presented: string, key: string): boolean {
+  const a = Buffer.from(presented, "utf8");
+  const b = Buffer.from(key, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Which of the two was presented, in constant time against both.
+ *
+ * BOTH ARE ALWAYS COMPARED even after the first matches, so the time this
+ * takes does not say which file the caller holds. That costs one extra 32-byte
+ * compare per request.
+ */
+export function keyScope(presented: string | null | undefined): KeyScope | null {
+  const value = (presented ?? "").trim();
+  if (!value) return null;
+  const isOwner = sameKey(value, serviceKey());
+  const isAgent = sameKey(value, agentKey());
+  return isOwner ? "owner" : isAgent ? "agent" : null;
+}
+
+/** The headers a child process is given. Never used in-process: everything on
+ *  this side of the wire uses `serviceHeaders`. */
+export function agentHeaders(extra?: Record<string, string>): Record<string, string> {
+  return { [SERVICE_HEADER]: agentKey(), ...(extra ?? {}) };
 }

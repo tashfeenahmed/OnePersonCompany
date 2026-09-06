@@ -387,6 +387,21 @@ export async function verify(values: Record<string, string>): Promise<string | n
   return `${sshProblem(ran, false)} — and with no MAC address on this account there is nothing here that could wake it either. Add the MAC and it will be accepted asleep.`;
 }
 
+/* ------------------------------------------------------------- the lease key */
+
+/**
+ * WHAT THIS MACHINE IS CALLED IN THE LEASE REGISTRY.
+ *
+ * The account id rather than the label, because a label is something the owner
+ * renames and a lease taken under the old name would then be a lease on a
+ * machine nothing can find. One function, here, so the power routes and any
+ * job that wants to claim the desk machine spell it the same way — the same
+ * argument the config keys above make about a string that is a foreign key.
+ */
+export function leaseResource(m: Machine | { accountId: number }): string {
+  return `workstation:${m.accountId}`;
+}
+
 /* ------------------------------------------------------- the power commands */
 
 /**

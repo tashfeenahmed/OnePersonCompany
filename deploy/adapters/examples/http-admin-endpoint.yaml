@@ -1,0 +1,107 @@
+# AN ADMIN ENDPOINT THAT PUBLISHES AGGREGATES — the third shape, and the one
+# where the honest answer is the SMALLEST amount of adapter.
+#
+# The product already has an authenticated admin API that answers something
+# like:
+#
+#   GET https://example.com/api/admin/funnel?weeks=8
+#   Authorization: Bearer <token>
+#
+#   { "generatedAt": "2026-09-05T09:00:00Z",
+#     "totals": { "signups": 158, "checkouts": 41, "paid": 12 },
+#     "weeks": [ { "week": "2026-08-25", "signups": 9 }, … ] }
+#
+# It counts people and it does not name them, and there is no route on it that
+# will. That is not a limitation to work around — it is a FACT ABOUT THE
+# PRODUCT, and the users contract has a form for saying it.
+#
+# ────────────────────────────────────────────────────────────────────────────
+# THE STATS HALF NEEDS NO ADAPTER AT ALL, AND THAT IS WORTH SAYING FIRST.
+#
+# The predecessor dashboard wrote a Python collector per product for endpoints
+# exactly like this one. Here, the product-stats contract IS "any JSON object",
+# and which numbers in it matter is a mapping the dashboard resolves on every
+# read. So for the numbers above:
+#
+#   Integrations → Product endpoints → add an account
+#     label: Example
+#     url:   https://example.com/api/admin/funnel?weeks=8
+#     token: <the same bearer token>
+#
+#   settings → Metrics:
+#     Example: signups   = totals.signups
+#     Example: checkouts = totals.checkouts
+#     Example: paid      = totals.paid
+#     Example: weeks     = @count(weeks)
+#
+# That is the whole thing. Editing the mapping later needs no deploy on the
+# product's host, and a path that stops resolving is reported as a MAPPING
+# ERROR rather than recorded as a zero. Do not write an adapter for this half.
+# ────────────────────────────────────────────────────────────────────────────
+#
+# WHAT IS BELOW is the users half, which the stats contract cannot express: a
+# TOTAL and a NEW-IN-N-DAYS, in the counts-only form. `driver: command` is the
+# escape hatch — the honest shape of this tool is "something prints a JSON
+# array of rows", and here that something is curl plus one line of Node.
+#
+# WHY NOT POINT THE USERS ACCOUNT AT THE ADMIN ENDPOINT DIRECTLY: because the
+# document it answers is not the contract. It has a `totals` object where the
+# contract wants `counts`, and `{"counts": {...}}` with the right field names is
+# a promise about what those numbers mean — a total of live accounts, and n new
+# in exactly the last `days` days. Reshaping is where that promise is made.
+
+contract: users
+product: Example (admin API)
+
+source:
+  driver: command
+  # Prints ONE row with `total` and `new`. Node rather than jq because jq is not
+  # installed on most boxes and Node is, by definition, here.
+  #
+  # `--fail` matters: without it curl prints an HTML error page with exit 0, and
+  # the parse below would turn a 500 into a user base of zero.
+  command: |
+    curl -sS --fail --max-time 20
+         -H "Authorization: Bearer ${EXAMPLE_ADMIN_TOKEN}"
+         'https://example.com/api/admin/funnel?weeks=8'
+    | node -e '
+        let s="";
+        process.stdin.on("data",d=>s+=d).on("end",()=>{
+          const d = JSON.parse(s);
+          const weeks = Array.isArray(d.weeks) ? d.weeks : [];
+          // The LAST FULL WEEK the endpoint reported, as "new in 7 days".
+          // The window has to be the one the number is actually of; calling a
+          // 56-day figure a weekly one is the mistake the contract has a
+          // `days` field to prevent.
+          const last = weeks.length ? weeks[weeks.length - 1] : null;
+          process.stdout.write(JSON.stringify([{
+            total: d.totals && d.totals.signups,
+            new:   last && last.signups
+          }]));
+        });'
+
+# `new_days` is what the `n` above is a count over. It is stated here rather
+# than inferred, because the endpoint's own week length is a fact about the
+# endpoint and this file is the only place both are visible at once.
+new_days: 7
+
+output:
+  # THE COUNTS FORM: a total, and nobody named. Different from {"users": []},
+  # which would say this product has no users at all.
+  shape: counts
+  path: /var/www/example.com/public/opc/users.json
+
+# NO population BLOCK, because a counts-only document cannot carry one — there
+# are no rows to classify. If this product can count its admins separately, it
+# can publish the users form instead, and it should: see CHECKLIST.md step 2.
+#
+# NO contact_mapping, for the same reason. Consent is per person and there are
+# no people in this document.
+#
+# WHAT THIS PRODUCT CANNOT SAY (CHECKLIST.md step 8), for the account's
+# description on the dashboard:
+#
+#   "The admin funnel counts signups and cannot list them, so this box knows
+#    how many there are and not when any individual joined. The weekly series
+#    is the endpoint's own; the daily shape of signups is not reconstructible
+#    from it."

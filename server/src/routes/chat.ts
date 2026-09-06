@@ -64,6 +64,7 @@
  * at the end — complete, or flagged `partial` and honest about it.
  */
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
   appendChatMessage,
@@ -85,7 +86,21 @@ import {
 } from "../chat/backend.ts";
 import { readChatBackend, writeChatBackend } from "./pluginConfig.ts";
 import { WireError } from "../chat/wire.ts";
-import { subscribe, track } from "../chat/inflight.ts";
+import { track } from "../chat/inflight.ts";
+/*
+  THE RUN ENGINE. A chat turn is the server's work now rather than the
+  browser's — see chat/runs.ts for the whole argument. This file composes the
+  turn and subscribes to it; it no longer reads the agent's events itself.
+*/
+import {
+  RunBusyError,
+  answeringSessions,
+  cancelChatRun,
+  runHandle,
+  sessionRunState,
+  startChatRun,
+} from "../chat/runs.ts";
+import { chatRun as chatRunRow } from "../integrations/agentcore/store.ts";
 import * as hermes from "../providers/hermes.ts";
 import * as openclaw from "../providers/openclaw.ts";
 /*
@@ -124,6 +139,7 @@ import { childrenBySession, ventureTeamLines } from "../integrations/subagents/s
 import { goalLines } from "../integrations/chief/goals.ts";
 import { ROUNDS_SESSION } from "../integrations/chief/rounds.ts";
 import { memoryLines } from "../integrations/chief/memory.ts";
+import { knowledgeLines } from "../integrations/knowledge/store.ts";
 
 export const chat = new Hono();
 
@@ -346,9 +362,46 @@ export function composeTurns(
   live: ChatBackend | null,
 ): ChatTurn[] {
   return withSkills(
-    withOrg(withGoals(withVenture(history, ventureId, live), ventureId), sessionId, ventureId, live),
+    withBudget(
+      withOrg(withGoals(withVenture(history, ventureId, live), ventureId), sessionId, ventureId, live),
+      live,
+    ),
     live,
   );
+}
+
+/**
+ * HOW TO READ A DOCUMENT THAT DID NOT FIT.
+ *
+ * Six lines, and every one of them is about the same failure. Skill answers
+ * are now bounded (integrations/agentcore/bound.ts): a document over the
+ * budget keeps its scalars and loses rows, and each shortened list ends with a
+ * marker carrying the REAL total. An agent that has not been told this reads
+ * the marker as data and reports the number of rows it was shown as the number
+ * that exist — "you have 20 cards" when there are 412 — which is a worse
+ * failure than the truncation it replaced, because it is confident.
+ *
+ * IT GOES ONLY WHERE THERE ARE TOOLS. A raw provider with no way to call
+ * anything would be reading instructions about parameters it cannot pass; a
+ * live agent, managed or remote, meets these markers on its next tool call.
+ * Not stored, and prepended, on the rule every turn here keeps.
+ */
+function withBudget(turns: ChatTurn[], live: ChatBackend | null): ChatTurn[] {
+  if (!live) return turns;
+  return [
+    {
+      role: "system",
+      content: [
+        `Tool answers are capped. A list that did not fit ends with`,
+        `{"truncated":true,"shown":N,"total":T,"next":"…"} — T is the real total: report T, never N.`,
+        `To see more: pass limit/offset where the view lists them, narrow the window (fewer days, one`,
+        `venture), or pass fields=<comma-separated top-level keys> to keep only the part you need.`,
+        `"next" says which of those applies to that call. Nothing is ever cut mid-value, so a document`,
+        `that parses is complete as far as it goes — but it is not the whole list unless no marker is in it.`,
+      ].join("\n"),
+    },
+    ...turns,
+  ];
 }
 
 /**
@@ -382,6 +435,15 @@ function withGoals(turns: ChatTurn[], ventureId: string | null): ChatTurn[] {
   const lines = [...goalLines(ventureId)];
   const memory = memoryLines(ventureId);
   if (memory.length) lines.push(...(lines.length ? [``] : []), ...memory);
+  /* THE THIRD DOCUMENT OF THE SAME KIND, added here rather than as a turn of
+     its own for this function's own reason: goals, memory and product
+     knowledge are all standing context that is true before the question is
+     asked, and a model reading three adjacent system turns treats each as a
+     correction of the one before. It is at most 25 lines, venture-scoped, and
+     silent when nothing is known — and it deliberately carries no unconfirmed
+     proposals; see integrations/knowledge/store.ts. */
+  const known = knowledgeLines(ventureId);
+  if (known.length) lines.push(...(lines.length ? [``] : []), ...known);
   if (!lines.length) return turns;
   return [{ role: "system", content: lines.join("\n") }, ...turns];
 }
@@ -693,6 +755,19 @@ chat.get("/:sessionId/messages", (c) => {
   return c.json({
     sessionId,
     messages: chatMessages(sessionId).map(shapeMessage),
+    /*
+      AND WHETHER THIS CONVERSATION IS STILL BEING ANSWERED, in the same fetch.
+
+      A page that has just opened a chat has exactly two questions and they are
+      asked at the same instant: what was said, and is something still arriving.
+      Answering the second in a separate request would mean a reload paints the
+      stored transcript first and then, a round trip later, discovers there is a
+      live answer to reattach to — which is a visible flicker between "cut off"
+      and "still writing" for every reload made mid-turn. `run` is null when
+      this conversation has never been answered by a run; `attachable` says
+      whether GET /chat/runs/<id>/events still has the frames.
+    */
+    run: sessionRunState(sessionId),
     ...backendState(),
   });
 });
@@ -774,17 +849,20 @@ chat.post("/", async (c) => {
      was one. Built once and used on BOTH paths below — the agent's and the
      provider fallback's — because a question about a business must not get a
      different answer depending on which of them happened to be live. */
-  const turns: ChatTurn[] = withOrg(
-    withGoals(
-      withVenture(
-        history.map((m) => ({ role: m.role, content: m.content })),
+  const turns: ChatTurn[] = withBudget(
+    withOrg(
+      withGoals(
+        withVenture(
+          history.map((m) => ({ role: m.role, content: m.content })),
+          ventureId,
+          live,
+        ),
         ventureId,
-        live,
       ),
+      sessionId,
       ventureId,
+      live,
     ),
-    sessionId,
-    ventureId,
     live,
   );
 
@@ -899,37 +977,54 @@ chat.post("/", async (c) => {
   }
 });
 
+
 /* ---------------------------------------------------------------- streaming */
 
 /**
  * Say something, and watch it being written.
  *
+ * THE TURN IS A RUN NOW, AND THAT IS THE ONE CHANGE TO THIS ROUTE. What used
+ * to happen inside the response handler — read the agent's events, merge the
+ * tool calls, write the assistant row — happens in `chat/runs.ts`, owned by
+ * the process and keyed by a run id. This route composes the turn, starts the
+ * run, and then does the only thing it was ever uniquely able to do:
+ * SUBSCRIBE to it. Closing the tab now unsubscribes rather than cancelling,
+ * and `GET /chat/runs/:id/events?since=` is how the next page attaches to the
+ * same answer. The old header's paragraph — "a reload cannot re-attach" — was
+ * true and is not any more; see chat/runs.ts for the argument.
+ *
  * THE EVENT CONTRACT, IN FULL, because a stream with an undocumented shape is
  * a stream nobody can write a second client for. Every event is an SSE frame
- * with a name and a JSON body:
+ * with a name, a JSON body, and an `id` that is its sequence number:
  *
- *   start      { sessionId, userMessageId, user, backend, backendLabel, model }
+ *   run        { runId, sessionId, status }
+ *              First, always, on both doors. It is how a client that has just
+ *              reattached learns whether there is anything still arriving.
+ *   start      { sessionId, userMessageId, user, backend, backendLabel, model,
+ *                runId }
  *              Once, after the owner's turn is in the table. `model` is null
  *              here and not omitted: the model is what the SERVER reports
  *              having used and it is not known until it says so, which is a
  *              fact rather than a gap in the protocol.
  *   delta      { text }        a piece of the answer, in order
  *   reasoning  { text }        a piece of the model's working, if it shows any
+ *   child      { runId, kind, title, status }
+ *              A sub-agent was filed under this conversation mid-answer.
  *   tool       { toolCallId, tool, label, emoji, status, at, offset }
  *              A tool starting or finishing. `offset` is how much of the
  *              answer had been written when it happened — see below.
- *   done       { messageId, message, text, model, usage, ms, tools }
+ *   done       { messageId, message, text, model, usage, ms, tools, queuedMs }
  *              Once, and only after the assistant row is in the table.
- *   error      { message, messageId, partial }
- *              The turn failed. `messageId` is the PARTIAL row if there was
- *              anything to keep, and null if the agent had said nothing at
- *              all — the distinction the page needs to decide whether the
- *              words on screen are now durable or were never real.
+ *   error      { message, messageId, partial, cancelled }
+ *              The turn ended without an answer. `messageId` is the PARTIAL
+ *              row if there was anything to keep, and null if the agent had
+ *              said nothing at all. `cancelled` is true when the owner pressed
+ *              stop, which is not a failure and must not be drawn as one.
  *
  * EXACTLY ONE OF `done` AND `error` IS SENT, and both are sent AFTER the write
  * they describe. A client that has seen either one can reload and find the
  * same words; a client that has seen neither knows the connection died before
- * the server made up its mind, and reloading is how it finds out which.
+ * the run made up its mind, and reattaching is how it finds out which.
  *
  * WHY `offset` IS ON THE TOOL EVENT. The grey line belongs where it happened —
  * between the paragraph the agent wrote before it ran the tool and the one it
@@ -940,13 +1035,6 @@ chat.post("/", async (c) => {
  * character count into `text`, which is stable under nothing except the exact
  * string it was measured against — and that string is stored beside it in the
  * same row, so it cannot drift.
- *
- * AN ABORTED STREAM STILL WRITES. The client's `AbortSignal` is passed down to
- * the agent call, so a closed tab stops the outbound turn — but the words
- * already streamed are words the owner read, and the write happens in a
- * `finally` that does not care whether anybody is still listening. This is the
- * one place in the file where the database write matters more than the
- * response.
  */
 chat.post("/stream", async (c) => {
   const body = await readSendBody(c);
@@ -966,22 +1054,46 @@ chat.post("/stream", async (c) => {
   if (!live && !fallback)
     return c.json({ error: new NoBackendError().message, ...backendState() }, 503);
 
+  /*
+    ONE TURN PER CONVERSATION, REFUSED BEFORE THE MESSAGE IS STORED. Two runs
+    on one transcript would read the same history, answer it twice and write
+    two assistant rows interleaved with each other — and the second question
+    would have been asked of a conversation that did not yet contain the first
+    answer. The page already prevents this; a second tab, or a retry after a
+    network blip, does not.
+  */
+  const already = sessionRunState(sessionId);
+  if (already && already.status === "running")
+    return c.json(
+      {
+        error: new RunBusyError(already.runId).message,
+        runId: already.runId,
+        /* Where to watch the answer it is already writing, so a client that
+           lost its connection has somewhere to go rather than a refusal. */
+        events: `/api/chat/runs/${already.runId}/events`,
+      },
+      409,
+    );
+
   /* Same order of writes as the non-streaming route, for the same reason: a
      turn that falls over still leaves the question in the transcript. */
   const stored = appendChatMessage({ sessionId, role: "user", content: message, channel });
   const history = chatMessages(sessionId, CONTEXT_TURNS);
   /* Same as the non-streaming route, for the same reason. */
-  const turns: ChatTurn[] = withOrg(
-    withGoals(
-      withVenture(
-        history.map((m) => ({ role: m.role, content: m.content })),
+  const turns: ChatTurn[] = withBudget(
+    withOrg(
+      withGoals(
+        withVenture(
+          history.map((m) => ({ role: m.role, content: m.content })),
+          ventureId,
+          live,
+        ),
         ventureId,
-        live,
       ),
+      sessionId,
       ventureId,
+      live,
     ),
-    sessionId,
-    ventureId,
     live,
   );
 
@@ -990,244 +1102,224 @@ chat.post("/stream", async (c) => {
     : (`provider:${fallback!.id}` as MessageBackendId);
   const label = live ? live.label : (fallback?.label ?? null);
 
-  return streamSSE(c, async (sse) => {
-    /*
-      EVERY WRITE IS ALLOWED TO FAIL SILENTLY. Once the browser has gone,
-      writing to the stream throws — and the interesting work left in this
-      handler is the database write, which must not be skipped because nobody
-      is listening. Swallowing here rather than wrapping each call site keeps
-      that decision in one place with the reason attached.
-    */
-    const say = async (event: string, data: unknown) => {
-      try {
-        await sse.writeSSE({ event, data: JSON.stringify(data) });
-      } catch {
-        /* the reader is gone; the row still gets written below */
-      }
+  /**
+   * THE BACKEND THAT CANNOT STREAM, MADE TO LOOK LIKE ONE THAT CAN.
+   *
+   * `stream()` is optional on `ChatBackend`, and the provider fallback has no
+   * streaming path at all — `models/provider.ts` owns the limiter and is not
+   * this feature's to rewrite. Both are served by asking once and emitting the
+   * answer as a single `delta` followed by `done`. The words arrive in one
+   * lump instead of one at a time, and every other part of the contract — the
+   * row, the events, the partial handling — is identical, so no client needs a
+   * second code path for it.
+   */
+  async function* oneShot(signal: AbortSignal): AsyncGenerator<ChatStreamEvent> {
+    const reply = live
+      ? await ask(withSkills(turns, live), { sessionId, channel, signal })
+      : await (async () => {
+          const r = await complete(turns, { signal });
+          noteOutcome(r.provider, r.endpoint, null);
+          return { text: r.text, model: r.model, usage: r.usage, ms: r.ms, queuedMs: r.queuedMs };
+        })();
+    yield { type: "delta", text: reply.text };
+    yield {
+      type: "done",
+      text: reply.text,
+      model: reply.model,
+      usage: reply.usage,
+      ms: reply.ms,
+      // An agent's turn never queues here — Hermes owns its own concurrency
+      // and reports nothing — so only the provider path carries a number.
+      queuedMs: "queuedMs" in reply ? (reply.queuedMs ?? null) : null,
     };
+  }
 
-    await say("start", {
+  const run = startChatRun({
+    sessionId,
+    channel,
+    ventureId,
+    backend: backendId,
+    backendLabel: label,
+    user: stored,
+    start: {
       sessionId,
       userMessageId: stored.id,
       user: shapeMessage(stored),
       backend: backendId,
       backendLabel: label,
       model: null,
-    });
-
-    /* What has been said so far, and what was done while saying it. Both are
-       read by the `finally`, which is why they live out here rather than in
-       the loop. */
-    let text = "";
-    /* Keyed by toolCallId so `completed` finds the record `running` made.
-       A Map because insertion order IS the order they happened, and that is
-       the order the page draws them in. */
-    const tools = new Map<string, ChatToolCall>();
-    let model: string | null = null;
-    let usage: { prompt: number; completion: number } | null = null;
-    let ms = 0;
-    let finished = false;
-    let queuedMs: number | null = null;
-    let failure: string | null = null;
-
-    /**
-     * THE BACKEND THAT CANNOT STREAM, MADE TO LOOK LIKE ONE THAT CAN.
-     *
-     * `stream()` is optional on `ChatBackend`, and the provider fallback has
-     * no streaming path at all — `models/provider.ts` owns the limiter and is
-     * not this feature's to rewrite. Both are served by asking once and
-     * emitting the answer as a single `delta` followed by `done`. The words
-     * arrive in one lump instead of one at a time, and every other part of the
-     * contract — the row, the events, the partial handling — is identical, so
-     * the page needs no second code path for it.
-     */
-    async function* oneShot(): AsyncGenerator<ChatStreamEvent> {
-      const reply = live
-        ? await ask(withSkills(turns, live), { sessionId, channel, signal: c.req.raw.signal })
-        : await (async () => {
-            const r = await complete(turns, { signal: c.req.raw.signal });
-            noteOutcome(r.provider, r.endpoint, null);
-            return { text: r.text, model: r.model, usage: r.usage, ms: r.ms, queuedMs: r.queuedMs };
-          })();
-      yield { type: "delta", text: reply.text };
-      yield {
-        type: "done",
-        text: reply.text,
-        model: reply.model,
-        usage: reply.usage,
-        ms: reply.ms,
-        // An agent's turn never queues here — Hermes owns its own concurrency
-        // and reports nothing — so only the provider path carries a number.
-        queuedMs: "queuedMs" in reply ? (reply.queuedMs ?? null) : null,
-      };
-    }
-
-    /* `track` registers the session as in flight for as long as the stream
-       is read — chat/inflight.ts — so a dispatch made mid-answer is filed
-       under this chat even when the agent forgot to say so. `oneShot` goes
-       through `ask`, which registers itself. */
-    const events: AsyncGenerator<ChatStreamEvent> = live?.stream
-      ? track(sessionId, live.stream(withSkills(turns, live), { sessionId, channel, signal: c.req.raw.signal }))
-      : oneShot();
-
-    /* A sub-agent dispatched from inside this answer shows in the rail the
-       moment it is filed — see chat/inflight.ts — rather than when the
-       answer ends. Nothing is stored for it here: the row is the fact and
-       the rail re-reads it. */
-    const unsubscribe = subscribe(sessionId, (child) => void say("child", child));
-
-    try {
-      for await (const event of events) {
-        switch (event.type) {
-          case "delta":
-            text += event.text;
-            await say("delta", { text: event.text });
-            break;
-
-          case "reasoning":
-            await say("reasoning", { text: event.text });
-            break;
-
-          case "tool": {
-            /*
-              MERGED ON THE WAY THROUGH, not on the way out. The wire carries
-              two events per call and the table stores one record with two
-              timestamps — so `running` creates the record and `completed`
-              closes it. A `completed` for a call that was never announced
-              still creates one, with `startedAt` equal to `finishedAt`: a
-              tool that finished is a thing that happened, and dropping it
-              because the first half of the pair went missing would lose a
-              fact to a wire glitch.
-            */
-            const existing = tools.get(event.toolCallId);
-            if (existing) {
-              if (event.status === "completed") existing.finishedAt = event.at;
-              if (!existing.label && event.label) existing.label = event.label;
-              if (!existing.emoji && event.emoji) existing.emoji = event.emoji;
-            } else {
-              tools.set(event.toolCallId, {
-                toolCallId: event.toolCallId,
-                tool: event.tool,
-                label: event.label,
-                emoji: event.emoji,
-                startedAt: event.at,
-                finishedAt: event.status === "completed" ? event.at : null,
-                /* Where in the answer this happened. See the header. */
-                offset: text.length,
-              });
-            }
-            await say("tool", {
-              toolCallId: event.toolCallId,
-              tool: event.tool,
-              label: event.label,
-              emoji: event.emoji,
-              status: event.status,
-              at: event.at,
-              offset: tools.get(event.toolCallId)!.offset,
-            });
-            break;
-          }
-
-          case "done": {
-            queuedMs = event.queuedMs ?? null;
-            /*
-              `event.text` and not the accumulated `text`. The adapter counted
-              the answer as it read it and may have applied a rule this loop
-              cannot see — Hermes falls back to the model's reasoning when the
-              content came back empty, which is a whole answer that arrived as
-              no deltas at all. Trusting the accumulator here would store an
-              empty message for exactly the turn where the fallback mattered.
-            */
-            text = event.text;
-            model = event.model;
-            usage = event.usage;
-            ms = event.ms;
-            finished = true;
-            break;
-          }
-        }
-      }
-      unsubscribe();
-    } catch (err) {
-      unsubscribe();
-      failure =
-        err instanceof WireError
-          ? err.message
-          : err instanceof NoBackendError
-            ? err.message
-            : err instanceof Error
-              ? err.message
-              : "The agent stopped for a reason it did not give.";
-
-      /* Against the account that failed, so Integrations shows a red line on
-         the credential that stopped working — the same rule the non-streaming
-         route keeps, and the adapters still know which account answered. */
+    },
+    shape: shapeMessage,
+    /* `track` registers the session as in flight for as long as the run is
+       reading — chat/inflight.ts — so a dispatch made mid-answer is filed under
+       this chat even when the agent forgot to say so. `oneShot` goes through
+       `ask`, which registers itself. */
+    open: (signal) =>
+      live?.stream
+        ? track(sessionId, live.stream(withSkills(turns, live), { sessionId, channel, signal }))
+        : oneShot(signal),
+    onError: (failure) => {
+      /* Recorded against the ACCOUNT that failed, so the Integrations page
+         shows a red line on the credential that stopped working — the same rule
+         the non-streaming route keeps, and the adapters still know which
+         account answered. */
       if (live?.id === "hermes") hermes.noteFailure(failure);
       else if (live?.id === "openclaw") openclaw.noteFailure(failure);
       else if (fallback) noteOutcome(fallback.id, null, failure);
       console.error(`[chat/stream] ${backendId} failed — ${failure}`);
-    }
-
-    /*
-      THE WRITE, AND IT HAPPENS ON EVERY PATH THAT PRODUCED WORDS.
-
-      Three outcomes and each has one row, or none:
-        finished              a complete assistant row
-        failed, text so far   the same row with partial = 1
-        failed, nothing said  no row at all
-      The third is the non-streaming route's rule, unchanged: a failed turn
-      writes no "error" message, because a transcript is what was SAID and an
-      error is something the interface reports. What is new is the second — the
-      case where the agent DID say something before it fell over, which the old
-      route could never be in, and where dropping the words would delete
-      something the owner watched arrive.
-    */
-    const list = [...tools.values()];
-    let messageId: number | null = null;
-    if (finished || text) {
-      const assistant = appendChatMessage({
-        sessionId,
-        role: "assistant",
-        content: text,
-        channel,
-        backend: backendId,
-        model,
-        promptTokens: usage?.prompt ?? null,
-        completionTokens: usage?.completion ?? null,
-        /* Null rather than 0 on a failed turn: a stream that broke has not
-           told us how long the answer took, only how long we waited. */
-        ms: finished ? ms : null,
-        tools: list,
-        partial: !finished,
-      });
-      messageId = assistant.id;
-
-      if (finished)
-        await say("done", {
-          messageId: assistant.id,
-          /* The stored row itself, so the page swaps in what the database has
-             rather than keeping its own reconstruction of it. Two copies of
-             one message is how a transcript starts disagreeing with itself
-             across a reload. */
-          message: shapeMessage(assistant),
-          text,
-          model,
-          usage,
-          ms,
-          tools: list,
-          queuedMs,
-        });
-    }
-
-    if (!finished)
-      await say("error", {
-        message: failure ?? "The stream ended without an answer.",
-        messageId,
-        /* Whether anything was kept. The page draws the bubble it already has
-           as a partial answer when this is true, and drops it when it is not —
-           because in that case nothing was ever stored and leaving it on
-           screen would promise a durability the transcript does not have. */
-        partial: messageId !== null,
-      });
+    },
   });
+
+  return pipeRun(c, run.id, 0);
 });
+
+/* --------------------------------------------------------------- reattaching */
+
+/**
+ * Watch a turn that is already running — from wherever it has got to.
+ *
+ * THE POINT OF THE WHOLE FEATURE, in one route. `since` is a sequence number:
+ * 0 replays the turn from its first frame, which is what a page that has just
+ * reloaded wants (it has no words on screen and needs all of them); a number
+ * is what a client that was reading and lost its connection sends, so it gets
+ * the tail and not the answer twice. `Last-Event-ID` is honoured as well,
+ * because every frame carries its seq as the SSE `id` and that header is what
+ * the standard says a reconnecting client sends.
+ *
+ * A RUN THIS PROCESS NO LONGER HOLDS IS NOT AN ERROR. It answers one `run`
+ * frame carrying the stored status and closes. That is the honest thing: the
+ * answer is finished and in the transcript, and the client's next move is to
+ * read the transcript rather than to wait. A run id that never existed is a
+ * 404, because that IS a mistake.
+ */
+chat.get("/runs/:id/events", (c) => {
+  const id = c.req.param("id");
+  const header = c.req.header("last-event-id");
+  const asked = c.req.query("since");
+  const since = Number(asked ?? header ?? 0);
+  const row = chatRunRow(id);
+  if (!row && !runHandle(id)) return c.json({ error: `There is no run called "${id}".` }, 404);
+  return pipeRun(c, id, Number.isFinite(since) && since > 0 ? Math.floor(since) : 0);
+});
+
+/**
+ * Stop one turn.
+ *
+ * EXPLICIT, AND THE ONLY THING THAT STOPS AN ANSWER NOW. A closed tab used to
+ * be a cancellation by accident; it is not any more, so this is the whole of
+ * the stop button's other end. Whatever was said is written as a partial row
+ * before the run reports itself cancelled, so pressing this loses nothing that
+ * was on screen.
+ *
+ * 409 rather than 404 for a run that has already ended: it existed, it is not
+ * running, and telling a client "no such run" would send it looking for a bug
+ * in the id it just used.
+ */
+chat.post("/runs/:id/cancel", (c) => {
+  const id = c.req.param("id");
+  const r = cancelChatRun(id);
+  if (!r.ok)
+    return c.json(
+      { error: r.error ?? "That run is not running.", runId: id, status: r.status },
+      r.notFound ? 404 : 409,
+    );
+  return c.json({ runId: id, status: r.status });
+});
+
+/** Which conversations the SERVER is answering right now. The rail's marks
+ *  after a reload come from here: the browser's own memory of them died with
+ *  the page, and a dot that came back from localStorage would be reporting an
+ *  answer nobody is receiving. */
+chat.get("/runs", (c) => c.json({ sessions: answeringSessions() }));
+
+/**
+ * Frames out, in order, until the run ends or the reader goes away.
+ *
+ * THE DRAIN IS CHECKED BEFORE THE END, which is the one subtle line here: the
+ * run emits its `done` frame and THEN marks itself finished, so a loop that
+ * broke on "finished" without emptying the queue first would drop the last and
+ * most important frame roughly whenever the timing was unlucky.
+ *
+ * THE KEEPALIVE IS NOT DECORATION. Hermes can think for minutes before the
+ * first token, and an idle connection is a connection something in the middle
+ * is entitled to close. A comment line every twenty-five seconds is what keeps
+ * a long investigation from looking like a dead socket.
+ */
+function pipeRun(c: Context, runId: string, since: number) {
+  return streamSSE(c, async (sse) => {
+    const handle = runHandle(runId);
+    if (!handle) {
+      /* Past the retention window, or lost to a restart. One frame saying so,
+         from the row, and the client reads the transcript. */
+      const row = chatRunRow(runId);
+      await sse
+        .writeSSE({
+          event: "run",
+          data: JSON.stringify({
+            runId,
+            status: row?.status ?? "failed",
+            error: row?.error ?? null,
+            attachable: false,
+          }),
+        })
+        .catch(() => {});
+      return;
+    }
+
+    const queue = handle.replay(since);
+    let wake: (() => void) | null = null;
+    const nudge = () => {
+      const w = wake;
+      wake = null;
+      w?.();
+    };
+    const off = handle.listen((f) => {
+      queue.push(f);
+      nudge();
+    });
+    let over = !handle.running;
+    void handle.ended.then(() => {
+      over = true;
+      nudge();
+    });
+    const signal = c.req.raw.signal;
+    const gone = () => signal.aborted;
+    signal.addEventListener("abort", nudge, { once: true });
+
+    try {
+      for (;;) {
+        while (queue.length) {
+          const f = queue.shift()!;
+          try {
+            await sse.writeSSE({ id: String(f.seq), event: f.event, data: JSON.stringify(f.data) });
+          } catch {
+            /* The reader is gone. The run does not care — it is the server's
+               work now — so this handler simply stops. */
+            return;
+          }
+        }
+        if (over || gone()) break;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+          timer = setTimeout(resolve, 25_000);
+        });
+        if (timer) clearTimeout(timer);
+        /* A COMMENT, NOT A FRAME. `: keepalive` is bytes on the socket that no
+           SSE parser turns into an event — both readers in this codebase skip
+           a line beginning with a colon — so it proves the connection is alive
+           without adding anything to the client's idea of what was said. */
+        if (!queue.length && !over && !gone()) {
+          try {
+            await sse.write(": keepalive\n\n");
+          } catch {
+            return;
+          }
+        }
+      }
+    } finally {
+      off();
+      signal.removeEventListener("abort", nudge);
+    }
+  });
+}

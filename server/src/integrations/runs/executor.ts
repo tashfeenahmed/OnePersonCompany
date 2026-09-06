@@ -96,7 +96,9 @@ import {
 } from "./context.ts";
 import { fencedJson, kindDef, systemBrief, type KindDef } from "./kinds.ts";
 import { growthRun } from "../growth/runs.ts";
+import { knowledgeBlock } from "../knowledge/store.ts";
 import { videoRun } from "../video/execute.ts";
+import { campaignRun } from "../publishing/campaigns.ts";
 /* The screenshot-QA kind's whole implementation, which asks no model — see
    integrations/security/shotsqa.ts. */
 import { report as shotsqaReport, runQaAsync, storeQa } from "../security/shotsqa.ts";
@@ -621,6 +623,23 @@ async function execute(row: RunRow, s: Session) {
      the steps and one turn on whoever is answering. integrations/growth/runs.ts
      is the seam, and it is an interface in that direction because an import
      back into this file would be a cycle through integrations/index.ts. */
+  /* THE CAMPAIGN KIND, owned by integrations/publishing/. It borrows the same
+     four capabilities the growth kinds do, plus the abort signal the video
+     kind takes — a fan-out of nine renders that ignored a cancel would keep
+     spending after the owner pressed stop. */
+  if (row.kind === "campaign")
+    return campaignRun({
+      runId: row.id,
+      venture: venture!,
+      input,
+      signal: live?.id === s.id ? live.abort.signal : undefined,
+      tools: {
+        say: (text) => s.say(text),
+        startStep: (tool, label) => s.startStep(tool, label),
+        endStep: (step, label) => s.endStep(step as Step, label),
+        turn: (turns, opts) => turn(s, turns, opts),
+      },
+    });
   if (row.kind === "serp" || row.kind === "aso")
     return growthRun(row.kind, row.id, venture!, input, {
       say: (text) => s.say(text),
@@ -660,6 +679,13 @@ async function blocksFor(def: KindDef, v: VentureRow, ventureId: string | null):
     case "research":
       return [
         ...base,
+        /* WHAT THE PRODUCT IS, before anything about its market. A research
+           brief that describes a business from its home page describes its
+           marketing; this block carries the repository's and the plugins' own
+           statements with their tiers, and it is placed first because every
+           other block below is about the world around a product this one
+           defines. See integrations/knowledge/store.ts. */
+        knowledgeBlock(v),
         await auditBlock(v),
         await presenceBlock(v),
         await backlinksBlock(v),

@@ -2730,9 +2730,34 @@ export type ChatBackends = {
   why: string | null;
 };
 
+/**
+ * WHETHER THIS CONVERSATION IS STILL BEING ANSWERED, as the server sees it.
+ *
+ * A chat turn is the server's work now (see server/src/chat/runs.ts), so a page
+ * that has just reloaded can find one in progress and reattach to it rather
+ * than showing the partial row and calling it cut off. `attachable` is the
+ * field that decides: it means the events are still buffered and
+ * `GET /chat/runs/<id>/events` will replay them. A finished run past its
+ * retention window is still reported — with its status and, if it failed, the
+ * reason — because "this ended twenty minutes ago" and "there has never been a
+ * run here" are different things for a page to draw.
+ */
+export type ChatRunState = {
+  runId: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  /** The highest sequence number the run has emitted. A client that has read
+   *  up to N asks for the rest with `since=N`. */
+  lastSeq: number;
+  attachable: boolean;
+  startedAt: string;
+  error: string | null;
+};
+
 export type ChatSession = ChatBackends & {
   sessionId: string;
   messages: ChatMessage[];
+  /** Null when nothing has ever answered this conversation. */
+  run: ChatRunState | null;
 };
 
 /**
@@ -2812,6 +2837,9 @@ export type ChatStreamHandlers = {
     user: ChatMessage;
     backend: MessageBackendId;
     backendLabel: string | null;
+    /** The server-owned run this turn belongs to. What the stop button cancels,
+     *  and what a page that reloads mid-answer reattaches to. */
+    runId?: string;
   }) => void;
   onDelta?: (text: string) => void;
   onReasoning?: (text: string) => void;
@@ -2849,8 +2877,14 @@ export type ChatStreamHandlers = {
   }) => void;
   /** The turn failed. `partial` says whether the words already on screen were
    *  stored — the difference between "that is now in the transcript, marked
-   *  incomplete" and "nothing was kept". */
-  onError?: (e: { message: string; messageId: number | null; partial: boolean }) => void;
+   *  incomplete" and "nothing was kept". `cancelled` is the owner's own stop,
+   *  which is not a failure and must not be drawn as one. */
+  onError?: (e: {
+    message: string;
+    messageId: number | null;
+    partial: boolean;
+    cancelled?: boolean;
+  }) => void;
 };
 
 /** What a sent message comes back as: both rows, plus the reply's own facts

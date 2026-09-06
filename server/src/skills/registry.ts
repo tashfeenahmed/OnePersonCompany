@@ -407,6 +407,11 @@ const BUILTIN_ENTRIES: Skill[] = [
       "Replicate reports NO cost. `cost` is null — asked and not told — and stays " +
         "null; `cannot` lists exactly which endpoints were probed and what they " +
         "answered. Never report it as $0.",
+      "THIS IS MODEL SPEND, NOT WHAT THE OPERATION COSTS. Servers, volumes, " +
+        "domain renewals, subscriptions and electricity are not here and never " +
+        "will be — they are in the `ledger` skill, which also carries the " +
+        "per-venture split. Answer “what does this cost me a month” from `ledger`, " +
+        "and use this document for the provider half of it.",
     ],
     views: [
       {

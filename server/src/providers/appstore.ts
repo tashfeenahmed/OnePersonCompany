@@ -181,6 +181,30 @@ async function request(
   return { ok: false, status: res.status, detail };
 }
 
+/**
+ * The same request, exported, with the status and Apple's own sentence intact.
+ *
+ * The mobilehealth area needs exactly this and not `json()`: its whole job is
+ * to tell "the key cannot read this report" apart from "Apple has not made one
+ * yet", and both arrive as an HTTP status with a sentence in the body. A
+ * thrown Error flattens that distinction into a string, so the area that must
+ * record the distinction reads the pair.
+ */
+export async function apiRequest(
+  token: string,
+  path: string,
+  accept = "application/json",
+): Promise<Fetched> {
+  return request(token, path, accept);
+}
+
+/** A gzip'd report body as text, for a caller that has one. Exported for the
+ *  same area, whose analytics segments arrive gzip'd from S3 rather than from
+ *  this API and are otherwise decoded identically. */
+export function reportText(body: Buffer): string {
+  return ungzip(body);
+}
+
 async function json<T>(token: string, path: string): Promise<T> {
   const res = await request(token, path, "application/json");
   if (!res.ok) {

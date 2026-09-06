@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "collect": "node --experimental-strip-types src/cli/collect.ts",
     "restore": "node --experimental-strip-types src/cli/restore.ts",
-    "test": "node --import ./test/setup.mjs --experimental-strip-types --test \"src/**/*.test.ts\""
+    "test": "node --import ./test/setup.mjs --experimental-strip-types --test \"src/**/*.test.ts\"",
+    "import-workdash": "node --experimental-strip-types src/cli/import-workdash.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",

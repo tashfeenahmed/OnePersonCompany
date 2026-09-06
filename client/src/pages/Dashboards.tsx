@@ -1,6 +1,6 @@
 import { lazy, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { BarChart3, Plus } from "lucide-react";
+import { BarChart3, Plus, Wallet } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import {
   BoardView,
@@ -77,7 +77,12 @@ export function Dashboards({ report }: { report?: "email-stats" }) {
         {/* Links, not buttons: each tab IS the board's address. Hold and drag
             to reorder — the order lives in the store beside the boards. */}
         <TabStrip
-          tabs={[{ key: "report:email-stats", to: appPage("email-stats"), label: "Email stats", icon: BarChart3, fixed: true }, ...boards.map((d) => ({
+          /* FINANCE IS A FIXED TAB AND NOT A BOARD. The cost cards on the
+             boards below are widgets; the ledger, the allocation rules and the
+             per-venture P&L are a page, and this strip is the place somebody
+             already comes to ask what things cost. It leaves /dashboards on
+             purpose — see areas/finance/Finance.tsx. */
+          tabs={[{ key: "report:email-stats", to: appPage("email-stats"), label: "Email stats", icon: BarChart3, fixed: true }, { key: "page:finance", to: "/finance", label: "Finance", icon: Wallet, fixed: true }, ...boards.map((d) => ({
             key: d.id,
             to: `/dashboards/${d.slug}`,
             label: d.name,

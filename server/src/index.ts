@@ -19,7 +19,11 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { COLLECT_MINUTES, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "./config.ts";
-import { allPlugins, prune, ventureRows } from "./db.ts";
+import { ventureRows } from "./db.ts";
+/* The collector schedule and the health checks, both owned by the deploy area
+   — see integrations/deploy/manifest.ts for why they are one area. */
+import { startCollectors } from "./integrations/deploy/scheduler.ts";
+import { health } from "./integrations/deploy/health.ts";
 import { COLLECTORS as BUILTIN_COLLECTORS } from "./collector.ts";
 import { MANIFESTS, manifestCollectors } from "./integrations/index.ts";
 import { ownerGate } from "./integrations/security/gate.ts";
@@ -128,14 +132,22 @@ app.use(
    answered by that middleware and never reaches this one. */
 app.use("/api/*", ownerGate);
 
-app.get("/api/health", (c) =>
-  c.json({
-    ok: true,
-    now: new Date().toISOString(),
-    collectors: Object.keys(COLLECTORS),
-    collectEveryMinutes: COLLECT_MINUTES,
-  }),
-);
+/*
+  THE LIVENESS PROBE, AND NOW ALSO THE HEALTH CHECK.
+
+  It kept exactly the four fields it always had — `ok`, `now`, `collectors`,
+  `collectEveryMinutes` — because `cli/restore.ts` fetches this to refuse to
+  overwrite a database this process has open, and the owner gate lets it
+  through with no credential for that reason. `ok` therefore still means only
+  "this process answered".
+
+  What it now ALSO carries is a `status` and five checks: the database opens
+  and passes quick_check, every migration this build ships is applied, the
+  connected sources have collected within their own cadence, the managed agent
+  is in the state it was asked to be in, and there is disk left. That is the
+  question an unattended install actually asks — see integrations/deploy/health.ts.
+*/
+app.get("/api/health", async (c) => c.json(await health(Object.keys(COLLECTORS))));
 
 app.route("/api/plugins", plugins);
 app.route("/api/hetzner", hetznerRoutes);
@@ -318,27 +330,14 @@ app.onError((err, c) => {
  * "every so often" rather than "at 03:00", and a missed tick while the laptop
  * was asleep should just be the next tick — not a backlog to catch up on.
  */
-if (COLLECT_MINUTES > 0) {
-  const everyMs = COLLECT_MINUTES * 60_000;
-  setInterval(() => {
-    void (async () => {
-      for (const row of allPlugins()) {
-        const collector = COLLECTORS[row.id];
-        if (!collector || row.connected !== 1) continue;
-        const r = await collector();
-        console.log(
-          `[collect] ${row.id} ${r.ok ? "ok" : "failed"}${r.error ? ` — ${r.error}` : ""}`,
-        );
-      }
-      const pruned = prune(RETAIN_DAYS, LOAD_RETAIN_DAYS);
-      if (pruned.readings || pruned.runs || pruned.load)
-        console.log(
-          `[prune] ${pruned.readings} readings, ${pruned.runs} runs, ` +
-            `${pruned.load} load samples`,
-        );
-    })();
-  }, everyMs).unref();
-}
+/* THE LOOP ITSELF MOVED to integrations/deploy/scheduler.ts, and the reasoning
+   above moved with it. What changed there: the tick is a minute rather than
+   `COLLECT_MINUTES`, and each source is collected on ITS OWN cadence — a
+   setting on that plugin's page, defaulting to this number. A box that has set
+   none of them behaves exactly as this block did. Registration happens even
+   when the scheduler is off, so the Deployment page can still say what would
+   be collected and how often. */
+startCollectors(COLLECTORS, COLLECT_MINUTES, { readings: RETAIN_DAYS, load: LOAD_RETAIN_DAYS });
 
 /* ------------------------------------------------------------- telegram */
 

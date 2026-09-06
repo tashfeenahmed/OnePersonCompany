@@ -525,6 +525,19 @@ export function startRounds() {
       try {
         const s = settings();
         if (!s.enabled) return;
+        /* THE PIPELINE MAY BE DRIVING TONIGHT.
+           `integrations/pipeline` registers the round as a STAGE of one visible
+           nightly schedule, and a stage it starts is work this timer must not
+           also start — two dispatches of the same job do not arrive sooner, they
+           queue behind each other and bill twice. The predicate lives in the
+           pipeline (one author for the rule; both sides read it) and answers
+           false unless the pipeline is switched on AND its rounds stage is
+           enabled, so a box without that area behaves exactly as before.
+           Imported lazily: this file is imported by the chief manifest, which
+           the skill registry pulls in, and a static import of a manifest's
+           module from here would be a cycle. */
+        const { pipelineOwnsRounds } = await import("../pipeline/stages-called.ts");
+        if (pipelineOwnsRounds()) return;
         const { hour, day } = localNow(s);
         const saved = db.prepare("SELECT value FROM runtime_settings WHERE key='rounds-last-due'").get() as { value: string } | undefined;
         const previous = roundRows(20).find(r => r.trigger === "schedule");

@@ -7,6 +7,7 @@ import { StagePill, VentureMark } from "@/components/VentureChrome";
 import { PostCard } from "@/components/studio/PostCard";
 import { ReadinessBanner } from "@/components/studio/ReadinessBanner";
 import { useApi } from "@/hooks/useApi";
+import { publishingApi } from "@/areas/publishing/api";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import {
@@ -33,10 +34,16 @@ import {
  * promise long after forgetting it was greyed. What exists is a still post,
  * so a still post is the whole page.
  *
- * NOTHING HERE POSTS ANYTHING ANYWHERE. There is no Instagram credential in
- * the vault and no publish route on the server. "Platform" is a hint to the
- * model about length and register, and the finished caption is copied out by
- * hand — which is why Copy is the most prominent action on a finished card.
+ * NOTHING HERE POSTS ANYTHING ANYWHERE, and that is still true of this page
+ * after publishing arrived. What changed is that a finished post can now be
+ * FILED — "Send to publishing" puts it in the queue as a DRAFT, where the
+ * owner reads it against a real account, approves it and schedules it. This
+ * page still cannot publish and still cannot approve; Copy is still here for
+ * the platforms this box has no publisher for.
+ *
+ * "Platform" remains a hint to the model about length and register. It is not
+ * a destination: which account a post goes to is decided in the queue, with
+ * that destination's capabilities and the platform's limits on screen.
  *
  * MAKING ONE COSTS MONEY AND TAKES ABOUT TWENTY SECONDS. Both facts are on
  * screen before the button is pressed: the readiness banner carries Replicate's
@@ -98,9 +105,21 @@ export function Studio() {
   const [platform, setPlatform] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
+  /* WHICH OF THE VENTURE'S OWN PICTURES THIS POST SHOULD LOOK LIKE. Cleared
+     when the venture changes, because an asset belongs to one business. */
+  const [assetIds, setAssetIds] = useState<string[]>([]);
 
   const doc = useApi(
     () => studioApi.posts(venture?.id ?? null),
+    [venture?.id ?? null],
+  );
+
+  /* The venture's asset library, and — the part that decides whether a
+     selection does anything at all — whether the CURRENT image model has an
+     input a picture can go in. Read off that model's own schema by the
+     server; `checked: false` means it could not be asked. */
+  const library = useApi(
+    () => publishingApi.assets({ venture: venture?.id ?? null }),
     [venture?.id ?? null],
   );
 
@@ -114,6 +133,7 @@ export function Studio() {
         brief: brief.trim(),
         format,
         platform,
+        assetIds,
       });
       /* The new post goes straight on the front of the list this page is
          already holding rather than triggering a refetch — the reply IS the
@@ -153,8 +173,12 @@ export function Studio() {
           </h1>
           <p className="text-muted-foreground text-[13.5px]">
             A caption and a picture for one venture, from what this box already
-            knows about it. Nothing is published — the post is copied out by
-            hand.{" "}
+            knows about it. Nothing is published from here — a finished post is
+            sent to{" "}
+            <Link to="/social/publishing" className="underline decoration-dotted">
+              Publishing
+            </Link>{" "}
+            as a draft, where you approve it.{" "}
             {/* THE TWO THINGS THAT FILL THIS GALLERY WITHOUT SOMEBODY TYPING
                 A BRIEF. Autopilot queues posts here on a schedule; Video makes
                 the moving half. Both are links rather than tabs because this
@@ -201,7 +225,10 @@ export function Studio() {
                   {ventures.map((v) => (
                     <button
                       key={v.id}
-                      onClick={() => setChosen(v.id)}
+                      onClick={() => {
+                        setChosen(v.id);
+                        setAssetIds([]);
+                      }}
                       className={cn(
                         "flex items-center gap-1.5 rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors",
                         venture?.id === v.id
@@ -266,6 +293,62 @@ export function Studio() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* ------------------------------------------- the references */}
+              <div className="grid gap-1.5">
+                <div className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+                  Take visual direction from
+                </div>
+                {(library.data?.assets ?? []).length === 0 ? (
+                  <p className="text-muted-foreground text-[11.5px]">
+                    {venture?.name} has no assets yet. Upload a logo, a reference picture or a
+                    screenshot under{" "}
+                    <Link to="/social/publishing?tab=assets" className="underline decoration-dotted">
+                      Publishing → Assets
+                    </Link>
+                    .
+                  </p>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(library.data?.assets ?? []).slice(0, 12).map((a) => (
+                        <button
+                          key={a.id}
+                          title={a.prompt ?? a.name ?? a.kind}
+                          onClick={() =>
+                            setAssetIds((prev) =>
+                              prev.includes(a.id)
+                                ? prev.filter((x) => x !== a.id)
+                                : [...prev, a.id].slice(0, 4),
+                            )
+                          }
+                          className={cn(
+                            "overflow-hidden rounded-[8px] border transition-colors",
+                            assetIds.includes(a.id)
+                              ? "border-foreground"
+                              : "hover:border-line-strong",
+                          )}
+                        >
+                          {a.onDisk ? (
+                            <img src={a.url} alt="" className="size-12 object-cover" />
+                          ) : (
+                            <span className="text-muted-foreground flex size-12 items-center justify-center text-[10px]">
+                              missing
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                    {/* THE SENTENCE THAT DECIDES WHETHER THIS DOES ANYTHING.
+                        A model with no image input gets the pictures described
+                        in words instead, which is much weaker — so it is said
+                        before the button is pressed rather than after. */}
+                    <p className="text-muted-foreground text-[11.5px]">
+                      {library.data?.imageModel.note}
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="grid gap-1.5">

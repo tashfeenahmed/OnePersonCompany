@@ -18,6 +18,8 @@ import { BackupsSettings } from "@/components/settings/BackupsSettings";
 import { CaptureSettings } from "@/components/settings/CaptureSettings";
 import { StudioSettings } from "@/components/settings/StudioSettings";
 import { SecuritySettings } from "@/areas/security/SecuritySettings";
+import { MigrationSettings } from "@/areas/migrate/MigrationSettings";
+import { DeploymentSettings } from "@/areas/deploy/DeploymentSettings";
 
 const THEMES: { id: Theme; label: string; note: string; icon: typeof Sun }[] = [
   { id: "light", label: "Light", note: "Always the paper palette", icon: Sun },
@@ -101,6 +103,20 @@ export function Settings() {
                 they put this box behind a tunnel. See
                 areas/security/SecuritySettings.tsx. */}
             <TabsTrigger value="security">Security</TabsTrigger>
+            {/* DEPLOYMENT, AND IT IS NOT UNDER "SERVER" EITHER. That tab is
+                three settings about what this machine does with its own disk.
+                This one is about whether the machine runs this app at all when
+                nobody is watching — the service, its health checks, the
+                per-source collection schedule, how boxed-in the agent is, and
+                who is holding a shared GPU. See areas/deploy/DeploymentSettings.tsx. */}
+            <TabsTrigger value="deployment">Deployment</TabsTrigger>
+            {/* MIGRATION, AND IT IS NOT UNDER "DATA". That tab is this
+                browser's own preferences, exported and imported as a file.
+                This one is about data arriving from ANOTHER application —
+                imported batches, what they created, and whether the product
+                adapters are publishing what this box asks for. See
+                areas/migrate/MigrationSettings.tsx. */}
+            <TabsTrigger value="migration">Migration</TabsTrigger>
             <TabsTrigger value="data">Data</TabsTrigger>
           </TabsList>
 
@@ -232,12 +248,22 @@ export function Settings() {
             <StudioSettings />
           </TabsContent>
 
+          {/* ------------------------------------------------- deployment */}
+          <TabsContent value="deployment" className="mt-2 divide-y">
+            <DeploymentSettings />
+          </TabsContent>
+
           {/* --------------------------------------------------- security */}
           <TabsContent value="security" className="mt-2 divide-y">
             <SecuritySettings />
           </TabsContent>
 
           {/* ------------------------------------------------------- data */}
+          {/* -------------------------------------------------- migration */}
+          <TabsContent value="migration" className="mt-2 divide-y">
+            <MigrationSettings />
+          </TabsContent>
+
           <TabsContent value="data" className="mt-2 divide-y">
             <Section
               title="What is stored"

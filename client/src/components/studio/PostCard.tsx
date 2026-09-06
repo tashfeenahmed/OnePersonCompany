@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Check, Copy, ImageOff, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Check, Copy, ImageOff, Loader2, RefreshCw, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { studioApi, type StudioPost } from "@/lib/api/studio";
+import { publishingApi } from "@/areas/publishing/api";
 
 /**
  * ONE POST, AS THE THING IT WILL BE WHEN IT IS PASTED SOMEWHERE.
@@ -90,7 +92,11 @@ export function PostCard({
   onChanged: (post: StudioPost) => void;
   onDeleted: (id: string) => void;
 }) {
-  const [busy, setBusy] = useState<"caption" | "image" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"caption" | "image" | "delete" | "send" | null>(null);
+  /* What the publishing queue said. A sentence rather than a redirect: this
+     card is in a gallery somebody is scrolling, and being thrown onto another
+     page for pressing a button on one card would lose their place. */
+  const [sent, setSent] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [armed, setArmed] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
@@ -127,6 +133,31 @@ export function PostCard({
       setRefused(err instanceof Error ? err.message : String(err));
       setBusy(null);
       setArmed(false);
+    }
+  }
+
+  /**
+   * File this post into the publishing queue, as a DRAFT.
+   *
+   * NO DESTINATION IS CHOSEN HERE, deliberately. Which account a post goes to
+   * is a decision with an audience attached, and the queue is where that is
+   * made — with the destination's capabilities and the platform's limits on
+   * screen. This button only says "keep this one".
+   */
+  async function sendToPublishing() {
+    setBusy("send");
+    setRefused(null);
+    setSent(null);
+    try {
+      const res = await publishingApi.queue({
+        sourceKind: "studio_post",
+        sourceId: post.id,
+      });
+      setSent(res.note);
+    } catch (err) {
+      setRefused(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -239,6 +270,15 @@ export function PostCard({
             {refused}
           </p>
         )}
+        {sent && (
+          <p className="text-muted-foreground text-[12.5px] leading-relaxed">
+            {sent}{" "}
+            <Link to="/social/publishing" className="underline decoration-dotted">
+              Open the queue
+            </Link>
+            .
+          </p>
+        )}
 
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
           <Button variant="outline" size="sm" onClick={() => void copy()}>
@@ -274,6 +314,19 @@ export function PostCard({
               <RefreshCw className="size-3.5" strokeWidth={1.8} />
             )}
             Regenerate image
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => void sendToPublishing()}
+          >
+            {busy === "send" ? (
+              <Loader2 className="size-3.5 animate-spin" strokeWidth={1.8} />
+            ) : (
+              <Send className="size-3.5" strokeWidth={1.8} />
+            )}
+            Send to publishing
           </Button>
           {/* Two clicks, no dialog. The picture is gone off the disk with the
               row, so it is worth arming — and a modal for one line of text is

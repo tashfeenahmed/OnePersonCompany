@@ -30,7 +30,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { apiBase } from "./registry.ts";
-import { SERVICE_KEY_FILE, serviceKey } from "../auth.ts";
+import { AGENT_KEY_FILE, agentKey } from "../auth.ts";
 
 export const CLI_NAME = "opc";
 
@@ -46,7 +46,10 @@ function wrapper(): string {
     "#!/bin/sh",
     "# Written by onepersoncompany. `opc` is this dashboard's own live data as a",
     "# command — `opc` alone lists what is connected; `opc help <id>` explains one.",
-    `OPC_KEY=$(cat ${q(SERVICE_KEY_FILE)} 2>/dev/null) OPC_API=${q(apiBase())} exec ${q(process.execPath)} --experimental-strip-types ${q(cliScript())} "$@"`,
+    "# The key it reads is the AGENT key, not the owner one: it opens every skill",
+    "# and is refused on the owner surface (credentials, backups, the password).",
+    "# See server/src/auth.ts and integrations/security/gate.ts.",
+    `OPC_KEY=$(cat ${q(AGENT_KEY_FILE)} 2>/dev/null) OPC_API=${q(apiBase())} exec ${q(process.execPath)} --experimental-strip-types ${q(cliScript())} "$@"`,
     "",
   ].join("\n");
 }
@@ -59,7 +62,7 @@ function wrapper(): string {
 export function installCli(binDir: string): { path: string; changed: boolean } {
   /* Minted here if it does not exist yet, because the wrapper about to be
      written reads it with `cat` and a shell cannot create it. */
-  serviceKey();
+  agentKey();
   const path = join(binDir, CLI_NAME);
   const next = wrapper();
   let current: string | null = null;

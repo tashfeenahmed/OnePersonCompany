@@ -36,7 +36,9 @@ const People = lazy(() => import("@/areas/people/People").then(m => ({ default: 
 const Alerts = lazy(() => import("@/areas/proactive/Alerts").then(m => ({ default: m.Alerts })));
 const Login = lazy(() => import("@/areas/security/Login").then(m => ({ default: m.Login })));
 const Workflows = lazy(() => import("@/areas/chief/Workflows").then(m => ({ default: m.Workflows })));
+const Finance = lazy(() => import("@/areas/finance/Finance").then(m => ({ default: m.Finance })));
 const ActivityPage = lazy(() => import("@/areas/activity/ActivityPage").then(m => ({ default: m.ActivityPage })));
+const Customers = lazy(() => import("@/areas/customers/Customers").then(m => ({ default: m.Customers })));
 
 export default function App() {
   return (
@@ -148,6 +150,7 @@ export default function App() {
                     />
                     <Route path="/ventures/:slug/site" element={<Venture />} />
                     <Route path="/ventures/:slug/audit" element={<Venture />} />
+                    <Route path="/ventures/:slug/knowledge" element={<Venture />} />
                     {/* A venture's own dashboards. The same board component
                         the global page renders, narrowed to this venture's
                         host — see components/BoardView and lib/scope. */}
@@ -175,6 +178,12 @@ export default function App() {
                     <Route path="/activity" element={<ActivityPage />} />
                     <Route path="/activity/:tab/:product" element={<ActivityPage />} />
                     <Route path="/activity/:tab" element={<ActivityPage />} />
+                    {/* CUSTOMERS — the recovery queue, the dispute cases and
+                        the event feed. Three tabs on one address for the
+                        reason Activity has three: they are the same question
+                        at three distances, and the URL is the selection. */}
+                    <Route path="/customers" element={<Customers />} />
+                    <Route path="/customers/:tab" element={<Customers />} />
                     <Route path="/integrations" element={<Plugins />} />
                     <Route path="/integrations/:id" element={<PluginDetail />} />
                     {/* "Plugin" was the wrong word: these are connections to
@@ -200,6 +209,9 @@ export default function App() {
                     <Route path="/social" element={<SocialSection />} />
                     <Route path="/social/:page" element={<SocialSection />} />
                     <Route path="/social/video/:runId" element={<SocialSection page="video" />} />
+                    {/* A campaign run is read on the Publishing page, the way a
+                        video run is read on the Video page. */}
+                    <Route path="/social/publishing/:runId" element={<SocialSection page="publishing" />} />
                     <Route path="/growth" element={<GrowthSection />} />
                     <Route path="/growth/:page" element={<GrowthSection />} />
                     <Route path="/growth/:page/:runId" element={<GrowthSection />} />
@@ -231,6 +243,14 @@ export default function App() {
                         rewrites itself to that tab's address, and every tab is
                         a place somebody can link to. One element for both, so
                         moving between tabs reconciles rather than remounting. */}
+                    {/* FINANCE — the operating-cost ledger and the profit
+                        model. Five tabs, one element, the URL as the selection
+                        — the same reconciliation the venture tabs use. Reached
+                        from the Dashboards strip rather than from a rail row:
+                        the cost cards already live on a dashboard, and this is
+                        that subject one level deeper. */}
+                    <Route path="/finance" element={<Finance />} />
+                    <Route path="/finance/:tab" element={<Finance />} />
                     <Route path="/workflows" element={<Workflows />} />
                     <Route path="/workflows/:tab" element={<Workflows />} />
                     <Route path="*" element={<div className="p-8"><h1 className="text-2xl mb-3">Page not found</h1><p>This address does not match a page.</p><Link className="underline" to="/">Go to your workspace</Link></div>} />

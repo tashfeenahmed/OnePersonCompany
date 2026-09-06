@@ -26,6 +26,7 @@ import { facelessVideo, runDir, StepError, type RunSession } from "./faceless.ts
 import { shortsVideo } from "./shorts.ts";
 import { ASPECTS, type Fit } from "./assemble.ts";
 import { forgetJob } from "./store.ts";
+import * as leases from "../deploy/leases.ts";
 
 export const FORMATS = ["faceless", "shorts"] as const;
 export type Format = (typeof FORMATS)[number];
@@ -46,6 +47,45 @@ const clampNumber = (raw: string | undefined, fallback: number, lo: number, hi: 
 export const DEFAULT_SECONDS = 30;
 
 export async function videoRun(opts: {
+  runId: string;
+  session: RunSession;
+  venture: VentureRow | null;
+  input: Record<string, string>;
+  signal?: AbortSignal;
+}): Promise<void> {
+  /*
+    A LEASE ON THIS MACHINE FOR AS LONG AS THE RENDER RUNS.
+
+    ffmpeg, the downloads and any local model all happen HERE, and a video is
+    the longest thing this box does — tens of minutes with nothing to show for
+    it if the machine goes to sleep in the middle. The lease is what stops
+    that: `integrations/deploy/leases.ts` refuses a sleep while any live lease
+    exists, and this is the first thing on the box to take one.
+
+    IT IS TAKEN AROUND THE WHOLE RUN AND RELEASED IN A `finally`, because the
+    two ways a render ends that are NOT a return are the two that matter — a
+    thrown StepError and a cancelled run. A lease left behind by either would
+    hold the machine awake, which is why a lease also expires on its own; the
+    heartbeat below is what keeps a genuinely long render's lease alive past
+    that.
+  */
+  const lease = leases.acquire({
+    kind: "video",
+    resource: leases.LOCAL,
+    ventureId: opts.venture?.id ?? null,
+    note: `${readFormat(opts.input.format)} video, run ${opts.runId}`,
+  });
+  const beat = setInterval(() => void leases.heartbeat(lease.id), 60_000);
+  beat.unref?.();
+  try {
+    return await renderVideo(opts);
+  } finally {
+    clearInterval(beat);
+    leases.release(lease.id, "the video run ended");
+  }
+}
+
+async function renderVideo(opts: {
   runId: string;
   session: RunSession;
   venture: VentureRow | null;
