@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { count, pct } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
@@ -177,7 +178,7 @@ function OutcomeCard({
                 {outcome.pct !== null && (
                   <span className="text-muted-foreground ml-1.5 text-[12px]">
                     {outcome.pct > 0 ? "+" : ""}
-                    {outcome.pct.toFixed(1)}%
+                    {pct(outcome.pct / 100)}
                   </span>
                 )}
                 {outcome.pct === null && outcome.before === 0 && (
@@ -235,8 +236,14 @@ function Figure({ label, value }: { label: string; value: number | null }) {
   );
 }
 
+/**
+ * An outcome reading, which is NOT always a count — a conversion ratio is 3.14
+ * and rounding it to "3" would be this page deciding what was measured. So
+ * small figures keep two decimals; above a thousand the decimals are noise and
+ * it is `count` from `@/lib/format`, the same separators as everywhere else.
+ */
 function fmt(n: number): string {
-  return Math.abs(n) >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : String(Number(n.toFixed(2)));
+  return Math.abs(n) >= 1000 ? count(n) : String(Number(n.toFixed(2)));
 }
 
 /**

@@ -84,11 +84,11 @@ type VentureChip = {
  * and says, in a sentence at the top, what the server said. Never a silent
  * revert: a card that slides back on its own reads as a bug in the drag.
  *
- * A FILTERED BOARD IS STILL A DRAGGABLE BOARD HERE, which is the opposite of
- * what workdash's board does, and the difference is the wire format rather
- * than a change of mind. Its drop sends `{column, index}`, and an index
- * counted over a list with rows hidden inside it is a lie — so it turns
- * dragging off while a search is on. This one sends `{columnId, before}`,
+ * A FILTERED BOARD IS STILL A DRAGGABLE BOARD HERE, which most boards refuse,
+ * and the difference is the wire format rather than a change of mind. The usual
+ * drop sends `{column, index}`, and an index counted over a list with rows
+ * hidden inside it is a lie — so those boards turn dragging off while a search
+ * is on. This one sends `{columnId, before}`,
  * naming the CARD to land above. A hidden card cannot make "above that card"
  * mean somewhere else: the card lands exactly where the indicator promised,
  * with whatever is filtered out staying where it already was.
@@ -96,10 +96,10 @@ type VentureChip = {
  * WHAT IS DELIBERATELY NOT HERE. No column can be created or deleted — the
  * five the server seeds are the board, and the API has no route for either.
  * Columns are not reorderable by drag on this page yet, though the route and
- * the client call for it exist. And nothing files a card by itself: workdash's
- * board has a backlog filer, an issue ranking and a gardening sweep writing
- * cards into it, and none of that is ported. Those cards come from collectors
- * that read other people's systems; these are the owner's own. The seam is a
+ * the client call for it exist. And nothing files a card by itself: no backlog
+ * filer, no issue ranking, no gardening sweep writes cards in. Cards like those
+ * come from collectors reading other people's systems; these are the owner's
+ * own. The seam is a
  * nullable `origin` on the server (see routes/board.ts) and nothing else.
  */
 export function Board() {

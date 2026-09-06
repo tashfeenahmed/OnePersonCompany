@@ -81,8 +81,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * one-time `/cdn-cgi/content?id=…` links injected into the HTML that 404 for
  * anything that is not the browser session they were minted for. Crawled, they
  * produce a page-error, a noindex and a broken link EACH, about infrastructure
- * the owner does not control and cannot fix. Measured on example-app-1.example.test on
- * 2026-09-05: fourteen of the first sixty pages were these.
+ * the owner does not control and cannot fix. Measured on a real venture site
+ * on 2026-09-05: fourteen of the first sixty pages were these.
  *
  * So they are skipped, and the count of them is REPORTED rather than silently
  * dropped — a crawler that quietly ignores a fifth of a site's links is a

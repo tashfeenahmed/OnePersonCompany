@@ -26,8 +26,8 @@
  *
  * THE SEARCH TERMS ARE THE SECOND HALF OF EACH BEAT AND ARE ASKED FOR IN THE
  * SAME TURN. Two turns — write the script, then find footage words for it —
- * was tried first in the shape workdash uses, and it costs a round trip to
- * produce terms for a beat the model can no longer see. Asked together, a beat
+ * was tried first, and it costs a round trip to produce terms for a beat the
+ * model can no longer see. Asked together, a beat
  * about "the paperwork nobody reads" gets "stack of documents" and "tired
  * office worker" rather than the noun phrase from the caption, which is what a
  * separate pass tends to return.

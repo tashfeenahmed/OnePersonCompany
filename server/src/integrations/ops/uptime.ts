@@ -38,6 +38,7 @@
  * every link that named it.
  */
 import { configValue, db, finishRun, startRun, upsertPlugin } from "../../db.ts";
+import { pruneOne, registerRetention, retentionFor } from "../../shared/retention.ts";
 import { connect } from "node:tls";
 
 /* ------------------------------------------------------------------ the list */
@@ -52,6 +53,16 @@ const MAX_HOPS = 5;
 const MAX_BODY = 2 * 1024 * 1024;
 /** How long checks are kept. See 040_uptime. */
 export const RETAIN_DAYS = 30;
+registerRetention({
+  table: "uptime_checks",
+  column: "ts",
+  days: RETAIN_DAYS,
+  source: "area",
+  note:
+    "One row per host per check, which is the densest history on the box. Thirty days answers " +
+    "“has this been flapping” and “what was the outage last week”; older than that the question " +
+    "is about a site that has since been changed.",
+});
 
 /** The user agent every request here carries. A checker that arrives
  *  anonymously is a checker whose traffic the owner cannot recognise in his
@@ -386,9 +397,8 @@ export function forgetHosts(keep: string[]): number {
   return gone;
 }
 
-export function pruneChecks(days = RETAIN_DAYS): number {
-  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-  return Number(db.prepare("DELETE FROM uptime_checks WHERE ts < ?").run(cutoff).changes);
+export function pruneChecks(): number {
+  return pruneOne(retentionFor("uptime_checks")!);
 }
 
 /* ---------------------------------------------------------------- collector */

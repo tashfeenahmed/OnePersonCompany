@@ -35,7 +35,7 @@
  * instance a `site:` query for fifty-one directories that publish no API, and
  * its own header records what that was worth on 1 Sep 2026 — every backend
  * but Bing lost to CAPTCHAs and suspensions, and Bing answering
- * `site:github.com Overbrilliant` with Polish news stories. It concluded that
+ * `site:github.com <a portfolio brand>` with unrelated foreign-language news. It concluded that
  * no query strategy can work through that instance and that the direct probes
  * are better evidence than a search hit ever was. So this port is the probes,
  * plus the three named directories reached at their own conventional url —
@@ -47,6 +47,8 @@
  * unauthenticated search allows ten requests a minute and gets seven seconds
  * of its own; nothing else here is asked more than once per product per day.
  */
+
+import { hostOf, sameSite } from "../../../shared/host.ts";
 
 export const UA =
   "onepersoncompany-presence/1.0 (+https://github.com/onepersoncompany; one-person dashboard)";
@@ -112,7 +114,7 @@ export type Product = { name: string; host: string; hosts: string[] };
  * TWO THINGS ARE NEEDED AND NEITHER CAN BE DERIVED FROM THE OTHER. The NAME
  * is what a directory would have called the product and is the only thing
  * worth searching for; the HOST is what proves a record found that way is
- * ours. A list of hosts alone would search for "example-app-1.example.test" and find
+ * ours. A list of hosts alone would search for a bare domain and find
  * nothing; a list of names alone would accept any stranger's project of the
  * same name.
  */
@@ -129,45 +131,22 @@ export function parseProducts(raw: string | null | undefined): Product[] {
   return out;
 }
 
-export function hostOf(value: string): string {
-  if (!value) return "";
-  let candidate = value;
-  if (/^https?:\/\//i.test(candidate)) {
-    try {
-      candidate = new URL(candidate).hostname;
-    } catch {
-      return "";
-    }
-  }
-  const host = candidate.split("/")[0]!.toLowerCase().trim().replace(/^www\./, "").replace(/\.$/, "");
-  return /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(host)
-    ? host
-    : "";
-}
-
-/** Two labels, or three where the second-to-last is a known multi-part
- *  suffix. Narrow on purpose: it decides whether a url is ours. */
-const MULTI_TLD = new Set(["com.pk", "co.uk", "com.au", "co.nz", "com.br", "co.za", "org.uk", "ie.com"]);
-export function registrable(host: string | null | undefined): string {
-  const parts = String(host ?? "").toLowerCase().split(".").filter(Boolean);
-  if (parts.length < 2) return parts.join(".");
-  if (parts.length >= 3 && MULTI_TLD.has(parts.slice(-2).join(".")))
-    return parts.slice(-3).join(".");
-  return parts.slice(-2).join(".");
-}
-
-function hostOfUrl(url: string | null | undefined): string {
-  try {
-    return registrable(new URL(String(url)).hostname);
-  } catch {
-    return "";
-  }
-}
-
-/** Is this url on one of the product's own hosts? */
+/**
+ * Is this url on one of the product's own hosts?
+ *
+ * `sameSite` out of `shared/host.ts`, and the change of rule is the point.
+ * This used to fold both sides to a registrable domain and compare them, which
+ * is BIDIRECTIONAL by construction: a directory record pointing at the parent
+ * domain of somebody else's product on a shared registrable domain read as
+ * ours. Ownership runs downward only — a link to a subdomain of the product's
+ * host is the product's, a link to its parent is not.
+ *
+ * The sibling collector in this same area had a DIFFERENT host reducer under
+ * the same name, so the two disagreed about whether a link was ours. One
+ * module now answers for both.
+ */
 export function ours(url: string | null | undefined, product: Product): boolean {
-  const host = hostOfUrl(url);
-  return !!host && product.hosts.some((h) => registrable(h) === host);
+  return product.hosts.some((h) => sameSite(h, url));
 }
 
 const flat = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -175,7 +154,7 @@ const flat = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g,
 /**
  * The strings that mean "this record is about this brand".
  *
- * The brand run together — "Example App 1" → "example-app-1" — and the host's own
+ * The brand run together — "Acme Beacon" → "acmebeacon" — and the host's own
  * stem. NOT the individual WORDS: half a portfolio's names are two ordinary
  * English words, and a needle of "well" would match most of the internet.
  * Anything under four characters is dropped, because a three-letter stem

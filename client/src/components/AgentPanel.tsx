@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useApi } from "@/hooks/useApi";
 import { api, type AgentId, type AgentReport, type AgentsDoc } from "@/lib/api";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**

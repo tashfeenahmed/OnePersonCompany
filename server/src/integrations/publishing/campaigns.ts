@@ -32,6 +32,7 @@
 import { randomUUID } from "node:crypto";
 import { db, now, type VentureRow } from "../../db.ts";
 import { studioRoutes } from "../ventures/studio.ts";
+import { checkTopic, remember } from "../socialfeed/novelty.ts";
 import { createItem } from "./items.ts";
 import { destinationRows } from "./destinations.ts";
 import { LIMITS, type DestinationKind } from "./limits.ts";
@@ -278,13 +279,18 @@ export function campaignBrief(v: VentureRow): string[] {
   ];
   if (v.website) out.push(`Website: ${v.website}`);
 
-  const posts = db
-    .prepare("SELECT brief FROM studio_posts WHERE venture_id = ? ORDER BY ts DESC LIMIT 6")
-    .all(v.id) as unknown as { brief: string }[];
-  if (posts.length)
-    out.push(
-      `Recently posted about (do not repeat these angles): ${posts.map((p) => p.brief).join("; ").slice(0, 500)}`,
-    );
+  /* THERE IS NO "DO NOT REPEAT THESE ANGLES" LINE HERE ANY MORE, and its
+     removal is the point rather than a tidy-up.
+
+     It used to put the last six briefs in the prompt and ask the model not to
+     repeat them. That is not a constraint — `content_history`'s own migration
+     says so in as many words, because it is the thing that table was built to
+     replace. A model handed six subjects and told to pick a seventh will,
+     often enough, pick the first one again in different words, and here the
+     failure costs a model call and a Replicate render per variant before
+     anybody notices. The refusal now happens in code, before anything is
+     spent, against the same durable history the autopilot writes: see the
+     gate around the fan-out below. */
 
   const runs = db
     .prepare(
@@ -473,6 +479,32 @@ export async function campaignRun(args: {
   const lines: string[] = [];
 
   outer: for (const concept of stored) {
+    /*
+      HAS THIS VENTURE ALREADY MADE THIS. The durable gate, once per CONCEPT
+      and not once per variant, which is the whole shape of a campaign: one
+      argument made in several rooms is not a repeat of itself, so checking per
+      variant would refuse every channel after the first.
+
+      BEFORE ANYTHING IS SPENT. A refused concept costs nothing; a produced one
+      costs a model call and a Replicate render per channel. And it is filed
+      into the same `content_history` the autopilot reads, so tomorrow morning's
+      pass no longer re-derives a subject a campaign covered tonight — nothing a
+      campaign made used to enter that history at all, which made the gate blind
+      in one direction and wasteful in the other.
+
+      `format` IS "post" because that is what a variant becomes — a Studio post
+      — and the history is per format on purpose: the same subject as a post and
+      as a video is two pieces of work, not a repeat.
+    */
+    const gate = checkTopic(venture.id, "post", conceptTopic(concept));
+    if (!gate.ok) {
+      failedCount += channels.length;
+      lines.push(`- ${concept.theme} — **not produced**: ${gate.reason}`);
+      patch(campaign.id, { produced, failed: failedCount });
+      continue;
+    }
+    let firstPost: string | null = null;
+
     for (const channel of channels) {
       if (signal?.aborted) {
         patch(campaign.id, { status: "cancelled", produced, failed: failedCount });
@@ -486,6 +518,7 @@ export async function campaignRun(args: {
         lines.push(`- ${concept.theme} · ${channelLabel(channel)} — **failed**: ${made.error}`);
       } else {
         produced += 1;
+        firstPost = firstPost ?? made.postId;
         lines.push(
           `- ${concept.theme} · ${channelLabel(channel)} — ${made.itemId ? `queued as \`${made.itemId}\` (draft)` : "a Studio draft, with no destination for that channel"}`,
         );
@@ -493,6 +526,21 @@ export async function campaignRun(args: {
       tools.endStep(step, made.error ? "failed" : "made");
       patch(campaign.id, { produced, failed: failedCount });
     }
+
+    /* FILED WHEN THE WORK IS QUEUED, not when it succeeds everywhere — the
+       rule novelty.ts states and the autopilot keeps. A concept that reached
+       the Studio has used up its topic whether or not one channel's render
+       failed; re-deriving it tomorrow because of that would be the gate failing
+       open on the day it was needed. A concept where EVERY channel failed is
+       not filed: nothing was made. */
+    if (firstPost)
+      remember({
+        ventureId: venture.id,
+        format: "post",
+        topic: conceptTopic(concept),
+        assetKind: "studio_post",
+        assetRef: firstPost,
+      });
   }
 
   if (!signal?.aborted)
@@ -520,6 +568,18 @@ export async function campaignRun(args: {
  * another area owns. video/autopilot.ts makes the same call for the same
  * reason.
  */
+/**
+ * The concept as a SUBJECT — what it is about, without the art direction.
+ *
+ * This is what the novelty gate fingerprints and what goes in the history, so
+ * the image note is deliberately left out of it: two posts making the same
+ * argument over two different pictures are the same argument, and including the
+ * picture would let one through as new.
+ */
+function conceptTopic(concept: ConceptRow): string {
+  return `${concept.theme}. ${concept.description ?? ""}`.trim();
+}
+
 async function makeVariant(
   venture: VentureRow,
   campaignId: string,
@@ -527,8 +587,7 @@ async function makeVariant(
   channel: string,
 ): Promise<{ postId: string | null; itemId: string | null; error: string | null }> {
   const brief =
-    `${concept.theme}. ${concept.description ?? ""}` +
-    (concept.image_note ? ` The picture: ${concept.image_note}` : "");
+    conceptTopic(concept) + (concept.image_note ? ` The picture: ${concept.image_note}` : "");
   const format = channel === "tiktok" || channel === "ig" ? "story" : "square";
 
   let postId: string | null = null;
@@ -644,10 +703,6 @@ export function suggestionsFor(v: VentureRow): {
         : "A variant on this channel becomes a draft publish item.",
   }));
 
-  const recent = db
-    .prepare("SELECT brief FROM studio_posts WHERE venture_id = ? ORDER BY ts DESC LIMIT 6")
-    .all(v.id) as unknown as { brief: string }[];
-
   const byStage: Record<string, { title: string; why: string }[]> = {
     idea: [
       { title: "The problem, named", why: "An idea has nothing to sell, and the problem is the only thing it can honestly talk about." },
@@ -669,8 +724,7 @@ export function suggestionsFor(v: VentureRow): {
     note:
       channels.length === 0
         ? "This venture has no enabled destination, so a campaign would produce Studio drafts and nothing queued. Probe the destinations first."
-        : recent.length
-          ? `The last ${recent.length} briefs are given to the planner as angles NOT to repeat.`
-          : "Nothing has been posted for this venture yet, so the planner has no angles to avoid.",
+        : "Every concept is checked against this venture's content history before it is " +
+          "rendered, and one that repeats a recent topic is refused rather than produced.",
   };
 }

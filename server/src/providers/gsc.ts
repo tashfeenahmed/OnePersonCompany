@@ -37,9 +37,8 @@
  *   THE QUERY ROWS DO NOT ADD UP TO THE PROPERTY. Google withholds queries
  *   too rare to be anonymised and caps the rows it returns. Probed across all
  *   nineteen properties on this account on 2026-09-04, the ranked query rows
- *   carried between 0% and 77% of their property's impressions — 2% on
- *   example-app-1.example.test, where two hundred rows out of a long tail is a rounding
- *   error. So the property's own total is asked for SEPARATELY, as a
+ *   carried between 0% and 77% of their property's impressions — as low as 2% on
+ *   a property whose long tail dwarfs two hundred rows. So the property's own total is asked for SEPARATELY, as a
  *   dimensionless query, and the two figures are never mixed: the ranked rows
  *   are a ranking, and the total is the total. `queryCoverage` on every
  *   property says what fraction one is of the other, so a card can print the

@@ -43,6 +43,13 @@
  * is a null check that names itself rather than a check quietly skipped.
  */
 import { db } from "../../db.ts";
+import {
+  COMPARE_DAYS,
+  CTR_DROP_FAIL,
+  CTR_DROP_WARN,
+  FREQ_HIGH,
+  MIN_IMPRESSIONS,
+} from "../webanalytics/fatigue.ts";
 
 /* -------------------------------------------------------------- constants */
 
@@ -67,28 +74,22 @@ const MIN_LIVE_CATEGORIES = 2;
 
 /* ------------------------------------------------------------- kill table */
 
-/** Seven days because a week contains every day of the week, and delivery on a
- *  Sunday is not delivery on a Tuesday. */
-const MIN_DAYS = 7;
+/** The comparison half-window, and the delivery floor under it. Both are
+ *  `webanalytics/fatigue.ts`'s, imported rather than copied: the fatigue
+ *  verdict and this account-level trend used to carry identical constants and
+ *  still disagree, because they were reading different fortnights. */
+const MIN_DAYS = COMPARE_DAYS;
 /** Twenty clicks, because below that a click-through rate moves by a fifth
  *  every time one more person clicks. */
 const MIN_CLICKS = 20;
-/** A thousand impressions before anything may be called dead: turning a
- *  creative off is irreversible in practice, and a run of bad luck over nine
- *  hundred impressions is a run of bad luck. */
-const MIN_IMPRESSIONS_TO_KILL = 1000;
 
 /* ----------------------------------------------------------------- bands */
 
-/** Frequency. About two exposures is a campaign reaching new people; three is
- *  a campaign repeating itself; past three is paying to annoy. */
+/** Frequency. About two exposures is a campaign reaching new people; three —
+ *  `FREQ_HIGH` — is a campaign repeating itself. */
 const FREQ_WARN = 2.0;
-const FREQ_FAIL = 3.0;
 /** The overlap shape: more than one delivering campaign above this. */
 const FREQ_OVERLAP = 2.5;
-/** A week-on-week click-through fall this large is fatigue. */
-const CTR_DROP_WARN = 0.1;
-const CTR_DROP_FAIL = 0.2;
 /** A week-on-week cost-per-thousand rise this large is the auction moving
  *  against the account. */
 const CPM_RISE_WARN = 0.2;
@@ -125,7 +126,7 @@ const CHECKS: Record<string, CheckDef> = {
     cat: "creative",
     sev: "high",
     title: "A campaign is not being clicked",
-    what: `Click-through under ${DEAD_CTR_SHARE * 100}% of this account's own median campaign CTR, over at least ${MIN_IMPRESSIONS_TO_KILL} impressions.`,
+    what: `Click-through under ${DEAD_CTR_SHARE * 100}% of this account's own median campaign CTR, over at least ${MIN_IMPRESSIONS} impressions.`,
     fix: "Turn it off. That many impressions is enough to know, and the budget is being spent proving it again.",
   },
   "lead-action-reported": {
@@ -174,7 +175,7 @@ const CHECKS: Record<string, CheckDef> = {
     cat: "audience",
     sev: "high",
     title: "The same people are seeing this too often",
-    what: `The account's frequency over the window. Past ${FREQ_FAIL} the spend is going to people who have already decided.`,
+    what: `The account's frequency over the window. Past ${FREQ_HIGH} the spend is going to people who have already decided.`,
     fix: "Broaden the targeting or cap the frequency. At this level the extra budget is buying repeats, not reach.",
   },
   "campaign-overlap-signal": {
@@ -246,18 +247,32 @@ type CampaignRow = {
   cost_per_lead: number | null;
 };
 
-type DayRow = { day: string; spend: number | null; impressions: number | null; clicks: number | null; leads: number | null };
+export type DayRow = { day: string; spend: number | null; impressions: number | null; clicks: number | null; leads: number | null };
 
 const round = (v: number, dp = 2) => Number(v.toFixed(dp));
 
-/** The two seven-day halves of the most recent fortnight of days this account
- *  has, and the CTR and CPM of each. Null where a half is too thin to speak. */
-function fortnight(days: DayRow[]): {
+/**
+ * THE TWO MATCHED WEEKS, CUT BY DATE AND NOT BY ROW COUNT.
+ *
+ * THE BUG THIS FIXES. It used to take the last fourteen ROWS PRESENT and split
+ * them down the middle. A platform writes no daily row for a day nothing was
+ * delivered, so an account that paused for three days had its "last week"
+ * quietly reach ten days back and its "week before" reach further still — two
+ * windows of seven rows each, neither of them a week. The fatigue verdict next
+ * door was reading the platform's own two explicit week requests over the same
+ * fortnight, so the two could and did contradict each other.
+ *
+ * The cut is now `COMPARE_DAYS` days back from the most recent day with a row,
+ * which is the same span `ad_windows` is collected over. `days` counts the days
+ * that actually carried a row inside each week, so the caller can still refuse
+ * a week too thin to speak — but a missing day now shortens a week instead of
+ * lengthening it.
+ */
+export function fortnight(days: DayRow[]): {
   recent: { ctr: number | null; cpm: number | null; clicks: number; impressions: number; days: number };
   prior: { ctr: number | null; cpm: number | null; clicks: number; impressions: number; days: number };
 } {
   const sorted = [...days].sort((a, b) => a.day.localeCompare(b.day));
-  const last14 = sorted.slice(-14);
   const half = (rows: DayRow[]) => {
     const impressions = rows.reduce((n, r) => n + (r.impressions ?? 0), 0);
     const clicks = rows.reduce((n, r) => n + (r.clicks ?? 0), 0);
@@ -270,7 +285,17 @@ function fortnight(days: DayRow[]): {
       days: rows.length,
     };
   };
-  return { recent: half(last14.slice(-7)), prior: half(last14.slice(0, Math.max(0, last14.length - 7))) };
+  const last = sorted.at(-1)?.day;
+  if (!last) return { recent: half([]), prior: half([]) };
+  const back = (n: number) =>
+    new Date(`${last}T00:00:00Z`).getTime() - n * 86_400_000;
+  const at = (d: string) => new Date(`${d}T00:00:00Z`).getTime();
+  const recentFrom = back(COMPARE_DAYS - 1);
+  const priorFrom = back(2 * COMPARE_DAYS - 1);
+  return {
+    recent: half(sorted.filter((r) => at(r.day) >= recentFrom)),
+    prior: half(sorted.filter((r) => at(r.day) >= priorFrom && at(r.day) < recentFrom)),
+  };
 }
 
 function medianOf(values: number[]): number | null {
@@ -329,13 +354,13 @@ function evaluate(account: AccountRow, campaigns: CampaignRow[], days: DayRow[])
     );
   }
 
-  const deliverable = campaigns.filter((c) => (c.impressions ?? 0) >= MIN_IMPRESSIONS_TO_KILL && c.ctr !== null);
+  const deliverable = campaigns.filter((c) => (c.impressions ?? 0) >= MIN_IMPRESSIONS && c.ctr !== null);
   const medianCtr = medianOf(deliverable.map((c) => c.ctr!));
   if (medianCtr === null || deliverable.length < 2)
     add(
       "campaign-not-clicked",
       null,
-      `Needs at least two campaigns with ${MIN_IMPRESSIONS_TO_KILL}+ impressions to have a median to compare against; there ${deliverable.length === 1 ? "is 1" : `are ${deliverable.length}`}.`,
+      `Needs at least two campaigns with ${MIN_IMPRESSIONS}+ impressions to have a median to compare against; there ${deliverable.length === 1 ? "is 1" : `are ${deliverable.length}`}.`,
       "campaign",
     );
   else {
@@ -345,7 +370,7 @@ function evaluate(account: AccountRow, campaigns: CampaignRow[], days: DayRow[])
       dead.length ? "fail" : "pass",
       dead.length
         ? `${dead.length} of ${deliverable.length} campaigns are under ${DEAD_CTR_SHARE * 100}% of this account's own median CTR (${round(medianCtr, 3)}%): ${dead.map((c) => `${c.name ?? c.campaign_id} at ${round(c.ctr!, 3)}%`).join("; ")}.`
-        : `All ${deliverable.length} campaigns with ${MIN_IMPRESSIONS_TO_KILL}+ impressions are above ${DEAD_CTR_SHARE * 100}% of the account's own median CTR (${round(medianCtr, 3)}%).`,
+        : `All ${deliverable.length} campaigns with ${MIN_IMPRESSIONS}+ impressions are above ${DEAD_CTR_SHARE * 100}% of the account's own median CTR (${round(medianCtr, 3)}%).`,
       "campaign",
     );
   }
@@ -432,8 +457,8 @@ function evaluate(account: AccountRow, campaigns: CampaignRow[], days: DayRow[])
   else
     add(
       "account-frequency",
-      account.frequency >= FREQ_FAIL ? "fail" : account.frequency >= FREQ_WARN ? "warn" : "pass",
-      `Frequency ${round(account.frequency, 2)} over ${account.window_from} to ${account.window_to} — impressions ÷ reach, and reach is de-duplicated over THAT window and cannot be summed with any other. Bands: ${FREQ_WARN} warns, ${FREQ_FAIL} fails.`,
+      account.frequency >= FREQ_HIGH ? "fail" : account.frequency >= FREQ_WARN ? "warn" : "pass",
+      `Frequency ${round(account.frequency, 2)} over ${account.window_from} to ${account.window_to} — impressions ÷ reach, and reach is de-duplicated over THAT window and cannot be summed with any other. Bands: ${FREQ_WARN} warns, ${FREQ_HIGH} fails.`,
     );
 
   const busy = campaigns.filter((c) => (c.frequency ?? 0) > FREQ_OVERLAP && (c.impressions ?? 0) > 0);
@@ -572,7 +597,7 @@ export function adsHealthFor(accountId: string) {
     /** The working, printed so a reader can check the score by hand. */
     arithmetic: scored.arithmetic,
     weights: { categories: CATEGORIES, severity: WEIGHT, value: VALUE, coverageFloor: COVERAGE_MIN },
-    killTable: { minDays: MIN_DAYS, minClicks: MIN_CLICKS, minImpressionsToKill: MIN_IMPRESSIONS_TO_KILL },
+    killTable: { minDays: MIN_DAYS, minClicks: MIN_CLICKS, minImpressionsToKill: MIN_IMPRESSIONS },
     target: {
       costPerLead: account.cost_per_lead,
       basis:

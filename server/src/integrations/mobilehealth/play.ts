@@ -61,6 +61,7 @@ import {
   type StatsReport,
 } from "./parsers.ts";
 import * as store from "./store.ts";
+import { compactMonth, monthOf } from "../../shared/money.ts";
 
 const REPORTING = "https://playdeveloperreporting.googleapis.com/v1beta1";
 const PUBLISHER = "https://androidpublisher.googleapis.com/androidpublisher/v3";
@@ -115,12 +116,13 @@ export type PlayHealthResult = {
 const isoDay = (offset: number) =>
   new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
 
-/** A `YYYY-MM` list covering the window, newest last, in the bucket's own
- *  `YYYYMM` spelling. */
+/** A list covering the window, newest last, in the bucket's own `YYYYMM`
+ *  spelling. `compactMonth` rather than a hand-rolled slice: five of those
+ *  existed, and a key whose offsets are wrong matches no object and yields a
+ *  silent zero rather than an error. */
 function monthsInWindow(days: number): string[] {
   const out = new Set<string>();
-  for (let i = 0; i <= days; i += 1)
-    out.add(isoDay(i).slice(0, 7).replace("-", ""));
+  for (let i = 0; i <= days; i += 1) out.add(compactMonth(monthOf(isoDay(i))));
   return [...out].sort();
 }
 

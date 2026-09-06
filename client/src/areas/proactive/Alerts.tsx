@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { Check, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { SubTabs } from "@/components/TabStrip";
+import { Tiles } from "@/components/integrations/Panel";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/hooks/useApi";
 import { announceAlerts } from "@/hooks/useOpenAlerts";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   alertsApi,
@@ -75,28 +77,20 @@ export function Alerts() {
         sub="Comparisons you wrote down, checked against this box's own documents a minute after every collection. A trip is a figure crossing a line you drew — not a judgement — and a document that could not be read is said so in its own words rather than reported as a fall to zero."
         wide
       >
-        <div className="border-line-soft mb-5 flex items-center gap-0.5 border-b pb-2">
-          <Tab to="/alerts" label="Rules and events" active={!onBriefing} />
-          <Tab to="/alerts/briefing" label="Briefing" active={onBriefing} />
-        </div>
+        <SubTabs
+          tabs={[
+            { key: "rules", to: "/alerts", label: "Rules and events" },
+            { key: "briefing", to: "/alerts/briefing", label: "Briefing" },
+          ]}
+          activeKey={onBriefing ? "briefing" : "rules"}
+          rule
+        />
 
         {onBriefing ? (
           <BriefingPanel />
         ) : (
           <>
-            <div className="mb-5.5 flex flex-wrap gap-2">
-              {stats.map(([v, k]) => (
-                <div
-                  key={k}
-                  className="bg-card min-w-[128px] flex-1 rounded-[10px] border px-3.5 py-3"
-                >
-                  <div className="text-[22px] font-normal tracking-[-0.03em] tabular-nums">
-                    {v}
-                  </div>
-                  <div className="text-muted-foreground mt-0.5 text-[11.5px]">{k}</div>
-                </div>
-              ))}
-            </div>
+            <Tiles items={stats.map(([v, k]) => ({ v, k }))} />
 
             <Rules onChanged={reload} />
             <Events onChanged={reload} tick={tick} />
@@ -104,21 +98,6 @@ export function Alerts() {
         )}
       </PageShell>
     </>
-  );
-}
-
-function Tab({ to, label, active }: { to: string; label: string; active: boolean }) {
-  return (
-    <Link
-      to={to}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px]",
-        active && "bg-accent text-foreground font-medium",
-      )}
-    >
-      {label}
-    </Link>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useState, type ComponentType } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Check, ExternalLink, Plus, X } from "lucide-react";
+import { ago, when } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -534,7 +535,7 @@ export function PluginDetail() {
                       {r.note ?? r.error ?? "running…"}
                     </span>
                     <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[11px]">
-                      {new Date(r.startedAt).toLocaleString()}
+                      {when(r.startedAt, { year: true })}
                     </span>
                   </div>
                 ))}
@@ -706,17 +707,6 @@ function PluginSettings({ id, onSaved }: { id: string; onSaved: () => void }) {
 }
 
 /* ------------------------------------------------------------------ accounts */
-
-/** "4m ago". A credential's dates are the whole story of whether to trust it,
- *  and an ISO string is a date a reader has to do arithmetic on first. */
-function ago(iso: string | null): string {
-  if (!iso) return "never";
-  const mins = Math.round((Date.now() - Date.parse(iso)) / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
-}
 
 /**
  * Every account this plugin holds, and the three things you can do to one.

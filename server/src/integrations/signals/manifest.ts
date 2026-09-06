@@ -49,7 +49,7 @@ const backlinksConfig = {
         "by commas. A url is accepted and reduced to its host — paste what is " +
         "in the address bar. `www.` is stripped, because www.example.com and " +
         "example.com are one site to every source here.",
-      ph: "example-app-1.example.test, example-app-7.example.test",
+      ph: "example.com, example.org",
       check(value: string) {
         const raw = value.split(/[\s,]+/).filter(Boolean);
         const hosts = parseHosts(value);
@@ -85,12 +85,12 @@ const presenceConfig = {
         "would have called it and is the only thing worth looking up, and the " +
         "HOST is what proves a record found that way is yours — without it, any " +
         "stranger's project of the same name would be filed as your listing.",
-      ph: "Example App 1 = example-app-1.example.test\nExample App 5 = example-app-7.example.test",
+      ph: "Acme = example.com\nBeacon = example.org",
       check(value: string) {
         const lines = value.split(/[\n,]+/).map((l) => l.trim()).filter(Boolean);
         const products = parseProducts(value);
         if (lines.length && !products.length)
-          return "Each line is `Name = host`, like `Example App 1 = example-app-1.example.test`.";
+          return "Each line is `Name = host`, like `Acme = example.com`.";
         if (products.length < lines.length) {
           const bad = lines.find((l) => {
             const [name, host] = l.split("=");
@@ -252,7 +252,7 @@ const skills: Skill[] = [
       },
     ],
     asks: [
-      "Who links to example-app-1.example.test, and how sure are we?",
+      "Who links to my main site, and how sure are we?",
       "Are the links anybody claims for this site still live and followed?",
     ],
   },
@@ -294,7 +294,7 @@ const skills: Skill[] = [
     ],
     asks: [
       "Which of my products has an encyclopedia entry or a directory page?",
-      "Where is Example App 1 listed, and which directories could not be checked?",
+      "Where is my product listed, and which directories could not be checked?",
     ],
   },
   {

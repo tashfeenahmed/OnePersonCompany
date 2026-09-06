@@ -1,4 +1,5 @@
 import { call } from "@/lib/api";
+import { alertsApi } from "@/lib/api/proactive";
 
 /**
  * THE CHIEF OF STAFF'S FOUR DOCUMENTS — goals, memory, rounds and outcomes.
@@ -295,25 +296,20 @@ export const outcomesApi = {
 
 /* ------------------------------------------- the catalogue, for the picker */
 
-/**
- * The skills catalogue, narrowed to what the outcome form needs: which
- * documents exist, which are connected, and what views each has.
- *
- * READ FROM THE SAME PLACE THE AGENT READS IT. A hard-coded list of trackable
- * metrics here would go out of date the first time an area shipped a new
- * route, and the owner would be choosing from a menu that no longer matches
- * the box.
- */
-export type SkillSummary = {
-  id: string;
-  title: string;
-  connected: boolean;
-  views: { key: string; route: string; about: string; params: { name: string; about: string; required: boolean }[] }[];
-};
+/*
+  GET /skills IS DESCRIBED IN `lib/api/proactive.ts`. It was described here as
+  well, and the two had drifted in the direction that costs a reader something:
+  this copy had no `about` and no `rules[]`, both of which the server has been
+  sending all along, so the page that picks a skill to track could not show the
+  sentence describing it or the honesty rules it publishes — and the next field
+  the server adds would have reached one consumer of two.
 
-export const catalogueApi = {
-  skills: () =>
-    call<{ skills: SkillSummary[]; disconnected: { id: string; title: string; needs: string[] }[] }>(
-      "/skills",
-    ),
-};
+  The alerts picker and the outcome picker read the same document for the same
+  reason, so they read the same type.
+*/
+
+/** DEPRECATED: import `CatalogueSkill` from @/lib/api/proactive */
+export type { CatalogueSkill as SkillSummary } from "@/lib/api/proactive";
+
+/** DEPRECATED: call `alertsApi.catalogue` from @/lib/api/proactive */
+export const catalogueApi = { skills: alertsApi.catalogue };

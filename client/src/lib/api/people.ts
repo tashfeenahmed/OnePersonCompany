@@ -1,4 +1,5 @@
 import { call } from "@/lib/api";
+import { qs } from "@/lib/qs";
 
 /**
  * PEOPLE AND COMMITMENTS, FROM THIS SIDE.
@@ -195,14 +196,6 @@ export type ScanResult = {
   modelError: string | null;
   error?: string | null;
   note: string | null;
-};
-
-const qs = (params: Record<string, string | number | undefined>) => {
-  const search = new URLSearchParams();
-  for (const [k, v] of Object.entries(params))
-    if (v !== undefined && v !== "") search.set(k, String(v));
-  const s = search.toString();
-  return s ? `?${s}` : "";
 };
 
 export const peopleApi = {

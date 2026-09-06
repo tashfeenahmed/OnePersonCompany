@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { integrations, type SpokenClip } from "@/lib/api/integrations";
 import { cn } from "@/lib/utils";
+import { DASH, count } from "@/lib/format";
 import { ago } from "./format";
 import { Note, PanelSection, Row, Rows, Tiles } from "./Panel";
 
@@ -173,7 +174,7 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
           <div className="mt-2.5">
             <audio src={clip.url} controls className="w-full max-w-[420px]" />
             <Note>
-              {clip.bytes.toLocaleString("en-IE")} bytes of {clip.format} in{" "}
+              {count(clip.bytes)} bytes of {clip.format} in{" "}
               {clip.ms} ms, via {clip.via}. The clip is a file on this machine
               and the route returns its bytes — it is never held in the browser
               and it may be deleted once it has been sent.
@@ -223,7 +224,7 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
                   {r.kind}
                 </span>
                 <span className="text-muted-foreground min-w-0 truncate">
-                  {r.error ?? `${r.bytes?.toLocaleString("en-IE") ?? "—"} bytes in ${r.ms ?? "—"} ms`}
+                  {r.error ?? `${count(r.bytes)} bytes in ${r.ms ?? DASH} ms`}
                 </span>
                 <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[11px]">
                   {ago(r.ts)}

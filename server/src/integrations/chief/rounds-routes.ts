@@ -15,6 +15,7 @@
  * is the real one.
  */
 import { Hono } from "hono";
+import { nextRunAt } from "../../shared/time.ts";
 import { ROLES, roleInfos } from "../subagents/store.ts";
 import {
   DEFAULT_DAYS,
@@ -22,7 +23,6 @@ import {
   DEFAULT_MAX,
   ROUNDS_SESSION,
   jobRows,
-  nextRunAt,
   roundRows,
   runRound,
   settings,
@@ -37,11 +37,12 @@ function schedule() {
   return {
     enabled: s.enabled,
     hour: s.hour,
-    /* Null means "this machine's own zone", which is a real answer and not a
-       missing setting. The resolved zone is published beside it so a reader is
-       never guessing which clock the hour is on. */
+    /* ALWAYS A REAL ZONE NAME — this machine's own where the owner never typed
+       one. `zoneWasSet` carries what the old null carried, so a page can still
+       say "using this machine's zone" without a second field repeating the
+       answer the first one already gave. */
     timezone: s.timezone,
-    resolvedTimezone: s.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    zoneWasSet: s.zoneWasSet,
     roles: s.roles,
     maxRuns: s.maxRuns,
     daysBetween: s.daysBetween,

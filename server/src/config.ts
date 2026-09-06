@@ -23,4 +23,16 @@ export const PORT = num("PORT", 8787, 1, 65535);
 export const COLLECT_MINUTES = num("OPC_COLLECT_MINUTES", 30, 0);
 export const RETAIN_DAYS = num("OPC_RETAIN_DAYS", 400, 1);
 export const LOAD_RETAIN_DAYS = num("OPC_LOAD_RETAIN_DAYS", 30, 1);
+/** Where the dashboard is served from while a dev server is in front of this
+ *  one. In production this process serves it and the two ports are the same. */
+export const UI_PORT = num("OPC_UI_PORT", 5180, 1, 65535);
+/**
+ * THE PORTS AN `Origin` MAY NAME AND STILL BE THE OWNER'S OWN DASHBOARD.
+ *
+ * One set, in config, because it was typed twice inside the gate and the two
+ * copies are what let a request be a browser to one check and not to the
+ * other. `5173` is Vite's default and stays on the list beside the configured
+ * one, so a checkout that has never set `OPC_UI_PORT` still works.
+ */
+export const ALLOWED_ORIGIN_PORTS: ReadonlySet<string> = new Set([String(PORT), String(UI_PORT), "5173"]);
 mkdirSync(DATA_DIR, { recursive: true });

@@ -1,4 +1,5 @@
 import { call } from "@/lib/api";
+import { seg } from "@/lib/qs";
 
 /**
  * THE THREE THINGS THIS BOX KNOWS ABOUT A VENTURE THAT THE VENTURE RECORD
@@ -8,8 +9,8 @@ import { call } from "@/lib/api";
  * These live in their own file rather than in `lib/api.ts` because they are
  * about a JOIN rather than about a service. `/api/gsc` answers with every
  * property and has never heard of a venture; `/api/venture-links` is the only
- * place that says `sc-domain:example-app-1.example.test` and the Cloudflare zone
- * `example-app-1.example.test` are two views of one business. That statement is the owner's,
+ * place that says `sc-domain:example.com` and the Cloudflare zone
+ * `example.com` are two views of one business. That statement is the owner's,
  * stored as a row, and every type below carries the field that says so —
  * `source: "owner" | "auto"` — because "somebody looked at this and said yes"
  * and "this was accepted in a list of twelve" are different claims.
@@ -79,6 +80,12 @@ export type VentureLinks = {
  *  page redraws from this rather than from its own optimistic guess. */
 export type LinksAfterWrite = { links: VentureLink[] };
 
+/** A single link written or removed. The route answers `ok: true` AND the
+ *  fresh list; a second client for these calls typed only the `ok`, so its one
+ *  caller threw the list away and re-fetched a document it had already been
+ *  handed. Both fields are named here so neither can be lost again. */
+export type LinkWriteResult = LinksAfterWrite & { ok: true };
+
 export type AcceptAll = LinksAfterWrite & {
   accepted: number;
   /** What was accepted and why — a bulk press leaving a record of what it was
@@ -122,9 +129,11 @@ export type LinkMap = {
 export type CaptureBrowser = {
   found: boolean;
   path: string | null;
-  /** Where the path came from: `configured` is the owner's own, `application`
-   *  and `path` were found. Different claims, so they are kept apart. */
-  source: "configured" | "application" | "path" | "none";
+  /** Where the path came from: `configured` is the owner's own, `known` and
+   *  `path` were found. Different claims, so they are kept apart. `known` read
+   *  `application` while the search was macOS-shaped; it is a general binary
+   *  search now and the word moved with it. */
+  source: "configured" | "known" | "path" | "none";
   error: string | null;
   windowSize: string;
   note: string;
@@ -201,6 +210,11 @@ export type CaptureRun = {
   venture: { id: string; slug: string; name: string; website: string | null };
   ok: boolean;
   ts: string;
+  /** Where the PNG landed on the box. On the wire and deliberately not drawn —
+   *  the page shows the picture, and a path is of use to nobody reading a
+   *  settings row. A second declaration of this type omitted the field, so a
+   *  page typed against it could not have drawn the path even to debug with. */
+  path: string | null;
   bytes: number | null;
   width: number | null;
   height: number | null;
@@ -351,23 +365,18 @@ export type AuditHistory = {
 
 /* ------------------------------------------------------------------ calls */
 
-/** A venture key is an id or a slug, and both are safe in a path segment —
- *  the server slugs them — but an entity is a Bing site like
- *  `https://example-app-1.example.test/`, so it is encoded on the way out. */
-const seg = (s: string) => encodeURIComponent(s);
-
 export const ventureApi = {
   links: (key: string) => call<VentureLinks>(`/venture-links/${seg(key)}`),
   map: () => call<LinkMap>("/venture-links/map"),
   link: (key: string, plugin: string, entity: string, label?: string | null) =>
-    call<LinksAfterWrite>(`/venture-links/${seg(key)}`, {
+    call<LinkWriteResult>(`/venture-links/${seg(key)}`, {
       method: "POST",
       body: JSON.stringify({ plugin, entity, label: label ?? null }),
     }),
   acceptAll: (key: string) =>
     call<AcceptAll>(`/venture-links/${seg(key)}/accept-all`, { method: "POST" }),
   unlink: (key: string, plugin: string, entity: string) =>
-    call<LinksAfterWrite>(
+    call<LinkWriteResult>(
       `/venture-links/${seg(key)}/${seg(plugin)}/${seg(entity)}`,
       { method: "DELETE" },
     ),

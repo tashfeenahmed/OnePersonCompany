@@ -29,12 +29,21 @@ test("a mistyped price is refused, and only an empty field means the price is un
   assert.deepEqual(parseAmount("0"), { amount: 0 });
 });
 
+/* THE OUTPUT CONVENTION CHANGED ON PURPOSE and the assertions moved with it.
+   This area wrote "63.47 EUR" while the customers tabs wrote "EUR 63.47" and
+   the analytics join wrote "€63.47", so one Stripe amount had three spellings
+   across three screens. `amount` is now `money` from `@/lib/format`, whose
+   en-GB locale is the deliberate part: it renders US dollars as "US$" rather
+   than a bare "$" that also reads as Canadian and Australian on a box holding
+   all three. WHAT THIS TEST IS ABOUT IS UNCHANGED — a missing price is a dash
+   and never "0.00", and two currencies are listed side by side with a middle
+   dot rather than added. */
 test("a null price renders as a dash and currencies are never joined by a plus", () => {
   assert.equal(amount(null, "usd"), "—");
-  assert.equal(amount(0, "usd"), "0.00 USD");
+  assert.equal(amount(0, "usd"), "US$0.00");
   assert.equal(
     currencies([{ currency: "EUR", amount: 63.47 }, { currency: "USD", amount: 2.6 }]),
-    "63.47 EUR  ·  2.60 USD",
+    "€63.47  ·  US$2.60",
   );
   assert.equal(currencies([]), "—");
 });

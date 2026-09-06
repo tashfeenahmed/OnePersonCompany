@@ -1,9 +1,11 @@
+import type { ComponentProps } from "react";
+import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ago } from "@/components/integrations/format";
+import { ago, pct } from "@/lib/format";
 import { Note, PanelSection, Row, Rows, Tiles } from "@/components/integrations/Panel";
 import { seoopsApi, type ListingCell, type ListingState } from "@/lib/api/seoops";
 
@@ -26,14 +28,21 @@ import { seoopsApi, type ListingCell, type ListingState } from "@/lib/api/seoops
  * twenty ventures is a lot of rows to make somebody press Save on, and every
  * write here is one small reversible fact.
  */
-const TONE: Record<ListingState, string> = {
-  confirmed: "bg-ok-bg text-ok border-transparent",
-  submitted: "bg-ok-bg text-ok border-transparent",
+const TONE: Record<ListingState, ComponentProps<typeof Badge>["variant"]> = {
+  confirmed: "ok",
+  submitted: "ok",
   /* Evidence, not a tick — so it reads as "look at this", not "done". */
-  detected: "bg-warn/15 text-warn border-transparent",
+  detected: "warn",
+  pending: "outline",
+  skipped: "secondary",
+  not_listed: "secondary",
+};
+
+/** The two edges the variants cannot carry: nothing has been asked for yet,
+ *  and a row somebody deliberately took out of the count. */
+const EDGE: Partial<Record<ListingState, string>> = {
   pending: "border-dashed",
-  skipped: "text-muted-foreground opacity-60",
-  not_listed: "text-muted-foreground",
+  skipped: "opacity-60",
 };
 
 const LABEL: Record<ListingState, string> = {
@@ -147,7 +156,7 @@ export function ListingsPanel({ venture }: { venture?: string }) {
               {v.host && <span className="text-muted-foreground font-mono text-[11.5px]">{v.host}</span>}
               <span className="text-muted-foreground ml-auto text-[11.5px] tabular-nums">
                 {v.summary.confirmed + v.summary.submitted} of {v.summary.of - v.summary.skipped} worked
-                {v.summary.donePct === null ? " — every row skipped" : ` · ${v.summary.donePct}%`}
+                {v.summary.donePct === null ? " — every row skipped" : ` · ${pct(v.summary.donePct / 100)}`}
               </span>
             </div>
 
@@ -166,14 +175,9 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                         <span className="text-muted-foreground"> · {cell.tier}</span>
                       </button>
 
-                      <span
-                        className={cn(
-                          "rounded-full border px-1.5 py-px text-[11px]",
-                          TONE[cell.state],
-                        )}
-                      >
+                      <Badge variant={TONE[cell.state]} className={EDGE[cell.state]}>
                         {LABEL[cell.state]}
-                      </span>
+                      </Badge>
 
                       {cell.setBy && (
                         <span className="text-muted-foreground text-[11px]">

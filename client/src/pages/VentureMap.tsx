@@ -10,15 +10,15 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 /**
- * HOW IT ALL CONNECTS: four businesses, sixteen integrations, and the two
- * hundred things they hold between them.
+ * HOW IT ALL CONNECTS: every venture, every integration, and the things they
+ * hold between them.
  *
- * THE PICTURE IS THE POINT. The connections tab answers "what does Example App 1
- * own"; this answers the question nobody could ask before — "what does this
- * box hold that belongs to NOBODY", which on this machine is two hundred and
- * six things out of two hundred and fourteen. A list would report that number.
- * A map shows it: three columns, a handful of coloured threads through the
- * middle, and a wall of grey either side of them.
+ * THE PICTURE IS THE POINT. The connections tab answers "what does this
+ * venture own"; this answers the question nobody could ask before — "what does
+ * this box hold that belongs to NOBODY", which on a box that has been
+ * collecting for a while is usually most of it. A list would report that
+ * number. A map shows it: three columns, a handful of coloured threads through
+ * the middle, and a wall of grey either side of them.
  *
  * THE EDGES ARE SVG AND THE NODES ARE NOT, and that is a decision rather than
  * a compromise. Curves between two moving points are exactly what a path is

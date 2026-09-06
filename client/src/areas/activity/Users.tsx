@@ -3,7 +3,7 @@ import { useApi } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { Bars } from "@/components/charts";
 import { cn } from "@/lib/utils";
-import { ago, num } from "@/components/integrations/format";
+import { ago, count } from "@/lib/format";
 import { activityApi, type UserProduct } from "@/lib/api/activity";
 
 /**
@@ -71,34 +71,34 @@ function Card({ p }: { p: UserProduct }) {
 
       <div className="mt-2.5 flex flex-wrap gap-x-6 gap-y-2">
         <Figure
-          v={num(p.total ?? (p.rowsHeld || null))}
+          v={count(p.total ?? (p.rowsHeld || null))}
           k={p.total !== null ? "users (their count)" : "user rows held"}
           note={
             p.partialList
-              ? `${num(p.rowsHeld)} of them listed here`
+              ? `${count(p.rowsHeld)} of them listed here`
               : p.total === null && p.rowsHeld > 0
                 ? "a floor — the endpoint published no total"
                 : undefined
           }
         />
         <Figure
-          v={countsOnly ? "—" : num(p.new7d)}
+          v={countsOnly ? "—" : count(p.new7d)}
           k="new · 7d"
           note={countsOnly ? "no rows to bucket" : undefined}
         />
         <Figure
-          v={countsOnly ? "—" : num(p.new30d)}
+          v={countsOnly ? "—" : count(p.new30d)}
           k="new · 30d"
           note={countsOnly ? "no rows to bucket" : "never added to the 7d"}
         />
         <Figure
-          v={countsOnly ? "—" : num(p.paid)}
+          v={countsOnly ? "—" : count(p.paid)}
           k="paying"
           note={
             countsOnly
               ? "not published"
               : p.paidUnknown
-                ? `${num(p.paidUnknown)} not said`
+                ? `${count(p.paidUnknown)} not said`
                 : undefined
           }
         />
@@ -106,7 +106,7 @@ function Card({ p }: { p: UserProduct }) {
 
       {countsOnly && p.newWindow && (
         <p className="text-muted-foreground mt-2 text-[12px]">
-          Its own window: {num(p.newWindow.n)} new in {p.newWindow.days} days — the only one it
+          Its own window: {count(p.newWindow.n)} new in {p.newWindow.days} days — the only one it
           publishes, quoted in its words.
         </p>
       )}
@@ -170,7 +170,7 @@ export function Users() {
       <div className="mb-4 flex flex-wrap gap-2">
         <div className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3">
           <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">
-            {num(s.totalUsers)}
+            {count(s.totalUsers)}
           </div>
           <div className="text-muted-foreground mt-0.5 text-[11.5px]">
             users across {s.configured} product{s.configured === 1 ? "" : "s"}
@@ -180,7 +180,7 @@ export function Users() {
           )}
         </div>
         <div className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3">
-          <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">{num(s.new7d)}</div>
+          <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">{count(s.new7d)}</div>
           <div className="text-muted-foreground mt-0.5 text-[11.5px]">new in 7 days</div>
           {s.windowsMissing > 0 && (
             <div className="text-muted-foreground text-[11px]">
@@ -189,7 +189,7 @@ export function Users() {
           )}
         </div>
         <div className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3">
-          <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">{num(s.new30d)}</div>
+          <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">{count(s.new30d)}</div>
           <div className="text-muted-foreground mt-0.5 text-[11.5px]">new in 30 days</div>
           <div className="text-muted-foreground text-[11px]">contains the 7d — never added to it</div>
         </div>

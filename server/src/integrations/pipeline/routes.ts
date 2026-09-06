@@ -26,6 +26,7 @@
  * which refuses what it cannot parse instead of defaulting to false.
  */
 import { Hono, type Context } from "hono";
+import { nextRunAt, wall } from "../../shared/time.ts";
 import { LAST_RUN_MEANS } from "./builtins.ts";
 import { readBool, refuseDry } from "./params.ts";
 import {
@@ -46,7 +47,6 @@ import {
   DEFAULT_MAX_MINUTES,
   allStages,
   depthOf,
-  nextRunAt,
   orderStages,
   prefs,
   settings,
@@ -55,7 +55,6 @@ import {
   settled,
   skipDay,
   stage as stageById,
-  zoned,
   type Cadence,
 } from "./registry.ts";
 
@@ -184,16 +183,17 @@ pipelineRoutes.patch("/stages/:id", async (c) => {
 
 function schedule() {
   const s = settings();
-  const clock = zoned(s);
+  const clock = wall(s.timezone);
   const skip = skipDay();
   return {
     enabled: s.enabled,
     hour: s.hour,
-    /** Null means "this machine's own zone", which is a real answer and not a
-     *  missing setting. The resolved zone is beside it so a reader is never
-     *  guessing which clock the hour is on. */
+    /** ALWAYS A REAL ZONE NAME — the machine's own where the owner never set
+     *  one. `zoneWasSet` is what the old null carried, said separately, so a
+     *  page can still offer "this machine's zone" as a placeholder without a
+     *  second field that repeats the answer. */
     timezone: s.timezone,
-    resolvedTimezone: s.resolvedTimezone,
+    zoneWasSet: s.zoneWasSet,
     today: clock.day,
     blackouts: s.blackouts.map((b) => ({ from: b.from, to: b.to, stages: b.stages, days: b.days, raw: b.raw })),
     blackoutErrors: s.blackoutErrors,
@@ -252,7 +252,7 @@ pipelineRoutes.get("/plan", (c) => {
   const { planned } = plan(s);
   return c.json({
     at: new Date().toISOString(),
-    timezone: s.resolvedTimezone,
+    timezone: s.timezone,
     stages: planned.map((p) => ({
       stageId: p.stage.id,
       area: p.stage.area,
@@ -341,7 +341,7 @@ export function dueNight(day: string, hour: number, startHour: number): string {
 pipelineRoutes.post("/skip-tonight", async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const s = settings();
-  const clock = zoned(s);
+  const clock = wall(s.timezone);
   const night = dueNight(clock.day, clock.hour, s.hour);
 
   if (body && "cancel" in body) {
@@ -358,7 +358,7 @@ pipelineRoutes.post("/skip-tonight", async (c) => {
   return c.json({
     skipped: skipDay(),
     note:
-      `The scheduled night of ${night} (${s.resolvedTimezone}, starting at ${String(s.hour).padStart(2, "0")}:00) ` +
+      `The scheduled night of ${night} (${s.timezone}, starting at ${String(s.hour).padStart(2, "0")}:00) ` +
       `will not run. Starting one by hand still works — this is a note to the timer, not a lock.`,
   });
 });

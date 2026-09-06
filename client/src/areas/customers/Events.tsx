@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BellOff, Send } from "lucide-react";
+import { WindowPicker } from "@/components/WindowPicker";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { customersApi, type BusinessEvent } from "@/lib/api/customers";
@@ -50,21 +51,18 @@ export function EventsTab({ tick, onChanged }: { tick: number; onChanged: () => 
       )}
 
       <div className="mb-4 flex flex-wrap items-center gap-0.5">
-        {[1, 7, 30].map((w) => (
-          <button
-            key={w}
-            onClick={() => {
-              setDays(w);
-              setOnlyUndelivered(false);
-            }}
-            className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px]",
-              !onlyUndelivered && days === w && "bg-accent text-foreground font-medium",
-            )}
-          >
-            {w}d
-          </button>
-        ))}
+        {/* WAITING ONLY IS NOT A WINDOW. It cuts across every span, so it sits
+            beside the picker rather than inside it — and choosing a span
+            switches it off, because "the last day, of the waiting ones" is a
+            question neither control was asked. */}
+        <WindowPicker
+          value={onlyUndelivered ? -1 : days}
+          onChange={(w) => {
+            setDays(Number(w));
+            setOnlyUndelivered(false);
+          }}
+          options={[1, 7, 30]}
+        />
         <button
           onClick={() => setOnlyUndelivered((v) => !v)}
           className={cn(

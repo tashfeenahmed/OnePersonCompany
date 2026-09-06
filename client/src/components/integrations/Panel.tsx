@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -64,18 +65,53 @@ export function PanelSection({
   );
 }
 
-/** The row of big figures. Each takes a value already formatted by the panel —
- *  this component never touches a number, so it cannot round one. */
-export function Tiles({ items }: { items: { v: ReactNode; k: string; title?: string }[] }) {
+/** One tile. The VALUE IS ALREADY FORMATTED by the caller — this component
+ *  never touches a number, so it cannot round one, and a caller that means
+ *  "nothing was measured" passes an em dash rather than a nought. */
+export type Tile = {
+  v: ReactNode;
+  /** The label under the figure, and the row's key. */
+  k: string;
+  /** The hover sentence: what this figure is of, or why it is missing. */
+  title?: string;
+  /** A tile whose value is WORDS rather than a figure — "not counted", a list
+   *  of locations, a provider's name. Drawn a size down and truncated to one
+   *  line, and without `tabular-nums`, which lines up digits and nothing else.
+   *  Pass the full text as `title` so the truncation costs the reader nothing. */
+  text?: boolean;
+};
+
+/**
+ * THE ROW OF BIG FIGURES.
+ *
+ * ONE GEOMETRY, and it is a decision rather than a default. Eight copies of
+ * this row had drifted to four minimum widths (128, 130, 132, 150) and three
+ * figure sizes (15, 19, 22), so tile rows on adjacent pages neither lined up
+ * with each other nor wrapped at the same window width — and one copy had
+ * quietly dropped `tabular-nums`, which is the only thing making a column of
+ * figures readable as a column.
+ *
+ * `flex-1` WITH A MINIMUM rather than a grid: these rows carry between two and
+ * six tiles depending on what the server could answer, and a fixed column
+ * count would leave a hole where an absent figure used to be.
+ */
+export function Tiles({ items, className }: { items: Tile[]; className?: string }) {
   return (
-    <div className="mb-4 flex flex-wrap gap-2">
+    <div className={cn("mb-4 flex flex-wrap gap-2", className)}>
       {items.map((t) => (
         <div
           key={t.k}
           title={t.title}
           className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3"
         >
-          <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">
+          <div
+            className={cn(
+              "font-normal",
+              t.text
+                ? "truncate text-[15px] tracking-[-0.02em]"
+                : "text-[19px] tracking-[-0.03em] tabular-nums",
+            )}
+          >
             {t.v}
           </div>
           <div className="text-muted-foreground mt-0.5 text-[11.5px]">{t.k}</div>
@@ -166,14 +202,79 @@ export function Note({ children }: { children: ReactNode }) {
   );
 }
 
-/** The state every one of these panels can be in: connected, and the last
- *  collection found nothing. Said as a sentence rather than drawn as an empty
- *  table, which reads as a failure to load. */
-export function PanelEmpty({ children }: { children: ReactNode }) {
+/**
+ * NOTHING HERE YET — said in words.
+ *
+ * NOT DRAWN AS A BLANK. A list that failed to load and a list with nothing in
+ * it look identical when both are empty space, and only one of them is worth
+ * pressing reload for. So this state always says which it is, in the caller's
+ * own sentence: "connected, and the last collection found nothing" is a
+ * different thing from "not connected", and both are different from an error.
+ *
+ * TWO PLACEMENTS, ONE IDEA. The default follows a section rule, because on an
+ * integration panel this stands in place of a whole `PanelSection`. `boxed`
+ * draws the dashed placeholder instead, for an empty state INSIDE a section —
+ * a column with no cards, a dashboard with no widgets — where it has to occupy
+ * the space the list would have taken or the page jumps when the first row
+ * arrives. Four copies of that box had drifted to four paddings; this is one.
+ *
+ * THE ACTION IS THE POINT WHERE THERE IS ONE. Most of these states are
+ * ordinary — nothing has happened yet — but a few are one press from being
+ * fixed, and a sentence that names the fix without linking to it makes the
+ * reader go and find it.
+ */
+export function PanelEmpty({
+  children,
+  action,
+  boxed,
+  className,
+}: {
+  children: ReactNode;
+  /** The one press that would end this state. */
+  action?: { to: string; label: string };
+  boxed?: boolean;
+  className?: string;
+}) {
+  const link = action && (
+    <Link
+      to={action.to}
+      className="text-foreground hover:bg-accent ml-auto shrink-0 rounded-lg border px-2.5 py-1"
+    >
+      {action.label}
+    </Link>
+  );
+
+  /* The row only becomes a flex row when there is something to push to the
+     far end of it. Without that guard a sentence containing a link or an
+     emphasis would have each of its parts laid out as a flex item, breaking
+     the one thing this component draws. */
+  if (boxed)
+    return (
+      <div
+        className={cn(
+          "border-line-soft text-muted-foreground rounded-[10px] border border-dashed px-4 py-6 text-[12.5px]",
+          action ? "flex items-center gap-3" : "text-center",
+          className,
+        )}
+      >
+        {children}
+        {link}
+      </div>
+    );
+
   return (
     <>
       <Separator className="mt-7 mb-5" />
-      <p className="text-muted-foreground text-[13px]">{children}</p>
+      <p
+        className={cn(
+          "text-muted-foreground text-[13px]",
+          action && "flex items-center gap-3",
+          className,
+        )}
+      >
+        {children}
+        {link}
+      </p>
     </>
   );
 }

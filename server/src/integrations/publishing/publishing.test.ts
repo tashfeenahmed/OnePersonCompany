@@ -35,7 +35,8 @@ import { checkLimits, countHashtags, LIMITS } from "./limits.ts";
 import { inBlackout, parseAutoSchedule, parseBlackout, normaliseBase, STUCK_MINUTES } from "./settings.ts";
 import { dueItems, reclaim, tick } from "./scheduler.ts";
 import { backoffMs, publishItem } from "./publish.ts";
-import { approve, createItem, itemRow, sniff, type ItemRow } from "./items.ts";
+import { approve, createItem, ITEM_STATUSES, itemRow, sniff, type ItemRow } from "./items.ts";
+import { outboxStatus } from "../mailflow/outbound.ts";
 import { publishingRoutes } from "./routes.ts";
 import { publicAddress } from "./assets.ts";
 import { patchItem, schedule } from "./items.ts";
@@ -460,7 +461,12 @@ test("the publish route refuses a `dry` it cannot read rather than posting", asy
   assert.ok(created.ok, created.ok ? "" : created.error);
   const res = await publishingRoutes.request(`/items/${created.ok ? created.item.id : ""}/publish`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    /* `sec-fetch-site` because the publish route is BROWSER-ONLY and now
+       actually is: `requireBrowser` used to refuse only what it could see — a
+       foreign origin, a presented key — so a request carrying no headers at
+       all walked through it. A test that posts with no headers was testing the
+       hole, so it says which door it is coming in by. */
+    headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
     body: '{"dry":"yes please"}',
   });
   assert.equal(res.status, 400);
@@ -479,7 +485,7 @@ test("the string \"true\" is read as a rehearsal on the publish route too", asyn
   const id = created.ok ? created.item.id : "";
   const res = await publishingRoutes.request(`/items/${id}/publish`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
     body: '{"dry":"true"}',
   });
   const doc = (await res.json()) as { result: { dry: boolean } };
@@ -665,6 +671,90 @@ test("a KNOWN refusal on a scheduled item is still retried, with a backoff", asy
   assert.doesNotMatch(after.error ?? "", /OUTCOME IS UNKNOWN/);
 });
 
+/**
+ * P0-3: TWO SUBMISSIONS OF ONE ITEM, IN FLIGHT AT ONCE.
+ *
+ * THIS ONE FIRED. It put a real post on a live Facebook Page twice while this
+ * area was being built, and the reason was three lines:
+ *
+ *   - the claim was a bare `UPDATE publish_items SET status = 'publishing'
+ *     ... WHERE id = ?`: no transaction, and no status in the WHERE, so two
+ *     callers could both "win" it;
+ *   - `publishing` — the in-flight status itself — was on the list of statuses
+ *     a submission would accept, so the second caller read "somebody is
+ *     sending this right now" as "the owner consented to this";
+ *   - and the only thing keeping the scheduler from racing itself was a
+ *     boolean in module scope, which the manual publish route does not go
+ *     through at all.
+ *
+ * So a tick submitting item X while somebody pressed Publish on X had both
+ * callers pass every check and open a socket.
+ *
+ * THE TEST IS THE RACE AND NOT A PROXY FOR IT. `publishItem` is async and runs
+ * synchronously until its first `await`, which is inside the Graph call — so
+ * starting both and awaiting them together puts the second one's checks
+ * exactly where the real second caller's were: after the first has claimed and
+ * before it has answered. Against the code as it was, both transports record a
+ * call. Against this code, one does.
+ */
+test("P0-3: two submissions of one item race, and only ONE reaches the network", async () => {
+  const id = seedApproved("p0d");
+
+  /* Answers 400 to everything. What is being counted is whether a socket was
+     opened at all, so what comes back does not matter. */
+  const counting = (): Transport => {
+    const t: Transport = {
+      calls: [],
+      dry: false,
+      async fetch(url, init) {
+        t.calls.push({
+          method: init?.method ?? "GET",
+          url: redact(url),
+          body: null,
+          status: 400,
+          ms: 1,
+          dry: false,
+        });
+        return new Response(JSON.stringify({ error: { message: "(#100) nope", code: 100 } }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    };
+    return t;
+  };
+
+  const first = counting();
+  const second = counting();
+  const [a, b] = await Promise.all([
+    publishItem(id, { transport: first, by: "scheduler" }),
+    publishItem(id, { transport: second, by: "owner" }),
+  ]);
+
+  const reached = [first, second].filter((t) => t.calls.length > 0).length;
+  assert.equal(reached, 1, "exactly one submission may reach the network");
+
+  /* And the one that lost says so in a sentence, rather than reporting some
+     unrelated failure of its own. */
+  const refused = [a, b].find((r) => /submitted right now|not sent twice|not submitted twice/i.test(r.error ?? ""));
+  assert.ok(refused, `the losing call should name the reason; got ${JSON.stringify([a.error, b.error])}`);
+  assert.equal(refused!.calls.length, 0);
+  assert.equal(itemRow(id)!.external_id, null);
+});
+
+test("P0-3b: an item already in flight is not a consented item", async () => {
+  const id = seedApproved("p0e");
+  db.prepare("UPDATE publish_items SET status = 'publishing' WHERE id = ?").run(id);
+  const t = dryTransport();
+  const res = await publishItem(id, { transport: t });
+  assert.equal(res.ok, false);
+  assert.match(res.error!, /submitted right now/);
+  /* `publishing` used to be in CONSENTED, which is what let the losing caller
+     through. `reclaim()` is what rescues a row whose process died, and it moves
+     it to `failed` — which IS consented — so the retry button still works. */
+  assert.equal(t.calls.length, 0);
+});
+
 /* ------------------------------------------------------------- P1 regressions */
 
 test("editing an approved item withdraws the approval and its date", () => {
@@ -790,4 +880,23 @@ test("a blackout window includes its closing minute", () => {
   assert.ok(inBlackout(windows, { weekday: 6, minutes: 23 * 60 + 59 }));
   assert.ok(inBlackout(windows, { weekday: 6, minutes: 0 }));
   assert.equal(inBlackout(windows, { weekday: 1, minutes: 12 * 60 }), null);
+});
+
+/**
+ * The two outbound queues, checked against each other — which nothing did.
+ *
+ * They carry the same lifecycle under different words. With no shared type and
+ * no test, an eighth status added here would simply have no meaning in the
+ * other queue, and the first thing to notice would be a page rendering a state
+ * it has no word for.
+ */
+test("every publishing status has a word in the shared outbound lifecycle", () => {
+  for (const status of ITEM_STATUSES)
+    assert.ok(
+      outboxStatus(status),
+      `“${status}” has no word in OUTBOX_STATUSES — add one in mailflow/outbound.ts`,
+    );
+  /* And the in-flight status maps to the in-flight status, which is the pair
+     the claim depends on being the same idea in both queues. */
+  assert.equal(outboxStatus("publishing"), "sending");
 });

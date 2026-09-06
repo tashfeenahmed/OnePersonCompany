@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { runsApi, type CompetitorProfile } from "@/lib/api/runs";
 import type { Venture } from "@/lib/store";

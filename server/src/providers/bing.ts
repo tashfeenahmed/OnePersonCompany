@@ -438,8 +438,8 @@ async function collectSite(key: string, site: BingSite): Promise<SiteResult> {
  * The phrase list, measured, with the control asked first.
  *
  * ONE CONTROL FOR THE RUN rather than one per twenty, because the cap above is
- * forty and a run is under a minute — the batch-and-cooldown discipline
- * workdash uses exists for a rotation that runs for half an hour, and splitting
+ * forty and a run is under a minute — the batch-and-cooldown discipline this was
+ * ported from exists for a rotation that runs for half an hour, and splitting
  * forty phrases into two batches here would buy a second control call and no
  * extra information. The rule it enforces is unchanged: if the control did not
  * answer, nothing measured beside it is a measurement.

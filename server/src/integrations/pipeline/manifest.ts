@@ -45,6 +45,7 @@
  * import, and so `registerStage` is never called before the migrations that
  * create the tables its prefs live in have run.
  */
+import { validZone } from "../../shared/time.ts";
 import type { IntegrationManifest } from "../manifest.ts";
 import { registerBuiltins } from "./builtins.ts";
 import { startPipeline } from "./nightly.ts";
@@ -55,7 +56,6 @@ import {
   PIPELINE_PLUGIN,
   parseBlackouts,
   settings,
-  zoneIsReal,
 } from "./registry.ts";
 import { PACKS, SKILLS } from "./skills.ts";
 import { registerCalledStages } from "./stages-called.ts";
@@ -121,7 +121,7 @@ export const manifest: IntegrationManifest = {
           check(value) {
             const v = value.trim();
             if (!v) return null;
-            return zoneIsReal(v) ? null : `"${v}" is not a time zone this machine knows. Use an IANA name like Europe/Dublin.`;
+            return validZone(v) ? null : `"${v}" is not a time zone this machine knows. Use an IANA name like Europe/Dublin.`;
           },
         },
         blackouts: {

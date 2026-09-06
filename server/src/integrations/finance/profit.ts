@@ -30,7 +30,7 @@
  *    total says how many it is missing. A margin computed over an incomplete
  *    cost side carries `complete: false` and names what is missing.
  */
-import { db, ventureRow, ventureRowById, now, type VentureRow } from "../../db.ts";
+import { db, openAiCosts, openRouterActivity, ventureRow, ventureRowById, now, type VentureRow } from "../../db.ts";
 import { budgets } from "../../runtime/budgets.ts";
 import { expensesForMonth } from "./expenses.ts";
 import {
@@ -48,8 +48,8 @@ import {
   type Period,
 } from "./money.ts";
 import { allAllocations, defaultRule, shareFor, type AllocationRow } from "./allocations.ts";
-import { stripeSettled, ventureRevenue, ventures, type RevenueLine } from "./attribution.ts";
-import { powerLines } from "./power.ts";
+import { stripeSettledMonth, ventureRevenue, ventures, type RevenueLine } from "./attribution.ts";
+import { ledgerMonth, powerLines } from "./power.ts";
 
 /* Re-exported so routes can validate without importing three modules. */
 export { isMonth };
@@ -62,34 +62,81 @@ export const PROJECTION_METHOD =
 /* -------------------------------------------------------------- model spend */
 
 export type ModelSpend = {
-  /** Dollars, or null when there is no price to compute them from. */
+  /**
+   * ATTRIBUTED COST IN DOLLARS, from the provider's own invoice — or null when
+   * no invoice covers the month. This is the figure margins are charged.
+   */
   usd: number | null;
+  /**
+   * WHAT THE RUNTIME METER HOLDS, which is a RESERVATION and not a cost. The
+   * enforcement meter prices a call at a flat `usdPerMillion` before the call
+   * happens; that is what a budget needs and it is not what anybody was
+   * billed. Null when no price is configured, because every stored dollar is
+   * then structurally zero and a setting is not a measurement.
+   */
+  reservationUsd: number | null;
   tokens: number;
   calls: number;
   /** Calls whose token count was the reservation rather than a reported usage. */
   estimatedCalls: number;
+  /** How `usd` was arrived at, or null when it could not be. */
+  basis: "invoice" | "invoice-token-share" | null;
+  /** True where `usd` is an apportionment of a real bill rather than a receipt. */
+  estimated: boolean;
+  /** The whole month's invoiced model spend, per provider. The denominator. */
+  invoiced: { provider: string; usd: number }[];
   note: string;
 };
 
 /**
- * What this venture's own agent runs cost in model tokens over the month.
+ * THE PROVIDERS' INVOICED DOLLARS FOR A MONTH.
  *
- * READ OFF `budget_usage`, which the runtime writes one row per model call
- * with the venture it was running for. That makes it the ONLY per-venture
- * model figure on this box — /api/costs reports OpenAI and OpenRouter per
- * account and per project, which is the whole portfolio.
+ * The measured half. `openai_costs` is money per day per project and
+ * `openrouter_activity` is money per day per model; both are what the provider
+ * says it charged. Replicate reports no money at all and is therefore absent
+ * rather than zero — see /api/costs, which says the same thing at length.
  *
- * ITS DOLLARS ARE A LOCAL MULTIPLICATION AND NOT A PROVIDER'S INVOICE. The
- * runtime prices a call at the `usdPerMillion` budget setting; where that is
- * zero — its default — the stored `usd` is structurally zero for every row,
- * and reporting it would be reporting a setting as a measurement. So `usd` is
- * NULL in that case with the reason, and the token count, which IS measured,
- * stands on its own.
+ * BYOK dollars are NOT added: OpenRouter routes those to the owner's own
+ * provider key and bills them there, so counting them here would count them
+ * twice the moment that provider is also connected.
+ */
+export function providerSpend(month: string): { provider: string; usd: number }[] {
+  const inMonth = (day: string) => day.slice(0, 7) === month;
+  const openai = openAiCosts(`${month}-01`).filter((r) => inMonth(r.day));
+  const openrouter = openRouterActivity(`${month}-01`).filter((r) => inMonth(r.day));
+  return [
+    { provider: "openai", usd: money(openai.reduce((n, r) => n + r.usd, 0)) },
+    { provider: "openrouter", usd: money(openrouter.reduce((n, r) => n + r.usd, 0)) },
+  ].filter((p) => p.usd > 0);
+}
+
+/**
+ * What this venture's own agent runs cost in model tokens over the month, and
+ * what that is worth in the dollars somebody was actually invoiced.
  *
- * IT IS ALSO A PARTIAL VIEW AND SAYS SO. Work done through a connected agent
- * runtime rather than a direct provider is recorded with status
- * `unmetered-agent`: the call happened, the tokens are the reservation, and
- * the real spend lands on the provider's own bill.
+ * TWO METERS EXISTED FOR ONE DOLLAR AND ONLY ONE OF THEM WAS A MEASUREMENT.
+ * `budget_usage` is the runtime's own meter: one row per model call, with the
+ * venture it ran for, priced at the flat `usdPerMillion` budget setting and
+ * RESERVED at the request's byte count before the call, corrected only if the
+ * provider returns a usage block. That is exactly what a spending limit needs
+ * and it is not a cost. Charging margins with it meant the P&L reported one
+ * number while the provider's invoice sat on /api/costs reporting another,
+ * with nothing reconciling them — and on the default settings, no price per
+ * million, the reservation is structurally zero, so a venture's model cost was
+ * silently nothing at all.
+ *
+ * SO THE INVOICE IS THE COST AND THE METER IS THE SHARE. The providers publish
+ * per project and per model, never per venture, so a venture's cost is its
+ * share of the invoice by metered tokens: an allocation of a real bill by a
+ * stated rule, `estimated` with its basis attached, like every other allocated
+ * cost here. A cheap model and an expensive one weigh the same per token, so
+ * the split leans towards whoever ran the cheap one — a stated rule over a
+ * measured total, which is the improvement, and still an allocation.
+ *
+ * IT IS A PARTIAL VIEW EITHER WAY. Work dispatched through a connected agent
+ * runtime is recorded `unmetered-agent`: the tokens are the reservation and
+ * the real spend lands on that provider's own bill, which may not be one of
+ * the two read here.
  */
 export function modelSpend(ventureId: string | null, month: string): ModelSpend {
   const price = budgets().usdPerMillion;
@@ -106,19 +153,40 @@ export function modelSpend(ventureId: string | null, month: string): ModelSpend 
       calls: number; tokens: number; usd: number; estimated: number | null; agent: number | null;
     };
 
+  const invoiced = providerSpend(month);
+  const total = invoiced.reduce((n, p) => n + p.usd, 0);
+  const allTokens = ventureId === null
+    ? row.tokens
+    : (db
+      .prepare("SELECT COALESCE(SUM(tokens),0) AS tokens FROM budget_usage WHERE at LIKE ?")
+      .get(`${month}%`) as { tokens: number }).tokens;
+
+  const share = ventureId === null ? 1 : allTokens > 0 ? row.tokens / allTokens : 0;
+  const usd = !total ? null : ventureId !== null && allTokens <= 0 ? null : money(total * share);
+  const basis = usd === null ? null : ventureId === null ? "invoice" as const : "invoice-token-share" as const;
+
   return {
-    usd: price > 0 ? money(row.usd) : null,
+    usd,
+    reservationUsd: price > 0 ? money(row.usd) : null,
     tokens: row.tokens,
     calls: row.calls,
     estimatedCalls: row.estimated ?? 0,
+    basis,
+    estimated: basis === "invoice-token-share",
+    invoiced,
     note:
+      (usd === null
+        ? `No provider invoice covers ${month} on this box, so there is no model cost to report; the token count is measured and stands on its own.`
+        : ventureId === null
+          ? `The providers' own invoiced dollars for ${month}, summed. A measurement.`
+          : `${(share * 100).toFixed(1)}% of the ${money(total)} the providers invoiced for ${month}, apportioned by this venture's ${row.tokens.toLocaleString()} of ${allTokens.toLocaleString()} metered tokens. An allocation of a real bill: no provider publishes spend per venture, and tokens weigh the same here whatever the model cost.`) +
       (price > 0
-        ? `Dollars are tokens × the ${price}/million price set in the run budgets, not a provider invoice.`
-        : `No model price per million is set in the run budgets, so every stored dollar figure is structurally zero and none is reported. The token count is measured.`) +
+        ? ` The runtime meter reserved ${money(row.usd)} at the ${price}/million budget price; that is an enforcement figure, not a cost, and nothing adds it to the above.`
+        : ` No model price per million is set in the run budgets, so the runtime's own reservation figure is structurally zero and is not reported.`) +
       (row.agent
         ? ` ${row.agent} of ${row.calls} calls ran through a connected agent runtime: their tokens are the reservation, and their real spend is on that provider's own bill.`
         : "") +
-      ` This is the runtime's own meter and covers only work dispatched through it; portfolio provider spend is on /api/costs.`,
+      ` Portfolio provider spend, per provider and per day, is on /api/costs.`,
   };
 }
 
@@ -361,14 +429,29 @@ export function portfolioPnl(month: string, nowIso = now()) {
     },
     /** The one Stripe figure on this box that IS dated per-venture-free money.
      *  Reported at the portfolio because that is the only level it is true at. */
-    stripeSettled: stripeSettled(month),
+    stripeSettled: stripeSettledMonth(month),
     modelSpend: modelSpend(null, month),
-    power: powerLines(month, nowIso),
+    /*
+      THE ELECTRICITY DETAIL BEHIND ROWS THAT ARE ALREADY IN `ledger.monthly`,
+      and NOT a second set of euros.
+
+      This used to be recomputed for the month asked about while the seeded
+      ledger rows priced the month before, so one payload carried the same
+      electricity twice on two month bases and nothing said the ledger already
+      contained it. There is one producer now — `seedPower` writes the rows,
+      and this is those same rows' working, on the same month basis. Adding it
+      to `ledger.monthly` counts it twice; the rule below says so on the wire.
+    */
+    power: powerLines(ledgerMonth(nowIso), nowIso).map((line) => ({
+      ...line,
+      month: ledgerMonth(nowIso),
+      inLedger: true as const,
+    })),
     rules: [
       "Currencies are never added, at any level of this document.",
       "`stripeSettled` is the portfolio's measured settlement. The per-venture lines above do not contain it unless the mrr-share split is switched on, and where they do it is an allocation.",
       "`unallocatedShared` is real money nobody's margin is carrying. A portfolio with a large figure here has venture margins that are all too good.",
-      "`power` is priced from typed-in wattage. `confidence: metered` means the HOURS were observed; the watts are always an estimate.",
+      `\`power\` is the working behind the electricity rows already counted in \`ledger.monthly\` — the same money, not more of it, and never added to the ledger total. It is priced for ${ledgerMonth(nowIso)}, the last complete month, because a ledger row is a run rate and a part-month is not one. \`confidence: metered\` means the HOURS were observed; the watts are always an estimate.`,
     ],
   };
 }

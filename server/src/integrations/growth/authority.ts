@@ -51,7 +51,7 @@
  * stored copy would be a third thing that can go stale.
  */
 import { db } from "../../db.ts";
-import { registrable } from "./pages.ts";
+import { hostMatch, hostOf } from "../../shared/host.ts";
 
 /** The sentence that travels with every estimate, in one place so the page and
  *  the agent cannot drift apart, and so grepping for it finds every claim. */
@@ -104,19 +104,45 @@ type LinkInput = {
   sources: { source: string; ok: number | null; referringDomains: number | null }[];
 };
 
-function linksFor(host: string): LinkInput {
+/**
+ * REFERRING DOMAINS FOR ONE HOST, AS ONE ANSWER.
+ *
+ * Two surfaces used to answer this question and neither cited the other's
+ * rule: one published a per-source list with an explicit refusal to total it,
+ * the other quietly took the largest single source and fed it into a
+ * difficulty ceiling. When a source's index moved, the two moved differently
+ * and a reader had no way to see why.
+ *
+ * BOTH RULES ARE TRUE AND BOTH ARE HERE. `combined` is null on principle —
+ * the sources overlap by an unknown amount and neither is a census, so a sum
+ * is a number in no unit at all. `best` is the largest single source WITH THE
+ * SOURCE NAMED, which is the most defensible single figure there is and the
+ * only one an estimate may be built on. `perSource` is what each said.
+ */
+export type ReferringDomains = {
+  /** The largest single source's count, or null when none answered. */
+  best: number | null;
+  /** Which source that was. Never a sum of two. */
+  source: string | null;
+  perSource: { source: string; ok: number | null; referringDomains: number | null }[];
+  /** NULL ON PRINCIPLE, not for want of data. See above. */
+  combined: null;
+};
+
+export function referringDomains(host: string): ReferringDomains {
   const rows = db
     .prepare("SELECT source, ok, referring_domains FROM backlink_sources WHERE host = ?")
     .all(host) as unknown as { source: string; ok: number | null; referring_domains: number | null }[];
-  const named = rows.map((r) => ({ source: r.source, ok: r.ok, referringDomains: r.referring_domains }));
-  /* THE BEST SINGLE SOURCE, NOT THE SUM. Two indexes' referring-domain counts
-     overlap by an unknown amount; adding them would produce a number in no
-     unit at all. The largest is taken and the source is named with it. */
+  const perSource = rows.map((r) => ({ source: r.source, ok: r.ok, referringDomains: r.referring_domains }));
   let best: { source: string; value: number } | null = null;
-  for (const r of named)
+  for (const r of perSource)
     if (r.referringDomains !== null && (best === null || r.referringDomains > best.value))
       best = { source: r.source, value: r.referringDomains };
+  return { best: best?.value ?? null, source: best?.source ?? null, perSource, combined: null };
+}
 
+function linksFor(host: string): LinkInput {
+  const links = referringDomains(host);
   const spread = db
     .prepare("SELECT COUNT(DISTINCT from_domain) AS n FROM backlink_rows WHERE host = ?")
     .get(host) as { n: number } | undefined;
@@ -125,11 +151,11 @@ function linksFor(host: string): LinkInput {
     .get(host) as { n: number } | undefined;
 
   return {
-    referringDomains: best?.value ?? null,
-    from: best?.source ?? null,
-    spread: rows.length ? (spread?.n ?? 0) : null,
-    verifiedLive: rows.length ? (live?.n ?? 0) : null,
-    sources: named,
+    referringDomains: links.best,
+    from: links.source,
+    spread: links.perSource.length ? (spread?.n ?? 0) : null,
+    verifiedLive: links.perSource.length ? (live?.n ?? 0) : null,
+    sources: links.perSource,
   };
 }
 
@@ -166,7 +192,6 @@ type DemandInput = { impressions: number | null; from: string | null; position: 
  *  window on the row; Bing second, whose figure is a running total rather than
  *  a window and is labelled as such. */
 function demandFor(host: string): DemandInput {
-  const want = registrable(host);
   const gsc = db
     .prepare("SELECT property, total_impressions, total_position, window_start, window_end FROM gsc_sites")
     .all() as unknown as {
@@ -177,8 +202,11 @@ function demandFor(host: string): DemandInput {
     window_end: string | null;
   }[];
   for (const g of gsc) {
-    const name = g.property.replace(/^sc-domain:/, "").replace(/^https?:\/\//, "").split("/")[0]!.replace(/^www\./, "");
-    if (registrable(name) !== want || g.total_impressions === null) continue;
+    /* COVERAGE, NOT A SHARED REGISTRABLE DOMAIN. `hostMatch` says the property
+       is this host or sits above it; folding both to the registrable domain
+       also accepted a property for a sibling subdomain, which measures a
+       different site. */
+    if (!hostMatch(g.property, host) || g.total_impressions === null) continue;
     return {
       impressions: g.total_impressions,
       from: `Search Console (${g.property})`,
@@ -188,8 +216,7 @@ function demandFor(host: string): DemandInput {
   }
   const bing = db.prepare("SELECT site, in_index FROM bing_sites").all() as unknown as { site: string; in_index: number | null }[];
   for (const b of bing) {
-    const name = String(b.site).replace(/^https?:\/\//, "").split("/")[0]!.replace(/^www\./, "");
-    if (registrable(name) !== want || b.in_index === null) continue;
+    if (!hostMatch(b.site, host) || b.in_index === null) continue;
     return {
       impressions: null,
       from: `Bing Webmaster reports ${b.in_index} pages in its index for ${b.site}. That is an INDEX COUNT, not impressions, so it is reported here and is NOT used in the estimate.`,
@@ -235,7 +262,7 @@ export type Authority = {
 
 /** One host's estimate, computed now. */
 export function authorityFor(hostRaw: string): Authority {
-  const host = String(hostRaw ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]!.replace(/^www\./, "");
+  const host = hostOf(hostRaw) ?? "";
   const links = linksFor(host);
   const pages = pagesFor(host);
   const demand = demandFor(host);

@@ -13,6 +13,31 @@ const badgeVariants = cva(
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+        /*
+          THE THREE TONES A STATUS HAS BESIDES BAD, AND THE ONE LANGUAGE THEY
+          SPEAK.
+
+          Four areas had each written their own map of state to colour, and the
+          three of them that had an "ok" drew it three different ways: a border
+          tint on one page, a background tint on the next, a filled badge on the
+          third. A reader learning this app therefore had to learn three colour
+          languages for one idea, and each map re-derived its own "warn" and its
+          own "nothing measured" from scratch.
+
+          These are BACKGROUND TINTS because `destructive` above is one: a good
+          state and a bad state that disagree about whether colour lives in the
+          border or behind the text do not read as members of one scale.
+
+          `muted` IS NOT A MISSING VARIANT. It is the tone for a state that is
+          neither good nor bad — too little traffic to compare, a check nobody
+          has run — and it exists so that "we did not measure this" never gets
+          coloured as an answer. Something genuinely unasked adds
+          `border-dashed`, which says "no reading" in a second channel for
+          anyone who cannot see the first.
+        */
+        ok: "bg-ok-bg text-ok [a]:hover:bg-ok-bg/70",
+        warn: "bg-warn/15 text-warn [a]:hover:bg-warn/25",
+        muted: "bg-muted text-muted-foreground [a]:hover:bg-muted/70",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:

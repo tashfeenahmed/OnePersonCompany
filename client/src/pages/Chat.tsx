@@ -1,4 +1,3 @@
-import { useDraft } from "@/hooks/useDraft";
 /**
  * THE CHAT PAGE — the one place in this app that talks to an agent.
  *
@@ -179,6 +178,8 @@ import { useDraft } from "@/hooks/useDraft";
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { duration } from "@/lib/format";
+import { useDraft } from "@/hooks/useDraft";
 import {
   ArrowUp,
   Bot,
@@ -448,7 +449,7 @@ function Working({ calls, reasoning }: { calls: ChatToolCall[]; reasoning: strin
             : `Worked · ${steps} step${steps === 1 ? "" : "s"}`}
         </span>
         <span className="shrink-0">
-          {running ? ` · step ${calls.indexOf(running) + 1} of ${calls.length}…` : ms > 0 ? ` · ${(ms / 1000).toFixed(1)}s` : ""}
+          {running ? ` · step ${calls.indexOf(running) + 1} of ${calls.length}…` : ms > 0 ? ` · ${duration(ms)}` : ""}
         </span>
       </button>
       {open && (
@@ -2185,7 +2186,7 @@ export function Chat() {
                           agent's turn, so it is not signed as one. */}
                       {m.channel === "run" ? "Sub-agent report" : authorName(m.backend)}
                       {m.model && ` · ${m.model}`}
-                      {m.ms !== null && ` · ${(m.ms / 1000).toFixed(1)}s`}
+                      {m.ms !== null && ` · ${duration(m.ms)}`}
                       {m.usage &&
                         ` · ${m.usage.prompt + m.usage.completion} tokens`}
                     </p>
@@ -2279,7 +2280,7 @@ export function Chat() {
                   complaints and only one of them is about the model. */}
               {waitedMs !== null && (
                 <p className="text-muted-foreground text-[11.5px]">
-                  Waited {(waitedMs / 1000).toFixed(1)}s for a model slot before
+                  Waited {duration(waitedMs)} for a model slot before
                   that answer could start.
                 </p>
               )}

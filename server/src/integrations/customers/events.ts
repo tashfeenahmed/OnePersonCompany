@@ -23,6 +23,7 @@
  * contain the same figure; it is a claim that the owner has already been
  * woken about it once.
  */
+import { money as stripeMoney } from "../../providers/stripe.ts";
 import { events as alertEvents, rules as alertRules } from "../proactive/store.ts";
 import { inQuiet, zoned } from "./store.ts";
 
@@ -59,10 +60,11 @@ const str = (o: Obj, k: string): string | null => {
 const num = (o: Obj, k: string): number | null =>
   typeof o[k] === "number" ? (o[k] as number) : null;
 
-/** Cents to major units, the same conversion providers/stripe.ts makes, so a
- *  figure on a phone matches a figure on the page to the cent. */
-const money = (cents: number | null) =>
-  cents === null ? null : Number((cents / 100).toFixed(2));
+/** Cents to major units — literally the collector's own conversion now, not a
+ *  second one under a comment claiming it was the same. It was not: this
+ *  rounded at two places and the collector at six, so for one failed invoice
+ *  the amount on a phone and the amount on the recovery case could differ. */
+const money = (cents: number | null) => (cents === null ? null : stripeMoney(cents));
 
 const cash = (amount: number | null, currency: string | null) =>
   amount === null ? null : `${currency ? currency.toUpperCase() : ""} ${amount.toFixed(2)}`.trim();

@@ -62,7 +62,7 @@ const skills: Skill[] = [
         "bulk from the suggestions. Both are real links; only the first means " +
         "somebody looked at that one row.",
       "A HOSTNAME MATCH IS STRONG AND A NAME MATCH IS WEAK, and they are different " +
-        "sentences in `why`. Two ventures on this box are example.ie and neu.so: a " +
+        "sentences in `why`. Two ventures may be acme.ie and acme.so: a " +
         "match is on the whole host or on a subdomain of it, never on a suffix, " +
         "and you must not reason as though one owns the other.",
       "`present: false` ON AN EDGE means the link points at something no collector " +
@@ -95,7 +95,7 @@ const skills: Skill[] = [
             type: "string",
             required: true,
             in: "path",
-            about: "The venture's id (`v-example-app-1`) or slug (`example-app-1`).",
+            about: "The venture's id (`v-acme`) or slug (`acme`).",
           },
         ],
       },
@@ -134,7 +134,7 @@ const skills: Skill[] = [
       },
     ],
     asks: [
-      "What does Example App 1 actually consist of on this box?",
+      "What does my main venture actually consist of on this box?",
       "Which domains and properties belong to no venture at all?",
     ],
   },
@@ -207,7 +207,7 @@ const skills: Skill[] = [
       },
     ],
     asks: [
-      "What is wrong with example.ie, worst first?",
+      "What is wrong with my main site, worst first?",
       "Which pages Google actually shows have problems?",
     ],
     /* It fetches a website. That site is the owner's, and it is still the open
@@ -288,7 +288,7 @@ const skills: Skill[] = [
       },
     ],
     asks: [
-      "Draft a launch post for Example App 1 about the new county coverage.",
+      "Draft a launch post for my newest venture about the feature that just shipped.",
       "What can the studio actually do right now — is Replicate connected?",
     ],
     /* The image comes from Replicate and the caption from whichever provider is

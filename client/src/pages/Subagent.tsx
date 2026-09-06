@@ -11,7 +11,7 @@ import { backendPhrase, duration, statusTone, statusWord } from "@/components/ru
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { runAddress, standing } from "@/components/org/roleLook";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { isLive, runsApi } from "@/lib/api/runs";
@@ -23,7 +23,7 @@ import { findSubagent, subagentApi } from "@/lib/api/subagents";
  *
  * ---------------------------------------------------------------------------
  * THE ADDRESS IS THE VENTURE AND THE ROLE, not the worker's id.
- * /ventures/example-app-1/team/seo is a sentence; /subagents/sa-v-3f21-seo is a
+ * /ventures/<slug>/team/seo is a sentence; /subagents/sa-v-3f21-seo is a
  * primary key. The pairing is also the thing that is guaranteed — every
  * venture is provisioned with all six on every read of the org — where an id
  * is the server's to change. See `byVentureRole` for how one is turned into

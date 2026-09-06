@@ -2,9 +2,9 @@
  * Meta: the Pages, the ad account, and the Instagram account that is not there.
  *
  * ONE ROUTE FOR BOTH HALVES, the way /api/mobile is one route for both app
- * stores: one token reaches the Pages and the ads, workdash's two collectors
- * read the same credential file, and a page that had to fetch two documents and
- * join them is a page that eventually joins them wrongly.
+ * stores: one token reaches the Pages and the ads, one credential file feeds
+ * both collectors, and a page that had to fetch two documents and join them is
+ * a page that eventually joins them wrongly.
  *
  * INSTAGRAM IS IN THIS DOCUMENT AND HAS NO ROUTE OF ITS OWN, because Instagram
  * is not an API this dashboard talks to — it is a FIELD on a Facebook Page
@@ -27,6 +27,17 @@
  * re-paste a credential that is perfectly good. It is reported as what it is,
  * with the one step that changes it: link an Instagram Business or Creator
  * account to a Page in Meta Business Suite.
+ *
+ * `meta_ad_days` IS AUTHORITATIVE FOR AN ACCOUNT'S DELIVERY, and it is worth
+ * saying because there are two tables of the same insights at two grains. The
+ * account-level daily read asks for one row per day and gets all of them; the
+ * ad-level read is capped at a row limit and nothing follows the paging, so it
+ * UNDER-COUNTS silently on a busy account. Nothing used to compare the two.
+ * `totals.adLevel` below derives the same account-day totals from the ad-level
+ * rows and publishes the shortfall, so an account whose ad-level figures are
+ * short says so instead of quietly disagreeing with this page. The ad-level
+ * rows remain the grain for anything needing a campaign or an advertisement,
+ * because this table has no such column.
  *
  * EVERY TOTAL IS COMPUTED ON THE READ, except the two that provably cannot be.
  * Spend, impressions, clicks and leads are summed from `meta_ad_days` when
@@ -58,6 +69,7 @@ import {
   WINDOW_DAYS,
 } from "../providers/meta.ts";
 import { SOCIAL_EVERY_HOURS } from "../collector.ts";
+import { adDayAccountTotals } from "../integrations/webanalytics/store.ts";
 
 export const metaRoutes = new Hono();
 
@@ -175,6 +187,12 @@ metaRoutes.get("/", (c) => {
 
   /* ----------------------------------------------------------- ad accounts */
 
+  /* The ad-level rows summed to this page's grain, for the shortfall check.
+     `dayRows` is bounded by `days`, so the comparison is made over the same
+     span: the earliest day this page is showing. */
+  const earliest = dayRows.map((d) => d.day).sort()[0] ?? "9999-12-31";
+  const derived = new Map(adDayAccountTotals(earliest).map((r) => [r.ad_account_id, r]));
+
   const adAccounts = adRows.map((a) => {
     const mine = dayRows.filter((d) => d.ad_account_id === a.ad_account_id);
     const campaigns = campaignRows
@@ -274,6 +292,30 @@ metaRoutes.get("/", (c) => {
         impressions: total(mine, (d) => d.impressions),
         clicks: total(mine, (d) => d.clicks),
         leads: total(mine, (d) => d.leads),
+        /**
+         * THE SAME FIGURES DERIVED FROM THE AD-LEVEL ROWS, and the gap.
+         *
+         * Published so the ad-level cap is visible rather than silent. A
+         * shortfall means advertisements the ad-level read did not see, NOT a
+         * correction to the figures above it: this page's totals are the
+         * account-level read's and stay so. Null where no ad-level row has
+         * been collected for the account at all.
+         */
+        adLevel: (() => {
+          const d = derived.get(a.ad_account_id);
+          if (!d) return null;
+          const own = total(mine, (r) => r.impressions);
+          return {
+            days: d.days,
+            spend: d.spend,
+            impressions: d.impressions,
+            clicks: d.clicks,
+            impressionShortfall:
+              own === null || d.impressions === null ? null : own - d.impressions,
+            note:
+              "Derived by summing the per-advertisement daily rows. The ad-level read is capped at a row limit and does not page, so this figure is a FLOOR; where it falls short of the totals above, the difference is advertisements it did not see.",
+          };
+        })(),
       },
     };
   });

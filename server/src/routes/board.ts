@@ -824,7 +824,7 @@ boardRoutes.post("/columns/:id/move", async (c) => {
  * because the shape of "something filed a card automatically" is known and the
  * expensive half of it is the idempotency, not the INSERT. `origin` is the
  * derivation's own id with a namespace on it — `issue:disk-dell`,
- * `renewal:example.ie` — and the unique index in `020_board` is what lets a sweep
+ * `renewal:example.com` — and the unique index in `020_board` is what lets a sweep
  * run twice, or in two tabs, and leave one card behind rather than two. A
  * caller that had to do that itself would have to read the board first, which
  * is a race it cannot win.

@@ -2,9 +2,11 @@
  * The pure half of the growth area, asserted without a database.
  *
  * WHAT IS TESTED HERE AND WHAT IS NOT. Everything in `pages.ts` is a pure
- * function over a string — the registrable domain, the relevance self-check,
- * the HTML reader and the gap arithmetic — and every one of them is a place a
- * quiet mistake would become a confident sentence in a report. The library is
+ * function over a string — the relevance self-check, the HTML reader and the
+ * gap arithmetic — and every one of them is a place a quiet mistake would
+ * become a confident sentence in a report. The registrable domain moved to
+ * `shared/host.ts` and is asserted there, once, for every area that folds a
+ * hostname. The library is
  * data, and the things that can go wrong with data are duplicate ids and a
  * stage nobody buckets anything under, so both are asserted.
  *
@@ -15,15 +17,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractStructure, gapsAgainst, median, registrable, relevance, tokens, unmeasurable } from "./pages.ts";
+import { extractStructure, gapsAgainst, median, relevance, tokens, unmeasurable } from "./pages.ts";
 import { EXPERIMENTS, STAGES, forStage } from "./cro-library.ts";
-
-test("registrable folds subdomains and keeps two-part suffixes", () => {
-  assert.equal(registrable("www.example.ie"), "example.ie");
-  assert.equal(registrable("app.example-app-4.example.test"), "example-app-4.example.test");
-  assert.equal(registrable("shop.example.co.uk"), "example.co.uk");
-  assert.equal(registrable("PLANINTEL.IE"), "example-app-1.example.test");
-});
+import { fortnight, type DayRow } from "./ads.ts";
 
 test("tokens drop stop words and short words", () => {
   assert.deepEqual(tokens("What is the planning permission search"), ["planning", "permission", "search"]);
@@ -52,7 +48,7 @@ test("a query of nothing but stop words is unmeasurable rather than degraded", (
 });
 
 test("one countable word cannot be checked, and an identifier says so", () => {
-  assert.match(unmeasurable("example-app-1") ?? "", /single word/);
+  assert.match(unmeasurable("acmeproduct") ?? "", /single word/);
   assert.match(unmeasurable("d14a5r2") ?? "", /identifier/);
   assert.equal(unmeasurable("planning permission ireland"), null);
 });
@@ -117,4 +113,48 @@ test("the experiment library has unique ids and every stage is bucketed", () => 
 test("a stage's bucket comes back biggest lever first", () => {
   const ranks = forStage("landing").map((e) => e.rank);
   assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b));
+});
+
+/* --------------------------------------------------- the two matched weeks */
+
+/**
+ * The failure this guards: an advertising platform writes no daily row for a
+ * day with no delivery, so cutting the fortnight by ROW COUNT let a paused
+ * weekend drag "last week" ten days back — two windows of seven rows each,
+ * neither of them a week, while the fatigue verdict next door was comparing
+ * the platform's own two explicit weeks. The two could then disagree over what
+ * both called the same fortnight.
+ */
+const day = (d: string, impressions: number, clicks: number): DayRow => ({
+  day: d,
+  spend: 10,
+  impressions,
+  clicks,
+  leads: null,
+});
+
+test("the fortnight is cut by date, so a gap shortens a week instead of sliding it", () => {
+  /* Fourteen consecutive days: the halves are 7 and 7. */
+  const full = Array.from({ length: 14 }, (_, i) =>
+    day(`2026-09-${String(i + 1).padStart(2, "0")}`, 1000, 10),
+  );
+  const a = fortnight(full);
+  assert.equal(a.recent.days, 7);
+  assert.equal(a.prior.days, 7);
+
+  /* Three days of the recent week are missing. The recent half must be four
+     days long — NOT seven days reaching back into the earlier week. */
+  const gapped = full.filter((r) => !["2026-09-09", "2026-09-10", "2026-09-11"].includes(r.day));
+  const b = fortnight(gapped);
+  assert.equal(b.recent.days, 4);
+  assert.equal(b.prior.days, 7);
+  /* And nothing from the earlier week has been counted twice. */
+  assert.equal(b.recent.impressions + b.prior.impressions, 11_000);
+});
+
+test("a fortnight with no rows at all is two empty weeks, not a crash", () => {
+  const empty = fortnight([]);
+  assert.equal(empty.recent.days, 0);
+  assert.equal(empty.recent.ctr, null);
+  assert.equal(empty.prior.ctr, null);
 });

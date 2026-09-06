@@ -76,8 +76,9 @@ export const reelPageHeight = () => Math.round(num("reelPageHeight", 3600, 1200,
 
 /* ----------------------------------------------------------------- shorts */
 
-/** Where a local whisper is, if there is one. Blank probes. */
-export const whisperBin = () => text("whisper");
+/* Where a local whisper is (`whisper`) is read by moments.ts through the
+   shared binary finder, which owns "a configured path that is not there is an
+   error" for every binary on the box. It is not read here. */
 /** The model file. There is no probe for this one: a ggml model is a two
  *  gigabyte file the owner downloaded on purpose and there is no conventional
  *  place for it. Blank means word timings are simply not available, which is

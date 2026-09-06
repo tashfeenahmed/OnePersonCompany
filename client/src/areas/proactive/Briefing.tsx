@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
+import { pct } from "@/lib/format";
 import { Markdown } from "@/components/Markdown";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
 import { announceAlerts } from "@/hooks/useOpenAlerts";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { briefingApi, type Briefing, type BriefingFacts } from "@/lib/api/proactive";
 
@@ -193,7 +194,7 @@ function Facts({ facts }: { facts: BriefingFacts }) {
                           <span className="text-muted-foreground">
                             {" "}
                             ({m.changePct > 0 ? "+" : ""}
-                            {m.changePct}%)
+                            {pct(m.changePct / 100)})
                           </span>
                         )}
                       </li>

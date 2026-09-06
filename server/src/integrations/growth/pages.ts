@@ -28,6 +28,8 @@
  * row and the HTML is dropped.
  */
 
+import { hostOf, registrable } from "../../shared/host.ts";
+
 /** One request's wall. Long enough for a slow marketing page behind a CDN,
  *  short enough that eight of them cannot make a run look hung. */
 const TIMEOUT_MS = 15_000;
@@ -44,37 +46,6 @@ const MIN_PAGE_CHARS = 400;
 /** An honest User-Agent, for providers/stock.ts's reason: a tool that says
  *  what it is can be complained to. */
 const UA = "OnePersonCompany/0.1 (+growth)";
-
-/* --------------------------------------------------------------- hostnames */
-
-/**
- * The registrable domain, so one competitor's three subdomains do not eat the
- * whole sample.
- *
- * The multi-part TLD list is short and explicit rather than a public-suffix
- * dependency: the server has no runtime dependencies beyond hono, and the six
- * below cover every suffix this box has ever seen in a result set. A suffix
- * that is not on the list folds to two labels, which is wrong in the direction
- * that costs a duplicate rather than a wrong comparison.
- */
-const MULTI_TLD = ["com.pk", "co.uk", "com.au", "co.nz", "com.br", "co.za", "co.in", "co.jp"];
-
-export function registrable(host: string): string {
-  const h = String(host ?? "").trim().toLowerCase().replace(/^www\./, "");
-  if (!h.includes(".")) return h;
-  const parts = h.split(".");
-  const last2 = parts.slice(-2).join(".");
-  const take = MULTI_TLD.includes(last2) ? 3 : 2;
-  return parts.slice(-take).join(".");
-}
-
-export function hostOf(url: string): string | null {
-  try {
-    return new URL(String(url)).hostname.toLowerCase().replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-}
 
 /* ------------------------------------------------- the relevance self-check */
 

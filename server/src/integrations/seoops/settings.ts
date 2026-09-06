@@ -18,6 +18,7 @@
  * plugin would silently clobber theirs.
  */
 import { configValue, ventureRows, type VentureRow } from "../../db.ts";
+import { WINDOW_DAYS } from "../../providers/gsc.ts";
 
 export const SEOOPS_PLUGIN = "seoops";
 
@@ -39,9 +40,16 @@ export const DEFAULT_TAG = "#seo";
  */
 export const DEFAULT_OFFSETS = [14, 28, 56];
 
-/** The window each reading measures, in days. Search Console's own, so a
- *  figure here and a figure in the owner's console are the same figure. */
-export const WINDOW_DAYS = 28;
+/**
+ * The window each reading measures, in days. Search Console's own, so a figure
+ * here and a figure in the owner's console are the same figure.
+ *
+ * IMPORTED, NOT REPEATED. The provider owns this number because the provider is
+ * what asks Search Console for the window; a second copy here was equal and one
+ * edit away from a baseline reading and a dashboard both captioned "Search
+ * Console's window" over spans of different lengths.
+ */
+export { WINDOW_DAYS };
 
 /** How many of a page's queries are kept with a reading. Enough to see what
  *  the page is shown for; not so many that a reading row is a document. */
@@ -102,32 +110,4 @@ export function optedIn(list: string[] | "all", v: VentureRow): boolean {
 export function venturesFor(list: string[] | "all"): VentureRow[] {
   if (list !== "all" && !list.length) return [];
   return ventureRows().filter((v) => optedIn(list, v));
-}
-
-/* ---------------------------------------------------------------- hosts */
-
-/** A host out of anything host-shaped, `www.` removed. Shared by the URL →
- *  property match and the presence-product → venture match, which are the
- *  same question asked about two different lists. */
-export function hostOf(value: string | null | undefined): string | null {
-  const raw = (value ?? "").trim();
-  if (!raw) return null;
-  let host = raw;
-  if (host.includes("://")) {
-    try {
-      host = new URL(host).hostname;
-    } catch {
-      return null;
-    }
-  }
-  host = host.split("/")[0]!.split("?")[0]!.toLowerCase().replace(/^www\./, "");
-  return host.includes(".") ? host : null;
-}
-
-/** Two hosts that are the same site, or one inside the other. `blog.x.com`
- *  and `x.com` are one property in Search Console's domain form and one
- *  business everywhere else. */
-export function sameHost(a: string | null, b: string | null): boolean {
-  if (!a || !b) return false;
-  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
 }

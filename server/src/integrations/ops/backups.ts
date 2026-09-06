@@ -46,10 +46,38 @@ import {
   statSync,
 } from "node:fs";
 import { join, resolve as resolvePath, basename } from "node:path";
-import { DATA_DIR } from "../../config.ts";
+import { DATA_DIR, RETAIN_DAYS } from "../../config.ts";
 import { configValue, db, now, upsertPlugin } from "../../db.ts";
+import { registerRetention } from "../../shared/retention.ts";
+import { keyPath } from "./fleet.ts";
 
 export const PLUGIN = "backups";
+
+/**
+ * THE BACKUP LEDGER AGES ON THE BOX'S OWN HISTORY SETTING, and it had no
+ * window at all until now.
+ *
+ * The other two tables that were missing a prune are MEASUREMENTS, and this
+ * area chose a number for them. This one is different in kind: it is the
+ * record of the box doing its own job, and the question it answers — "has the
+ * nightly backup been failing since March, and when did it last actually
+ * work" — is exactly the question a long history exists for. So it follows
+ * `OPC_RETAIN_DAYS`, the setting the owner can change, rather than a number
+ * invented here; a handful of rows a day makes that free.
+ *
+ * A THUNK RATHER THAN THE NUMBER, so nothing can report a window the prune has
+ * stopped using.
+ */
+registerRetention({
+  table: "backup_runs",
+  column: "ts",
+  days: () => RETAIN_DAYS,
+  source: "setting",
+  setting: "OPC_RETAIN_DAYS",
+  note:
+    "Every backup attempt, successful or not. “When did this last work” is only answerable by something that " +
+    "also recorded the times it did not, so it ages with the box's own history setting rather than a shorter one.",
+});
 
 /** What an archive is called. Sorted lexically it is sorted by age, which is
  *  what makes pruning a slice rather than a stat of every file. */
@@ -361,10 +389,18 @@ export async function runBackup(kind: "manual" | "nightly" = "manual"): Promise<
 /**
  * The key file of a fleet account, by label.
  *
- * Named rather than imported as a path so the coupling is visible: backups and
- * fleet are two integrations in one area, and this is the only thing they
- * share — an owner who already pasted a key for a box should not have to paste
- * it again to rsync to that same box.
+ * THE PATH IS ASKED FOR RATHER THAN REBUILT. It used to be spelled out here a
+ * second time, which made this the one reader of that file that would silently
+ * stop finding it the moment the naming changed — and it did change, because
+ * the old name was shared with a plugin whose accounts are not fleet accounts
+ * and whose keys were therefore deleted every half hour. This is the only
+ * caller that reads the path WITHOUT writing the file first, so it is the only
+ * one that would ever have noticed.
+ *
+ * The coupling is deliberate and stays visible: backups and fleet are two
+ * integrations in one area, and this is the only thing they share — an owner
+ * who already pasted a key for a box should not have to paste it again to
+ * rsync to that same box.
  */
 function fleetKeyFor(label: string): string | null {
   const row = db
@@ -373,7 +409,7 @@ function fleetKeyFor(label: string): string | null {
     )
     .get(label) as { id: number } | undefined;
   if (!row) return null;
-  const path = join(DATA_DIR, "keys", `fleet-${row.id}.pem`);
+  const path = keyPath("fleet", row.id);
   return existsSync(path) ? path : null;
 }
 

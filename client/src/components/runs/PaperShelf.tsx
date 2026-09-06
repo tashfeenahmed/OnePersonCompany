@@ -4,9 +4,9 @@ import { BookOpen, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { PaperFacts, PaperFrame, PaperLinks } from "@/components/runs/PaperView";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
 import { runsApi } from "@/lib/api/runs";
 import type { Venture } from "@/lib/store";
+import { ago } from "@/lib/format";
 
 /**
  * WHAT HAS BEEN WRITTEN, AND WHAT IT WAS WRITTEN OUT OF.

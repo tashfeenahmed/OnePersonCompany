@@ -47,6 +47,13 @@ export const SKILLS: Skill[] = [
         "window was zero.",
       "This is the last collection, not a live call, and it runs at most every " +
         "six hours. `seenAt` says when.",
+      "THIS SKILL IS THE HEADLINE TRAFFIC FIGURE FOR A WEBSITE, and the `segments` " +
+        "skill on the same plugin is the audience BREAKDOWN of it. Both once " +
+        "published a 30-day visitor count for the same site from two tables on two " +
+        "clocks, so the answer depended on which skill was picked; they now read the " +
+        "same window row through one accessor. Quote pageviews, visitors, visits, " +
+        "bounces and the daily line FROM HERE. Quote a country, device, browser, OS, " +
+        "language, screen or referrer distribution from `segments`.",
     ],
     views: [
       {
@@ -75,7 +82,7 @@ export const SKILLS: Skill[] = [
     ],
     asks: [
       "Which of my sites grew last month, and by how much against the month before?",
-      "What are the top referrers to example-app-1.example.test in the last 30 days?",
+      "What are the top referrers to one of my sites in the last 30 days?",
     ],
   },
 

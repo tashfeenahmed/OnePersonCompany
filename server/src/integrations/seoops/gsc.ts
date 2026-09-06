@@ -38,7 +38,8 @@ import {
   window as gscWindow,
   type ApiRow,
 } from "../../providers/gsc.ts";
-import { QUERY_ROWS, WINDOW_DAYS, hostOf, sameHost } from "./settings.ts";
+import { hostMatch } from "../../shared/host.ts";
+import { QUERY_ROWS, WINDOW_DAYS } from "./settings.ts";
 
 /* ----------------------------------------------------------- the property */
 
@@ -60,14 +61,17 @@ export function resolveProperty(url: string, rows: PropertyRow[]): PropertyRow |
   } catch {
     return null;
   }
-  const host = hostOf(target.hostname);
   let best: { row: PropertyRow; score: number } | null = null;
 
   for (const row of rows) {
     let score = -1;
     if (row.property.startsWith("sc-domain:")) {
-      const domain = hostOf(row.property.slice("sc-domain:".length));
-      if (sameHost(host, domain)) score = 1;
+      /* ONE-DIRECTIONAL, and it is a correction. A domain property covers the
+         URL when the property IS the URL's host or the host sits UNDER it.
+         The rule this replaced matched in both directions, so a property for
+         `blog.example.com` claimed a URL on `example.com` — a different site,
+         whose figures would then be captioned with the wrong property. */
+      if (hostMatch(row.property, target.hostname)) score = 1;
     } else {
       /* A URL-prefix property is a string prefix in Search Console's own
          model, and it is compared as one — with the scheme, because

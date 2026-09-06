@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PluginSettingsForm } from "@/components/settings/PluginSettingsForm";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { peopleApi, type ScanResult } from "@/lib/api/people";
 import { CommitmentRow, ContactPanel, ContactRow } from "./parts";

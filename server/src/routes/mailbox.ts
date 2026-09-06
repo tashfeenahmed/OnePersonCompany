@@ -84,6 +84,7 @@ import {
   type SentEmail,
   type SentRow,
 } from "../providers/resend.ts";
+import { threadHosts, ventureForThread, type ThreadHost } from "../integrations/mailflow/triage.ts";
 
 export const mailbox = new Hono();
 
@@ -292,27 +293,21 @@ function composeQuery(scope: string, typed: string): string {
 /* ====================================================================== */
 
 /**
- * The domains this portfolio actually receives at, from the Resend keys.
- *
- * Resend is a SENDING service and this is a question about RECEIVING, which
- * looks like the wrong source until you look at the pipe: a venture's domain
- * is on this dashboard because that venture sends from it, and the same domain
- * is what its customers reply to. There is no separate list of "domains whose
- * mail forwards here" anywhere on this box, and inventing one as a hand-kept
- * constant is what workdash does and what this is trying not to inherit.
- */
-function inboundDomains(): Set<string> {
-  return new Set(chips().chips.filter((m) => m.domain).map((m) => m.domain!));
-}
-
-/**
  * Which mailbox a thread arrived at, or null.
  *
- * TWO PASSES, AND THE ORDER IS THE WHOLE FUNCTION. A forwarded message carries
- * the Gmail address in `Delivered-To` on top of the venture address it was
- * really sent to, so a single pass in header order would attribute practically
- * every thread to "gmail". A venture domain anywhere in the thread therefore
- * beats the Gmail address everywhere in it.
+ * THE AUTHORITY LIST IS NOT THIS FILE'S ANY MORE, and that is the fix rather
+ * than a tidy-up. This used to match the Resend sending-domain chips while
+ * `mailflow/triage.ts` matched `ventures.host` — one question, two lists — so
+ * a venture with a host and no Resend key was tagged by Triage and invisible
+ * to this filter, and a stale host did the reverse. The two counts disagreed
+ * with nothing on either page to say which was wrong. `threadHosts()` is now
+ * the one list and it holds BOTH, and the host comparison is `shared/host.ts`'s
+ * one-directional rule rather than a `split("@")` and an exact string match.
+ *
+ * THE GMAIL PASS IS SECOND AND THAT ORDERING IS LOAD-BEARING. A forwarded
+ * message carries the Gmail address in `Delivered-To` on top of the venture
+ * address it was really sent to, so a single pass in header order would
+ * attribute practically every thread to "gmail".
  *
  * NULL IS "IT IS NONE OF OURS" HERE, and that is worth stating because it is
  * the narrower of the two readings this field can have. This server always
@@ -321,16 +316,20 @@ function inboundDomains(): Set<string> {
  * either: a mailing list, a Bcc, a thread that reached the account some other
  * way. It is a real answer rather than a failure, and the page draws no badge
  * for it because a badge reading "Other" two hundred times is a column.
+ *
+ * A HOST THAT MATCHES BUT HAS NO CHIP is still published, and the client
+ * labels it by its own name. Before this it came back null — the venture was
+ * simply lost — and a filter the reader cannot click is a smaller failure than
+ * a thread nobody can see belongs to anything. The chip list gaining those
+ * hosts is a client-side change and is left to that side.
  */
 function mailboxOf(
   recipients: string[],
-  domains: Set<string>,
+  hosts: ThreadHost[],
   gmailAddress: string | null,
 ): string | null {
-  for (const address of recipients) {
-    const domain = address.split("@")[1] ?? "";
-    if (domain && domains.has(domain)) return domain;
-  }
+  const matched = ventureForThread(recipients, null, hosts);
+  if (matched) return matched.host;
   const mine = (gmailAddress ?? "").trim().toLowerCase();
   for (const address of recipients) {
     if (mine ? address === mine : /@(gmail|googlemail)\.com$/.test(address))
@@ -694,12 +693,13 @@ mailbox.get("/threads", async (c) => {
   const max = Math.min(MAX_PAGE, Math.max(1, Number(c.req.query("limit") ?? PAGE) || PAGE));
 
   const { gmail } = chips();
-  const domains = inboundDomains();
+  const hosts = threadHosts();
 
   /* A chip naming nothing we hold falls back to everything rather than to an
      empty list. An empty list reads as "this venture has no mail", which is a
      claim; a typo should not be able to make it. */
-  const known = chip === null || chip === "all" || chip === "gmail" || domains.has(chip);
+  const known =
+    chip === null || chip === "all" || chip === "gmail" || hosts.some((h) => h.host === chip);
   const mailboxKey = known ? chip : null;
 
   const result = await answered(async () => {
@@ -738,7 +738,7 @@ mailbox.get("/threads", async (c) => {
       unread: t.unread,
       labels: t.labels,
       messages: t.messages,
-      mailbox: mailboxOf(t.recipients, domains, gmail?.address ?? null),
+      mailbox: mailboxOf(t.recipients, hosts, gmail?.address ?? null),
     })),
     /** Gmail's own opaque cursor, passed straight through. It is not an
      *  ordinal and cannot be turned into one: an ordinal page would mean
@@ -782,7 +782,7 @@ mailbox.get("/threads/:id", async (c) => {
   if (!thread)
     return c.json({ error: "No such thread in this mailbox — it may have been deleted." }, 404);
 
-  const domains = inboundDomains();
+  const hosts = threadHosts();
   const { gmail } = chips();
 
   const recipients = new Set<string>();
@@ -795,7 +795,7 @@ mailbox.get("/threads/:id", async (c) => {
     accountId: session.account.id,
     /** Decided from the messages this route has in hand, by the same rule the
      *  list uses. The reader must not disagree with the row that opened it. */
-    mailbox: mailboxOf([...recipients], domains, gmail?.address ?? null),
+    mailbox: mailboxOf([...recipients], hosts, gmail?.address ?? null),
     subject: thread.messages.map((m) => m.subject).find(Boolean) ?? "",
     messages: thread.messages.map((m: LiveMessage) => {
       const wanted = imagesFor === "all" || imagesFor === m.id;

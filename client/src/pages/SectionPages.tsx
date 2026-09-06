@@ -1,7 +1,7 @@
 import { lazy } from "react";
 import { Link, Navigate, useLocation, useParams } from "react-router-dom";
+import { SubTabs } from "@/components/TabStrip";
 import { GROWTH_PAGES, MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
-import { cn } from "@/lib/utils";
 
 const Mailbox = lazy(() => import("@/pages/Mailbox").then(m => ({ default: m.Mailbox })));
 const Triage = lazy(() => import("@/areas/mailflow/Triage").then(m => ({ default: m.Triage })));
@@ -37,8 +37,12 @@ function SectionPages({ section, selectedPage }: { section: keyof typeof SECTION
   return <>
     <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 px-4.5 py-1">
       <span className="mr-2 text-xs text-muted-foreground">{label}</span>
-      <nav aria-label={label} className="flex flex-wrap gap-1">
-        {items.map(item => <Link key={item.slug} to={item.to} aria-current={current === item ? "page" : undefined} className={cn("rounded-lg px-2.5 py-1.5 text-[12.5px] hover:bg-accent", current === item && "bg-accent font-medium")}>{item.label}</Link>)}
+      <nav aria-label={label}>
+        <SubTabs
+          tabs={items.map(item => ({ key: item.slug, to: item.to, label: item.label }))}
+          activeKey={current?.slug ?? null}
+          className="mb-0"
+        />
       </nav>
     </header>
     {Page ? <Page /> : <div className="p-6"><h1 className="text-xl">Page not found</h1><Link to={items[0]!.to} className="underline">Go to {label.toLowerCase()}</Link></div>}

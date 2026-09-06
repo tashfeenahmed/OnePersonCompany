@@ -25,7 +25,8 @@ import { dueNow, schedules } from "./scheduler.ts";
 import { launchdPlist, systemdUnit, plan, envText } from "./service.ts";
 import { healthFor } from "./health.ts";
 import { isolation, levelFor } from "./isolation.ts";
-import { agentRefusal, authenticatedRequest, ownerSurfaceRefusal } from "../security/gate.ts";
+import { agentRefusal, authenticatedRequest, browserShaped, levelRefusal, ownerSurfaceRefusal } from "../security/gate.ts";
+import { PORT, UI_PORT } from "../../config.ts";
 import { agentKey, serviceKey } from "../../auth.ts";
 import { foundState } from "../security/workstation.ts";
 import { setConfig, upsertPlugin } from "../../db.ts";
@@ -344,6 +345,113 @@ test("the health probe answers liveness only to an unauthenticated caller on a l
 test("agentRefusal describes the surface without needing a request", () => {
   assert.ok(agentRefusal("POST", "/api/security/password"));
   assert.equal(agentRefusal("GET", "/api/security/status"), null, "reads of the lock's own status are open");
+});
+
+/* -------------------------------------------- one browser-shape predicate */
+
+/**
+ * THE HEADER-LESS POST. This is the finding, and it is the reason the whole
+ * table exists.
+ *
+ * There used to be two answers to "is this the owner's browser". One said a
+ * request with no `Origin` and no `Sec-Fetch-Site` is not a browser; the other
+ * only refused what it could SEE — a foreign origin, a presented key — so a
+ * request carrying nothing at all fell off the end of it and was allowed. The
+ * second one was `requireBrowser`, and `requireBrowser` was the only guard on
+ * installing a service, uninstalling one, writing the service plan and
+ * publishing a post.
+ */
+const BROWSER_ONLY = [
+  ["POST", "/api/deploy/service/install"],
+  ["POST", "/api/deploy/service/uninstall"],
+  ["POST", "/api/deploy/plan/write"],
+  ["POST", "/api/publishing/items/17/publish"],
+  ["POST", "/api/publishing/items/17/retry"],
+  ["POST", "/api/security/password"],
+] as const;
+
+test("a header-less POST is refused on every browser-only route", () => {
+  for (const [method, path] of BROWSER_ONLY) {
+    const refusal = ownerSurfaceRefusal(request(method, path));
+    assert.ok(refusal, `${method} ${path} must not be reachable with no headers at all`);
+    assert.match(refusal, /no browser origin/);
+  }
+  /* And through the middleware door as well, which is the one the routes
+     themselves wear — the two must not be able to disagree again. */
+  assert.ok(levelRefusal(request("POST", "/api/deploy/service/install"), "browser"));
+});
+
+test("a browser-only route still opens for the dashboard, and never for a key", () => {
+  for (const [method, path] of BROWSER_ONLY) {
+    assert.equal(ownerSurfaceRefusal(request(method, path, { "sec-fetch-site": "same-origin" })), null, `${path} from the served dashboard`);
+    assert.equal(ownerSurfaceRefusal(request(method, path, { origin: `http://localhost:${UI_PORT}` })), null, `${path} from the dev dashboard`);
+    assert.equal(ownerSurfaceRefusal(request(method, path, { origin: `http://127.0.0.1:${PORT}` })), null, `${path} from the API's own port`);
+
+    assert.ok(ownerSurfaceRefusal(request(method, path, { "x-opc-key": serviceKey() })), `${path} must refuse even the OWNER key`);
+    assert.ok(ownerSurfaceRefusal(request(method, path, { "x-opc-key": agentKey() })), `${path} must refuse the agent key`);
+    assert.ok(ownerSurfaceRefusal(request(method, path, { "x-opc-via": "skills", "sec-fetch-site": "same-origin" })), `${path} must refuse the skills proxy however it dresses`);
+    assert.ok(ownerSurfaceRefusal(request(method, path, { origin: "https://evil.example" })), `${path} must refuse somebody else's origin`);
+  }
+});
+
+test("browserShaped is the only answer to “is this the owner's browser”", () => {
+  /* One predicate: whatever `browserShaped` says about a set of headers is
+     what the browser-level refusal says about the same set. A second copy of
+     this rule is what let the two disagree. */
+  const cases: Record<string, string>[] = [
+    {},
+    { origin: "https://evil.example" },
+    { origin: `http://127.0.0.1:${PORT}` },
+    { origin: `http://localhost:${UI_PORT}` },
+    { origin: "http://localhost:9999" },
+    { "sec-fetch-site": "same-origin" },
+    { "sec-fetch-site": "cross-site" },
+    { "sec-fetch-site": "same-origin", "x-opc-via": "skills" },
+  ];
+  for (const headers of cases) {
+    const r = request("POST", "/api/deploy/service/install", headers);
+    assert.equal(
+      levelRefusal(r, "browser") === null,
+      browserShaped(r),
+      `browserShaped and the browser level disagree about ${JSON.stringify(headers)}`,
+    );
+  }
+});
+
+test("the deploy and publishing writes are now IN the report that claims they are refused", () => {
+  /* The other half of the finding. These four were guarded only by the weakest
+     of the three rules and were invisible to `agentRefusal`, to
+     OWNER_SURFACE_PREFIXES, to the isolation report and to `npm run doctor` —
+     all of which are read as the list of what an agent cannot reach. */
+  for (const [method, path] of BROWSER_ONLY) assert.ok(agentRefusal(method, path), `${method} ${path} must be describable`);
+  assert.equal(agentRefusal("GET", "/api/deploy"), null, "the overview is a read and stays open");
+  assert.equal(agentRefusal("POST", "/api/deploy/leases/release-stale"), null, "tidying a lapsed lease is the agent's to do");
+  assert.equal(agentRefusal("POST", "/api/nurture/sequences/9/enrol"), null, "enrolling is not the same route as writing the sequence");
+  assert.ok(agentRefusal("PATCH", "/api/nurture/sequences/9"), "writing the sequence is");
+});
+
+/* ------------------------------------------------------------- retention */
+
+test("/api/health reports the retention registry, not a setting that describes some of it", async () => {
+  /* `retainDays: { readings, load }` out of config was what this used to
+     publish, and it was a claim about the box that was not true of it: it
+     described neither the uptime checks nor the fleet samples nor the
+     workstation states nor the job leases, each of which aged on a number no
+     setting could reach — and three tables were aging on nothing at all. */
+  const doc = await healthFor(["fleet"], { locked: false, authenticated: true });
+  assert.ok("retention" in doc, "the registry, verbatim");
+  const byTable = new Map(doc.retention.map((r) => [r.table, r]));
+
+  for (const table of ["security_snapshots", "security_shotsqa", "backup_runs"])
+    assert.ok(byTable.get(table), `${table} had no prune anywhere and must now have a declared window`);
+  for (const table of ["uptime_checks", "fleet_samples", "workstation_state", "job_leases"])
+    assert.ok(byTable.get(table), `${table} aged on a number nothing reported`);
+
+  assert.equal(byTable.get("readings")?.setting, "OPC_RETAIN_DAYS", "the global setting is IN the registry, not beside it");
+  assert.equal(byTable.get("readings")?.days, RETAIN_DAYS);
+  assert.equal(byTable.get("hetzner_load")?.days, LOAD_RETAIN_DAYS);
+  assert.equal(byTable.get("job_leases")?.where, "released_at IS NOT NULL", "an open lease is a claim, not history");
+  for (const entry of doc.retention) assert.ok(entry.days > 0, `${entry.table} has no window`);
 });
 
 /* --------------------------------------------- releasing a beating lease */

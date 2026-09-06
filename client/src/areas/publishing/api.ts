@@ -15,6 +15,7 @@
  * limits here would be a second set of numbers to be wrong about.
  */
 import { call } from "@/lib/api";
+import { qs } from "@/lib/qs";
 
 /* ---------------------------------------------------------------- shared */
 
@@ -254,19 +255,12 @@ export type AssetsDoc = {
   note: string;
 };
 
-const q = (params: Record<string, string | number | null | undefined>) => {
-  const parts = Object.entries(params)
-    .filter(([, v]) => v !== null && v !== undefined && v !== "")
-    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
-  return parts.length ? `?${parts.join("&")}` : "";
-};
-
 export const publishingApi = {
   readiness: () => call<Readiness>("/publishing"),
 
   destinations: (venture?: string | null) =>
     call<{ venture: unknown; destinations: Destination[]; kinds: Limits[]; note: string }>(
-      `/publishing/destinations${q({ venture })}`,
+      `/publishing/destinations${qs({ venture })}`,
     ),
 
   probe: (ventureId: string) =>
@@ -286,7 +280,7 @@ export const publishingApi = {
 
   items: (opts: { venture?: string | null; status?: string | null; campaign?: string | null } = {}) =>
     call<{ venture: unknown; counts: StatusCounts; items: PublishItem[]; note: string }>(
-      `/publishing/items${q(opts)}`,
+      `/publishing/items${qs(opts)}`,
     ),
 
   item: (id: string) =>
@@ -373,7 +367,7 @@ export const publishingApi = {
       outside: number;
       blackout: string[];
       note: string;
-    }>(`/publishing/calendar${q(opts)}`),
+    }>(`/publishing/calendar${qs(opts)}`),
 
   tick: () =>
     call<{
@@ -388,7 +382,7 @@ export const publishingApi = {
 
   campaigns: (venture?: string | null) =>
     call<{ venture: unknown; campaigns: Campaign[]; note: string }>(
-      `/publishing/campaigns${q({ venture })}`,
+      `/publishing/campaigns${qs({ venture })}`,
     ),
 
   campaignSuggestions: (venture: string) =>
@@ -397,7 +391,7 @@ export const publishingApi = {
       channels: { channel: string; label: string; destinationId: string | null; note: string }[];
       angles: { title: string; why: string }[];
       note: string;
-    }>(`/publishing/campaigns/suggestions${q({ venture })}`),
+    }>(`/publishing/campaigns/suggestions${qs({ venture })}`),
 
   /** Forget a plan. The drafts it produced are kept. */
   removeCampaign: (id: string) =>
@@ -416,7 +410,7 @@ export const publishingApi = {
     ),
 
   assets: (opts: { venture?: string | null; kind?: string | null } = {}) =>
-    call<AssetsDoc>(`/publishing/assets${q(opts)}`),
+    call<AssetsDoc>(`/publishing/assets${qs(opts)}`),
 
   /** A multipart POST, so it does NOT go through `call` — that helper sets a
    *  JSON content type, and a multipart body needs the browser to write its

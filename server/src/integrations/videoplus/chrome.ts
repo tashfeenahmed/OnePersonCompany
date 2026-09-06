@@ -1,15 +1,13 @@
 /**
  * HEADLESS CHROME, DRIVEN FOR PICTURES RATHER THAN FOR PAGES.
  *
- * ventures/capture.ts already owns "find a browser on this machine" and "run
- * it until the file it was asked for stops growing, then kill it", and the
- * comments there record what that cost to get right — the browser does not
- * exit on its own, a shared profile directory contends with itself, and node's
- * own error message is three hundred characters of Chrome flags rather than
- * the fault. NONE OF THAT IS REPEATED HERE. This file imports `findBrowser`
- * from that module and re-implements only the part that differs: the window is
- * whatever size the caller asks for rather than 1280×800, the URL is usually a
- * `file://` of a page this server wrote, and there is no DOM dump.
+ * tools/chrome.ts owns "find a browser on this machine", "give it a profile of
+ * its own and throw the profile away", "run it until the file it was asked for
+ * stops growing, then kill it" and "get the actual fault out of its stderr".
+ * NONE OF THAT IS REPEATED HERE any more — it was, byte for byte and with
+ * three different flag sets, in four files. What is left in this file is the
+ * part that is genuinely this area's: how big a sheet may be, and the two
+ * things it points a browser at.
  *
  * WHY A LOCAL FILE AND NOT A DATA URL. Chrome treats a `data:` document as an
  * opaque origin with no base URL, which is survivable for a page with no
@@ -19,22 +17,28 @@
  * when the run's directory goes.
  *
  * THE WINDOW SIZE IS BOUNDED AND THE BOUND IS NOT DECORATION. A screenshot is
- * a bitmap Chrome has to allocate: 8640×1920 is 66 megabytes of RGBA and works
- * on this machine, and asking for four times that gets a browser that either
- * refuses or writes a truncated PNG with no error. So a sheet's width is
- * computed from a pixel budget rather than typed, and `tilesPerSheet` below is
- * the only place that arithmetic lives.
+ * a bitmap Chrome has to allocate: 8640x1920 is 66 megabytes of RGBA and works
+ * on the machine this was measured on, and asking for four times that gets a
+ * browser that either refuses or writes a truncated PNG with no error. So a
+ * sheet's width is computed from a pixel budget rather than typed, and
+ * `tilesPerSheet` below is the only place that arithmetic lives.
  *
  * A CAPTURE OF A VENTURE'S OWN SITE IS STILL A REQUEST TO SOMEBODY ELSE'S
  * SERVER, even when the somebody is the owner. It is made with the same flags
- * ventures/capture.ts uses — no sync, no crash reporting, no component
- * updates — and it is made once per page per run rather than once per shot.
+ * every other capture on this box uses — no sync, no crash reporting, no
+ * component updates — and it is made once per page per run rather than once
+ * per shot.
  */
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DATA_DIR } from "../../config.ts";
-import { findBrowser, type Browser } from "../ventures/capture.ts";
+import {
+  baseArgs,
+  findBrowser,
+  shoot,
+  withProfile,
+  type Browser,
+  type ShotResult,
+} from "../../tools/chrome.ts";
 
 export { findBrowser, type Browser };
 
@@ -56,126 +60,13 @@ export function tilesPerSheet(width: number, height: number, most = 8): number {
 
 /** How long any one browser run may take. A sheet is a local file with no
  *  network in it and settles in seconds; a page capture is somebody else's
- *  site and is given the same twenty-five seconds ventures/capture.ts allows. */
+ *  site and is given the same twenty-five seconds a venture capture allows. */
 const LOCAL_MS = 20_000;
 const REMOTE_MS = 25_000;
-const POLL_MS = 250;
 
-export type Shot = { ok: true; path: string; error: null } | { ok: false; path: null; error: string };
-
-/**
- * Run a browser until the PNG it was told to write stops growing, then kill it.
- *
- * The wait is on the OUTPUT and not on the process, for the reason
- * ventures/capture.ts documents at length: `--headless=new --screenshot` writes
- * a complete file and then sits there forever. A size that is the same across
- * two polls a quarter-second apart is a finished PNG, because a PNG is written
- * in one pass.
- */
-function shoot(bin: string, args: string[], out: string, budgetMs: number, signal?: AbortSignal): Promise<Shot> {
-  return new Promise((done) => {
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(bin, args, { windowsHide: true });
-    } catch (err) {
-      return done({ ok: false, path: null, error: `The browser could not be started — ${err instanceof Error ? err.message : String(err)}` });
-    }
-    const deadline = Date.now() + budgetMs;
-    let settled = false;
-    let err = "";
-    let lastSize = -1;
-
-    child.stderr?.on("data", (b: Buffer) => {
-      if (err.length < 8_192) err += b.toString("utf8");
-    });
-
-    const finish = (result: Shot) => {
-      if (settled) return;
-      settled = true;
-      clearInterval(timer);
-      signal?.removeEventListener("abort", onAbort);
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* already gone */
-      }
-      done(result);
-    };
-    const onAbort = () => finish({ ok: false, path: null, error: "the run was cancelled" });
-    signal?.addEventListener("abort", onAbort, { once: true });
-
-    const timer = setInterval(() => {
-      if (Date.now() > deadline)
-        return finish({
-          ok: false,
-          path: null,
-          error: `The browser produced nothing usable within ${Math.round(budgetMs / 1000)} seconds — ${lastLine(err) ?? "the page was too slow, or never loaded."}`,
-        });
-      let size = -1;
-      try {
-        size = existsSync(out) ? statSync(out).size : -1;
-      } catch {
-        size = -1;
-      }
-      if (size > 0 && size === lastSize) return finish({ ok: true, path: out, error: null });
-      lastSize = size;
-    }, POLL_MS);
-
-    child.on("close", (code) => {
-      if (existsSync(out) && (statSync(out).size ?? 0) > 0) return finish({ ok: true, path: out, error: null });
-      finish({ ok: false, path: null, error: lastLine(err) ?? `The browser exited with code ${code} and produced nothing.` });
-    });
-    child.on("error", (e) => finish({ ok: false, path: null, error: `The browser could not be started — ${e.message}` }));
-  });
-}
-
-/** The last line of Chrome's stderr that is not a GPU complaint on a machine
- *  that was told not to use one. Same filter as ventures/capture.ts. */
-function lastLine(stderr: string): string | null {
-  const lines = stderr
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .filter((l) => !/cv_display_link_mac|CVDisplayLinkCreate|GPU|gpu_|Fontconfig/i.test(l));
-  const last = lines[lines.length - 1];
-  if (!last) return null;
-  const i = last.lastIndexOf("] ");
-  return (i >= 0 ? last.slice(i + 2) : last).slice(0, 300);
-}
-
-function profile(): string {
-  const base = resolve(DATA_DIR, "chrome-profile");
-  mkdirSync(base, { recursive: true });
-  return mkdtempSync(resolve(base, "vplus-"));
-}
-
-const drop = (dir: string) => {
-  try {
-    rmSync(dir, { recursive: true, force: true });
-  } catch {
-    /* a profile that will not delete costs megabytes, not a render */
-  }
-};
-
-function baseArgs(dir: string, width: number, height: number, budgetMs: number): string[] {
-  const args = [
-    "--headless=new",
-    "--disable-gpu",
-    "--hide-scrollbars",
-    `--window-size=${width},${height}`,
-    "--force-device-scale-factor=1",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-extensions",
-    "--disable-background-networking",
-    "--disable-sync",
-    "--disable-crash-reporter",
-    `--timeout=${budgetMs}`,
-    `--user-data-dir=${dir}`,
-  ];
-  if (typeof process.getuid === "function" && process.getuid() === 0) args.push("--no-sandbox");
-  return args;
-}
+/** What both calls below answer with. The name is kept because the callers
+ *  read it; the shape is the shared launcher's. */
+export type Shot = ShotResult;
 
 /**
  * ONE SHEET OF THE OWN-WRITTEN HTML, SCREENSHOTTED.
@@ -200,18 +91,27 @@ export async function shootSheet(opts: {
   const out = resolve(opts.dir, `${opts.name}.png`);
   writeFileSync(page, opts.html, "utf8");
   rmSync(out, { force: true });
-  const dir = profile();
-  try {
-    return await shoot(
-      opts.browser,
-      [...baseArgs(dir, opts.width, opts.height, LOCAL_MS), "--virtual-time-budget=2000", `--screenshot=${out}`, `file://${page}`],
-      out,
-      LOCAL_MS,
-      opts.signal,
-    );
-  } finally {
-    drop(dir);
-  }
+  return withProfile(
+    (profile) =>
+      shoot({
+        bin: opts.browser,
+        args: [
+          ...baseArgs({
+            profile,
+            width: opts.width,
+            height: opts.height,
+            virtualTimeMs: 2_000,
+            timeoutMs: LOCAL_MS,
+          }),
+          `--screenshot=${out}`,
+          `file://${page}`,
+        ],
+        out,
+        budgetMs: LOCAL_MS,
+        signal: opts.signal,
+      }),
+    "vplus-",
+  );
 }
 
 /**
@@ -244,23 +144,22 @@ export async function shootPage(opts: {
   mkdirSync(opts.dir, { recursive: true });
   const out = resolve(opts.dir, `${opts.name}.png`);
   rmSync(out, { force: true });
-  const dir = profile();
-  try {
-    return await shoot(
-      opts.browser,
-      [
-        ...baseArgs(dir, opts.width, opts.height, REMOTE_MS),
-        /* Six seconds of virtual time, the same as a venture capture: enough
-           for a framework to mount and for an intro animation to land. */
-        "--virtual-time-budget=6000",
-        `--screenshot=${out}`,
-        opts.url,
-      ],
-      out,
-      REMOTE_MS,
-      opts.signal,
-    );
-  } finally {
-    drop(dir);
-  }
+  return withProfile(
+    (profile) =>
+      shoot({
+        bin: opts.browser,
+        args: [
+          /* The default virtual-time budget, which is a venture capture's:
+             enough for a framework to mount and for an intro animation to
+             land. */
+          ...baseArgs({ profile, width: opts.width, height: opts.height, timeoutMs: REMOTE_MS }),
+          `--screenshot=${out}`,
+          opts.url,
+        ],
+        out,
+        budgetMs: REMOTE_MS,
+        signal: opts.signal,
+      }),
+    "vplus-",
+  );
 }

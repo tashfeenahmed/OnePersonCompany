@@ -16,6 +16,7 @@
  *   timezone        "Half past nine" is a local wall clock, and the calendar
  *                   is drawn in it. Defaults to this machine's own zone, which
  *                   is what a laptop's owner means until they say otherwise.
+ *                   ONE ZONE FOR THE WHOLE BOX — see `ownerZone` below.
  *   maxAttempts     How many times a failed publish is retried before the item
  *                   is marked failed and left alone. Retrying forever against
  *                   a permission that will never be granted is a log nobody
@@ -28,11 +29,18 @@
  *                   without the owner having said so per venture is the one
  *                   failure this whole area is shaped to prevent.
  *
- * The zone maths is Intl's, borrowed from video/autopilot.ts's argument rather
- * than re-derived: nothing else on this box knows about daylight saving, and
- * an offset computed by hand is wrong twice a year.
+ * THE ZONE MATHS IS NOT HERE ANY MORE. `wall`, `validZone` and the machine-zone
+ * fallback were written out three times in three areas — this one, the video
+ * autopilot and the morning briefing — and they had already drifted. They live
+ * in `shared/time.ts` now and this file re-exports them, so the two callers in
+ * this area keep their one import and nothing outside has to learn a new path.
  */
 import { configValue } from "../../db.ts";
+import { resolveZone, systemZone, validZone, wall } from "../../shared/time.ts";
+
+/* Re-exported rather than re-implemented. `manifest.ts` and `scheduler.ts`
+   already import them from here. */
+export { systemZone as localZone, validZone, wall };
 
 export const PLUGIN = "publishing";
 
@@ -48,45 +56,38 @@ export const TICK_MS = 60_000;
  *  publish path here (LinkedIn's upload plus a thirty-second poll). */
 export const STUCK_MINUTES = 15;
 
-export const localZone = () =>
-  Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+/**
+ * THE OWNER'S ZONE. ONE SETTING, FOR EVERYTHING THIS BOX DOES ON A CLOCK.
+ *
+ * There used to be three, one per area — the publishing calendar's, the video
+ * autopilot's and the morning briefing's — and each of them fell back to the
+ * machine zone when it was the one the owner had not filled in. Set once, the
+ * result was a box that generated on the zone you typed, applied its blackout
+ * window on UTC, and delivered a briefing an hour off a third answer. Nobody
+ * ever intends to live in three time zones.
+ *
+ * `publishing.timezone` IS THE KEY THAT SURVIVED, because outbound timing is
+ * the thing a zone is most expensive to be wrong about and this is where
+ * outbound timing lives. The other two are read as FALLBACKS and nothing more:
+ * an existing box where the owner only ever filled in the autopilot's field
+ * keeps working and gets one consistent answer everywhere, and the settings
+ * page writes the canonical key from now on. Once the last legacy row is gone
+ * the two names below can go with it.
+ */
+export const ZONE_KEY = "timezone";
+const LEGACY_ZONE_SOURCES: [plugin: string, key: string][] = [
+  ["autopilot", "timezone"],
+  ["briefing", "timezone"],
+];
 
-export function validZone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-GB", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
+export function ownerZone(): string {
+  const own = (configValue(PLUGIN, ZONE_KEY) ?? "").trim();
+  if (validZone(own)) return own;
+  for (const [plugin, key] of LEGACY_ZONE_SOURCES) {
+    const legacy = (configValue(plugin, key) ?? "").trim();
+    if (validZone(legacy)) return legacy;
   }
-}
-
-/** The local wall clock in a named zone, as numbers plus the weekday. */
-export function wall(
-  tz: string,
-  at: Date = new Date(),
-): { day: string; weekday: number; hour: number; minute: number; minutes: number } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    weekday: "short",
-  }).formatToParts(at);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const hour = Number(get("hour")) % 24;
-  const minute = Number(get("minute"));
-  const names = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-  const weekday = names.indexOf(get("weekday").slice(0, 3).toLowerCase());
-  return {
-    day: `${get("year")}-${get("month")}-${get("day")}`,
-    weekday: weekday < 0 ? 0 : weekday,
-    hour,
-    minute,
-    minutes: hour * 60 + minute,
-  };
+  return resolveZone(null);
 }
 
 /* --------------------------------------------------------------- blackout */
@@ -244,13 +245,12 @@ export type PublishSettings = {
 };
 
 export function settings(): PublishSettings {
-  const tz = (configValue(PLUGIN, "timezone") ?? "").trim();
   const attemptsRaw = (configValue(PLUGIN, "maxAttempts") ?? "").trim();
   const attempts = Number(attemptsRaw);
   const blackoutRaw = configValue(PLUGIN, "blackout") ?? "";
   return {
     publicBaseUrl: normaliseBase(configValue(PLUGIN, "publicBaseUrl")),
-    timezone: tz && validZone(tz) ? tz : localZone(),
+    timezone: ownerZone(),
     maxAttempts:
       Number.isInteger(attempts) && attempts >= 1 && attempts <= 20
         ? attempts

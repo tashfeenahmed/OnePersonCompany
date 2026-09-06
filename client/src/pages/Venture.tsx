@@ -2,6 +2,7 @@ import { appPage } from "../../../shared/navigation";
 import { VentureProposals } from "@/areas/pipeline/VentureProposals";
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
+import { when } from "@/lib/format";
 import {
   ExternalLink,
   LayoutDashboard,
@@ -63,7 +64,8 @@ const FIXED_TABS = new Set(["overview", "connections", "site", "audit", "knowled
  * What the board says it was narrowed to.
  *
  * BOTH HALVES OR NEITHER. The host is a guess that usually lands — a Cloudflare
- * zone called `example-app-1.example.test` almost certainly is Example App 1's — and a link is
+ * zone whose name matches a venture's website almost certainly is that
+ * venture's — and a link is
  * the owner having said so. A card narrowed by seven links and a hostname is a
  * different claim from one narrowed by a hostname alone, so the sub-line says
  * which, and a venture with no website says that it is showing everything
@@ -711,7 +713,7 @@ function Overview({
                   to be compared with. */}
               <p className="text-muted-foreground text-[11.5px]">
                 {venture.brand.enrichedAt
-                  ? `Read ${new Date(venture.brand.enrichedAt).toLocaleString()}`
+                  ? `Read ${when(venture.brand.enrichedAt, { year: true })}`
                   : "Never read."}
                 {venture.brand.notes.length > 0 &&
                   ` · ${venture.brand.notes.length} ${venture.brand.notes.length === 1 ? "note" : "notes"} about what could not be measured`}

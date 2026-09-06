@@ -50,9 +50,11 @@
  * durable record of what was said is `chat_messages`, and this is only the
  * window in which it is still arriving.
  */
-import type { ChatMessageRow, ChatToolCall } from "../db.ts";
+import { CANCELLING, type RunStatusOrCancelling } from "../../../shared/runStatus.ts";
+import type { ChatMessageRow } from "../db.ts";
 import { appendChatMessage } from "../db.ts";
 import type { ChatStreamEvent, MessageBackendId } from "./backend.ts";
+import { consumeTurn, newTurn } from "./consume.ts";
 import { all as inflightSessions, subscribe } from "./inflight.ts";
 import { byteLength } from "../integrations/agentcore/bound.ts";
 import {
@@ -311,13 +313,9 @@ export function startChatRun(plan: ChatRunPlan): ChatRunRow {
   void (async () => {
     /* What has been said so far, and what was done while saying it. Read by
        the write below on every path, which is why they live out here. */
-    let text = "";
-    const tools = new Map<string, ChatToolCall>();
-    let model: string | null = null;
-    let usage: { prompt: number; completion: number } | null = null;
-    let ms = 0;
-    let queuedMs: number | null = null;
-    let finished = false;
+    /* MADE HERE AND FILLED IN PLACE, so a stream that throws half way through
+       still leaves the words it did produce for the partial row below. */
+    const turn = newTurn();
     let failure: string | null = null;
 
     /* A sub-agent dispatched from inside this answer shows in the rail the
@@ -327,84 +325,40 @@ export function startChatRun(plan: ChatRunPlan): ChatRunRow {
     const unsubscribe = subscribe(plan.sessionId, (child) => emit("child", child));
 
     try {
-      for await (const event of plan.open(run.ac.signal)) {
-        switch (event.type) {
-          case "delta":
-            text += event.text;
-            emit("delta", { text: event.text });
-            break;
-
-          case "reasoning":
-            emit("reasoning", { text: event.text });
-            break;
-
-          case "tool": {
-            /*
-              MERGED ON THE WAY THROUGH, not on the way out — the wire carries
-              two events per call and the table stores one record with two
-              timestamps. A `completed` for a call that was never announced
-              still creates a record, with `startedAt` equal to `finishedAt`: a
-              tool that finished is a thing that happened, and dropping it
-              because the first half of the pair went missing would lose a fact
-              to a wire glitch.
-            */
-            const existingCall = tools.get(event.toolCallId);
-            if (existingCall) {
-              if (event.status === "completed") existingCall.finishedAt = event.at;
-              if (!existingCall.label && event.label) existingCall.label = event.label;
-              if (!existingCall.emoji && event.emoji) existingCall.emoji = event.emoji;
-            } else {
-              tools.set(event.toolCallId, {
-                toolCallId: event.toolCallId,
-                tool: event.tool,
-                label: event.label,
-                emoji: event.emoji,
-                startedAt: event.at,
-                finishedAt: event.status === "completed" ? event.at : null,
-                /* Where in the answer this happened, so a reload draws the grey
-                   line where it was watched rather than at the end. */
-                offset: text.length,
-              });
-            }
-            emit("tool", {
-              toolCallId: event.toolCallId,
-              tool: event.tool,
-              label: event.label,
-              emoji: event.emoji,
-              status: event.status,
-              at: event.at,
-              offset: tools.get(event.toolCallId)!.offset,
-            });
-            break;
-          }
-
-          case "done": {
-            queuedMs = event.queuedMs ?? null;
-            /* `event.text` and not the accumulator: the adapter counted the
-               answer as it read it and may have applied a rule this loop cannot
-               see — Hermes falls back to the model's reasoning when the content
-               came back empty, which is a whole answer that arrived as no
-               deltas at all. */
-            text = event.text;
-            model = event.model;
-            usage = event.usage;
-            ms = event.ms;
-            finished = true;
-            /* FROM HERE A CANCEL IS TOO LATE, and saying so is the whole point
-               of the flag: the answer is complete and about to be stored, and
-               a stop button that reported "cancelled" for a turn that then
-               lands as `done` is the one thing that control must never do. */
-            run.settling = true;
-            break;
-          }
-        }
-      }
+      /* The loop itself is chat/consume.ts, which the run executor reads too.
+         Everything specific to a CHAT turn is in the four hooks below: the
+         frames the browser is watching, and the cancel door. */
+      await consumeTurn(plan.open(run.ac.signal), {
+        delta: (text) => emit("delta", { text }),
+        /* KEPT, and folded by the page. A live answer may show the model's
+           working; a stored report may not — see consume.ts. */
+        reasoning: (text) => emit("reasoning", { text }),
+        tool: (call, event) =>
+          emit("tool", {
+            toolCallId: event.toolCallId,
+            tool: event.tool,
+            label: event.label,
+            emoji: event.emoji,
+            status: event.status,
+            at: event.at,
+            offset: call.offset,
+          }),
+        /* FROM HERE A CANCEL IS TOO LATE, and saying so is the whole point of
+           the flag: the answer is complete and about to be stored, and a stop
+           button that reported "cancelled" for a turn that then lands as
+           `done` is the one thing that control must never do. */
+        done: () => {
+          run.settling = true;
+        },
+      }, turn);
     } catch (err) {
       failure = errorText(err);
       plan.onError?.(failure);
     } finally {
       unsubscribe();
     }
+
+    const { text, model, usage, ms, queuedMs, finished } = turn;
 
     /* AN OVERFLOW IS NOT A CANCEL. Both abort the same controller, and the
        owner did not press anything when the buffer filled — reporting it as a
@@ -436,7 +390,7 @@ export function startChatRun(plan: ChatRunPlan): ChatRunRow {
         no "error" message, because a transcript is what was SAID and an error is
         something the interface reports.
       */
-      const list = [...tools.values()];
+      const list = turn.tools;
       let assistant: ChatMessageRow | null = null;
       if (finished || text) {
         assistant = appendChatMessage({
@@ -616,8 +570,8 @@ export function runHandle(id: string): RunHandle | null {
 export function cancelChatRun(id: string): {
   ok: boolean;
   /** What the run IS, not what it will become. A successful cancel answers
-   *  `stopping`, because the run has been asked and has not yet landed. */
-  status: ChatRunStatus | "stopping";
+   *  `cancelling`, because the run has been asked and has not yet landed. */
+  status: RunStatusOrCancelling;
   error?: string;
   /** Told apart from "already over" so the route can answer 404 rather than
    *  409: a run that never existed is a mistake in the id, and a run that has
@@ -638,7 +592,7 @@ export function cancelChatRun(id: string): {
     written until the tail runs, so gating on it alone accepted a cancel for a
     turn whose generator had already yielded `done` — and then reported
     "cancelled" for a run that landed as `done`. The flag is set the moment the
-    answer is complete, which is the earliest point at which stopping is a lie.
+    answer is complete, which is the earliest point at which cancelling is a lie.
   */
   if (run.settling)
     return {
@@ -648,12 +602,18 @@ export function cancelChatRun(id: string): {
     };
   run.ac.abort();
   /*
-    `stopping`, NOT `cancelled`. Aborting is a request the run honours in its
+    `cancelling`, NOT `cancelled`. Aborting is a request the run honours in its
     own `finally` — it still has a partial row to write — and the authority on
     what happened is the terminal frame, not this reply. Reporting the outcome
     here would be reporting it before it happened.
+
+    THE WORD WAS `stopping` HERE AND `cancelling` ON THE RUN QUEUE, for one
+    state, declared by no type on either path. It is `cancelling` on both now:
+    the state it leads to is `cancelled`, and a vocabulary whose participle
+    does not match its past tense invites exactly that drift. See
+    shared/runStatus.ts.
   */
-  return { ok: true, status: "stopping" };
+  return { ok: true, status: CANCELLING };
 }
 
 /**

@@ -46,6 +46,7 @@
  * can do the weighting in the open rather than inheriting one made here.
  */
 import * as bing from "../../../providers/bing.ts";
+import { hostOf, sameSite } from "../../../shared/host.ts";
 
 /** What each source's word is worth. Multipliers on a factor's weight, not on
  *  its value: a figure from Common Crawl counts for what it says, it just
@@ -92,12 +93,16 @@ export const MAX_ROWS = 60;
 
 /* -------------------------------------------------------------- the hosts */
 
-/** Strip a leading `www.` and nothing else — workdash's rule, kept because
- *  every comparison downstream has to use the same one. */
-export function registrable(host: string | null | undefined): string {
-  const h = (host ?? "").toLowerCase().trim().replace(/\.$/, "");
-  return h.startsWith("www.") ? h.slice(4) : h;
-}
+/**
+ * A host, reduced to the spelling everything downstream compares on —
+ * `shared/host.ts`, which is now the only answer on this box.
+ *
+ * This area shipped TWO of the four copies, in sibling directories, and they
+ * disagreed: this one stripped `www.` and nothing else, its neighbour folded
+ * to a registrable domain off its own suffix list. So the two collectors in
+ * one area could disagree about whether a backlink was ours. Keeping them
+ * apart was never a decision, only a copy nobody noticed.
+ */
 
 /** The configured list, from one text field. Commas or newlines, because both
  *  are what a person pastes. A url is accepted and reduced to its host: the
@@ -110,29 +115,6 @@ export function parseHosts(raw: string | null | undefined): string[] {
   }
   return out;
 }
-
-/** One entry as a hostname, or "" when it is not one. */
-export function hostOf(value: string): string {
-  if (!value) return "";
-  let candidate = value;
-  if (/^https?:\/\//i.test(candidate)) {
-    try {
-      candidate = new URL(candidate).hostname;
-    } catch {
-      return "";
-    }
-  }
-  const host = registrable(candidate.split("/")[0]);
-  // A hostname, not a path, not a sentence: labels of letters, digits and
-  // hyphens with at least one dot. Checked here so that nothing that is not a
-  // host can ever reach a url this file builds.
-  return /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(host)
-    ? host
-    : "";
-}
-
-const sameHost = (candidate: string, host: string) =>
-  candidate === host || candidate.endsWith(`.${host}`);
 
 /* -------------------------------------------------------------- transport */
 
@@ -310,7 +292,7 @@ export async function bingSiteFor(key: string, host: string): Promise<string | n
   for (const site of sites) {
     let siteHost = "";
     try {
-      siteHost = registrable(new URL(site.url).hostname);
+      siteHost = hostOf(new URL(site.url).hostname) ?? "";
     } catch {
       continue;
     }
@@ -424,7 +406,9 @@ export function anchorsTo(html: string, target: string, base: string): Anchor[] 
     } catch {
       continue;
     }
-    if (!sameHost(registrable(full.hostname), target)) continue;
+    /* ONE-DIRECTIONAL, from `shared/host.ts`: a link to a subdomain of the
+       target is the target's, a link to its parent is not. */
+    if (!sameSite(target, full.hostname)) continue;
     const rel = (attrs.rel ?? "").toLowerCase().split(/\s+/).filter(Boolean);
     const text = m[2]!
       .replace(/<[^>]*>/g, " ")

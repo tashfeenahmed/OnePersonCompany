@@ -183,7 +183,7 @@ function readStage(v: unknown): { stage: VentureStage } | { error: string } {
 /**
  * A website, normalised, or the sentence saying why it is not one.
  *
- * A bare `support.example.test` is accepted because it is what a person types; the
+ * A bare `example.com` is accepted because it is what a person types; the
  * normalisation is `ventures/enrich.ts`'s, so the address stored here and the
  * address fetched are the same string by construction rather than by two
  * functions agreeing.
@@ -200,7 +200,7 @@ function readWebsite(
   const norm = normaliseWebsite(v);
   if (!norm)
     return {
-      error: `“${v.trim()}” is not a web address. It wants a hostname — support.example.test, or https://support.example.test.`,
+      error: `“${v.trim()}” is not a web address. It wants a hostname — example.com, or https://example.com.`,
     };
   return norm;
 }
@@ -218,7 +218,7 @@ function readColor(v: unknown): { color: string } | { error: string } {
  *
  * IT IS SET ONCE AND A RENAME DOES NOT MOVE IT, which is the same decision
  * `board_columns` makes with `key` beside `title` and for the same reason: a
- * link somebody kept to /ventures/example-support must not break the day the
+ * link somebody kept to /ventures/<slug> must not break the day the
  * business is renamed. The rule is duplicated from `client/src/lib/store.tsx`
  * — the two halves of this app share no module — and the fallback differs on
  * purpose: the client's is "board", this one's is "venture".

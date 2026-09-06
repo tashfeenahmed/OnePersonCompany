@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { AlertTriangle, Check, Loader2, RefreshCw, Send } from "lucide-react";
+import { Check, Loader2, RefreshCw, Send } from "lucide-react";
+import { SubTabs } from "@/components/TabStrip";
 import { PageShell } from "@/components/PageShell";
+import { RankedBars, type RankedRow } from "@/components/RankedBars";
 import { Button } from "@/components/ui/button";
+import { Failed, Loading, Num, SectionCard } from "@/components/ui/state";
+import { WindowPicker } from "@/components/WindowPicker";
 import { useApi } from "@/hooks/useApi";
+import { pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   mobileHealthApi,
@@ -79,35 +84,20 @@ export function MobileHealth() {
       sub="What the apps do, beside what they earn: which segments install and stay, which release crashes, what the reviews say, and where each version is. Nothing here is added across the two stores — Google counts devices, Apple counts privacy-thresholded events."
       action={<CollectButton />}
     >
-      <div className="border-line-soft mb-5 flex items-center gap-1 border-b pb-2">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => set({ tab: t.key })}
-            className={cn(
-              "rounded-[8px] px-2.5 py-1 text-[12.5px] transition-colors",
-              tab === t.key ? "bg-card border" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-        <label className="text-muted-foreground ml-auto flex items-center gap-1.5 text-[11.5px]">
-          window
-          <select
-            aria-label="Window in days"
-            value={days}
-            onChange={(e) => set({ days: Number(e.target.value) })}
-            className="border-line-soft bg-card rounded border px-1.5 py-1 text-[11.5px]"
-          >
-            {[7, 14, 30, 60].map((d) => (
-              <option key={d} value={d}>
-                {d} days
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="border-line-soft mb-5 flex flex-wrap items-center gap-1 border-b pb-2">
+        <SubTabs
+          tabs={TABS}
+          activeKey={tab}
+          onSelect={(k) => set({ tab: k as TabKey })}
+          className="mb-0"
+        />
+        <WindowPicker
+          value={days}
+          onChange={(d) => set({ days: Number(d) })}
+          options={[7, 14, 30, 60]}
+          label="Window in days"
+          className="ml-auto"
+        />
       </div>
 
       {tab === "health" && <HealthTab days={days} />}
@@ -120,47 +110,6 @@ export function MobileHealth() {
 
 /* ------------------------------------------------------------ small parts */
 
-function Loading({ what }: { what: string }) {
-  return (
-    <p className="text-muted-foreground flex items-center gap-2 text-[13px]">
-      <Loader2 className="size-3.5 animate-spin" strokeWidth={1.6} /> reading {what}…
-    </p>
-  );
-}
-
-function Failed({ error }: { error: string }) {
-  return (
-    <p className="text-destructive flex items-start gap-2 text-[13px]">
-      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.6} /> {error}
-    </p>
-  );
-}
-
-function Card({ title, meta, children }: { title: string; meta?: string; children: React.ReactNode }) {
-  return (
-    <section className="border-line-soft bg-card mb-4 rounded-xl border p-4">
-      <div className="mb-3 flex items-baseline gap-2">
-        <h2 className="text-[14px] font-medium">{title}</h2>
-        {meta && <span className="text-muted-foreground text-[11.5px]">{meta}</span>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/** Every figure that could be absent goes through here, so a null is a dash
- *  everywhere on the page rather than a zero in the one place somebody forgot. */
-function Num({ value, suffix, digits = 0 }: { value: number | null | undefined; suffix?: string; digits?: number }) {
-  if (value === null || value === undefined)
-    return <span className="text-muted-foreground">—</span>;
-  return (
-    <span>
-      {value.toLocaleString(undefined, { maximumFractionDigits: digits })}
-      {suffix ? <span className="text-muted-foreground text-[11px]">{suffix}</span> : null}
-    </span>
-  );
-}
-
 function Rules({ rules }: { rules: string[] }) {
   return (
     <ul className="text-muted-foreground mt-4 space-y-1 text-[11.5px]">
@@ -171,35 +120,25 @@ function Rules({ rules }: { rules: string[] }) {
   );
 }
 
-/** A slice bar. The remainder is drawn beside the slices rather than left off,
- *  so a top-ten list never implies ten slices are everything. */
-function Bars({ rows, total }: { rows: { label: string; amount: number; sub?: string }[]; total: number }) {
-  const max = Math.max(1, ...rows.map((r) => Math.abs(r.amount)));
+/**
+ * A slice bar over the shared ranked list.
+ *
+ * THE REMAINDER IS A ROW THE SERVER COMPUTED, not `total` minus what is drawn.
+ * `other` is null for a LEVEL metric, where slices are states on a day and
+ * subtracting them from the total would invent a figure; so the caller passes
+ * the row it was given and this never derives one.
+ *
+ * Amounts keep two decimal places because a Play export's "amount" is not
+ * always a count — some series are averages — and rounding one to an integer
+ * here would be this file deciding what the store measured.
+ */
+function Bars({ rows, total }: { rows: RankedRow[]; total: number }) {
   return (
-    <div className="space-y-1">
-      {rows.map((r) => (
-        <div key={r.label} className="flex items-center gap-2 text-[12.5px]">
-          <span className="w-[150px] shrink-0 truncate" title={r.label}>
-            {r.label}
-          </span>
-          <span className="bg-accent relative h-3 flex-1 overflow-hidden rounded-sm">
-            <span
-              className="bg-ok absolute inset-y-0 left-0 rounded-sm"
-              style={{ width: `${Math.max(2, (Math.abs(r.amount) / max) * 100)}%` }}
-            />
-          </span>
-          <span className="w-[92px] shrink-0 text-right tabular-nums">
-            {r.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            {total ? (
-              <span className="text-muted-foreground text-[11px]">
-                {" "}
-                {((r.amount / total) * 100).toFixed(1)}%
-              </span>
-            ) : null}
-          </span>
-        </div>
-      ))}
-    </div>
+    <RankedBars
+      rows={rows}
+      total={total}
+      format={(n) => n.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+    />
   );
 }
 
@@ -253,7 +192,7 @@ function HealthTab({ days }: { days: number }) {
       {stability.error && <Failed error={stability.error} />}
       {stability.data && (
         <>
-          <Card
+          <SectionCard
             title="Crash rates"
             meta={`weighted by the distinct users each day had · the vitals window ends at the metric set's own freshness, not today`}
           >
@@ -278,11 +217,7 @@ function HealthTab({ days }: { days: number }) {
                       <td className="py-1.5">{r.app}</td>
                       <td className="py-1.5">{r.metric}</td>
                       <td className="py-1.5 text-right tabular-nums">
-                        {r.window === null ? (
-                          <span className="text-muted-foreground">—</span>
-                        ) : (
-                          `${(r.window * 100).toFixed(3)}% of users`
-                        )}
+                        {r.window === null ? "—" : `${pct(r.window, { digits: 3 })} of users`}
                       </td>
                       <td className="text-muted-foreground py-1.5 text-right tabular-nums">
                         {r.days.length}
@@ -292,9 +227,9 @@ function HealthTab({ days }: { days: number }) {
                 </tbody>
               </table>
             )}
-          </Card>
+          </SectionCard>
 
-          <Card
+          <SectionCard
             title="Crash and ANR counts"
             meta="from the console's own export — counts with no denominator, never a rate"
           >
@@ -316,7 +251,7 @@ function HealthTab({ days }: { days: number }) {
                       <Bars
                         rows={s.byVersion.slice(0, 8).map((v) => ({
                           label: `version ${v.version}`,
-                          amount: v.amount,
+                          value: v.amount,
                         }))}
                         total={s.total}
                       />
@@ -326,12 +261,12 @@ function HealthTab({ days }: { days: number }) {
               </div>
             )}
             <Rules rules={stability.data.rules} />
-          </Card>
+          </SectionCard>
         </>
       )}
 
       {readiness.data && (
-        <Card
+        <SectionCard
           title="What was asked for, and what each store said"
           meta="a report that is absent, processing or refused produces a null above — never a zero"
         >
@@ -388,7 +323,7 @@ function HealthTab({ days }: { days: number }) {
             </table>
           </div>
           <p className="text-muted-foreground mt-3 text-[11.5px]">{readiness.data.note}</p>
-        </Card>
+        </SectionCard>
       )}
     </>
   );
@@ -417,7 +352,7 @@ function ReviewsTab({ days }: { days: number }) {
       {reviews.error && <Failed error={reviews.error} />}
       {reviews.data && (
         <>
-          <Card
+          <SectionCard
             title="Stars"
             meta={`${reviews.data.inWindow} review(s) in the window · average ${
               reviews.data.average === null ? "not rated" : reviews.data.average
@@ -426,7 +361,7 @@ function ReviewsTab({ days }: { days: number }) {
             <Bars
               rows={[5, 4, 3, 2, 1].map((s) => ({
                 label: `${s} star`,
-                amount: reviews.data!.stars[String(s)] ?? 0,
+                value: reviews.data!.stars[String(s)] ?? 0,
               }))}
               total={Object.values(reviews.data.stars).reduce((n, v) => n + v, 0)}
             />
@@ -462,9 +397,9 @@ function ReviewsTab({ days }: { days: number }) {
             )}
             <p className="text-muted-foreground mt-4 text-[11.5px]">{reviews.data.basis.play}</p>
             <p className="text-muted-foreground mt-1 text-[11.5px]">{reviews.data.basis.appstore}</p>
-          </Card>
+          </SectionCard>
 
-          <Card
+          <SectionCard
             title="What they are about"
             meta={
               trend.data
@@ -499,9 +434,9 @@ function ReviewsTab({ days }: { days: number }) {
               A model's reading, not a measurement. Every theme cites the reviews it came from and
               an id the model invented is dropped before it is shown.
             </p>
-          </Card>
+          </SectionCard>
 
-          <Card title="The reviews" meta="replying happens in the store's own console — this box cannot">
+          <SectionCard title="The reviews" meta="replying happens in the store's own console — this box cannot">
             <div className="mb-3 flex flex-wrap items-center gap-1">
               {[undefined, 1, 2, 3, 4, 5].map((s) => (
                 <button
@@ -589,7 +524,7 @@ function ReviewsTab({ days }: { days: number }) {
               </ul>
             )}
             <Rules rules={reviews.data.rules} />
-          </Card>
+          </SectionCard>
         </>
       )}
     </>
@@ -614,7 +549,7 @@ function AcquisitionTab({ days }: { days: number }) {
   return (
     <>
       {conversion.data && (
-        <Card
+        <SectionCard
           title="Listing conversion"
           meta={`${conversion.data.source}${
             conversion.data.totalsFrom ? ` · totals from the ${conversion.data.totalsFrom} cut` : ""
@@ -644,11 +579,7 @@ function AcquisitionTab({ days }: { days: number }) {
                         <Num value={a.acquisitions} />
                       </td>
                       <td className="py-1.5 text-right tabular-nums">
-                        {a.rate === null ? (
-                          <span className="text-muted-foreground">—</span>
-                        ) : (
-                          `${(a.rate * 100).toFixed(1)}%`
-                        )}
+                        {pct(a.rate)}
                       </td>
                     </tr>
                   ))}
@@ -661,8 +592,8 @@ function AcquisitionTab({ days }: { days: number }) {
                   </p>
                   <Bars
                     rows={rows.slice(0, 8).map((r) => ({
-                      label: `${r.value} · ${r.rate === null ? "—" : `${(r.rate * 100).toFixed(0)}%`}`,
-                      amount: r.visitors ?? 0,
+                      label: `${r.value} · ${pct(r.rate, { digits: 0 })}`,
+                      value: r.visitors ?? 0,
                     }))}
                     total={rows.reduce((n, r) => n + (r.visitors ?? 0), 0)}
                   />
@@ -671,10 +602,10 @@ function AcquisitionTab({ days }: { days: number }) {
             </>
           )}
           <Rules rules={conversion.data.rules} />
-        </Card>
+        </SectionCard>
       )}
 
-      <Card title="Segments" meta={`ranked over ${days} days, with the remainder named`}>
+      <SectionCard title="Segments" meta={`ranked over ${days} days, with the remainder named`}>
         <div className="mb-3 flex flex-wrap gap-1">
           {dimensions.map((d) => (
             <button
@@ -715,8 +646,8 @@ function AcquisitionTab({ days }: { days: number }) {
                 </p>
                 <Bars
                   rows={[
-                    ...g.top.map((s) => ({ label: s.value, amount: s.amount })),
-                    ...(g.other ? [{ label: "(other slices)", amount: g.other }] : []),
+                    ...g.top.map((s) => ({ label: s.value, value: s.amount })),
+                    ...(g.other ? [{ label: "(other slices)", value: g.other }] : []),
                   ]}
                   total={g.total}
                 />
@@ -724,10 +655,10 @@ function AcquisitionTab({ days }: { days: number }) {
             ))}
         </div>
         {segments.data && <Rules rules={segments.data.rules} />}
-      </Card>
+      </SectionCard>
 
       {retention.data && (
-        <Card title="Retention" meta={retention.data.source}>
+        <SectionCard title="Retention" meta={retention.data.source}>
           {!retention.data.measured ? (
             <p className="text-muted-foreground text-[12.5px]">{retention.data.reason}</p>
           ) : (
@@ -736,15 +667,15 @@ function AcquisitionTab({ days }: { days: number }) {
                 <p className="mb-1 text-[12.5px] font-medium">{a.app}</p>
                 <Bars
                   rows={a.curve.map((p) => ({
-                    label: `day ${p.day} · ${p.rate === null ? "—" : `${(p.rate * 100).toFixed(0)}%`}`,
-                    amount: p.retained,
+                    label: `day ${p.day} · ${pct(p.rate, { digits: 0 })}`,
+                    value: p.retained,
                   }))}
                   total={a.curve[0]?.installers ?? 0}
                 />
               </div>
             ))
           )}
-        </Card>
+        </SectionCard>
       )}
     </>
   );
@@ -760,7 +691,7 @@ function VersionsTab({ days }: { days: number }) {
       {versions.loading && <Loading what="version history" />}
       {versions.error && <Failed error={versions.error} />}
       {versions.data && (
-        <Card
+        <SectionCard
           title="Version states"
           meta="observed once per collection — Apple publishes no change dates, so a gap is a day nobody looked"
         >
@@ -816,7 +747,7 @@ function VersionsTab({ days }: { days: number }) {
             ))
           )}
           <Rules rules={versions.data.rules} />
-        </Card>
+        </SectionCard>
       )}
     </>
   );

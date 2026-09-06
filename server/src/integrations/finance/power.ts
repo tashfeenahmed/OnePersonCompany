@@ -353,6 +353,28 @@ export function powerLines(month: string, nowIso = now()): PowerLine[] {
 }
 
 /**
+ * THE MONTH THE LEDGER'S ELECTRICITY ROWS ARE PRICED FOR: the previous
+ * calendar month, in UTC.
+ *
+ * ONE PRODUCER, ONE MONTH BASIS. `seedPower` writes a ledger row for the last
+ * COMPLETE month — a ledger row is a run rate and the best available run rate
+ * is the last month that finished. The portfolio P&L used to recompute power
+ * live for the month it was ASKED about and publish that beside the seeded
+ * figure, with nothing saying the seeded one was already inside
+ * `ledger.monthly`. So the same euros appeared twice, on two different month
+ * bases, disagreeing by construction whenever the current month differed from
+ * the last — and any card adding "ledger + power" double-counted while venture
+ * margins were charged the other one.
+ *
+ * Both callers ask this function now, so the detail the P&L publishes and the
+ * row the margins are charged describe the same month by construction.
+ */
+export function ledgerMonth(nowIso = now()): string {
+  const d = new Date(nowIso);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+}
+
+/**
  * The machines a profile could be written for: every workstation account,
  * whether or not it has one yet. The client draws the "add a profile" row off
  * this, so the owner never has to know an account id.
@@ -401,9 +423,7 @@ export function seedPower(nowIso = now()): SeedCounts {
   const t = tally();
   const list = profiles();
   const keep = new Set<string>();
-  /* The previous calendar month, in UTC — the same clock every sample uses. */
-  const d = new Date(nowIso);
-  const prev = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  const prev = ledgerMonth(nowIso);
 
   for (const p of list) {
     const ref = `machine:${p.machine_id}`;

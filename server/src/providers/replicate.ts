@@ -3,10 +3,9 @@
  *
  * THIS IS THE INTEGRATION THAT CANNOT ANSWER "WHAT DID IT COST", AND SAYS SO.
  *
- * There is no WorkDash collector for Replicate — the token over there belongs
- * to `agent/studio.js` and is used to GENERATE things, not to account for
- * them — so what Replicate's API exposes about an account's money was worked
- * out here by asking it. What follows was probed against the live account on
+ * A Replicate token is normally something you GENERATE with, not something you
+ * account with, so what its API exposes about an account's money had to be
+ * worked out by asking. What follows was probed against a live account on
  * 2026-09-04 and is written down so nobody has to find it twice:
  *
  *   GET /v1/account          200 — the username and account type. No money.
@@ -26,10 +25,10 @@
  *     model ran, whether it succeeded, when, and — in `metrics` — how long the
  *     prediction took. Nothing joins that to a rate, because `/v1/hardware`
  *     publishes no rates and the record does not say which hardware it ran on.
- *  2. For a large part of this account's traffic the SECOND IS NOT THE BILLING
- *     UNIT. `openai/gpt-image-2` and `bytedance/seedance-2.5` are priced per
- *     output — per image, per second of video — not per second of compute, so
- *     even a complete price list for hardware would not price them.
+ *  2. For a large part of the traffic this box makes, THE SECOND IS NOT THE
+ *     BILLING UNIT. The image and video models it calls are priced per output
+ *     — per image, per second of video — not per second of compute, so even a
+ *     complete price list for hardware would not price them.
  *
  * A cost card here would therefore be a number this codebase invented. It is
  * not built. What IS built is everything Replicate does report, said in its
@@ -68,9 +67,9 @@ export const WINDOW_DAYS = 30;
  *
  * A prediction that was still running when it was last seen has no
  * `predict_time` and a status of `processing`; six hours of overlap is enough
- * to catch it finishing without re-reading the month. Video jobs on this
- * account run for four and a half minutes, so this is generous by two orders
- * of magnitude and costs one extra page at most.
+ * to catch it finishing without re-reading the month. An image-to-video job
+ * measured at four and a half minutes, so this is generous by two orders of
+ * magnitude and costs one extra page at most.
  */
 const OVERLAP_HOURS = 6;
 

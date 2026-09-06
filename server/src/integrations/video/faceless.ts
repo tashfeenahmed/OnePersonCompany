@@ -41,7 +41,7 @@ import { configValue, type VentureRow } from "../../db.ts";
 import { readBrand } from "../../ventures/enrich.ts";
 import { settings as voiceSettings, speak } from "../signals/voice/provider.ts";
 import type { Step } from "../runs/store.ts";
-import { ASPECTS, blurFilter, concat, segment, still, type Fit } from "./assemble.ts";
+import { aspectFrame, blurFilter, concat, segment, still, type Fit } from "./assemble.ts";
 import { pickCaptioner, stripPath, type CaptionStyle } from "./captions.ts";
 import { fetchClip, pexelsKey, type Asset } from "./footage.ts";
 import { END_CARD_SECONDS, writeScript, type Beat, type Script } from "./script.ts";
@@ -95,7 +95,7 @@ export async function facelessVideo(opts: {
   signal?: AbortSignal;
 }): Promise<void> {
   const { session: s, venture: v, input, signal } = opts;
-  const frame = ASPECTS[input.aspect] ?? ASPECTS["9:16"]!;
+  const frame = aspectFrame(input.aspect);
   const dir = runDir(opts.runId);
   mkdirSync(dir, { recursive: true });
 

@@ -45,6 +45,7 @@ import {
   umamiWindows,
   type UmamiWindowRow,
 } from "./store.ts";
+import { dimensionsOf } from "../webanalytics/store.ts";
 import { TOP_LIMIT, WINDOW_DAYS } from "./umami.ts";
 
 export const umamiRoutes = new Hono();
@@ -136,11 +137,38 @@ umamiRoutes.get("/", (c) => {
     topBy.set(k, held);
   }
 
+  /**
+   * REFERRERS COME FROM THE DEEP TABLE WHERE THERE IS ONE.
+   *
+   * The same endpoint, the same span and the same population were being read
+   * twice: a top-20 ranking on one collector's clock and a 500-row
+   * distribution on another's. The shares and the "top referrer" disagreed
+   * between two pages with nothing on either saying which read was older. The
+   * distribution is the deeper of the two and is the one published; the
+   * ranking is the fallback for a website the deep collector's rotation has
+   * not reached yet, which is a real state and not an empty list.
+   *
+   * The `umami_top` referrer rows are now redundant and its collector should
+   * stop writing them. They are LEFT IN PLACE rather than dropped: they are
+   * the only referrer history a box has until the deep collector has been
+   * round every site.
+   */
+  const referrersOf = (websiteId: string, fallback: { name: string; count: number }[]) => {
+    const rows = dimensionsOf(websiteId, WINDOW_DAYS, 0).filter((r) => r.dimension === "referrer");
+    if (!rows.length) return { rows: fallback, source: "umami_top", depth: TOP_LIMIT };
+    return {
+      rows: rows.map((r) => ({ name: r.value, count: r.count })),
+      source: "web_dimensions",
+      depth: rows.length,
+    };
+  };
+
   const websites = sites.map((s) => {
     const k = key(s.account_id, s.website_id);
     const w = windowBy.get(k);
     const window = shapeWindow(w);
     const previous = shapePrevious(w);
+    const referrers = referrersOf(s.website_id, topBy.get(`${k}:referrer`) ?? []);
     return {
       accountId: s.account_id,
       account: labels.get(s.account_id) ?? `#${s.account_id}`,
@@ -163,7 +191,12 @@ umamiRoutes.get("/", (c) => {
       days: daysBy.get(k) ?? [],
       top: {
         pages: topBy.get(`${k}:url`) ?? [],
-        referrers: topBy.get(`${k}:referrer`) ?? [],
+        referrers: referrers.rows,
+        /** Which table the referrer ranking came from, and how deep it goes.
+         *  A reader comparing two pages can tell whether they read the same
+         *  list. */
+        referrersFrom: referrers.source,
+        referrersDepth: referrers.depth,
         events: topBy.get(`${k}:event`) ?? [],
       },
     };
@@ -262,9 +295,13 @@ umamiRoutes.get("/", (c) => {
         "A bounce is Umami's own definition: a visit with a single pageview. " +
         "It is not comparable to GA4, which reports engaged sessions instead.",
       top:
-        `Top pages, referrers and events are the top ${TOP_LIMIT} of a list ` +
-        "Umami truncated. They are a RANKING and never a total — they sum to " +
-        "less than the window's pageviews by an amount nothing here can measure.",
+        `Top pages and events are the top ${TOP_LIMIT} of a list the instance ` +
+        "truncated. They are a RANKING and never a total — they sum to " +
+        "less than the window's pageviews by an amount nothing here can measure. " +
+        "Referrers come from the deep distribution where one has been collected " +
+        "for the site — `top.referrersFrom` says which table answered and " +
+        "`top.referrersDepth` how many rows it holds — and referrer rows count " +
+        "VIEWS, which is not the population the visitor figures count.",
       avgVisit: "Average visit is seconds, computed as totaltime ÷ visits at read time.",
     },
   });
@@ -274,8 +311,8 @@ umamiRoutes.get("/", (c) => {
  * The entities a venture can be linked to: one per website.
  *
  * `host` is the domain Umami has for the site, which is exactly the string a
- * venture's own `host` would match — so a venture at example-app-1.example.test can be
- * auto-linked to its Umami website without anybody typing an id.
+ * venture's own `host` would match — so a venture at example.com can be
+ * auto-linked to its analytics website without anybody typing an id.
  */
 umamiRoutes.get("/entities", (c) => {
   const labels = new Map(accountRows("umami").map((a) => [a.id, a.label]));

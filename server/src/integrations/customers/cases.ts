@@ -35,7 +35,8 @@
  */
 import type { StripeSubscriptionRecord } from "../../db.ts";
 import type { OpenInvoiceRow } from "../../providers/stripe.ts";
-import { OPEN_DISPUTE_STATUSES } from "../../providers/stripe.ts";
+import { OPEN_DISPUTE_STATUSES, money } from "../../providers/stripe.ts";
+import { currencyCode } from "../../shared/money.ts";
 import type { CaseKind, CaseRecord, CaseWrite, DisputeRecord } from "./store.ts";
 import { caseId } from "./store.ts";
 import { soleVenture, ventureOfProduct, ventureOfSubscription, type VentureMap } from "./venture.ts";
@@ -176,7 +177,7 @@ export function deriveCases(input: DeriveInput): DeriveResult {
           note:
             s.paid_cents === null
               ? "Whether this subscription ever collected a payment has not been checked yet."
-              : `Collected ${(s.paid_cents / 100).toFixed(2)} ${s.currency.toUpperCase()} over its life.`,
+              : `Collected ${money(s.paid_cents).toFixed(2)} ${currencyCode(s.currency)} over its life.`,
         },
       });
     }

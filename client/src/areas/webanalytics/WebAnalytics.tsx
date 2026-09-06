@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { SubTabs } from "@/components/TabStrip";
 import { PageShell } from "@/components/PageShell";
+import { RankedBars } from "@/components/RankedBars";
+import { Failed, Loading, Num, SectionCard } from "@/components/ui/state";
+import { WindowPicker } from "@/components/WindowPicker";
 import { useApi } from "@/hooks/useApi";
+import { count, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { webAnalytics, type AdRow, type Finding, type SegmentBlock } from "./api";
 
@@ -67,21 +71,7 @@ export function WebAnalytics() {
       wide
       sub="Underneath the headline: which audience changed, what visitors actually did, which campaigns sent them, and which advertisements are wearing out. Nothing here replaces a figure on the Umami page — every raw number is still exactly what Umami counted."
     >
-      <div className="border-line-soft mb-5 flex flex-wrap items-center gap-1 border-b pb-2">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => set({ tab: t.key })}
-            className={cn(
-              "rounded-[8px] px-2.5 py-1 text-[12.5px] transition-colors",
-              tab === t.key ? "bg-card border" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <SubTabs tabs={TABS} activeKey={tab} onSelect={(k) => set({ tab: k as TabKey })} rule />
 
       {tab === "segments" && (
         <SegmentsTab
@@ -101,46 +91,6 @@ export function WebAnalytics() {
 }
 
 /* ------------------------------------------------------------ small parts */
-
-function Loading({ what }: { what: string }) {
-  return (
-    <p className="text-muted-foreground flex items-center gap-2 text-[13px]">
-      <Loader2 className="size-3.5 animate-spin" strokeWidth={1.6} /> reading {what}…
-    </p>
-  );
-}
-
-function Failed({ error }: { error: string }) {
-  return (
-    <p className="text-destructive flex items-start gap-2 text-[13px]">
-      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.6} /> {error}
-    </p>
-  );
-}
-
-function Card({ title, meta, children }: { title: string; meta?: string; children: React.ReactNode }) {
-  return (
-    <section className="border-line-soft bg-card mb-4 rounded-xl border p-4">
-      <div className="mb-3 flex flex-wrap items-baseline gap-2">
-        <h2 className="text-[14px] font-medium">{title}</h2>
-        {meta && <span className="text-muted-foreground text-[11.5px]">{meta}</span>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/** Every figure that could be absent goes through here, so a null is a dash
- *  everywhere rather than a zero in the one place somebody forgot. */
-function Num({ value, suffix, digits = 0 }: { value: number | null | undefined; suffix?: string; digits?: number }) {
-  if (value === null || value === undefined) return <span className="text-muted-foreground">—</span>;
-  return (
-    <span className="tabular-nums">
-      {value.toLocaleString(undefined, { maximumFractionDigits: digits })}
-      {suffix ? <span className="text-muted-foreground text-[11px]">{suffix}</span> : null}
-    </span>
-  );
-}
 
 function Rules({ rules }: { rules: string[] }) {
   return (
@@ -228,18 +178,19 @@ function SegmentsTab({
         onSite={onSite}
         right={
           <>
-            <label className="text-muted-foreground ml-auto flex items-center gap-1.5 text-[11.5px]">
-              window
-              <select
-                aria-label="Window in days"
-                value={days}
-                onChange={(e) => onDays(Number(e.target.value) === 7 ? 7 : 30)}
-                className="border-line-soft bg-card rounded border px-1.5 py-1 text-[11.5px]"
-              >
-                <option value={30}>30 days</option>
-                <option value={7}>7 days, vs the 7 before</option>
-              </select>
-            </label>
+            <WindowPicker
+              value={days}
+              onChange={(d) => onDays(d === 7 ? 7 : 30)}
+              options={[7, 30]}
+              label="Window in days"
+              className="ml-auto"
+            />
+            {/* WHICH WINDOW HAS A COMPARISON is a fact about the data, not a
+                label on the control: the 7-day cut is drawn against the 7 days
+                before it and the 30-day cut has nothing to compare with. */}
+            <span className="text-muted-foreground text-[11.5px]">
+              the 7-day window is drawn against the 7 days before it
+            </span>
             <label className="flex items-center gap-1.5 text-[11.5px]">
               <input type="checkbox" checked={bots} onChange={(e) => onBots(e.target.checked)} />
               bot diagnostics
@@ -260,7 +211,7 @@ function SegmentsBody({ site, days, bots }: { site: string; days: 7 | 30; bots: 
 
   return (
     <>
-      <Card
+      <SectionCard
         title="Raw, and what a heuristic would take off"
         meta={data.raw.startDay ? `${data.raw.startDay} → ${data.raw.endDay}` : "no window collected"}
       >
@@ -278,10 +229,10 @@ function SegmentsBody({ site, days, bots }: { site: string; days: 7 | 30; bots: 
         </div>
         <p className="text-muted-foreground mt-3 text-[11.5px]">{data.adjusted.visitors.basis}</p>
         <p className="text-muted-foreground mt-1 text-[11.5px]">{data.adjusted.note}</p>
-      </Card>
+      </SectionCard>
 
       {bots && (
-        <Card
+        <SectionCard
           title="Bot diagnostics"
           meta={`${data.findings.length} finding(s) from ${data.heuristics.length} heuristics`}
         >
@@ -319,7 +270,7 @@ function SegmentsBody({ site, days, bots }: { site: string; days: 7 | 30; bots: 
               ))}
             </div>
           </details>
-        </Card>
+        </SectionCard>
       )}
 
       <Notes notes={data.notes} />
@@ -365,7 +316,7 @@ function FindingRow({ finding }: { finding: Finding }) {
       <p className="text-muted-foreground text-[11.5px]">
         {finding.excluded === null
           ? "excludes nothing by design"
-          : `${finding.excluded.toLocaleString()} ${finding.population} over ${finding.windowDays} days`}
+          : `${count(finding.excluded)} ${finding.population} over ${finding.windowDays} days`}
         {finding.firstSeen ? ` · first seen ${finding.firstSeen.slice(0, 10)}` : ""}
       </p>
       <ul className="text-muted-foreground mt-1 space-y-0.5 text-[11.5px]">
@@ -379,62 +330,39 @@ function FindingRow({ finding }: { finding: Finding }) {
 
 function SegmentCard({ block }: { block: SegmentBlock }) {
   const rows = block.values.slice(0, 12);
-  const max = Math.max(1, ...rows.map((r) => r.count));
+  const undrawn = block.values.length - rows.length;
   return (
-    <Card
+    <SectionCard
       title={block.dimension}
-      meta={`${block.capped ? "at least " : ""}${block.total.toLocaleString()} ${block.counts} · ${block.startDay} → ${block.endDay}${
+      meta={`${block.capped ? "at least " : ""}${count(block.total)} ${block.counts} · ${block.startDay} → ${block.endDay}${
         block.capped
           ? " · truncated at the row limit"
           : block.unattributed !== null && block.unattributed > 0
-            ? ` · ${block.unattributed.toLocaleString()} with no ${block.dimension}`
+            ? ` · ${count(block.unattributed)} with no ${block.dimension}`
             : ""
       }`}
     >
       {block.gapReason && (
         <p className="text-muted-foreground mb-2 text-[11.5px]">{block.gapReason}</p>
       )}
-      <div className="space-y-1">
-        {rows.map((r) => (
-          <div key={r.value} className="flex items-center gap-2 text-[12.5px]">
-            <span className="w-[150px] shrink-0 truncate" title={r.value}>
-              {r.value}
-            </span>
-            <span className="bg-accent relative h-3 flex-1 overflow-hidden rounded-sm">
-              <span
-                className="bg-ok absolute inset-y-0 left-0 rounded-sm"
-                style={{ width: `${Math.max(2, (r.count / max) * 100)}%` }}
-              />
-            </span>
-            <span className="w-[70px] shrink-0 text-right tabular-nums">{r.count.toLocaleString()}</span>
-            <span className="text-muted-foreground w-[52px] shrink-0 text-right text-[11px]">
-              {(r.share * 100).toFixed(1)}%
-            </span>
-            <span
-              className={cn(
-                "w-[62px] shrink-0 text-right text-[11px]",
-                r.change === null
-                  ? "text-muted-foreground"
-                  : r.change > 0
-                    ? "text-ok-foreground"
-                    : "text-muted-foreground",
-              )}
-            >
-              {r.change === null ? "—" : `${r.change > 0 ? "+" : ""}${(r.change * 100).toFixed(0)}%`}
-            </span>
-          </div>
-        ))}
-      </div>
-      {block.values.length > rows.length && (
-        <p className="text-muted-foreground mt-2 text-[11px]">
-          {block.values.length - rows.length} more value(s) not drawn. The shares above are of{" "}
-          {block.total.toLocaleString()}
-          {block.capped
-            ? ", which is the row limit rather than the whole distribution — every share here is too big by an amount nobody measured."
-            : ", the whole distribution."}
-        </p>
-      )}
-    </Card>
+      {/* THE SHARES ARE THE SERVER'S, of the dimension's own rows — never
+          re-derived here from the twelve rows drawn, which would be a share of
+          the top twelve wearing a share of everything's clothes. */}
+      <RankedBars
+        rows={rows.map((r) => ({ label: r.value, value: r.count, share: r.share, change: r.change }))}
+        showChange
+        footnote={
+          undrawn > 0 ? (
+            <>
+              {undrawn} more value(s) not drawn. The shares above are of {count(block.total)}
+              {block.capped
+                ? ", which is the row limit rather than the whole distribution — every share here is too big by an amount nobody measured."
+                : ", the whole distribution."}
+            </>
+          ) : undefined
+        }
+      />
+    </SectionCard>
   );
 }
 
@@ -465,7 +393,7 @@ function EventsBody({ site }: { site: string }) {
   return (
     <>
       {rows.map((e) => (
-        <Card
+        <SectionCard
           key={e.event}
           title={e.event}
           meta={`${e.startDay} → ${e.endDay}`}
@@ -523,7 +451,7 @@ function EventsBody({ site }: { site: string }) {
               </tbody>
             </table>
           )}
-        </Card>
+        </SectionCard>
       ))}
       <Rules rules={data?.rules ?? []} />
     </>
@@ -562,7 +490,7 @@ function CampaignsTab() {
 
   return (
     <>
-      <Card title="Filed campaigns" meta={`${doc.links.length}`}>
+      <SectionCard title="Filed campaigns" meta={`${doc.links.length}`}>
         {doc.links.length ? (
           <ul className="space-y-2">
             {doc.links.map((l) => (
@@ -588,9 +516,9 @@ function CampaignsTab() {
         ) : (
           <p className="text-muted-foreground text-[12.5px]">Nothing is filed yet.</p>
         )}
-      </Card>
+      </SectionCard>
 
-      <Card title="Suggestions" meta={`${doc.suggestions.length} · nothing is applied until you press`}>
+      <SectionCard title="Suggestions" meta={`${doc.suggestions.length} · nothing is applied until you press`}>
         {doc.suggestions.length ? (
           <ul className="space-y-2">
             {doc.suggestions.map((s) => (
@@ -622,7 +550,7 @@ function CampaignsTab() {
             links, not about the businesses.
           </p>
         )}
-      </Card>
+      </SectionCard>
 
       <VentureJoins links={doc.links.map((l) => l.venture.id)} />
       <Rules rules={doc.rules} />
@@ -648,7 +576,7 @@ function VentureJoinCard({ ventureId }: { ventureId: string }) {
   if (error) return <Failed error={error} />;
   if (!data) return null;
   return (
-    <Card
+    <SectionCard
       title={data.venture.name}
       meta={`${data.startDay} → ${data.endDay} · blended efficiency, not ROAS`}
     >
@@ -657,7 +585,7 @@ function VentureJoinCard({ ventureId }: { ventureId: string }) {
           <p className="text-muted-foreground text-[11.5px]">ad spend</p>
           <p className="text-[17px]">
             {data.spend.length
-              ? data.spend.map((s) => `${s.amount.toFixed(2)} ${s.currency}`).join(" · ")
+              ? data.spend.map((s) => money(s.amount, s.currency)).join(" · ")
               : "—"}
           </p>
         </div>
@@ -688,7 +616,7 @@ function VentureJoinCard({ ventureId }: { ventureId: string }) {
       )}
       <Notes notes={[...data.notes, ...data.blended.unavailable]} />
       <Rules rules={data.blended.rules} />
-    </Card>
+    </SectionCard>
   );
 }
 
@@ -721,9 +649,9 @@ function CreativesTab() {
 
   return (
     <>
-      <Card
+      <SectionCard
         title="Fatigue"
-        meta={`${data.compareDays} complete days against the ${data.compareDays} before · under ${data.minImpressions.toLocaleString()} impressions there is no verdict`}
+        meta={`${data.compareDays} complete days against the ${data.compareDays} before · under ${count(data.minImpressions)} impressions there is no verdict`}
       >
         <p className="text-muted-foreground mb-3 text-[11.5px]">
           {order.map((k) => `${data.counts[k] ?? 0} ${k}`).join(" · ")}
@@ -731,10 +659,10 @@ function CreativesTab() {
         {ads.map((a) => (
           <AdCard key={a.adId} ad={a} />
         ))}
-      </Card>
+      </SectionCard>
 
       {data.statuses.length > 0 && (
-        <Card title="Issues and mismatched delivery" meta={`${data.statuses.length}`}>
+        <SectionCard title="Issues and mismatched delivery" meta={`${data.statuses.length}`}>
           <ul className="space-y-2 text-[12.5px]">
             {data.statuses.map((s) => (
               <li key={s.adId}>
@@ -751,10 +679,10 @@ function CreativesTab() {
               </li>
             ))}
           </ul>
-        </Card>
+        </SectionCard>
       )}
 
-      <Card title="Ad sets" meta={`${data.adSets.length}`}>
+      <SectionCard title="Ad sets" meta={`${data.adSets.length}`}>
         <table className="w-full text-[12px]">
           <thead className="text-muted-foreground text-[11px]">
             <tr>
@@ -780,7 +708,7 @@ function CreativesTab() {
             ))}
           </tbody>
         </table>
-      </Card>
+      </SectionCard>
 
       <Rules rules={data.rules} />
     </>

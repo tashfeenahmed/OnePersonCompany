@@ -32,7 +32,7 @@
  */
 import { Hono } from "hono";
 import { configValue } from "../../db.ts";
-import { hostOf, parsePackages } from "./pypi.ts";
+import { projectHost, parsePackages } from "./pypi.ts";
 import { clockAt, pypiDaysSince, pypiPackages } from "./store.ts";
 
 export const pypiRoutes = new Hono();
@@ -133,7 +133,7 @@ pypiRoutes.get("/", (c) => {
       summary: s?.summary ?? null,
       homePage: s?.home_page ?? null,
       projectUrls,
-      host: hostOf({ homePage: s?.home_page ?? null, projectUrls }),
+      host: projectHost({ homePage: s?.home_page ?? null, projectUrls }),
       lastError: s?.last_error ?? null,
       lastOkAt: s?.last_ok_at ?? null,
       historyReadAt: clockAt("pypi", name),
@@ -233,7 +233,7 @@ pypiRoutes.get("/entities", (c) => {
         plugin: "pypi",
         entity: name,
         label: s?.summary ? `${name} — ${s.summary}` : name,
-        host: hostOf({ homePage: s?.home_page ?? null, projectUrls }),
+        host: projectHost({ homePage: s?.home_page ?? null, projectUrls }),
       };
     }),
   });

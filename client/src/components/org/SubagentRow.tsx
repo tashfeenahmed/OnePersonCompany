@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { standing } from "@/components/org/roleLook";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Subagent } from "@/lib/api/subagents";
 

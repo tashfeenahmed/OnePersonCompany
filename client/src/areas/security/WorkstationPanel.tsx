@@ -3,7 +3,7 @@ import { Loader2, Moon, Power, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
-import { ago, duration, num } from "@/components/integrations/format";
+import { ago, count, durationS, pct } from "@/lib/format";
 import { PanelEmpty, PanelSection, Row, Rows } from "@/components/integrations/Panel";
 import { workstationApi, type WorkstationMachine } from "@/lib/api/security";
 
@@ -31,9 +31,9 @@ function gpuLine(m: WorkstationMachine): string {
   return m.gpus
     .map(
       (g) =>
-        `${g.name}${g.utilisationPercent === null ? "" : ` · ${g.utilisationPercent}%`}` +
+        `${g.name}${g.utilisationPercent === null ? "" : ` · ${pct(g.utilisationPercent / 100)}`}` +
         `${g.temperatureC === null ? "" : ` · ${g.temperatureC}°C`}` +
-        `${g.memoryUsedMb === null || g.memoryTotalMb === null ? "" : ` · ${num(g.memoryUsedMb)}/${num(g.memoryTotalMb)} MB`}`,
+        `${g.memoryUsedMb === null || g.memoryTotalMb === null ? "" : ` · ${count(g.memoryUsedMb)}/${count(g.memoryTotalMb)} MB`}`,
     )
     .join(" — ");
 }
@@ -88,7 +88,7 @@ export function WorkstationPanel({ onCollected }: { onCollected?: () => void }) 
               <span className="font-medium">{m.label}</span>
               <span className="text-muted-foreground font-mono text-[11.5px]">{m.target}</span>
               <span className={cn("text-[11.5px]", m.reachable ? "" : "text-muted-foreground")}>
-                {m.reachable ? `awake · up ${duration(m.uptimeS)}` : "asleep or unreachable"}
+                {m.reachable ? `awake · up ${durationS(m.uptimeS)}` : "asleep or unreachable"}
               </span>
               <span className="text-muted-foreground ml-auto text-[11.5px]">
                 {m.mac ? `MAC ${m.mac}` : "no MAC — cannot be woken"}

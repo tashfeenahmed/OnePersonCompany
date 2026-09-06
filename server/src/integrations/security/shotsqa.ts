@@ -45,6 +45,7 @@
 import { inflateSync } from "node:zlib";
 import { readFileSync, statSync } from "node:fs";
 import { db, now, ventureRows, type VentureRow } from "../../db.ts";
+import { pruneOne, registerRetention, retentionFor } from "../../shared/retention.ts";
 
 /* ------------------------------------------------------------- the decoder */
 
@@ -714,6 +715,37 @@ export async function runQaAsync(onVenture?: (v: VentureQa, i: number, total: nu
 /** The rows, written under the run that produced them. One row per venture per
  *  pass, so "when did this start failing" is a query rather than a diff of two
  *  reports. */
+/**
+ * NINETY DAYS, AND THIS TABLE HAD NO WINDOW AT ALL UNTIL NOW.
+ *
+ * A row is a VERDICT ON THE NEWEST CAPTURE, one per venture per pass. The
+ * moment a newer capture is judged, the older verdict stops answering "is this
+ * picture broken" and starts answering only "has this been broken before" —
+ * which is a real question, and is why these are kept at all rather than
+ * replaced in place. A quarter of it is enough to see a venture that fails
+ * every few passes, which is the pattern worth finding; a year of it would be
+ * the same finding with more rows.
+ *
+ * It is deliberately the same window as the snapshots beside it: both are
+ * "evidence about a thing that has since been changed", and two numbers for
+ * one idea is how the four hardcoded windows happened in the first place.
+ */
+registerRetention({
+  table: "security_shotsqa",
+  column: "ts",
+  days: 90,
+  source: "area",
+  note:
+    "One verdict per venture per pass. A quarter shows a venture that fails repeatedly; the current verdict " +
+    "is always the newest row, so everything older is trend rather than state.",
+});
+
+/** Verdicts past their window. Run at the end of a pass rather than on a
+ *  sweep, because a pass is the only thing that adds to this table. */
+export function pruneQa(): number {
+  return pruneOne(retentionFor("security_shotsqa")!);
+}
+
 export function storeQa(runId: string, pass: QaPass) {
   const stmt = db.prepare(
     `INSERT INTO security_shotsqa
@@ -736,6 +768,7 @@ export function storeQa(runId: string, pass: QaPass) {
       v.unchecked,
       JSON.stringify({ checks: v.checks, pixels: v.pixels, website: v.website, visual: v.visual }),
     );
+  pruneQa();
 }
 
 /* -------------------------------------------------------------- the report */

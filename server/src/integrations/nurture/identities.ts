@@ -23,19 +23,31 @@
  * VERIFICATION IS RESEND'S ANSWER, READ AND STORED, NEVER A JUDGEMENT MADE
  * HERE. `GET /domains` on the identity's own key returns a status per domain —
  * "verified", "pending", "failed", "temporary_failure" — and that word is what
- * goes in the column. It is never reduced to a boolean: "pending" is a domain
- * whose DNS has not propagated and "failed" is a domain that will bounce, and
- * a page that showed both as "not verified" would send the owner to fix the
- * wrong thing. NULL means nobody has asked, which is not "unverified".
+ * is stored. It is never reduced to a boolean: "pending" is a domain whose DNS
+ * has not propagated and "failed" is a domain that will bounce, and a page that
+ * showed both as "not verified" would send the owner to fix the wrong thing. A
+ * domain nobody has asked about is not "unverified".
  *
- * A GMAIL IDENTITY HAS NO RESEND STATUS and never will. Its `verified` stays
- * NULL and the routes say "Gmail's own mailbox" rather than inventing a status
- * to fill a column.
+ * IT IS STORED IN ONE TABLE, `resend_domains`, AND THAT IS A CHANGE.
+ *
+ * The identical fact from the identical API call used to be cached twice — the
+ * plugin collector wrote `resend_domains`, this file wrote
+ * `nurture_send_identities.verified` — on two refresh triggers. So a domain
+ * that lapsed to "failed" updated one of them on the collector's schedule while
+ * the identity beside the draft still read "verified": no warning on the card
+ * that gates the send, and two screens contradicting each other about one
+ * domain. There is now one cache and two ways to refresh it. `verified_at` and
+ * `verify_note` stay on the identity, demoted to what they honestly are —
+ * WHEN THIS BUTTON WAS LAST PRESSED, and what it said at the time.
+ *
+ * A GMAIL IDENTITY HAS NO RESEND STATUS and never will. It has no row in
+ * `resend_domains` and the routes say "Gmail's own mailbox" rather than
+ * inventing a status to fill a column.
  */
-import { db, gmailMailboxes, now, ventureRowById } from "../../db.ts";
+import { db, now, resendDomains, ventureRowById } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
-import { domains as resendDomains, ResendError } from "../../providers/resend.ts";
-import { validAddress } from "../mailflow/gmail-send.ts";
+import { domains as askResendDomains, ResendError } from "../../providers/resend.ts";
+import { fromAddress, validAddress } from "../mailflow/gmail-send.ts";
 
 export const KINDS = ["gmail", "resend"] as const;
 export type IdentityKind = (typeof KINDS)[number];
@@ -103,14 +115,11 @@ export class IdentityRefused extends Error {
   }
 }
 
-/** The address a Gmail plugin account sends FROM, as Gmail itself reported it
- *  to the collector. Null before the first collect, in which case there is
- *  nothing honest to put on a From line. */
-export function gmailAddress(accountId: number): string | null {
-  const box = gmailMailboxes().find((b) => b.account_id === accountId);
-  const addr = (box?.address ?? "").trim();
-  return addr && validAddress(addr) ? addr : null;
-}
+/** The address a Gmail plugin account sends FROM. One body, in gmail-send.ts,
+ *  beside the send it is checked for; this file used to carry a second copy of
+ *  it word for word. Re-exported under the name this area's routes already
+ *  use. */
+export { fromAddress as gmailAddress };
 
 /**
  * Resolve one identity to a transport, or refuse with a sentence naming what
@@ -127,7 +136,7 @@ export function transportFor(identity: IdentityRow): Transport {
       throw new IdentityRefused(
         `That identity is bound to Gmail account ${identity.account_id}, which is not connected. Reconnect it in Integrations → Gmail, or point the identity at another account.`,
       );
-    const mailbox = gmailAddress(identity.account_id);
+    const mailbox = fromAddress(identity.account_id);
     if (!mailbox)
       throw new IdentityRefused(
         "Collect that Gmail account once so its own address is known; until then there is nothing honest to put on the From line.",
@@ -202,14 +211,31 @@ export function fromLine(from: string, name: string): string {
  */
 export function verificationWarning(identity: IdentityRow): string | null {
   if (identity.kind !== "resend") return null;
-  const status = (identity.verified ?? "").trim().toLowerCase();
-  if (status === "verified") return null;
-  if (!status)
-    return `Resend has not been asked about ${domainOf(identity.from_address)} yet, so whether it can send is unknown here. Press “Ask Resend again”.`;
+  const domain = domainOf(identity.from_address);
+  const cached = domainStatus(domain);
+  if (cached === null)
+    return `Resend has not been asked about ${domain} yet, so whether it can send is unknown here. Press “Ask Resend again”.`;
+  if (cached.trim().toLowerCase() === "verified") return null;
   return (
-    `Resend reports ${domainOf(identity.from_address)} as “${identity.verified}”, not “verified”` +
+    `Resend reports ${domain} as “${cached}”, not “verified”` +
     `${identity.verify_note ? ` — ${identity.verify_note}` : ""}. A send may be refused.`
   );
+}
+
+/**
+ * Resend's stored word about one sending domain, out of the one table that
+ * holds it. `null` is "nobody has asked", which is not "unverified" — the
+ * distinction the whole column exists for.
+ *
+ * BY NAME AND NOT BY ACCOUNT ID. A key can be re-pointed at another account
+ * row; the domain is what Resend actually answered about, and it is what both
+ * the mailbox chips and this warning are keyed on.
+ */
+export function domainStatus(domain: string): string | null {
+  const want = domain.trim().toLowerCase();
+  if (!want) return null;
+  const row = resendDomains().find((d) => d.name.trim().toLowerCase() === want);
+  return row?.status ?? null;
 }
 
 /* ------------------------------------------------------------- verification */
@@ -256,34 +282,62 @@ export async function verifyIdentity(
   }
 
   const domain = domainOf(row.from_address);
-  let status: string | null = null;
   let note: string;
   try {
-    const list = await resendDomains(row.account_id, reader);
+    const list = await askResendDomains(row.account_id, reader);
     const found = list.find((d) => d.name.toLowerCase() === domain);
     if (found) {
-      status = found.status;
+      /* THE ANSWER GOES WHERE THE COLLECTOR PUTS ITS ANSWER, so that pressing
+         this button and waiting for the collector are two refresh triggers on
+         ONE cache rather than two caches drifting apart. The DNS records are
+         not re-read by this call — `records_read` says so rather than the row
+         claiming a completeness it does not have. */
+      db.prepare(
+        `INSERT INTO resend_domains
+           (domain_id, account_id, account_label, name, status, region, created_at,
+            sending, receiving, open_tracking, click_tracking, records_read, note, seen_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?)
+         ON CONFLICT(domain_id) DO UPDATE SET
+           account_id = excluded.account_id, account_label = excluded.account_label,
+           name = excluded.name, status = excluded.status, region = excluded.region,
+           sending = excluded.sending, receiving = excluded.receiving,
+           note = excluded.note, seen_at = excluded.seen_at`,
+      ).run(
+        found.id,
+        row.account_id,
+        accounts.list("resend").find((a) => a.id === row.account_id)?.label ?? String(row.account_id),
+        found.name,
+        found.status,
+        found.region,
+        found.createdAt,
+        found.sending,
+        found.receiving,
+        found.openTracking === null ? null : found.openTracking ? 1 : 0,
+        found.clickTracking === null ? null : found.clickTracking ? 1 : 0,
+        `Asked from ${reader}.`,
+        now(),
+      );
       note =
         `Resend reports ${found.name} as “${found.status ?? "no status"}”` +
         (found.sending ? `, sending ${found.sending}` : "") +
         ". This is Resend's word, read on the date beside it, not a judgement made here.";
     } else {
-      status = "unknown";
       note =
         `That Resend key can see ${list.length ? list.map((d) => d.name).join(", ") : "no domain at all"} — not ${domain}. ` +
         "A key here is scoped to one sending domain, so this identity would be refused by Resend. Point it at the key for its own domain.";
     }
   } catch (err) {
-    status = null;
     note =
       err instanceof ResendError
         ? `Resend answered HTTP ${err.status} — ${err.body}. Nothing was stored as a status: “could not ask” is not “not verified”.`
         : `Could not reach Resend (${err instanceof Error ? err.message : String(err)}). “Could not ask” is not “not verified”.`;
   }
 
+  /* The date and the sentence, not the status: the status lives in
+     `resend_domains` now and a second copy here is what this change removed. */
   db.prepare(
-    "UPDATE nurture_send_identities SET verified = ?, verified_at = ?, verify_note = ?, updated_at = ? WHERE id = ?",
-  ).run(status, now(), note, now(), id);
+    "UPDATE nurture_send_identities SET verified_at = ?, verify_note = ?, updated_at = ? WHERE id = ?",
+  ).run(now(), note, now(), id);
   return identityRow(id)!;
 }
 

@@ -180,7 +180,7 @@ export function UptimePanel({ onCollected }: { onCollected?: () => void }) {
               <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] tabular-nums">
                 <span>
                   {av.enough
-                    ? `${pct(av.percent)} of ${av.checks} checks in ${av.hours}h`
+                    ? `${pct(av.percent === null ? null : av.percent / 100)} of ${av.checks} checks in ${av.hours}h`
                     : `${av.ok} of ${av.checks} checks ok in ${av.hours}h`}
                 </span>
                 <span>

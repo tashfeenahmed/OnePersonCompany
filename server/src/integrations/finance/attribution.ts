@@ -6,9 +6,9 @@
  * THE JOIN IS `venture_links` AND NOTHING ELSE. A Stripe product, an App Store
  * app id and a Play package reach a venture because the owner (or the venture
  * map's accept-all) said they belong to it. Nothing here matches on a
- * hostname, a prefix or a similar-looking name: `example.ie` and `neu.so` are two
- * businesses in this very database, and a revenue figure captioned with the
- * wrong company's name is the exact failure this dashboard exists not to
+ * hostname, a prefix or a similar-looking name: two businesses on one box can
+ * differ only by their top-level domain, and a revenue figure captioned with
+ * the wrong company's name is the exact failure this dashboard exists not to
  * commit.
  *
  * THREE SOURCES ANSWER PER VENTURE AND ONE DOES NOT, and the fourth is the
@@ -31,34 +31,49 @@
  * switch on `stripe_split = mrr-share`, which apportions the portfolio's
  * settled net by each venture's share of live MRR in that currency; every
  * figure it produces is stamped `estimated: true` with the basis attached. It
- * is off until somebody chooses it because the difference between "Example App 1
- * settled €412" and "Example App 1's share of a portfolio figure works out at
- * €412" is the difference between a measurement and an allocation.
+ * is off until somebody chooses it because the difference between "this
+ * venture settled €412" and "this venture's share of a portfolio figure works
+ * out at €412" is the difference between a measurement and an allocation.
  */
 import {
   adSenseMonths,
-  appStorePayouts,
   configValue,
   db,
-  playEarnings,
   stripeLedgerDays,
   stripeSubscriptions,
   ventureRows,
   type VentureRow,
 } from "../../db.ts";
+import { payoutsForMonth } from "../mobilehealth/payouts.ts";
 import { isBilling } from "../../providers/stripe.ts";
 import { PLUGIN } from "./expenses.ts";
-import { addTo, currencyCode, emptyTotals, money, type CurrencyTotals } from "./money.ts";
+import { addTo, currencyCode, daysInMonth, emptyTotals, money, type CurrencyTotals } from "./money.ts";
 
-/** venture id → the entities it owns at one plugin. */
+/**
+ * The one spelling an entity is compared under.
+ *
+ * A product linked as "Example App 1 Pro" and a subscription carrying "example-app-1
+ * pro" are the same product; matching them exactly meant the venture showed
+ * churn cases on one page — where the lookup lowercased — and zero revenue
+ * here, where it did not. Case is not evidence of a different business.
+ */
+const normaliseEntity = (entity: string): string => entity.trim().toLowerCase();
+
+/** entity → the ventures that own it at one plugin, keyed case-insensitively. */
 function linkIndex(plugin: string): Map<string, string[]> {
   const rows = db
     .prepare("SELECT venture_id, entity FROM venture_links WHERE plugin = ?")
     .all(plugin) as { venture_id: string; entity: string }[];
   const out = new Map<string, string[]>();
-  for (const r of rows) out.set(r.entity, [...(out.get(r.entity) ?? []), r.venture_id]);
+  for (const r of rows) {
+    const key = normaliseEntity(r.entity);
+    if (key) out.set(key, [...(out.get(key) ?? []), r.venture_id]);
+  }
   return out;
 }
+
+const owns = (index: Map<string, string[]>, entity: string | null, ventureId: string): boolean =>
+  Boolean(entity) && (index.get(normaliseEntity(entity!)) ?? []).includes(ventureId);
 
 export type RevenueLine = {
   source: "appstore" | "playstore" | "adsense" | "stripe";
@@ -80,42 +95,43 @@ export type RevenueLine = {
 /* ---------------------------------------------------------------- stores */
 
 function storeLines(venture: VentureRow, month: string): RevenueLine[] {
+  const apple = linkIndex("appstore");
+  const google = linkIndex("playstore");
   const out: RevenueLine[] = [];
 
-  const apple = linkIndex("appstore");
-  for (const p of appStorePayouts()) {
-    if (p.month !== month) continue;
-    if (!(apple.get(p.app_id) ?? []).includes(venture.id)) continue;
-    out.push({
-      source: "appstore",
-      kind: "Apple finance report: extended partner share",
-      currency: currencyCode(p.currency),
-      /* Apple's finance report publishes the developer's proceeds. The gross
-         customer price is in the SALES report, which is an estimate on a
-         different calendar, so there is no gross here rather than a wrong one. */
-      gross: null,
-      net: p.amount,
-      basis: "link",
-      estimated: false,
-      note: "Apple fiscal month; proceeds after Apple's commission. Not confirmation of a bank deposit.",
-    });
-  }
-
-  const google = linkIndex("playstore");
-  const compact = month.replace("-", "");
-  for (const e of playEarnings()) {
-    if (e.month !== compact) continue;
-    if (!(google.get(e.package) ?? []).includes(venture.id)) continue;
-    out.push({
-      source: "playstore",
-      kind: "Google Play earnings report: net merchant earnings",
-      currency: currencyCode(e.currency),
-      gross: e.charged,
-      net: e.net,
-      basis: "link",
-      estimated: false,
-      note: `Charged ${money(e.charged)} less refunds ${money(e.refunds)} and fees ${money(e.fees)} over ${e.transactions} transactions.`,
-    });
+  /* THE ROWS COME THROUGH THE REPORT GATE, which this area used to skip. A
+     payout whose finance report has not been seen to arrive is withheld by
+     /api/mobile/revenue, and a margin charged against money that document will
+     not show is a margin nobody can check. One helper, one gate. */
+  for (const p of payoutsForMonth(month)) {
+    const index = p.store === "appstore" ? apple : google;
+    if (!owns(index, p.app, venture.id)) continue;
+    out.push(
+      p.store === "appstore"
+        ? {
+          source: "appstore",
+          kind: "Apple finance report: extended partner share",
+          currency: p.currency,
+          /* Apple's finance report publishes the developer's proceeds. The gross
+             customer price is in the SALES report, which is an estimate on a
+             different calendar, so there is no gross here rather than a wrong one. */
+          gross: null,
+          net: p.net,
+          basis: "link",
+          estimated: false,
+          note: "Apple fiscal month; proceeds after Apple's commission. Not confirmation of a bank deposit.",
+        }
+        : {
+          source: "playstore",
+          kind: "Google Play earnings report: net merchant earnings",
+          currency: p.currency,
+          gross: p.charged,
+          net: p.net,
+          basis: "link",
+          estimated: false,
+          note: `Charged ${money(p.charged ?? 0)} less refunds ${money(p.refunds ?? 0)} and fees ${money(p.fees ?? 0)} over ${p.transactions ?? 0} transactions.`,
+        },
+    );
   }
   return out;
 }
@@ -155,8 +171,7 @@ export function ventureMrr(ventureId: string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const s of stripeSubscriptions()) {
     if (!isBilling(s.status)) continue;
-    const key = s.product ?? "";
-    if (!key || !(products.get(key) ?? []).includes(ventureId)) continue;
+    if (!owns(products, s.product, ventureId)) continue;
     const code = currencyCode(s.currency);
     out[code] = (out[code] ?? 0) + s.monthly_usd;
   }
@@ -175,31 +190,88 @@ export function portfolioMrr(): Record<string, number> {
   return out;
 }
 
-/** The portfolio's settled Stripe money for a month, per currency. This IS
- *  dated money and it is the only Stripe revenue figure in this area that is
- *  a measurement. */
-export function stripeSettled(month: string): { currency: string; gross: number; fees: number; taxWithheld: number; net: number }[] {
-  const rows = stripeLedgerDays(`${month}-01`).filter((r) => r.day.slice(0, 7) === month);
-  const byCurrency = new Map<string, { gross: number; fees: number; taxWithheld: number; net: number }>();
-  for (const r of rows) {
-    const code = currencyCode(r.currency);
-    const acc = byCurrency.get(code) ?? { gross: 0, fees: 0, taxWithheld: 0, net: 0 };
-    acc.gross += r.gross;
-    acc.fees += r.fees;
-    acc.taxWithheld += r.tax_withheld;
-    acc.net += r.net;
-    byCurrency.set(code, acc);
-  }
-  return [...byCurrency.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([currency, v]) => ({
+/**
+ * THE SETTLED STRIPE LEDGER, REDUCED ONCE.
+ *
+ * Two reductions of `stripe_ledger_days` used to exist — a rolling window on
+ * the revenue route keyed “usd” at two places, and a calendar month here keyed
+ * “USD” at four. Same five fields, same rows, two answers, and one currency
+ * held under two keys so nothing downstream could join them.
+ *
+ * This is the only one. The WINDOW is the caller's — `from` and `to` are
+ * inclusive `YYYY-MM-DD` days — because a rolling thirty days and a calendar
+ * month are two legitimate questions; the ARITHMETIC and the currency spelling
+ * are not the caller's, and that is the whole point.
+ *
+ * Rounding happens once, at the end. Every field is summed at full precision
+ * first: rounding each row and then adding is how the two copies drifted apart
+ * in the first place.
+ */
+export type SettledCurrency = {
+  currency: string;
+  gross: number;
+  fees: number;
+  taxWithheld: number;
+  feesTotal: number;
+  refunds: number;
+  disputes: number;
+  other: number;
+  net: number;
+  transactions: number;
+  feeBreakdown: {
+    processing: number;
+    managedPayments: number;
+    disputes: number;
+    billing: number;
+    other: number;
+  };
+  /** Per-day, oldest first, for whatever draws a line. Unrounded sums rounded
+   *  once here like everything else. */
+  days: { day: string; gross: number; fees: number; net: number }[];
+};
+
+export function stripeSettled(from: string, to: string): SettledCurrency[] {
+  const rows = stripeLedgerDays(from).filter((r) => r.day <= to);
+  const codes = [...new Set(rows.map((r) => currencyCode(r.currency)))].sort();
+  return codes.map((currency) => {
+    const mine = rows.filter((r) => currencyCode(r.currency) === currency);
+    const sum = (f: (r: (typeof mine)[number]) => number) => money(mine.reduce((n, r) => n + f(r), 0));
+    const byDay = new Map<string, { day: string; gross: number; fees: number; net: number }>();
+    for (const r of mine) {
+      const d = byDay.get(r.day) ?? { day: r.day, gross: 0, fees: 0, net: 0 };
+      d.gross += r.gross;
+      d.fees += r.fees;
+      d.net += r.net;
+      byDay.set(r.day, d);
+    }
+    return {
       currency,
-      gross: money(v.gross),
-      fees: money(v.fees),
-      taxWithheld: money(v.taxWithheld),
-      net: money(v.net),
-    }));
+      gross: sum((r) => r.gross),
+      fees: sum((r) => r.fees),
+      taxWithheld: sum((r) => r.tax_withheld),
+      feesTotal: sum((r) => r.fees_total),
+      refunds: sum((r) => r.refunds),
+      disputes: sum((r) => r.disputes),
+      other: sum((r) => r.other),
+      net: sum((r) => r.net),
+      transactions: mine.reduce((n, r) => n + r.count, 0),
+      feeBreakdown: {
+        processing: sum((r) => r.processing),
+        managedPayments: sum((r) => r.managed_payments),
+        disputes: sum((r) => r.dispute_fees),
+        billing: sum((r) => r.billing),
+        other: sum((r) => r.other_fees),
+      },
+      days: [...byDay.values()]
+        .sort((a, b) => a.day.localeCompare(b.day))
+        .map((d) => ({ day: d.day, gross: money(d.gross), fees: money(d.fees), net: money(d.net) })),
+    };
+  });
 }
+
+/** The calendar month, which is the window the P&L asks for. */
+export const stripeSettledMonth = (month: string): SettledCurrency[] =>
+  stripeSettled(`${month}-01`, `${month}-${String(daysInMonth(month)).padStart(2, "0")}`);
 
 export type StripeSplitMode = "off" | "mrr-share";
 
@@ -222,7 +294,7 @@ function stripeLines(venture: VentureRow, month: string): { lines: RevenueLine[]
   const mine = ventureMrr(venture.id);
   const whole = portfolioMrr();
   const lines: RevenueLine[] = [];
-  for (const settled of stripeSettled(month)) {
+  for (const settled of stripeSettledMonth(month)) {
     const denominator = whole[settled.currency] ?? 0;
     const numerator = mine[settled.currency] ?? 0;
     if (denominator <= 0 || numerator <= 0) continue;

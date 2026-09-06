@@ -44,7 +44,8 @@ import { isPrivateHost } from "../../chat/wire.ts";
 import { readBrand } from "../../ventures/enrich.ts";
 import { readModelJson } from "./json.ts";
 import { settings as voiceSettings, speak } from "../signals/voice/provider.ts";
-import { ASPECTS, blurFilter, concat, panStill, segment, shiftVoice, type Fit } from "../video/assemble.ts";
+import { aspectFrame, blurFilter, concat, panStill, segment, shiftVoice, type Fit } from "../video/assemble.ts";
+import { SHOT_VIEWPORT } from "../../tools/chrome.ts";
 import { pickCaptioner, type CaptionStyle } from "../video/captions.ts";
 import { StepError, runDir, type RunSession } from "../video/faceless.ts";
 import { saveJob } from "../video/store.ts";
@@ -71,8 +72,8 @@ export type ReelInput = {
  * showing the product. Letterbox scales the whole page to the frame's width
  * and fills the space above and below with a blurred, enlarged copy of it, so
  * the picture is the page and the band is where the eye goes. This was
- * measured on a real capture before it was decided: the centre crop cut
- * Example App 1's map and its results column in half.
+ * measured on a real capture before it was decided: the centre crop cut the
+ * page's map and its results column in half.
  */
 const REEL_FIT: Fit = "letterbox";
 
@@ -81,11 +82,11 @@ const REEL_FIT: Fit = "letterbox";
 export const ROLES = ["host", "guest"] as const;
 export type Role = (typeof ROLES)[number];
 
-/** The capture viewport. 1280×800 is a desktop fold and is what
- *  ventures/capture.ts uses, so a reel and a venture thumbnail show the same
- *  page the same way. */
-const VIEW_W = 1280;
-const VIEW_H = 800;
+/** The capture viewport, imported rather than typed: a desktop fold, and the
+ *  same one every capture on this box uses, so a reel and a venture thumbnail
+ *  show the same page the same way. */
+const VIEW_W = SHOT_VIEWPORT.width;
+const VIEW_H = SHOT_VIEWPORT.height;
 
 /** How long a line may run when its length is estimated rather than measured,
  *  and how fast a person reads out loud — about 155 words a minute. */
@@ -299,8 +300,8 @@ export async function writeDialogue(opts: {
   const first = readDialogue(reply.text, opts.captures.length, opts.lines);
   if (first) return { script: first, model: reply.model, text: reply.text };
 
-  /* ONE SECOND ATTEMPT, WITH THE FAILURE STATED. Ported from workdash's motion
-     writer, and it earns its round trip here for a measured reason: the
+  /* ONE SECOND ATTEMPT, WITH THE FAILURE STATED. It earns its round trip for a
+     measured reason: the
      provider configured on this box answers this prompt with a paragraph of
      reasoning before the object often enough that a single attempt fails a
      real run every few tries. Told plainly that the first reply was not
@@ -384,7 +385,7 @@ export async function reelVideo(opts: {
   signal?: AbortSignal;
 }): Promise<void> {
   const { session: s, venture: v, input, signal } = opts;
-  const frame = ASPECTS[input.aspect] ?? ASPECTS["9:16"]!;
+  const frame = aspectFrame(input.aspect);
   const dir = runDir(opts.runId);
   mkdirSync(dir, { recursive: true });
 

@@ -19,6 +19,10 @@
  * whole pipeline against a mock and posts nothing, which is what somebody
  * should press first.
  */
+import { SubTabs } from "@/components/TabStrip";
+import { WindowPicker } from "@/components/WindowPicker";
+import { bytes, when } from "@/lib/format";
+import { PageShell } from "@/components/PageShell";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -69,16 +73,6 @@ const STATUS_TONE: Record<string, string> = {
   cancelled: "text-muted-foreground",
 };
 
-function when(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export function Publishing() {
   const { state } = useStore();
   const ventures = state.ventures;
@@ -112,52 +106,37 @@ export function Publishing() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
-      <div className="mx-auto w-full max-w-[1040px]">
-        <div className="mt-2 mb-5">
-          <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">Publishing</h1>
-          <p className="text-muted-foreground text-[13.5px]">
-            Where a draft becomes a post. Nothing goes out that you have not approved, and
-            nothing is scheduled that is not approved.
-          </p>
-        </div>
+    <PageShell
+      title="Publishing"
+      sub={
+        <>
+          Where a draft becomes a post. Nothing goes out that you have not approved, and
+          nothing is scheduled that is not approved.
+        </>
+      }
+      wide
+    >
+      {ready.data && <ReadinessStrip ready={ready.data} />}
 
-        {ready.data && <ReadinessStrip ready={ready.data} />}
-
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <VentureSelect ventures={ventures} value={venture?.id ?? null} onChange={pick} none="Every venture" />
-          <div className="flex flex-wrap gap-1">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => go(t.key)}
-                aria-current={tab === t.key ? "page" : undefined}
-                className={cn(
-                  "hover:bg-accent rounded-lg px-2.5 py-1.5 text-[12.5px]",
-                  tab === t.key && "bg-accent font-medium",
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {ready.error && (
-          <p className="text-destructive mb-4 text-[13px]">
-            The publishing API did not answer: {ready.error}
-          </p>
-        )}
-
-        {tab === "queue" && <QueueTab ventureId={venture?.id ?? null} onChanged={ready.reload} />}
-        {tab === "calendar" && <CalendarTab ventureId={venture?.id ?? null} />}
-        {tab === "destinations" && (
-          <DestinationsTab ventureId={venture?.id ?? null} onChanged={ready.reload} />
-        )}
-        {tab === "campaigns" && <CampaignsTab ventureId={venture?.id ?? null} />}
-        {tab === "assets" && <AssetsTab ventureId={venture?.id ?? null} />}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <VentureSelect ventures={ventures} value={venture?.id ?? null} onChange={pick} none="Every venture" />
+        <SubTabs tabs={TABS} activeKey={tab} onSelect={(k) => go(k as TabKey)} className="mb-0" />
       </div>
-    </div>
+
+      {ready.error && (
+        <p className="text-destructive mb-4 text-[13px]">
+          The publishing API did not answer: {ready.error}
+        </p>
+      )}
+
+      {tab === "queue" && <QueueTab ventureId={venture?.id ?? null} onChanged={ready.reload} />}
+      {tab === "calendar" && <CalendarTab ventureId={venture?.id ?? null} />}
+      {tab === "destinations" && (
+        <DestinationsTab ventureId={venture?.id ?? null} onChanged={ready.reload} />
+      )}
+      {tab === "campaigns" && <CampaignsTab ventureId={venture?.id ?? null} />}
+      {tab === "assets" && <AssetsTab ventureId={venture?.id ?? null} />}
+    </PageShell>
   );
 }
 
@@ -335,7 +314,7 @@ function ItemCard({
             {item.media.kind === "none"
               ? "no media"
               : `${item.media.kind}${item.media.mime ? `, ${item.media.mime}` : ""}${
-                  item.media.bytes ? `, ${Math.round(item.media.bytes / 1024)} KB` : ""
+                  item.media.bytes ? `, ${bytes(item.media.bytes)}` : ""
                 }${item.media.onDisk ? "" : " — the file is no longer on disk"}`}
             {item.caption ? ` · ${item.caption.length} characters` : ""}
           </p>
@@ -530,18 +509,7 @@ function CalendarTab({ ventureId }: { ventureId: string | null }) {
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {[7, 14, 31].map((d) => (
-          <button
-            key={d}
-            onClick={() => setDays(d)}
-            className={cn(
-              "rounded-[9px] border px-2.5 py-1 text-[12px]",
-              days === d ? "border-foreground" : "hover:border-line-strong",
-            )}
-          >
-            {d} days
-          </button>
-        ))}
+        <WindowPicker value={days} onChange={(d) => setDays(Number(d))} options={[7, 14, 31]} />
         <Button
           size="sm"
           variant="secondary"
@@ -695,7 +663,7 @@ function DestinationCard({
           </span>
         ))}
         <span className="text-muted-foreground">
-          probed {d.probe.at ? when(d.probe.at) : "never"}
+          probed {when(d.probe.at, { nullText: "never" })}
         </span>
       </div>
       {d.capabilities.missing.length > 0 && (
@@ -1014,7 +982,7 @@ function AssetCard({ asset: a, onChanged }: { asset: Asset; onChanged: () => voi
         <p className="text-[13px]">{a.name ?? a.id}</p>
         <p className="text-muted-foreground text-[11.5px]">
           {a.kind} · {a.source} · {a.width && a.height ? `${a.width}×${a.height}` : "size not measured"} ·{" "}
-          {a.bytes ? `${Math.round(a.bytes / 1024)} KB` : "—"}
+          {bytes(a.bytes)}
         </p>
         {a.prompt && <p className="text-muted-foreground mt-1 text-[11.5px]">{a.prompt}</p>}
         <p className="text-muted-foreground mt-1 text-[11px]">used {a.usedCount}×</p>

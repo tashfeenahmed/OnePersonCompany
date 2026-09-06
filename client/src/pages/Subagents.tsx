@@ -1,8 +1,9 @@
-import { QueueControls } from "@/components/runs/QueueControls";
 import { useEffect, useMemo, useState } from "react";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { Link } from "react-router-dom";
 import { ChevronRight, RefreshCw } from "lucide-react";
+import { Tiles } from "@/components/integrations/Panel";
+import { QueueControls } from "@/components/runs/QueueControls";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
 import { SubagentRow } from "@/components/org/SubagentRow";
@@ -16,7 +17,7 @@ import {
   statusWord,
 } from "@/components/runs/format";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
+import { ago, count } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { isLive, runsApi, type RunSummary } from "@/lib/api/runs";
 import { subagentApi, type OrgVentureTeam } from "@/lib/api/subagents";
@@ -133,21 +134,11 @@ export function Subagents() {
           </p>
         ) : (
           <>
-            <div className="mb-5.5 flex flex-wrap gap-2">
-              {stats.map(([v, k]) => (
-                <div
-                  key={k}
-                  className="bg-card min-w-[128px] flex-1 rounded-[10px] border px-3.5 py-3"
-                >
-                  <div className="text-[22px] font-normal tracking-[-0.03em] tabular-nums">
-                    {doc.loading && !doc.data ? "—" : v}
-                  </div>
-                  <div className="text-muted-foreground mt-0.5 text-[11.5px]">
-                    {k}
-                  </div>
-                </div>
-              ))}
-            </div>
+            {/* A FIGURE NOBODY HAS READ YET IS A DASH, not the last one still
+                on screen and not a zero. */}
+            <Tiles
+              items={stats.map(([v, k]) => ({ v: doc.loading && !doc.data ? "—" : v, k }))}
+            />
 
             {/* --------------------------------------------------- right now */}
             <div className="text-muted-foreground mb-2 text-[11px] tracking-[0.06em] uppercase">
@@ -407,7 +398,7 @@ function Working({ run }: { run: RunSummary }) {
           {run.steps > 0
             ? `${run.steps} ${run.steps === 1 ? "tool call" : "tool calls"}`
             : "no tool calls yet"}{" "}
-          · {run.outputChars.toLocaleString()} characters written ·{" "}
+          · {count(run.outputChars)} characters written ·{" "}
           {backendPhrase(run)}
         </span>
       </span>

@@ -44,6 +44,7 @@ import {
   orgVentures,
   roleDef,
   roleInfos,
+  runChild,
   shapeSubagent,
   shapeVentureCard,
   subagentId,
@@ -399,7 +400,7 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
   /* The chat it was filed under learns at once, if it is being streamed. */
   if (parentSessionId) {
     const r = runRow(id)!;
-    inflight.notify(parentSessionId, { runId: id, kind: r.kind, title: r.title, status: r.status });
+    inflight.notify(parentSessionId, runChild(r));
   }
   return {
     status: 201 as const,

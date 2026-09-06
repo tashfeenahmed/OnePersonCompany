@@ -21,11 +21,12 @@
  */
 import { Hono } from "hono";
 import { ventureRow } from "../../db.ts";
+import { hostOf } from "../../shared/host.ts";
 import { authorityAll, authorityFor } from "./authority.ts";
 import { croFor, finishExperiment, startExperiment } from "./cro.ts";
 import { adsHealthAll, adsHealthFor } from "./ads.ts";
 import { auditDelta, indexingFor, sitemapUrls, sitemapsFor, submit } from "./indexing.ts";
-import { rowsForRun, rowsForVenture } from "./serp.ts";
+import { competitorSet, rowsForRun, rowsForVenture } from "./serp.ts";
 import { asoForRun, asoForVenture, ASO_RUBRIC } from "./aso.ts";
 
 export const growthRoutes = new Hono();
@@ -87,14 +88,14 @@ growthRoutes.post("/indexing/submit", async (c) => {
   let reason = "owner";
 
   if (!urls.length && body?.audit) {
-    const delta = auditDelta(host.replace(/^https?:\/\//, "").replace(/^www\./, ""));
+    const delta = auditDelta(hostOf(host) ?? host);
     urls = [...delta.newUrls, ...delta.changedUrls];
     reason = delta.newUrls.length ? "audit-new" : "audit-changed";
     if (!urls.length) return c.json({ error: `Nothing to submit from the audit: ${delta.why}` }, 400);
   }
 
   if (!urls.length && body?.sitemap) {
-    const maps = sitemapsFor(host.replace(/^https?:\/\//, "").replace(/^www\./, ""));
+    const maps = sitemapsFor(hostOf(host) ?? host);
     const errors: string[] = [];
     for (const m of maps) {
       const got = await sitemapUrls(m.url);
@@ -156,6 +157,25 @@ growthRoutes.get("/serp", (c) => {
 growthRoutes.get("/serp/:runId", (c) => {
   const rows = rowsForRun(c.req.param("runId"));
   return c.json({ runId: c.req.param("runId"), rows, count: rows.length });
+});
+
+/* ----------------------------------------------------------- competitors */
+
+/**
+ * THE TWO COMPETITOR REGISTRIES, JOINED. See `competitorSet`: a rival
+ * discovered mechanically by a teardown and a rival profiled by a sweep used
+ * to be two disjoint answers to one question, and nothing asked both.
+ */
+growthRoutes.get("/competitors/:ventureId", (c) => {
+  const v = ventureRow(c.req.param("ventureId"));
+  if (!v) return c.json({ error: `No venture called “${c.req.param("ventureId")}”.` }, 404);
+  const competitors = competitorSet(v.id);
+  return c.json({
+    venture: { id: v.id, slug: v.slug, name: v.name, host: v.host },
+    competitors,
+    means:
+      "`evidence: \"ranking\"` is a domain a search engine actually put above this venture on one of its own queries, with no written profile. `evidence: \"profile\"` is a written profile with no measured ranking — including one whose URL could not be reduced to a domain to join on. `both` is the only row where the two registries agree about the same company. The key is the registrable domain, which groups subdomains and must never be read as a statement about who owns what.",
+  });
 });
 
 /* ------------------------------------------------------------------- aso */

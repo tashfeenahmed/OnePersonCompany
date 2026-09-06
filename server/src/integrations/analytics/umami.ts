@@ -566,8 +566,8 @@ export const DIMENSION_COUNTS: Record<Dimension, "visitors" | "views"> = {
  * makes every share too big.
  *
  * IT IS NOT ENOUGH FOR EVERY SITE, and an earlier version of this comment
- * claimed it was. freellmapi.co's `screen` dimension returns exactly 500 rows
- * in all three windows — the cap, not the distribution — which made its screen
+ * claimed it was. On one live site the `screen` dimension returned exactly 500
+ * rows in all three windows — the cap, not the distribution — which made its screen
  * shares wrong against a short denominator AND made the route publish the
  * missing tail as "sessions with no screen". So the cap is now REPORTED:
  * `breakdown` returns `capped`, the flag is stored on every row of the block,
@@ -810,8 +810,7 @@ export type Utm = {
  * The five UTM parameters out of one raw query string.
  *
  * LOWERCASED ON THE KEY AND ON THE VALUE, so `?utm_Source=Google` and
- * `?utm_source=google` are one row rather than two — workdash's probe made the
- * same call for the same reason. `URLSearchParams` does the percent-decoding
+ * `?utm_source=google` are one row rather than two. `URLSearchParams` does the percent-decoding
  * and the `+`-for-space that a hand-rolled regex gets wrong.
  *
  * A string with no UTM at all returns five nulls, and the caller drops it: a

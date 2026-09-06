@@ -23,7 +23,7 @@ import { Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
  * GA4's engaged-session figure and the two must never be put in one column.
  */
 export function UmamiPanel({ onCollected }: { onCollected?: () => void }) {
-  const report = useApi(() => integrations.umami(30), []);
+  const report = useApi(() => integrations.umami(), []);
   const map = useApi(() => integrations.ventureMap(), []);
   const [collecting, setCollecting] = useState(false);
 
@@ -63,7 +63,9 @@ export function UmamiPanel({ onCollected }: { onCollected?: () => void }) {
         items={[
           { v: num(w.pageviews), k: `pageviews, ${w.days} days` },
           { v: num(w.visits), k: "visits" },
-          { v: pct(w.bounceRate), k: "bounce rate" },
+          /* The server scales this one to 0–100; `pct` takes a fraction, and the
+             division is here rather than hidden inside an import. */
+          { v: pct(w.bounceRate === null ? null : w.bounceRate / 100), k: "bounce rate" },
           { v: duration(w.avgVisitSeconds), k: "average visit" },
         ]}
       />
@@ -86,7 +88,7 @@ export function UmamiPanel({ onCollected }: { onCollected?: () => void }) {
                 <span>{num(site.window.visitors)} visitors</span>
                 <span>{num(site.window.visits)} visits</span>
                 <span className="text-muted-foreground">
-                  {pct(site.window.bounceRate)} bounce ·{" "}
+                  {pct(site.window.bounceRate === null ? null : site.window.bounceRate / 100)} bounce ·{" "}
                   {duration(site.window.avgVisitSeconds)} average visit
                 </span>
               </div>

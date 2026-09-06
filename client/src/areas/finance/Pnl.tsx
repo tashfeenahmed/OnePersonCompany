@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { finance } from "@/lib/api/finance";
-import { amount, currencies, pct } from "./format";
+import { count, pct } from "@/lib/format";
+import { amount, currencies } from "./format";
 
 /**
  * PROFIT AND LOSS — the portfolio in one table, and one venture in full.
@@ -18,9 +19,10 @@ import { amount, currencies, pct } from "./format";
  * page and there is not going to be one: a venture earning dollars on the App
  * Store and paying euro for a server has two margins.
  *
- * EVERY ALLOCATED COST LINE WEARS ITS SHARE AND ITS BASIS, because "Example App 1
- * costs €14" and "Example App 1 is charged a quarter of a €57 control plane by a
- * rule you chose in March" are different claims and only the second is true.
+ * EVERY ALLOCATED COST LINE WEARS ITS SHARE AND ITS BASIS, because "this
+ * venture costs €14" and "this venture is charged a quarter of a €57 control
+ * plane by a rule you chose in March" are different claims and only the second
+ * is true.
  */
 
 function monthOptions(): string[] {
@@ -170,7 +172,7 @@ export function Pnl() {
         <div className="text-[12.5px] font-medium">Model spend, and what the local machines drew</div>
         <p className="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">
           Model spend through this box's runtime in {d.month}: {amount(d.modelSpend.usd, "USD")} over{" "}
-          {d.modelSpend.tokens.toLocaleString()} tokens in {d.modelSpend.calls} calls. {d.modelSpend.note}
+          {count(d.modelSpend.tokens)} tokens in {d.modelSpend.calls} calls. {d.modelSpend.note}
         </p>
         {d.power.length === 0 && (
           <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">

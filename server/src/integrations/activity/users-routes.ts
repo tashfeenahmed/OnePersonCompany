@@ -294,7 +294,7 @@ userRoutes.get("/:product/document", (c) => {
  * ONE PRODUCT'S USERS, FILTERED AND PAGED.
  *
  * `:product` is the account's id or its label, whichever the caller has to
- * hand, for the reason ventureRow accepts both: an agent told "Example App 2" should not
+ * hand, for the reason ventureRow accepts both: an agent told "APP-1" should not
  * have to look up a number first.
  *
  * `q` MATCHES THE ID, THE PLAN, THE COUNTRY AND THE MAIL DOMAIN — and never an

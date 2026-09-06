@@ -22,7 +22,9 @@
  * CURRENCY IS NEVER BLENDED. Every money figure below is a LIST keyed by
  * currency, even on an account that has only ever billed in one — because a
  * shape that can only hold one number is a shape that will silently add two
- * the day a second currency appears. This account is USD throughout today.
+ * the day a second currency appears. The code is upper-case ISO 4217, the one
+ * spelling this box uses, so a map merged with any other area's cannot hold
+ * one currency under two keys.
  */
 import { Hono } from "hono";
 import {
@@ -30,13 +32,14 @@ import {
   getPlugin,
   stripeBalances,
   stripeChargeDays,
-  stripeLedgerDays,
   stripePayouts,
   stripeState,
   stripeSubscriptions,
   type StripeSubscriptionRecord,
 } from "../db.ts";
 import { HISTORY_CHUNK_DAYS, WALK_DAYS, isBilling } from "../providers/stripe.ts";
+import { stripeSettled } from "../integrations/finance/attribution.ts";
+import { currencyCode, money } from "../shared/money.ts";
 import * as accounts from "../accounts.ts";
 
 export const stripeRoutes = new Hono();
@@ -55,10 +58,9 @@ export const WINDOWS = [7, 30, 90] as const;
 /** Sixty days, which is where "ending soon" stops meaning anything. An annual
  *  subscription that turned off auto-renew on day one stays paid for eleven
  *  months; calling that "leaving" beside a monthly one that ends on Thursday
- *  was the pending-churn figure's lie in workdash. */
+ *  is the lie every pending-churn figure tells until somebody fences it. */
 const ENDING_SOON_DAYS = 60;
 
-const money = (n: number) => Number(n.toFixed(2));
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /**
@@ -102,10 +104,10 @@ const connected = (id: string) => getPlugin(id)?.connected === 1;
  */
 function mrrSection(subs: StripeSubscriptionRecord[]) {
   const billing = subs.filter((s) => isBilling(s.status));
-  const currencies = [...new Set(billing.map((s) => s.currency))].sort();
+  const currencies = [...new Set(billing.map((s) => currencyCode(s.currency)))].sort();
 
   return currencies.map((currency) => {
-    const mine = billing.filter((s) => s.currency === currency);
+    const mine = billing.filter((s) => currencyCode(s.currency) === currency);
     const sum = (rows: StripeSubscriptionRecord[]) =>
       money(rows.reduce((n, s) => n + s.monthly_usd, 0));
     const annual = mine.filter((s) => s.bill_interval === "year");
@@ -183,14 +185,14 @@ function mrrSection(subs: StripeSubscriptionRecord[]) {
 function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
   const billing = subs.filter((s) => isBilling(s.status));
   const currencies = [
-    ...new Set([...billing, ...subs.filter((s) => s.ended_at)].map((s) => s.currency)),
+    ...new Set([...billing, ...subs.filter((s) => s.ended_at)].map((s) => currencyCode(s.currency))),
   ].sort();
 
   const rows = [];
   for (const days of WINDOWS) {
     const edge = new Date(nowMs - days * 86_400_000).toISOString();
     for (const currency of currencies) {
-      const mine = subs.filter((s) => s.currency === currency);
+      const mine = subs.filter((s) => currencyCode(s.currency) === currency);
       const standing = mine
         .filter((s) => isBilling(s.status))
         .reduce((n, s) => n + s.monthly_usd, 0);
@@ -209,7 +211,7 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
       const lost = real.reduce((n, s) => n + s.monthly_usd, 0);
       const lostFromStart = fromStart.reduce((n, s) => n + s.monthly_usd, 0);
       const startBook = standing - gained + lostFromStart;
-      const startSubs = billing.filter((s) => s.currency === currency).length
+      const startSubs = billing.filter((s) => currencyCode(s.currency) === currency).length
         - started.length + fromStart.length;
 
       const trials = neverBilled.filter((s) => s.trial_start);
@@ -288,70 +290,35 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
 
 /* ----------------------------------------------------------------- revenue */
 
-/** The ledger, summed per currency over the window, with the fee split intact.
- *  `net` is the ledger's own net and satisfies
- *  gross - refunds - disputes - feesTotal + other to the cent. */
+/**
+ * The ledger, summed per currency over the window, with the fee split intact.
+ * `net` is the ledger's own net and satisfies
+ * gross - refunds - disputes - feesTotal + other to the cent.
+ *
+ * THE REDUCTION ITSELF LIVES IN THE FINANCE AREA, in `stripeSettled(from, to)`.
+ * This route and the portfolio P&L used to reduce the same five columns of
+ * `stripe_ledger_days` with different windows, different rounding and the
+ * currency spelled two ways — so the two headlines disagreed and nothing
+ * downstream could join them. The window is still this route's decision; the
+ * arithmetic and the currency code are not.
+ */
 function revenueSection(days: number, nowMs: number) {
   const from = utcDay(nowMs - (days - 1) * 86_400_000);
-  const rows = stripeLedgerDays(from);
-  const currencies = [...new Set(rows.map((r) => r.currency))].sort();
-
-  return currencies.map((currency) => {
-    const mine = rows.filter((r) => r.currency === currency);
-    const sum = (f: (r: (typeof mine)[number]) => number) =>
-      money(mine.reduce((n, r) => n + f(r), 0));
-    const gross = sum((r) => r.gross);
-    const fees = sum((r) => r.fees);
-    const tax = sum((r) => r.tax_withheld);
-    const byDay = new Map<string, { net: number; gross: number; fees: number }>();
-    for (const r of mine) {
-      const d = byDay.get(r.day) ?? { net: 0, gross: 0, fees: 0 };
-      d.net += r.net;
-      d.gross += r.gross;
-      d.fees += r.fees;
-      byDay.set(r.day, d);
-    }
-    return {
-      currency,
-      days,
-      gross,
-      /** Stripe's own cut, EX-TAX. Any blended rate is derived from THIS. */
-      fees,
-      /** Sales tax Stripe withheld as merchant of record and remits onward: a
-       *  pass-through and not a cost, on its own line so nothing can quote it
-       *  as one. On this account it is larger than the processing fee. */
-      taxWithheld: tax,
-      feesTotal: sum((r) => r.fees_total),
-      refunds: sum((r) => r.refunds),
-      disputes: sum((r) => r.disputes),
-      other: sum((r) => r.other),
-      net: sum((r) => r.net),
-      transactions: mine.reduce((n, r) => n + r.count, 0),
-      feeBreakdown: {
-        processing: sum((r) => r.processing),
-        managedPayments: sum((r) => r.managed_payments),
-        disputes: sum((r) => r.dispute_fees),
-        billing: sum((r) => r.billing),
-        other: sum((r) => r.other_fees),
-      },
-      /** Stripe's cut as a share of gross — from `fees`, never `feesTotal`.
-       *  Deriving it from the total is how an 8% cost reads as 15%. */
-      feeRatePct: gross > 0 ? Number(((fees / gross) * 100).toFixed(2)) : null,
-      taxRatePct: gross > 0 ? Number(((tax / gross) * 100).toFixed(2)) : null,
-      series: [...byDay.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([day, v]) => ({
-          day,
-          net: money(v.net),
-          gross: money(v.gross),
-          fees: money(v.fees),
-        })),
-      note:
-        "From the Stripe balance ledger, not a rate card: the fee Stripe actually took, " +
-        "including the ones a rate card never mentions. net = gross - refunds - disputes " +
-        "- feesTotal + other. Dated by settlement, so it does not add to the charge series.",
-    };
-  });
+  return stripeSettled(from, utcDay(nowMs)).map(({ days: series, ...c }) => ({
+    ...c,
+    days,
+    /** Stripe's cut as a share of gross — from `fees`, never `feesTotal`.
+     *  Deriving it from the total is how an 8% cost reads as 15%. `fees` is
+     *  EX-TAX; `taxWithheld` is sales tax Stripe remits onward, a pass-through
+     *  and not a cost, which is why it has a line and a rate of its own. */
+    feeRatePct: c.gross > 0 ? Number(((c.fees / c.gross) * 100).toFixed(2)) : null,
+    taxRatePct: c.gross > 0 ? Number(((c.taxWithheld / c.gross) * 100).toFixed(2)) : null,
+    series,
+    note:
+      "From the Stripe balance ledger, not a rate card: the fee Stripe actually took, " +
+      "including the ones a rate card never mentions. net = gross - refunds - disputes " +
+      "- feesTotal + other. Dated by settlement, so it does not add to the charge series.",
+  }));
 }
 
 /* ----------------------------------------------------------------- charges */
@@ -361,10 +328,10 @@ function revenueSection(days: number, nowMs: number) {
 function chargeSection(days: number, nowMs: number) {
   const from = utcDay(nowMs - (days - 1) * 86_400_000);
   const rows = stripeChargeDays(from);
-  const currencies = [...new Set(rows.map((r) => r.currency))].sort();
+  const currencies = [...new Set(rows.map((r) => currencyCode(r.currency)))].sort();
 
   return currencies.map((currency) => {
-    const mine = rows.filter((r) => r.currency === currency);
+    const mine = rows.filter((r) => currencyCode(r.currency) === currency);
     const byDay = new Map<string, { gross: number; refunded: number; succeeded: number; failed: number; blocked: number; declined: number }>();
     for (const r of mine) {
       const d = byDay.get(r.day) ?? {
@@ -439,17 +406,17 @@ stripeRoutes.get("/", (c) => {
     (s) => !s.cancel_at || Date.parse(s.cancel_at) <= nowMs + ENDING_SOON_DAYS * 86_400_000,
   );
   const perCurrency = (rows: StripeSubscriptionRecord[]) =>
-    [...new Set(rows.map((s) => s.currency))].sort().map((currency) => ({
+    [...new Set(rows.map((s) => currencyCode(s.currency)))].sort().map((currency) => ({
       currency,
       amount: money(
-        rows.filter((s) => s.currency === currency).reduce((n, s) => n + s.monthly_usd, 0),
+        rows.filter((s) => currencyCode(s.currency) === currency).reduce((n, s) => n + s.monthly_usd, 0),
       ),
     }));
 
   const byProduct = new Map<string, { mrr: number; subs: number; currency: string }>();
   for (const s of billing) {
     const key = s.product ?? "Other";
-    const p = byProduct.get(key) ?? { mrr: 0, subs: 0, currency: s.currency };
+    const p = byProduct.get(key) ?? { mrr: 0, subs: 0, currency: currencyCode(s.currency) };
     p.mrr += s.monthly_usd;
     p.subs += 1;
     byProduct.set(key, p);
@@ -457,7 +424,7 @@ stripeRoutes.get("/", (c) => {
   const byPlan = new Map<string, { mrr: number; subs: number; currency: string }>();
   for (const s of billing) {
     const key = s.plan ?? s.product ?? "Other";
-    const p = byPlan.get(key) ?? { mrr: 0, subs: 0, currency: s.currency };
+    const p = byPlan.get(key) ?? { mrr: 0, subs: 0, currency: currencyCode(s.currency) };
     p.mrr += s.monthly_usd;
     p.subs += 1;
     byPlan.set(key, p);

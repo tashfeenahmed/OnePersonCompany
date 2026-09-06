@@ -40,6 +40,7 @@
  */
 import { db, now } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
+import { registerRetention } from "../../shared/retention.ts";
 import { parseSsh, sshLabel, ssh, sshProblem, writeKeyFile, type SshTarget } from "../ops/fleet.ts";
 
 /* -------------------------------------------------------------- the script */
@@ -386,9 +387,37 @@ export type SnapshotRow = {
  * box would not answer at 03:12" is the finding, and a route that 500'd instead
  * would lose it.
  */
+/**
+ * NINETY DAYS, AND THIS TABLE HAD NO WINDOW AT ALL UNTIL NOW.
+ *
+ * Every row here is a WHOLE JSON DOCUMENT — the packages, the listening ports,
+ * the users, the units — one per incident and one per time anybody pressed the
+ * button. It is by a distance the heaviest table on the box per row, and it
+ * was the one nothing anywhere deleted from, because there was no single place
+ * that listed what gets pruned and so nobody noticed it was missing.
+ *
+ * Ninety days is chosen for what the document is FOR. A snapshot answers "what
+ * did this box look like when it broke", and that question is asked in the
+ * days and weeks after the break; a quarter of them is a generous margin on
+ * "compare this against the last time it happened". Past that the document
+ * describes a machine that has since been patched, upgraded and rebooted, so
+ * it is no longer evidence about the machine in front of you — while still
+ * being a full inventory of it, which is not a thing to keep for ever on a box
+ * that also holds the credentials.
+ */
+registerRetention({
+  table: "security_snapshots",
+  column: "ts",
+  days: 90,
+  source: "area",
+  note:
+    "A whole inventory document per incident. A quarter covers “has this happened before”; older than that " +
+    "it describes a machine that has since changed, and it is a full description of the box to keep lying around.",
+});
+
 export async function takeSnapshot(box: Box, reason: string): Promise<{ id: number; doc: SnapshotDoc }> {
   const ts = now();
-  const keyFile = box.key ? writeKeyFile(box.accountId, box.key) : null;
+  const keyFile = box.key ? writeKeyFile("fleet", box.accountId, box.key) : null;
   const ran = await ssh(box.target, keyFile, SNAPSHOT_SCRIPT);
 
   const failed = ran.code !== 0 || !ran.stdout.includes("===OPC META===");

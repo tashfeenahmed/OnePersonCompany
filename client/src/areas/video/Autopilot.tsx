@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CircleCheck, CircleSlash, Loader2, Play } from "lucide-react";
+import { SubTabs } from "@/components/TabStrip";
+import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { StagePill } from "@/components/VentureChrome";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import type { VentureStage } from "@/lib/api";
 import { autopilotApi, type AutopilotDoc, type AutopilotEntry } from "@/lib/api/video";
 import { History, Sources } from "@/areas/socialfeed/Sourcing";
@@ -20,7 +22,7 @@ import { cn } from "@/lib/utils";
  * draws SKIPS as prominently as it draws work — a quiet stage, a cadence
  * already met, a day's cap already spent are the three most common lines and
  * each says which. A page that only listed what was made would answer "why is
- * there no video for Example App 1" with an empty table.
+ * there no video for this venture" with an empty table.
  *
  * THE THREE ACTIONS ARE THREE COLOURS AND NEVER TWO. `queued` is work that now
  * exists. `skipped` is a rule being obeyed and is drawn in the muted tone,
@@ -73,138 +75,130 @@ export function Autopilot() {
   const d = doc.data;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
-      <div className="mx-auto w-full max-w-[940px]">
-        <div className="mt-2 mb-6">
-          <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">Autopilot</h1>
-          <p className="text-muted-foreground text-[13.5px]">
-            Once a day it queues Studio posts and videos for each venture, up to
-            a cadence you set. It never publishes any of it — a post lands in the{" "}
-            <Link to="/social/studio" className="underline decoration-dotted">
-              Studio gallery
-            </Link>{" "}
-            and a video on its{" "}
-            <Link to="/social/video" className="underline decoration-dotted">
-              run page
-            </Link>
-            , for you.
-          </p>
-        </div>
+    <PageShell
+      title="Autopilot"
+      sub={
+        <>
+          Once a day it queues Studio posts and videos for each venture, up to
+          a cadence you set. It never publishes any of it — a post lands in the{" "}
+          <Link to="/social/studio" className="underline decoration-dotted">
+            Studio gallery
+          </Link>{" "}
+          and a video on its{" "}
+          <Link to="/social/video" className="underline decoration-dotted">
+            run page
+          </Link>
+          , for you.
+        </>
+      }
+    >
+      <SubTabs
+        tabs={TABS}
+        activeKey={tab}
+        onSelect={(k) => {
+          const p = new URLSearchParams(params);
+          p.set("tab", k);
+          setParams(p, { replace: true });
+        }}
+        className="mb-4"
+      />
 
-        <div className="mb-4 flex flex-wrap gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => {
-                const p = new URLSearchParams(params);
-                p.set("tab", t.key);
-                setParams(p, { replace: true });
-              }}
-              aria-current={tab === t.key ? "page" : undefined}
-              className={cn("hover:bg-accent rounded-lg px-2.5 py-1.5 text-[12.5px]", tab === t.key && "bg-accent font-medium")}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+      {tab === "sources" && <Sources />}
+      {tab === "history" && <History />}
 
-        {tab === "sources" && <Sources />}
-        {tab === "history" && <History />}
+      {tab === "schedule" && doc.error && (
+        <p className="text-muted-foreground mb-4 text-[13px]">
+          The autopilot API did not answer.{" "}
+          <span className="text-destructive">{doc.error}</span>
+        </p>
+      )}
+      {tab === "schedule" && !d && !doc.error && <p className="text-muted-foreground text-[13px]">Reading the schedule…</p>}
 
-        {tab === "schedule" && doc.error && (
-          <p className="text-muted-foreground mb-4 text-[13px]">
-            The autopilot API did not answer.{" "}
-            <span className="text-destructive">{doc.error}</span>
-          </p>
-        )}
-        {tab === "schedule" && !d && !doc.error && <p className="text-muted-foreground text-[13px]">Reading the schedule…</p>}
+      {tab === "schedule" && d && (
+        <>
+          <Schedule doc={d} />
 
-        {tab === "schedule" && d && (
-          <>
-            <Schedule doc={d} />
+          <div className="mt-4 flex flex-wrap items-center gap-2.5">
+            <Button disabled={busy} onClick={() => void now()}>
+              {busy ? (
+                <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} />
+              ) : (
+                <Play className="size-[15px]" strokeWidth={1.8} />
+              )}
+              Run a pass now
+            </Button>
+            <span className="text-muted-foreground text-[12px]">
+              {busy
+                ? "Writing captions and pictures takes about twenty seconds each."
+                : "The same pass the clock runs, with the same limits. It spends Replicate credit and Pexels quota."}
+            </span>
+          </div>
+          {said && <p className="mt-2 text-[12.5px]">{said}</p>}
 
-            <div className="mt-4 flex flex-wrap items-center gap-2.5">
-              <Button disabled={busy} onClick={() => void now()}>
-                {busy ? (
-                  <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} />
-                ) : (
-                  <Play className="size-[15px]" strokeWidth={1.8} />
-                )}
-                Run a pass now
-              </Button>
-              <span className="text-muted-foreground text-[12px]">
-                {busy
-                  ? "Writing captions and pictures takes about twenty seconds each."
-                  : "The same pass the clock runs, with the same limits. It spends Replicate credit and Pexels quota."}
-              </span>
-            </div>
-            {said && <p className="mt-2 text-[12.5px]">{said}</p>}
-
-            {/* --------------------------------------------- the ventures */}
-            <div className="mt-7 mb-2 text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
-              This week, per venture
-            </div>
-            {d.ventures.length === 0 ? (
-              <p className="text-muted-foreground text-[13px]">
-                There are no ventures yet, and the autopilot works venture by venture.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-px">
-                {d.ventures.map((v) => (
-                  <div
-                    key={v.id}
-                    className="flex flex-wrap items-center gap-x-2.5 gap-y-1 py-1 text-[12.5px]"
-                  >
-                    <span className="min-w-[150px] flex-1 truncate">{v.name}</span>
-                    {/* The wire type is a string because the route sends the
-                        column; the three the pill knows are the three the
-                        column is checked against, and anything else is drawn
-                        as plain text rather than as a pill it cannot colour. */}
-                    {isStage(v.stage) ? (
-                      <StagePill stage={v.stage} />
-                    ) : (
-                      <span className="text-muted-foreground text-[11.5px]">{v.stage}</span>
-                    )}
-                    {v.quiet ? (
-                      <span className="text-muted-foreground text-[11.5px]">
-                        skipped — “{v.stage}” is on the quiet list
-                      </span>
-                    ) : (
-                      <>
-                        <Tally label="posts" made={v.posts.made} cadence={v.posts.cadence} />
-                        <Tally label="videos" made={v.videos.made} cadence={v.videos.cadence} />
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="text-muted-foreground mt-1.5 text-[11.5px]">
-              Counted over the last seven days, rolling — not a calendar week. Only
-              what the autopilot queued itself is counted: a post you made by hand
-              does not use up the cadence.
+          {/* --------------------------------------------- the ventures */}
+          <div className="mt-7 mb-2 text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+            This week, per venture
+          </div>
+          {d.ventures.length === 0 ? (
+            <p className="text-muted-foreground text-[13px]">
+              There are no ventures yet, and the autopilot works venture by venture.
             </p>
-
-            {/* -------------------------------------------------- the log */}
-            <div className="mt-7 mb-2 text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
-              Every decision it has taken
+          ) : (
+            <div className="flex flex-col gap-px">
+              {d.ventures.map((v) => (
+                <div
+                  key={v.id}
+                  className="flex flex-wrap items-center gap-x-2.5 gap-y-1 py-1 text-[12.5px]"
+                >
+                  <span className="min-w-[150px] flex-1 truncate">{v.name}</span>
+                  {/* The wire type is a string because the route sends the
+                      column; the three the pill knows are the three the
+                      column is checked against, and anything else is drawn
+                      as plain text rather than as a pill it cannot colour. */}
+                  {isStage(v.stage) ? (
+                    <StagePill stage={v.stage} />
+                  ) : (
+                    <span className="text-muted-foreground text-[11.5px]">{v.stage}</span>
+                  )}
+                  {v.quiet ? (
+                    <span className="text-muted-foreground text-[11.5px]">
+                      skipped — “{v.stage}” is on the quiet list
+                    </span>
+                  ) : (
+                    <>
+                      <Tally label="posts" made={v.posts.made} cadence={v.posts.cadence} />
+                      <Tally label="videos" made={v.videos.made} cadence={v.videos.cadence} />
+                    </>
+                  )}
+                </div>
+              ))}
             </div>
-            {d.log.length === 0 ? (
-              <p className="text-muted-foreground text-[13px]">
-                It has never run. {d.schedule.enabled ? "The next pass is above." : "It is switched off."}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-px">
-                {d.log.map((e) => (
-                  <LogLine key={e.id} entry={e} />
-                ))}
-              </div>
-            )}
-            <p className="text-muted-foreground mt-2 text-[11.5px] leading-relaxed">{d.note}</p>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+          <p className="text-muted-foreground mt-1.5 text-[11.5px]">
+            Counted over the last seven days, rolling — not a calendar week. Only
+            what the autopilot queued itself is counted: a post you made by hand
+            does not use up the cadence.
+          </p>
+
+          {/* -------------------------------------------------- the log */}
+          <div className="mt-7 mb-2 text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
+            Every decision it has taken
+          </div>
+          {d.log.length === 0 ? (
+            <p className="text-muted-foreground text-[13px]">
+              It has never run. {d.schedule.enabled ? "The next pass is above." : "It is switched off."}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-px">
+              {d.log.map((e) => (
+                <LogLine key={e.id} entry={e} />
+              ))}
+            </div>
+          )}
+          <p className="text-muted-foreground mt-2 text-[11.5px] leading-relaxed">{d.note}</p>
+        </>
+      )}
+    </PageShell>
   );
 }
 

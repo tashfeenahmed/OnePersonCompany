@@ -31,25 +31,27 @@
 import { Hono } from "hono";
 import {
   appStoreApps,
-  appStorePayouts,
   appStoreProceeds,
   appStoreReports,
   appStoreSales,
   appStoreState,
   getPlugin,
-  playEarnings,
   playLatestRatings,
   playSales,
   playState,
   playStats,
 } from "../db.ts";
 import { FINANCE_MONTHS } from "../providers/appstore.ts";
+import {
+  byCurrency as payoutCurrencies,
+  payouts as gatedPayouts,
+} from "../integrations/mobilehealth/payouts.ts";
+import { isoMonth, money as round, monthOf } from "../shared/money.ts";
 import { mobileRevenue } from "./mobileRevenue.ts";
 
 export const mobile = new Hono();
 mobile.route("/revenue", mobileRevenue);
 
-const round = (n: number) => Number(n.toFixed(2));
 const connected = (id: string) => getPlugin(id)?.connected === 1;
 
 /** Amounts summed per currency, biggest first. Never a total: the list IS the
@@ -66,14 +68,12 @@ function byCurrency<T>(
     .sort((x, y) => Math.abs(y.amount) - Math.abs(x.amount));
 }
 
-const month = (day: string) => day.slice(0, 7);
-
-/** Google stamps its report months `202608`; Apple names its finance reports
- *  `2026-08`. One document should not carry both spellings of a month, so
- *  Google's is widened here rather than at the row — the stored key stays the
- *  one the object name actually carries. */
-const monthLabel = (yyyymm: string) =>
-  /^\d{6}$/.test(yyyymm) ? `${yyyymm.slice(0, 4)}-${yyyymm.slice(4)}` : yyyymm;
+/* Google stamps its report months `202608`; Apple names its finance reports
+   `2026-08`. One document should not carry both spellings of a month, so
+   Google's is widened on the way out rather than at the row — the stored key
+   stays the one the object name actually carries. Five hand-rolled slices of
+   that conversion used to exist; `isoMonth` is the only one now, because a key
+   whose offsets are wrong yields a silent zero rather than an error. */
 
 /* ------------------------------------------------------------------- apple */
 
@@ -82,7 +82,11 @@ function appStore(days: number) {
   const apps = appStoreApps();
   const sales = appStoreSales(days);
   const proceeds = appStoreProceeds(days);
-  const payouts = appStorePayouts();
+  /* THE GATE, APPLIED ONCE AND NOT HERE. `gatedPayouts` drops rows whose
+     finance report this box has not seen arrive — the same rule /api/mobile/revenue
+     (mounted inside this router) and the finance area's revenue lines now use,
+     so one API tree cannot answer one month two ways. */
+  const payouts = gatedPayouts("appstore");
   const salesReports = appStoreReports("sales");
   const financeReports = appStoreReports("finance");
 
@@ -148,11 +152,7 @@ function appStore(days: number) {
   const reportedMonths = financeReports.filter((r) => r.state === "reported");
   const payoutMonths = [...new Set(payouts.map((p) => p.month))].sort().map((m) => ({
     month: m,
-    currencies: byCurrency(
-      payouts.filter((p) => p.month === m),
-      (p) => p.currency,
-      (p) => p.amount,
-    ),
+    currencies: payoutCurrencies(payouts.filter((p) => p.month === m)) ?? [],
   }));
 
   return {
@@ -221,10 +221,10 @@ function appStore(days: number) {
     /** APPLE'S OWN ESTIMATE, under its own name. */
     estimated: {
       currencies: byCurrency(proceeds, (p) => p.currency, (p) => p.amount),
-      months: [...new Set(proceeds.map((p) => month(p.day)))].sort().map((m) => ({
+      months: [...new Set(proceeds.map((p) => monthOf(p.day)))].sort().map((m) => ({
         month: m,
         currencies: byCurrency(
-          proceeds.filter((p) => month(p.day) === m),
+          proceeds.filter((p) => monthOf(p.day) === m),
           (p) => p.currency,
           (p) => p.amount,
         ),
@@ -235,7 +235,7 @@ function appStore(days: number) {
 
     /** THE PAYOUT, and the one figure anything downstream may call revenue. */
     payout: {
-      currencies: byCurrency(payouts, (p) => p.currency, (p) => p.amount),
+      currencies: payoutCurrencies(payouts) ?? [],
       months: payoutMonths,
       monthsAsked: monthsAsked.length,
       monthsReported: reportedMonths.length,
@@ -289,7 +289,7 @@ function appStore(days: number) {
 function play(days: number) {
   const state = playState();
   const stats = playStats(days);
-  const earnings = playEarnings();
+  const earnings = gatedPayouts("playstore");
   const sales = playSales();
   const ratings = playLatestRatings();
 
@@ -317,8 +317,13 @@ function play(days: number) {
       activeByPackage.set(s.package, { day: s.day, devices: s.active_devices });
   }
 
+  /* Both lists are `YYYY-MM`. The earnings side is widened by the payout
+     helper and the sales side here, so `settled` below compares two months
+     spelled the same way — it used to compare a compact key with itself and
+     publish the other spelling, which is how two of the five hand-rolled
+     conversions came to exist. */
   const months = [...new Set(earnings.map((e) => e.month))].sort();
-  const salesMonths = [...new Set(sales.map((s) => s.month))].sort();
+  const salesMonths = [...new Set(sales.map((s) => isoMonth(s.month)))].sort();
   const latestPayoutMonth = months.at(-1) ?? null;
 
   return {
@@ -340,7 +345,7 @@ function play(days: number) {
     packages: packages.map((pkg) => {
       const mine = stats.filter((s) => s.package === pkg);
       const rating = ratings.find((r) => r.package === pkg) ?? null;
-      const net = earnings.filter((e) => e.package === pkg);
+      const net = earnings.filter((e) => e.app === pkg);
       return {
         package: pkg,
         installs: mine.reduce((n, s) => n + (s.installs ?? 0), 0),
@@ -351,7 +356,7 @@ function play(days: number) {
          *  The export has no rating COUNT in this era, so there is none here. */
         rating: rating?.rating_total ?? null,
         ratingAt: rating?.day ?? null,
-        payout: byCurrency(net, (e) => e.currency, (e) => e.net),
+        payout: payoutCurrencies(net) ?? [],
       };
     }),
 
@@ -381,27 +386,29 @@ function play(days: number) {
 
     /** THE PAYOUT: merchant currency, net of Google's fee and refunds. */
     payout: {
-      currencies: byCurrency(earnings, (e) => e.currency, (e) => e.net),
+      currencies: payoutCurrencies(earnings) ?? [],
       months: months.map((m) => {
         const mine = earnings.filter((e) => e.month === m);
         return {
-          month: monthLabel(m),
+          month: m,
           currencies: [...new Set(mine.map((e) => e.currency))].map((currency) => {
             const rows = mine.filter((e) => e.currency === currency);
+            const sum = (f: (r: (typeof rows)[number]) => number | null) =>
+              round(rows.reduce((n, r) => n + (f(r) ?? 0), 0));
             return {
               currency,
-              charged: round(rows.reduce((n, r) => n + r.charged, 0)),
-              refunds: round(rows.reduce((n, r) => n + r.refunds, 0)),
+              charged: sum((r) => r.charged),
+              refunds: sum((r) => r.refunds),
               /** Google's cut, as its own rows report it — never a percentage
                *  applied to a total. */
-              fees: round(rows.reduce((n, r) => n + r.fees, 0)),
-              net: round(rows.reduce((n, r) => n + r.net, 0)),
-              transactions: rows.reduce((n, r) => n + r.transactions, 0),
+              fees: sum((r) => r.fees),
+              net: sum((r) => r.net),
+              transactions: rows.reduce((n, r) => n + (r.transactions ?? 0), 0),
             };
           }),
         };
       }),
-      latestMonth: latestPayoutMonth ? monthLabel(latestPayoutMonth) : null,
+      latestMonth: latestPayoutMonth,
       note:
         "Merchant earnings from the console's earnings export — charges, less refunds, less Google's own fee rows. This is the money that lands.",
     },
@@ -409,22 +416,22 @@ function play(days: number) {
     /** THE ESTIMATE: what buyers were charged, in their own currencies. */
     estimated: {
       months: salesMonths.map((m) => ({
-        month: monthLabel(m),
+        month: m,
         /** Settled means an earnings export exists for the same month, in
          *  which case the payout above is the figure to read and this one is
          *  only its shadow. */
         settled: months.includes(m),
         currencies: byCurrency(
-          sales.filter((s) => s.month === m),
+          sales.filter((s) => isoMonth(s.month) === m),
           (s) => s.currency,
           (s) => s.charged,
         ),
-        orders: sales.filter((s) => s.month === m).reduce((n, s) => n + s.orders, 0),
-        refunds: sales.filter((s) => s.month === m).reduce((n, s) => n + s.refunds, 0),
+        orders: sales.filter((s) => isoMonth(s.month) === m).reduce((n, s) => n + s.orders, 0),
+        refunds: sales.filter((s) => isoMonth(s.month) === m).reduce((n, s) => n + s.refunds, 0),
       })),
       /** The month still running, which has orders and no payout — Google
        *  writes the earnings export only once a month has closed. */
-      running: salesMonths.filter((m) => !months.includes(m)).map(monthLabel),
+      running: salesMonths.filter((m) => !months.includes(m)),
       note:
         "What buyers were charged, in the buyer's own currency, tax included and before Google's cut. An estimate, and the only figure that exists for a month still running.",
     },

@@ -205,7 +205,15 @@ export type Isolation = {
    *  0600 for the three this process alone reads, no world bits on the agent
    *  key, which is group-readable by design. */
   secretsLocked: boolean;
-  /** The API-level half, which is true at every level. */
+  /**
+   * THE API-LEVEL HALF, WHICH IS TRUE AT EVERY LEVEL — and it is the gate's
+   * own table rather than a second list beside it. It used to be a list of
+   * prefixes that did not include the routes that install a service or publish
+   * a post, so this report told the owner those were agent-proof while the
+   * gate had never heard of them. Each row now also carries the STRICTNESS it
+   * is held to, because "an agent cannot reach this" and "nothing but a
+   * signed-in browser can reach this" are different promises.
+   */
   scopedKey: { file: string; refusedPrefixes: typeof OWNER_SURFACE_PREFIXES };
   /** Set when the agent key file cannot be read or written by this process —
    *  a wrong `chown`, most likely. The agent is then locked out at the gate

@@ -33,6 +33,7 @@ import {
   annualOf,
   currencyCode,
   emptyTotals,
+  money,
   monthlyOf,
   type Category,
   type CurrencyTotals,
@@ -391,11 +392,23 @@ export function archiveMissing(source: string, keep: Set<string>): number {
   return gone;
 }
 
-/** Which venture, if any, is linked to this entity at this plugin. Null is the
- *  ordinary answer and means SHARED — see finance_allocations. */
+/**
+ * Which venture, if any, is linked to this entity at this plugin. Null is the
+ * ordinary answer and means SHARED — see finance_allocations.
+ *
+ * THE COMPARISON IS CASE-INSENSITIVE, which the exact-match version was not.
+ * A thing linked with different capitalisation than the collector stores it
+ * with matched on one page and not on another, so a venture could show cases
+ * against a product it also showed no revenue for. Case is not evidence of a
+ * different business.
+ */
 function ventureOfEntity(plugin: string, entity: string): string | null {
   const row = db
-    .prepare("SELECT venture_id FROM venture_links WHERE plugin = ? AND entity = ? ORDER BY venture_id LIMIT 1")
+    .prepare(
+      `SELECT venture_id FROM venture_links
+       WHERE plugin = ? AND LOWER(TRIM(entity)) = LOWER(TRIM(?))
+       ORDER BY venture_id LIMIT 1`,
+    )
     .get(plugin, entity) as { venture_id: string } | undefined;
   return row?.venture_id ?? null;
 }
@@ -465,6 +478,80 @@ export function seedHetzner(): SeedCounts {
   }
   t.archived = archiveMissing("hetzner", keep);
   return t;
+}
+
+/**
+ * WHAT THE HETZNER FLEET COSTS A MONTH, read from the ledger and nowhere else.
+ *
+ * TWO ANSWERS USED TO EXIST AND ONE OF THEM CALLED AN UNPRICED PLAN FREE. The
+ * fleet route summed `hetzner_servers.monthly_eur ?? 0`, which reports a
+ * confident low number: Hetzner quotes no price for some plans at some
+ * locations, and `?? 0` turns "nobody has established what this costs" into
+ * "this costs nothing". The ledger has always done the honest thing — a null
+ * amount, excluded from the total, counted in `unpriced` — and the two
+ * therefore disagreed by exactly the boxes nobody had priced.
+ *
+ * THEY ALSO DISAGREED PERMANENTLY THE MOMENT THE OWNER FIXED ONE. Correcting a
+ * price in the ledger claims the column in `owner_fields`, so every refresh
+ * afterwards leaves it alone — while the route went on reading the provider
+ * table the correction was made ABOUT. `ownerPriced` is published here so the
+ * fleet page can say which figures are the owner's rather than Hetzner's.
+ *
+ * This is the ledger's shape and it is the only one. A fleet page that wants a
+ * total gets the priced part and the count of what is missing from it.
+ */
+export type HetznerLedgerRow = {
+  /** `server:12` or `volume:3` — the ledger's own reference to the thing. */
+  ref: string;
+  kind: "server" | "volume";
+  /** The numeric id inside the ref, for joining back to the provider tables. */
+  id: number;
+  label: string;
+  /** Null is unpriced, and unpriced is not free. */
+  amount: number | null;
+  currency: string;
+  /** True when the owner has corrected the amount; a refresh will not move it. */
+  ownerPriced: boolean;
+};
+
+export function hetznerMonthlyCost(): {
+  rows: HetznerLedgerRow[];
+  byRef: Map<string, HetznerLedgerRow>;
+  amounts: { currency: string; amount: number }[];
+  unpriced: number;
+  unpricedLabels: string[];
+  ownerPriced: number;
+} {
+  const rows: HetznerLedgerRow[] = [];
+  const totals = emptyTotals();
+  const unpricedLabels: string[] = [];
+  for (const r of allExpenses().filter((e) => e.source === "hetzner")) {
+    const [kind, id] = (r.source_ref ?? "").split(":");
+    if (kind !== "server" && kind !== "volume") continue;
+    const monthly = monthlyOf(r.amount, r.period as Period);
+    const row: HetznerLedgerRow = {
+      ref: r.source_ref!,
+      kind,
+      id: Number(id),
+      label: r.label,
+      amount: monthly,
+      currency: currencyCode(r.currency),
+      ownerPriced: ownerFields(r).includes("amount"),
+    };
+    rows.push(row);
+    if (monthly === null) unpricedLabels.push(r.label);
+    addTo(totals, r.currency, monthly);
+  }
+  return {
+    rows,
+    byRef: new Map(rows.map((r) => [r.ref, r])),
+    amounts: Object.entries(totals.byCurrency)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([currency, amount]) => ({ currency, amount: money(amount) })),
+    unpriced: totals.unpriced,
+    unpricedLabels,
+    ownerPriced: rows.filter((r) => r.ownerPriced).length,
+  };
 }
 
 /**

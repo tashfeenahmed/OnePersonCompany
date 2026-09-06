@@ -1,12 +1,15 @@
 /**
  * THE PLUGIN CATALOG.
  *
- * Every integration WorkDash actually has, read off three places in that repo:
- * agent/integrations.js (the closed registry its settings page writes through),
- * KNOWN_SECRETS in agent/secrets.js (the vault's own names), and each
- * collectors/collect_*.py to see which service it really calls. The vault entry
- * name and the "read by" list on each entry are the real ones - a key pasted
- * here lands under exactly that name.
+ * One entry per integration this box can hold a credential for: what the
+ * service is, which vault entry each field is written to, and which code here
+ * actually reads it.
+ *
+ * THE VAULT ENTRY NAMES AND THE "read by" LISTS ARE THE REAL ONES. A key
+ * pasted into a field lands under exactly the name written down beside it, and
+ * the reader list names code that exists. Both are the strings the interface
+ * tells the owner their credential is stored under and used by, and a wrong
+ * one sends somebody looking for something that is not there.
  */
 
 export type FieldKind = "secret" | "text";
@@ -23,8 +26,8 @@ export type PluginField = {
    *
    * A plugin with one field writes to the plugin's own `secret`. A plugin with
    * several USUALLY writes `<stem>-<field key>`, and that derivation is what
-   * the server's closed registry does — but the real names in workdash's vault
-   * were chosen before any of this and do not all fit the pattern:
+   * the server's registry does — but some entry names were chosen by the
+   * provider or by an earlier tool and do not fit the pattern:
    * `gmail-client.json` is not `gmail-token.json-client`. Where the name is
    * not derivable it is written down here rather than guessed, because this is
    * the string the interface tells the owner their credential is stored under,
@@ -126,7 +129,6 @@ export const PLUGINS: Plugin[] = [
       { key: "key", label: "Restricted key", kind: "secret", ph: "rk_live_…" },
     ],
     usedBy: [
-      "collect_stripe.py (payments.json) — workdash",
       "GET /api/stripe — MRR, churn, the balance ledger and the payout balance",
     ],
   },
@@ -136,17 +138,17 @@ export const PLUGINS: Plugin[] = [
     icon: "googleadsense",
     cat: "revenue",
     /*
-      NOT CONNECTED, AND IT NEVER HAS BEEN. This said `true` because the
-      catalog was seeded from the integrations workdash intends to have. There
-      is no adsense-token in any vault, no adsense-token.json beside its
-      collectors, and no consent has ever been granted for either box. Saying
-      "Connected" was a mock value presented as a measurement, which is the one
-      thing this project refuses.
+      NOT CONNECTED BY DEFAULT. This said `true` because the catalog was
+      seeded from the integrations somebody INTENDED to have rather than from
+      the ones a box actually holds a credential for. Saying "Connected" out of
+      a seed is a mock value presented as a measurement, which is the one thing
+      this project refuses: `connected` here is always the default for a fresh
+      install, and the server's answer replaces it.
     */
     connected: false,
     secret: "adsense",
     desc: "Ad earnings and RPM per site. Needs an OAuth grant nobody has given yet.",
-    help: "This needs an OAuth refresh token, and only a human at a Google consent screen can mint one. (1) In Google Cloud, on the project you will use: APIs & Services → Library → enable the AdSense Management API. (2) APIs & Services → Credentials → Create credentials → OAuth client ID → Desktop app; keep the client ID and secret. (3) Run the consent for scope adsense.readonly with access_type=offline and prompt=consent, signed in as the AdSense account owner, and keep the refresh_token — workdash's adsense_auth.py does exactly this in a terminal and prints the URL to open. (4) PUBLISH the Cloud app: while it is in Testing, Google expires every refresh token after seven days, so an integration that works all week stops on the eighth day. (5) Paste all three here. The first collection after a fresh consent usually fails with SERVICE_DISABLED if step 1 was skipped — the card carries Google's own link to switch the API on.",
+    help: "This needs an OAuth refresh token, and only a human at a Google consent screen can mint one. (1) In Google Cloud, on the project you will use: APIs & Services → Library → enable the AdSense Management API. (2) APIs & Services → Credentials → Create credentials → OAuth client ID → Desktop app; keep the client ID and secret. (3) Run the consent for scope adsense.readonly with access_type=offline and prompt=consent, signed in as the AdSense account owner, and keep the refresh_token — any small one-off script that opens the consent URL in a terminal and prints the code back does this. (4) PUBLISH the Cloud app: while it is in Testing, Google expires every refresh token after seven days, so an integration that works all week stops on the eighth day. (5) Paste all three here. The first collection after a fresh consent usually fails with SERVICE_DISABLED if step 1 was skipped — the card carries Google's own link to switch the API on.",
     docs: "https://developers.google.com/adsense/management/reference/rest/v2/accounts.reports/generate",
     fields: [
       { key: "client-id", label: "OAuth client ID", kind: "text", ph: "…apps.googleusercontent.com" },
@@ -154,7 +156,6 @@ export const PLUGINS: Plugin[] = [
       { key: "refresh-token", label: "Refresh token", kind: "secret", ph: "1//0e…" },
     ],
     usedBy: [
-      "collect_adsense.py (adsense.json) — workdash, also unauthorised",
       "GET /api/adsense — earnings per site per day, or the reason there are none",
     ],
   },
@@ -165,8 +166,7 @@ export const PLUGINS: Plugin[] = [
     cat: "revenue",
     connected: true,
     /* The stem, not the entry: with four fields the entry name is
-       `<stem>-<field>`, so the private key lands under `asc-key.p8` — the same
-       name workdash's own vault uses. */
+       `<stem>-<field>`, so the private key lands under `asc-key.p8`. */
     secret: "asc",
     desc: "Downloads, store status, estimated proceeds and the monthly payout.",
     help: "App Store Connect → Users and Access → Integrations → App Store Connect API for the key, its ID and the issuer ID; the .p8 downloads once and Apple will not show it again. The VENDOR NUMBER is somewhere else entirely — Payments and Financial Reports — and without it no sales or finance report can be read at all.",
@@ -438,8 +438,6 @@ export const PLUGINS: Plugin[] = [
       },
     ],
     usedBy: [
-      "collect_social.py (social.json) — workdash",
-      "collect_ads.py (ads.json) — workdash",
       "GET /api/meta — the Pages, the ad account’s window and daily line, and the Instagram answer",
     ],
   },
@@ -460,7 +458,6 @@ export const PLUGINS: Plugin[] = [
     docs: "https://business.facebook.com/",
     fields: [],
     usedBy: [
-      "collect_social.py (social.json) — workdash",
       "GET /api/meta — the `instagram` block, which reports which of four states this is in",
     ],
   },
@@ -474,15 +471,14 @@ export const PLUGINS: Plugin[] = [
     /*
       "CREDENTIALS STORED, FLOW NOT SHIPPED" WAS HALF FALSE, AND IT WAS THE
       HALF THAT MATTERED. `linkedin-client-id` and `linkedin-client-secret` are
-      DECLARED NAMES in workdash's KNOWN_SECRETS and no value has ever been set
-      for either — checked on the Pi, 4 September 2026. A catalog that says
+      DECLARED NAMES with no value ever set for either. A catalog that says
       credentials are stored is a catalog telling the owner they have something
       they do not, which is the same claim the AdSense entry made before it was
       corrected, and it is corrected here the same way: the entry now says what
       is true, which is that the name exists and the vault is empty.
     */
     desc: "Registered with no credential and nothing collected.",
-    help: "Nothing is stored and nothing is read. The vault entry names linkedin-client-id and linkedin-client-secret are declared in workdash and have never held a value — checked on the Pi, 4 September 2026. No provider, collector or route exists here for LinkedIn either, and that is deliberate rather than pending: LinkedIn's is a POSTING API, so the useful part of it is behind a three-legged OAuth flow that a human has to complete in a browser as the page's admin — which no process can do — and there is no read surface worth collecting on the other side. This entry exists so the names are documented; a credential pasted here cannot be verified, because there is nothing to verify it against.",
+    help: "Nothing is stored and nothing is read. The vault entry names linkedin-client-id and linkedin-client-secret are declared here and hold no value. No provider, collector or route exists here for LinkedIn either, and that is deliberate rather than pending: LinkedIn's is a POSTING API, so the useful part of it is behind a three-legged OAuth flow that a human has to complete in a browser as the page's admin — which no process can do — and there is no read surface worth collecting on the other side. This entry exists so the names are documented; a credential pasted here cannot be verified, because there is nothing to verify it against.",
     docs: "https://www.linkedin.com/developers/apps",
     fields: [
       {
@@ -511,10 +507,9 @@ export const PLUGINS: Plugin[] = [
     secret: "tiktok",
     /* The same correction as LinkedIn's, for the same reason and on the same
        evidence: `tiktok-client-key` and `tiktok-client-secret` are declared
-       names in workdash's KNOWN_SECRETS with no value ever stored, checked on
-       the Pi on 4 September 2026. */
+       names with no value ever stored. */
     desc: "Registered with no credential and nothing collected.",
-    help: "Nothing is stored and nothing is read. The vault entry names tiktok-client-key and tiktok-client-secret are declared in workdash and have never held a value — checked on the Pi, 4 September 2026. No provider, collector or route exists here for TikTok, and, as with LinkedIn, that is a decision rather than a backlog item: the API is for POSTING, its useful scopes need an OAuth flow a human completes in a browser, and there is nothing to read until one is. A credential pasted here cannot be verified, because there is nothing to verify it against.",
+    help: "Nothing is stored and nothing is read. The vault entry names tiktok-client-key and tiktok-client-secret are declared here and hold no value. No provider, collector or route exists here for TikTok, and, as with LinkedIn, that is a decision rather than a backlog item: the API is for POSTING, its useful scopes need an OAuth flow a human completes in a browser, and there is nothing to read until one is. A credential pasted here cannot be verified, because there is nothing to verify it against.",
     docs: "https://developers.tiktok.com/apps",
     fields: [
       {
@@ -924,13 +919,14 @@ export const PLUGINS: Plugin[] = [
     secret: "hermes-key",
     desc: "Nous Research’s agent. One of the two that can answer the Chat page.",
     /*
-      REWRITTEN AGAINST THE REAL THING, 2026-09-04. The old text said "a CLI
-      agent in a container, reached over an OpenAI-compatible endpoint" and
-      gave 127.0.0.1:3011 as the address. The first half is right and the
-      second was wrong in a way that cost an hour: Hermes is a CLI agent and
-      its container listens on NOTHING. Port 3011 on the Pi is workdash's own
-      read-only proxy, which answers /v1/models with 200 and an index.html.
-      The OpenAI-compatible door Hermes actually ships is `hermes proxy start`.
+      REWRITTEN AGAINST THE REAL THING. The old text said "a CLI agent in a
+      container, reached over an OpenAI-compatible endpoint" and gave a port on
+      the local machine as the address. The first half is right and the second
+      was wrong in a way that cost an hour: Hermes is a CLI agent and its
+      container listens on NOTHING. The port in question was an unrelated
+      read-only proxy that answers /v1/models with 200 and an index.html — a
+      200 from the wrong server is worse than a refused connection. The
+      OpenAI-compatible door Hermes actually ships is `hermes proxy start`.
     */
     help: "TWO WAYS IN. Paste the address of a Hermes that is already running somewhere — any OpenAI-compatible endpoint works, and the model is picked in Settings or left empty to use whichever the endpoint lists first. Or press “Install here” further down and this app installs Hermes into its own data directory, points it at your default model provider, runs it as a child process and connects the plugin for you. The door a managed instance serves is the API SERVER on 127.0.0.1:8642, which runs the agent with its tools and needs no Nous login — NOT `hermes proxy` on 8645, which only forwards to Nous or xAI OAuth and refuses to start without one, and not `hermes serve` on 9119, which is WebSocket JSON-RPC and does not speak this API.",
     docs: "https://hermes-agent.nousresearch.com/docs/",
@@ -1063,8 +1059,7 @@ export const PLUGINS: Plugin[] = [
     cat: "ai",
     connected: true,
     /* The STEM, not an entry: two fields, so the vault holds
-       `freellmapi-base-url` and `freellmapi-key` — the second being the name
-       workdash's own vault already uses. */
+       `freellmapi-base-url` and `freellmapi-key`. */
     secret: "freellmapi",
     desc: "One key in front of every provider with a free tier — hosted, or installed here.",
     /*
@@ -1077,14 +1072,14 @@ export const PLUGINS: Plugin[] = [
       static marketing site whose /v1 paths 404 — so the base URL is always
       somebody's own instance, and this box can be one of them.
     */
-    help: "An OpenAI-compatible gateway that holds keys for the ~34 providers with a free tier and routes each completion to whichever can serve it, failing over when one is throttled. THERE IS NO HOSTED FREELLMAPI: freellmapi.co is a marketing site and api.freellmapi.co is its catalog-and-licence API — neither completes a chat turn — so the base URL is an instance somebody runs. Two ways to have one, and this page offers both. Point it at one you already run (the Hetzner box answers at https://freellm.178-105-187-189.sslip.io/v1) and paste the unified key from that instance's own Keys page, which begins `freellmapi-`. Or install one here: the server clones the repo at a commit it writes down, builds it, and runs it as a child process on 127.0.0.1:3001 — loopback only, stopped when this API stops. That one needs nothing pasted at all, because the gateway mints its own key into its database on first migration and the server reads it straight into the vault. Both end up as accounts of this plugin, so switching which one answers is a click. A freshly installed gateway routes to nothing until it has provider keys, so the first start switches on the two providers that work anonymously; add your own on its dashboard at http://127.0.0.1:3001, which no setup code is needed for from a browser on this machine.",
+    help: "An OpenAI-compatible gateway that holds keys for the ~34 providers with a free tier and routes each completion to whichever can serve it, failing over when one is throttled. THERE IS NO HOSTED FREELLMAPI: freellmapi.co is a marketing site and api.freellmapi.co is its catalog-and-licence API — neither completes a chat turn — so the base URL is an instance somebody runs. Two ways to have one, and this page offers both. Point it at one you already run — its base URL ends in /v1 — and paste the unified key from that instance's own Keys page, which begins `freellmapi-`. Or install one here: the server clones the repo at a commit it writes down, builds it, and runs it as a child process on 127.0.0.1:3001 — loopback only, stopped when this API stops. That one needs nothing pasted at all, because the gateway mints its own key into its database on first migration and the server reads it straight into the vault. Both end up as accounts of this plugin, so switching which one answers is a click. A freshly installed gateway routes to nothing until it has provider keys, so the first start switches on the two providers that work anonymously; add your own on its dashboard at http://127.0.0.1:3001, which no setup code is needed for from a browser on this machine.",
     docs: "https://github.com/tashfeenahmed/freellmapi",
     fields: [
       {
         key: "base-url",
         label: "Base URL",
         kind: "text",
-        ph: "https://freellm.178-105-187-189.sslip.io/v1",
+        ph: "https://your-gateway.example.com/v1",
         entry: "freellmapi-base-url",
       },
       {
@@ -1147,8 +1142,9 @@ export const PLUGINS: Plugin[] = [
     secret: "gmail",
     desc: "Inbox triage, the daily mail line, and who you actually write to.",
     /*
-      THREE FIELDS RATHER THAN THE TWO JSON DOCUMENTS WORKDASH KEEPS, and the
-      reason is that the second one already contains the first: gmail-token.json
+      THREE FIELDS RATHER THAN THE TWO JSON DOCUMENTS GOOGLE'S OWN FLOW LEAVES
+      BEHIND, and the reason is that the second already contains the first:
+      gmail-token.json
       carries client_id, client_secret and refresh_token together, so the client
       file is the same pair written down twice. Split into fields for the reason
       AdSense is — a JSON blob in a secret is a document that has to be parsed
@@ -1156,8 +1152,8 @@ export const PLUGINS: Plugin[] = [
       was refused" rather than as "the client secret is missing".
 
       THE SCOPE IS SAID OUT LOUD BECAUSE IT MATTERS. The token gmail_auth.py
-      mints carries gmail.modify — a WRITE scope — because workdash's own mail
-      page sends replies with it. This dashboard only reads, and enforces that
+      mints carries gmail.modify — a WRITE scope — because that is the scope
+      the console flow hands out. This dashboard only reads, and enforces that
       in code rather than in a promise: the provider has one HTTP entry point,
       it hard-codes GET, and it takes no body.
     */
@@ -1169,8 +1165,6 @@ export const PLUGINS: Plugin[] = [
       { key: "refresh-token", label: "Refresh token", kind: "secret", ph: "1//0e…" },
     ],
     usedBy: [
-      "collect_inbox.py (inbox.json) — workdash",
-      "collect_contacts.py (contacts.json) — workdash",
       "GET /api/mail — the mailbox, its queue, its daily line and who you wrote to",
     ],
   },
@@ -1183,14 +1177,14 @@ export const PLUGINS: Plugin[] = [
     secret: "resend-key",
     desc: "Every sending domain: verification, DNS, and what became of the mail.",
     /*
-      ONE KEY PER ACCOUNT, WHERE WORKDASH KEEPS ELEVEN IN ONE DOCUMENT.
+      ONE KEY PER ACCOUNT, RATHER THAN EVERY DOMAIN'S KEY IN ONE DOCUMENT.
 
-      Over there this is `resend-keys.json`, a JSON object of domain → key. That
-      shape has no per-key label, no per-key state and no per-key error, so one
-      revoked key shows up as a warning on the plugin rather than as
-      "example-app-1.example.test stopped answering" — which is exactly what the accounts
-      model exists to undo, and what 005_accounts_split did to the Hetzner
-      token blob. Each key is an account here, named for its domain.
+      The obvious shape is a JSON object of domain → key. It has no per-key
+      label, no per-key state and no per-key error, so one revoked key shows up
+      as a warning on the plugin rather than as "that domain stopped
+      answering" — which is exactly what the accounts model exists to undo, and
+      what 005_accounts_split did to the Hetzner token blob. Each key is an
+      account here, named for its domain.
 
       A key really is scoped to its domain: probed live, one key's /domains and
       /emails both return that domain and nothing else. So eleven accounts is
@@ -1207,7 +1201,6 @@ export const PLUGINS: Plugin[] = [
       { key: "key", label: "API key (full access)", kind: "secret", ph: "re_…" },
     ],
     usedBy: [
-      "agent/outbox.js (drafts, sends) — workdash",
       "GET /api/mail — verification, DNS health, sends and bounces per domain",
     ],
   },
@@ -1293,8 +1286,8 @@ export const PLUGINS: Plugin[] = [
     usedBy: ["faceless-worker (fallback)"],
   },
   /*
-    THE THREE DEMAND SOURCES. All three are now backed by this dashboard's own
-    API rather than described from workdash, so `connected` here is the
+    THE THREE DEMAND SOURCES. All three are backed by this dashboard's own
+    API rather than described from somewhere else, so `connected` here is the
     catalog's fallback claim and the plugin page reads the real state off
     /api/plugins — the AdSense correction, applied before the mistake could be
     made: a flag that says "Connected" about a credential nobody has pasted is
@@ -1455,14 +1448,14 @@ export const PLUGINS: Plugin[] = [
     connected: false,
     secret: "workstation",
     desc: "The machine on your desk: is it awake, what is the GPU doing, and the switch that wakes it.",
-    help: "ONE ACCOUNT IS ONE MACHINE and the account's name is the machine's name, the same rule Fleet keeps. It is NOT a second fleet box, and the difference is what \u201cnot answering\u201d means: a server that is off is an incident, a desktop that is off is a desktop. So an unreachable machine here keeps its account connected, the collection still succeeds, and the panel says \u201casleep\u201d rather than going red. THREE OF THE FOUR FIELDS ARE OPTIONAL and each absence removes exactly one thing. No key: ssh uses this machine's own agent and ~/.ssh defaults. NO MAC ADDRESS MEANS IT CANNOT BE WOKEN \u2014 a magic packet is addressed by MAC, it is the WIRED adapter's address (wake-on-LAN over wifi does not work on most machines), and with one on file a machine that is asleep when you connect it is ACCEPTED with a note instead of refused. No broadcast address: the limited broadcast 255.255.255.255, which cannot be routed off the local segment; set a subnet address like 192.168.1.255 where that is filtered. WAKE CANNOT BE CONFIRMED \u2014 nothing acknowledges a magic packet, so the answer is only that it was sent. SLEEP AND SHUTDOWN RUN A COMMAND YOU TYPED into the settings below and there is no per-OS fallback: whether suspending needs sudo is your machine's own policy, and a dashboard guessing at that is a dashboard halting the wrong thing.",
+    help: "ONE ACCOUNT IS ONE MACHINE and the account's name is the machine's name, the same rule Fleet keeps. It is NOT a second fleet box, and the difference is what \u201cnot answering\u201d means: a server that is off is an incident, a desktop that is off is a desktop. So an unreachable machine here keeps its account connected, the collection still succeeds, and the panel says \u201casleep\u201d rather than going red. THREE OF THE FOUR FIELDS ARE OPTIONAL and each absence removes exactly one thing. No key: ssh uses this machine's own agent and ~/.ssh defaults. NO MAC ADDRESS MEANS IT CANNOT BE WOKEN \u2014 a magic packet is addressed by MAC, it is the WIRED adapter's address (wake-on-LAN over wifi does not work on most machines), and with one on file a machine that is asleep when you connect it is ACCEPTED with a note instead of refused. No broadcast address: the limited broadcast 255.255.255.255, which cannot be routed off the local segment; set your own subnet's broadcast address (192.168.1.255 for a 192.168.1.0/24) where that is filtered. WAKE CANNOT BE CONFIRMED \u2014 nothing acknowledges a magic packet, so the answer is only that it was sent. SLEEP AND SHUTDOWN RUN A COMMAND YOU TYPED into the settings below and there is no per-OS fallback: whether suspending needs sudo is your machine's own policy, and a dashboard guessing at that is a dashboard halting the wrong thing.",
     docs: null,
     fields: [
       {
         key: "host",
         label: "Address",
         kind: "text",
-        ph: "user@workstation.example.test, or test@192.0.2.40:2222",
+        ph: "user@desktop.local, or user@10.0.0.20:2222",
       },
       {
         key: "key",
@@ -1482,7 +1475,7 @@ export const PLUGINS: Plugin[] = [
         key: "broadcast",
         label: "Broadcast address",
         kind: "text",
-        ph: "255.255.255.255 by default; 192.168.1.255 where that is filtered",
+        ph: "255.255.255.255 by default; your subnet's broadcast address where that is filtered",
         optional: true,
       },
     ],

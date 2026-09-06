@@ -1,10 +1,12 @@
+import type { ComponentProps } from "react";
+import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, Play, Search, X } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ago } from "@/components/integrations/format";
+import { ago, pct } from "@/lib/format";
 import { seoopsApi, type SeoBaseline, type SeoReading, type SeoVerdict } from "@/lib/api/seoops";
 
 /**
@@ -27,15 +29,18 @@ import { seoopsApi, type SeoBaseline, type SeoReading, type SeoVerdict } from "@
  * because a rank going down is a rank going up. Printing "+2.5 better" would
  * be a second number nobody could reconcile with the API.
  */
-const TONE: Record<SeoVerdict, string> = {
-  up: "bg-ok-bg text-ok",
-  down: "bg-destructive/15 text-destructive",
-  flat: "bg-muted text-muted-foreground",
+const TONE: Record<SeoVerdict, ComponentProps<typeof Badge>["variant"]> = {
+  up: "ok",
+  down: "destructive",
+  flat: "secondary",
   /* Neither good nor bad: there was not enough traffic to compare. */
-  thin: "bg-muted text-muted-foreground",
-  /* Grey and never green. Nothing was measured, which is not "no change". */
-  unmeasured: "border border-dashed text-muted-foreground",
+  thin: "secondary",
+  /* Grey and never green. Nothing was measured, which is not "no change" — the
+     dashed edge is what says "no reading" rather than "a reading of nought". */
+  unmeasured: "outline",
 };
+
+const DASHED: Partial<Record<SeoVerdict, string>> = { unmeasured: "border-dashed" };
 
 function Figure({ value, suffix = "" }: { value: number | null; suffix?: string }) {
   if (value === null) return <span className="text-muted-foreground">—</span>;
@@ -47,7 +52,7 @@ function Figure({ value, suffix = "" }: { value: number | null; suffix?: string 
   );
 }
 
-function Delta({ value, pct, invert }: { value: number | null; pct?: number | null; invert?: boolean }) {
+function Delta({ value, percent, invert }: { value: number | null; percent?: number | null; invert?: boolean }) {
   if (value === null) return <span className="text-muted-foreground">—</span>;
   const good = invert ? value < 0 : value > 0;
   const bad = invert ? value > 0 : value < 0;
@@ -55,7 +60,13 @@ function Delta({ value, pct, invert }: { value: number | null; pct?: number | nu
     <span className={cn("tabular-nums", good && "text-ok", bad && "text-destructive")}>
       {value > 0 ? "+" : ""}
       {Number.isInteger(value) ? value : value.toFixed(2)}
-      {pct !== null && pct !== undefined && <span className="opacity-70"> ({pct > 0 ? "+" : ""}{pct}%)</span>}
+      {percent !== null && percent !== undefined && (
+        <span className="opacity-70">
+          {" "}
+          ({percent > 0 ? "+" : ""}
+          {pct(percent / 100)})
+        </span>
+      )}
     </span>
   );
 }
@@ -202,14 +213,14 @@ export function SeoFollowUpsTab() {
                   className="hover:bg-accent flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-3.5 py-2.5 text-left text-[12.5px]"
                 >
                   {latest ? (
-                    <span className={cn("rounded-full px-1.5 py-px text-[11px]", TONE[latest.verdict])}>
+                    <Badge variant={TONE[latest.verdict]} className={DASHED[latest.verdict]}>
                       {latest.verdict}
                       {latest.verdict !== "unmeasured" && latest.verdict !== "thin" ? ` · ${latest.diagnosis}` : ""}
-                    </span>
+                    </Badge>
                   ) : (
-                    <span className="text-muted-foreground rounded-full border border-dashed px-1.5 py-px text-[11px]">
+                    <Badge variant="outline" className="border-dashed">
                       no reading yet
-                    </span>
+                    </Badge>
                   )}
                   <span className="font-medium">{b.title}</span>
                   {b.ventureName && <span className="text-muted-foreground">{b.ventureName}</span>}
@@ -254,9 +265,9 @@ export function SeoFollowUpsTab() {
                     {b.diagnoses.map((dg) => (
                       <div key={dg.dayOffset} className="border-line-soft mt-2.5 rounded-[8px] border px-2.5 py-2">
                         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[12px]">
-                          <span className={cn("rounded-full px-1.5 py-px text-[11px]", TONE[dg.verdict])}>
+                          <Badge variant={TONE[dg.verdict]} className={DASHED[dg.verdict]}>
                             {dg.verdict}
-                          </span>
+                          </Badge>
                           <span className="font-medium">{dg.diagnosis}</span>
                           <span className="text-muted-foreground text-[11px]">
                             at day {dg.dayOffset} · decided by {dg.decidedBy === "model" ? `a model${dg.model ? ` (${dg.model})` : ""}` : `rule ${dg.rule}`}
@@ -266,11 +277,11 @@ export function SeoFollowUpsTab() {
                           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px]">
                             <span>
                               <span className="text-muted-foreground">clicks </span>
-                              <Delta value={dg.delta.clicks} pct={dg.delta.clicksPct} />
+                              <Delta value={dg.delta.clicks} percent={dg.delta.clicksPct} />
                             </span>
                             <span>
                               <span className="text-muted-foreground">impressions </span>
-                              <Delta value={dg.delta.impressions} pct={dg.delta.impressionsPct} />
+                              <Delta value={dg.delta.impressions} percent={dg.delta.impressionsPct} />
                             </span>
                             <span>
                               <span className="text-muted-foreground">ctr </span>

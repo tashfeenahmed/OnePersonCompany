@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Archive, Loader2, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
+import { bytes, when } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Section } from "@/components/settings/Section";
 import { PluginSettingsForm } from "@/components/settings/PluginSettingsForm";
@@ -40,27 +41,10 @@ import {
  * asked for, one file at a time.
  */
 
-function bytes(n: number | null): string {
-  if (n === null) return "—";
-  if (n < 1024) return `${n} B`;
-  const kb = n / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  const mb = kb / 1024;
-  return mb < 1024 ? `${mb.toFixed(1)} MB` : `${(mb / 1024).toFixed(2)} GB`;
-}
-
-function when(iso: string | null): string {
-  if (!iso) return "never";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-}
+/** A backup that has not happened HAS NOT HAPPENED — the em dash `when`
+ *  defaults to would be the weaker claim, and this is one of the few surfaces
+ *  where the strong one is true. */
+const NEVER = { nullText: "never" } as const;
 
 export function BackupsSettings() {
   const doc = useApi(() => backupsApi.get(), []);
@@ -140,7 +124,7 @@ export function BackupsSettings() {
               {d.archives.length > 0 && ` · ${bytes(d.totalBytes)} in all`}
               {" · "}
               {d.settings.nightly
-                ? `nightly at ${String(d.settings.hour).padStart(2, "0")}:00, next ${when(d.nextRunAt)}`
+                ? `nightly at ${String(d.settings.hour).padStart(2, "0")}:00, next ${when(d.nextRunAt, NEVER)}`
                 : "the nightly run is off"}
               {" · "}
               keeping {d.settings.keep}
@@ -251,7 +235,7 @@ export function BackupsSettings() {
                   {bytes(a.bytes)}
                 </span>
                 <span className="text-muted-foreground shrink-0 text-[11.5px]">
-                  {when(a.at)}
+                  {when(a.at, NEVER)}
                 </span>
                 <Button
                   variant="outline"
@@ -365,7 +349,7 @@ export function BackupsSettings() {
                 key={`${r.ts}-${r.file ?? "none"}`}
                 className="text-muted-foreground flex flex-wrap items-baseline gap-x-2 text-[11.5px]"
               >
-                <span className="tabular-nums">{when(r.ts)}</span>
+                <span className="tabular-nums">{when(r.ts, NEVER)}</span>
                 <span>{r.kind}</span>
                 <span className={r.ok ? "text-ok" : "text-destructive"}>
                   {r.ok ? "wrote an archive" : "failed"}

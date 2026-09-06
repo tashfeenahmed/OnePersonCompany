@@ -1,4 +1,3 @@
-import { dueDay } from "../../runtime/schedule.ts";
 /**
  * ROUNDS — the scheduled walk over the estate.
  *
@@ -43,6 +42,8 @@ import { dueDay } from "../../runtime/schedule.ts";
  * considered, with the reason, including the ones that became nothing.
  */
 import { appendChatMessage, configValue, db, now, upsertPlugin, ventureRows, type VentureRow } from "../../db.ts";
+import { RUNTIME_KEYS, readSetting, writeSetting } from "../../runtime/settings.ts";
+import { dailySchedule, dueDay, zoned } from "../../shared/time.ts";
 import { dispatch } from "../subagents/routes.ts";
 import { ROLES, ensureTeam, roleDef, subagentId, subagentRow } from "../subagents/store.ts";
 
@@ -65,10 +66,12 @@ export const DEFAULT_QUIET = ["idea"];
 export type RoundSettings = {
   enabled: boolean;
   hour: number;
-  /** An IANA zone name, or null for this machine's own. The hour the owner
-   *  typed is an hour in a place; a laptop that travels would otherwise start
-   *  rounds at six in whatever country it woke up in. */
-  timezone: string | null;
+  /** ALWAYS A REAL IANA ZONE NAME — this machine's own where the owner never
+   *  typed one, with `zoneWasSet` carrying that fact separately. The hour the
+   *  owner typed is an hour in a PLACE; a laptop that travels would otherwise
+   *  start rounds at six in whatever country it woke up in. */
+  timezone: string;
+  zoneWasSet: boolean;
   roles: string[];
   maxRuns: number;
   daysBetween: number;
@@ -92,11 +95,17 @@ function whole(raw: string | null, fallback: number, min: number, max: number): 
 }
 
 export function settings(): RoundSettings {
-  const zone = (configValue(ROUNDS_PLUGIN, "timezone") ?? "").trim();
+  /* The switch, the hour and the zone come from `shared/time.ts` — one reader
+     for every daily schedule on this box. It is also where the rule that an
+     out-of-range hour falls back rather than CLAMPS is written down: this file
+     used to clamp, turning a typed 25 into 23:00, an hour the owner never
+     chose presented as one they did. */
+  const daily = dailySchedule(ROUNDS_PLUGIN, { defaultHour: DEFAULT_HOUR });
   return {
-    enabled: (configValue(ROUNDS_PLUGIN, "enabled") ?? "").trim().toLowerCase() === "on",
-    hour: whole(configValue(ROUNDS_PLUGIN, "hour"), DEFAULT_HOUR, 0, 23),
-    timezone: zone && zoneIsReal(zone) ? zone : null,
+    enabled: daily.enabled,
+    hour: daily.hour,
+    timezone: daily.timezone,
+    zoneWasSet: daily.zoneWasSet,
     /* Only roles this box actually has. A setting naming a role that was
        removed in a release would otherwise skip silently on every venture,
        every night, and the round would report itself as having considered
@@ -106,52 +115,6 @@ export function settings(): RoundSettings {
     daysBetween: whole(configValue(ROUNDS_PLUGIN, "days"), DEFAULT_DAYS, 0, 365),
     quietStages: list(configValue(ROUNDS_PLUGIN, "quiet"), DEFAULT_QUIET),
   };
-}
-
-export function zoneIsReal(zone: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-GB", { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** The hour, and the calendar day, where the owner says they are. Both come
- *  out of one formatter call because asking twice at 23:59:59.9 can straddle
- *  midnight and give an hour from one day and a date from the next. */
-function localNow(s: RoundSettings, at = new Date()): { hour: number; day: string } {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: s.timezone ?? undefined,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hour12: false,
-  });
-  const parts = Object.fromEntries(fmt.formatToParts(at).map((p) => [p.type, p.value]));
-  return {
-    /* "24" is what some ICU builds call midnight in an hour-only, hour12:false
-       format. Read as 24 it would never equal a configured hour and rounds at
-       midnight would never fire. */
-    hour: Number(parts.hour) % 24,
-    day: `${parts.year}-${parts.month}-${parts.day}`,
-  };
-}
-
-/** The next moment a round is due, or null when the schedule is off. */
-export function nextRunAt(s = settings(), at = new Date()): string | null {
-  if (!s.enabled) return null;
-  /* Walked forward hour by hour rather than computed, because "06:00 in
-     Europe/Dublin" is not an arithmetic offset from now — the offset changes
-     twice a year — and a day with a DST transition in it has a 23-hour or a
-     25-hour length. Twenty-five probes of a formatter is microseconds. */
-  for (let i = 1; i <= 48; i += 1) {
-    const probe = new Date(at.getTime() + i * 3_600_000);
-    if (localNow(s, probe).hour === s.hour)
-      return new Date(Math.floor(probe.getTime() / 3_600_000) * 3_600_000).toISOString();
-  }
-  return null;
 }
 
 /* --------------------------------------------------------------- the rows */
@@ -229,6 +192,34 @@ export function shapeJob(j: JobRow) {
   };
 }
 
+/**
+ * ONE DECISION THE WALK MADE, and the ONLY thing it writes them into.
+ *
+ * A round used to record every decision TWICE — a `chief_joblog` row and a
+ * line in `chief_rounds.notes` — from two separate call sites at each of six
+ * places. They then counted differently: the header's `skipped` was per
+ * VENTURE and the drill-down's was per ROLE, so any round where some workers
+ * were busy made the two disagree with nothing saying which was right.
+ *
+ * Now the walk appends one of these per decision and both ledgers are DERIVED
+ * from the array: the joblog row is written as it happens (so a round the
+ * process dies inside still leaves its evidence), and the per-venture notes
+ * and the three counters are folded out of the same items at the end. Two
+ * views of one list cannot disagree.
+ */
+type WalkItem = {
+  ventureId: string;
+  venture: string;
+  stage: string;
+  /** Empty where the decision was about the whole venture rather than a role. */
+  role: string;
+  runId: string | null;
+  /** `dispatched` | `skipped` | `refused` | `failed`. */
+  outcome: string;
+  reason: string;
+};
+
+/** One venture's line in the round's own document — what the page draws. */
 type RoundNote = {
   ventureId: string;
   venture: string;
@@ -237,6 +228,30 @@ type RoundNote = {
   reason: string;
   roles: string[];
 };
+
+/**
+ * THE PER-VENTURE VIEW, folded out of the items.
+ *
+ * A venture that got any work is `dispatched` and lists the roles; one that
+ * got none is `skipped` and carries the first reason recorded against it,
+ * which is the reason the walk actually stopped on.
+ */
+function notesFrom(items: WalkItem[]): RoundNote[] {
+  const byVenture = new Map<string, RoundNote>();
+  for (const i of items) {
+    const note =
+      byVenture.get(i.ventureId) ??
+      { ventureId: i.ventureId, venture: i.venture, stage: i.stage, outcome: "skipped", reason: "", roles: [] };
+    if (i.outcome === "dispatched") {
+      note.outcome = "dispatched";
+      note.roles.push(i.role);
+      /* A venture that got work carries no reason: the reason is the work. */
+      note.reason = "";
+    } else if (note.outcome !== "dispatched" && !note.reason) note.reason = i.reason;
+    byVenture.set(i.ventureId, note);
+  }
+  return [...byVenture.values()];
+}
 
 /* -------------------------------------------------------------- the walk */
 
@@ -283,11 +298,20 @@ function mintRoundId(): string {
   return `rd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function logJob(roundId: string, j: { ventureId: string; role: string; runId: string | null; outcome: string; reason: string }) {
+/**
+ * RECORD ONE DECISION — the single writer, for both ledgers.
+ *
+ * The joblog row goes in AS IT HAPPENS rather than in a batch at the end,
+ * because a round the process dies inside should still leave the evidence of
+ * what it managed to do. The item is kept for the fold that writes the notes
+ * and the counters when the walk is over.
+ */
+function record(roundId: string, items: WalkItem[], item: WalkItem): void {
+  items.push(item);
   db.prepare(
     `INSERT INTO chief_joblog (round_id, ts, venture_id, role, run_id, outcome, reason)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(roundId, now(), j.ventureId, j.role, j.runId, j.outcome, j.reason);
+  ).run(roundId, now(), item.ventureId, item.role, item.runId, item.outcome, item.reason);
 }
 
 /**
@@ -349,9 +373,12 @@ export async function runRound(trigger: "schedule" | "manual"): Promise<RoundRes
     "INSERT INTO chief_rounds (id, started_at, trigger, ventures, dispatched, skipped, notes) VALUES (?, ?, ?, 0, 0, 0, '[]')",
   ).run(id, startedAt, trigger);
 
-  const notes: RoundNote[] = [];
-  let dispatched = 0;
-  let skipped = 0;
+  /* ONE LIST, TWO VIEWS. See `WalkItem`: the notes and the counters are folded
+     out of this at the end rather than kept in step by hand. */
+  const items: WalkItem[] = [];
+  const mark = (v: VentureRow, item: Omit<WalkItem, "ventureId" | "venture" | "stage">) =>
+    record(id, items, { ventureId: v.id, venture: v.name, stage: v.stage, ...item });
+  const dispatchedSoFar = () => items.filter((i) => i.outcome === "dispatched").length;
 
   try {
     const ventures = ventureRows();
@@ -365,80 +392,84 @@ export async function runRound(trigger: "schedule" | "manual"): Promise<RoundRes
     );
 
     for (const v of ventures) {
+      /* THE VENTURE-LEVEL GATES. Each records one item with no role, which is
+         what "the whole venture was passed over" looks like in the log. */
       if (s.quietStages.includes(v.stage)) {
-        skipped += 1;
-        notes.push({ ventureId: v.id, venture: v.name, stage: v.stage, outcome: "skipped", reason: `stage "${v.stage}" is quiet`, roles: [] });
-        logJob(id, { ventureId: v.id, role: "", runId: null, outcome: "skipped", reason: `stage "${v.stage}" is quiet` });
+        mark(v, { role: "", runId: null, outcome: "skipped", reason: `stage "${v.stage}" is quiet` });
         continue;
       }
       const seen = last.get(v.id);
       if (seen && Date.parse(seen) > cutoff) {
         const days = Math.floor((Date.now() - Date.parse(seen)) / 86_400_000);
-        skipped += 1;
-        const reason = `worked ${days} day${days === 1 ? "" : "s"} ago; the cadence is ${s.daysBetween} days`;
-        notes.push({ ventureId: v.id, venture: v.name, stage: v.stage, outcome: "skipped", reason, roles: [] });
-        logJob(id, { ventureId: v.id, role: "", runId: null, outcome: "skipped", reason });
+        mark(v, {
+          role: "",
+          runId: null,
+          outcome: "skipped",
+          reason: `worked ${days} day${days === 1 ? "" : "s"} ago; the cadence is ${s.daysBetween} days`,
+        });
         continue;
       }
-      if (dispatched >= s.maxRuns) {
-        skipped += 1;
-        const reason = `the round's cap of ${s.maxRuns} run${s.maxRuns === 1 ? "" : "s"} was already spent`;
-        notes.push({ ventureId: v.id, venture: v.name, stage: v.stage, outcome: "skipped", reason, roles: [] });
-        logJob(id, { ventureId: v.id, role: "", runId: null, outcome: "skipped", reason });
+      if (dispatchedSoFar() >= s.maxRuns) {
+        mark(v, {
+          role: "",
+          runId: null,
+          outcome: "skipped",
+          reason: `the round's cap of ${s.maxRuns} run${s.maxRuns === 1 ? "" : "s"} was already spent`,
+        });
         continue;
       }
 
       ensureTeam(v.id);
-      const done: string[] = [];
+      const before = dispatchedSoFar();
       for (const role of s.roles) {
-        if (dispatched >= s.maxRuns) break;
+        if (dispatchedSoFar() >= s.maxRuns) break;
         const def = roleDef(role);
         if (!def) continue;
         if (alreadyWorking(v.id, def.kind)) {
-          logJob(id, { ventureId: v.id, role, runId: null, outcome: "skipped", reason: "that worker is already running or queued" });
+          mark(v, { role, runId: null, outcome: "skipped", reason: "that worker is already running or queued" });
           continue;
         }
         const row = subagentRow(subagentId(v.id, role));
         if (!row) {
-          logJob(id, { ventureId: v.id, role, runId: null, outcome: "failed", reason: "no such worker on this venture" });
+          mark(v, { role, runId: null, outcome: "failed", reason: "no such worker on this venture" });
           continue;
         }
         const out = dispatch(row, { brief: brief(v, role), parentSessionId: ROUNDS_SESSION });
         if (out.status === 201) {
           const run = (out.json as { run: { id: string } }).run;
-          dispatched += 1;
-          done.push(role);
-          logJob(id, { ventureId: v.id, role, runId: run.id, outcome: "dispatched", reason: "" });
+          mark(v, { role, runId: run.id, outcome: "dispatched", reason: "" });
         } else {
           /* A switched-off worker answers 409 and that is a DECISION rather
              than a fault — the owner turned it off. It is logged as `refused`
              and not as `failed`, because a round that reported the owner's own
              switch as an error would be a round nobody could read. */
           const why = (out.json as { error?: string }).error ?? `status ${out.status}`;
-          logJob(id, {
-            ventureId: v.id,
-            role,
-            runId: null,
-            outcome: out.status === 409 ? "refused" : "failed",
-            reason: why,
-          });
+          mark(v, { role, runId: null, outcome: out.status === 409 ? "refused" : "failed", reason: why });
         }
       }
-      if (done.length) {
-        notes.push({ ventureId: v.id, venture: v.name, stage: v.stage, outcome: "dispatched", reason: "", roles: done });
-      } else {
-        skipped += 1;
-        notes.push({
-          ventureId: v.id,
-          venture: v.name,
-          stage: v.stage,
+      /* A venture every role declined gets ONE line saying so, because the
+         per-role reasons are already in the log and the document is a summary.
+         Recorded as a venture-level item so the fold sees it. */
+      if (dispatchedSoFar() === before)
+        mark(v, {
+          role: "",
+          runId: null,
           outcome: "skipped",
           reason: "every configured role was already working, switched off, or refused",
-          roles: [],
         });
-      }
     }
 
+    /*
+      THE HEADER'S THREE NUMBERS, DERIVED rather than kept in step by hand.
+      `skipped` COUNTS VENTURES, which is what sits beside `ventures` in the
+      same sentence; the per-role refusals are every non-dispatched row in the
+      job log, one drill-down away. Counting one thing in the header and a
+      different thing in the drill-down is what made them disagree, and both
+      now come out of the one array.
+    */
+    const notes = notesFrom(items);
+    const dispatched = items.filter((i) => i.outcome === "dispatched").length;
+    const skipped = notes.filter((n) => n.outcome !== "dispatched").length;
     db.prepare(
       "UPDATE chief_rounds SET finished_at = ?, ventures = ?, dispatched = ?, skipped = ?, notes = ? WHERE id = ?",
     ).run(now(), ventures.length, dispatched, skipped, JSON.stringify(notes), id);
@@ -538,14 +569,14 @@ export function startRounds() {
            module from here would be a cycle. */
         const { pipelineOwnsRounds } = await import("../pipeline/stages-called.ts");
         if (pipelineOwnsRounds()) return;
-        const { hour, day } = localNow(s);
-        const saved = db.prepare("SELECT value FROM runtime_settings WHERE key='rounds-last-due'").get() as { value: string } | undefined;
-        const previous = roundRows(20).find(r => r.trigger === "schedule");
-        const last = saved?.value ?? (previous ? localNow(s, new Date(previous.started_at)).day : null);
+        const { hour, day } = zoned(s.timezone);
+        const saved = readSetting(RUNTIME_KEYS.roundsLastDue);
+        const previous = roundRows(20).find((r) => r.trigger === "schedule");
+        const last = saved ?? (previous ? zoned(s.timezone, new Date(previous.started_at)).day : null);
         const due = dueDay(day, hour, s.hour, last);
         if (!due) return;
         const out = await runRound("schedule");
-        if (out.ran) db.prepare("INSERT INTO runtime_settings (key,value) VALUES ('rounds-last-due',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(due);
+        if (out.ran) writeSetting(RUNTIME_KEYS.roundsLastDue, due);
         if (out.ran && out.round)
           console.log(
             `[chief] round ${out.round.id}: ${out.round.dispatched} dispatched, ${out.round.skipped} skipped`,

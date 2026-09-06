@@ -28,6 +28,7 @@
  */
 import { configValue, finishRun, record, startRun, upsertPlugin } from "../../../db.ts";
 import * as accounts from "../../../accounts.ts";
+import { hostOf } from "../../../shared/host.ts";
 import type { CollectResult } from "../../manifest.ts";
 import {
   BING_DETAIL_URLS,
@@ -43,7 +44,6 @@ import {
   crawlPresence,
   latestIndex,
   parseHosts,
-  registrable,
   scrub,
   verifyLink,
   type CrawlIndex,
@@ -264,7 +264,7 @@ async function collectHost(
         for (const d of linking) {
           let from = "";
           try {
-            from = registrable(new URL(d.url).hostname);
+            from = hostOf(new URL(d.url).hostname) ?? "";
           } catch {
             continue;
           }
@@ -308,7 +308,7 @@ async function collectHost(
           linking.map((d) => {
             let from = "";
             try {
-              from = registrable(new URL(d.url).hostname);
+              from = hostOf(new URL(d.url).hostname) ?? "";
             } catch {
               from = "";
             }
@@ -371,7 +371,7 @@ async function collectHost(
     const fromHosts = new Set<string>();
     for (const c of live) {
       try {
-        const from = registrable(new URL(c.url).hostname);
+        const from = hostOf(new URL(c.url).hostname) ?? "";
         if (from && from !== host && !from.endsWith(`.${host}`)) fromHosts.add(from);
       } catch {
         /* a url we fetched but cannot re-parse contributes no host */
@@ -414,7 +414,7 @@ async function collectHost(
       checked.map((c) => {
         let from = "";
         try {
-          from = registrable(new URL(c.url).hostname);
+          from = hostOf(new URL(c.url).hostname) ?? "";
         } catch {
           from = "";
         }

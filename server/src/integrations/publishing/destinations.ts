@@ -117,6 +117,50 @@ export function destinationRows(ventureId?: string | null): DestinationRow[] {
   ) as unknown as DestinationRow[];
 }
 
+/**
+ * THE PAGES THIS BOX CAN SEE, AND WHOSE THEY ARE — one accessor, one answer.
+ *
+ * A Facebook Page is currently one row in three tables on three refresh
+ * triggers: `publish_destinations` (this one, written by the owner's probe),
+ * `meta_pages` (the Meta plugin's collector, which holds the measurements) and
+ * `social_accounts` (the timeline reader's own copy, which holds its
+ * read-state and had grown its OWN `venture_id`). Three registries of one
+ * thing means a Page added since the last probe is invisible to publishing
+ * while listed on the Meta page, a Page removed from the token still shows as
+ * an enabled destination and fails at submit, and re-mapping a Page to another
+ * venture leaves the old posts filed under the venture it used to be.
+ *
+ * THE TABLES ARE NOT MERGED HERE — that is a migration and this wave writes
+ * none. What is settled is the CODE half: which venture a Page belongs to is
+ * asked in one place, of the rows the owner actually mapped. The timeline
+ * reader used to build this map inline from the same query, which is how the
+ * two came to disagree at all.
+ *
+ * `publish_destinations` IS THE AUTHORITY ON IDENTITY AND MAPPING because it
+ * is the only one of the three the owner ever touched: a token that
+ * administers five Pages says nothing about which business each one is for,
+ * and the probe is where that answer is recorded.
+ */
+export type MappedPage = {
+  /** The Page id as the network knows it. */
+  externalId: string;
+  ventureId: string;
+  /** The Page's name at the last probe, or null if the probe never got one. */
+  handle: string | null;
+  enabled: boolean;
+};
+
+export function mappedPages(plugin = META_PLUGIN, kind = "page"): MappedPage[] {
+  return destinationRows()
+    .filter((d) => d.plugin_id === plugin && d.kind === kind)
+    .map((d) => ({
+      externalId: d.external_id,
+      ventureId: d.venture_id,
+      handle: d.handle,
+      enabled: d.enabled === 1,
+    }));
+}
+
 export function shapeDestination(r: DestinationRow) {
   const caps = readCapabilities(r.capabilities);
   const kind = r.kind as DestinationKind;

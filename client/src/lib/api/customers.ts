@@ -1,4 +1,5 @@
 import { call } from "@/lib/api";
+import { qs } from "@/lib/qs";
 
 /**
  * CUSTOMERS, FROM THIS SIDE — the recovery queue, the dispute cases and the
@@ -217,13 +218,6 @@ export type UndeliveredDoc = {
 };
 
 /* ------------------------------------------------------------------- calls */
-
-const qs = (params: Record<string, string | number | undefined>) => {
-  const s = new URLSearchParams();
-  for (const [k, v] of Object.entries(params))
-    if (v !== undefined && v !== "") s.set(k, String(v));
-  return s.toString() ? `?${s}` : "";
-};
 
 export const customersApi = {
   queue: (opts: { status?: string; kind?: string; venture?: string; limit?: number } = {}) =>

@@ -34,6 +34,7 @@
 import { createSocket } from "node:dgram";
 import { db, configValue, finishRun, now, record, startRun, syncPlugin } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
+import { pruneOne, registerRetention, retentionFor } from "../../shared/retention.ts";
 import { parseSsh, sshLabel, ssh, sshProblem, writeKeyFile, type SshTarget } from "../ops/fleet.ts";
 
 export const PLUGIN = "workstation";
@@ -306,7 +307,7 @@ const numOrNull = (v: string | undefined | null): number | null => {
  *  expected answer here rather than an incident. */
 export async function readState(m: Machine): Promise<MachineState> {
   const checkedAt = now();
-  const keyFile = m.key ? writeKeyFile(m.accountId, m.key) : null;
+  const keyFile = m.key ? writeKeyFile(PLUGIN, m.accountId, m.key) : null;
   const ran = await ssh(m.target, keyFile, STATE_SCRIPT);
 
   const base = {
@@ -412,7 +413,7 @@ export async function verify(values: Record<string, string>): Promise<string | n
     const { writeFileSync, chmodSync, rmSync } = await import("node:fs");
     const { join } = await import("node:path");
     const { keysDir } = await import("../ops/fleet.ts");
-    keyFile = join(keysDir(), `workstation-verify-${process.pid}-${Date.now()}.pem`);
+    keyFile = join(keysDir(), `${PLUGIN}-verify-${process.pid}-${Date.now()}.pem`);
     writeFileSync(keyFile, key.endsWith("\n") ? key : `${key}\n`, { mode: 0o600 });
     chmodSync(keyFile, 0o600);
     try {
@@ -513,7 +514,7 @@ export type PowerResult = {
  * ten seconds, that is the test.
  */
 export async function power(m: Machine, action: "sleep" | "shutdown", command: string): Promise<PowerResult> {
-  const keyFile = m.key ? writeKeyFile(m.accountId, m.key) : null;
+  const keyFile = m.key ? writeKeyFile(PLUGIN, m.accountId, m.key) : null;
   const ran = await ssh(m.target, keyFile, `${command}\n`);
   const output = [ran.stdout.trim(), ran.stderr.trim()].filter(Boolean).join("\n").slice(0, 800);
   return {
@@ -582,10 +583,16 @@ export function forgetGoneMachines(): number {
 /** Samples older than this are dropped by the collector. Thirty days answers
  *  "has it been off all week"; a year of it would answer nothing better. */
 export const RETAIN_DAYS = 30;
+registerRetention({
+  table: "workstation_state",
+  column: "ts",
+  days: RETAIN_DAYS,
+  source: "area",
+  note: "Thirty days answers “has it been off all week”; a year of it would answer nothing better.",
+});
 
-export function pruneStates(days = RETAIN_DAYS): number {
-  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-  return Number(db.prepare("DELETE FROM workstation_state WHERE ts < ?").run(cutoff).changes);
+export function pruneStates(): number {
+  return pruneOne(retentionFor("workstation_state")!);
 }
 
 /* --------------------------------------------------------------- collecting */

@@ -39,6 +39,7 @@ export const SKILLS: Skill[] = [
       "A FINDING IS NOT A VERDICT. Every heuristic publishes how it can be wrong, and `flat-single-view` excludes nothing at all by design.",
       "DAYS ARE THE UMAMI INSTANCE'S DAYS in its own timezone, which this box does not know. Never join one to a dated figure from another integration.",
       "`readAt: null` on a website means it has not had its turn in the rotation yet. That is not a site with no traffic.",
+      "THIS SKILL IS THE BREAKDOWN, NOT THE HEADLINE. The site's own pageviews, visitors, visits, bounces and daily line are the `umami` skill's answer on the same plugin; this one answers who that traffic was. The two used to read two window tables on two clocks and disagree about the same site over the same 30 days — they now read one window row through one accessor, and the raw figures here are that same row.",
     ],
     views: [
       {
@@ -102,6 +103,7 @@ export const SKILLS: Skill[] = [
       "`topValues` IS A RANKING and sums to less than `records`. It is never a total.",
       "STEP COUNTS ARE NOT A USER JOURNEY. The funnel-inputs view is a list of independent per-event participant counts over one window; nothing establishes that the sessions at one step are a subset of the sessions at another, and a ratio between two of them may never be called a drop-off or a conversion rate.",
       "THE STEP ORDER IS THE OWNER'S, typed into a setting. It is not evidence of an order in which anything happened.",
+      "THE DENOMINATOR FOR A STEP IS `sessions[].visits` — the instance's own session count for the same window, asked for as a window. It is NOT a sum of daily sessions: the daily line includes today, a partial day, and a partial day in a denominator lifts every ratio above it. The growth area's funnel reading divided occurrences by summed daily sessions and ran about a third high.",
     ],
     views: [
       {

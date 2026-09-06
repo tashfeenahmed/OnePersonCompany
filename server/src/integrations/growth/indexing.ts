@@ -49,7 +49,7 @@
  * comparison of two documents this box already owns rather than a new crawl.
  */
 import { configValue, db, now, setConfig, upsertPlugin } from "../../db.ts";
-import { registrable } from "./pages.ts";
+import { hostOf, sameSite } from "../../shared/host.ts";
 
 export const PLUGIN = "indexing";
 
@@ -129,12 +129,12 @@ export function parseSitemaps(raw: string | null | undefined): { host: string; u
     const t = line.trim();
     if (!t || t.startsWith("#")) continue;
     const eq = t.indexOf("=");
-    const host = eq > 0 ? t.slice(0, eq).trim().toLowerCase().replace(/^www\./, "") : null;
+    const host = eq > 0 ? hostOf(t.slice(0, eq)) : null;
     const url = (eq > 0 ? t.slice(eq + 1) : t).trim();
     if (!/^https?:\/\//i.test(url)) continue;
     try {
       const u = new URL(url);
-      out.push({ host: host || u.hostname.replace(/^www\./, ""), url: u.toString() });
+      out.push({ host: host || hostOf(u.hostname) || u.hostname, url: u.toString() });
     } catch {
       /* A line that is not a URL is dropped by the settings check before it
          gets here; dropping it again is belt and braces rather than silence. */
@@ -148,8 +148,7 @@ export function parseSitemaps(raw: string | null | undefined): { host: string; u
  *  fetched. */
 export function sitemapsFor(host: string): { url: string; configured: boolean }[] {
   const all = parseSitemaps(configValue(PLUGIN, "sitemaps"));
-  const want = registrable(host);
-  const mine = all.filter((s) => registrable(s.host) === want);
+  const mine = all.filter((s) => sameSite(host, s.host));
   return mine.length ? mine.map((s) => ({ url: s.url, configured: true })) : [{ url: `https://${host}/sitemap.xml`, configured: false }];
 }
 
@@ -292,8 +291,8 @@ export async function submit(opts: {
   reason: string;
   dryRun?: boolean;
 }): Promise<SubmitResult | { error: string }> {
-  const host = String(opts.host ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]!.replace(/^www\./, "");
-  if (!host.includes(".")) return { error: `“${opts.host}” is not a hostname.` };
+  const host = hostOf(opts.host);
+  if (!host) return { error: `“${opts.host}” is not a hostname.` };
 
   const key = indexNowKey();
   const urls: string[] = [];
@@ -307,7 +306,7 @@ export async function submit(opts: {
     /* EVERY URL MUST BE ON THE HOST BEING CLAIMED. IndexNow answers 422 for a
        batch that mixes hosts, and refusing here says which URL rather than
        leaving the owner to read a status code. */
-    if (registrable(u.hostname.replace(/^www\./, "")) !== registrable(host))
+    if (!sameSite(host, u.hostname))
       return { error: `${u.toString()} is not on ${host}. One submission is one host — that is the protocol's rule, not this app's.` };
     urls.push(u.toString());
     if (urls.length >= MAX_URLS) break;
@@ -348,7 +347,7 @@ export async function submit(opts: {
 export type IndexingDoc = Awaited<ReturnType<typeof indexingFor>>;
 
 export async function indexingFor(hostRaw: string, opts: { check: boolean }) {
-  const host = String(hostRaw ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]!.replace(/^www\./, "");
+  const host = hostOf(hostRaw) ?? "";
   const key = indexNowKey();
   const rows = db
     .prepare("SELECT * FROM growth_indexing WHERE host = ? ORDER BY submitted_at DESC, id DESC LIMIT 100")

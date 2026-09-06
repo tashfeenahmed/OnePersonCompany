@@ -38,16 +38,18 @@
  * morning's briefing when it wakes rather than skipping the day.
  */
 import { appendChatMessage, chatMessages, configValue, ventureRows } from "../../db.ts";
+import { dailySchedule, zoned } from "../../shared/time.ts";
 import { complete, NoProviderError } from "../../models/provider.ts";
 import { plainRich, PRESENT_BRIEF } from "../../skills/present.ts";
 import { apiBase, snapshotSkills, takeSnapshots } from "./catalogue.ts";
 import { serviceHeaders } from "../../auth.ts";
-import { flattenNumbers, movements, type Movement } from "./path.ts";
+import { flattenNumbers, movements, type Movement } from "./movement.ts";
 import {
   briefing,
   briefings,
   events,
   markDelivered,
+  openEvents,
   rules,
   snapshotAtOrBefore,
   snapshots,
@@ -83,25 +85,18 @@ export type Settings = {
   sections: Sections;
 };
 
-/** The machine's own zone, used when the owner has typed none. Node knows it;
- *  guessing "UTC" would build the briefing at the wrong hour for everybody who
- *  is not in London in winter. */
-export function systemZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
-export function validZone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-CA", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
+/**
+ * THE WALL CLOCK LIVES IN `shared/time.ts` NOW, and these three names are kept
+ * as re-exports because two other areas import them from here — which was
+ * already the right instinct (re-export rather than copy) pointed at the wrong
+ * file. Three areas had three copies of one formatter call, each re-deriving
+ * the same two non-obvious rules in its own comment: `% 24`, because "24" is
+ * what some ICU builds call midnight and a schedule set to midnight otherwise
+ * never fires; and an unset zone resolving to the machine's own, because
+ * guessing UTC builds the briefing at the wrong hour for everybody not in
+ * London in winter.
+ */
+export { systemZone, validZone, zoned } from "../../shared/time.ts";
 
 const onOff = (v: string | null, fallback: boolean) => {
   const t = (v ?? "").trim().toLowerCase();
@@ -110,16 +105,16 @@ const onOff = (v: string | null, fallback: boolean) => {
 };
 
 export function settings(): Settings {
-  /* AN EMPTY SETTING IS NOT A ZERO, and this is the one place that mistake is
-     expensive: `Number("")` is 0, which is a legal hour, so an unset field
-     would silently schedule the briefing for midnight rather than the default.
-     The string is checked before it is a number. */
-  const hourText = (configValue(PLUGIN, "hour") ?? "").trim();
-  const hourRaw = hourText === "" ? Number.NaN : Number(hourText);
-  const tz = (configValue(PLUGIN, "timezone") ?? "").trim();
+  /* AN EMPTY SETTING IS NOT A ZERO, and an out-of-range one is not clamped:
+     `Number("")` is 0, which is a legal hour, so an unset field would silently
+     schedule the briefing for midnight rather than for the default. Both rules
+     live in `dailySchedule` now, with the zone fallback beside them. This
+     schedule has no on/off switch of its own — the sections are the switches —
+     so it is always enabled. */
+  const schedule = dailySchedule(PLUGIN, { defaultHour: DEFAULT_HOUR, defaultEnabled: true });
   return {
-    hour: Number.isInteger(hourRaw) && hourRaw >= 0 && hourRaw <= 23 ? hourRaw : DEFAULT_HOUR,
-    timezone: tz && validZone(tz) ? tz : systemZone(),
+    hour: schedule.hour,
+    timezone: schedule.timezone,
     /* OFF UNTIL ASKED FOR. A daily message arriving on somebody's phone
        because a default said so is a surprise, and the same argument
        ops/backups.ts makes about writing an archive at four in the morning. */
@@ -131,27 +126,6 @@ export function settings(): Settings {
       board: onOff(configValue(PLUGIN, "sectionBoard"), true),
       ventures: onOff(configValue(PLUGIN, "sectionVentures"), true),
     },
-  };
-}
-
-/* ------------------------------------------------------------------- time */
-
-/** The local day (YYYY-MM-DD) and hour in a zone. One formatter, so the two
- *  can never disagree about which side of midnight it is. */
-export function zoned(tz: string, at: Date = new Date()): { day: string; hour: number } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hour12: false,
-  }).formatToParts(at);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  return {
-    day: `${get("year")}-${get("month")}-${get("day")}`,
-    /* "24" is what en-CA calls midnight in hourCycle h23/h24 territory. */
-    hour: Number(get("hour")) % 24,
   };
 }
 
@@ -254,7 +228,7 @@ export async function assemble(
         rule: byRule.get(e.rule_id)?.name ?? `rule ${e.rule_id}`,
         message: e.message,
       }));
-    facts.alerts.openTotal = events({ openOnly: true, kinds: ["trip", "unreadable"], limit: 500 }).length;
+    facts.alerts.openTotal = openEvents().length;
     if (!byRule.size)
       facts.alerts.note = "There are no alert rules on this box, so nothing was watched.";
   }
@@ -339,7 +313,7 @@ export async function assemble(
 
   /* ---- ventures ----------------------------------------------------- */
   if (s.sections.ventures) {
-    const open = events({ openOnly: true, kinds: ["trip", "unreadable"], limit: 500 });
+    const open = openEvents();
     const rows = ventureRows();
     facts.ventures.lines = rows.map((v) => {
       const openAlerts = open.filter((e) => byRule.get(e.rule_id)?.venture_id === v.id).length;
@@ -351,9 +325,12 @@ export async function assemble(
         host: v.host,
         openAlerts,
         runsFinished,
-        /* A venture with nothing to say gets a null note rather than an
-           invented sentence. The model is told to leave it out. */
-        note: openAlerts === 0 && runsFinished === 0 ? null : null,
+        /* ALWAYS NULL, and deliberately. A venture line carries its counts
+           and nothing else; the sentence about a venture is the model's job
+           and it is told to leave out a venture with nothing to say. This was
+           written as a ternary with `null` on both arms, which reads as an
+           unfinished thought rather than a decision. */
+        note: null,
       };
     });
     if (!rows.length) facts.ventures.note = "There are no ventures on this box yet.";

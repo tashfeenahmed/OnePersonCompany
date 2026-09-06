@@ -90,8 +90,8 @@ export function runAddress(run: { kind: string; id: string }): string | null {
  * A worker's name with the venture's own name taken off the front.
  *
  * THE DEFAULT NAME IS "<Venture> SEO Analyst", and on a card whose header
- * already says Example App 1, drawing it in full puts the word Example App 1 on the
- * screen seven times and truncates the half that differs. So the prefix is
+ * already carries the venture's name, drawing it in full puts that name on
+ * the screen seven times and truncates the half that differs. So the prefix is
  * stripped WHEN IT IS THERE — a name the owner has changed to something else
  * is drawn exactly as they typed it, which is the whole reason this trims a
  * prefix rather than falling back to the role's title.
@@ -101,7 +101,7 @@ export function shortName(name: string, venture: string): string {
 }
 
 /** A worker's page. Built from the venture's slug rather than the worker's id,
- *  because /ventures/example-app-1/team/seo is an address somebody can read. */
+ *  because /ventures/<slug>/team/seo is an address somebody can read. */
 export const teamAddress = (ventureSlug: string, role: string) =>
   `/ventures/${encodeURIComponent(ventureSlug)}/team/${encodeURIComponent(role)}`;
 

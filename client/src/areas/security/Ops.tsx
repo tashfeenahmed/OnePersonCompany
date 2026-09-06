@@ -1,12 +1,13 @@
-import { RunApp } from "@/components/runs/RunApp";
 import { useState } from "react";
 import { useSearchParams, useParams } from "react-router-dom";
 import { Camera, ImageOff, Loader2, RefreshCw } from "lucide-react";
+import { SubTabs } from "@/components/TabStrip";
+import { RunApp } from "@/components/runs/RunApp";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/PageShell";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
-import { ago, bytes, duration, num } from "@/components/integrations/format";
+import { ago, bytes, count, durationS, pct } from "@/lib/format";
 import { VisualQaSection } from "@/areas/seoops/VisualQaSection";
 import {
   shotsqaApi,
@@ -43,20 +44,12 @@ export function Ops() {
       sub="What a box was doing at the moment it mattered, and whether the picture on each venture's card is a picture of the site."
       wide
       action={
-        <div className="flex gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setParams(t.key === "snapshots" ? {} : { tab: t.key })}
-              className={cn(
-                "rounded-[9px] border px-3 py-1.5 text-[12.5px] transition-colors",
-                tab === t.key ? "border-foreground" : "hover:border-line-strong",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <SubTabs
+          tabs={TABS}
+          activeKey={tab}
+          onSelect={(k) => setParams(k === "snapshots" ? {} : { tab: k })}
+          className="mb-0"
+        />
       }
     >
       {tab === "snapshots" ? <Snapshots /> : <ShotsQa />}
@@ -228,10 +221,10 @@ function SnapshotView({ snap }: { snap: Snapshot }) {
         {[
           { k: "hostname", v: snap.meta.hostname ?? "—" },
           { k: "kernel", v: snap.meta.kernel ?? "—" },
-          { k: "uptime", v: duration(snap.meta.uptimeS) },
+          { k: "uptime", v: durationS(snap.meta.uptimeS) },
           {
             k: "established connections",
-            v: snap.connections.established === null ? "not counted" : num(snap.connections.established),
+            v: snap.connections.established === null ? "not counted" : count(snap.connections.established),
           },
         ].map((t) => (
           <div key={t.k} className="bg-card min-w-[150px] flex-1 rounded-[10px] border px-3.5 py-3">
@@ -258,8 +251,8 @@ function SnapshotView({ snap }: { snap: Snapshot }) {
                     i > 0 && "border-line-soft border-t",
                   )}
                 >
-                  <span className="w-12 shrink-0 tabular-nums">{p.cpu ?? "—"}%</span>
-                  <span className="w-12 shrink-0 tabular-nums">{p.mem ?? "—"}%</span>
+                  <span className="w-12 shrink-0 tabular-nums">{pct(p.cpu === null ? null : p.cpu / 100)}</span>
+                  <span className="w-12 shrink-0 tabular-nums">{pct(p.mem === null ? null : p.mem / 100)}</span>
                   <span className="text-muted-foreground w-16 shrink-0 truncate">{p.user ?? "—"}</span>
                   <span className="min-w-0 flex-1 truncate font-mono" title={p.command}>
                     {p.command}

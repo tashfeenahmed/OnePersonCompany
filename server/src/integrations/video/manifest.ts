@@ -97,9 +97,12 @@ export const manifest: IntegrationManifest = {
         typst: {
           label: "typst",
           hint:
-            "The typesetter that draws the caption cards. It is the same " +
-            "binary the Papers app uses and this setting is separate on " +
-            "purpose, so a box can typeset one and not the other. Blank probes.",
+            "The typesetter that draws the caption cards. It is the SAME " +
+            "binary the Papers app uses and there is one of it on a machine, " +
+            "so a path set here or under Papers is used by both. Setting it " +
+            "under Papers used to leave every video captionless, with a " +
+            "message telling you to install a typesetter you already had. " +
+            "Blank probes. To turn captions off, use “Caption renderer”.",
           ph: "/opt/homebrew/bin/typst",
           check: (v) => path(v),
         },

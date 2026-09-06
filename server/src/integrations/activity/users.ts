@@ -102,28 +102,60 @@ const UA = "OnePersonCompany/0.1 (+users)";
  * two collectors racing at boot produce one salt rather than two.
  */
 export function salt(): string {
+  const held = saltIfAny();
+  if (held) return held;
+  db.prepare(
+    "INSERT OR IGNORE INTO activity_salt (id, salt, created_at) VALUES (1, ?, ?)",
+  ).run(randomBytes(32).toString("hex"), now());
+  return saltIfAny()!;
+}
+
+/**
+ * The salt as it stands, WITHOUT minting one.
+ *
+ * The difference from `salt()` matters to a reader rather than a writer: a
+ * missing salt means no users document has ever been collected, so there is
+ * nothing to look up, and creating one to answer a question would be a lookup
+ * with a side effect.
+ */
+export function saltIfAny(): string | null {
   const row = db.prepare("SELECT salt FROM activity_salt WHERE id = 1").get() as
     | { salt: string }
     | undefined;
-  if (row) return row.salt;
-  const made = randomBytes(32).toString("hex");
-  db.prepare(
-    "INSERT OR IGNORE INTO activity_salt (id, salt, created_at) VALUES (1, ?, ?)",
-  ).run(made, now());
-  return (
-    db.prepare("SELECT salt FROM activity_salt WHERE id = 1").get() as { salt: string }
-  ).salt;
+  return row?.salt ?? null;
 }
 
+/**
+ * THE SCHEME, IN ONE PLACE — the normalisation, the separator and the digest.
+ *
+ * It was copied inline into another area's lookup, which is a silent and
+ * unfalsifiable failure waiting to happen: if this side ever changes the
+ * normalisation, the separator or rotates the salt, the copy goes on computing
+ * the old hash and finds nothing — and the file holding the copy documents a
+ * miss as meaning "no product's users document carries this address", which is
+ * a FACT ABOUT THE PERSON. A wrong answer that looks like a finding.
+ */
+export const emailHash = (email: string, withSalt: string): string =>
+  createHash("sha256").update(`${withSalt}:${email.trim().toLowerCase()}`).digest("hex");
+
 /** One address as it is stored: a hash nothing can reverse, and the domain,
- *  which identifies nobody and is the only part worth a chart. */
+ *  which identifies nobody and is the only part worth a chart. Minting the
+ *  salt if there is not one, because this is the WRITE path. */
 export function hashEmail(email: string): { hash: string; domain: string | null } {
   const clean = email.trim().toLowerCase();
   const at = clean.lastIndexOf("@");
   return {
-    hash: createHash("sha256").update(`${salt()}:${clean}`).digest("hex"),
+    hash: emailHash(clean, salt()),
     domain: at > 0 && at < clean.length - 1 ? clean.slice(at + 1) : null,
   };
+}
+
+/** The same hash for a READER: null when no document has ever been collected,
+ *  so a caller can tell "nothing is connected" from "this address is not in
+ *  it" without minting a salt to find out. */
+export function lookupHash(email: string): string | null {
+  const s = saltIfAny();
+  return s === null ? null : emailHash(email, s);
 }
 
 /* --------------------------------------------------------------- contract */

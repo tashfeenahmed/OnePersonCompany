@@ -37,6 +37,23 @@ export type Tab = {
  *  starts one. */
 const HOLD_MS = 150;
 
+/**
+ * WHAT A TAB LOOKS LIKE, AND WHAT "THIS ONE" LOOKS LIKE — once, for both
+ * strips below.
+ *
+ * Thirteen strips had been hand-rolled across the areas in FOUR different
+ * selected-affordances: this filled pill, a bordered card, a background swap
+ * and an underline. Sibling pages of one app taught a reader four different
+ * ways to see where they were. The pill won because it is what the app bar
+ * already uses, so a page has one visual language rather than two.
+ */
+function tabItemClass(active: boolean): string {
+  return cn(
+    "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap",
+    active && "bg-accent text-foreground font-medium",
+  );
+}
+
 export function TabStrip({
   tabs,
   activeKey,
@@ -139,8 +156,8 @@ export function TabStrip({
               if (dragKey) e.preventDefault();
             }}
             className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground relative hidden sm:flex items-center gap-[7px] rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap select-none",
-              active && "bg-accent text-foreground font-medium",
+              tabItemClass(active),
+              "relative hidden items-center gap-[7px] select-none sm:flex",
               armed === t.key && "cursor-grab",
               dragKey === t.key && "opacity-35",
               drop?.key === t.key &&
@@ -157,6 +174,105 @@ export function TabStrip({
               <span className="text-muted-foreground text-[11px]">{t.count}</span>
             )}
           </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------ the sub-tab strip */
+
+/** One choice within a page. `to` when the URL carries the selection, which is
+ *  most of them; without it the strip is a set of buttons and `onSelect` is
+ *  what moves. */
+export type SubTab = {
+  key: string;
+  label: string;
+  to?: string;
+  /** A small figure after the label — how many rows the tab would show. */
+  count?: number;
+  icon?: ComponentType<{ className?: string; strokeWidth?: number }>;
+  /** The hover sentence. A tab whose name is a noun the reader has not met
+   *  yet is worth explaining before they press it. */
+  title?: string;
+};
+
+/**
+ * THE SAME STRIP, WITHOUT THE DRAG.
+ *
+ * Sub-tabs are not reorderable and should not pretend to be: the app bar's
+ * order is the owner's arrangement of their own work, while a page's tabs are
+ * its author's argument about what to read first. So this shares the LOOK and
+ * none of the pointer machinery — no hold-to-arm, no drop indicator, no find
+ * box and no overflow select, none of which a four-item row needs.
+ *
+ * `aria-current="page"` IS NOT OPTIONAL and is why this exists as a component
+ * rather than as a copied class string. Two of the thirteen strips it replaces
+ * set no current marker at all, so a screen reader was read a row of four
+ * identical links with nothing saying which page it was already on.
+ *
+ * The row SCROLLS rather than wraps, because a strip that reflows to two lines
+ * moves the content under it every time the window changes width.
+ */
+export function SubTabs({
+  tabs,
+  activeKey,
+  onSelect,
+  rule,
+  className,
+}: {
+  tabs: readonly SubTab[];
+  activeKey: string | null;
+  /** Called for a tab with no `to`. A tab with one is a link and navigates. */
+  onSelect?: (key: string) => void;
+  /** A hairline under the row, for pages where the tabs sit directly on top of
+   *  the thing they switch and the eye needs the seam. */
+  rule?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "mb-5 flex items-center gap-0.5 overflow-x-auto",
+        rule && "border-line-soft border-b pb-2",
+        className,
+      )}
+    >
+      {tabs.map((t) => {
+        const active = t.key === activeKey;
+        const Icon = t.icon;
+        const inner = (
+          <>
+            {Icon && <Icon className="size-3.5" strokeWidth={1.6} />}
+            {t.label}
+            {t.count !== undefined && (
+              <span className="text-muted-foreground text-[11px]">{t.count}</span>
+            )}
+          </>
+        );
+        const shape = cn(tabItemClass(active), "flex shrink-0 items-center gap-[7px]");
+
+        return t.to ? (
+          <Link
+            key={t.key}
+            to={t.to}
+            title={t.title}
+            aria-current={active ? "page" : undefined}
+            className={shape}
+          >
+            {inner}
+          </Link>
+        ) : (
+          <button
+            key={t.key}
+            type="button"
+            title={t.title}
+            aria-current={active ? "page" : undefined}
+            onClick={() => onSelect?.(t.key)}
+            className={shape}
+          >
+            {inner}
+          </button>
         );
       })}
     </div>

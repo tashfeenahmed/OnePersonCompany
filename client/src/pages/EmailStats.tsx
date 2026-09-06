@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { PanelEmpty } from "@/components/integrations/Panel";
+import { pct } from "@/lib/format";
 import { PageShell } from "@/components/PageShell";
 import { BrandTile } from "@/components/BrandTile";
 import { cn } from "@/lib/utils";
@@ -9,7 +10,7 @@ import {
   type SendingDomain,
 } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import { PLUGINS } from "@/data/plugins";
 
 /**
@@ -21,8 +22,9 @@ import { PLUGINS } from "@/data/plugins";
  * at; this is a place you go to see WHERE mail lives. Ten ventures each send
  * from their own domain through Resend, one Google account reads for all of
  * them, and until now the only view of that was ten rows on an integration
- * page. Workdash solves this with a merged inbox rather than one page per
- * Google account, and this is the same idea one level up: every box, one page.
+ * page. The mail page solves the reading side with a merged inbox rather than
+ * one page per Google account; this is the same idea one level up on the
+ * sending side: every box, one page.
  *
  * TWO SOURCES, JOINED BY ACCOUNT ID, AND THE JOIN IS THE POINT. Which boxes
  * exist comes from the plugin accounts — the same rows the Integrations page
@@ -129,9 +131,10 @@ export function EmailStats() {
             />
             <Tile
               label="Bounce rate"
-              value={
-                sending?.bounceRate == null ? "—" : `${sending.bounceRate.toFixed(1)}%`
-              }
+              /* THE SERVER SENDS A PERCENT, `pct` TAKES A FRACTION. The
+                 division is at the call site on purpose — it is visible in
+                 review, where an import is not. */
+              value={pct(sending?.bounceRate == null ? null : sending.bounceRate / 100)}
               sub={
                 sending
                   ? `${sending.bounced} bounced · ${sending.rateBasis}`
@@ -154,11 +157,9 @@ export function EmailStats() {
           title="Mailboxes"
           hint="Google accounts this dashboard reads. What is waiting, and how long it has waited."
           empty={
-            <EmptyBox
-              text="No mailbox is connected."
-              to="/integrations/gmail"
-              action="Connect Gmail"
-            />
+            <PanelEmpty boxed action={{ to: "/integrations/gmail", label: "Connect Gmail" }}>
+              No mailbox is connected.
+            </PanelEmpty>
           }
         >
           {gmailAccounts.map((a) => (
@@ -170,11 +171,9 @@ export function EmailStats() {
           title="Sending domains"
           hint="One Resend key per venture. Whether each can send, and whether it lands."
           empty={
-            <EmptyBox
-              text="No sending domain is connected."
-              to="/integrations/resend"
-              action="Connect Resend"
-            />
+            <PanelEmpty boxed action={{ to: "/integrations/resend", label: "Connect Resend" }}>
+              No sending domain is connected.
+            </PanelEmpty>
           }
         >
           {resendAccounts.map((a) => (
@@ -248,28 +247,6 @@ function Section({
         empty
       )}
     </section>
-  );
-}
-
-function EmptyBox({
-  text,
-  to,
-  action,
-}: {
-  text: string;
-  to: string;
-  action: string;
-}) {
-  return (
-    <div className="text-muted-foreground flex items-center gap-3 rounded-[10px] border border-dashed px-4 py-5 text-[12.5px]">
-      {text}
-      <Link
-        to={to}
-        className="text-foreground hover:bg-accent ml-auto rounded-lg border px-2.5 py-1"
-      >
-        {action}
-      </Link>
-    </div>
   );
 }
 
@@ -449,7 +426,7 @@ function DomainCard({
             <Fig label="Sent · 30d" value={s ? String(s.sent) : null} />
             <Fig
               label="Bounce"
-              value={s?.bounceRate == null ? null : `${s.bounceRate.toFixed(1)}%`}
+              value={s?.bounceRate == null ? null : pct(s.bounceRate / 100)}
               tone={
                 s?.bounceRate == null
                   ? undefined

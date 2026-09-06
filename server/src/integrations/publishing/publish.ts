@@ -13,6 +13,13 @@
  *      that case. That one is handled by refusing to retry an ambiguous
  *      outcome at all; see the retry decision at the bottom of this file and
  *      `scheduler.reclaim()`.
+ *
+ *      AND CHECKS 1 AND 2 — THE TWO THAT DECIDE WHETHER IT MAY GO OUT AT ALL —
+ *      ARE RUN AGAIN INSIDE THE CLAIM, against the row as re-read there.
+ *      Checking here and writing later is checking the past: see `claim` in
+ *      mailflow/outbound.ts, and the paragraph above the claim below for what
+ *      that cost. Checks 3 and 4 read rows a concurrent submission cannot
+ *      change, so they stay where they are.
  *   2. Did the owner approve it? Nothing else in this file cares what the
  *      caption says; this cares that a person read it.
  *   3. Do the platform limits pass? See limits.ts. A refusal here is a
@@ -67,11 +74,55 @@ import {
   type ItemRow,
 } from "./items.ts";
 import { settings } from "./settings.ts";
+import { claim } from "../mailflow/outbound.ts";
 
 /** A file bigger than this is not read into memory to be posted. It is well
  *  above every per-platform cap in limits.ts, so this is the belt rather than
  *  the braces — it exists so a corrupt path cannot allocate a gigabyte. */
 const READ_CAP = 1024 * 1024 * 1024;
+
+/**
+ * THE STATUSES A SUBMISSION WILL ACCEPT.
+ *
+ * `failed` IS IN THE LIST, and it is there because `retry` is a real button. A
+ * failed item was approved by the owner before it was ever submitted, and
+ * nothing since has withdrawn that — an EDIT would have, by returning it to
+ * `draft` (see items.patchItem). Leaving it out made the retry route and the
+ * `retry_item` skill action structurally unable to do anything but 422, which
+ * is worse than either offering the retry or removing it: it looked like a
+ * feature and was a dead end.
+ *
+ * `publishing` IS NOT IN THE LIST, AND THAT REMOVAL IS A BUG FIX. It used to
+ * be, which meant "this item is being submitted right now" read as "the owner
+ * consented to this" — so a second caller arriving mid-flight passed the
+ * consent check and opened its own socket. It fired: a tick and a manual
+ * Publish on the same item put the same post on a live Page twice. An item in
+ * flight is nobody's to take; `scheduler.reclaim()` is what rescues one whose
+ * process died, and it does so by moving it to `failed`, which IS in this
+ * list, so the retry button still works.
+ */
+const CONSENTED = ["approved", "scheduled", "failed"];
+
+/** Why this row may not be submitted, or `null`. ONE function, called twice —
+ *  once for a fast refusal with a good sentence, and again inside the claim
+ *  against the row as it is at the instant of the write. Two copies of this
+ *  would be two answers to "may this go out". */
+function consentRefusal(r: ItemRow): string | null {
+  if (r.external_id)
+    return (
+      `That item was already submitted as ${r.external_id}. It is not sent again — ` +
+      "a double press must not become two posts in somebody's feed."
+    );
+  if (r.status === "publishing")
+    return (
+      "That item is being submitted right now, and it is not submitted twice. If this box " +
+      "stopped mid-call, `scheduler.reclaim()` settles the row in a few minutes and the error " +
+      "will say what to check."
+    );
+  if (!CONSENTED.includes(r.status))
+    return `That item is ${r.status}. Only an approved item is published — approve it first.`;
+  return null;
+}
 
 export type PublishResult = {
   ok: boolean;
@@ -117,32 +168,19 @@ export async function publishItem(
 
   if (!row) return base({ error: "No item by that id." });
 
-  /* 1 — already out there. */
+  /* 1 — already out there. Refused even for a rehearsal, because rehearsing a
+     post that has already gone is a question with no useful answer. */
   if (row.external_id)
     return base({
-      error:
-        `That item was already submitted as ${row.external_id}. It is not sent again — ` +
-        "a double press must not become two posts in somebody's feed.",
+      error: consentRefusal(row)!,
       externalId: row.external_id,
       permalink: row.permalink,
     });
 
   /* 2 — the owner's consent. A dry run is exempt: rehearsing a draft is how
-     somebody finds out whether it WOULD go, and nothing leaves this box.
-
-     `failed` IS IN THE LIST, and it is there because `retry` is a real
-     button. A failed item was approved by the owner before it was ever
-     submitted, and nothing since has withdrawn that — an EDIT would have, by
-     returning it to `draft` (see items.patchItem). Leaving it out made the
-     retry route and the `retry_item` skill action structurally unable to do
-     anything but 422, which is worse than either offering the retry or
-     removing it: it looked like a feature and was a dead end. */
-  const CONSENTED = ["approved", "scheduled", "publishing", "failed"];
-  if (!dry && !CONSENTED.includes(row.status))
-    return base({
-      error:
-        `That item is ${row.status}. Only an approved item is published — approve it first.`,
-    });
+     somebody finds out whether it WOULD go, and nothing leaves this box. */
+  const refusal = dry ? null : consentRefusal(row);
+  if (refusal) return base({ error: refusal });
 
   if (!row.destination_id) return base({ error: "That item has no destination." });
   const dest = destinationRow(row.destination_id);
@@ -157,13 +195,46 @@ export async function publishItem(
 
   const transport = opts.transport ?? (dry ? dryTransport() : liveTransport());
 
-  /* The item is moved to `publishing` BEFORE the call and the row is the only
-     record of that — see the migration. A process killed mid-call leaves it
-     here, and the next start reclaims it, having first checked `external_id`. */
-  if (!dry)
-    db.prepare(
-      "UPDATE publish_items SET status = 'publishing', attempts = attempts + 1, last_attempt_at = ?, updated_at = ? WHERE id = ?",
-    ).run(now(), now(), id);
+  /*
+    THE CLAIM. The item is moved to `publishing` BEFORE the call and the row is
+    the only record of that — see the migration. A process killed mid-call
+    leaves it here, and the next start reclaims it, having first checked
+    `external_id`.
+
+    IT IS TRANSACTIONAL, AND THAT IS NOT BELT-AND-BRACES. This used to be a
+    bare `UPDATE ... WHERE id = ?`: no status guard, no transaction. The
+    scheduler was kept from racing itself by a boolean in module scope
+    (`scheduler.ticking`) that the manual routes do not go through, so a tick
+    submitting item X while somebody pressed Publish on X had both callers read
+    a null `external_id`, both pass the consent check, and both open a socket.
+    That is the exact failure this file's header says it is arranged to prevent
+    — and it was prevented for the crash case and not for the concurrent one.
+    It happened, on a real account, with two identical posts to show for it.
+
+    Every check above is therefore re-run against the row as re-read inside the
+    transaction, and the write names the status it expects, so exactly one
+    caller can ever win. See mailflow/outbound.ts, where the mail queue's
+    version of this had been correct all along.
+  */
+  if (!dry) {
+    const claimed = claim<ItemRow>({
+      read: () => itemRow(id),
+      missing: "No item by that id.",
+      guard: consentRefusal,
+      update: (r) =>
+        db
+          .prepare(
+            `UPDATE publish_items
+                SET status = 'publishing', attempts = attempts + 1, last_attempt_at = ?, updated_at = ?
+              WHERE id = ? AND status = ? AND external_id IS NULL`,
+          )
+          .run(now(), now(), id, r.status).changes,
+      lost:
+        "Another submission of that item started in the same instant, and it is not sent twice. " +
+        "Nothing left this machine from here.",
+    });
+    if (!claimed.ok) return base({ error: claimed.error });
+  }
 
   let outcome: PublishOutcome;
   try {

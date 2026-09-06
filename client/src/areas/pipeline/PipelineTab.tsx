@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/Markdown";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
+import { ago, when } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   pipelineApi,
@@ -377,6 +377,11 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /* WHETHER THE SAVE RECONNECTED THE PLUGIN. The write goes through the same
+     door as every other plugin's settings and that door answers with the
+     plugin's connection state, so a save that left it unconfigured says so
+     instead of looking like it worked. */
+  const [connected, setConnected] = useState<boolean | null>(null);
 
   const set = (k: string, v: string) => setValues((old) => ({ ...old, [k]: v }));
 
@@ -429,7 +434,10 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
             setError(null);
             pipelineApi
               .save("pipeline", values)
-              .then(onSaved)
+              .then((r) => {
+                setConnected(r.connected);
+                onSaved();
+              })
               .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
               .finally(() => setSaving(false));
           }}
@@ -439,12 +447,18 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
         </Button>
         <span className="text-muted-foreground text-[11.5px]">
           {schedule.nextRunAt
-            ? `Next night: ${new Date(schedule.nextRunAt).toLocaleString()}.`
+            ? `Next night: ${when(schedule.nextRunAt, { year: true })}.`
             : "The schedule is off; nothing will run on its own."}{" "}
           {schedule.notes.cost}
         </span>
       </div>
       {error && <p className="text-destructive text-[12.5px]">{error}</p>}
+      {connected === false && (
+        <p className="text-warn-foreground text-[12.5px]">
+          Saved, but the pipeline plugin still reads as not connected — nothing will run on this
+          schedule until it is.
+        </p>
+      )}
     </div>
   );
 }
@@ -565,6 +579,7 @@ function SynthesisForm({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connected, setConnected] = useState<boolean | null>(null);
   const set = (k: string, v: string) => setValues((old) => ({ ...old, [k]: v }));
 
   return (
@@ -592,7 +607,10 @@ function SynthesisForm({
           setError(null);
           synthesisApi
             .saveConfig(values)
-            .then(onSaved)
+            .then((r) => {
+              setConnected(r.connected);
+              onSaved();
+            })
             .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
             .finally(() => setSaving(false));
         }}
@@ -607,6 +625,12 @@ function SynthesisForm({
         {config.defaults.repeatDays} days.
       </span>
       {error && <p className="text-destructive w-full text-[12.5px]">{error}</p>}
+      {connected === false && (
+        <p className="text-warn-foreground w-full text-[12.5px]">
+          Saved, but the synthesis plugin still reads as not connected — no venture will be read
+          until it is.
+        </p>
+      )}
     </div>
   );
 }

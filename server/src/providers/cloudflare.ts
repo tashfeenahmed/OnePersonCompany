@@ -9,9 +9,9 @@
  * So every gap this file reports is reported as a gap, and none of them is
  * closed by asking for more power.
  *
- * FOUR SOURCES, AND EACH ONE DEGRADES ON ITS OWN. The shape is lifted from
- * workdash's `collectors/collect_domains.py`, which is the version that has
- * actually been run against this account:
+ * FOUR SOURCES, AND EACH ONE DEGRADES ON ITS OWN. The shape is lifted from an
+ * earlier domain collector that had actually been run against a live account,
+ * rather than from the API documentation:
  *
  *   zones        REST      the only hard dependency. Without it there is no
  *                          document at all, so a failure here fails the run.

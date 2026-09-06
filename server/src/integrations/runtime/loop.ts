@@ -66,8 +66,7 @@
  */
 import type { ChatStreamEvent, ChatTurn } from "../../chat/backend.ts";
 import { serviceHeaders } from "../../auth.ts";
-import { db } from "../../db.ts";
-import { runContext } from "../../runtime/budgets.ts";
+import { runContext, spentOnRun } from "../../runtime/budgets.ts";
 import { activeModel, activeProvider, completeTooled, type ProviderId, type ToolWireTurn } from "../../models/provider.ts";
 import { apiBase, entry, isLive, skills, UNIVERSAL_RULES } from "../../skills/registry.ts";
 import { PRESENT_BRIEF } from "../../skills/present.ts";
@@ -471,14 +470,6 @@ export function toolModeNow(): { tools: boolean; why: string } {
   return { tools: true, why: "Tool use is on where the chosen model has been measured to support it." };
 }
 
-/** Dollars already reserved or reported against this turn. */
-function spentOn(runId: string): number {
-  const r = db
-    .prepare("SELECT coalesce(sum(usd), 0) AS usd FROM budget_usage WHERE run_id = ?")
-    .get(runId) as { usd: number };
-  return r.usd ?? 0;
-}
-
 /**
  * ONE TURN AGAINST A DIRECT PROVIDER — with tools where the model has them,
  * and exactly as before where it has not.
@@ -621,11 +612,33 @@ export async function* directTurn(
   for (;;) {
     const overCalls = calls >= s.maxToolCalls;
     const overTime = Date.now() - started > s.toolSeconds * 1000;
-    const overUsd = s.turnUsd > 0 && spentOn(runId) >= s.turnUsd;
+    /*
+      AN UNMEASURABLE CEILING STOPS THE LOOP RATHER THAN WAVING IT THROUGH.
+
+      `spentOnRun` answers null where this box prices no tokens, and the copy
+      this replaced returned 0 there — so a turn on an unpriced box read as
+      having spent nothing however many calls it made, and the dollar ceiling
+      the owner had set silently never tripped. Null is not zero. An owner who
+      asked for a per-turn dollar limit has said they want one, and the honest
+      answer to "I cannot tell you what this has cost" is to stop calling
+      tools and say why, not to keep going because the number is missing.
+      `saveBudgets` refuses dollar budgets without a price for the same reason;
+      this is that rule reaching the one ceiling that is set elsewhere.
+    */
+    /* Zero is NO CEILING, not a ceiling of nothing, so the ledger is not even
+       asked. A `spent >= 0` comparison would stop every turn on its first
+       round on the overwhelming majority of boxes, which have no dollar
+       ceiling set at all. */
+    const spent = s.turnUsd > 0 ? spentOnRun(runId) : null;
     if (!stopped) {
       if (overCalls) stopped = `the ${s.maxToolCalls}-call ceiling for one turn`;
       else if (overTime) stopped = `the ${s.toolSeconds}-second budget for one turn`;
-      else if (overUsd) stopped = `the $${s.turnUsd} budget for one turn`;
+      else if (s.turnUsd > 0 && spent === null)
+        stopped =
+          `the $${s.turnUsd} budget for one turn, which cannot be measured — no model ` +
+          `price per million tokens is configured, so nothing here knows what this cost`;
+      else if (spent !== null && spent >= s.turnUsd)
+        stopped = `the $${s.turnUsd} budget for one turn`;
     }
 
     /*

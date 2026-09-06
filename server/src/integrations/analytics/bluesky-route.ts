@@ -193,7 +193,7 @@ blueskyRoutes.get("/entities", (c) => {
           NULL, ALWAYS, AND ON PURPOSE. A handle is a domain and it is
           tempting to read it as one — but `alice.bsky.social` is a name
           Bluesky issued, not a website anybody owns, and a custom handle like
-          `example-app-1.example.test` is the same string as the venture's host by
+          `example.com` is the same string as the venture's host by
           COINCIDENCE of the verification scheme rather than because the
           account is the site. Auto-linking on it would file a personal
           account under a business the day somebody verified a handle with a

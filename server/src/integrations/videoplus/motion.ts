@@ -30,7 +30,7 @@ import type { VentureRow } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
 import { readModelJson } from "./json.ts";
 import { settings as voiceSettings, speak } from "../signals/voice/provider.ts";
-import { ASPECTS, concat, fromFrames, hasUntile, untileSheet } from "../video/assemble.ts";
+import { ASPECTS, aspectFrame, concat, fromFrames, hasUntile, untileSheet } from "../video/assemble.ts";
 import { StepError, runDir, type RunSession } from "../video/faceless.ts";
 import { saveJob } from "../video/store.ts";
 import { bytesOf, ffmpegFilters, findFfmpeg, findFfprobe, probeDuration } from "../video/tools.ts";
@@ -284,7 +284,7 @@ export async function motionVideo(opts: {
      what the owner touched most recently. */
   const aspect = input.aspect in ASPECTS ? input.aspect : spec.aspect;
   spec = { ...spec, aspect, voiceover: input.voiceover || spec.voiceover };
-  const frame = ASPECTS[aspect]!;
+  const frame = aspectFrame(aspect);
   const fps = motionFps();
   const cost = plan(spec, fps, frame);
   s.endStep(specStep, `${spec.scenes.length} scenes · ${specSeconds(spec).toFixed(1)}s · ${cost.sheets} browser launches`);
@@ -483,7 +483,7 @@ export async function previewSpec(opts: {
   const filters = await ffmpegFilters(ffmpeg.path);
   if (!hasUntile(filters)) return { frames, error: "This ffmpeg build has no `untile` filter, so a sheet cannot be cut into frames." };
 
-  const full = ASPECTS[opts.spec.aspect] ?? ASPECTS["9:16"]!;
+  const full = aspectFrame(opts.spec.aspect);
   const scale = 3;
   const size = { width: Math.round(full.width / scale), height: Math.round(full.height / scale) };
   const dir = makePreviewDir(opts.specId, opts.token);

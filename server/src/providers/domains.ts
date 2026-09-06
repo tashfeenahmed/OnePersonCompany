@@ -8,8 +8,10 @@
  * onto one shape, so nothing downstream has to know which registrar a row came
  * from in order to read it.
  *
- * The rules are lifted from workdash's collect_domains.py, which is the version
- * that has actually been run against these two accounts.
+ * The rules are lifted from the domain collector this replaced, which is the
+ * version that had actually been run against real registrar accounts — every
+ * one of the coercions below exists because a live API answered in a way the
+ * obvious parse got wrong.
  *
  * NULL MEANS "ASKED AND NOT TOLD", never "no". An auto-renew that this API
  * cannot see is not auto-renew off — the difference is a domain you think is
@@ -17,6 +19,7 @@
  * null and the UI says "unknown" rather than drawing a warning it cannot
  * justify.
  */
+import { allDomains, cloudflareRegistrar, type DomainRecord } from "../db.ts";
 
 export type DomainRow = {
   name: string;
@@ -171,3 +174,67 @@ export function describe(err: unknown): string {
   }
   return "Error";
 }
+
+/* ------------------------------------------------------------- the portfolio */
+
+/**
+ * EVERY REGISTERED NAME THIS BOX KNOWS ABOUT, FROM WHICHEVER COLLECTOR FOUND
+ * IT — and there are two, which is the whole point of this function.
+ *
+ * THE SAME ENTITY WAS BEING COLLECTED INTO TWO TABLES BY TWO COLLECTORS THAT
+ * HAD NEVER LEARNED ABOUT EACH OTHER. `domains` holds what the registrar
+ * plugins report; `cloudflare_registrar` holds what the Cloudflare plugin
+ * reports, with identical columns and an identical meaning. Everything that
+ * asked "what do I own and when does it lapse" read only the first, so a name
+ * registered at Cloudflare was missing from the portfolio total, from the
+ * lapsed and expiring counts, from auto-renew-off, from unlocked and from the
+ * renewal runway — and the Cloudflare page itself would classify that same
+ * zone as "no connected registrar holds this name" three inches above printing
+ * the name in its own registrar block.
+ *
+ * SO THERE IS ONE READER AND BOTH SURFACES USE IT. The tables are still two
+ * (merging them is a migration and belongs to a pass that is allowed to write
+ * one); what is fixed here is that nothing has to know there are two in order
+ * to answer the question correctly.
+ *
+ * A NAME IN BOTH TABLES IS ONE NAME, AND THE REGISTRAR PLUGIN'S ROW WINS. It
+ * carries fields Cloudflare's does not report at all — when it was registered,
+ * the privacy setting, the nameservers — so preferring it loses nothing, and
+ * the alternative is one name counted twice in the total.
+ */
+export function registeredDomains(): DomainRecord[] {
+  const rows = allDomains();
+  const known = new Set(rows.map((r) => r.name.toLowerCase()));
+  const extra = cloudflareRegistrar()
+    .filter((r) => !known.has(r.name.toLowerCase()))
+    .map((r): DomainRecord => ({
+      name: r.name,
+      /* THE PLUGIN THAT READ IT, exactly as the registrar sources spell it, so
+         "where do I go to change this" has the same kind of answer for all
+         three. */
+      source: "cloudflare",
+      account_id: r.account_id,
+      account_label: r.account_label,
+      /* Cloudflare reports the registrar of record and it is usually itself;
+         null means it did not say, and a portfolio row has to be filed under
+         something a person can read. */
+      registrar: r.registrar ?? "Cloudflare Registrar",
+      expires_at: r.expires_at,
+      /* THE THREE FIELDS CLOUDFLARE'S REGISTRAR ENDPOINT DOES NOT REPORT stay
+         null rather than being invented. Null is "asked and not told" here as
+         it is everywhere else in this file, and the counts keep it apart from
+         "off". */
+      registered_on: null,
+      auto_renew: r.auto_renew,
+      locked: r.locked,
+      status: r.status,
+      privacy: null,
+      nameservers: null,
+      seen_at: (r as CloudflareRegistrarSeen).seen_at ?? "",
+    }));
+  return [...rows, ...extra].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** `cloudflare_registrar` carries `seen_at` and its exported row type does
+ *  not. Widened here rather than in db.ts, which this pass does not edit. */
+type CloudflareRegistrarSeen = { seen_at?: string };

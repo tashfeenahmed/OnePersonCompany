@@ -52,6 +52,7 @@ import { readSource } from "../integrations/migrate/workdash.ts";
 import {
   batchCounts, closeBatch, newBatchId, openBatch, removeCopied, rollback,
 } from "../integrations/migrate/store.ts";
+import { INTERRUPTED, NOW, settleOpenRows } from "../shared/settle.ts";
 
 const argv = process.argv.slice(2);
 
@@ -194,6 +195,30 @@ if (p.problems.length) {
 }
 
 /* --------------------------------------------------------------- write */
+
+/*
+  CLOSE ANY BATCH A PREVIOUS RUN LEFT OPEN, BEFORE OPENING THIS ONE.
+
+  `migrate_batches` is the fourth ledger on this box with the crash-shaped
+  hole: the row is written before the first insert and closed after the last,
+  and the close cannot run if the process is killed — a Ctrl-C halfway through
+  a large import is the ordinary way that happens. An open row then reads as
+  "still importing", for ever, on a page whose entire job is to say what was
+  carried across and whether it finished.
+
+  IT IS DONE HERE AND NOT AT SERVER BOOT, which is where the other three areas
+  settle theirs. An import runs in THIS process — the API server is a different
+  one, and it restarts on every source save — so a boot settle would mark a
+  live import as interrupted while it was still running. The only process that
+  can safely say "no import is in flight" is the one about to start one.
+*/
+const settled = settleOpenRows({
+  table: "migrate_batches",
+  openWhen: "finished_at IS NULL",
+  set: { finished_at: NOW, ok: 0 },
+  note: { column: "error", text: INTERRUPTED },
+});
+if (settled) console.log(`\n  Closed ${settled} import(s) a previous run left open — see the batch list for what they managed.`);
 
 const batchId = newBatchId();
 openBatch({ id: batchId, source: dir, dryRun, kinds: kinds.kinds });

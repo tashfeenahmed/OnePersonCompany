@@ -9,8 +9,8 @@
  * here. That split is the point of the file: the owner edits meaning, the
  * templates own appearance, and neither can break the other.
  *
- * THE VALIDATOR CLAMPS RATHER THAN ARGUES, which is ported from workdash's
- * motion spec reader and is the right shape for a document a model writes. A
+ * THE VALIDATOR CLAMPS RATHER THAN ARGUES, which is the right shape for a
+ * document a model writes. A
  * heading of two hundred characters becomes eighty; a nine-item list becomes
  * six; a scene of four seconds where the ceiling is three becomes three. What
  * it will NOT do is guess: a scene of a kind no template exists for is the one
@@ -35,6 +35,7 @@
  * and its label are separate fields, so a reader can always see which part of
  * a stat card is the measurement and which part is the sentence around it.
  */
+import { ASPECTS, DEFAULT_ASPECT } from "../video/assemble.ts";
 
 export const SCENE_KINDS = ["title", "stat", "compare", "list", "cta"] as const;
 export type SceneKind = (typeof SCENE_KINDS)[number];
@@ -103,8 +104,7 @@ export const DEFAULT_LIMITS: SpecLimits = {
 /**
  * How long a scene runs when the spec does not say.
  *
- * Ported from workdash's motion driver, which learned them by watching:
- * a list needs time per item, a stat needs a beat for the number to land, a
+ * Learned by watching rather than chosen: a list needs time per item, a stat needs a beat for the number to land, a
  * call to action is read in three seconds and holding it longer reads as a
  * stall.
  */
@@ -196,9 +196,17 @@ export function readSceneSpec(raw: unknown, limits: SpecLimits = DEFAULT_LIMITS)
     else problems.push(`\`accent\` must be a six-digit hex colour like #3b82f6. “${accentRaw}” is not one, so the venture's own colour is used.`);
   }
 
-  const aspectRaw = str(o.aspect, 8) ?? "9:16";
-  const aspect = ["9:16", "1:1", "16:9"].includes(aspectRaw) ? aspectRaw : "9:16";
-  if (aspect !== aspectRaw) problems.push(`\`aspect\` “${aspectRaw}” is not one of 9:16, 1:1 or 16:9, so 9:16 was used.`);
+  /* THE SHAPES ARE ASKED FOR RATHER THAN LISTED. This used to hold its own
+     copy of "9:16, 1:1, 16:9", so adding a fourth shape to ASPECTS gave a
+     video route that accepted it and a spec reader that rejected it and
+     rendered portrait instead — a motion spec in the wrong shape, with a
+     sentence blaming the model for asking. */
+  const aspectRaw = str(o.aspect, 8) ?? DEFAULT_ASPECT;
+  const aspect = aspectRaw in ASPECTS ? aspectRaw : DEFAULT_ASPECT;
+  if (aspect !== aspectRaw)
+    problems.push(
+      `\`aspect\` “${aspectRaw}” is not one of ${Object.keys(ASPECTS).join(", ")}, so ${DEFAULT_ASPECT} was used.`,
+    );
 
   return {
     spec: {

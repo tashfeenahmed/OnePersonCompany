@@ -29,7 +29,7 @@ import { Hono } from "hono";
 import { ventureRows } from "../../db.ts";
 import { catalogueDoc, type Catalogue } from "./catalogue.ts";
 import { judge, readRule, ruleUrl, readParams, evaluateAll } from "./engine.ts";
-import { checkPath } from "./path.ts";
+import { checkPath } from "../../shared/metrics-address.ts";
 import {
   OPERATORS,
   THRESHOLDLESS,

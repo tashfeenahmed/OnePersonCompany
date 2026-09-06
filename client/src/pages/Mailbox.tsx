@@ -12,6 +12,7 @@ import {
   Search,
   Send,
 } from "lucide-react";
+import { bytes, when } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
@@ -27,11 +28,12 @@ import {
 /**
  * MAILBOX — every venture's mail in one list, and the reader beside it.
  *
- * THE FACT THIS PAGE IS BUILT AROUND. Every domain in this portfolio routes
- * its mail through Cloudflare into a single Gmail account, and Resend sends
- * back out as any address on those domains. So there is ONE inbox, and a
- * venture's "mailbox" is a filter on it rather than a place: the chips are
- * Gmail queries — `to:(@example-app-1.example.test)` — run on the server, not a predicate
+ * THE SETUP THIS PAGE IS BUILT AROUND, and it is the common one for a
+ * portfolio: every domain routes its mail through one provider into a single
+ * Gmail account, and Resend sends back out as any address on those domains. So
+ * there is ONE inbox, and a venture's "mailbox" is a filter on it rather than
+ * a place: the chips are Gmail queries — `to:(@one-of-your-domains)` — run on
+ * the server, not a predicate
  * over rows already fetched. That distinction is the whole reason the chip
  * lives in the URL and the count under it can be trusted; filtering 25 rows in
  * the browser would report "3 threads" for a venture with hundreds, and the
@@ -61,9 +63,9 @@ import {
  * because a second mobile tree is a second place for the mark-read behaviour
  * to be subtly different.
  *
- * TWO MODES, AND THE OTHER TWO ARE HONESTLY ABSENT. Workdash's version of this
- * page has four: inbox, priority, sent by apps, and promises. The two built
- * here are the two that are a question about MAIL. Priority is a ranking and
+ * TWO MODES, AND THE OTHER TWO ARE HONESTLY ABSENT. A mail page of this shape
+ * wants four: inbox, priority, sent by apps, and promises. The two built here
+ * are the two that are a question about MAIL. Priority is a ranking and
  * promises is an extraction, and both need a model to read the prose — see
  * `Coming`, which says what they would take rather than showing an empty list
  * that would read as "nothing is urgent".
@@ -76,7 +78,7 @@ export function Mailbox() {
   /*
     THE MODE AND THE CHIP LIVE IN THE URL; THE OPEN THREAD DOES NOT.
 
-    A filtered inbox is a PLACE — "Example App 1's mail" is somewhere you come back
+    A filtered inbox is a PLACE — "that venture's mail" is somewhere you come back
     to and somewhere you send yourself a link to — so it survives a reload and
     can be bookmarked, exactly as `?site=` does on the search boards. An open
     thread is not: Gmail's thread ids are internal, they mean nothing in
@@ -462,8 +464,8 @@ const MODES: { key: Mode; name: string; icon: typeof Mail }[] = [
 /**
  * The place the other two modes would go.
  *
- * IT SAYS WHAT IS MISSING RATHER THAN PRETENDING NOTHING IS. Workdash's page
- * has Priority and Promises beside these two, and both are model features: one
+ * IT SAYS WHAT IS MISSING RATHER THAN PRETENDING NOTHING IS. Priority and
+ * Promises would sit beside these two, and both are model features: one
  * ranks a thread by importance, the other lifts commitments out of the owner's
  * own sent prose. A tab wired to an empty list would be a promise this page
  * has no way to keep — the move `searxng.queries` and `replicate.gpu` made on
@@ -486,13 +488,13 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
  * VENTURES HERE HAVE NO DOMAIN FIELD. A venture is a name, a description and a
  * colour, and there is no join to make — so this matches the venture's NAME
  * against the domain, both normalised, either whole (`example.ie` ↔ "example.ie") or
- * against the domain's stem (`example-app-1.example.test` ↔ "Example App 1"). Equality, never a
+ * against the domain's stem (`acme.ie` ↔ "Acme"). Equality, never a
  * substring: "neu" inside "neurotech.io" is a coincidence, and a chip labelled
  * with the wrong business is worse than one labelled with a domain.
  *
- * A DOMAIN THAT MATCHES NOTHING KEEPS ITS OWN NAME. Workdash hard-codes a
- * table — example-app-4.example.test → "Example App 4" — which it can do because that list is
- * five entries maintained beside the page. Deriving one here would mean
+ * A DOMAIN THAT MATCHES NOTHING KEEPS ITS OWN NAME. A hard-coded table —
+ * `acmetools.io` → "Acme Tools" — is only maintainable where somebody keeps it
+ * beside the page, and this install has no such list. Deriving one would mean
  * inventing "Example Fitness" out of `example-app-9.example.test` and presenting it as the name
  * of a business nobody called that.
  */
@@ -528,26 +530,12 @@ function listTime(ms: number | null): string {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-/** The reader has room for the whole thing, and "when exactly" is a question
- *  people ask of a message and never of a row. */
-function fullTime(ms: number | null): string {
-  return ms
-    ? new Date(ms).toLocaleString(undefined, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "";
-}
-
-const bytes = (n: number | null): string => {
-  if (n === null) return "";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-};
+/* A MESSAGE'S OWN STAMP AND AN ATTACHMENT'S SIZE both come from `@/lib/format`
+   now. Both said "" for a missing value rather than the em dash, and both
+   still do — a message with no date and an attachment with no size draw
+   NOTHING here, because a dash in a mail header reads as a field the server
+   sent empty rather than one it never had. That is what `nullText` is for. */
+const NOTHING = { nullText: "" } as const;
 
 /* ====================================================================== */
 /*  Debounce                                                              */
@@ -993,7 +981,7 @@ function MessageBlock({
           {m.cc && ` · cc ${m.cc}`}
         </span>
         <span className="text-muted-foreground shrink-0 font-mono text-[10.5px]">
-          {fullTime(m.at)}
+          {when(m.at, { ...NOTHING, year: true })}
         </span>
       </header>
 
@@ -1054,7 +1042,7 @@ function MessageBlock({
           <span key={a.filename} className="flex items-center gap-1" title={a.mimeType}>
             <Paperclip className="size-3" strokeWidth={1.7} aria-hidden />
             {a.filename}
-            {a.size !== null && <span className="opacity-70">· {bytes(a.size)}</span>}
+            {a.size !== null && <span className="opacity-70">· {bytes(a.size, NOTHING)}</span>}
           </span>
         ))}
       </footer>

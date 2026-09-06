@@ -27,7 +27,7 @@ import { imageTokens, pngSize } from "./vision.ts";
 import { isInternalHost, normaliseWebsite } from "../../ventures/enrich.ts";
 import { reachableOffsets, type BaselineRow } from "./followup.ts";
 import { validateVisionAnswer } from "./vision.ts";
-import { parseOffsets, parseVentureList, sameHost, hostOf } from "./settings.ts";
+import { parseOffsets, parseVentureList } from "./settings.ts";
 import { resolveProperty } from "./gsc.ts";
 import { tagged, urlsIn } from "./followup.ts";
 
@@ -335,6 +335,16 @@ test("a URL is matched to the longest Search Console property that covers it", (
   assert.equal(resolveProperty("not a url", rows), null);
 });
 
+test("a domain property covers what is UNDER it and never what is above it", () => {
+  /* The rule this replaced matched in both directions, so a property for a
+     subdomain claimed a URL on the parent — a different site, whose figures
+     would then be captioned with the wrong property. */
+  const rows = [{ property: "sc-domain:blog.example.com", account_id: 1 }];
+  assert.equal(resolveProperty("https://blog.example.com/post", rows)?.property, "sc-domain:blog.example.com");
+  assert.equal(resolveProperty("https://example.com/pricing", rows), null);
+  assert.equal(resolveProperty("https://other.example.com/x", rows), null);
+});
+
 test("a URL-prefix property does not cover a different scheme", () => {
   const rows = [{ property: "https://example.com/", account_id: 1 }];
   assert.equal(resolveProperty("http://example.com/x", rows), null);
@@ -350,17 +360,9 @@ test("offsets parse, de-duplicate, sort and fall back", () => {
 
 test("the venture opt-in list understands `all` and an empty default", () => {
   assert.equal(parseVentureList("all"), "all");
-  assert.equal(parseVentureList("example-app-1, ALL"), "all");
+  assert.equal(parseVentureList("acme, ALL"), "all");
   assert.deepEqual(parseVentureList(""), []);
-  assert.deepEqual(parseVentureList("Example App 1, example-support"), ["example-app-1", "example-support"]);
-});
-
-test("hosts fold to a comparable form and subdomains count as the same site", () => {
-  assert.equal(hostOf("https://www.Example.com/path?x=1"), "example.com");
-  assert.equal(hostOf("localhost"), null);
-  assert.equal(sameHost("blog.example.com", "example.com"), true);
-  assert.equal(sameHost("example.com", "example.org"), false);
-  assert.equal(sameHost(null, "example.com"), false);
+  assert.deepEqual(parseVentureList("Acme, second-venture"), ["acme", "second-venture"]);
 });
 
 
@@ -546,7 +548,7 @@ test("loopback, private, link-local and metadata addresses are refused", () => {
 });
 
 test("ordinary public hosts are still accepted", () => {
-  for (const host of ["example.com", "example-app-1.example.test", "8.8.8.8", "203.0.113.7", "2606:4700::1111"])
+  for (const host of ["example.com", "example.ie", "8.8.8.8", "203.0.113.7", "2606:4700::1111"])
     assert.equal(isInternalHost(host), false, `${host} must be accepted`);
 });
 
@@ -561,9 +563,9 @@ test("normaliseWebsite refuses an internal address outright", () => {
 });
 
 test("normaliseWebsite still takes a real site, with or without a scheme", () => {
-  assert.deepEqual(normaliseWebsite("example-app-1.example.test"), {
-    website: "https://example-app-1.example.test/",
-    host: "example-app-1.example.test",
+  assert.deepEqual(normaliseWebsite("example.ie"), {
+    website: "https://example.ie/",
+    host: "example.ie",
   });
   assert.equal(normaliseWebsite("https://www.Example.com/x")?.host, "example.com");
 });

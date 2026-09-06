@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Film, Loader2, Play, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
 import { useStore } from "@/lib/store";
@@ -72,92 +73,91 @@ export function Motion() {
   const d = list.data;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
-      <div className="mx-auto w-full max-w-[1040px]">
-        <div className="mt-2 mb-5">
-          <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">Motion</h1>
-          <p className="text-muted-foreground text-[13.5px]">
-            A motion video is a <em>scene list</em>: four to eight cards of typography — a title, a
-            number, a before-and-after, a list, a call to action — drawn in the venture&rsquo;s own
-            measured colours and typeface. Rendering one is a{" "}
-            <Link to="/social/video" className="underline decoration-dotted">
-              video run
-            </Link>
-            ; nothing here is published anywhere.
-          </p>
+    <PageShell
+      title="Motion"
+      sub={
+        <>
+          A motion video is a <em>scene list</em>: four to eight cards of typography — a title, a
+          number, a before-and-after, a list, a call to action — drawn in the venture&rsquo;s own
+          measured colours and typeface. Rendering one is a{" "}
+          <Link to="/social/video" className="underline decoration-dotted">
+            video run
+          </Link>
+          ; nothing here is published anywhere.
+        </>
+      }
+      wide
+    >
+      {/* ------------------------------------------------------ readiness */}
+      {d && (
+        <div className="bg-card border-line-soft mb-4 grid gap-1.5 rounded-[10px] border p-3.5 text-[12.5px]">
+          <Capability label="Renderer" ready={d.readiness.renderer.ready} note={d.readiness.renderer.note} />
+          <Capability label="Encoder" ready={d.readiness.encoder.ready} note={d.readiness.encoder.note} />
+          <Capability label="Scene writer" ready={d.readiness.writer.ready} note={d.readiness.writer.note} />
         </div>
+      )}
 
-        {/* ------------------------------------------------------ readiness */}
-        {d && (
-          <div className="bg-card border-line-soft mb-4 grid gap-1.5 rounded-[10px] border p-3.5 text-[12.5px]">
-            <Capability label="Renderer" ready={d.readiness.renderer.ready} note={d.readiness.renderer.note} />
-            <Capability label="Encoder" ready={d.readiness.encoder.ready} note={d.readiness.encoder.note} />
-            <Capability label="Scene writer" ready={d.readiness.writer.ready} note={d.readiness.writer.note} />
-          </div>
-        )}
-
-        {/* -------------------------------------------------------- ventures */}
-        <div className="mb-4 flex flex-wrap items-center gap-1">
-          <span className="text-muted-foreground mr-1 text-[12px]">Venture</span>
-          <PickButton on={ventureId === null} onClick={() => setVentureId(null)}>
-            All
+      {/* -------------------------------------------------------- ventures */}
+      <div className="mb-4 flex flex-wrap items-center gap-1">
+        <span className="text-muted-foreground mr-1 text-[12px]">Venture</span>
+        <PickButton on={ventureId === null} onClick={() => setVentureId(null)}>
+          All
+        </PickButton>
+        {state.ventures.map((v) => (
+          <PickButton key={v.id} on={ventureId === v.id} onClick={() => setVentureId(v.id)}>
+            {v.name}
           </PickButton>
-          {state.ventures.map((v) => (
-            <PickButton key={v.id} on={ventureId === v.id} onClick={() => setVentureId(v.id)}>
-              {v.name}
-            </PickButton>
+        ))}
+      </div>
+
+      <Draft ventureId={ventureId} onDone={(id) => { setOpenId(id); list.reload(); }} />
+
+      {list.error && (
+        <p className="text-muted-foreground mb-4 text-[13px]">
+          The motion API did not answer. <span className="text-destructive">{list.error}</span>
+        </p>
+      )}
+      {!d && !list.error && <p className="text-muted-foreground text-[13px]">Reading the scene specs…</p>}
+
+      {d && !d.specs.length && (
+        <p className="text-muted-foreground text-[13px]">
+          No scene specs yet. Draft one from a brief above, or press <em>New</em> to write one by hand.
+        </p>
+      )}
+
+      {d && (
+        <div className="grid gap-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                void motionApi
+                  .create({ name: "New scene list", venture: ventureId, spec: EXAMPLE })
+                  .then((r) => {
+                    setOpenId(r.id);
+                    list.reload();
+                  });
+              }}
+            >
+              <Sparkles className="size-[14px]" strokeWidth={1.8} /> New, from the example
+            </Button>
+            <span className="text-muted-foreground text-[12px]">
+              {d.specs.length} spec{d.specs.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          {d.specs.map((s) => (
+            <SpecRow
+              key={s.id}
+              summary={s}
+              open={openId === s.id}
+              onToggle={() => setOpenId(openId === s.id ? null : s.id)}
+              onChanged={() => list.reload()}
+            />
           ))}
         </div>
-
-        <Draft ventureId={ventureId} onDone={(id) => { setOpenId(id); list.reload(); }} />
-
-        {list.error && (
-          <p className="text-muted-foreground mb-4 text-[13px]">
-            The motion API did not answer. <span className="text-destructive">{list.error}</span>
-          </p>
-        )}
-        {!d && !list.error && <p className="text-muted-foreground text-[13px]">Reading the scene specs…</p>}
-
-        {d && !d.specs.length && (
-          <p className="text-muted-foreground text-[13px]">
-            No scene specs yet. Draft one from a brief above, or press <em>New</em> to write one by hand.
-          </p>
-        )}
-
-        {d && (
-          <div className="grid gap-2">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  void motionApi
-                    .create({ name: "New scene list", venture: ventureId, spec: EXAMPLE })
-                    .then((r) => {
-                      setOpenId(r.id);
-                      list.reload();
-                    });
-                }}
-              >
-                <Sparkles className="size-[14px]" strokeWidth={1.8} /> New, from the example
-              </Button>
-              <span className="text-muted-foreground text-[12px]">
-                {d.specs.length} spec{d.specs.length === 1 ? "" : "s"}
-              </span>
-            </div>
-
-            {d.specs.map((s) => (
-              <SpecRow
-                key={s.id}
-                summary={s}
-                open={openId === s.id}
-                onToggle={() => setOpenId(openId === s.id ? null : s.id)}
-                onChanged={() => list.reload()}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+      )}
+    </PageShell>
   );
 }
 

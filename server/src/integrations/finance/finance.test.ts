@@ -6,7 +6,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { db, insertAccount, now, setConfig, upsertPlugin, writeAppStorePayouts } from "../../db.ts";
+import { db, insertAccount, now, setConfig, upsertPlugin, writeAppStorePayouts, writeAppStoreReport } from "../../db.ts";
 import {
   addTo,
   annualOf,
@@ -420,6 +420,14 @@ function twoCurrencyVentures() {
   const usd = insertAccount("appstore", `usd-${Date.now()}`);
   writeAppStorePayouts(yen, "2026-08", [{ appId: "app-yen", currency: "JPY", amount: 120_000 }]);
   writeAppStorePayouts(usd, "2026-08", [{ appId: "app-usd", currency: "USD", amount: 1_200 }]);
+  /* The report state, which the collector writes beside every payout it
+     stores. Revenue passes the report gate only where this says the finance
+     report actually arrived — the same gate /api/mobile/revenue applies, so
+     this area cannot charge a margin against money that document withholds. */
+  db.exec("DELETE FROM appstore_reports");
+  db.prepare("UPDATE plugin_accounts SET connected = 1 WHERE id IN (?,?)").run(yen, usd);
+  writeAppStoreReport(yen, "finance", "2026-08", "reported");
+  writeAppStoreReport(usd, "finance", "2026-08", "reported");
 }
 
 /* P1 — the revenue basis must never build a denominator across currencies. */

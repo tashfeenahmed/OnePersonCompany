@@ -47,8 +47,10 @@
  * work was done.
  */
 import { db, now } from "../../db.ts";
-import { budgets, runContext } from "../../runtime/budgets.ts";
-import { dueDay } from "../../runtime/schedule.ts";
+import { budgets, runContext, spentOnRun } from "../../runtime/budgets.ts";
+import { RUNTIME_KEYS, readSetting, writeSetting } from "../../runtime/settings.ts";
+import { INTERRUPTED, NOW, settleOpenRows } from "../../shared/settle.ts";
+import { dueDay, wall } from "../../shared/time.ts";
 import {
   allStages,
   blackoutFor,
@@ -60,7 +62,6 @@ import {
   skipDay,
   spend,
   stage as stageById,
-  zoned,
   type PipelineSettings,
   type SettledStage,
   type Stage,
@@ -205,7 +206,7 @@ export type PlannedStage = {
 export function plan(s: PipelineSettings, at = new Date()): { planned: PlannedStage[]; cycle: string[] } {
   const { order, cycle } = orderStages(allStages());
   const pref = prefs();
-  const clock = zoned(s, at);
+  const clock = wall(s.timezone, at);
   const planned: PlannedStage[] = [];
 
   for (const stage of order) {
@@ -227,7 +228,7 @@ export function plan(s: PipelineSettings, at = new Date()): { planned: PlannedSt
         reason: `not due — the cadence is ${conf.cadence} and it last completed ${lastCompleted(stage.id)}`,
       };
     } else {
-      const black = blackoutFor(s.blackouts, stage.id, clock.minute, clock.weekday);
+      const black = blackoutFor(s.blackouts, stage.id, clock.minutes, clock.weekday);
       if (black)
         refusal = {
           outcome: "skipped",
@@ -240,7 +241,7 @@ export function plan(s: PipelineSettings, at = new Date()): { planned: PlannedSt
         const inside = blackoutFor(
           [{ from: conf.window.slice(0, 5), to: conf.window.slice(6, 11), stages: ["*"], days: null, raw: conf.window }],
           stage.id,
-          clock.minute,
+          clock.minutes,
           clock.weekday,
         );
         if (!inside)
@@ -288,20 +289,6 @@ export type NightResult = {
 
 function mintRunId(): string {
   return `pl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
-
-/** What one stage's model calls cost, read from the same ledger the run queue
- *  is billed through. Null when this box prices no tokens — see the header. */
-function costOf(contextId: string): number | null {
-  if (!budgets().usdPerMillion) return null;
-  try {
-    const row = db
-      .prepare("SELECT coalesce(sum(usd), 0) AS usd FROM budget_usage WHERE run_id = ?")
-      .get(contextId) as { usd: number };
-    return Number(row.usd);
-  } catch {
-    return null;
-  }
 }
 
 /** How fresh a self-scheduled dependency's own work has to be before the walk
@@ -545,7 +532,7 @@ export async function runNight(
           ...result,
           note: [result.note, `Worth knowing: ${stale.join("; ")}.`].filter(Boolean).join(" "),
         };
-      file(p.stage, at, Date.now() - stageStarted, result, dry ? null : costOf(contextId));
+      file(p.stage, at, Date.now() - stageStarted, result, dry ? null : spentOnRun(contextId));
     }
 
     const stages = stageResultRows(id).map(shapeStageResult);
@@ -670,19 +657,13 @@ export const PIPELINE_SESSION = "pipeline";
  * `runs/manifest.ts`'s `failInterrupted` does the same thing for the run queue.
  */
 export function closeInterrupted(): number {
-  try {
-    const res = db
-      .prepare(
-        `UPDATE pipeline_runs
-            SET finished_at = ?,
-                note = COALESCE(note, 'The process stopped while this night was walking — a restart, a crash or a closed lid. Whatever had already finished is recorded; the rest never started.')
-          WHERE finished_at IS NULL`,
-      )
-      .run(now());
-    return Number(res.changes);
-  } catch {
-    return 0;
-  }
+  return settleOpenRows({
+    table: "pipeline_runs",
+    /* No status column here: an open row is one with no finish on it. */
+    openWhen: "finished_at IS NULL",
+    set: { finished_at: NOW },
+    note: { column: "note", text: INTERRUPTED },
+  });
 }
 
 /**
@@ -704,19 +685,11 @@ export function startPipeline() {
       try {
         const s = settings();
         if (!s.enabled) return;
-        const { hour, day } = zoned(s);
-        const saved = db.prepare("SELECT value FROM runtime_settings WHERE key='pipeline-last-due'").get() as
-          | { value: string }
-          | undefined;
-        const due = dueDay(day, hour, s.hour, saved?.value ?? null);
+        const { hour, day } = wall(s.timezone);
+        const due = dueDay(day, hour, s.hour, readSetting(RUNTIME_KEYS.pipelineLastDue));
         if (!due) return;
 
-        const claim = () =>
-          db
-            .prepare(
-              "INSERT INTO runtime_settings (key,value) VALUES ('pipeline-last-due',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            )
-            .run(due);
+        const claim = () => writeSetting(RUNTIME_KEYS.pipelineLastDue, due);
 
         const skip = skipDay();
         if (skip && skip.day === due) {

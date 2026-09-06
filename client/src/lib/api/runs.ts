@@ -1,4 +1,5 @@
 import { call } from "@/lib/api";
+import { qs, seg } from "@/lib/qs";
 
 /**
  * THE RUNS ENGINE, FROM THIS SIDE — six apps, one route family.
@@ -30,13 +31,15 @@ import { call } from "@/lib/api";
 
 /* -------------------------------------------------------------- the runs */
 
-/** Where a run is. `queued` and `running` are the two that mean the page must
- *  keep asking; the other three are final. */
-export type RunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
-
-/** True for the two statuses that are still moving — the polling predicate,
- *  written once so no page invents its own idea of "live". */
-export const isLive = (s: RunStatus) => s === "queued" || s === "running";
+/* Where a run is, and the polling predicate over it, both from the repo-root
+   `shared/runStatus.ts`. The union was declared five times — twice on the
+   server, three times here — and five declarations of one five-member set is
+   how `agent_runs` came to carry a sixth state that none of them knew about.
+   Re-exported so the run pages keep importing their vocabulary from the module
+   that describes their route. */
+export { isLive, isRunStatus, isFinal, RUN_STATUSES } from "../../../../shared/runStatus";
+export type { RunStatus } from "../../../../shared/runStatus";
+import type { RunStatus } from "../../../../shared/runStatus";
 
 /**
  * One tool call the agent made while it worked.
@@ -349,15 +352,6 @@ export type GeoDoc = {
 };
 
 /* ------------------------------------------------------------------ calls */
-
-const seg = (s: string) => encodeURIComponent(s);
-
-const qs = (params: Record<string, string | number | null | undefined>) => {
-  const parts = Object.entries(params)
-    .filter(([, v]) => v !== null && v !== undefined && v !== "")
-    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
-  return parts.length ? `?${parts.join("&")}` : "";
-};
 
 /** The href a file link points at. Not `call` — these three routes answer with
  *  a file rather than JSON, and a browser fetches them better than this client

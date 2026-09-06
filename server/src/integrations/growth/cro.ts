@@ -14,11 +14,15 @@
  *      venture's host, whose last document carries counters this recognises as
  *      funnel steps. This is the only source that measures the product's own
  *      users; everything else is a proxy.
- *   2. UMAMI EVENTS AND STRIPE. Sessions for the venture's domain as the top
- *      of the funnel, the named events the site actually fires (`signup-…`,
- *      `checkout-started`, `payment-completed`) as the middle, and Stripe
- *      subscriptions whose PRODUCT NAME contains the venture's name as the
- *      bottom. Every join there is a name match and the answer says so.
+ *   2. SITE EVENTS AND STRIPE. The window's own session figure for the
+ *      venture's websites as the top of the funnel, the SESSIONS THAT FIRED
+ *      each named event (`signup-…`, `checkout-started`, `payment-completed`)
+ *      as the middle, and Stripe subscriptions whose PRODUCT NAME contains the
+ *      venture's name as the bottom. Every join there is a name match and the
+ *      answer says so. The counts come from `webanalytics`'s one conversion
+ *      reader, so a step here is the same count as the step on the analytics
+ *      page — see `signalFunnel` for the two errors that stopped being true
+ *      when they became one read.
  *   3. NOTHING. Then there is no stage, the whole library is offered, and the
  *      owner is asked. A guessed stage would send somebody to rewrite a
  *      pricing page when the problem is that nobody arrives.
@@ -38,7 +42,11 @@
  * a stage named off that is a coin toss with a recommendation attached.
  */
 import { db, now, type VentureRow } from "../../db.ts";
-import { registrable } from "./pages.ts";
+import { sameSite } from "../../shared/host.ts";
+import {
+  conversionSteps,
+  CONVERSION_WINDOW_DAYS,
+} from "../webanalytics/attribution.ts";
 import { EXPERIMENTS, REFUSALS, STAGES, experiment, forStage, type Experiment } from "./cro-library.ts";
 
 /** The order steps happen in. A transition is only computed between two
@@ -48,8 +56,10 @@ const STAGE_ORDER = ["landing", "signup", "onboarding", "activation", "pricing",
 /** Below this many at the top of a transition, no stage is named. */
 const MIN_SAMPLE = 30;
 
-/** How far back the Umami and Stripe fallback looks. */
-const WINDOW_DAYS = 30;
+/** How far back the traffic and Stripe fallback looks. The web-analytics
+ *  reader's window, imported rather than repeated: a step counted over one
+ *  window and divided by a denominator counted over another is not a rate. */
+const WINDOW_DAYS = CONVERSION_WINDOW_DAYS;
 
 /* ------------------------------------------------- naming a counter's stage */
 
@@ -127,7 +137,6 @@ function leaves(doc: unknown, prefix = "", out: Record<string, number> = {}, dep
 /** The product endpoint whose URL is on this venture's host, if there is one. */
 function productFunnel(v: VentureRow): { steps: Step[]; label: string } | null {
   if (!v.host) return null;
-  const want = registrable(v.host);
   const rows = db.prepare("SELECT account_id, url, doc, ts FROM product_docs WHERE ok = 1").all() as unknown as {
     account_id: number;
     url: string;
@@ -135,13 +144,12 @@ function productFunnel(v: VentureRow): { steps: Step[]; label: string } | null {
     ts: string;
   }[];
   for (const r of rows) {
-    let host: string | null = null;
-    try {
-      host = new URL(r.url).hostname.replace(/^www\./, "");
-    } catch {
-      continue;
-    }
-    if (registrable(host) !== want) continue;
+    /* ONE-DIRECTIONAL, through `shared/host.ts`: an endpoint on
+       `api.example.com` is `example.com`'s, and an endpoint on `example.com`
+       is not `api.example.com`'s. Folding both to the registrable domain, as
+       this did, also handed one venture's funnel to a sibling subdomain
+       somebody else's venture owns. */
+    if (!sameSite(v.host, r.url)) continue;
     let doc: unknown = null;
     try {
       doc = JSON.parse(r.doc);
@@ -166,42 +174,71 @@ function productFunnel(v: VentureRow): { steps: Step[]; label: string } | null {
   return null;
 }
 
-/** Umami sessions and events for the venture's domain, plus Stripe
- *  subscriptions whose product name carries the venture's name. */
+/**
+ * SITE SESSIONS AND CONVERSION EVENTS FOR THE VENTURE, PLUS STRIPE.
+ *
+ * THE COUNTS ARE PARTICIPANTS AND THE DENOMINATOR IS A WINDOW FIGURE, and both
+ * halves of that sentence are corrections to what this used to do.
+ *
+ *   IT COUNTED OCCURRENCES. The top-events ranking counts how many times an
+ *   event FIRED. A funnel step is how many people reached it. On the instance
+ *   this was found on, one event fired 5,978 times in 4,434 sessions — so
+ *   every step read off that table ran a third high, and the leak below it was
+ *   invented.
+ *
+ *   IT SUMMED A DAILY LINE FOR THE DENOMINATOR, over a window that included
+ *   TODAY. The daily table's own header says its sessions are not the window
+ *   table's population, and a partial day in a denominator lifts every ratio
+ *   above it. The two errors pushed the same way and the measured overstatement
+ *   was roughly 35%.
+ *
+ * Both are now one read — `conversionSteps` over `web_events` — shared with the
+ * conversion view and the campaign join, so a step quoted on the growth page is
+ * the same count as the step quoted on the analytics page.
+ *
+ * A STEP STILL NEEDS A NAME THAT MEANS SOMETHING. The events are bucketed to a
+ * funnel stage by `stageOfKey`, exactly as the product endpoint's counters are,
+ * so a site that fires `checkout-started` gets a pricing step whether or not
+ * the owner has named its conversions in the settings.
+ */
 function signalFunnel(v: VentureRow): { steps: Step[]; label: string } | null {
   const steps: Step[] = [];
   const parts: string[] = [];
 
-  if (v.host) {
-    const want = registrable(v.host);
-    const sites = db.prepare("SELECT account_id, website_id, domain FROM umami_websites").all() as unknown as {
-      account_id: number;
-      website_id: string;
-      domain: string | null;
-    }[];
-    const site = sites.find((s) => s.domain && registrable(s.domain.replace(/^https?:\/\//, "").split("/")[0]!) === want);
-    if (site) {
-      const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
-      const sessions = db
-        .prepare("SELECT SUM(sessions) AS n FROM umami_days WHERE website_id = ? AND day >= ?")
-        .get(site.website_id, since) as { n: number | null } | undefined;
-      if (sessions?.n)
-        steps.push({ stage: "landing", key: "sessions", count: sessions.n, from: `Umami sessions for ${site.domain} over the last ${WINDOW_DAYS} days` });
+  const measured = conversionSteps(v);
+  if (measured.websites.length) {
+    /* THE TOP OF THE FUNNEL IS THE WINDOW'S OWN SESSION COUNT, asked for as a
+       window and never added up out of days. Sites add here — a session on one
+       site is a session on that site — while VISITORS would not, which is why
+       visits is the figure taken. */
+    const visits = measured.sessions
+      .map((s) => s.visits)
+      .filter((n): n is number => n !== null);
+    if (visits.length)
+      steps.push({
+        stage: "landing",
+        key: "visits",
+        count: visits.reduce((a, b) => a + b, 0),
+        from: `the analytics instance's own session figure for the last ${WINDOW_DAYS} complete days`,
+      });
 
-      const events = db
-        .prepare("SELECT name, count, window_days FROM umami_top WHERE website_id = ? AND kind = 'event' ORDER BY window_days")
-        .all(site.website_id) as unknown as { name: string; count: number; window_days: number }[];
-      const best = new Map<string, Step>();
-      for (const e of events) {
-        const stage = stageOfKey(e.name);
-        if (!stage || stage === "landing") continue;
-        const prev = best.get(stage);
-        if (!prev || e.count > prev.count)
-          best.set(stage, { stage, key: e.name, count: e.count, from: `Umami's ${e.window_days}-day event count for ${site.domain}` });
-      }
-      steps.push(...best.values());
-      if (steps.length) parts.push(`Umami for ${site.domain}`);
+    /* ONE STEP PER STAGE, THE LARGEST PARTICIPANT COUNT WINNING. See the file
+       header: two names for one step must never be added. */
+    const best = new Map<string, Step>();
+    for (const e of measured.steps) {
+      const stage = stageOfKey(e.event);
+      if (!stage || stage === "landing" || e.participants === null) continue;
+      const prev = best.get(stage);
+      if (!prev || e.participants > prev.count)
+        best.set(stage, {
+          stage,
+          key: e.event,
+          count: e.participants,
+          from: `sessions that fired “${e.event}” over ${WINDOW_DAYS} complete days`,
+        });
     }
+    steps.push(...best.values());
+    if (steps.length) parts.push(`the analytics instance for ${measured.websites.join(", ")}`);
   }
 
   /* STRIPE, JOINED ON THE PRODUCT'S NAME AND NOTHING ELSE. There is no venture
@@ -216,14 +253,15 @@ function signalFunnel(v: VentureRow): { steps: Step[]; label: string } | null {
       .prepare("SELECT product FROM stripe_subscriptions WHERE created_at >= ?")
       .all(since) as unknown as { product: string | null }[];
     const mine = subs.filter((s) => (s.product ?? "").toLowerCase().replace(/[^a-z0-9]/g, "").includes(key)).length;
-    if (mine > 0)
+    if (mine > 0) {
       steps.push({
         stage: "paywall",
         key: "stripe subscriptions created",
         count: mine,
         from: `Stripe subscriptions created in the last ${WINDOW_DAYS} days whose product name contains “${v.name}” — a join by NAME, not by any id`,
       });
-    if (mine > 0) parts.push("Stripe");
+      parts.push("Stripe");
+    }
   }
 
   return steps.length >= 2 ? { steps, label: parts.join(" and ") } : null;
@@ -321,7 +359,7 @@ export function funnelFor(v: VentureRow, override?: string | null): Funnel {
   const signals = signalFunnel(v);
   if (signals) return { ...readFunnel(signals.steps, signals.label), tried };
   tried.push(
-    `Umami has no website matching this venture's host with named funnel events, and no Stripe subscription's product name contains “${v.name}” within the last ${WINDOW_DAYS} days.`,
+    `No analytics website linked to this venture, or carrying its host, has two recognisable funnel steps over the last ${WINDOW_DAYS} complete days, and no Stripe subscription's product name contains “${v.name}” within the same window.`,
   );
 
   return {

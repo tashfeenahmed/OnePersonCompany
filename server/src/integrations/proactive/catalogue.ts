@@ -13,11 +13,14 @@
  * `opc` command or for an agent; this file's only database access is writing
  * the snapshot rows it just fetched.
  */
-import { PORT } from "../../config.ts";
 import { serviceHeaders } from "../../auth.ts";
 import { rules, writeSnapshot } from "./store.ts";
 
-export const apiBase = () => `http://127.0.0.1:${PORT}`;
+/* One answer for "where is this box's own skills surface", shared with the
+   address module the rule engine reads figures through — so a snapshot and
+   the rule that watches it can never be fetched from two different ports. */
+import { apiBase } from "../../shared/metrics-address.ts";
+export { apiBase };
 
 /**
  * How many skills a narration may read. Six documents is already several

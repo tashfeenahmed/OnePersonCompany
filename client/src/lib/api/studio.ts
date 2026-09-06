@@ -270,73 +270,11 @@ export const backupsApi = {
     }),
 };
 
-/* ---------------------------------------------------------------- capture */
-
-export type CaptureVenture = {
-  id: string;
-  slug: string;
-  name: string;
-  website: string | null;
-  /** The newest attempt, successful or not — this is what says "Chrome is not
-   *  installed" and "the page never loaded". */
-  last: {
-    ts: string;
-    ok: boolean;
-    bytes: number | null;
-    width: number | null;
-    height: number | null;
-    error: string | null;
-    ageDays: number | null;
-  } | null;
-  /** The newest attempt that produced a file. Null when there has never been
-   *  one, which is not the same as the last one having failed. */
-  picture: {
-    ts: string;
-    ageDays: number | null;
-    onDisk: boolean;
-    url: string;
-  } | null;
-  /** A rendered-DOM brand reading from `POST /rebrand`. Not a picture. */
-  rendered: { ts: string; ageDays: number | null; domBytes: number | null } | null;
-  due: boolean;
-};
-
-export type CaptureDoc = {
-  browser: {
-    found: boolean;
-    path: string | null;
-    /** "application", "path", "config" — where the path came from, because
-     *  "found in /Applications" and "you typed this" are different claims. */
-    source: string | null;
-    error: string | null;
-    windowSize: string;
-    note: string;
-  };
-  refreshEveryDays: number;
-  ventures: CaptureVenture[];
-};
-
-export type CaptureResult = {
-  venture: { id: string; slug: string; name: string; website: string | null };
-  ok: boolean;
-  ts: string;
-  /** Where the PNG landed on the box. On the wire and deliberately not drawn
-   *  — the page shows the picture, and a path is of use to nobody reading a
-   *  settings row. */
-  path: string | null;
-  bytes: number | null;
-  width: number | null;
-  height: number | null;
-  error: string | null;
-  browser: string | null;
-};
-
-export const captureApi = {
-  get: () => call<CaptureDoc>("/capture"),
-  /** One venture, by id or slug. Answers 200 whether or not it worked — a
-   *  failed capture is a row, and `ok` is what says which happened. */
-  shoot: (ventureKey: string) =>
-    call<CaptureResult>(`/capture/${encodeURIComponent(ventureKey)}`, {
-      method: "POST",
-    }),
-};
+/*
+  THE CAPTURE ROUTE USED TO BE DESCRIBED HERE TOO, and the two descriptions had
+  already drifted: this copy's `CaptureVenture.rendered` had no `reading`, so
+  the brand colours the server sends with every rendered row were invisible to
+  anything typed against it, and its `CaptureRun` had no `path` while its
+  `CaptureResult` did. `/capture` is a venture's picture, so the shape lives in
+  `lib/api/ventures.ts` and only there.
+*/

@@ -59,10 +59,12 @@
  * path can be read as an argument rather than as string-building.
  */
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { configValue } from "../../db.ts";
 import { DATA_DIR } from "../../config.ts";
+import { findBinary, type Binary, type ConfigKey } from "../../tools/find-binary.ts";
+import { VIDEO_PLUGIN } from "../video/tools.ts";
 
 /** The pseudo-plugin the three settings live under. No credential — `typst` is
  *  a path, `columns` is a preference and `author` is a name — which is exactly
@@ -81,60 +83,47 @@ export const paperDir = (runId: string) => resolve(PAPERS_DIR, runId);
  *  process — so the default is the box, not a person it would be guessing at. */
 export const DEFAULT_AUTHOR = "One Person Company";
 
-/** Where Typst is looked for when the setting is empty, in order. Homebrew's
- *  prefix on Apple silicon, then Intel's, then whatever is on PATH. */
-const TYPST_CANDIDATES = ["/opt/homebrew/bin/typst", "/usr/local/bin/typst"];
-
 /** A paper is a few pages of text and at most three small SVGs; Typst does
  *  that in well under a second. A minute is not slow, it is wrong. */
 const COMPILE_MS = 60_000;
 
 /* ------------------------------------------------------------- discovery */
 
-export type TypstBinary =
-  | { found: true; path: string; source: "configured" | "known" | "path" }
-  | { found: false; path: null; source: "none"; error: string };
+/**
+ * THE TWO SETTINGS KEYS ONE TYPESETTER ANSWERS TO, and why both are listed.
+ *
+ * Typst was discovered twice on this box: the papers area read `papers.typst`
+ * and the video area read `video.typst`, and neither knew about the other. Set
+ * the path under Papers and every video still rendered captionless, with a
+ * message telling the owner to install a typesetter they already had. There is
+ * ONE typesetter on a machine, so there is one spec — the first key that
+ * carries a value wins, and find-binary's failure sentence names both so
+ * nobody is told about one arbitrary half of the setting.
+ *
+ * Papers is asked first because the paper is the thing that cannot be made at
+ * all without it; a caption merely comes out plainer.
+ */
+const TYPST_KEYS: ConfigKey[] = [
+  { plugin: PAPERS_PLUGIN, key: "typst", label: "Papers" },
+  { plugin: VIDEO_PLUGIN, key: "typst", label: "the Video settings" },
+];
 
-function onPath(name: string): string | null {
-  for (const dir of (process.env.PATH ?? "").split(":")) {
-    if (!dir) continue;
-    const p = resolve(dir, name);
-    if (existsSync(p)) return p;
-  }
-  return null;
-}
+export type TypstBinary = Binary;
 
 /**
  * Where the typesetter is, or the sentence saying it is nowhere.
  *
- * The same shape and the same order as capture.ts's `findBrowser`, on purpose:
- * a configured path that is not there is an ERROR and not a reason to go
- * looking, because somebody typed it and is entitled to be told it is wrong
- * rather than to have the box quietly use a different binary.
+ * A configured path that is not there is an ERROR and not a reason to go
+ * looking: somebody typed it and is entitled to be told it is wrong rather
+ * than to have the box quietly use a different binary. That rule, and the
+ * search order behind it, live in tools/find-binary.ts.
  */
 export function findTypst(): TypstBinary {
-  const configured = (configValue(PAPERS_PLUGIN, "typst") ?? "").trim();
-  if (configured) {
-    if (existsSync(configured)) return { found: true, path: configured, source: "configured" };
-    return {
-      found: false,
-      path: null,
-      source: "none",
-      error: `The typesetter configured under Papers — ${configured} — is not there.`,
-    };
-  }
-  for (const p of TYPST_CANDIDATES) if (existsSync(p)) return { found: true, path: p, source: "known" };
-  const found = onPath("typst");
-  if (found) return { found: true, path: found, source: "path" };
-  return {
-    found: false,
-    path: null,
-    source: "none",
-    error:
-      "No typst was found. Looked at /opt/homebrew/bin/typst, /usr/local/bin/typst " +
-      "and on PATH. Install it (brew install typst) or set the path under the " +
-      "Papers settings; until then a paper is markdown printed by Chrome.",
-  };
+  return findBinary({
+    name: "typst",
+    configKeys: TYPST_KEYS,
+    install: "brew install typst",
+  });
 }
 
 /** One or two columns, when the plan does not decide it. The plan usually

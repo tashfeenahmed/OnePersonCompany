@@ -30,7 +30,7 @@ import { LIVE_BUILDERS } from "@/lib/liveWidgets";
  * A DASHBOARD INSIDE A VENTURE SEES THAT VENTURE'S DATA.
  *
  * The whole point of a venture board is that "impressions" means impressions
- * for support.example.test, not for twenty-three domains. Nothing on the server
+ * for one site, not for twenty-three domains. Nothing on the server
  * knows that: /api/gsc answers with every property, /api/cloudflare with every
  * zone, and neither of them has ever heard of a venture. So the narrowing
  * happens here, on rows that are already in hand, against the venture's HOST.
@@ -66,9 +66,9 @@ import { LIVE_BUILDERS } from "@/lib/liveWidgets";
  * ventures nobody has linked anything to yet.
  *
  * It matters most where a hostname cannot work at all. A fleet box has no host
- * on it, so "which of these four machines is Example Support's" is a question ONLY
- * a link can answer. It matters again where a hostname is nearly right and
- * quietly wrong: `example.ie` and `neu.so` are two businesses here, and a repo
+ * on it, so "which of these four machines belongs to which venture" is a
+ * question ONLY a link can answer. It matters again where a hostname is nearly right and
+ * quietly wrong: `acme.ie` and `acme.so` can be two separate businesses, and a repo
  * whose homepage is one of them must not be counted under the other because
  * `mentions()` is a containment test.
  *
@@ -78,7 +78,7 @@ import { LIVE_BUILDERS } from "@/lib/liveWidgets";
  */
 
 /** One row of the venture's link table: an integration, and that integration's
- *  own identifier for the thing — a Cloudflare zone id, `sc-domain:example.ie`, an
+ *  own identifier for the thing — a Cloudflare zone id, `sc-domain:acme.ie`, an
  *  npm package name, an uptime host. Not a hostname; some of them have none. */
 export type LinkedEntity = { plugin: string; entity: string };
 
@@ -102,7 +102,7 @@ export type LiveScope = {
   /** What the owner has said belongs to this venture, across every
    *  integration. Empty on a venture nobody has linked anything to. */
   entities: LinkedEntity[];
-  /** How the cards name it: "support.example.test". */
+  /** How the cards name it — usually its primary hostname. */
   label: string;
   /** The whole portfolio, for the cards that cannot be narrowed. */
   base: LiveData;
@@ -239,7 +239,7 @@ function isHost(name: string | null | undefined, hosts: string[]): boolean {
 }
 
 /** A row whose field is a URL or a Search Console property string —
- *  "sc-domain:support.example.test", "https://support.example.test/" — where containment
+ *  "sc-domain:example.com", "https://example.com/" — where containment
  *  is the honest test and parsing would only add ways to get it wrong. */
 function mentions(value: string | null | undefined, hosts: string[]): boolean {
   if (!value) return false;
@@ -739,7 +739,7 @@ export function scopeLive(
  *
  *   BLUESKY, because a handle is a domain and reading it as one is the trap.
  *   `alice.bsky.social` is a name Bluesky issued, and a custom handle like
- *   `example-app-1.example.test` is the same string as the venture's host by coincidence of
+ *   a venture's own domain is the same string as its host by coincidence of
  *   the verification scheme rather than because the account is the site — so
  *   auto-matching would file a personal account under a business the day
  *   somebody verified a handle with a company domain. The server's own
@@ -1213,7 +1213,7 @@ function scopeAudit(A: AuditOverview | null, hosts: string[]): AuditOverview | n
  * audited. So the join is exact: hosts → venture ids → profiles. No hostname
  * is matched against a company name and no venture NAME is treated as a
  * domain, which is the guess this would otherwise have to make and would get
- * wrong on `example.ie` and `neu.so` the first time it ran.
+ * wrong on `acme.ie` and `acme.so` the first time it ran.
  *
  * WITH NO MAP THERE IS NO NARROWING, and the cards then draw their empty body.
  * Both documents come off the same box in the same load, so one arriving

@@ -3,7 +3,7 @@ import { Eye, Loader2, ScanEye } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ago } from "@/components/integrations/format";
+import { ago } from "@/lib/format";
 import { seoopsApi } from "@/lib/api/seoops";
 
 /**

@@ -50,7 +50,15 @@ console.log(
         problem: iso.problem,
         agentHome: iso.agentHome,
         secretsLocked: iso.secretsLocked,
-        scopedKeyRefusedOn: iso.scopedKey.refusedPrefixes.map((r) => r.prefix),
+        /* THE WHOLE TABLE, LEVEL INCLUDED. A list of bare prefixes was what
+           this printed before, and it left the reader to assume every entry
+           was held to the same rule — while three different rules were in
+           force and the weakest of them let a header-less request through. */
+        scopedKeyRefusedOn: iso.scopedKey.refusedPrefixes.map((r) => ({
+          on: r.paths ? r.paths.join(", ") : r.prefix,
+          methods: r.methods,
+          level: r.level,
+        })),
         agentKeyProblem: iso.agentKeyProblem,
         containerPath: iso.containerPath,
         summary: iso.summary,

@@ -58,6 +58,10 @@ export type SiteWindowRow = {
   bounces: number | null;
   totaltime: number | null;
   seen_at: string;
+  /** WHICH TABLE ANSWERED. See `siteWindows` — two collectors on two clocks
+   *  write the same 30-day span, and a reader that cannot say which one it
+   *  read cannot explain why two pages differed. */
+  source: "umami_windows" | "web_site_windows";
 };
 
 export type EventRow = {
@@ -265,7 +269,7 @@ export function dimensionsOf(websiteId: string, windowDays: number, offsetDays: 
     .all(websiteId, windowDays, offsetDays) as unknown as DimensionRow[];
 }
 
-export function writeSiteWindow(row: Omit<SiteWindowRow, "seen_at">) {
+export function writeSiteWindow(row: Omit<SiteWindowRow, "seen_at" | "source">) {
   db.prepare(
     `INSERT INTO web_site_windows
        (account_id, website_id, window_days, offset_days, start_day, end_day,
@@ -292,12 +296,57 @@ export function writeSiteWindow(row: Omit<SiteWindowRow, "seen_at">) {
   );
 }
 
+/**
+ * ONE WEBSITE'S WINDOW FIGURES, FROM WHICHEVER TABLE HOLDS THEM.
+ *
+ * TWO TABLES HELD THE SAME 30-DAY SPAN ON TWO CLOCKS, and that is the bug this
+ * accessor closes. `umami_windows` is written by the traffic collector every
+ * six hours for every website; `web_site_windows` is written by this area's
+ * own collector on a twelve-hour ROTATION that reaches a few sites a pass. Both
+ * ask the same analytics instance for the last 30 complete days, so the rows
+ * are read hours to days apart and the two surfaces that publish them —
+ * a traffic headline and an audience breakdown, both registered as agent skills
+ * on the same plugin — reported different visitor counts for one site and one
+ * window. An agent's answer depended on which skill it happened to pick.
+ *
+ * THE 30-DAY HEADLINE IS `umami_windows`', because it is the fresher and the
+ * complete one: every site, four times a day, against a rotation that may not
+ * have reached this site yet. Everything else — the last 7 days and the 7
+ * before them, which only this area collects — is `web_site_windows`'.
+ *
+ * `source` says which answered, on every row, so a reader can tell.
+ *
+ * THE TABLES THEMSELVES STILL NEED MERGING: one `site_windows` keyed
+ * (account, website, window_days, offset_days) written by one collector. That
+ * is a migration and a collector change; this is the read half, and it is what
+ * stops the two surfaces disagreeing in the meantime.
+ */
 export function siteWindows(websiteId?: string): SiteWindowRow[] {
-  return (
-    websiteId
-      ? db.prepare("SELECT * FROM web_site_windows WHERE website_id = ?").all(websiteId)
-      : db.prepare("SELECT * FROM web_site_windows").all()
-  ) as unknown as SiteWindowRow[];
+  const where = websiteId ? "WHERE website_id = ?" : "";
+  const args = websiteId ? [websiteId] : [];
+  const rows = db
+    .prepare(
+      `SELECT account_id, website_id, window_days, 0 AS offset_days, start_day, end_day,
+              pageviews, visitors, visits, bounces, totaltime, seen_at,
+              'umami_windows' AS source
+         FROM umami_windows ${where}
+       UNION ALL
+       SELECT account_id, website_id, window_days, offset_days, start_day, end_day,
+              pageviews, visitors, visits, bounces, totaltime, seen_at,
+              'web_site_windows' AS source
+         FROM web_site_windows ${where}`,
+    )
+    .all(...args, ...args) as unknown as SiteWindowRow[];
+
+  /* One row per (account, website, window, offset), the authoritative table
+     winning wherever both wrote one. */
+  const best = new Map<string, SiteWindowRow>();
+  for (const r of rows) {
+    const k = `${r.account_id}:${r.website_id}:${r.window_days}:${r.offset_days}`;
+    const held = best.get(k);
+    if (!held || (held.source !== "umami_windows" && r.source === "umami_windows")) best.set(k, r);
+  }
+  return [...best.values()];
 }
 
 /* ----------------------------------------------------------- bot findings */
@@ -665,6 +714,44 @@ export const adCreatives = (adAccountId?: string): AdCreativeRow[] =>
 
 export const adWindows = (): AdWindowRow[] =>
   db.prepare("SELECT * FROM ad_windows").all() as unknown as AdWindowRow[];
+
+/**
+ * ACCOUNT-DAY TOTALS DERIVED FROM THE AD-LEVEL ROWS.
+ *
+ * WHICH GRAIN IS AUTHORITATIVE, SAID OUT LOUD. The same insights for the same
+ * days come back from the same token at two grains, and they are NOT
+ * interchangeable: the account-level daily read asks for one row per day and
+ * gets all of them, while the ad-level read is capped at a row limit and
+ * nothing here follows the platform's paging. So the ACCOUNT-LEVEL table is
+ * authoritative for an account's spend, impressions and clicks, and this
+ * derivation exists so the ad-level shortfall is a published number instead of
+ * a silent one. Where the two disagree, the difference is rows the ad-level
+ * read did not see — never a correction to the account figure.
+ *
+ * The ad-level rows stay the grain for anything that needs a campaign or an
+ * advertisement, because the account-level table has no such column.
+ */
+export function adDayAccountTotals(
+  sinceDay: string,
+): { ad_account_id: string; days: number; spend: number | null; impressions: number | null; clicks: number | null }[] {
+  return db
+    .prepare(
+      `SELECT ad_account_id,
+              COUNT(DISTINCT day) AS days,
+              SUM(spend) AS spend,
+              SUM(impressions) AS impressions,
+              SUM(clicks) AS clicks
+         FROM ad_days WHERE day >= ?
+        GROUP BY ad_account_id`,
+    )
+    .all(sinceDay) as unknown as {
+    ad_account_id: string;
+    days: number;
+    spend: number | null;
+    impressions: number | null;
+    clicks: number | null;
+  }[];
+}
 
 export function adDaysSince(day: string): AdDayRow[] {
   return db

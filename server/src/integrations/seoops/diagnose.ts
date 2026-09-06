@@ -4,8 +4,8 @@
  * PURE. No database, no clock, no network, no model — every function here
  * takes its numbers and returns its answer, which is what makes the rule table
  * assertable against fabricated figures rather than only against a fortnight
- * of waiting. Ported in shape from workdash's `agent/seobaselines.js`, whose
- * nine diagnoses and rule ordering were worked out against real properties;
+ * of waiting. Ported in shape from an earlier SEO baselines module whose nine
+ * diagnoses and rule ordering were worked out against real properties;
  * the thresholds come with them rather than being re-derived here, because
  * re-deriving a tuned number is inventing a new one.
  *

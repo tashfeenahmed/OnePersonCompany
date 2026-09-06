@@ -75,7 +75,7 @@ export const SKILLS: Skill[] = [
         "own reason, and somebody at a venture's domain is usually connected " +
         "to it and sometimes is a stranger who bought a mailbox there. Say " +
         "“their address is at that venture's domain”, never “they are a " +
-        "Example App 1 contact”.",
+        "a contact at one of my ventures”.",
       "The list is ordered by `weight` — 10 × the smaller of the two " +
         "directions, plus the total. That orders a list and measures nothing " +
         "about a relationship; do not report it as importance.",

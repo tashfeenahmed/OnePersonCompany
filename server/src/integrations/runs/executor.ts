@@ -78,6 +78,8 @@ import { runPage } from "../../../../shared/runRoutes.ts";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ask, activeBackend, type ChatTurn } from "../../chat/backend.ts";
+import { consumeTurn } from "../../chat/consume.ts";
+import { CANCELLING, type RunStatusOrCancelling } from "../../../../shared/runStatus.ts";
 import { activeProvider, complete, type ProviderId } from "../../models/provider.ts";
 import { ventureContext } from "../../routes/ventures.ts";
 import { appendChatMessage, db, now, ventureRowById, type VentureRow } from "../../db.ts";
@@ -232,25 +234,21 @@ class Session {
     this.flush();
   }
 
-  /** A tool the AGENT reported. Merged on the way through exactly as
-   *  routes/chat.ts merges them: two wire events, one record, two timestamps.
-   *  A `completed` for a call that was never announced still makes a record —
-   *  a tool that finished is a thing that happened, and losing it to a missing
-   *  first half would lose a fact to a wire glitch. */
-  toolEvent(e: { toolCallId: string; tool: string; label: string | null; status: "running" | "completed"; at: string }) {
-    const existing = this.steps.find((s) => s.toolCallId === e.toolCallId);
-    if (existing) {
-      if (e.status === "completed") existing.finishedAt = e.at;
-      if (!existing.label && e.label) existing.label = e.label;
-    } else {
-      this.steps.push({
-        toolCallId: e.toolCallId,
-        tool: e.tool,
-        label: e.label,
-        startedAt: e.at,
-        finishedAt: e.status === "completed" ? e.at : null,
-      });
-    }
+  /** A tool the AGENT reported, already merged by chat/consume.ts — two wire
+   *  events, one record, two timestamps. This file used to do that merge
+   *  itself, in a copy that had drifted from the chat's, and all it ever
+   *  needed was to file the result beside the steps the SERVER made. */
+  step(call: { toolCallId: string; tool: string; label: string | null; startedAt: string; finishedAt: string | null }) {
+    const at = this.steps.findIndex((s) => s.toolCallId === call.toolCallId);
+    const step: Step = {
+      toolCallId: call.toolCallId,
+      tool: call.tool,
+      label: call.label,
+      startedAt: call.startedAt,
+      finishedAt: call.finishedAt,
+    };
+    if (at >= 0) this.steps[at] = step;
+    else this.steps.push(step);
     if (Date.now() - this.lastFlush >= FLUSH_MS) this.flush();
   }
 
@@ -267,7 +265,10 @@ class Session {
 
 /* --------------------------------------------------------------- the slot */
 
-type Live = { id: string; abort: AbortController; cancelling: boolean };
+/** `settling` is the run's half of the guard the chat side already had: set
+ *  the instant a turn's answer is complete, which is the earliest point at
+ *  which reporting a stop would be reporting one that did not happen. */
+type Live = { id: string; abort: AbortController; cancelling: boolean; settling: boolean };
 let live: Live | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -296,7 +297,7 @@ function claim(): RunRow | null {
     .prepare("UPDATE agent_runs SET status = 'running', started_at = ? WHERE id = ? AND status = 'queued'")
     .run(now(), next.id);
   if (Number(res.changes) === 0) return null;
-  live = { id: next.id, abort: new AbortController(), cancelling: false };
+  live = { id: next.id, abort: new AbortController(), cancelling: false, settling: false };
   return runRow(next.id) ?? null;
 }
 
@@ -416,6 +417,24 @@ export function pump() {
   void runContext.run({ id: row.id, venture: row.venture_id, automation: parent?.id === "rounds", signal: abort.signal, sequence: 0, resume: !!row.resume_checkpoints }, async () => {
     assertMeterable(row.kind);
     await execute(row, session);
+    /*
+      THE CANCEL DOOR SHUTS HERE — the run side of the guard chat/runs.ts has
+      had for a while, and the run side had the same race with nothing to stop
+      it: a stop pressed after the work was finished but before the row was
+      written was accepted, and the run was then filed `cancelled` with a
+      complete report in it.
+
+      IT IS SET AT THE RUN'S TAIL AND NOT AT EACH TURN'S. A chat run is one
+      turn, so `consumeTurn`'s `done` hook is the same moment there; a queued
+      run makes SEVERAL turns and then scouts, prints and judges between them,
+      and a flag set by the first turn's `done` would refuse a cancel for the
+      minutes of real work that follow it. A stop is legitimate right up to
+      here, which is where the outcome stops being in doubt.
+
+      A cancel that ALREADY landed still cancels: the signal is aborted and
+      this line throws. Only one arriving from now on is refused.
+    */
+    if (live?.id === row.id) live.settling = true;
     abort.signal.throwIfAborted();
   }).then(() => {
       finishRunRow(row.id, {
@@ -469,7 +488,7 @@ export function startQueue() {
 
 /** Stop a run. A queued one is cancelled by writing the row; a running one is
  *  aborted, and its own catch writes `cancelled`. */
-export function cancelRun(id: string): { ok: boolean; status: string; error?: string } {
+export function cancelRun(id: string): { ok: boolean; status: RunStatusOrCancelling | "missing"; error?: string } {
   const row = runRow(id);
   if (!row) return { ok: false, status: "missing", error: "No run by that id." };
   if (row.status === "queued") {
@@ -478,9 +497,26 @@ export function cancelRun(id: string): { ok: boolean; status: string; error?: st
   }
   if (row.status === "running") {
     if (live?.id === id) {
+      /*
+        THE ANSWER ARRIVED WHILE THE BUTTON WAS BEING PRESSED.
+
+        The status is not written until the run's tail runs, so gating on it
+        alone accepted a cancel for a turn whose stream had already yielded
+        `done` — and the run then landed with a complete report in it and
+        `cancelled` on the row. The chat side has refused this for a while and
+        this side did not; `settling` is set by chat/consume.ts the instant the
+        answer is complete, which is the earliest point at which stopping is a
+        lie.
+      */
+      if (live.settling)
+        return {
+          ok: false,
+          status: "running",
+          error: "That answer has already finished; there is nothing left to stop.",
+        };
       live.cancelling = true;
       live.abort.abort();
-      return { ok: true, status: "cancelling" };
+      return { ok: true, status: CANCELLING };
     }
     /* Running in the table with nothing in this process doing it — the same
        state boot repairs, reached here by a row this process did not start. */
@@ -518,45 +554,40 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolea
   const backend = opts.forceProvider ? null : activeBackend();
 
   if (backend?.stream) {
-    let text = "";
-    let model: string | null = null;
     s.backend = backend.id;
     s.flush();
-    for await (const ev of backend.stream(turns, { channel: "run", sessionId: `run:${s.id}`, signal })) {
-      switch (ev.type) {
-        case "delta":
-          text += ev.text;
-          if (opts.toOutput) s.append(ev.text);
-          break;
-        case "reasoning":
-          /* Dropped. The model's scratchpad is not the report, and a document
-             with the working in it is not what the owner asked for. The steps
-             say what it DID; this says what it was thinking about doing. */
-          break;
-        case "tool":
-          s.toolEvent(ev);
-          break;
-        case "done":
-          /* `ev.text` and not the accumulator, for routes/chat.ts's reason: the
-             adapter may have applied a rule this loop cannot see — Hermes falls
-             back to the model's reasoning when the content came back empty,
-             which is a whole answer that arrived as no deltas at all. */
-          if (opts.toOutput && ev.text !== text) {
-            s.output = s.output.slice(0, s.output.length - text.length) + ev.text;
-          }
-          text = ev.text;
-          model = ev.model;
-          if (ev.usage) {
-            s.usage.prompt += ev.usage.prompt;
-            s.usage.completion += ev.usage.completion;
-            s.sawUsage = true;
-          }
-          break;
-      }
+    /* The loop is chat/consume.ts — the same one the chat runs read, so the
+       merge rules, the `done`-replaces-the-accumulator rule and the settling
+       guard have one author. Everything below is what a RUN does differently
+       from a chat, which is all this file ever needed to say. */
+    const turn = await consumeTurn(
+      backend.stream(turns, { channel: "run", sessionId: `run:${s.id}`, signal }),
+      {
+        delta: (text) => {
+          if (opts.toOutput) s.append(text);
+        },
+        /* NO `reasoning` HOOK, and that is the difference rather than an
+           omission. The model's scratchpad is not the report, and a document
+           with the working in it is not what the owner asked for. The steps
+           say what it DID; that says what it was thinking about doing. */
+        tool: (call) => s.step(call),
+        /* The adapter replaced the answer it had streamed, so the deltas
+           already written to the document are unwritten first. */
+        done: (text, soFar) => {
+          if (opts.toOutput && text !== soFar)
+            s.output = s.output.slice(0, s.output.length - soFar.length) + text;
+        },
+      },
+    );
+    if (turn.usage) {
+      /* SUMMED, not replaced: a run is several turns and this is one of them. */
+      s.usage.prompt += turn.usage.prompt;
+      s.usage.completion += turn.usage.completion;
+      s.sawUsage = true;
     }
-    s.model = model ?? s.model;
+    s.model = turn.model ?? s.model;
     s.flush();
-    return { text, backend: backend.id, model, usage: s.sawUsage ? { prompt: s.usage.prompt - before.prompt, completion: s.usage.completion - before.completion } : null };
+    return { text: turn.text, backend: backend.id, model: turn.model, usage: s.sawUsage ? { prompt: s.usage.prompt - before.prompt, completion: s.usage.completion - before.completion } : null };
   }
 
   if (backend) {

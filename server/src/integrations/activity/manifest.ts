@@ -19,8 +19,9 @@
  * that does not exist.
  *
  * THE ONE SETTING IS THE VENTURE MAPPING, and it is a setting rather than a
- * constant because the link between "the product called Example App 2" and "the venture
- * called Overbrilliant" is a fact about this owner's businesses and nothing
+ * constant because the link between "the product whose endpoint calls itself
+ * APP-1" and "the venture the owner calls Acme" is a fact about this owner's
+ * businesses and nothing
  * else on this box knows it. It is checked against the real venture list when
  * it is typed, so a slug with a typo is refused at the field rather than
  * silently filing a product's users under nothing.
@@ -74,7 +75,7 @@ export const manifest: IntegrationManifest = {
             "business: an endpoint at api.example.com finds the venture at " +
             "example.com by itself. A slug that names no venture is refused " +
             "here rather than filing that product's users under nothing.",
-          ph: "Example App 2 = overbrilliant\nExample App 1 = example-app-1",
+          ph: "APP-1 = acme\nBeacon = beacon",
           check: checkMapping,
         },
       },

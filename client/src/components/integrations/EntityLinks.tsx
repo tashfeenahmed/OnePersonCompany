@@ -22,7 +22,7 @@ import { integrations, type VentureMap } from "@/lib/api/integrations";
  * THE CHIP IS THE VENTURE'S OWN COLOUR because that is the colour the same
  * venture is drawn in on the map, on its cards and in its dashboards. A second
  * palette for the same set of things would make two different pages disagree
- * about which one is Example App 1.
+ * about which venture is which.
  *
  * NOTHING HERE INFERS A LINK. The edges come from `venture_links`, which is
  * the owner's own statement — `source: "auto"` was proposed from a hostname

@@ -19,7 +19,7 @@
  * whatever the owner's own agent and ~/.ssh defaults offer — which is how a
  * box already reachable from this machine's terminal is reachable from here
  * with nothing pasted at all. With a key, it is written to
- * DATA_DIR/keys/fleet-<accountId>.pem at 0600 before every use and left there,
+ * DATA_DIR/keys/<plugin>-<accountId>.pem at 0600 before every use and left there,
  * because ssh will not read a private key from a pipe. That directory is
  * inside the data directory the whole repository gitignores, beside the vault
  * key that could decrypt it anyway.
@@ -46,6 +46,7 @@ import { join } from "node:path";
 import { DATA_DIR } from "../../config.ts";
 import { configValue, db, finishRun, now, record, startRun, syncPlugin } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
+import { pruneOne, registerRetention, retentionFor } from "../../shared/retention.ts";
 
 /* -------------------------------------------------------------- the target */
 
@@ -78,8 +79,36 @@ export function keysDir(): string {
   return dir;
 }
 
-export function keyPath(accountId: number): string {
-  return join(keysDir(), `fleet-${accountId}.pem`);
+/**
+ * THE PLUGINS THAT KEEP A PRIVATE KEY ON DISK, and the reason this list has to
+ * exist.
+ *
+ * The key file used to be named `fleet-<accountId>.pem` FOR EVERY WRITER —
+ * including `workstation`, whose account ids come out of a different plugin's
+ * list entirely. The reaper below then walked the directory once per fleet
+ * collection, found a file named for an id that was not in
+ * `accounts.list("fleet")`, and deleted it. Every half hour it deleted the
+ * workstation's key.
+ *
+ * IT WAS MASKED, NOT ABSENT. `workstation.ts` rewrites the file immediately
+ * before every use — the vault is the record and the file is a cache of it —
+ * so the deletion never showed. Anything that reads the path WITHOUT writing
+ * first was one step from a failure that would have looked like a broken key:
+ * `backups.ts` rebuilt the same path by hand and only `existsSync`'d it, so an
+ * rsync to a box the owner had already pasted a key for would simply have
+ * stopped finding one.
+ *
+ * So the file is keyed by PLUGIN AND ACCOUNT, and the reaper takes the union
+ * of every plugin here. A plugin missing from this list has its key files left
+ * alone rather than deleted — a stale 0600 file in a gitignored directory is a
+ * smaller wrong than deleting a key something is using — and the reaper says
+ * it found them.
+ */
+export const KEY_PLUGINS = ["fleet", "workstation"] as const;
+export type KeyPlugin = (typeof KEY_PLUGINS)[number];
+
+export function keyPath(plugin: KeyPlugin, accountId: number): string {
+  return join(keysDir(), `${plugin}-${accountId}.pem`);
 }
 
 /**
@@ -94,8 +123,8 @@ export function keyPath(accountId: number): string {
  * format" on a PEM whose last line has no terminator, which is the single most
  * common way a perfectly good key pasted into a form fails.
  */
-export function writeKeyFile(accountId: number, pem: string): string {
-  const path = keyPath(accountId);
+export function writeKeyFile(plugin: KeyPlugin, accountId: number, pem: string): string {
+  const path = keyPath(plugin, accountId);
   writeFileSync(path, pem.endsWith("\n") ? pem : `${pem}\n`, { mode: 0o600 });
   chmodSync(path, 0o600);
   return path;
@@ -106,19 +135,29 @@ export function writeKeyFile(accountId: number, pem: string): string {
  *
  * Account deletion happens in routes/plugins.ts, which this area does not own
  * and must not edit — so the reaping is done here, on every collection, from
- * the one fact that is always true: a file named for an account id that is not
- * in the list belongs to nobody. It is a private key sitting in a directory,
- * so "eventually" is not good enough on its own; the collector runs every
- * thirty minutes, and removing the account also removes the only thing that
- * could ever read the file again.
+ * the one fact that is always true: a file named for a plugin's account id
+ * that is not in THAT PLUGIN's list belongs to nobody. It is a private key
+ * sitting in a directory, so "eventually" is not good enough on its own; the
+ * collector runs every thirty minutes, and removing the account also removes
+ * the only thing that could ever read the file again.
+ *
+ * IT TAKES THE UNION OF EVERY KEY-WRITING PLUGIN, which is the fix: reaping
+ * one plugin's list while another plugin wrote into the same namespace is what
+ * made this delete a live key every half hour.
  */
 export function reapKeyFiles(): string[] {
-  const live = new Set(accounts.list("fleet").map((a) => a.id));
+  const live = new Map(KEY_PLUGINS.map((p) => [p as string, new Set(accounts.list(p).map((a) => a.id))]));
   const gone: string[] = [];
   for (const name of readdirSync(keysDir())) {
-    const m = /^fleet-(\d+)\.pem$/.exec(name);
-    if (!m) continue;
-    if (live.has(Number(m[1]))) continue;
+    const m = /^([a-z]+)-(\d+)\.pem$/.exec(name);
+    /* A NAME THIS FUNCTION DOES NOT UNDERSTAND IS LEFT WHERE IT IS. The
+       temporary `<plugin>-verify-<pid>-<ms>.pem` files a credential check
+       writes do not match, and neither would a plugin somebody forgot to add
+       to KEY_PLUGINS — and of the two wrong answers, leaving a stale 0600 file
+       in a gitignored directory beats deleting a key in use. */
+    const owners = m ? live.get(m[1]!) : undefined;
+    if (!m || !owners) continue;
+    if (owners.has(Number(m[2]))) continue;
     rmSync(join(keysDir(), name), { force: true });
     gone.push(name);
   }
@@ -505,7 +544,7 @@ export async function verify(values: Record<string, string>): Promise<string | n
       return "That is not a private key. Paste the PRIVATE half — the file without .pub — whole, including its BEGIN and END lines.";
     if (/ENCRYPTED/.test(key))
       return "That key has a passphrase. This runs with no terminal to type one into, so it needs a key with no passphrase — make a separate one for this box if you would rather not unlock the one you use by hand.";
-    keyFile = join(keysDir(), `verify-${process.pid}-${Date.now()}.pem`);
+    keyFile = join(keysDir(), `fleet-verify-${process.pid}-${Date.now()}.pem`);
     writeFileSync(keyFile, key.endsWith("\n") ? key : `${key}\n`, { mode: 0o600 });
     chmodSync(keyFile, 0o600);
   }
@@ -522,6 +561,21 @@ export async function verify(values: Record<string, string>): Promise<string | n
 /* -------------------------------------------------------------------- store */
 
 export const RETAIN_DAYS = 30;
+/* THREE TABLES, ONE WINDOW, THREE ENTRIES. The registry is keyed on the table
+   because that is the unit a prune deletes from and the unit a reader asks
+   about — "how long are disks kept" has to have an answer even though disks,
+   samples and containers happen to share a number today. */
+for (const table of ["fleet_samples", "fleet_disks", "fleet_containers"])
+  registerRetention({
+    table,
+    column: "ts",
+    days: RETAIN_DAYS,
+    source: "area",
+    note:
+      "A probe every half hour per box. Thirty days is “was it busy last night” and “has this been " +
+      "climbing all week”, which is what these figures are read for; a year of half-hourly samples " +
+      "would be a million rows answering nothing better.",
+  });
 
 export function writeSample(accountId: number, ts: string, p: Probe) {
   db.prepare(
@@ -686,11 +740,9 @@ export function hostRows(): HostRow[] {
   return db.prepare("SELECT * FROM fleet_hosts").all() as unknown as HostRow[];
 }
 
-export function pruneSamples(days = RETAIN_DAYS): number {
-  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+export function pruneSamples(): number {
   let gone = 0;
-  for (const table of ["fleet_samples", "fleet_disks", "fleet_containers"])
-    gone += Number(db.prepare(`DELETE FROM ${table} WHERE ts < ?`).run(cutoff).changes);
+  for (const table of ["fleet_samples", "fleet_disks", "fleet_containers"]) gone += pruneOne(retentionFor(table)!);
   return gone;
 }
 
@@ -763,7 +815,7 @@ export async function collectFleet(): Promise<FleetSummary> {
     }
 
     const key = (values.key ?? "").trim();
-    const keyFile = key ? writeKeyFile(account.id, key) : null;
+    const keyFile = key ? writeKeyFile("fleet", account.id, key) : null;
 
     const result = await probe(t, keyFile, counters);
     if (!result.probe) {

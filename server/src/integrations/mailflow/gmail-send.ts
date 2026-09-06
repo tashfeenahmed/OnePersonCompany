@@ -33,6 +33,7 @@
  * minted, in one function, behind a button.
  */
 import { Buffer } from "node:buffer";
+import { gmailMailboxes } from "../../db.ts";
 import { GMAIL_API, GmailError, type Session } from "../../providers/gmail.ts";
 
 const TIMEOUT_MS = 45_000;
@@ -69,6 +70,26 @@ export function validAddress(value: string): boolean {
   if (!v || v.length > 320) return false;
   if (/[\r\n\0<>,;]/.test(v)) return false;
   return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(v);
+}
+
+/**
+ * THE ADDRESS A GMAIL MAILBOX SENDS FROM, as Gmail itself reported it to the
+ * collector.
+ *
+ * Null when the Gmail plugin has never been collected, in which case there is
+ * nothing honest to put on a From line and the send refuses rather than
+ * guessing at one.
+ *
+ * It lives here, beside `validAddress` and the send itself, because it was
+ * defined twice — byte-identical bodies in the outbox and in the nurture
+ * area's identities — and the two are one edit away from two answers to "what
+ * address does this mailbox send from", which is the field a send is refused
+ * on. Both of those files already import from this one.
+ */
+export function fromAddress(accountId: number): string | null {
+  const box = gmailMailboxes().find((b) => b.account_id === accountId);
+  const addr = (box?.address ?? "").trim();
+  return addr && validAddress(addr) ? addr : null;
 }
 
 /**

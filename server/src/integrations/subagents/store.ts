@@ -1,4 +1,4 @@
-import { runPage } from "../../../../shared/runRoutes.ts";
+import { appForKind, runPage } from "../../../../shared/runRoutes.ts";
 /**
  * THE ROSTER, AND WHAT IT IS DERIVED FROM.
  *
@@ -38,7 +38,7 @@ import { runPage } from "../../../../shared/runRoutes.ts";
  */
 import { db, now, ventureRow, ventureRowById, type VentureRow } from "../../db.ts";
 import { kindDef } from "../runs/kinds.ts";
-import { shapeRun, type RunKind, type RunRow } from "../runs/store.ts";
+import { runTallies, shapeRun, type RunKind, type RunRow, type RunTally } from "../runs/store.ts";
 import { readBrand } from "../../ventures/enrich.ts";
 
 /* -------------------------------------------------------------- the roles */
@@ -52,23 +52,21 @@ export type RoleDef = {
   title: string;
   /** Appended to the venture's name to make the default name. */
   suffix: string;
-  /** The app slug the run appears under: `/apps/<app>/<runId>`. */
-  app: string;
 };
 
 export const ROLES: RoleDef[] = [
-  { role: "researcher", kind: "research", title: "Researcher", suffix: "Researcher", app: "research" },
-  { role: "competitors", kind: "competitors", title: "Competitor analyst", suffix: "Competitor Analyst", app: "competitors" },
-  { role: "seo", kind: "seo", title: "SEO analyst", suffix: "SEO Analyst", app: "seo" },
-  { role: "demand", kind: "demand", title: "Demand analyst", suffix: "Demand Analyst", app: "demand" },
-  { role: "visibility", kind: "geo", title: "AI visibility analyst", suffix: "Visibility Analyst", app: "visibility" },
-  { role: "writer", kind: "papers", title: "Academic paper writer", suffix: "Paper Writer", app: "papers" },
-  { role: "producer", kind: "video", title: "Video producer", suffix: "Video Producer", app: "video" },
-  { role: "serp", kind: "serp", title: "SERP analyst", suffix: "SERP Analyst", app: "serp" },
-  { role: "aso", kind: "aso", title: "Store listing auditor", suffix: "ASO Auditor", app: "aso" },
+  { role: "researcher", kind: "research", title: "Researcher", suffix: "Researcher" },
+  { role: "competitors", kind: "competitors", title: "Competitor analyst", suffix: "Competitor Analyst" },
+  { role: "seo", kind: "seo", title: "SEO analyst", suffix: "SEO Analyst" },
+  { role: "demand", kind: "demand", title: "Demand analyst", suffix: "Demand Analyst" },
+  { role: "visibility", kind: "geo", title: "AI visibility analyst", suffix: "Visibility Analyst" },
+  { role: "writer", kind: "papers", title: "Academic paper writer", suffix: "Paper Writer" },
+  { role: "producer", kind: "video", title: "Video producer", suffix: "Video Producer" },
+  { role: "serp", kind: "serp", title: "SERP analyst", suffix: "SERP Analyst" },
+  { role: "aso", kind: "aso", title: "Store listing auditor", suffix: "ASO Auditor" },
   /* The campaign planner, owned by integrations/publishing/. A worker per
      venture, so switching one off is how the owner says "not this business". */
-  { role: "campaigns", kind: "campaign", title: "Campaign planner", suffix: "Campaign Planner", app: "campaign" },
+  { role: "campaigns", kind: "campaign", title: "Campaign planner", suffix: "Campaign Planner" },
 ];
 
 export function roleDef(role: string): RoleDef | null {
@@ -79,12 +77,12 @@ export function roleForKind(kind: string): RoleDef | null {
   return ROLES.find((r) => r.kind === kind) ?? null;
 }
 
-/** The app slug a run of this kind is read at. Falls back to the kind itself,
- *  so a seventh kind added by the runs area appears at `/apps/<kind>` rather
- *  than at nothing — which is the right guess and the only one available. */
-export function appForKind(kind: string): string {
-  return roleForKind(kind)?.app ?? kind;
-}
+/* `appForKind` is NOT declared here any more. It was a third table of
+   kind -> page, and it disagreed with the other two: `shotsqa` has no role, so
+   this answered "shotsqa" — a page that does not exist — where `runPage`
+   answered "ops". It comes from `shared/runRoutes.ts` now, which is also what
+   the client rail reads, so a kind cannot resolve to two places. */
+export { appForKind };
 
 /** The roles, each with the sentence the kind already publishes about itself.
  *  Quoted from `kinds.ts` rather than restated here: two descriptions of one
@@ -95,7 +93,10 @@ export function roleInfos() {
     kind: r.kind,
     title: r.title,
     what: kindDef(r.kind)?.what ?? "",
-    app: r.app,
+    /* DERIVED, not stored on the role. The slug is a property of the KIND —
+       two roles running one kind must land on one page — and keeping a column
+       here was what let this roster drift from the router. */
+    app: appForKind(r.kind),
   }));
 }
 
@@ -162,35 +163,11 @@ function ventureRowsAll(): VentureRow[] {
 
 /* -------------------------------------------------------------- the ledger */
 
-type Tally = { done: number; failed: number; running: number; queued: number };
-
-/** Every (kind, venture) pair's tallies in one statement rather than one per
- *  worker. With nineteen ventures the roster is a hundred and fourteen rows,
- *  and a hundred and fourteen round trips to count four statuses would be the
- *  page's whole budget spent on arithmetic SQLite does in one pass. */
-function tallies(): Map<string, Tally> {
-  const rows = db
-    .prepare(
-      `SELECT kind, venture_id, status, COUNT(*) AS n
-         FROM agent_runs
-        WHERE venture_id IS NOT NULL
-        GROUP BY kind, venture_id, status`,
-    )
-    .all() as unknown as { kind: string; venture_id: string; status: string; n: number }[];
-  const out = new Map<string, Tally>();
-  for (const r of rows) {
-    const key = `${r.venture_id}:${r.kind}`;
-    const t = out.get(key) ?? { done: 0, failed: 0, running: 0, queued: 0 };
-    if (r.status === "done") t.done += r.n;
-    else if (r.status === "failed") t.failed += r.n;
-    else if (r.status === "running") t.running += r.n;
-    else if (r.status === "queued") t.queued += r.n;
-    /* `cancelled` lands nowhere, on the runs store's argument: it is neither an
-       outcome nor work outstanding, and folding it into `failed` would say a
-       worker broke when the owner stopped it. */
-    out.set(key, t);
-  }
-  return out;
+/** Every (venture, kind) pair's tallies. The fold itself is `runTallies` in
+ *  runs/store.ts — this names the grouping, which is the only part that is
+ *  the roster's own. The key order is the column order: `venture:kind`. */
+function tallies(): Map<string, RunTally> {
+  return runTallies({ groupBy: ["venture_id", "kind"] });
 }
 
 /** The newest run of each (kind, venture) pair, which is every worker's last
@@ -238,7 +215,7 @@ export function shapeVentureCard(v: VentureRow) {
   };
 }
 
-export function shapeSubagent(row: SubagentRow, ctx?: { tallies: Map<string, Tally>; last: Map<string, RunRow> }) {
+export function shapeSubagent(row: SubagentRow, ctx?: { tallies: Map<string, RunTally>; last: Map<string, RunRow> }) {
   const def = roleDef(row.role);
   /* A row whose role is no longer one of the six can only come from a database
      edited by hand or from a role removed in a release. It is shaped rather
@@ -352,6 +329,23 @@ export type RunChild = {
   to: string;
 };
 
+/** One run, in the shape both doors publish it. The polled list builds it from
+ *  a row; the live SSE frame builds it from the run it has just filed. It used
+ *  to be TWO shapes — the frame carried no `app` and no `to`, so a rail could
+ *  not draw a link from it and threw the payload away to re-poll, which made a
+ *  typed event into an expensive "something changed" ping. */
+export function runChild(r: { id: string; kind: string; title: string; status: string }): RunChild {
+  return {
+    id: `run:${r.id}`,
+    runId: r.id,
+    title: r.title,
+    kind: r.kind,
+    app: appForKind(r.kind),
+    status: r.status,
+    to: runPage(r.kind, r.id),
+  };
+}
+
 export function childrenBySession(): Map<string, RunChild[]> {
   const rows = db
     .prepare(
@@ -368,16 +362,7 @@ export function childrenBySession(): Map<string, RunChild[]> {
   }[];
   const out = new Map<string, RunChild[]>();
   for (const r of rows) {
-    const app = appForKind(r.kind);
-    const child: RunChild = {
-      id: `run:${r.id}`,
-      runId: r.id,
-      title: r.title,
-      kind: r.kind,
-      app,
-      status: r.status,
-      to: runPage(r.kind, r.id),
-    };
+    const child = runChild(r);
     const list = out.get(r.parent_session_id);
     if (list) list.push(child);
     else out.set(r.parent_session_id, [child]);

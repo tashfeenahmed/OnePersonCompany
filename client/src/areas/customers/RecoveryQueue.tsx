@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, FileText, X } from "lucide-react";
+import { ago, money } from "@/lib/format";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
 import { cn } from "@/lib/utils";
 import {
   customersApi,
@@ -67,9 +67,6 @@ function title(c: RecoveryCase): string {
   return product ?? plan ?? (number ? `Invoice ${number}` : c.subject);
 }
 
-const cash = (amount: number | null, currency: string | null) =>
-  amount === null ? null : `${(currency ?? "").toUpperCase()} ${amount.toFixed(2)}`;
-
 export function RecoveryQueueTab({ tick, onChanged }: { tick: number; onChanged: () => void }) {
   const [kind, setKind] = useState<CaseKind | "all">("all");
   const [showResolved, setShowResolved] = useState(false);
@@ -88,7 +85,7 @@ export function RecoveryQueueTab({ tick, onChanged }: { tick: number; onChanged:
     [d ? String(d.counts.open) : "—", "open"],
     [d ? String(d.counts.drafted) : "—", "drafted"],
     [d ? String(d.counts.overdue) : "—", "past their deadline"],
-    [d?.lastPass.at ? ago(d.lastPass.at) : "never", "last read from Stripe"],
+    [ago(d?.lastPass.at), "last read from Stripe"],
   ];
 
   return (
@@ -167,7 +164,7 @@ function CaseRow({
   const [said, setSaid] = useState<string | null>(null);
   const overdue = c.daysLeft !== null && c.daysLeft < 0;
   const closed = c.status === "resolved" || c.status === "dismissed";
-  const money = cash(c.amount, c.currency);
+  const cash = c.amount === null ? null : money(c.amount, c.currency ?? "");
 
   const act = (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -192,7 +189,7 @@ function CaseRow({
         {c.ventureName && (
           <span className="text-muted-foreground text-[11.5px]">· {c.ventureName}</span>
         )}
-        {money && <span className="text-[13px] tabular-nums">{money}</span>}
+        {cash && <span className="text-[13px] tabular-nums">{cash}</span>}
         <span
           className={cn(
             "ml-auto text-[12.5px] tabular-nums",

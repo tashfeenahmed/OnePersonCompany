@@ -19,7 +19,7 @@
  * on it that the owner learns to ignore. Skipping is how the number starts
  * meaning something.
  *
- * WHAT IS DELIBERATELY NOT PORTED FROM WORKDASH: the broad `site:` search
+ * WHAT IS DELIBERATELY NOT PORTED FROM THE EARLIER SYSTEM: the broad `site:` search
  * sweep. Its own header records what that was worth — every metasearch backend
  * but one lost to CAPTCHAs, and the one that answered returned Polish news
  * stories for a `site:github.com` query. Coverage bought that way is noise
@@ -30,8 +30,9 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { db, now, ventureRowById, ventureRows, type VentureRow } from "../../db.ts";
-import { hostOf, sameHost, settings } from "./settings.ts";
+import { db, now, ventureRowById, ventureRows } from "../../db.ts";
+import { ventureForHost } from "../../shared/host.ts";
+import { settings } from "./settings.ts";
 
 /* ------------------------------------------------------------ the states */
 
@@ -353,14 +354,6 @@ function presenceRows(): PresenceRow[] {
   } catch {
     return [];
   }
-}
-
-/** Which venture a presence product is about. Matched on HOST, because the
- *  host is the entity — presence/routes.ts's own words for its `/entities`
- *  answer — and two people can name one thing two ways. */
-function ventureForHost(host: string, all: VentureRow[]): VentureRow | null {
-  const h = hostOf(host);
-  return all.find((v) => sameHost(hostOf(v.host || v.website), h)) ?? null;
 }
 
 /**

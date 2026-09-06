@@ -59,10 +59,26 @@ export function all(): string[] {
  * whatever arrives here as a `child` event. Nothing is queued for a session
  * nobody is streaming — the row is on disk and the next rail read finds it.
  */
-export type ChildEvent = { runId: string; kind: string; title: string; status: string };
-const listeners = new Map<string, Set<(e: ChildEvent) => void>>();
+/*
+ * THE FRAME CARRIES THE RUN, NOT A RUMOUR OF IT.
+ *
+ * This used to be its own four-field shape with no `app` and no `to`, so the
+ * rail could not draw a linkable child from it: it threw the payload away and
+ * re-polled the whole session list to find out what it had just been told.
+ * That is a typed event doing the work of a "something changed" ping, at the
+ * cost of a request. It is a `RunChild` now — the same shape the polled list
+ * publishes, from the same builder — so a live child draws exactly like a
+ * fetched one.
+ *
+ * A TYPE-ONLY IMPORT, so nothing of the subagents area is loaded to run a
+ * chat: this file is on the hot path of every turn and the shape is erased at
+ * compile time.
+ */
+import type { RunChild } from "../integrations/subagents/store.ts";
 
-export function subscribe(sessionId: string, cb: (e: ChildEvent) => void): () => void {
+const listeners = new Map<string, Set<(e: RunChild) => void>>();
+
+export function subscribe(sessionId: string, cb: (e: RunChild) => void): () => void {
   let set = listeners.get(sessionId);
   if (!set) listeners.set(sessionId, (set = new Set()));
   set.add(cb);
@@ -72,7 +88,7 @@ export function subscribe(sessionId: string, cb: (e: ChildEvent) => void): () =>
   };
 }
 
-export function notify(sessionId: string, e: ChildEvent): void {
+export function notify(sessionId: string, e: RunChild): void {
   for (const cb of [...(listeners.get(sessionId) ?? [])]) {
     try {
       cb(e);

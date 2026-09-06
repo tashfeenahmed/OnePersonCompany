@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { db, loadSince } from "../db.ts";
+import { hetznerMonthlyCost } from "../integrations/finance/expenses.ts";
+import { money } from "../shared/money.ts";
 
 export const hetznerRoutes = new Hono();
 
@@ -69,11 +71,22 @@ hetznerRoutes.get("/summary", (c) => {
     .prepare("SELECT * FROM hetzner_volumes")
     .all() as unknown as VolumeRow[];
 
-  const serverCost = servers.reduce(
-    (n, s) => n + (s.monthly_eur ?? 0) + (s.ipv4_monthly_eur ?? 0),
-    0,
-  );
-  const volumeCost = volumes.reduce((n, v) => n + (v.monthly_eur ?? 0), 0);
+  /*
+    THE MONEY COMES FROM THE LEDGER, NOT FROM `monthly_eur ?? 0`.
+
+    This route used to add the provider table up itself and treat a plan
+    Hetzner quotes no price for as costing nothing — a confident low number,
+    published beside a ledger that reported the smaller priced total plus
+    `unpriced: n`. And the moment the owner corrected a price in the ledger,
+    `owner_fields` pinned it there and this route went on reading the column
+    the correction was made ABOUT, so the two disagreed permanently. One
+    accessor now, and this document reports its shape: the priced part, how
+    many rows have no price, and how many prices are the owner's.
+  */
+  const ledger = hetznerMonthlyCost();
+  const eur = (ref: string) => ledger.byRef.get(ref)?.amount ?? null;
+  const serverCost = servers.reduce((n, s) => n + (eur(`server:${s.id}`) ?? 0), 0);
+  const volumeCost = volumes.reduce((n, v) => n + (eur(`volume:${v.id}`) ?? 0), 0);
 
   const byLocation: Record<string, number> = {};
   for (const s of servers) {
@@ -90,23 +103,27 @@ hetznerRoutes.get("/summary", (c) => {
   */
   const byAccount = new Map<
     string,
-    { id: number | null; label: string; servers: number; volumes: number; monthlyEur: number }
+    { id: number | null; label: string; servers: number; volumes: number; monthlyEur: number; unpriced: number }
   >();
   const bucket = (id: number | null, label: string) => {
     const k = String(id ?? label);
     let b = byAccount.get(k);
-    if (!b) byAccount.set(k, (b = { id, label, servers: 0, volumes: 0, monthlyEur: 0 }));
+    if (!b) byAccount.set(k, (b = { id, label, servers: 0, volumes: 0, monthlyEur: 0, unpriced: 0 }));
     return b;
   };
   for (const s of servers) {
     const b = bucket(s.account_id, s.token_label);
     b.servers += 1;
-    b.monthlyEur += (s.monthly_eur ?? 0) + (s.ipv4_monthly_eur ?? 0);
+    const amount = eur(`server:${s.id}`);
+    if (amount === null) b.unpriced += 1;
+    else b.monthlyEur += amount;
   }
   for (const v of volumes) {
     const b = bucket(v.account_id, v.token_label);
     b.volumes += 1;
-    b.monthlyEur += v.monthly_eur ?? 0;
+    const amount = eur(`volume:${v.id}`);
+    if (amount === null) b.unpriced += 1;
+    else b.monthlyEur += amount;
   }
 
   return c.json({
@@ -114,13 +131,25 @@ hetznerRoutes.get("/summary", (c) => {
     running: servers.filter((s) => s.status === "running").length,
     volumes: volumes.length,
     // Net of VAT, in EUR, because that is what Hetzner's API returns.
-    monthlyEur: Number((serverCost + volumeCost).toFixed(2)),
-    serverMonthlyEur: Number(serverCost.toFixed(2)),
-    volumeMonthlyEur: Number(volumeCost.toFixed(2)),
+    monthlyEur: money(serverCost + volumeCost),
+    serverMonthlyEur: money(serverCost),
+    volumeMonthlyEur: money(volumeCost),
+    /** Rows whose price nobody has established. The total above is a FLOOR by
+     *  exactly this many lines — never read it as the whole bill when this is
+     *  not zero. */
+    unpriced: ledger.unpriced,
+    unpricedLabels: ledger.unpricedLabels,
+    /** Prices the owner corrected in the ledger. A refresh leaves them alone,
+     *  and they are the figures on this document. */
+    ownerPriced: ledger.ownerPriced,
+    basis:
+      ledger.rows.length === 0
+        ? "The finance ledger holds no Hetzner rows yet — the seed refresh has not run since this account was connected, so no price can be reported for the fleet."
+        : "The finance ledger's own monthly run rate for these servers and volumes, net of VAT. An unpriced plan is excluded and counted in `unpriced`, never added as zero; a price the owner corrected is theirs and survives every refresh.",
     byLocation,
     accounts: [...byAccount.values()]
       .sort((a, b) => b.monthlyEur - a.monthlyEur)
-      .map((a) => ({ ...a, monthlyEur: Number(a.monthlyEur.toFixed(2)) })),
+      .map((a) => ({ ...a, monthlyEur: money(a.monthlyEur) })),
     seenAt: servers[0]?.seen_at ?? null,
   });
 });

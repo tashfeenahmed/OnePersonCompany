@@ -26,16 +26,17 @@
  *
  * MATCHING IS A GUESS AND THE DOCUMENT SAYS SO. Every suggestion carries a
  * `why` in the plainest words available — "the Cloudflare zone is named
- * example-app-1.example.test, which is this venture's host" — because a suggestion the owner
+ * acme.example, which is this venture's host" — because a suggestion the owner
  * cannot audit is a suggestion they will accept wrongly. Nothing here links
  * anything: `POST accept-all` does, deliberately, in one place the owner
  * pressed.
  *
  * WHAT IS DELIBERATELY NOT MATCHED. A parent host does NOT claim a venture at
- * a different second-level domain: example.ie and neu.so are two businesses on
- * this very box, and "endsWith" over the wrong pair of hosts would file one
- * under the other for ever. Subdomains match their parent (api.example-app-1.example.test is
- * example-app-1.example.test's), and the direction is stated in the `why`.
+ * a different second-level domain: acme.ie and acme.so would be two different
+ * businesses, and "endsWith" over the wrong pair of hosts would file one under
+ * the other for ever — which is a real portfolio's shape, not a hypothetical.
+ * Subdomains match their parent (api.acme.example is acme.example's), and the
+ * direction is stated in the `why`.
  */
 import {
   allDomains,
@@ -111,9 +112,9 @@ export function hostOf(raw: string | null | undefined): string | null {
 /**
  * Does this entity's host belong to this venture's?
  *
- * EQUAL, OR A SUBDOMAIN OF IT — and in that direction only. `api.example.ie`
- * belongs to `example.ie`; `example.ie` does not belong to `api.example.ie`, and neither
- * of them has anything to do with `neu.so`. The one-directional rule is the
+ * EQUAL, OR A SUBDOMAIN OF IT — and in that direction only. `api.acme.ie`
+ * belongs to `acme.ie`; `acme.ie` does not belong to `api.acme.ie`, and
+ * neither of them has anything to do with `acme.so`. The one-directional rule is the
  * whole of the protection against filing two businesses under one name, and
  * this box has exactly that pair in it.
  */
@@ -126,7 +127,7 @@ function hostMatch(ventureHost: string, entityHost: string): "same" | "sub" | nu
 /* ------------------------------------------------------------------ names */
 
 /** A name reduced to what two spellings of it have in common. "Free LLM API"
- *  and "FreeLLMAPI" are the same product; "free-llm-api" is too. */
+ *  and "FreeLLMAPI" are one product name; "free-llm-api" is too. */
 function squash(raw: string | null | undefined): string {
   return String(raw ?? "")
     .toLowerCase()
@@ -137,8 +138,8 @@ function squash(raw: string | null | undefined): string {
 /**
  * The shortest a squashed name may be before it is allowed to match by name
  * alone. Three characters matches half the noun phrases in a portfolio; at
- * five, "neuie" and "example-app-1" still work and "ob1" no longer sweeps up every
- * label with an o, a b and a 1 in it.
+ * five, a real squashed brand like "acmeie" still works and a three-letter one
+ * like "ob1" no longer sweeps up every label with an o, a b and a 1 in it.
  */
 const MIN_NAME = 5;
 
@@ -199,7 +200,7 @@ export function builtinEntities(): Entity[] {
       host: hostOf(d.name),
     });
 
-  /* Search Console. The property string is the key — `sc-domain:example-app-1.example.test`
+  /* Search Console. The property string is the key — `sc-domain:acme.example`
      — and it is what gsc_days, gsc_queries and gsc_pages are all keyed by, so
      an audit joining search data joins on exactly this. */
   for (const s of gscSites())
@@ -289,8 +290,7 @@ export function builtinEntities(): Entity[] {
 /**
  * A hostname out of a bundle id, or null.
  *
- * `test.example.mobile` is `example-app-10.example.test` and `com.example-video.app` is
- * `video.example.test`. It is a READING of a convention rather than a fact the
+ * `co.acme.ios` is `acme.co` and `com.acme.app` is `acme.com`. It is a READING of a convention rather than a fact the
  * store reported, so it is only attempted when the first segment is actually a
  * TLD — otherwise `com.example.thing` would produce a host for anything.
  */

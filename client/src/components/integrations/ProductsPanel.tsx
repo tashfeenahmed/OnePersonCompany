@@ -29,7 +29,7 @@ import { Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
  * collected, which is not the same as one that is refusing.
  */
 export function ProductsPanel({ onCollected }: { onCollected?: () => void }) {
-  const report = useApi(() => integrations.products(7), []);
+  const report = useApi(() => integrations.products(), []);
   const map = useApi(() => integrations.ventureMap(), []);
   const [collecting, setCollecting] = useState(false);
 

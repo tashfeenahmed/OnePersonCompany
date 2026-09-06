@@ -45,6 +45,9 @@ import {
   replicatePredictions,
 } from "../db.ts";
 import { CANNOT } from "../providers/replicate.ts";
+/* Four places, and a NUMBER rather than a string so nothing downstream parses
+   one back into arithmetic. The rule and the reason live in shared/money.ts. */
+import { money } from "../shared/money.ts";
 
 export const costs = new Hono();
 
@@ -80,11 +83,6 @@ function everCollected(pluginId: string): boolean {
 
 const connected = (id: string) => getPlugin(id)?.connected === 1;
 
-/** Money to six places internally, two on the wire — cents are what an
- *  invoice has, and a sum of a thousand rows at full precision is a number
- *  with a false tail. Kept as a NUMBER, so nothing downstream parses a string
- *  back into arithmetic. */
-const money = (n: number) => Number(n.toFixed(4));
 
 /** Newest `seen_at` across a set of rows: when this section was last true. */
 function newestSeen(rows: { seen_at: string }[]): string | null {

@@ -35,14 +35,29 @@ import { destinationRow, readCapabilities, type DestinationRow } from "./destina
 import { checkLimits, LIMITS, type DestinationKind, type LimitProblem, type MediaKind } from "./limits.ts";
 import { settings } from "./settings.ts";
 
-export type ItemStatus =
-  | "draft"
-  | "approved"
-  | "scheduled"
-  | "publishing"
-  | "published"
-  | "failed"
-  | "cancelled";
+/**
+ * THE STATES A QUEUED POST CAN BE IN.
+ *
+ * Declared as an array so there is one list rather than a union nothing can
+ * iterate. Every one of these has a word in the SHARED outbound lifecycle —
+ * see `outboxStatus` in mailflow/outbound.ts, and the test that walks this
+ * list against it. The two outbound queues on this box grew the same states
+ * under different names (published/sent, cancelled/dismissed,
+ * publishing/sending) with no shared type, so nothing checked one against the
+ * other and an eighth state added here would have meant nothing over there.
+ * The column values stay as they are — they are on the owner's disk and a
+ * rename is a migration, not a refactor. What is shared is the vocabulary.
+ */
+export const ITEM_STATUSES = [
+  "draft",
+  "approved",
+  "scheduled",
+  "publishing",
+  "published",
+  "failed",
+  "cancelled",
+] as const;
+export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
 export type ItemRow = {
   id: string;
@@ -488,6 +503,64 @@ export function patchItem(
 
   db.prepare("UPDATE publish_items SET updated_at = ? WHERE id = ?").run(now(), id);
   return { ok: true, item: itemRow(id)!, unapproved };
+}
+
+/**
+ * THE TWO NARROW WRITES THAT ARE NOT AN EDIT, and why they are functions here
+ * rather than an `UPDATE` in somebody else's file.
+ *
+ * `patchItem`'s guarantee — an edited document is a different document, so an
+ * edit withdraws the approval — held only while `patchItem` was the sole
+ * editor of this table, and it was not. Two callers in two other areas were
+ * writing to `publish_items` around it: the UGC job correcting a media kind,
+ * and the autopilot hook writing a proposed slot. Neither changes what will be
+ * sent, so neither should unapprove; but a raw `UPDATE` in another area is one
+ * copy-paste away from one that does, and nothing would have caught it. So the
+ * two writes that are legitimate live here, next to the rule, each refusing
+ * anything it has no business touching.
+ *
+ * BOTH REFUSE ONCE A PERSON HAS SEEN THE ROW. An approval is of a specific
+ * document going to a specific place at a specific time; moving either of
+ * these underneath one would make that false.
+ */
+
+/**
+ * Correct the media kind from the file's own bytes.
+ *
+ * `resolveSource` derives the kind from the SOURCE kind, which is right for
+ * every job that produces what its kind says and wrong for the one that can
+ * produce either. The column decides which platform limits apply and whether
+ * the destination can post it at all, so a wrong one is a refusal at somebody
+ * else's API. Nothing else about the item is touched, and a row that is no
+ * longer a draft is left alone: by then the limits have been read by a person.
+ */
+export function correctMediaKind(id: string, kind: MediaKind): boolean {
+  return (
+    db
+      .prepare(
+        "UPDATE publish_items SET media_kind = ?, updated_at = ? WHERE id = ? AND status = 'draft' AND media_kind <> ?",
+      )
+      .run(kind, now(), id, kind).changes > 0
+  );
+}
+
+/**
+ * Write a PROPOSED date on a draft.
+ *
+ * Not `schedule()`, which correctly refuses an unapproved item. What this
+ * stores is a suggestion: the status stays `draft`, so nothing can publish it,
+ * and the calendar can already draw where it would go if the owner approved
+ * it. Refused on anything that is not a draft, so it can never move a slot a
+ * person actually chose.
+ */
+export function proposeSlot(id: string, atIso: string): boolean {
+  return (
+    db
+      .prepare(
+        "UPDATE publish_items SET scheduled_for = ?, updated_at = ? WHERE id = ? AND status = 'draft'",
+      )
+      .run(atIso, now(), id).changes > 0
+  );
 }
 
 /**

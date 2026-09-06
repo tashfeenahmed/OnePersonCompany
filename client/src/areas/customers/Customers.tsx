@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { SubTabs } from "@/components/TabStrip";
+import { PanelEmpty, Tiles } from "@/components/integrations/Panel";
 import { PageShell } from "@/components/PageShell";
-import { cn } from "@/lib/utils";
 import { RecoveryQueueTab } from "./RecoveryQueue";
 import { DisputesTab } from "./Disputes";
 import { EventsTab } from "./Events";
@@ -49,21 +50,7 @@ export function Customers() {
 
   return (
     <PageShell title="Customers" sub={SUB[key]} wide>
-      <div className="border-line-soft mb-5 flex items-center gap-0.5 overflow-x-auto border-b pb-2">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            to={t.to}
-            aria-current={t.key === key ? "page" : undefined}
-            className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap",
-              t.key === key && "bg-accent text-foreground font-medium",
-            )}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </div>
+      <SubTabs tabs={TABS} activeKey={key} rule />
 
       {key === "queue" && <RecoveryQueueTab tick={tick} onChanged={reload} />}
       {key === "disputes" && <DisputesTab />}
@@ -74,19 +61,11 @@ export function Customers() {
 
 /* --------------------------------------------------------------- shared bits */
 
-/** The stat strip every tab opens with. Values are strings so a figure that
- *  was not measured can be an em dash rather than a zero. */
+/** The stat strip every tab opens with, as pairs. Values are STRINGS so a
+ *  figure that was not measured can be an em dash rather than a zero — the
+ *  three tabs format their own before they get here. */
 export function Stats({ items }: { items: [string, string][] }) {
-  return (
-    <div className="mb-5.5 flex flex-wrap gap-2">
-      {items.map(([v, k]) => (
-        <div key={k} className="bg-card min-w-[128px] flex-1 rounded-[10px] border px-3.5 py-3">
-          <div className="text-[22px] font-normal tracking-[-0.03em] tabular-nums">{v}</div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">{k}</div>
-        </div>
-      ))}
-    </div>
-  );
+  return <Tiles items={items.map(([v, k]) => ({ v, k }))} />;
 }
 
 /** The sentences a document says about itself — what it will not answer, and
@@ -106,12 +85,11 @@ export function Notes({ title, lines }: { title: string; lines: string[] }) {
   );
 }
 
+/** "Nothing yet", INSIDE the page rather than in place of it — so the box
+ *  holds the space the list would have taken and the page does not jump when
+ *  the first row arrives. */
 export function Empty({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="border-line-soft text-muted-foreground rounded-[10px] border border-dashed px-4 py-8 text-center text-[13px]">
-      {children}
-    </div>
-  );
+  return <PanelEmpty boxed>{children}</PanelEmpty>;
 }
 
 export function Problem({ error }: { error: string }) {

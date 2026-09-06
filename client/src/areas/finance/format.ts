@@ -2,19 +2,26 @@
  * The three renderings this area must never get wrong, in one file so the four
  * panels cannot disagree about them.
  */
+/* A RELATIVE PATH, NOT `@/lib/format`. This file is imported by
+   `finance.test.ts`, which node's test runner loads directly — and node does
+   not know the `@/` alias, so an aliased RUNTIME import here fails the test
+   suite. (The `import type` below is erased before node sees it, which is why
+   that one may keep the alias.) */
+import { money } from "../../lib/format.ts";
 import type { Amounts } from "@/lib/api/finance";
 
 /**
  * A price, or an em dash.
  *
- * NULL IS A DASH AND NEVER "0.00". Twenty-three domain renewals arrive with a
- * date and no price because no registrar API publishes one; drawing those as
- * zero would tell the owner their domains are free.
+ * NULL IS A DASH AND NEVER "0.00". Domain renewals arrive with a date and no
+ * price because no registrar API publishes one; drawing those as zero would
+ * tell the owner their domains are free.
+ *
+ * The rendering itself is `money` in `@/lib/format`, so this area writes an
+ * amount the same way as the customers tabs and the analytics join. The name
+ * stays because it is what this area's twenty-odd call sites read as.
  */
-export function amount(n: number | null | undefined, currency: string): string {
-  if (n === null || n === undefined) return "—";
-  return `${n.toLocaleString("en-IE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency.toUpperCase()}`;
-}
+export const amount = money;
 
 /** A list of per-currency amounts, side by side and never added. The
  *  separator is a middle dot rather than a plus for exactly that reason. */
@@ -23,16 +30,6 @@ export function currencies(a: Amounts | { currency: string; amount: number }[] |
   if (!rows.length) return "—";
   return rows.map((r) => amount(r.amount, r.currency)).join("  ·  ");
 }
-
-/** "in 41 days", "12 days ago", "today". A renewal date's whole value is the
- *  distance to it. */
-export function inDays(n: number): string {
-  if (n === 0) return "today";
-  if (n < 0) return `${Math.abs(n)}d ago`;
-  return `in ${n}d`;
-}
-
-export const pct = (share: number): string => `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`;
 
 /* ------------------------------------------------- edits that lose data */
 

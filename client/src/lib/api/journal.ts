@@ -1,4 +1,5 @@
 import { BASE, call } from "@/lib/api";
+import { qs } from "@/lib/qs";
 
 /**
  * THE JOURNAL, FROM THIS SIDE.
@@ -64,14 +65,6 @@ export type JournalDoc = {
   kinds: JournalKind[];
   windows: number[];
   definitions: Record<string, string>;
-};
-
-const qs = (params: Record<string, string | number | undefined | null>) => {
-  const out = new URLSearchParams();
-  for (const [k, v] of Object.entries(params))
-    if (v !== undefined && v !== null && v !== "") out.set(k, String(v));
-  const s = out.toString();
-  return s ? `?${s}` : "";
 };
 
 export const journalApi = {

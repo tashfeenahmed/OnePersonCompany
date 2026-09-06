@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ExternalLink, RefreshCw, Trash2 } from "lucide-react";
+import { when } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -156,7 +157,7 @@ function Form({ venture }: { venture?: Venture }) {
               value={name}
               autoFocus={!venture}
               autoComplete="off"
-              placeholder="Example Support"
+              placeholder="Acme Analytics"
               onChange={(e) => setName(e.target.value)}
             />
           </div>
@@ -180,7 +181,7 @@ function Form({ venture }: { venture?: Venture }) {
               id="venture-site"
               value={website}
               autoComplete="off"
-              placeholder="support.example.test"
+              placeholder="acme.example"
               onChange={(e) => setWebsite(e.target.value)}
             />
             <p className="text-muted-foreground text-[11.5px]">
@@ -308,7 +309,7 @@ function Form({ venture }: { venture?: Venture }) {
                 <span className="text-[13px] font-medium">Read from the site</span>
                 <span className="text-muted-foreground text-[11.5px]">
                   {brand.enrichedAt
-                    ? new Date(brand.enrichedAt).toLocaleString()
+                    ? when(brand.enrichedAt, { year: true })
                     : "never read"}
                 </span>
                 <Button

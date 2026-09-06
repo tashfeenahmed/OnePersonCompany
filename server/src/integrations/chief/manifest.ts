@@ -38,6 +38,8 @@
  * that unnecessary rather than tidy.
  */
 import type { IntegrationManifest } from "../manifest.ts";
+import { NOW, settleOpenRows } from "../../shared/settle.ts";
+import { validZone } from "../../shared/time.ts";
 import { goalRoutes } from "./goals-routes.ts";
 import { memoryRoutes } from "./memory-routes.ts";
 import { outcomeRoutes } from "./outcomes-routes.ts";
@@ -53,7 +55,6 @@ import {
   ROUNDS_PLUGIN,
   afterConfig,
   startRounds,
-  zoneIsReal,
 } from "./rounds.ts";
 import { ROLES } from "../subagents/store.ts";
 import { PACKS, SKILLS } from "./skills.ts";
@@ -118,7 +119,7 @@ export const manifest: IntegrationManifest = {
           check(value) {
             const v = value.trim();
             if (!v) return null;
-            return zoneIsReal(v) ? null : `"${v}" is not a time zone this machine knows. Use an IANA name like Europe/Dublin.`;
+            return validZone(v) ? null : `"${v}" is not a time zone this machine knows. Use an IANA name like Europe/Dublin.`;
           },
         },
         roles: {
@@ -196,9 +197,35 @@ export const manifest: IntegrationManifest = {
   skills: SKILLS,
   packs: PACKS,
 
-  /* Three timers, armed together and each idle until it is configured. None of
-     them throws: they run with nobody to catch them. */
+  /*
+    THE ROUNDS LEDGER IS SETTLED FIRST, and it went years without being.
+
+    `chief_rounds`' own migration says an open row means a crash and is visible
+    as one — and nothing anywhere ever closed one. `runRound`'s `finally` does
+    it for a round that threw, and cannot for a round the PROCESS died inside;
+    on a development box that is routine, because a source save restarts the
+    server. So a round from weeks ago read as still walking, for ever, on a
+    page whose whole job is to say what the estate is doing.
+
+    Three other areas had each written this by hand and this was the fourth
+    table, forgotten precisely because the rule was copied as a pattern rather
+    than called as a helper. It is one line now.
+  */
   onStart() {
+    const stale = settleOpenRows({
+      table: "chief_rounds",
+      openWhen: "finished_at IS NULL",
+      set: { finished_at: NOW },
+      /* NO NOTE. `chief_rounds.notes` is a JSON array the page parses, not
+         prose — a sentence written into it would be read back as an empty
+         list, losing the per-venture lines the round did manage to file. The
+         closed row with its counters still at zero is the whole of the fact
+         here; the reason lives in this comment and in the boot log. */
+    });
+    if (stale) console.log(`[chief] closed ${stale} round(s) the process died inside`);
+
+    /* Three timers, armed together and each idle until it is configured. None
+       of them throws: they run with nobody to catch them. */
     startRounds();
     startConsolidation();
     startReadings();

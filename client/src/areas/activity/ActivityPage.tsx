@@ -1,6 +1,6 @@
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { SubTabs } from "@/components/TabStrip";
 import { PageShell } from "@/components/PageShell";
-import { cn } from "@/lib/utils";
 import { Feed } from "./Feed";
 import { Users } from "./Users";
 import { UserProduct } from "./UserProduct";
@@ -17,11 +17,10 @@ import { Today } from "./Today";
  *
  * THE URL IS THE SELECTION, the way Apps and Dashboards do it — /activity,
  * /activity/users, /activity/users/<product>, /activity/today — so every tab is
- * a real address somebody can keep. The strip is written out here rather than
- * reusing TabStrip because TabStrip's tabs are DRAGGABLE into an order the
- * store remembers, and these three have a fixed one: what happened, who
- * arrived, what it cost, in that order because that is the order they are read
- * in.
+ * a real address somebody can keep. It is `SubTabs` rather than `TabStrip`
+ * because TabStrip's tabs are DRAGGABLE into an order the store remembers, and
+ * these three have a fixed one: what happened, who arrived, what it cost, in
+ * that order because that is the order they are read in.
  *
  * THE WINDOW IS FIXED PER TAB rather than being a control. The feed's fourteen
  * days is "the last fortnight", the leakage window's thirty is the one every
@@ -51,21 +50,7 @@ export function ActivityPage() {
 
   return (
     <PageShell title="Activity" sub={SUB[key]} wide>
-      <div className="mb-5 flex items-center gap-0.5 overflow-x-auto">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            to={t.to}
-            aria-current={t.key === key ? "page" : undefined}
-            className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap",
-              t.key === key && "bg-accent text-foreground font-medium",
-            )}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </div>
+      <SubTabs tabs={TABS} activeKey={key} />
 
       {key === "feed" && <Feed days={FEED_DAYS} />}
       {key === "users" && (product ? <UserProduct product={product} /> : <Users />)}

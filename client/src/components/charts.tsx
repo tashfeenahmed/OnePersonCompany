@@ -7,6 +7,13 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+/* THE AXIS AND THE HOVER ARE THE SAME NUMBERS AS THE TILES BESIDE THEM.
+   `usd` here used to write a bare `$`, which also reads as Canadian and
+   Australian dollars on a board that carries all three; bytes were divided
+   by 1000 while the panels divided by 1024, so one disk read 5.0 GB and 5.4
+   GB on adjacent cards. The `/s` stays local — it is part of the claim, not
+   part of the number. */
+import { bytes, count, money, pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
   ChartSeries,
@@ -221,10 +228,10 @@ function toneOf(m: Meter): StatusTone {
 export type ChartUnit = "percent" | "bytes" | "count" | "usd";
 
 function axisLabel(v: number, unit: ChartUnit): string {
-  if (unit === "percent") return `${Math.round(v)}%`;
-  if (unit === "usd") return `$${v.toLocaleString("en-US", { maximumFractionDigits: v < 10 ? 2 : 0 })}`;
-  if (unit === "count") return v.toLocaleString("en-GB", { maximumFractionDigits: 0 });
-  return `${bytes(v)}/s`;
+  if (unit === "percent") return pct(v / 100, { digits: 0 });
+  if (unit === "usd") return money(v, "USD", { digits: v < 10 ? 2 : 0 });
+  if (unit === "count") return count(v);
+  return `${bytes(v, { base: 1000 })}/s`;
 }
 
 /**
@@ -236,26 +243,15 @@ function axisLabel(v: number, unit: ChartUnit): string {
  * reads as false precision, not as more of it.
  */
 function reading(v: number, unit: ChartUnit | undefined): string {
-  if (unit === "bytes") return `${bytes(v)}/s`;
-  if (unit === "percent") return `${v.toFixed(1).replace(/\.0$/, "")}%`;
+  if (unit === "bytes") return `${bytes(v, { base: 1000 })}/s`;
+  if (unit === "percent") return pct(v / 100);
   // Money keeps its cents at hover size: a spend card's whole reason for a
   // tooltip is the figure the axis rounded away.
-  if (unit === "usd") return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  if (unit === "count") return v.toLocaleString("en-GB", { maximumFractionDigits: 0 });
+  if (unit === "usd") return money(v, "USD");
+  if (unit === "count") return count(v);
   // No unit declared — a sample widget from the catalog. Say the number and
   // nothing about what it is, rather than guessing a unit onto it.
   return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-function bytes(v: number): string {
-  const units = ["B", "kB", "MB", "GB"];
-  let n = v;
-  let i = 0;
-  while (n >= 1000 && i < units.length - 1) {
-    n /= 1000;
-    i += 1;
-  }
-  return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
 }
 
 const clock = (ms: number) =>
@@ -1053,8 +1049,8 @@ export function Figures({
  * being judged against, and they are labelled — an unlabelled rule on a time
  * axis reads as a gridline.
  *
- * STILL BUILT IN HTML, NOW THAT IT HAS A HOVER. The SVG port in workdash exists
- * because it draws its labels inside the plot, where a long name has no
+ * STILL BUILT IN HTML, NOW THAT IT HAS A HOVER. An SVG version of this exists
+ * elsewhere because it draws its labels inside the plot, where a long name has no
  * ellipsis and no way to be truncated; here every length is a percentage of the
  * track, so the chart is responsive at any card width with no measurement and
  * the names truncate the way the rest of the card's type does. The only pixels

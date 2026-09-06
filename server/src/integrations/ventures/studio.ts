@@ -30,10 +30,15 @@
  * REPLICATE IS CALLED WITH `Prefer: wait`, which is the synchronous door onto
  * an API that is otherwise a poll loop. It holds the connection for up to a
  * minute and answers with the finished prediction — for a four-step model that
- * runs in a couple of seconds, that is the whole call. When it does NOT finish
- * in time the answer is a prediction that is still running, and this reports
- * that as what it is rather than polling somebody else's queue on a route
- * somebody is waiting on.
+ * runs in a couple of seconds, that is the whole call.
+ *
+ * AND WHEN IT DOES NOT FINISH IN TIME, THE PREDICTION IS POLLED. This file
+ * used to give up there and tell the owner to press the button again, which
+ * was the worst of both outcomes: BY THE TIME A PREDICTION EXISTS IT HAS BEEN
+ * PAID FOR, so abandoning it spends the money and throws the file away. The
+ * other half of the same UGC job polled, so one run behaved two ways. The poll
+ * is bounded much tighter here than for a video, because this route is one
+ * somebody is waiting on in a browser — see `makeImage`.
  *
  * NO COST IS REPORTED, and providers/replicate.ts's header explains at length
  * why there is none to report: Replicate publishes no price anywhere in its
@@ -47,7 +52,9 @@ import { DATA_DIR } from "../../config.ts";
 import { configValue, db, now, ventureRow, ventureRowById, type VentureRow } from "../../db.ts";
 import { readBrand } from "../../ventures/enrich.ts";
 import { factsForPrompt } from "../knowledge/store.ts";
-import { REPLICATE_API, tokenAccounts } from "../../providers/replicate.ts";
+import { tokenAccounts } from "../../providers/replicate.ts";
+import { download, firstUrl, predict } from "../../tools/replicate-run.ts";
+import { ASPECTS } from "../video/assemble.ts";
 import { activeProvider, complete, NoProviderError } from "../../models/provider.ts";
 
 export const studioRoutes = new Hono();
@@ -142,7 +149,21 @@ const REPLICATE_MS = 75_000;
 const DOWNLOAD_MS = 30_000;
 /** An image bigger than this is not a social card. */
 const IMAGE_CAP = 12 * 1024 * 1024;
+/** How long a queued prediction is followed. See `makeImage`. */
+const POLL_FOR_MS = 3 * 60_000;
 
+/**
+ * THE FRAME SHAPES A POST CAN BE, named for what the post IS.
+ *
+ * `ratio` is a key of ASPECTS — video/assemble.ts's list of the shapes this
+ * box renders — and it is checked against it below rather than typed twice.
+ * The Studio's names ("story") and the renderer's shapes ("9:16") are two
+ * vocabularies for one thing, and they had drifted into three places: this
+ * map, a hardcoded list in the motion-spec reader, and an inline conditional
+ * in the UGC pipeline that fell through to "story" for anything it did not
+ * recognise. A fourth aspect would therefore have been accepted by the video
+ * routes and silently rendered portrait here.
+ */
 const FORMATS = {
   square: { ratio: "1:1", about: "1:1 — a feed post on Instagram, LinkedIn or X." },
   story: { ratio: "9:16", about: "9:16 — a story or a reel cover." },
@@ -150,6 +171,27 @@ const FORMATS = {
 } as const;
 
 export type Format = keyof typeof FORMATS;
+
+/**
+ * The Studio's name for a frame shape, or null when it has none.
+ *
+ * NULL RATHER THAN A DEFAULT, and that is the whole point of exporting it. The
+ * copy this replaces ended `: "story"`, so an aspect the Studio did not know
+ * became a portrait picture with nothing anywhere saying so. A caller that
+ * gets null is being told the truth — this box renders that shape and the
+ * Studio cannot compose for it — and can refuse the job or say so on the run.
+ */
+export function formatForAspect(aspect: string): Format | null {
+  for (const [name, f] of Object.entries(FORMATS))
+    if (f.ratio === aspect) return name as Format;
+  return null;
+}
+
+/** Every shape the renderer supports that the Studio cannot compose for. Empty
+ *  on a healthy box; a non-empty list is the drift this pairing exists to make
+ *  visible, and `GET /api/studio` prints it rather than hiding it. */
+export const unnamedAspects = (): string[] =>
+  Object.keys(ASPECTS).filter((a) => formatForAspect(a) === null);
 
 const MAX_BRIEF = 2_000;
 const MAX_PLATFORM = 40;
@@ -326,9 +368,9 @@ export function splitCaption(text: string): { caption: string; hashtags: string[
  *
  * WHICH IS WHY THE BUSINESS'S NAME IS NOT IN THIS PROMPT, and that is the one
  * thing here that was changed after watching it fail. The first version opened
- * "A clean, modern social graphic for Example App 1, …" and flux-schnell wrote
- * PLANINTEL across the middle of the picture in two colours, beside a line of
- * invented lettering — with "no text, no words, no lettering" in the same
+ * "A clean, modern social graphic for <the business's name>, …" and
+ * flux-schnell wrote that name across the middle of the picture in two
+ * colours, beside a line of invented lettering — with "no text, no words, no lettering" in the same
  * prompt. Naming a brand in an image prompt IS an instruction to render the
  * brand, and a negative clause does not outrank it in a model that has no
  * negative prompt at all. So the subject is described and never named; the
@@ -345,9 +387,9 @@ function imagePrompt(v: VentureRow, brief: string, format: Format): string {
 
   /* The subject, with the brand's own name stripped out of both halves it
      could arrive in — the description the owner wrote and the brief he typed.
-     A word boundary and a case-insensitive match, because "Example App 1",
-     "example-app-1" and "PLANINTEL" are the same instruction to a diffusion
-     model. */
+     A word boundary and a case-insensitive match, because a brand name in
+     title case, in lower case and in capitals are the same instruction to a
+     diffusion model. */
   const strip = (text: string) =>
     text
       .replace(new RegExp(`\\b${v.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), "the product")
@@ -382,12 +424,13 @@ export function imageModel(): string {
 }
 
 /**
- * One prediction, run to completion if Replicate will hold the line.
+ * One prediction, run to completion.
  *
- * The model-scoped endpoint (`/v1/models/<owner>/<name>/predictions`) rather
- * than the generic one, because it takes no version hash: a version pinned in
- * this file would be a file that stops working the day the model publishes a
- * new one, for a feature whose whole point is that the model is a setting.
+ * The endpoint, the wait header, the poll, the output walker and the capped
+ * download are all tools/replicate-run.ts's — they were written twice, and the
+ * two copies disagreed about whether a still-queued prediction was worth
+ * waiting for. What is this file's is the INPUT: which model, which aspect
+ * ratio, four steps, PNG, and where the file lands.
  */
 export async function makeImage(
   prompt: string,
@@ -404,114 +447,58 @@ export async function makeImage(
     ok: false, path: null, model, ms: Date.now() - started, error,
   });
 
+  /* The sentence is this area's and stays this area's — it names the button
+     the owner would press next, which the shared runner cannot know. */
   const pairs = tokenAccounts("studio_image");
   if (!pairs.length)
     return fail(
       "Replicate is not connected, so there is no image. Paste an `r8_…` API token " +
         "under Integrations → Replicate and regenerate this post's image.",
     );
-  const token = pairs[0]!.token;
 
-  if (!/^[\w.-]+\/[\w.-]+$/.test(model))
-    return fail(`“${model}” is not a Replicate model. It wants owner/name, like ${DEFAULT_MODEL}.`);
+  const run = await predict({
+    token: pairs[0]!.token,
+    model,
+    input: {
+      prompt,
+      /* THE REFERENCE, UNDER THE NAME THIS MODEL ACTUALLY USES. Spread rather
+         than assigned so a model with no image field gets a body
+         byte-identical to the one it got before this existed — a new key
+         holding `undefined` is a key Replicate would reject. */
+      ...(refs?.field && refs.dataUrls.length
+        ? { [refs.field]: refs.many ? refs.dataUrls : refs.dataUrls[0] }
+        : {}),
+      aspect_ratio: FORMATS[format].ratio,
+      /* PNG rather than the WebP default: the file is served to a browser and
+         stored in a backup, and a format every tool opens is worth a few
+         hundred kilobytes. */
+      output_format: "png",
+      num_outputs: 1,
+      /* Flux-schnell's own maximum. Four steps is what makes it schnell. */
+      num_inference_steps: 4,
+      disable_safety_checker: false,
+    },
+    waitMs: REPLICATE_MS,
+    /* THREE MINUTES, NOT THE TWELVE A VIDEO GETS. This runs inside a request
+       the owner is watching a spinner for, and a four-step image that has not
+       finished in three minutes is not going to. The prediction may still
+       land at Replicate afterwards, and the sentence says so. */
+    poll: { forMs: POLL_FOR_MS },
+  });
+  if (!run.ok) return fail(run.error);
 
-  let doc: {
-    id?: string;
-    status?: string;
-    output?: unknown;
-    error?: unknown;
-    detail?: string;
-    urls?: { get?: string };
-  };
-  try {
-    const res = await fetch(`${REPLICATE_API}/models/${model}/predictions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        /* The synchronous door. Without it this answers immediately with a
-           queued prediction and somebody has to poll. */
-        Prefer: "wait",
-      },
-      body: JSON.stringify({
-        input: {
-          prompt,
-          /* THE REFERENCE, UNDER THE NAME THIS MODEL ACTUALLY USES. Spread
-             rather than assigned so a model with no image field gets a body
-             byte-identical to the one it got before this existed — a new key
-             holding `undefined` is a key Replicate would reject. */
-          ...(refs?.field && refs.dataUrls.length
-            ? { [refs.field]: refs.many ? refs.dataUrls : refs.dataUrls[0] }
-            : {}),
-          aspect_ratio: FORMATS[format].ratio,
-          /* PNG rather than the WebP default: the file is served to a browser
-             and stored in a backup, and a format every tool opens is worth a
-             few hundred kilobytes. */
-          output_format: "png",
-          num_outputs: 1,
-          /* Flux-schnell's own maximum. Four steps is what makes it schnell. */
-          num_inference_steps: 4,
-          disable_safety_checker: false,
-        },
-      }),
-      signal: AbortSignal.timeout(REPLICATE_MS),
-    });
-    doc = (await res.json().catch(() => ({}))) as typeof doc;
-    if (!res.ok)
-      return fail(
-        `Replicate answered HTTP ${res.status}${doc?.detail ? ` — ${doc.detail}` : ""}.`,
-      );
-  } catch (err) {
-    const name = err instanceof Error ? err.name : "Error";
-    return fail(
-      name === "TimeoutError"
-        ? `Replicate did not finish within ${REPLICATE_MS / 1000} seconds.`
-        : `Could not reach Replicate (${name}).`,
-    );
-  }
-
-  if (doc.error) return fail(`The prediction failed — ${String(doc.error).slice(0, 300)}`);
-  if (doc.status && doc.status !== "succeeded")
-    return fail(
-      `The prediction is “${doc.status}” — Replicate did not finish it while the ` +
-        "connection was held open. Regenerate the image; nothing here polls.",
-    );
-
-  const url = firstUrl(doc.output);
+  const url = firstUrl(run.output);
   if (!url) return fail("The prediction succeeded and produced no image URL this could read.");
 
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_MS) });
-    if (!res.ok) return fail(`The image URL answered HTTP ${res.status}.`);
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    if (!bytes.length) return fail("The image URL answered with nothing.");
-    if (bytes.length > IMAGE_CAP)
-      return fail(`The image is ${Math.round(bytes.length / 1024)} KB, which is larger than this stores.`);
-    mkdirSync(STUDIO_DIR, { recursive: true });
-    const path = resolve(STUDIO_DIR, `${id}.png`);
-    /* Written whole rather than streamed: it is one file of a few hundred
-       kilobytes that is already entirely in memory. */
-    writeFileSync(path, bytes);
-    return { ok: true, path, model, ms: Date.now() - started, error: null };
-  } catch (err) {
-    const name = err instanceof Error ? err.name : "Error";
-    return fail(
-      name === "TimeoutError"
-        ? "The finished image took longer than 30 seconds to download."
-        : `The finished image could not be downloaded (${name}).`,
-    );
-  }
-}
+  const got = await download({ url, cap: IMAGE_CAP, what: "image", timeoutMs: DOWNLOAD_MS });
+  if (!got.ok) return fail(got.error);
 
-function firstUrl(output: unknown): string | null {
-  if (typeof output === "string") return output.startsWith("http") ? output : null;
-  if (Array.isArray(output)) {
-    for (const o of output) {
-      const u = firstUrl(o);
-      if (u) return u;
-    }
-  }
-  return null;
+  mkdirSync(STUDIO_DIR, { recursive: true });
+  const path = resolve(STUDIO_DIR, `${id}.png`);
+  /* Written whole rather than streamed: it is one file of a few hundred
+     kilobytes that is already entirely in memory. */
+  writeFileSync(path, got.bytes);
+  return { ok: true, path, model, ms: Date.now() - started, error: null };
 }
 
 /* --------------------------------------------------------------- readiness */
@@ -536,12 +523,17 @@ function readiness() {
       model,
       isDefault: model === DEFAULT_MODEL,
       note: replicate.length
-        ? `Images come from ${model} on Replicate, called with \`Prefer: wait\`. ` +
+        ? `Images come from ${model} on Replicate, called with \`Prefer: wait\` and then followed for ` +
+          `up to ${POLL_FOR_MS / 60_000} minutes if it queues. ` +
           "Replicate publishes no price in its API, so nothing here can tell you what a " +
           "post cost — see the Costs page for what it does report."
         : "Replicate is not connected, so a post will be stored with its caption and no image.",
     },
     formats: Object.entries(FORMATS).map(([key, f]) => ({ key, ratio: f.ratio, about: f.about })),
+    /* Empty on a healthy box. A shape the renderer supports and the Studio has
+       no name for is drift between two lists that describe one thing, and it
+       is printed rather than defaulted away. */
+    aspectsWithNoFormat: unnamedAspects(),
     note:
       "A post needs the caption half. Without a model provider nothing is created; " +
       "without Replicate a post is created with words and an error where the picture goes.",
@@ -574,46 +566,70 @@ studioRoutes.get("/posts", (c) => {
   });
 });
 
-studioRoutes.post("/posts", async (c) => {
-  const body = (await c.req.json().catch(() => null)) as {
-    ventureId?: unknown;
-    brief?: unknown;
-    format?: unknown;
-    platform?: unknown;
-    assetIds?: unknown;
-  } | null;
-  if (!body) return c.json({ error: "Expected a JSON body." }, 400);
+/* ------------------------------------------------------------ making one */
 
-  const key = typeof body.ventureId === "string" ? body.ventureId.trim() : "";
+export type CreatePostInput = {
+  /** A venture's id or slug. */
+  ventureId: string;
+  brief: string;
+  /** Defaults to `square`. */
+  format?: string;
+  platform?: string | null;
+  /** Asset-library ids, at most four. */
+  assetIds?: string[];
+};
+
+export type CreatePostResult =
+  | {
+      ok: true;
+      post: ReturnType<typeof shape>;
+      venture: { id: string; slug: string; name: string };
+      imageMs: number;
+      /** What did not work. Empty when both halves did. */
+      problems: string[];
+    }
+  | { ok: false; error: string; status: 400 | 404 };
+
+/**
+ * ONE STUDIO POST — the whole of what a post IS, in one callable place.
+ *
+ * TWO OTHER AREAS USED TO MAKE A POST BY CALLING THIS FILE'S OWN ROUTE
+ * HANDLER. Hono apps are callable objects, so `studioRoutes.request("/posts")`
+ * really does run the same code in this process with no port involved, and
+ * both of them said in a comment that they did it that way because what a post
+ * IS lives inside the handler. That was true and it was the reason to move it
+ * out here instead: the two callers had drifted into different hardcoded
+ * formats and different error unwrapping, and a change to the reply shape had
+ * to be found in three files.
+ *
+ * IT NEVER THROWS. Every refusal is a `{ ok: false, error, status }` — the
+ * status is there so the route can pass it straight through, and the sentence
+ * is there so a run's report can print it. A caller that wants the HTTP
+ * surface still has one; a caller that just wants a post no longer has to
+ * build a Request to get it.
+ */
+export async function createPost(input: CreatePostInput): Promise<CreatePostResult> {
+  const key = input.ventureId.trim();
   const v = key ? ventureRow(key) : undefined;
   if (!v)
-    return c.json(
-      { error: "Expected { ventureId, brief, format } — ventureId is a venture's id or slug." },
-      400,
-    );
+    return {
+      ok: false,
+      status: 400,
+      error: "Expected { ventureId, brief, format } — ventureId is a venture's id or slug.",
+    };
 
-  const brief = typeof body.brief === "string" ? body.brief.trim() : "";
-  if (!brief) return c.json({ error: "A brief is required — one line saying what the post is about." }, 400);
+  const brief = input.brief.trim();
+  if (!brief)
+    return { ok: false, status: 400, error: "A brief is required — one line saying what the post is about." };
   if (brief.length > MAX_BRIEF)
-    return c.json({ error: `A brief is at most ${MAX_BRIEF} characters.` }, 400);
+    return { ok: false, status: 400, error: `A brief is at most ${MAX_BRIEF} characters.` };
 
-  const format = String(body.format ?? "square") as Format;
+  const format = (input.format ?? "square") as Format;
   if (!(format in FORMATS))
-    return c.json(
-      { error: `A format is one of ${Object.keys(FORMATS).join(", ")}.` },
-      400,
-    );
+    return { ok: false, status: 400, error: `A format is one of ${Object.keys(FORMATS).join(", ")}.` };
 
-  let platform: string | null = null;
-  if (body.platform !== undefined && body.platform !== null) {
-    if (typeof body.platform !== "string")
-      return c.json({ error: "A platform is text — instagram, linkedin, x." }, 400);
-    platform = body.platform.trim().slice(0, MAX_PLATFORM) || null;
-  }
-
-  const assetIds = Array.isArray(body.assetIds)
-    ? body.assetIds.filter((a): a is string => typeof a === "string").slice(0, 4)
-    : [];
+  const platform = (input.platform ?? "").trim().slice(0, MAX_PLATFORM) || null;
+  const assetIds = (input.assetIds ?? []).slice(0, 4);
 
   const started = Date.now();
   const id = newId();
@@ -621,14 +637,10 @@ studioRoutes.post("/posts", async (c) => {
   /* THE REFERENCES ARE RESOLVED BEFORE THE PROMPT IS BUILT, because whether
      the model can be handed a picture decides whether the picture has to be
      DESCRIBED in the prompt instead. See setReferenceResolver above. */
-  const refs = assetIds.length
-    ? await resolveReferences(v.id, assetIds, imageModel())
-    : null;
+  const refs = assetIds.length ? await resolveReferences(v.id, assetIds, imageModel()) : null;
   const prompt =
     imagePrompt(v, brief, format) +
-    (refs && refs.texts.length
-      ? ` Take visual direction from ${refs.texts.join("; ")}.`
-      : "");
+    (refs && refs.texts.length ? ` Take visual direction from ${refs.texts.join("; ")}.` : "");
 
   /* --- the caption, which is the half without which there is no post --- */
   let caption: string | null = null;
@@ -644,17 +656,14 @@ studioRoutes.post("/posts", async (c) => {
     if (!caption) problems.push("The model answered with no caption text.");
   } catch (err) {
     if (err instanceof NoProviderError)
-      return c.json(
-        {
-          error:
-            "No model provider is live, so there is no caption and no post. Choose one " +
-            "under Integrations → Models — the image half alone is a picture, not a post.",
-        },
-        400,
-      );
-    problems.push(
-      `The caption failed — ${err instanceof Error ? err.message : String(err)}`,
-    );
+      return {
+        ok: false,
+        status: 400,
+        error:
+          "No model provider is live, so there is no caption and no post. Choose one " +
+          "under Integrations → Models — the image half alone is a picture, not a post.",
+      };
+    problems.push(`The caption failed — ${err instanceof Error ? err.message : String(err)}`);
   }
 
   /* --- the image, which may legitimately not happen ------------------- */
@@ -665,7 +674,6 @@ studioRoutes.post("/posts", async (c) => {
      outcome that must not look like success. */
   if (refs && !refs.field && assetIds.length) problems.push(refs.note);
 
-  const ms = Date.now() - started;
   db.prepare(
     `INSERT INTO studio_posts
        (id, venture_id, ts, brief, platform, format, caption, hashtags,
@@ -676,16 +684,48 @@ studioRoutes.post("/posts", async (c) => {
     caption, hashtags.join(" ") || null,
     prompt, image.path,
     [captionModel, image.ok ? image.model : null].filter(Boolean).join(" + ") || null,
-    ms,
+    Date.now() - started,
     problems.length ? problems.join(" ") : null,
   );
 
+  return {
+    ok: true,
+    post: shape(postRow(id)!),
+    venture: { id: v.id, slug: v.slug, name: v.name },
+    imageMs: image.ms,
+    problems,
+  };
+}
+
+studioRoutes.post("/posts", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    ventureId?: unknown;
+    brief?: unknown;
+    format?: unknown;
+    platform?: unknown;
+    assetIds?: unknown;
+  } | null;
+  if (!body) return c.json({ error: "Expected a JSON body." }, 400);
+  if (body.platform !== undefined && body.platform !== null && typeof body.platform !== "string")
+    return c.json({ error: "A platform is text — instagram, linkedin, x." }, 400);
+
+  const made = await createPost({
+    ventureId: typeof body.ventureId === "string" ? body.ventureId : "",
+    brief: typeof body.brief === "string" ? body.brief : "",
+    format: body.format === undefined ? undefined : String(body.format),
+    platform: typeof body.platform === "string" ? body.platform : null,
+    assetIds: Array.isArray(body.assetIds)
+      ? body.assetIds.filter((a): a is string => typeof a === "string")
+      : [],
+  });
+  if (!made.ok) return c.json({ error: made.error }, made.status);
+
   return c.json(
     {
-      post: shape(postRow(id)!),
-      venture: { id: v.id, slug: v.slug, name: v.name },
-      imageMs: image.ms,
-      note: problems.length
+      post: made.post,
+      venture: made.venture,
+      imageMs: made.imageMs,
+      note: made.problems.length
         ? "The post was stored with what worked. `error` says what did not."
         : "Both halves worked.",
     },

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AlertTriangle, Loader2, Undo2 } from "lucide-react";
+import { count, when } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
 import { Section } from "@/components/settings/Section";
@@ -31,13 +32,10 @@ import { migrateApi, type Batch, type Endpoint } from "@/lib/api/migrate";
  * facts about the business.
  */
 
-function when(iso: string | null): string {
-  if (!iso) return "never";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
+/* AN ABSENT DATE HERE MEANS IT NEVER HAPPENED — the batch was never rolled
+   back, the endpoint was never read. `when` draws an unknown date as the em
+   dash, so every caller on this panel says the word it means. */
+const NEVER = { nullText: "never" } as const;
 
 const POPULATION_ORDER = ["customer", "participant", "admin", "trial", "internal", "unstated"];
 
@@ -102,12 +100,12 @@ function BatchRow({ batch, onRolledBack }: { batch: Batch; onRolledBack: () => v
           )}
           {batch.rolledBackAt && (
             <span className="text-muted-foreground bg-muted rounded px-1.5 py-px text-[11px]">
-              rolled back {when(batch.rolledBackAt)}
+              rolled back {when(batch.rolledBackAt, NEVER)}
             </span>
           )}
           {batch.ok === false && <span className="text-destructive text-[11px]">failed</span>}
         </div>
-        <span className="text-muted-foreground text-[11.5px]">{when(batch.startedAt)}</span>
+        <span className="text-muted-foreground text-[11.5px]">{when(batch.startedAt, NEVER)}</span>
       </div>
 
       <div className="text-muted-foreground font-mono text-[11.5px] break-all">{batch.source}</div>
@@ -190,7 +188,7 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
                 endpoint.lastOk === null ? "bg-muted-foreground/40" : endpoint.lastOk ? "bg-ok" : "bg-destructive",
               )}
             />
-            collected {when(endpoint.lastRead)}
+            collected {when(endpoint.lastRead, NEVER)}
           </span>
         )}
       </div>
@@ -205,7 +203,7 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
           <span className={v.ok ? "text-ok" : "text-destructive"}>
             {v.ok ? "sample accepted" : "sample REFUSED"}
           </span>
-          <span className="text-muted-foreground"> {when(v.ts)}</span>
+          <span className="text-muted-foreground"> {when(v.ts, NEVER)}</span>
           {v.rows !== null && <span className="text-muted-foreground"> · {v.rows} row(s)</span>}
           {Object.values(v.populations).some((n) => n > 0) && (
             <span className="text-muted-foreground">
@@ -244,7 +242,7 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
               <span className="text-muted-foreground">{m.label}</span>
               <span className="text-muted-foreground/60 font-mono text-[11px]">{m.path}</span>
               {m.why === null ? (
-                <span className="tabular-nums font-medium">{m.value?.toLocaleString()}</span>
+                <span className="tabular-nums font-medium">{count(m.value)}</span>
               ) : (
                 <span className="text-destructive">mapping error — {m.why}</span>
               )}

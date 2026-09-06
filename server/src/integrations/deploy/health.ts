@@ -40,7 +40,8 @@
  * figures so a reader can disagree.
  */
 import { existsSync, statfsSync, statSync } from "node:fs";
-import { COLLECT_MINUTES, DATA_DIR, DB_FILE, LOAD_RETAIN_DAYS, RETAIN_DAYS } from "../../config.ts";
+import { COLLECT_MINUTES, DATA_DIR, DB_FILE } from "../../config.ts";
+import { retentions, type RetentionEntry } from "../../shared/retention.ts";
 import { allPlugins, db } from "../../db.ts";
 import { INTEGRATION_MIGRATIONS } from "../migrations.ts";
 import { intervalMinutes } from "./cadence.ts";
@@ -239,7 +240,23 @@ export type Health = {
   /** The worst verdict among the checks. */
   status: Verdict;
   checks: Check[];
-  retainDays: { readings: number; load: number };
+  /**
+   * HOW LONG HISTORY IS KEPT, TABLE BY TABLE, VERBATIM FROM THE REGISTRY.
+   *
+   * This used to be `retainDays: { readings, load }` read straight out of
+   * config, and it was a claim about the box that was not true of the box. It
+   * described neither the uptime checks, the fleet samples, the workstation
+   * states nor the job leases — each of which aged on a number no setting
+   * could reach — and it certainly did not describe `security_snapshots`,
+   * `security_shotsqa` and `backup_runs`, which at the time nothing anywhere
+   * pruned. A health endpoint naming a retention window it does not govern is
+   * worse than one naming none, because somebody plans around it.
+   *
+   * It is now the same list the sweep walks, so the two cannot disagree, and a
+   * table that is ABSENT from it is a table nothing prunes — which is a
+   * visible fact rather than an absence.
+   */
+  retention: RetentionEntry[];
   note: string;
 };
 
@@ -273,12 +290,14 @@ export async function health(collectorIds: string[]): Promise<Health> {
     collectEveryMinutes: COLLECT_MINUTES,
     status: worst,
     checks,
-    retainDays: { readings: RETAIN_DAYS, load: LOAD_RETAIN_DAYS },
+    retention: retentions(),
     note:
       "`ok` means this process answered, and nothing else — it is the liveness probe cli/restore.ts uses to refuse " +
       "to overwrite a live database, so it stays true even when a check fails. `status` is the verdict over the " +
       "checks: fail is something to fix now, warn is something to look at. Every threshold used is in the check's " +
-      "own `measured` object rather than only in the sentence.",
+      "own `measured` object rather than only in the sentence. `retention` is the registry the prune itself walks, " +
+      "one row per table — not a setting that describes some of them; a table missing from it is a table nothing " +
+      "ages out.",
   };
 }
 

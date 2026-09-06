@@ -1,5 +1,5 @@
 /**
- * The domain portfolio, as both registrars see it.
+ * The domain portfolio, as EVERY connected registrar sees it.
  *
  * ONE ROUTE FOR THE WHOLE PAGE. A domains dashboard asks the same question of
  * the same list from a dozen cards — the runway, the counts, the table, the
@@ -20,8 +20,7 @@
  * first into a number too big to act on.
  */
 import { Hono } from "hono";
-import { allDomains } from "../db.ts";
-import { daysUntil } from "../providers/domains.ts";
+import { daysUntil, registeredDomains } from "../providers/domains.ts";
 
 export const domains = new Hono();
 
@@ -56,7 +55,13 @@ function tld(name: string): string {
 }
 
 domains.get("/", (c) => {
-  const rows = allDomains();
+  /* NOT `allDomains()`, WHICH IS ONLY THE `domains` TABLE. A name registered
+     at Cloudflare is collected into a second table of its own, and while this
+     route read the first one only, every number below — the total, the lapsed
+     and expiring counts, auto-renew-off, unlocked, the runway — silently left
+     those names out. `registeredDomains()` is the one reader both this page
+     and the Cloudflare page go through. */
+  const rows = registeredDomains();
   const now = new Date();
 
   const list = rows.map((r) => ({

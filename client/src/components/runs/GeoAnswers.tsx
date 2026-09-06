@@ -1,5 +1,5 @@
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { runsApi, type GeoAnswer } from "@/lib/api/runs";
 import type { Venture } from "@/lib/store";

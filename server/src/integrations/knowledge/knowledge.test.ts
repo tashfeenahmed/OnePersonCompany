@@ -55,6 +55,7 @@ import {
   knowledgeLines,
   put,
   retire,
+  ventureClaimRefusal,
 } from "./store.ts";
 
 /* ------------------------------------------------------------ the fixtures */
@@ -761,4 +762,40 @@ test("REGRESSION: null Play install columns are not summed as zero", () => {
     "no zero-installs fact is ever filed",
   );
   assert.equal(facts({ ventureId: v }).length, before);
+});
+
+/* ------------------------------------------------------- the quarantine gate */
+
+/**
+ * THE THIRD GATE, and the one that was open.
+ *
+ * The `proposed` tier is only a quarantine while it is the ONLY way an agent
+ * can file a claim about a venture. The agent's other write verb — the note
+ * store — took a sentence and an optional venture with no tier, no evidence
+ * and no confirmation, and both verbs land in one system turn where the model
+ * cannot tell them apart by anything but the name. So the whole quarantine had
+ * a door beside it, and these assert it is shut.
+ */
+test("an agent may not file a venture-scoped claim through the note store", () => {
+  const refused = ventureClaimRefusal({ ventureId: "v-1", source: "agent" });
+  assert.ok(refused, "a venture argument from an agent is refused");
+  assert.equal(refused!.status, 422);
+  assert.match(refused!.error, /propose_fact/, "the refusal names where the claim does belong");
+});
+
+test("the scope word is refused on its own, with no id to go with it", () => {
+  assert.ok(ventureClaimRefusal({ scope: "venture", source: "agent" }));
+});
+
+test("a global note from an agent is untouched — it is about the owner, not a product", () => {
+  assert.equal(ventureClaimRefusal({ source: "agent" }), null);
+  assert.equal(ventureClaimRefusal({ ventureId: "", scope: "global", source: "agent" }), null);
+});
+
+test("the owner is not refused: they are the confirmation gate this protects", () => {
+  assert.equal(ventureClaimRefusal({ ventureId: "v-1", source: "owner" }), null);
+});
+
+test("a caller that names no source is treated as an agent, not trusted by default", () => {
+  assert.ok(ventureClaimRefusal({ ventureId: "v-1" }));
 });

@@ -29,7 +29,7 @@
  * is arranged against.
  */
 import { complete, NoProviderError } from "../../models/provider.ts";
-import { flattenNumbers, movements, type Movement } from "./path.ts";
+import { flattenNumbers, movements, type Movement } from "./movement.ts";
 import { NARRATION_SKILLS, snapshotSkills } from "./catalogue.ts";
 import { setNarration, snapshots, type RuleRow } from "./store.ts";
 

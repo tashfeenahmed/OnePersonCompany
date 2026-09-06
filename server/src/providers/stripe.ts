@@ -50,6 +50,7 @@
  */
 import * as accounts from "../accounts.ts";
 import type { Account } from "../accounts.ts";
+import { fromMinorUnits } from "../shared/money.ts";
 
 export const STRIPE_API = "https://api.stripe.com/v1";
 const TIMEOUT_MS = 45_000;
@@ -513,7 +514,23 @@ export async function verify(
 
 /* ----------------------------------------------------------------- helpers */
 
-const money = (cents: number) => Number((cents / 100).toFixed(6));
+/**
+ * Minor units to major units, for everything this collector stores.
+ *
+ * EXPORTED because `customers/events.ts` makes the same conversion for the
+ * message it sends to a phone, and used to make it at two decimal places
+ * under a comment claiming it was "the same conversion providers/stripe.ts
+ * makes". It was not: for one failed invoice the figure on the phone and the
+ * figure on the recovery case could differ in the last places, and the comment
+ * asserting they matched was the reason nobody looked.
+ *
+ * Four places rather than the six this used to use. Stripe's amounts are whole
+ * minor units, so the two agree exactly on a single row; a monthly figure
+ * normalised from a yearly price is where six places invented a tail longer
+ * than any settled figure carries, and made two correctly-equal numbers
+ * compare unequal on the last digit.
+ */
+export const money = (cents: number) => fromMinorUnits(cents);
 
 const utcDay = (seconds: number) =>
   new Date(seconds * 1000).toISOString().slice(0, 10);

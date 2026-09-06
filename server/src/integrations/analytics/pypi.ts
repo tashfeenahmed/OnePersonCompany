@@ -35,6 +35,8 @@
  *   GET pypi.org/pypi/{name}/json                           version, summary, urls
  */
 
+import { hostOf } from "../../shared/host.ts";
+
 const STATS = "https://pypistats.org/api";
 const REGISTRY = "https://pypi.org";
 const TIMEOUT_MS = 25_000;
@@ -227,7 +229,7 @@ const FORGES = new Set([
   "pypi.org", "readthedocs.io", "readthedocs.org",
 ]);
 
-export function hostOf(m: { homePage: string | null; projectUrls: Record<string, string> | null }): string | null {
+export function projectHost(m: { homePage: string | null; projectUrls: Record<string, string> | null }): string | null {
   const candidates: string[] = [];
   if (m.homePage) candidates.push(m.homePage);
   const urls = m.projectUrls ?? {};
@@ -236,12 +238,7 @@ export function hostOf(m: { homePage: string | null; projectUrls: Record<string,
   for (const value of Object.values(urls)) candidates.push(value);
 
   for (const raw of candidates) {
-    let host: string;
-    try {
-      host = new URL(raw).hostname.toLowerCase();
-    } catch {
-      continue;
-    }
+    const host = hostOf(raw);
     if (!host || FORGES.has(host) || host.endsWith(".readthedocs.io")) continue;
     return host;
   }

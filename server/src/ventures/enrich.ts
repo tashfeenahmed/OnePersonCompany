@@ -51,6 +51,7 @@ import { startKnowledgeRead } from "../integrations/knowledge/first-read.ts";
 /* The house answer for "is this address on the inside". Reused rather than
    re-derived; see isInternalHost below for the two blocks it does not carry. */
 import { isPrivateHost } from "../chat/wire.ts";
+import { hostOf } from "../shared/host.ts";
 
 /* ------------------------------------------------------------------ shapes */
 
@@ -234,8 +235,8 @@ const FLAT = 0.15;
 /*
   PALE, and this one was learned from a live page rather than reasoned about.
 
-  The first run of workdash's extractor against example-app-4.example.test returned #E0E5EB
-  as the brand's primary colour — a pale blue-grey used on fourteen card
+  The first run of the predecessor extractor against a real customer-facing
+  site returned #E0E5EB as the brand's primary colour — a pale blue-grey used on fourteen card
   borders — and pushed the site's actual blue, #1776F2, into second place. It
   got through every other filter honestly: its relative luminance is 0.78,
   below near-white, and its saturation is 0.22, above flat. What gives it away
@@ -940,7 +941,7 @@ function svgColours(text: string): string[] {
 /**
  * A URL as this app stores one, from whatever the owner typed.
  *
- * A bare `support.example.test` is what a person types and it is not a URL, so https
+ * A bare `example.com` is what a person types and it is not a URL, so https
  * is assumed — https rather than http because a site that only speaks http
  * will redirect and the final URL is what gets recorded either way, whereas
  * assuming http on an https-only site costs a redirect on every read. Only
@@ -1001,14 +1002,13 @@ export function normaliseWebsite(raw: string): { website: string; host: string }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   if (!url.hostname || !url.hostname.includes(".")) return null;
   if (isInternalHost(url.hostname)) return null;
-  return { website: url.toString(), host: hostOf(url) };
-}
-
-/** The hostname without a leading `www.`, which is what everything else on
- *  this dashboard joins on: a Cloudflare zone, a Search Console property and a
- *  sending domain are all written without it. */
-function hostOf(url: URL): string {
-  return url.hostname.replace(/^www\./i, "").toLowerCase();
+  /* `shared/host.ts` is what everything else on this dashboard joins on: a
+     Cloudflare zone, a Search Console property and a sending domain are all
+     written without the `www.`. The checks above have already established
+     that this is a public, dotted, http(s) host, so the fallback is only
+     there for the shapes the shared validator is stricter about than a URL
+     parser is. */
+  return { website: url.toString(), host: hostOf(url.hostname) ?? url.hostname.toLowerCase() };
 }
 
 /**
@@ -1060,7 +1060,7 @@ export async function enrich(
   } catch {
     base = new URL(norm.website);
   }
-  const host = hostOf(base);
+  const host = hostOf(base.hostname) ?? base.hostname.toLowerCase();
 
   if (page.status >= 400)
     notes.push(
@@ -1096,7 +1096,7 @@ export async function enrich(
       DECODED, EVEN THOUGH `<style>` IS A RAW-TEXT ELEMENT AND SHOULD NOT NEED
       IT. By the spec its contents are CSS exactly as written and a browser
       decodes nothing in here — but server-rendered pages emit escaped quotes
-      into it anyway (Gatsby's inlined styles on support.example.test are one), and
+      into it anyway (Gatsby's inlined styles on one live site were one), and
       the cost of the two readings differs wildly: decoding a stylesheet that
       did not need it changes nothing, because `&amp;` and `&#x27;` are not
       valid CSS to begin with, while NOT decoding one that did records a font

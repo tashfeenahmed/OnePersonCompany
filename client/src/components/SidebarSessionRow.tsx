@@ -54,15 +54,15 @@ export function SidebarSessionRow({ session, openSessionId, streaming, pinned, h
       </DropdownMenu>
     </div>}
     {!!session.children?.length && <div className="border-line-soft mt-px mb-1 ml-3 flex flex-col gap-px border-l pl-2.5">
-      {session.children.map(child => {
-        const to = child.to ?? `/chat/${encodeURIComponent(child.id)}`;
-        const here = !child.to && child.id === openSessionId;
-        return <div key={child.id} className={cn("flex min-w-0 items-center gap-1 rounded-lg transition-colors focus-within:bg-accent", here ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
-          <Link to={to} aria-current={here ? "page" : undefined} title={child.title} className="min-w-0 flex-1 truncate px-2 py-[5px] text-[12px] outline-none">{child.title}</Link>
-          {child.status && <span className="mr-2 shrink-0 text-[10.5px] text-muted-foreground">{child.status}</span>}
+      {/* Every child is a run and every run has a page, so there is no chat
+          fallback here any more — the server sends `to` on both doors. */}
+      {session.children.map(child =>
+        <div key={child.id} className="text-muted-foreground focus-within:bg-accent hover:bg-accent hover:text-foreground flex min-w-0 items-center gap-1 rounded-lg transition-colors">
+          <Link to={child.to} title={child.title} className="min-w-0 flex-1 truncate px-2 py-[5px] text-[12px] outline-none">{child.title}</Link>
+          <span className="text-muted-foreground mr-2 shrink-0 text-[10.5px]">{child.status}</span>
           {streaming.has(child.id) && <span title="Still answering" aria-label="Still answering" className="bg-foreground/60 mr-2 size-1.5 shrink-0 animate-pulse rounded-full" />}
-        </div>;
-      })}
+        </div>
+      )}
     </div>}
   </div>;
 }

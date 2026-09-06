@@ -25,12 +25,34 @@
  * lines carry both weeks' figures so a reader can disagree with the rubric,
  * which is the only defensible way to publish a judgement made of two ratios.
  */
+import { AD_COMPARE_DAYS } from "../../providers/meta.ts";
 import type { AdCreativeRow, AdSetRow, AdWindowRow } from "./store.ts";
 
 /* ------------------------------------------------------------------ bands */
 
+/**
+ * THE FATIGUE RUBRIC, AND IT IS ONE RUBRIC.
+ *
+ * These constants were copied verbatim into the ad-health checks in the growth
+ * area — the copy said so in its own comment — and they were still not the
+ * same test, because the two "weeks" were not the same fortnight. This file
+ * compared two explicit `time_range` requests; the copy took the last 14 ROWS
+ * PRESENT in a daily table, and a platform writes no row for a day with no
+ * delivery. So an account that paused over a weekend had its "last week" slide
+ * back into the week before, and "click-through is falling" could contradict
+ * "fatigued" over what both called the same fortnight.
+ *
+ * The span is `AD_COMPARE_DAYS`, the number `ad_windows` is actually collected
+ * over, imported rather than assumed. Both readers import both from here.
+ */
+
+/** The half-window. Seven days, because a week contains every day of the week
+ *  and delivery on a Sunday is not delivery on a Tuesday. */
+export const COMPARE_DAYS = AD_COMPARE_DAYS;
+
 /** Impressions an advertisement needs in BOTH weeks before it gets a verdict.
- *  growth/ads.ts's MIN_IMPRESSIONS_TO_KILL, for its reason. */
+ *  A thousand, because turning a creative off is irreversible in practice and
+ *  a run of bad luck over nine hundred impressions is a run of bad luck. */
 export const MIN_IMPRESSIONS = 1000;
 /** A click-through fall this large, week on week, is the falling half. */
 export const CTR_DROP_WARN = 0.1;
@@ -39,8 +61,9 @@ export const CTR_DROP_FAIL = 0.2;
  *  click-through at flat frequency is not called fatigue. */
 export const FREQ_RISE = 0.05;
 /** Past this frequency in the current week the advertisement is repeating
- *  itself whatever the trend says — three exposures is workdash's and
- *  growth/ads.ts's bar, and it is a separate finding rather than fatigue. */
+ *  itself whatever the trend says. About two exposures is a campaign reaching
+ *  new people; three is a campaign repeating itself; past three is paying to
+ *  annoy. It is a separate finding rather than fatigue. */
 export const FREQ_HIGH = 3.0;
 
 export type Verdict = "fatigued" | "tiring" | "steady" | "no-verdict";

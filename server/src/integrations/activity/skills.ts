@@ -89,7 +89,7 @@ export const SKILLS: Skill[] = [
             type: "string",
             required: true,
             in: "path",
-            about: "The product endpoint's label (“Example App 2”) or its account id.",
+            about: "The product endpoint's label (“APP-1”) or its account id.",
             exampled: true,
           },
           {

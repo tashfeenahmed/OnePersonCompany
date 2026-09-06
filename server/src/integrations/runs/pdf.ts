@@ -30,24 +30,33 @@
  * model's output written to a file the owner will open in a browser; a `<script>`
  * in a paper's abstract must arrive as five visible characters.
  *
- * CHROME DOES NOT EXIT, which capture.ts discovered and documented at length:
- * `--headless=new --print-to-pdf=…` writes a complete PDF and then sits there.
- * So this waits for the FILE — it appears, and its size stops changing between
- * two polls — and then kills the browser on purpose. That is not a failure and
- * is not reported as one.
+ * CHROME DOES NOT EXIT, and how that is handled — wait for the FILE to appear
+ * and stop growing, then kill the browser on purpose — lives in
+ * tools/chrome.ts along with the launcher itself.
+ *
+ * THE PROFILE DIRECTORY USED TO LEAK, ONE PER PAPER, FOR EVER. This file named
+ * it `chrome-profile/paper-<id>` and deleted it never, so a box that had
+ * printed four hundred papers carried four hundred Chrome profiles — and
+ * because the name was stable, two prints of the same paper contended for the
+ * same `ProcessSingleton` lock, which is the failure the venture capture had
+ * already hit and written up. `withProfile` is mkdtemp and a `finally`: it
+ * cleans up on the way out of a success and on the way out of a throw, and
+ * there is no line here for a future caller to forget.
  */
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DATA_DIR } from "../../config.ts";
-import { findBrowser } from "../ventures/capture.ts";
+import { baseArgs, findBrowser, shoot, withProfile } from "../../tools/chrome.ts";
 
 export const PAPERS_DIR = resolve(DATA_DIR, "papers");
 
-const POLL_MS = 250;
 /** The whole render's wall clock. A paper is a few pages; a browser still
  *  going after this has not been slow, it has gone wrong. */
 const RUN_MS = 60_000;
+/** How long the page may keep loading before the PDF is taken. Ten seconds is
+ *  generous for a local file with no network in it, and it is what this has
+ *  always allowed. */
+const VIRTUAL_MS = 10_000;
 
 /* ------------------------------------------------------------- markdown */
 
@@ -203,74 +212,24 @@ export function writePaperFiles(id: string, title: string, md: string): { md: st
   return { md: mdPath, html: htmlPath };
 }
 
-export function printPdf(id: string, htmlPath: string): Promise<PrintResult> {
+export async function printPdf(id: string, htmlPath: string): Promise<PrintResult> {
   const browser = findBrowser();
-  if (!browser.found) return Promise.resolve({ ok: false, error: browser.error });
+  if (!browser.found) return { ok: false, error: browser.error };
 
   const out = resolve(PAPERS_DIR, `${id}.pdf`);
-  const profile = resolve(DATA_DIR, "chrome-profile", `paper-${id}`);
-  mkdirSync(profile, { recursive: true });
-
-  const args = [
-    "--headless=new",
-    "--disable-gpu",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-extensions",
-    "--disable-background-networking",
-    "--disable-sync",
-    "--disable-crash-reporter",
-    "--no-pdf-header-footer",
-    "--virtual-time-budget=10000",
-    `--user-data-dir=${profile}`,
-    `--print-to-pdf=${out}`,
-    `file://${htmlPath}`,
-  ];
-  if (typeof process.getuid === "function" && process.getuid() === 0) args.push("--no-sandbox");
-
-  return new Promise<PrintResult>((done) => {
-    const child = spawn(browser.path, args, { windowsHide: true });
-    const deadline = Date.now() + RUN_MS;
-    let settled = false;
-    let lastSize = -1;
-    let err = "";
-
-    child.stderr.on("data", (b: Buffer) => {
-      if (err.length < 8_192) err += b.toString("utf8");
-    });
-
-    const finish = (result: PrintResult) => {
-      if (settled) return;
-      settled = true;
-      clearInterval(timer);
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* already gone */
-      }
-      done(result);
-    };
-
-    const timer = setInterval(() => {
-      if (existsSync(out)) {
-        let size = -1;
-        try {
-          size = statSync(out).size;
-        } catch {
-          /* being written */
-        }
-        /* A size that has not changed since the last poll AND is not zero is a
-           file Chrome has finished with. One pass, like the PNG. */
-        if (size > 0 && size === lastSize) return finish({ ok: true, path: out });
-        lastSize = size;
-      }
-      if (Date.now() > deadline)
-        finish({
-          ok: false,
-          error: `Chrome did not produce a PDF within ${Math.round(RUN_MS / 1000)} seconds${err.trim() ? ` — ${err.trim().split("\n")[0]}` : ""}.`,
-        });
-    }, POLL_MS);
-
-    child.on("error", (e) => finish({ ok: false, error: `Could not start ${browser.path} — ${e.message}` }));
-  });
+  const res = await withProfile(
+    (profile) =>
+      shoot({
+        bin: browser.path,
+        args: [
+          ...baseArgs({ profile, virtualTimeMs: VIRTUAL_MS, timeoutMs: RUN_MS, printing: true }),
+          `--print-to-pdf=${out}`,
+          `file://${htmlPath}`,
+        ],
+        out,
+        budgetMs: RUN_MS,
+      }),
+    "paper-",
+  );
+  return res.ok ? { ok: true, path: res.path } : { ok: false, error: res.error };
 }

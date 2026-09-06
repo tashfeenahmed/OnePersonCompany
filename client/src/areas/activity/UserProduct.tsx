@@ -6,15 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Bars } from "@/components/charts";
 import { cn } from "@/lib/utils";
-import { num } from "@/components/integrations/format";
+import { count } from "@/lib/format";
 import { activityApi } from "@/lib/api/activity";
 
 /**
  * ONE PRODUCT'S USERS — the daily chart and the table.
  *
- * THE FILTERS ARE SERVER-SIDE, unlike WorkDash's equivalent page, and the
- * reason is the size this is expected to reach rather than the size it starts
- * at: the list is paged on the wire, so a product with a hundred thousand users
+ * THE FILTERS ARE SERVER-SIDE rather than a predicate over rows already
+ * fetched, and the reason is the size this is expected to reach rather than the
+ * size it starts at: the list is paged on the wire, so a product with a hundred thousand users
  * costs the same as one with three. The chips are built from the values the
  * product ACTUALLY uses — `facets` — so they fit each product instead of a
  * fixed list that fits none.
@@ -69,11 +69,11 @@ export function UserProduct({ product }: { product: string }) {
         <span className="text-muted-foreground text-[12.5px]">
           {d.total !== null ? (
             <>
-              {num(d.total)} users by the product's own count
-              {d.total > d.rowsHeld && ` · ${num(d.rowsHeld)} of them listed here`}
+              {count(d.total)} users by the product's own count
+              {d.total > d.rowsHeld && ` · ${count(d.rowsHeld)} of them listed here`}
             </>
           ) : (
-            <>{num(d.rowsHeld)} rows held — the endpoint published no total, so this is a floor</>
+            <>{count(d.rowsHeld)} rows held — the endpoint published no total, so this is a floor</>
           )}
         </span>
       </div>
@@ -113,7 +113,7 @@ export function UserProduct({ product }: { product: string }) {
           </Chip>
         ))}
         <span className="text-muted-foreground ml-auto text-[11.5px] tabular-nums">
-          {num(d.matching)} match{d.matching === 1 ? "" : "es"}
+          {count(d.matching)} match{d.matching === 1 ? "" : "es"}
         </span>
       </div>
 
@@ -176,7 +176,7 @@ export function UserProduct({ product }: { product: string }) {
             Previous
           </Button>
           <span className="text-muted-foreground text-[11.5px] tabular-nums">
-            {offset + 1}–{offset + d.users.length} of {num(d.matching)}
+            {offset + 1}–{offset + d.users.length} of {count(d.matching)}
           </span>
           <Button
             variant="outline"

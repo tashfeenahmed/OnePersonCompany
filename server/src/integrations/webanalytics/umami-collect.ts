@@ -264,7 +264,7 @@ async function collectSite(
       const s = await umami.stats(session, site.id, span.start, span.end);
       const row = toWindowRow(accountId, site.id, span, s);
       writeSiteWindow(row);
-      windows.set(`${span.days}:${span.offset}`, row);
+      windows.set(`${span.days}:${span.offset}`, { ...row, source: "web_site_windows" });
       await sleep(GAP_MS);
     } catch (err) {
       if (backOff(err)) throw err;
@@ -466,7 +466,7 @@ function toWindowRow(
   websiteId: string,
   span: Span,
   s: umami.Stats,
-): SiteWindowRow {
+): Omit<SiteWindowRow, "source"> {
   return {
     account_id: accountId,
     website_id: websiteId,

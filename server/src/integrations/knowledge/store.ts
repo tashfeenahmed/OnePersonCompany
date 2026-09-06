@@ -2,7 +2,7 @@
  * THE FACT STORE — reading, writing and ordering evidence-backed product
  * knowledge.
  *
- * WHAT IS WRONG WITHOUT IT. Ask the chat agent "does Example Support support
+ * WHAT IS WRONG WITHOUT IT. Ask the chat agent "does this product support
  * webhooks" and it has three things to reason from: a one-sentence description
  * the owner typed at creation, a palette measured off the home page, and
  * whatever the model remembers about a word. None of those is the product. The
@@ -38,6 +38,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { db, now, ventureRowById, ventureRows } from "../../db.ts";
+import { fingerprint } from "../../shared/textkey.ts";
 
 /* ------------------------------------------------------------------ shapes */
 
@@ -160,27 +161,80 @@ const isTier = (v: string): v is FactTier => (TIERS as readonly string[]).includ
 /* --------------------------------------------------------------- fingerprint */
 
 /**
- * The IDENTITY of a fact, as opposed to its wording.
+ * The IDENTITY of a fact, as opposed to its wording — `shared/textkey.ts`'s
+ * digit-folding key, re-exported under the name this area's callers use.
  *
- * Lower-cased, punctuation dropped, digits replaced by a marker and runs of
- * space collapsed. The digit rule is the interesting one: "Play listing has
- * 4,100 installs" and "Play listing has 4,180 installs" are ONE fact read
- * twice, and a fingerprint that kept the digits would file the second as a new
- * fact every morning and leave the store full of a hundred readings of the
- * same sentence.
+ * The digit rule is the interesting one: "Play listing has 4,100 installs" and
+ * "Play listing has 4,180 installs" are ONE fact read twice, and a key that
+ * kept the digits would file the second as a new fact every morning and leave
+ * the store holding a hundred readings of the same sentence. Four areas each
+ * wrote their own answer to "is this the same sentence" and they disagreed;
+ * the shared module is now the only one.
  *
  * Measured facts do not use this at all — a deriver supplies its own stable
  * key, because two derivers may legitimately produce sentences that normalise
  * the same way and they are still two facts.
  */
-export function fingerprint(statement: string): string {
-  return statement
-    .toLowerCase()
-    .replace(/\d[\d,._]*/g, "#")
-    .replace(/[^a-z0-9#\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 200);
+export { fingerprint };
+
+/* ------------------------------------------------------- the quarantine gate */
+
+/**
+ * THE ONE DOOR ROUND THE QUARANTINE, CLOSED.
+ *
+ * A `proposed` fact is quarantined on purpose: it is never exported, never
+ * handed to another agent as context, and not true until the owner confirms
+ * it on the Knowledge tab. 230_knowledge_facts names the failure the tier
+ * exists to stop — an agent reasoning from marketing copy and stating a
+ * capability the code does not have.
+ *
+ * The agent's OTHER write verb had none of that. The note store takes a
+ * sentence and an optional venture, has no tier, no evidence field and no
+ * confirmation gate, and its only guard counts digits and passes any prose.
+ * Both verbs are concatenated into ONE system turn, so the model cannot tell
+ * them apart by anything except the name — and an agent that wants an invented
+ * product claim in every future prompt writes it through the note store and
+ * the whole quarantine is bypassed.
+ *
+ * THE LINE IS THE VENTURE ARGUMENT, and it is a clean one. A note about the
+ * OWNER — a preference, a working habit, a decision about how they want to be
+ * spoken to — is global by nature and stays where it is. The moment a note is
+ * scoped to a business it is a claim ABOUT THAT BUSINESS, which is exactly
+ * what this table holds and exactly what the tiers exist to date and rank. So
+ * an AGENT may not write one; it is redirected here, where the same sentence
+ * costs it a `kind`, a `basis` and the owner's confirmation.
+ *
+ * THE OWNER IS NOT REFUSED. They are the confirmation gate — a gate cannot be
+ * bypassed by the person it answers to — so a note typed or corrected on the
+ * page keeps its venture scope. `source` is what separates the two, the same
+ * field the measurement guard already trusts.
+ */
+export type QuarantineRefusal = { status: 422; error: string };
+
+export function ventureClaimRefusal(input: {
+  /** The resolved venture id, when the caller has one. */
+  ventureId?: string | null;
+  /** The scope word, for a caller that carries one instead of an id. */
+  scope?: string | null;
+  /** "owner" is exempt; anything else is an agent. */
+  source?: string | null;
+}): QuarantineRefusal | null {
+  if ((input.source ?? "agent") === "owner") return null;
+  const scoped =
+    Boolean((input.ventureId ?? "").trim()) || (input.scope ?? "").trim() === "venture";
+  if (!scoped) return null;
+  return {
+    status: 422,
+    error:
+      "Not saved — a note scoped to a venture is a claim about that business, " +
+      "and claims about a product belong in the fact store where they carry a " +
+      "kind, a source and a date and wait for the owner to confirm them. Use " +
+      "the `knowledge` skill's `propose_fact` with the venture, a kind, the " +
+      "sentence and one line saying what you read that made you propose it. " +
+      "What belongs in a note is what is durably true of the OWNER — a " +
+      "preference, a constraint, a decision, a thing that turned out not to " +
+      "work — and that is global.",
+  };
 }
 
 /* -------------------------------------------------------------------- shape */
@@ -931,8 +985,8 @@ export function factsForPrompt(
  * THE STANDING CONTEXT THE CHAT AGENT ALWAYS HAS — at most 25 lines.
  *
  * VENTURE FACTS ONLY FOR THE VENTURE IN HAND, on `memoryLines`'s rule: a
- * conversation about Example App 1 gets Example App 1's product knowledge, not
- * nineteen businesses' worth, which would be most of the turn and none of the
+ * conversation about one venture gets that venture's product knowledge, not
+ * the whole portfolio's worth, which would be most of the turn and none of the
  * answer. An unscoped conversation gets NOTHING here rather than a portfolio
  * summary — the venture roster is already in the turn above, and a list of
  * every product's capabilities would be four thousand characters of context

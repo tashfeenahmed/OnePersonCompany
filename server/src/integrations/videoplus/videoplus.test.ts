@@ -337,7 +337,7 @@ test("a reel refuses every address that resolves inside this network", () => {
     "http://[fe80::1]/",
   ];
   for (const u of inside) assert.ok(refusedHost(new URL(u)), `${u} must be refused`);
-  for (const u of ["https://example-app-1.example.test/", "https://example.com:8443/x", "http://93.184.216.34/"])
+  for (const u of ["https://acme.example/", "https://example.com:8443/x", "http://93.184.216.34/"])
     assert.equal(refusedHost(new URL(u)), null, `${u} must be allowed`);
 });
 
@@ -349,7 +349,7 @@ test("the refusal happens in readUrls, is named in the note, and covers the vent
 
   /* TYPED AND ALL REFUSED IS A REFUSAL. Falling through to the venture's
      website here would make a video of a page nobody asked for. */
-  const allRefused = readUrls("http://127.0.0.1:8787/api/plugins", { website: "https://example-app-1.example.test" } as never, 4);
+  const allRefused = readUrls("http://127.0.0.1:8787/api/plugins", { website: "https://acme.example" } as never, 4);
   assert.deepEqual(allRefused.urls, []);
   assert.match(allRefused.note, /Every address on the form was refused/);
   assert.doesNotMatch(allRefused.note, /No addresses were typed/);

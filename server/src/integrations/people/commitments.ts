@@ -46,6 +46,7 @@
  */
 import { createHash } from "node:crypto";
 import { db, finishRun, now, startRun } from "../../db.ts";
+import { textKey as normalise } from "../../shared/textkey.ts";
 import * as accounts from "../../accounts.ts";
 import { open as openMailbox } from "../../providers/gmail.ts";
 import { complete } from "../../models/provider.ts";
@@ -244,12 +245,17 @@ export function candidatesIn(body: string): Candidate[] {
 
 /* ------------------------------------------------------------ the model pass */
 
-/** One normalisation for three jobs — the dedup key, the grounding test and
- *  the in-body duplicate test. Deliberately blunt about punctuation: a model
- *  that turned a curly apostrophe straight has not changed what he said. */
-export function normalise(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
+/**
+ * One normalisation for three jobs — the dedup key, the grounding test and the
+ * in-body duplicate test. `shared/textkey.ts`'s STRICT key, under this area's
+ * name for it.
+ *
+ * Strict and not the digit-folding fingerprint, and the difference matters
+ * here: a commitment that differs by a number is a different commitment. "I'll
+ * send the 3 files" and "I'll send the 4 files" are two promises, and folding
+ * their digits would silently dedupe the second away.
+ */
+export { normalise };
 
 /** Is this span actually in the message? Under twelve characters nothing is
  *  claimed — a two-word "span" matches almost any body. */

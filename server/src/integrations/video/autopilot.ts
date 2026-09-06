@@ -66,7 +66,7 @@
 import { randomUUID } from "node:crypto";
 import { configValue, db, now, ventureRows, type VentureRow } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
-import { studioRoutes } from "../ventures/studio.ts";
+import { createPost } from "../ventures/studio.ts";
 import { queuedCount, runningRow } from "../runs/store.ts";
 import { dispatch, type DispatchBody } from "../subagents/routes.ts";
 import { ensureTeam, subagentId, subagentRow } from "../subagents/store.ts";
@@ -599,29 +599,20 @@ export async function runPass(trigger: "clock" | "manual"): Promise<PassResult> 
 }
 
 /**
- * One Studio post, through the Studio's own route handler.
+ * One Studio post.
  *
- * `studioRoutes.request()` IS A DIRECT CALL AND NOT A NETWORK HOP. Hono apps
- * are callable objects; this runs the same handler the browser reaches at
- * `POST /api/studio/posts`, in this process, with no port and no listener
- * involved. It is done this way rather than by importing the generation
- * functions because the post-making logic is INSIDE that route handler — the
- * caption turn, the image call, the row — and a copy of it here would be a
- * second definition of what a post is, in a directory another area owns.
+ * `createPost` IS THE STUDIO'S OWN FUNCTION, not a copy of it and no longer a
+ * request built against its route. This used to go through
+ * `studioRoutes.request("/posts")` — a real direct call, since Hono apps are
+ * callable objects — because the post-making logic lived inside that handler
+ * and a copy here would have been a second definition of what a post is. The
+ * logic moved out beside the routes instead, so both this and the campaigns
+ * pass call one function and neither has to unwrap an HTTP reply to find out
+ * whether a post was made.
  */
 async function makePost(v: VentureRow, brief: string): Promise<{ id: string } | { error: string }> {
-  try {
-    const res = await studioRoutes.request("/posts", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ventureId: v.id, brief, format: "square" }),
-    });
-    const body = (await res.json().catch(() => null)) as { post?: { id?: unknown }; error?: unknown } | null;
-    if (!res.ok || !body?.post) return { error: typeof body?.error === "string" ? body.error : `the Studio refused it (HTTP ${res.status})` };
-    return { id: String((body.post as { id: unknown }).id) };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
-  }
+  const made = await createPost({ ventureId: v.id, brief, format: "square" });
+  return made.ok ? { id: made.post.id } : { error: made.error };
 }
 
 /**

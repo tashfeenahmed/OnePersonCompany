@@ -21,6 +21,8 @@
  * last read, last tried — because a failing Page keeps the date it last
  * worked, and one date could not say that.
  */
+import { when } from "@/lib/format";
+import { PageShell } from "@/components/PageShell";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
@@ -30,14 +32,6 @@ import { useApi } from "@/hooks/useApi";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { socialfeedApi, type SocialAccount, type SocialPost } from "./api";
-
-function when(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 
 export function Posts() {
   const { state } = useStore();
@@ -70,109 +64,108 @@ export function Posts() {
   const problems = useMemo(() => (d?.accounts ?? []).filter((a) => a.error || a.insightsError), [d]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
-      <div className="mx-auto w-full max-w-[1040px]">
-        <div className="mt-2 mb-5">
-          <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">Posts</h1>
-          <p className="text-muted-foreground text-[13.5px]">
-            The timeline read back from Meta. A post marked <em>from a draft</em> came out of
-            something this box made and filed under{" "}
-            <Link to="/social/publishing" className="underline decoration-dotted">
-              Publishing
-            </Link>
-            ; everything else was posted somewhere else.
-          </p>
-        </div>
-
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <VentureSelect ventures={ventures} value={ventureId} onChange={setVentureId} none="Every venture" />
-          <Button variant="outline" disabled={busy} onClick={() => void collect()}>
-            {busy ? <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} /> : <RefreshCw className="size-[15px]" strokeWidth={1.8} />}
-            Read the timelines
-          </Button>
-          <span className="text-muted-foreground text-[11.5px]">
-            {d?.lastReadAt ? `Last read ${when(d.lastReadAt)}` : "Not read since this server started"}
-          </span>
-          {said && <span className="text-[11.5px]">{said}</span>}
-        </div>
-
-        {doc.error && (
-          <p className="text-muted-foreground mb-4 text-[13px]">
-            The posts API did not answer. <span className="text-destructive">{doc.error}</span>
-          </p>
-        )}
-        {!d && !doc.error && <p className="text-muted-foreground text-[13px]">Reading…</p>}
-
-        {d && (
-          <>
-            {/* ------------------------------------------- the accounts */}
-            <div className="text-muted-foreground mt-1 mb-2 text-[11px] tracking-[0.06em] uppercase">
-              Where these were read from
-            </div>
-            {d.accounts.length === 0 ? (
-              <p className="text-muted-foreground text-[13px]">
-                No Page has been read yet. A Page is only read once it is mapped to a venture under{" "}
-                <Link to="/social/publishing?tab=destinations" className="underline decoration-dotted">
-                  Publishing → Destinations
-                </Link>{" "}
-                — a Meta token can administer Pages belonging to businesses this box has never heard of.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-px">
-                {d.accounts.map((a) => (
-                  <AccountLine key={`${a.platform}:${a.pageId}`} account={a} />
-                ))}
-              </div>
-            )}
-            <p className="text-muted-foreground mt-1.5 text-[11.5px] leading-relaxed">
-              {/* NULL IS NOT ZERO. Before anything has been read this page knows
-                  nothing about Instagram, and saying "none is linked" then would
-                  be a claim about Meta made out of an empty table. */}
-              {d.coverage.instagramLinked === null
-                ? "Nothing has been read yet, so whether any Instagram business account is linked is not known."
-                : d.coverage.instagramLinked === 0
-                  ? "No Instagram business account is linked to any of these Pages, so there is no Instagram media here. That is “not linked”, not “no posts”."
-                  : `${d.coverage.instagramLinked} Instagram account${d.coverage.instagramLinked === 1 ? "" : "s"} linked.`}{" "}
-              {d.coverage.note}
-            </p>
-
-            {problems.length > 0 && (
-              <p className="text-muted-foreground mt-2 text-[11.5px]">
-                {problems.length} account{problems.length === 1 ? "" : "s"} reported a problem — Meta's own words are on
-                each row above. (#210) wants a Page token, (#100) means the metric no longer exists and (#190) means the
-                wrong kind of token; they are three different fixes.
-              </p>
-            )}
-
-            {/* ---------------------------------------------- the posts */}
-            <div className="text-muted-foreground mt-7 mb-2 text-[11px] tracking-[0.06em] uppercase">
-              {d.posts.length} post{d.posts.length === 1 ? "" : "s"}
-            </div>
-            {d.posts.length === 0 ? (
-              <p className="text-muted-foreground text-[13px]">
-                Nothing has been read yet. Press “Read the timelines”.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {d.posts.map((p) => (
-                  <PostCard key={`${p.platform}:${p.id}`} post={p} />
-                ))}
-              </div>
-            )}
-
-            <div className="text-muted-foreground mt-6 space-y-1.5 text-[11.5px] leading-relaxed">
-              <p>{d.metrics.note}</p>
-              <p>
-                Still valid on this Graph version: <code>{d.metrics.facebook.join(", ")}</code>. Retired by Meta on 15
-                November 2025 and now a hard error rather than a null:{" "}
-                <code>{d.metrics.retired.join(", ")}</code>.
-              </p>
-              <p>{d.note}</p>
-            </div>
-          </>
-        )}
+    <PageShell
+      title="Posts"
+      sub={
+        <>
+          The timeline read back from Meta. A post marked <em>from a draft</em> came out of
+          something this box made and filed under{" "}
+          <Link to="/social/publishing" className="underline decoration-dotted">
+            Publishing
+          </Link>
+          ; everything else was posted somewhere else.
+        </>
+      }
+      wide
+    >
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <VentureSelect ventures={ventures} value={ventureId} onChange={setVentureId} none="Every venture" />
+        <Button variant="outline" disabled={busy} onClick={() => void collect()}>
+          {busy ? <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} /> : <RefreshCw className="size-[15px]" strokeWidth={1.8} />}
+          Read the timelines
+        </Button>
+        <span className="text-muted-foreground text-[11.5px]">
+          {d?.lastReadAt ? `Last read ${when(d.lastReadAt, { year: true })}` : "Not read since this server started"}
+        </span>
+        {said && <span className="text-[11.5px]">{said}</span>}
       </div>
-    </div>
+
+      {doc.error && (
+        <p className="text-muted-foreground mb-4 text-[13px]">
+          The posts API did not answer. <span className="text-destructive">{doc.error}</span>
+        </p>
+      )}
+      {!d && !doc.error && <p className="text-muted-foreground text-[13px]">Reading…</p>}
+
+      {d && (
+        <>
+          {/* ------------------------------------------- the accounts */}
+          <div className="text-muted-foreground mt-1 mb-2 text-[11px] tracking-[0.06em] uppercase">
+            Where these were read from
+          </div>
+          {d.accounts.length === 0 ? (
+            <p className="text-muted-foreground text-[13px]">
+              No Page has been read yet. A Page is only read once it is mapped to a venture under{" "}
+              <Link to="/social/publishing?tab=destinations" className="underline decoration-dotted">
+                Publishing → Destinations
+              </Link>{" "}
+              — a Meta token can administer Pages belonging to businesses this box has never heard of.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-px">
+              {d.accounts.map((a) => (
+                <AccountLine key={`${a.platform}:${a.pageId}`} account={a} />
+              ))}
+            </div>
+          )}
+          <p className="text-muted-foreground mt-1.5 text-[11.5px] leading-relaxed">
+            {/* NULL IS NOT ZERO. Before anything has been read this page knows
+                nothing about Instagram, and saying "none is linked" then would
+                be a claim about Meta made out of an empty table. */}
+            {d.coverage.instagramLinked === null
+              ? "Nothing has been read yet, so whether any Instagram business account is linked is not known."
+              : d.coverage.instagramLinked === 0
+                ? "No Instagram business account is linked to any of these Pages, so there is no Instagram media here. That is “not linked”, not “no posts”."
+                : `${d.coverage.instagramLinked} Instagram account${d.coverage.instagramLinked === 1 ? "" : "s"} linked.`}{" "}
+            {d.coverage.note}
+          </p>
+
+          {problems.length > 0 && (
+            <p className="text-muted-foreground mt-2 text-[11.5px]">
+              {problems.length} account{problems.length === 1 ? "" : "s"} reported a problem — Meta's own words are on
+              each row above. (#210) wants a Page token, (#100) means the metric no longer exists and (#190) means the
+              wrong kind of token; they are three different fixes.
+            </p>
+          )}
+
+          {/* ---------------------------------------------- the posts */}
+          <div className="text-muted-foreground mt-7 mb-2 text-[11px] tracking-[0.06em] uppercase">
+            {d.posts.length} post{d.posts.length === 1 ? "" : "s"}
+          </div>
+          {d.posts.length === 0 ? (
+            <p className="text-muted-foreground text-[13px]">
+              Nothing has been read yet. Press “Read the timelines”.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {d.posts.map((p) => (
+                <PostCard key={`${p.platform}:${p.id}`} post={p} />
+              ))}
+            </div>
+          )}
+
+          <div className="text-muted-foreground mt-6 space-y-1.5 text-[11.5px] leading-relaxed">
+            <p>{d.metrics.note}</p>
+            <p>
+              Still valid on this Graph version: <code>{d.metrics.facebook.join(", ")}</code>. Retired by Meta on 15
+              November 2025 and now a hard error rather than a null:{" "}
+              <code>{d.metrics.retired.join(", ")}</code>.
+            </p>
+            <p>{d.note}</p>
+          </div>
+        </>
+      )}
+    </PageShell>
   );
 }
 
@@ -190,8 +183,8 @@ function AccountLine({ account: a }: { account: SocialAccount }) {
       {/* TWO DATES, because a failing Page keeps the date it last worked and
           one date could not say that. */}
       <span className="text-muted-foreground text-[11.5px]">
-        read {when(a.lastOkAt)}
-        {a.lastTriedAt && a.lastTriedAt !== a.lastOkAt ? ` · tried ${when(a.lastTriedAt)}` : ""}
+        read {when(a.lastOkAt, { year: true })}
+        {a.lastTriedAt && a.lastTriedAt !== a.lastOkAt ? ` · tried ${when(a.lastTriedAt, { year: true })}` : ""}
       </span>
       {a.error && <span className="text-destructive w-full text-[11.5px]">{a.error}</span>}
       {a.insightsError && <span className="text-warn w-full text-[11.5px]">{a.insightsError}</span>}
@@ -214,7 +207,7 @@ function PostCard({ post: p }: { post: SocialPost }) {
             <span className="text-muted-foreground">{p.platform}</span>
             {p.pageName && <span className="text-muted-foreground">{p.pageName}</span>}
             {p.mediaType && <span className="text-muted-foreground">{p.mediaType}</span>}
-            <span className="text-muted-foreground">{when(p.createdTime)}</span>
+            <span className="text-muted-foreground">{when(p.createdTime, { year: true })}</span>
             {p.fromDraft && (
               <Link to="/social/publishing" className="text-ok underline decoration-dotted">
                 from draft {p.fromDraft.id}

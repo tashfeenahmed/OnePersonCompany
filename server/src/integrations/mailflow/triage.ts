@@ -45,8 +45,9 @@
  * timer (see manifest.ts `onStart`) at the same half-hour cadence, and its
  * ledger is `mailflow_triage_runs` rather than the plugin runs table.
  */
-import { db, now, ventureRows, type VentureRow } from "../../db.ts";
+import { db, now, resendDomains, ventureRows, type VentureRow } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
+import { hostOf, hostMatch } from "../../shared/host.ts";
 import { NoProviderError, complete } from "../../models/provider.ts";
 import {
   GmailError,
@@ -148,35 +149,117 @@ export function ventureKeys(): VentureKey[] {
     id: v.id,
     name: v.name,
     slug: v.slug,
-    host: (v.host ?? "").trim().toLowerCase().replace(/^www\./, "") || null,
+    host: hostOf(v.host ?? v.website),
   }));
 }
 
-const domainOf = (address: string): string => {
+const domainOf = (address: string): string | null => {
   const at = address.lastIndexOf("@");
-  return at < 0 ? "" : address.slice(at + 1).trim().toLowerCase().replace(/^www\./, "");
+  return at < 0 ? null : hostOf(address.slice(at + 1));
 };
 
 /**
  * WHICH VENTURE A THREAD IS ABOUT, decided from the addresses first.
  *
- * A domain match is a FACT — this mail was addressed to, or came from,
- * `example-app-1.example.test`, and that venture's record says `example-app-1.example.test` is its host —
- * so it beats anything the model has to say. The model is only consulted for
- * the threads no address settles, and its answer is stored with
- * `venture_by = 'model'` so a reader can tell a match from a guess. A subdomain
- * counts (`mail.example-app-1.example.test` is Example App 1); a substring does not, because
- * `notexample-app-1.example.test` is somebody else.
+ * A domain match is a FACT — this mail was addressed to, or came from, a host
+ * a venture's record names as its own — so it beats anything the model has to
+ * say. The model is only consulted for the threads no address settles, and its
+ * answer is stored with `venture_by = 'model'` so a reader can tell a match
+ * from a guess.
+ *
+ * THE HOST RULE IS `shared/host.ts`'s AND NOT THIS FILE'S. A subdomain counts
+ * (`mail.example.com` is `example.com`'s) and it counts in that direction
+ * only; a substring never does, because `notexample.com` is somebody else. Six
+ * areas used to answer this question six ways and two of them let a subdomain
+ * swallow its parent, which files two businesses under one name.
+ *
+ * TWO AUTHORITY LISTS, ONE QUESTION — see `threadHosts` below for why this
+ * takes both. The Mail page used to match Resend sending-domain chips and this
+ * function matched `ventures.host`, so a venture with a host and no Resend key
+ * was attributed here and invisible there, and the counts on the two pages
+ * disagreed with nothing to say which was wrong.
  */
 export function ventureByHost(thread: ThreadRow, keys: VentureKey[]): string | null {
-  const domains = new Set<string>();
-  for (const r of thread.recipients) domains.add(domainOf(r));
-  if (thread.from) domains.add(domainOf(thread.from));
-  domains.delete("");
-  for (const k of keys) {
-    if (!k.host) continue;
-    for (const d of domains) if (d === k.host || d.endsWith(`.${k.host}`)) return k.id;
+  return ventureForThread(thread.recipients, thread.from, hostsOfKeys(keys))?.ventureId ?? null;
+}
+
+const hostsOfKeys = (keys: VentureKey[]): ThreadHost[] =>
+  keys.filter((k) => k.host).map((k) => ({ host: k.host!, ventureId: k.id, source: "venture" as const }));
+
+/** One host this portfolio answers at, and whose it is. */
+export type ThreadHost = { host: string; ventureId: string | null; source: "venture" | "resend" };
+
+/**
+ * EVERY HOST THIS BOX WILL ATTRIBUTE A THREAD TO, from both lists at once.
+ *
+ * A venture's own `host` is the first list. The Resend sending domains are the
+ * second, and they belong here even though Resend is a SENDING service and
+ * this is a question about RECEIVING: a domain is on this box because a
+ * venture sends from it, and the same domain is what its customers reply to.
+ * There is no separate list of "domains whose mail forwards here" anywhere,
+ * and hand-keeping one beside the page is the thing this replaces.
+ *
+ * Ventures are listed FIRST so that a domain which is both — the ordinary case
+ * — is attributed to the venture that owns it rather than to the key that
+ * sends from it.
+ */
+export function threadHosts(): ThreadHost[] {
+  const out: ThreadHost[] = [];
+  for (const k of ventureKeys()) if (k.host) out.push({ host: k.host, ventureId: k.id, source: "venture" });
+  const known = new Set(out.map((h) => h.host));
+  /* THE ACCOUNT ROWS AS WELL AS THE COLLECTED ONES, because a key added this
+     morning has an account row and no collected row until the collector next
+     runs, and a domain that exists is a domain mail arrives at. The Resend door
+     names an account after the domain its key can see, so the label is a host
+     wherever it is one; a renamed account contributes nothing rather than a
+     wrong host. */
+  const names = [
+    ...resendDomains().map((d) => d.name),
+    ...accounts.list("resend").filter((a) => a.connected).map((a) => a.label),
+  ];
+  for (const name of names) {
+    const host = hostOf(name);
+    if (!host || known.has(host)) continue;
+    known.add(host);
+    /* A sending domain no venture claims is still one of OURS — it just has
+       nobody's name on it yet. `ventureId: null` is that state exactly, and it
+       is what lets the mailbox filter offer the chip while the triage tag stays
+       honestly empty. */
+    out.push({ host, ventureId: ventureForHostList(host, out), source: "resend" });
   }
+  return out;
+}
+
+const ventureForHostList = (host: string, hosts: ThreadHost[]): string | null =>
+  hosts.find((h) => h.ventureId && hostMatch(h.host, host))?.ventureId ?? null;
+
+/**
+ * THE ONE ANSWER TO "WHICH VENTURE IS THIS THREAD ABOUT", for both surfaces.
+ *
+ * THE LOOP IS AUTHORITY-MAJOR, AND THAT ORDER IS THE WHOLE FUNCTION. A
+ * forwarded message carries the mailbox's own Gmail address on top of the
+ * venture address it was really sent to, so walking the RECIPIENTS in header
+ * order and taking the first one we recognise would attribute practically every
+ * thread to the mailbox. Walking the authority list instead means a venture
+ * host anywhere in the thread beats the mailbox address everywhere in it, and
+ * the mailbox is left to the caller as the fallback it is.
+ *
+ * NULL IS "IT IS NONE OF OURS" and is a real answer rather than a failure: a
+ * mailing list, a Bcc, a thread that reached the account some other way.
+ */
+export function ventureForThread(
+  recipients: readonly string[],
+  from: string | null,
+  hosts: ThreadHost[] = threadHosts(),
+): ThreadHost | null {
+  const seen: string[] = [];
+  for (const r of recipients) {
+    const d = domainOf(r);
+    if (d) seen.push(d);
+  }
+  const f = from ? domainOf(from) : null;
+  if (f) seen.push(f);
+  for (const h of hosts) for (const d of seen) if (hostMatch(h.host, d)) return h;
   return null;
 }
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Loader2, LogOut, ShieldAlert, ShieldCheck } from "lucide-react";
+import { when } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,13 +28,11 @@ import { securityApi } from "@/lib/api/security";
  * is friction for its own sake: a browser left open on a desk is one of the two
  * facts a change needs, and the password is the other.
  */
-function when(iso: string | null | undefined): string {
-  if (!iso) return "never";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
+/* AN ABSENT DATE ON THIS PANEL MEANS IT NEVER HAPPENED. The password has
+   never been changed; the session was never signed out. That is a fact about
+   the box, not a figure nobody measured, so it is said in a word rather than
+   drawn as the em dash `when` gives an unknown date everywhere else. */
+const NEVER = { nullText: "never" } as const;
 
 /** A user agent, shortened to the two words a person recognises. The full
  *  string is on the title attribute — it is what the server recorded and this
@@ -97,7 +96,7 @@ export function SecuritySettings() {
           </span>
           {enabled && d?.passwordChangedAt && (
             <span className="text-muted-foreground ml-auto text-[11.5px]">
-              changed {when(d.passwordChangedAt)}
+              changed {when(d.passwordChangedAt, NEVER)}
             </span>
           )}
         </div>
@@ -198,7 +197,7 @@ export function SecuritySettings() {
                   <span className="text-muted-foreground text-[11.5px]">this browser</span>
                 )}
                 <span className="text-muted-foreground ml-auto text-[11.5px]">
-                  {s.revokedAt ? `signed out ${when(s.revokedAt)}` : `last used ${when(s.lastSeenAt)}`}
+                  {s.revokedAt ? `signed out ${when(s.revokedAt, NEVER)}` : `last used ${when(s.lastSeenAt, NEVER)}`}
                 </span>
                 {!s.revokedAt && (
                   <Button

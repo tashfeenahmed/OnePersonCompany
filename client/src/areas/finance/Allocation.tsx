@@ -3,7 +3,8 @@ import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { finance, type Allocation, type Basis } from "@/lib/api/finance";
-import { amount, pct, shownShare } from "./format";
+import { pct } from "@/lib/format";
+import { amount, shownShare } from "./format";
 
 /**
  * THE ALLOCATION EDITOR — how a shared bill reaches a business.

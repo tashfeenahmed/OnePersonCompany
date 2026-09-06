@@ -13,13 +13,20 @@
  * megabytes to draw a table of dates; the whole document is one request away
  * at `/api/runs/:id`, which is the only place the words are sent.
  */
+import type { RunStatus } from "../../../../shared/runStatus.ts";
 import { db, now, ventureRowById } from "../../db.ts";
+import { NOW, settleOpenRows } from "../../shared/settle.ts";
 import { forgetVideo } from "../video/execute.ts";
 
 /* ------------------------------------------------------------------- rows */
 
 export type RunKind = "research" | "competitors" | "seo" | "demand" | "geo" | "papers" | "shotsqa" | "video" | "serp" | "aso" | "campaign";
-export type RunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+/* The five states, declared once for the whole box in `shared/runStatus.ts`
+   and re-exported here so this area's own callers keep one import for
+   everything about a run. It was declared five times — twice on the server,
+   three times on the client — which is how `agent_runs` came to carry `paused`
+   as a bare column: the enum could not be extended in one place. */
+export type { RunStatus };
 
 export type RunRow = {
   paused: number;
@@ -120,23 +127,46 @@ export function queuePosition(id: string): number | null {
   return i < 0 ? null : i + 1;
 }
 
-/** Per-kind tallies for the app cards. Counted in SQL rather than by filtering
- *  a page of runs in JavaScript, because the page is capped and the counts are
- *  about every run there has ever been. */
-export function countsByKind(): Record<string, { done: number; failed: number; running: number; queued: number }> {
+/** How many runs landed which way, in one of the four buckets a card draws. */
+export type RunTally = { done: number; failed: number; running: number; queued: number };
+
+/**
+ * FOLDING `agent_runs` INTO done / failed / running / queued.
+ *
+ * There were two of these — one grouped by kind for the app cards, one by
+ * (kind, venture) for the worker roster — and the second quietly added
+ * `WHERE venture_id IS NOT NULL`, so the two answers for one kind differed by
+ * exactly the portfolio-wide runs with nothing anywhere saying so. Worse, a
+ * fifth status would have been dropped by whichever fold was not updated.
+ *
+ * One fold now, and the grouping is the parameter. The filter is GONE rather
+ * than made an option: grouping by `venture_id` puts the portfolio-wide runs
+ * in their own group, which a roster keyed by venture simply never asks for.
+ * A count nobody reads is better than a count that silently differs.
+ *
+ * Counted in SQL rather than by filtering a page of runs in JavaScript,
+ * because the page is capped and the counts are about every run there has
+ * ever been. One statement whatever the grouping: with a hundred workers, a
+ * round trip each to count four statuses would be the page's whole budget
+ * spent on arithmetic SQLite does in one pass.
+ */
+export function runTallies(opts: { groupBy: readonly ("kind" | "venture_id")[] }): Map<string, RunTally> {
+  const cols = opts.groupBy.join(", ");
   const rows = db
-    .prepare("SELECT kind, status, COUNT(*) AS n FROM agent_runs GROUP BY kind, status")
-    .all() as unknown as { kind: string; status: string; n: number }[];
-  const out: Record<string, { done: number; failed: number; running: number; queued: number }> = {};
+    .prepare(`SELECT ${cols}, status, COUNT(*) AS n FROM agent_runs GROUP BY ${cols}, status`)
+    .all() as unknown as (Record<string, string | null> & { status: string; n: number })[];
+  const out = new Map<string, RunTally>();
   for (const r of rows) {
-    const bucket = (out[r.kind] ??= { done: 0, failed: 0, running: 0, queued: 0 });
-    if (r.status === "done") bucket.done += r.n;
-    else if (r.status === "failed") bucket.failed += r.n;
-    else if (r.status === "running") bucket.running += r.n;
-    else if (r.status === "queued") bucket.queued += r.n;
+    const key = opts.groupBy.map((c) => r[c]).join(":");
+    const t = out.get(key) ?? { done: 0, failed: 0, running: 0, queued: 0 };
+    if (r.status === "done") t.done += r.n;
+    else if (r.status === "failed") t.failed += r.n;
+    else if (r.status === "running") t.running += r.n;
+    else if (r.status === "queued") t.queued += r.n;
     /* `cancelled` is counted nowhere on purpose: it is neither an outcome nor
        work outstanding, and folding it into `failed` would say the run broke
        when somebody stopped it. */
+    out.set(key, t);
   }
   return out;
 }
@@ -249,16 +279,17 @@ export function deleteRun(id: string): boolean {
 
 /** Every `running` row, failed, with the reason. Called once at boot — see
  *  the migration header: a ledger must not say work is in progress that
- *  nothing is doing. */
+ *  nothing is doing. The rule itself is `shared/settle.ts`; this names the
+ *  table and the sentence, which are the only parts that are this area's. */
 export function failInterrupted(): number {
-  const res = db
-    .prepare(
-      `UPDATE agent_runs
-          SET status = 'failed', error = 'interrupted by a restart', finished_at = ?
-        WHERE status = 'running'`,
-    )
-    .run(now());
-  return Number(res.changes);
+  return settleOpenRows({
+    table: "agent_runs",
+    openWhen: "status = 'running'",
+    set: { status: "failed", finished_at: NOW },
+    /* COALESCE, so a run that had already written why it broke keeps its own
+       reason rather than being retold as a restart. */
+    note: { column: "error", text: "interrupted by a restart" },
+  });
 }
 
 /* ---------------------------------------------------------------- shaping */

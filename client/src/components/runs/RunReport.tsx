@@ -13,6 +13,7 @@ import {
 } from "@/components/runs/format";
 import { readCards, runFileUrl, type RunDetail } from "@/lib/api/runs";
 import { cn } from "@/lib/utils";
+import { count } from "@/lib/format";
 
 /**
  * ONE RUN, OPEN.
@@ -192,7 +193,7 @@ export function RunReport({
         {backendPhrase(run)}
         {run.steps.length > 0 &&
           ` · ${run.steps.length} ${run.steps.length === 1 ? "tool call" : "tool calls"}`}
-        {run.outputChars > 0 && ` · ${run.outputChars.toLocaleString()} characters`}
+        {run.outputChars > 0 && ` · ${count(run.outputChars)} characters`}
         {" · "}
         {run.id}
       </div>

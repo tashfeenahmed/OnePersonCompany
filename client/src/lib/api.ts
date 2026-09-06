@@ -13,6 +13,10 @@
  *  two spellings of the prefix would be two contracts with one server. */
 export const BASE = "/api";
 
+/* The run vocabulary is the repo-root `shared/runStatus.ts`'s, on both ends of
+   the wire. See that file for why `cancelling` is not one of the five. */
+import type { Cancelling, RunStatus } from "../../../shared/runStatus";
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -2745,14 +2749,17 @@ export type ChatBackends = {
  * reason — because "this ended twenty minutes ago" and "there has never been a
  * run here" are different things for a page to draw.
  */
-/** What a cancel answers. `stopping` and not a run status: the run has been
+/** What a cancel answers. `cancelling` and NOT a run status: the run has been
  *  ASKED, it still has a partial row to write, and the authority on what
- *  actually happened is the terminal frame on the stream. */
-export type ChatCancelled = { runId: string; status: "stopping" };
+ *  actually happened is the terminal frame on the stream. The word used to be
+ *  `stopping` on this path and `cancelling` on the other, with neither
+ *  declared by a type; one participle for one state, and it is the one whose
+ *  past tense is the status it leads to. */
+export type ChatCancelled = { runId: string; status: Cancelling };
 
 export type ChatRunState = {
   runId: string;
-  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  status: RunStatus;
   /** The highest sequence number the run has emitted. A client that has read
    *  up to N asks for the rest with `since=N`. */
   lastSeq: number;
@@ -2803,17 +2810,35 @@ export type ChatSessionSummary = {
    * required field would have made this client refuse to typecheck against
    * half the servers it has to talk to.
    */
-  children?: {
-    /** `run:<runId>`, so it can never collide with a session id. */
-    id: string;
-    runId: string;
-    title: string;
-    kind: string;
-    app: string;
-    status: string;
-    /** /apps/<app>/<runId> — where the report is actually read. */
-    to: string;
-  }[];
+  children?: SessionChild[];
+};
+
+/**
+ * ONE RUN SHOWN UNDER A CHAT.
+ *
+ * The same seven fields the server's `RunChild` publishes, from both of its
+ * doors — the polled session list and the live SSE frame — and declared HERE
+ * rather than in the store, because it arrives off the wire and the store is
+ * the second reader of it, not the first. It was typed three times: the SSE
+ * frame carried four of the fields, this list carried seven, and the store
+ * carried two of them optionally, so a rail drawing a live child could not
+ * link it and threw the payload away to re-poll.
+ *
+ * `to` and `status` are NOT OPTIONAL. A child is a run, a run has a page and a
+ * run has a state; the store's copy had both as `?` from a time when a child
+ * could be another chat, and that optionality is what made the rail invent a
+ * `/chat/<id>` fallback for a URL the server always sends.
+ */
+export type SessionChild = {
+  /** `run:<runId>`, so it can never collide with a session id. */
+  id: string;
+  runId: string;
+  title: string;
+  kind: string;
+  app: string;
+  status: RunStatus;
+  /** /apps/<app>/<runId> — where the report is actually read. */
+  to: string;
 };
 
 export type ChatSessionsDoc = {
@@ -2928,8 +2953,8 @@ export type ChatReply = {
 
 /** Which venture mailbox a thread arrived at: a bare domain, `"gmail"`, or
  *  null. NULL IS "NONE OF OURS" HERE — a mailing list, a Bcc, mail that reached
- *  the account some other way — because this server always looks. Workdash's
- *  version of this field has a third reading, "the server never said", which
+ *  the account some other way — because this server always looks. An earlier
+ *  version of this field had a third reading, "the server never said", which
  *  this one cannot: there is no build of this API that omits it. */
 export type MailboxKey = string | null;
 
@@ -3099,8 +3124,8 @@ export type SentEmailDoc = {
  * answers), and the board already stores a `venture_id` on every card, so half
  * the fact was on the server and half of it was in one browser.
  *
- * The seeded ids are preserved across that move — `v-example-support` and its three
- * siblings — because cards and chats already name them.
+ * Any seeded ids are preserved across that move, because cards and chats
+ * already name them.
  */
 export type VentureStage = "idea" | "pre-launch" | "launched";
 
@@ -4066,7 +4091,7 @@ export const api = {
    * the card to land on top of, or null for the foot of the column.
    *
    * A NEIGHBOUR RATHER THAN AN INDEX, which is the one place this differs from
-   * workdash's board and the difference is worth having: an index of 3 means a
+   * the usual board API, and the difference is worth having: an index of 3 means a
    * different slot the moment anything else has been inserted, and it silently
    * means SOMETHING, so a stale drop lands in the wrong place and reads as a
    * misfire. A card id either still names a card in that column or it does

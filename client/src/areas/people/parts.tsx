@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Chart } from "@/components/charts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ago } from "@/lib/live";
+import { ago } from "@/lib/format";
 import type {
   Commitment,
   Person,

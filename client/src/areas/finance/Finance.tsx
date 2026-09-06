@@ -1,6 +1,6 @@
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { SubTabs } from "@/components/TabStrip";
 import { PageShell } from "@/components/PageShell";
-import { cn } from "@/lib/utils";
 import { Ledger } from "./Ledger";
 import { Renewals } from "./Renewals";
 import { Allocation } from "./Allocation";
@@ -37,21 +37,14 @@ export function Finance() {
 
   return (
     <PageShell title="Finance" sub={current.sub} wide>
-      <div className="mb-5 flex items-center gap-0.5 overflow-x-auto">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            to={t.key === "ledger" ? "/finance" : `/finance/${t.key}`}
-            aria-current={t.key === key ? "page" : undefined}
-            className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap",
-              t.key === key && "bg-accent text-foreground font-medium",
-            )}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </div>
+      <SubTabs
+        tabs={TABS.map((t) => ({
+          key: t.key,
+          label: t.label,
+          to: t.key === "ledger" ? "/finance" : `/finance/${t.key}`,
+        }))}
+        activeKey={key}
+      />
 
       {key === "ledger" && <Ledger />}
       {key === "renewals" && <Renewals />}

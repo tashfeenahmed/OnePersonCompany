@@ -48,6 +48,19 @@ import type {
   UptimeReport,
 } from "@/lib/api/reports";
 import type { Meter, RunwayRow, StatusTone, Widget } from "@/data/widgets";
+/* EVERY FIGURE ON THESE CARDS IS DRAWN BY `@/lib/format`. This file had grown
+   thirteen private formatters — two spellings of a count, three of money, two
+   of bytes, its own age and its own duration — and the copies had already
+   drifted from each other and from the panels showing the same numbers: 1.5M
+   here, 1.5m there, 1,500,000 on a third card. The adapters that remain below
+   only bridge a calling convention (a percent the server already scaled, a
+   currency this box always quotes in); none of them computes a rendering. */
+/* RELATIVE, AND WITH THE EXTENSION, unlike the `@/` alias the rest of this
+   client uses. `scripts/catalog-check.ts` imports this module under bare node
+   to join the widget catalog to its builders, and node resolves the specifier
+   itself with no bundler and no tsconfig paths in front of it. Everything else
+   this file imports is a type and is stripped; this one is real code. */
+import { DASH, ago, bytes, compact, count, duration, inDays, money, pct } from "./format.ts";
 
 /**
  * How each live widget turns collected data into the shape its card draws.
@@ -220,13 +233,7 @@ export function cpuTone(pct: number): StatusTone {
   return "ok";
 }
 
-const eur = (n: number, dp = 2) =>
-  new Intl.NumberFormat("en-IE", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: dp,
-    maximumFractionDigits: dp,
-  }).format(n);
+const eur = (n: number, dp = 2) => money(n, "EUR", { digits: dp });
 
 /** A server's full monthly cost: the plan plus its own primary IPv4, the way
  *  Hetzner bills them — separately. */
@@ -235,21 +242,24 @@ const cost = (s: HetznerServer) =>
 
 /** Bytes per second at human size. Rates, not totals: the /s is part of the
  *  unit and is never dropped, because "4.2 MB" and "4.2 MB/s" are different
- *  claims and only one of them is what the hypervisor measured. */
-function rate(bytesPerSecond: number | null): string {
-  if (bytesPerSecond === null) return "—";
-  const units = ["B", "kB", "MB", "GB"];
-  let v = bytesPerSecond;
-  let i = 0;
-  while (v >= 1000 && i < units.length - 1) {
-    v /= 1000;
-    i += 1;
-  }
-  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}/s`;
-}
+ *  claims and only one of them is what the hypervisor measured. Base 1000
+ *  because a network figure is quoted in the decimal units the interface is
+ *  sold in, and the lower-case `kB` says so. */
+const rate = (bytesPerSecond: number | null): string =>
+  bytesPerSecond === null ? DASH : `${bytes(bytesPerSecond, { base: 1000 })}/s`;
 
-const pct = (n: number | null, dp = 1) =>
-  n === null ? "—" : `${n.toFixed(dp).replace(/\.0$/, "")}%`;
+/**
+ * A PERCENTAGE THE SERVER HAS ALREADY SCALED TO 0–100.
+ *
+ * Named apart from `@/lib/format`'s `pct`, which takes a 0–1 fraction and is
+ * the only convention allowed to travel: three exported functions called `pct`
+ * once shared the signature `(number) => string` and disagreed about their
+ * input, so an editor's auto-import decided whether a card said 0.4% or 40%.
+ * The division happens here, once, in a name that says which convention it
+ * takes — never in a second export anybody can reach by accident.
+ */
+const percent = (n: number | null, dp = 1) =>
+  pct(n === null ? null : n / 100, { digits: dp });
 
 /** How long a series actually spans, said in words. A card that draws 24
  *  hours must not be captioned "24h" when the collector has been up for two. */
@@ -296,27 +306,6 @@ function age(iso: string | null): string {
 }
 
 /* ------------------------------------------------------------ cloudflare */
-
-/**
- * A TOTAL of bytes, at human size — and deliberately not `rate()`, which puts
- * a `/s` on the end.
- *
- * "30.2 GB" and "30.2 GB/s" are different claims and only one of them is what
- * Cloudflare measured: `httpRequests1dGroups.sum.bytes` is everything the edge
- * served over a whole day, not a throughput. The hypervisor cards next door
- * measure a rate, so the two formatters live apart rather than sharing a flag
- * somebody eventually passes wrongly.
- */
-function bytesTotal(bytes: number): string {
-  const units = ["B", "kB", "MB", "GB", "TB"];
-  let v = bytes;
-  let i = 0;
-  while (v >= 1000 && i < units.length - 1) {
-    v /= 1000;
-    i += 1;
-  }
-  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
-}
 
 /** The PROVIDER a set of nameservers belongs to, not the individual servers:
  *  `hydrogen.ns.hetzner.com` and `oxygen.ns.hetzner.com` are one answer to
@@ -501,9 +490,9 @@ export const LIVE_BUILDERS: Record<
     const mean = values.reduce((a, b) => a + b, 0) / values.length;
     const peak = Math.max(...values);
     return {
-      value: pct(mean),
+      value: percent(mean),
       tone: cpuTone(mean),
-      sub: `mean over ${span(points)} · peak ${pct(peak, 0)}`,
+      sub: `mean over ${span(points)} · peak ${percent(peak, 0)}`,
       // The line under the figure is the fleet's own, so the card shows the
       // shape of the window it is quoting the average of. The timestamps ride
       // along so hovering it can say WHEN the spike was, which is the one
@@ -522,7 +511,7 @@ export const LIVE_BUILDERS: Record<
     // sums are not.
     const top = boxes.reduce((a, b) => ((b.cpu.now ?? 0) > (a.cpu.now ?? 0) ? b : a));
     return {
-      value: pct(top.cpu.now),
+      value: percent(top.cpu.now),
       tone: cpuTone(top.cpu.now ?? 0),
       sub: `${top.name ?? top.id} · ${top.cores ?? "?"} vCPU, act at ${CPU_LIMITS.crit}%`,
       series: top.cpu.points.map((p) => p.value),
@@ -558,7 +547,7 @@ export const LIVE_BUILDERS: Record<
         value: s.cpu.now ?? 0,
         warn: CPU_LIMITS.warn,
         crit: CPU_LIMITS.crit,
-        note: `mean ${pct(s.cpu.mean, 0)} · peak ${pct(s.cpu.peak, 0)}`,
+        note: `mean ${percent(s.cpu.mean, 0)} · peak ${percent(s.cpu.peak, 0)}`,
       }));
     return { meters };
   },
@@ -572,9 +561,9 @@ export const LIVE_BUILDERS: Record<
         s.name ?? `#${s.id}`,
         // A box with no samples says so rather than showing a dash that could
         // be read as nought.
-        s.samples ? pct(s.cpu.now, 0) : "no data",
-        s.samples ? pct(s.cpu.mean, 0) : "—",
-        s.samples ? pct(s.cpu.peak, 0) : "—",
+        s.samples ? percent(s.cpu.now, 0) : "no data",
+        s.samples ? percent(s.cpu.mean, 0) : "—",
+        s.samples ? percent(s.cpu.peak, 0) : "—",
         s.samples ? rate(s.netOut.mean) : "—",
         eur(s.monthlyEur),
       ]),
@@ -645,7 +634,7 @@ export const LIVE_BUILDERS: Record<
             // One decimal, not none: the cut is at five percent, and a box
             // averaging 4.9 rounded to "5%" beside a rule that says "under 5"
             // reads as a bug in the filter.
-            [`${s.name ?? s.id} · ${pct(s.cpu.mean)}`, eur(s.monthlyEur)] as [
+            [`${s.name ?? s.id} · ${percent(s.cpu.mean)}`, eur(s.monthlyEur)] as [
               string,
               string,
             ],
@@ -698,14 +687,7 @@ export const LIVE_BUILDERS: Record<
  * calendar. Past dates say so in plain words rather than as a negative number
  * with a minus sign that is easy to skim over.
  */
-function untilWord(days: number | null): string {
-  if (days === null) return "no date";
-  if (days < 0) return `${Math.abs(days)}d ago`;
-  if (days === 0) return "today";
-  if (days < 45) return `${days}d`;
-  if (days < 400) return `${Math.round(days / 30.44)}mo`;
-  return `${(days / 365.25).toFixed(1)}y`;
-}
+const untilWord = (days: number | null) => inDays(days, { nullText: "no date" });
 
 /** 2026-12-05 → "5 Dec 2026". The registrar's own date, readably. */
 function dateWord(iso: string | null): string {
@@ -1016,32 +998,13 @@ Object.assign(LIVE_BUILDERS, {
  * nobody measured.
  */
 
-/** Whole numbers with separators. Counts, not money: no decimals, ever — half
- *  a view is not a thing and printing "155,722.0" would suggest it might be. */
-const count = (v: number | null | undefined) =>
-  v === null || v === undefined
-    ? "—"
-    : new Intl.NumberFormat("en-GB").format(Math.round(v));
-
-/** A day as a distance: "3h", "2d". Written here rather than imported from
- *  live.tsx, which imports this file — a cycle to save six lines is a poor
- *  trade. */
-function sinceWord(iso: string | null | undefined): string {
-  if (!iso) return "never";
-  const mins = Math.round((Date.now() - Date.parse(iso)) / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
-}
-
 /** A calendar day at midnight UTC, as a chart wants it. The days GitHub and
  *  npm report are days, not instants; this is the one place that decides which
  *  moment of the day they are drawn at. */
 const at = (day: string) => `${day}T00:00:00Z`;
 
 /** "owner/name" → "name" when the owner is the account itself, because a
- *  column of "tashfeenahmed/" prefixes is a column of one repeated word. The
+ *  column of the account's own name repeated as a prefix says nothing. The
  *  org-owned rows keep their prefix, which is the case where it means
  *  something. */
 function shortRepo(fullName: string, logins: Set<string>): string {
@@ -1197,7 +1160,7 @@ Object.assign(LIVE_BUILDERS, {
           count(r.traffic!.views),
           count(r.traffic!.uniques),
           count(r.traffic!.clones),
-          sinceWord(r.pushedAt),
+          ago(r.pushedAt),
         ]),
     };
   },
@@ -1229,7 +1192,7 @@ Object.assign(LIVE_BUILDERS, {
         .sort((a, b) => Date.parse(b.pushedAt!) - Date.parse(a.pushedAt!))
         .slice(0, 8)
         .map(
-          (r) => [shortRepo(r.fullName, short), sinceWord(r.pushedAt)] as [string, string],
+          (r) => [shortRepo(r.fullName, short), ago(r.pushedAt)] as [string, string],
         ),
     };
   },
@@ -1281,7 +1244,7 @@ Object.assign(LIVE_BUILDERS, {
     const s = githubDoc?.summary;
     if (s?.trafficSeenAt)
       statuses.push([
-        `traffic read ${sinceWord(s.trafficSeenAt)} for ${s.trafficRepos} of ${s.repos} repos`,
+        `traffic read ${ago(s.trafficSeenAt)} for ${s.trafficRepos} of ${s.repos} repos`,
         "ok",
       ]);
     /* A repo that has dropped out of the traffic selection keeps the fortnight
@@ -1377,7 +1340,7 @@ Object.assign(LIVE_BUILDERS, {
         `${p.days.length}d`,
         // A package npm would not answer for keeps the figures it already has
         // and says why they stopped moving, rather than reading as a quiet week.
-        p.lastError ? p.lastError.slice(0, 40) : `ok · ${sinceWord(p.lastOkAt)}`,
+        p.lastError ? p.lastError.slice(0, 40) : `ok · ${ago(p.lastOkAt)}`,
       ]),
     };
   },
@@ -1403,24 +1366,7 @@ Object.assign(LIVE_BUILDERS, {
 /** Dollars. Two places, because that is what an invoice has — and never a
  *  currency symbol chosen by locale: these figures are US dollars whoever is
  *  reading them, and a € in front of an OpenAI bill would be a lie of typography. */
-const usd = (n: number, dp = 2) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: dp,
-    maximumFractionDigits: dp,
-  }).format(n);
-
-/** A count with separators. 9479 is a number; 9,479 is a figure. */
-const tally = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
-
-/** Token counts, which run to nine digits and mean nothing at that length. */
-function bigNumber(n: number): string {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
-  return tally(n);
-}
+const usd = (n: number, dp = 2) => money(n, "USD", { digits: dp });
 
 /**
  * Seconds as time. Compute is measured in seconds and read in hours: 29,208
@@ -1559,7 +1505,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: usd(a.usd),
       sub:
-        `${a.models.length} models · ${tally(a.requests)} requests` +
+        `${a.models.length} models · ${count(a.requests)} requests` +
         // BYOK is inference OpenRouter routed and did NOT bill for. It is
         // named beside the figure rather than added to it.
         (a.byokUsd > 0 ? ` · ${usd(a.byokUsd)} more on your own keys` : ""),
@@ -1584,8 +1530,8 @@ Object.assign(LIVE_BUILDERS, {
         .join(" · "),
       barLabels: top.map(
         (m) =>
-          `${m.model} · ${usd(m.usd)} · ${tally(m.requests)} requests · ` +
-          `${bigNumber(m.promptTokens)} in, ${bigNumber(m.completionTokens)} out`,
+          `${m.model} · ${usd(m.usd)} · ${count(m.requests)} requests · ` +
+          `${compact(m.promptTokens)} in, ${compact(m.completionTokens)} out`,
       ),
     };
   },
@@ -1648,7 +1594,7 @@ Object.assign(LIVE_BUILDERS, {
       .slice(0, 5)
       .map((m) => [
         shortModel(m.model),
-        `${bigNumber(m.promptTokens)} tokens · ${tally(m.requests)} calls`,
+        `${compact(m.promptTokens)} tokens · ${count(m.requests)} calls`,
       ]);
     rows.push([
       "Share of all prompt tokens",
@@ -1664,9 +1610,9 @@ Object.assign(LIVE_BUILDERS, {
     if (!r?.runs) return null;
     const rate = r.runs ? (r.failed / r.runs) * 100 : 0;
     return {
-      value: tally(r.runs),
+      value: count(r.runs),
       tone: rate >= 20 ? ("bad" as StatusTone) : rate >= 5 ? ("warn" as StatusTone) : undefined,
-      sub: `${tally(r.succeeded)} succeeded · ${tally(r.failed)} failed (${Math.round(rate)}%)`,
+      sub: `${count(r.succeeded)} succeeded · ${count(r.failed)} failed (${Math.round(rate)}%)`,
     };
   },
 
@@ -1697,9 +1643,9 @@ Object.assign(LIVE_BUILDERS, {
         .join(" · "),
       barLabels: top.map(
         (m) =>
-          `${m.model} · ${hoursMinutes(m.seconds)} · ${tally(m.runs)} run` +
+          `${m.model} · ${hoursMinutes(m.seconds)} · ${count(m.runs)} run` +
           `${m.runs === 1 ? "" : "s"}` +
-          (m.failed ? `, ${tally(m.failed)} failed` : ""),
+          (m.failed ? `, ${count(m.failed)} failed` : ""),
       ),
     };
   },
@@ -1714,11 +1660,11 @@ Object.assign(LIVE_BUILDERS, {
       make those".
     */
     const rows: [string, string][] = [];
-    if (r.outputs.images) rows.push(["Images", tally(r.outputs.images)]);
+    if (r.outputs.images) rows.push(["Images", count(r.outputs.images)]);
     if (r.outputs.videoSeconds)
       rows.push(["Video", hoursMinutes(r.outputs.videoSeconds)]);
-    if (r.outputs.tokens) rows.push(["Output tokens", bigNumber(r.outputs.tokens)]);
-    rows.push(["Predictions", tally(r.runs)]);
+    if (r.outputs.tokens) rows.push(["Output tokens", compact(r.outputs.tokens)]);
+    rows.push(["Predictions", count(r.runs)]);
     return { rows };
   },
 
@@ -1726,11 +1672,11 @@ Object.assign(LIVE_BUILDERS, {
     const r = COSTS?.replicate;
     if (!r?.runs) return null;
     const statuses: [string, StatusTone][] = [
-      [`${tally(r.succeeded)} succeeded`, "ok"],
+      [`${count(r.succeeded)} succeeded`, "ok"],
     ];
     if (r.failed)
       statuses.push([
-        `${tally(r.failed)} failed`,
+        `${count(r.failed)} failed`,
         r.failed / r.runs >= 0.2 ? "bad" : "warn",
       ]);
     /*
@@ -1739,7 +1685,7 @@ Object.assign(LIVE_BUILDERS, {
       seconds would be a claim about a job whose outcome is not known yet.
     */
     if (r.unreported)
-      statuses.push([`${tally(r.unreported)} without a time`, "warn"]);
+      statuses.push([`${count(r.unreported)} without a time`, "warn"]);
     return { statuses };
   },
 
@@ -1892,17 +1838,13 @@ const library = (stock: StockReport | null, id: string) =>
 const firstAccount = (stock: StockReport | null, id: string) =>
   library(stock, id)?.accounts[0] ?? null;
 
-/** A whole number with separators, or an em dash. */
-const whole = (n: number | null | undefined) =>
-  n === null || n === undefined ? "—" : new Intl.NumberFormat("en-GB").format(Math.round(n));
-
-/** "in 12 days" for a reset that is a date rather than a countdown. */
+/** "resets in 12d" for an allowance whose refill is a date rather than a
+ *  countdown. Past-due reads "resets today" — a reset date that has gone by
+ *  means the quota is already back, not that it is overdue. */
 function untilReset(iso: string | null): string | null {
-  if (!iso) return null;
-  const days = Math.round((Date.parse(iso) - Date.now()) / 86_400_000);
+  const days = iso ? Math.round((Date.parse(iso) - Date.now()) / 86_400_000) : Number.NaN;
   if (Number.isNaN(days)) return null;
-  if (days <= 0) return "resets today";
-  return `resets in ${days}d`;
+  return days <= 0 ? "resets today" : `resets ${inDays(days)}`;
 }
 
 /** The allowance card for one library, since both read identically. */
@@ -1910,11 +1852,11 @@ function quotaCard(stock: StockReport | null, id: string): Partial<Widget> | nul
   const acc = firstAccount(stock, id);
   if (!acc || acc.remaining === null) return null;
   const parts = [
-    acc.limit === null ? null : `of ${whole(acc.limit)}`,
+    acc.limit === null ? null : `of ${count(acc.limit)}`,
     untilReset(acc.resetsAt),
   ].filter(Boolean);
   return {
-    value: whole(acc.remaining),
+    value: count(acc.remaining),
     // Amber once four fifths of the month's allowance is gone — the point at
     // which a pipeline that still has three weeks to run is worth looking at.
     tone:
@@ -1952,7 +1894,7 @@ Object.assign(LIVE_BUILDERS, {
             : "not enough history yet to call it a rate",
       };
     return {
-      value: whole(acc.perDay),
+      value: count(acc.perDay),
       sub:
         acc.daysLeft === null
           ? `measured over ${acc.readings} readings`
@@ -1970,7 +1912,7 @@ Object.assign(LIVE_BUILDERS, {
           value: acc.usedPct,
           warn: 80,
           crit: 90,
-          note: `${whole(acc.used)} of ${whole(acc.limit)}`,
+          note: `${count(acc.used)} of ${count(acc.limit)}`,
         });
       }
     }
@@ -2006,7 +1948,7 @@ Object.assign(LIVE_BUILDERS, {
         lib.name,
         acc?.remaining === null || acc?.remaining === undefined
           ? "quota not reported"
-          : `${whole(acc.remaining)} of ${whole(acc.limit)}`,
+          : `${count(acc.remaining)} of ${count(acc.limit)}`,
       ]);
     }
     return rows.length ? { rows } : null;
@@ -2031,23 +1973,6 @@ Object.assign(LIVE_BUILDERS, {
  * so and offers no total — the same last row `costs.sideBySide` carries, for
  * the same reason.
  */
-
-/** An amount in the currency it was actually earned in. Never converted, and
- *  never given a symbol chosen by the reader's locale: A$11.58 and $11.58 are
- *  different amounts of money. */
-function money(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat("en-GB", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: Math.abs(amount) >= 1000 ? 0 : 2,
-    }).format(amount);
-  } catch {
-    // A currency code Intl does not know is still a real currency. Better the
-    // code beside the number than a symbol invented for it.
-    return `${amount.toLocaleString("en-GB")} ${currency}`;
-  }
-}
 
 /** The row that closes any card carrying more than one currency. */
 function noTotalRow(currencies: unknown[]): [string, string][] {
@@ -2104,7 +2029,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!a?.connected || !a.downloads.days.length) return null;
     const d = a.downloads;
     return {
-      value: tally(d.units),
+      value: count(d.units),
       /*
         THE DAYS APPLE ANSWERED, NOT THE DAYS ASKED FOR. A window is only as
         long as the reports in it, and a day Apple has not generated yet is
@@ -2200,7 +2125,7 @@ Object.assign(LIVE_BUILDERS, {
       };
     return {
       value: a.rating.average.toFixed(1),
-      sub: `${tally(a.rating.ratings)} rating${a.rating.ratings === 1 ? "" : "s"} across ${a.rating.apps} app${a.rating.apps === 1 ? "" : "s"} · from the public listing`,
+      sub: `${count(a.rating.ratings)} rating${a.rating.ratings === 1 ? "" : "s"} across ${a.rating.apps} app${a.rating.apps === 1 ? "" : "s"} · from the public listing`,
     };
   },
 
@@ -2230,13 +2155,13 @@ Object.assign(LIVE_BUILDERS, {
       table: a.apps.map((app) => [
         app.name ?? app.bundleId ?? app.id,
         whereItIs(app.state, app.onStore),
-        tally(app.downloads),
-        tally(app.updates),
+        count(app.downloads),
+        count(app.updates),
         app.rating === null
           ? app.listed === false
             ? "not listed"
             : "no ratings"
-          : `${app.rating.toFixed(1)} (${tally(app.ratingCount ?? 0)})`,
+          : `${app.rating.toFixed(1)} (${count(app.ratingCount ?? 0)})`,
       ]),
     };
   },
@@ -2253,7 +2178,7 @@ Object.assign(LIVE_BUILDERS, {
     const p = M?.play;
     if (!p?.connected || !p.installs.days.length) return null;
     return {
-      value: tally(p.installs.installs),
+      value: count(p.installs.installs),
       /*
         DEVICE INSTALLS, AND THE SPAN GOOGLE ACTUALLY WROTE. The console's
         export stops when Google stops writing it — on this account it ends
@@ -2380,9 +2305,9 @@ Object.assign(LIVE_BUILDERS, {
     return {
       table: p.packages.map((pkg) => [
         shortPackage(pkg.package),
-        tally(pkg.installs),
+        count(pkg.installs),
         // Active devices is a current state and is dated for that reason.
-        pkg.activeDevices === null ? "—" : tally(pkg.activeDevices),
+        pkg.activeDevices === null ? "—" : count(pkg.activeDevices),
         pkg.rating === null ? "—" : pkg.rating.toFixed(1),
         pkg.payout.length
           ? pkg.payout.map((c) => money(c.amount, c.currency)).join(" · ")
@@ -2508,19 +2433,8 @@ function firstCurrency<T extends { currency: string }>(rows: T[] | null | undefi
 /** Money in the currency the row says it is in, rather than in a symbol
  *  hardcoded here. An account that starts billing in euro should read as euro
  *  on the card the day it does. */
-function inCurrency(n: number, currency: string, dp = 2): string {
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-      minimumFractionDigits: dp,
-      maximumFractionDigits: dp,
-    }).format(n);
-  } catch {
-    // An unknown ISO code is not a reason to draw nothing.
-    return `${n.toFixed(dp)} ${currency.toUpperCase()}`;
-  }
-}
+const inCurrency = (n: number, currency: string, dp = 2) =>
+  money(n, currency, { digits: dp });
 
 /** The churn row for one window, in the first currency. */
 const churnRow = (s: StripeReport | null | undefined, days: number) =>
@@ -2547,9 +2461,9 @@ Object.assign(LIVE_BUILDERS, {
          total that quietly became a sum is a total that changed meaning. */
       sub: also(
         also(
-          `${tally(m.subscriptions)} billing subscription${m.subscriptions === 1 ? "" : "s"}`,
+          `${count(m.subscriptions)} billing subscription${m.subscriptions === 1 ? "" : "s"}`,
           annual.subscriptions
-            ? `${tally(annual.subscriptions)} annual, counted as a twelfth a month`
+            ? `${count(annual.subscriptions)} annual, counted as a twelfth a month`
             : "",
         ),
         across(S?.accounts.length),
@@ -2598,11 +2512,11 @@ Object.assign(LIVE_BUILDERS, {
       either would be a headline that changes meaning without moving.
     */
     const aside = [
-      s.trialing ? `${tally(s.trialing)} trialing` : "",
-      s.pastDue ? `${tally(s.pastDue)} past due` : "",
+      s.trialing ? `${count(s.trialing)} trialing` : "",
+      s.pastDue ? `${count(s.pastDue)} past due` : "",
     ].filter(Boolean);
     return {
-      value: tally(s.billing),
+      value: count(s.billing),
       sub: also(
         aside.length
           ? `billing now · ${aside.join(" · ")}, counted apart`
@@ -2655,33 +2569,34 @@ Object.assign(LIVE_BUILDERS, {
       subscriptions over ninety days, the great majority never collected a
       penny: checkouts that expired before they activated, and free trials that
       were cancelled. Neither lost any revenue, because neither ever earned
-      any — counting them cost workdash $415 of a reported $430 monthly churn.
+      any — counting them cost $415 of a reported $430 monthly churn on the system
+      this replaces.
       They are two different problems in two different parts of the funnel, so
       they are two rows and not one.
     */
     const rows: [string, string][] = [
       [
         "Real churn",
-        `${tally(c.churnedSubs)} · ${inCurrency(c.churnedMrr, c.currency, 0)} of MRR`,
+        `${count(c.churnedSubs)} · ${inCurrency(c.churnedMrr, c.currency, 0)} of MRR`,
       ],
       [
         "Trials cancelled",
-        `${tally(c.notChurn.trialNonConversion.subscriptions)} · never billed, a conversion problem`,
+        `${count(c.notChurn.trialNonConversion.subscriptions)} · never billed, a conversion problem`,
       ],
       [
         "Checkouts that expired",
-        `${tally(c.notChurn.failedActivation.subscriptions)} · never billed, an acquisition problem`,
+        `${count(c.notChurn.failedActivation.subscriptions)} · never billed, an acquisition problem`,
       ],
     ];
     if (c.involuntary)
       rows.push([
         "Of the real churn, involuntary",
-        `${tally(c.involuntary)} · a card failed or was disputed`,
+        `${count(c.involuntary)} · a card failed or was disputed`,
       ]);
     if (S?.subscriptions.unresolvedCancellations)
       rows.push([
         "Not yet checked for a payment",
-        `${tally(S.subscriptions.unresolvedCancellations)} · counted as real churn until they are`,
+        `${count(S.subscriptions.unresolvedCancellations)} · counted as real churn until they are`,
       ]);
     return { rows };
   },
@@ -2786,7 +2701,7 @@ Object.assign(LIVE_BUILDERS, {
         `subscriptions only, one-off payments are not in these`,
       barLabels: products.map(
         (p) =>
-          `${p.name} · ${inCurrency(p.mrr, p.currency)}/mo · ${tally(p.subscribers)} subscriber${p.subscribers === 1 ? "" : "s"}`,
+          `${p.name} · ${inCurrency(p.mrr, p.currency)}/mo · ${count(p.subscribers)} subscriber${p.subscribers === 1 ? "" : "s"}`,
       ),
     };
   },
@@ -2804,12 +2719,12 @@ Object.assign(LIVE_BUILDERS, {
       are the second half of the subtitle rather than a second card.
     */
     return {
-      value: tally(p.count),
+      value: count(p.count),
       tone: p.endingSoon.count > 0 ? ("warn" as StatusTone) : undefined,
       sub: also(
         mrr ? `${inCurrency(mrr.amount, mrr.currency)}/mo, still counted in MRR` : "",
         p.endingSoon.count
-          ? `${tally(p.endingSoon.count)} within ${p.endingSoon.days} days${soon ? ` (${inCurrency(soon.amount, soon.currency)}/mo)` : ""}`
+          ? `${count(p.endingSoon.count)} within ${p.endingSoon.days} days${soon ? ` (${inCurrency(soon.amount, soon.currency)}/mo)` : ""}`
           : "none ending soon",
       ),
     };
@@ -2828,8 +2743,8 @@ Object.assign(LIVE_BUILDERS, {
       denominator, so the rate below counts only what a bank actually saw.
     */
     const rows: [string, string][] = [
-      ["Blocked by Radar", `${tally(c.blocked)} · never reached a bank`],
-      ["Declined by the bank", tally(c.declined)],
+      ["Blocked by Radar", `${count(c.blocked)} · never reached a bank`],
+      ["Declined by the bank", count(c.declined)],
       [
         "Of the attempts a bank saw",
         c.declineRatePct === null
@@ -2840,7 +2755,7 @@ Object.assign(LIVE_BUILDERS, {
     if (c.refunds)
       rows.push([
         `Refunds, ${c.days}d`,
-        `${tally(c.refunds)} · ${inCurrency(c.refunded, c.currency)}`,
+        `${count(c.refunds)} · ${inCurrency(c.refunded, c.currency)}`,
       ]);
     return { rows };
   },
@@ -2856,12 +2771,12 @@ Object.assign(LIVE_BUILDERS, {
     */
     return {
       rows: [
-        ["Billing", tally(s.billing)],
-        ["Trialing", tally(s.trialing)],
-        ["Past due", tally(s.pastDue)],
-        ["Cancelling at period end", tally(s.pendingCancellation.count)],
-        ["Cancelled", tally(s.canceled)],
-        ["Checkouts that expired", tally(s.incompleteExpired)],
+        ["Billing", count(s.billing)],
+        ["Trialing", count(s.trialing)],
+        ["Past due", count(s.pastDue)],
+        ["Cancelling at period end", count(s.pendingCancellation.count)],
+        ["Cancelled", count(s.canceled)],
+        ["Checkouts that expired", count(s.incompleteExpired)],
       ] as [string, string][],
     };
   },
@@ -2918,7 +2833,7 @@ Object.assign(LIVE_BUILDERS, {
       value: inCurrency(A.earnings, currency, A.earnings < 10 ? 2 : 0),
       sub: also(
         also(
-          `${tally(A.sites.length)} site${A.sites.length === 1 ? "" : "s"} · ${A.window.days} days`,
+          `${count(A.sites.length)} site${A.sites.length === 1 ? "" : "s"} · ${A.window.days} days`,
           "estimated — Google revises recent days",
         ),
         across(A.accounts.length),
@@ -3007,7 +2922,7 @@ Object.assign(LIVE_BUILDERS, {
       .map(([plan, n]) => `${n} on ${plan}`)
       .join(" · ");
     return {
-      value: tally(s.zones),
+      value: count(s.zones),
       sub: also(
         s.paused ? `${s.active} active, ${s.paused} paused` : `all ${s.active} active`,
         plans,
@@ -3023,7 +2938,7 @@ Object.assign(LIVE_BUILDERS, {
     const done = C.daily.filter((d) => !d.partial);
     const blind = C.summary.withoutTraffic;
     return {
-      value: bigNumber(C.summary.requests),
+      value: compact(C.summary.requests),
       sub: also(
         `${C.summary.withTraffic} zone${C.summary.withTraffic === 1 ? "" : "s"} · ${C.window.days} complete days to ${dayShort(C.window.through)}`,
         blind ? `${blind} not measured` : "",
@@ -3049,7 +2964,7 @@ Object.assign(LIVE_BUILDERS, {
       ),
       barLabels: top.map(
         (z) =>
-          `${z.name} · ${count(z.traffic!.requests)} requests · ${count(z.traffic!.pageViews)} page views · ${pct((z.traffic!.cacheRatio ?? 0) * 100)} cached`,
+          `${z.name} · ${count(z.traffic!.requests)} requests · ${count(z.traffic!.pageViews)} page views · ${pct(z.traffic!.cacheRatio ?? 0)} cached`,
       ),
     };
   },
@@ -3110,7 +3025,7 @@ Object.assign(LIVE_BUILDERS, {
   "cf.bandwidth": ({ cloudflare: C }: LiveInputs) => {
     if (!C || !C.summary.withTraffic) return null;
     return {
-      value: bytesTotal(C.summary.bytes),
+      value: bytes(C.summary.bytes, { base: 1000 }),
       sub: `served from the edge over ${C.window.days} complete days, ${C.summary.withTraffic} zones`,
     };
   },
@@ -3123,10 +3038,10 @@ Object.assign(LIVE_BUILDERS, {
       ? (C.summary.threats / C.summary.requests) * 100
       : null;
     return {
-      value: tally(C.summary.threats),
+      value: count(C.summary.threats),
       sub: also(
         `Cloudflare's own count over ${C.window.days} complete days`,
-        share === null ? "" : `${pct(share, 2)} of requests`,
+        share === null ? "" : `${percent(share, 2)} of requests`,
       ),
     };
   },
@@ -3136,7 +3051,7 @@ Object.assign(LIVE_BUILDERS, {
        this returns null instead of drawing a confident nothing. */
     if (!C || C.summary.cacheRatio === null) return null;
     return {
-      value: pct(C.summary.cacheRatio * 100),
+      value: pct(C.summary.cacheRatio),
       sub: `${count(C.summary.cached)} of ${count(C.summary.requests)} requests answered at the edge · ${C.summary.proxied ?? "—"} of ${C.summary.records ?? "—"} records are proxied`,
     };
   },
@@ -3168,10 +3083,10 @@ Object.assign(LIVE_BUILDERS, {
     return {
       bars: totals,
       labels: classes
-        .map(([name], i) => `${name} ${pct((totals[i]! / all) * 100, 0)}`)
+        .map(([name], i) => `${name} ${pct(totals[i]! / all, { digits: 0 })}`)
         .join(" · "),
       barLabels: classes.map(
-        ([name], i) => `${name} · ${count(totals[i]!)} responses · ${pct((totals[i]! / all) * 100)}`,
+        ([name], i) => `${name} · ${count(totals[i]!)} responses · ${pct(totals[i]! / all)}`,
       ),
     };
   },
@@ -3297,7 +3212,7 @@ Object.assign(LIVE_BUILDERS, {
       ["Records", `${count(s.records)} across ${s.zones - s.recordsUnreadable} zones`],
       [
         "Proxied through Cloudflare",
-        `${count(s.proxied)} · ${pct(s.records ? ((s.proxied ?? 0) / s.records) * 100 : null, 0)}`,
+        `${count(s.proxied)} · ${pct(s.records ? (s.proxied ?? 0) / s.records : null, { digits: 0 })}`,
       ],
       /* The only trace of a Pages project this token can see: the Pages API
          itself answers 403, so this counts CNAMEs to *.pages.dev rather than
@@ -3325,7 +3240,7 @@ Object.assign(LIVE_BUILDERS, {
           /* An em dash rather than a zero for a zone nobody could measure. The
              zone beside it that really did serve nothing prints 0. */
           z.traffic ? count(z.traffic.requests) : "—",
-          z.traffic ? pct((z.traffic.cacheRatio ?? 0) * 100, 1) : "—",
+          z.traffic ? pct(z.traffic.cacheRatio ?? 0) : DASH,
           z.traffic ? count(z.traffic.pageViews) : "—",
           z.records === null ? "—" : String(z.records),
           delegationWord(z.alignment.state),
@@ -3441,7 +3356,7 @@ Object.assign(LIVE_BUILDERS, {
          halves of anything. */
       sub: also(
         also(
-          G.totals.ctr === null ? "" : `CTR ${pct(G.totals.ctr, 2)} of ${count(G.totals.impressions)} impressions`,
+          G.totals.ctr === null ? "" : `CTR ${percent(G.totals.ctr, 2)} of ${count(G.totals.impressions)} impressions`,
           movedBy(G.delta.clicks, G.window.days),
         ),
         `${G.window.days}d to ${dayShort(G.window.end)}`,
@@ -3489,7 +3404,7 @@ Object.assign(LIVE_BUILDERS, {
       "These rows cover",
       G.coverage.pct === null
         ? "an unknown share of impressions"
-        : `${pct(G.coverage.pct)} of impressions`,
+        : `${percent(G.coverage.pct)} of impressions`,
     ]);
     return { rows };
   },
@@ -3512,7 +3427,7 @@ Object.assign(LIVE_BUILDERS, {
       p.label,
       count(p.impressions),
       count(p.clicks),
-      p.ctr === null ? "—" : pct(p.ctr, 2),
+      p.ctr === null ? "—" : percent(p.ctr, 2),
       place(p.position),
       /* A property with nothing in the window before it gets a word rather than
          a percentage off a base of zero. */
@@ -3611,13 +3526,13 @@ Object.assign(LIVE_BUILDERS, {
       ["Impressions, every property", count(G.totals.impressions)],
       [
         "Inside the ranked query rows",
-        `${count(G.coverage.queryImpressions)} · ${G.coverage.pct === null ? "—" : pct(G.coverage.pct)}`,
+        `${count(G.coverage.queryImpressions)} · ${G.coverage.pct === null ? "—" : percent(G.coverage.pct)}`,
       ],
       ["Rows Google will return", `${G.coverage.rowLimit} per property, ordered by clicks`],
       ["The rest", "queries too rare to anonymise, and the tail past the cap"],
     ];
     if (worst)
-      rows.push([`Thinnest — ${worst.label}`, `${pct(worst.queryCoverage.pct!)} covered`]);
+      rows.push([`Thinnest — ${worst.label}`, `${percent(worst.queryCoverage.pct!)} covered`]);
     return { rows };
   },
 
@@ -3666,7 +3581,7 @@ Object.assign(LIVE_BUILDERS, {
       sub: also(
         B.totals.ctr === null
           ? ""
-          : `CTR ${pct(B.totals.ctr, 2)} of ${count(B.totals.impressions)} impressions`,
+          : `CTR ${percent(B.totals.ctr, 2)} of ${count(B.totals.impressions)} impressions`,
         `${B.window.days}d to ${dayShort(B.window.end)}`,
       ),
       series: B.series.length > 1 ? B.series.map((d) => d.clicks) : undefined,
@@ -3725,7 +3640,7 @@ Object.assign(LIVE_BUILDERS, {
         s.label,
         count(s.impressions),
         count(s.clicks),
-        s.ctr === null ? "—" : pct(s.ctr, 2),
+        s.ctr === null ? "—" : percent(s.ctr, 2),
         count(s.index.inIndex),
         count(s.inLinks),
       ]),
@@ -4941,12 +4856,12 @@ Object.assign(LIVE_BUILDERS, {
       .filter((d) => d.sends.bounceRate !== null && d.sends.attempted >= 10)
       .sort((a, b) => (b.sends.bounceRate ?? 0) - (a.sends.bounceRate ?? 0))[0];
     return {
-      value: pct(s.bounceRate, 1),
+      value: percent(s.bounceRate, 1),
       tone: s.bounceRate >= 5 ? "bad" : s.bounceRate >= 2 ? "warn" : "ok",
       sub: also(
         `${count(s.bounced)} of ${count(s.attempted)} that reached a server`,
         worst && worst.sends.bounceRate !== null
-          ? `worst: ${worst.name} at ${pct(worst.sends.bounceRate, 1)}`
+          ? `worst: ${worst.name} at ${percent(worst.sends.bounceRate, 1)}`
           : "",
       ),
     };
@@ -5061,9 +4976,9 @@ Object.assign(LIVE_BUILDERS, {
     const s = M.sending;
     const tracked = M.sendingDomains.filter((d) => d.tracking.open === true).length;
     const rows: [string, string][] = [
-      ["Delivered", `${count(s.delivered)} · ${pct(s.deliveryRate, 1)}`],
-      ["Bounced", `${count(s.bounced)} · ${pct(s.bounceRate, 1)}`],
-      ["Spam complaints", `${count(s.complained)} · ${pct(s.complaintRate, 2)}`],
+      ["Delivered", `${count(s.delivered)} · ${percent(s.deliveryRate, 1)}`],
+      ["Bounced", `${count(s.bounced)} · ${percent(s.bounceRate, 1)}`],
+      ["Spam complaints", `${count(s.complained)} · ${percent(s.complaintRate, 2)}`],
       [
         "Suppressed before sending",
         `${count(s.suppressed)} — never reached a server, so in no rate above`,
@@ -5200,7 +5115,7 @@ Object.assign(LIVE_BUILDERS, {
     const w = U?.portfolio.window;
     if (!w || w.bounceRate === null) return null;
     return {
-      value: pct(w.bounceRate),
+      value: percent(w.bounceRate),
       /* Computed from the SUMS rather than averaged across sites: an average
          of two percentages weights four visits like four thousand. */
       sub: `a visit with one pageview, Umami's own definition · ${count(w.bounces)} of ${count(w.visits)} visits`,
@@ -5245,7 +5160,7 @@ Object.assign(LIVE_BUILDERS, {
           count(w.window!.pageviews),
           count(w.window!.visitors),
           count(w.window!.visits),
-          pct(w.window!.bounceRate),
+          percent(w.window!.bounceRate),
           secs(w.window!.avgVisitSeconds),
         ]),
     };
@@ -5433,7 +5348,7 @@ Object.assign(LIVE_BUILDERS, {
         p.version ?? "—",
         // A package pypistats would not answer for keeps the figures it has and
         // says why they stopped moving, rather than reading as a quiet week.
-        p.lastError ? p.lastError.slice(0, 40) : `ok · ${sinceWord(p.lastOkAt)}`,
+        p.lastError ? p.lastError.slice(0, 40) : `ok · ${ago(p.lastOkAt)}`,
       ]),
     };
   },
@@ -5558,7 +5473,7 @@ Object.assign(LIVE_BUILDERS, {
       value: `${s.up} of ${measured || s.configured} up`,
       tone: s.down ? ("bad" as const) : undefined,
       sub: also(
-        s.unknown ? `${s.unknown} never checked` : `last checked ${sinceWord(s.lastCheckedAt)}`,
+        s.unknown ? `${s.unknown} never checked` : `last checked ${ago(s.lastCheckedAt)}`,
         s.soonestTlsExpiry === null
           ? ""
           : `soonest certificate ${s.soonestTlsExpiry}d`,
@@ -5584,7 +5499,7 @@ Object.assign(LIVE_BUILDERS, {
     statuses.push(
       day.length
         ? [
-            `${pct(Math.min(...day.map((h) => h.availability.day.percent ?? 100)))} worst · 24h`,
+            `${percent(Math.min(...day.map((h) => h.availability.day.percent ?? 100)))} worst · 24h`,
             "ok",
           ]
         : ["too few checks to quote a percentage", "warn"],
@@ -5611,7 +5526,7 @@ Object.assign(LIVE_BUILDERS, {
       */
       barLabels: hosts.map(
         (h) =>
-          `${h.host} · ${pct(h.availability.window.percent)} of ` +
+          `${h.host} · ${percent(h.availability.window.percent)} of ` +
           `${h.availability.window.checks} check${h.availability.window.checks === 1 ? "" : "s"}` +
           (h.availability.window.enough ? "" : " — too few to quote"),
       ),
@@ -5647,7 +5562,7 @@ Object.assign(LIVE_BUILDERS, {
         // Never clamped: a negative row is an expired certificate, and it is
         // the most urgent thing this dashboard can draw.
         days: h.tls.daysLeft!,
-        sub: `read ${sinceWord(h.tls.measuredAt)}`,
+        sub: `read ${ago(h.tls.measuredAt)}`,
       }));
     const unread = (U!.hosts.length - hosts.length);
     return {
@@ -5667,12 +5582,12 @@ Object.assign(LIVE_BUILDERS, {
       for (const i of h.incidents) {
         if (rows.length >= 8) break;
         rows.push([
-          `${h.host} · ${sinceWord(i.start)}`,
+          `${h.host} · ${ago(i.start)}`,
           /* `end` is the first check that SUCCEEDED again, which is the
              earliest moment this box can honestly say the site was back. */
           i.ongoing
             ? `still failing · ${i.checks} check${i.checks === 1 ? "" : "s"}`
-            : `${i.checks} check${i.checks === 1 ? "" : "s"} · back by ${sinceWord(i.end)}`,
+            : `${i.checks} check${i.checks === 1 ? "" : "s"} · back by ${ago(i.end)}`,
         ]);
       }
     if (!rows.length)
@@ -5689,11 +5604,6 @@ Object.assign(LIVE_BUILDERS, {
    is already relative to a machine's cores, and filesystems share pools, so
    the meters below are per box and there is no fleet total for either.
 */
-
-/** GB at one decimal, for a memory note. Bytes are the wire's unit and nobody
- *  reads them. */
-const gb = (bytes: number | null) =>
-  bytes === null ? "—" : `${(bytes / 1e9).toFixed(1)} GB`;
 
 /** The box's fullest mount — the figure a disk page is actually for. */
 function fullestMount(b: FleetBox) {
@@ -5718,7 +5628,7 @@ Object.assign(LIVE_BUILDERS, {
         /* USED IS TOTAL MINUS AVAILABLE, done at the probe: Linux's page cache
            is not memory anybody is short of, and "94% used" that is mostly
            cache is how a dashboard learns to cry wolf. */
-        note: `${gb(b.sample!.memory!.used)} of ${gb(b.sample!.memoryTotal)}`,
+        note: `${bytes(b.sample!.memory!.used)} of ${bytes(b.sample!.memoryTotal)}`,
       }));
     return { meters };
   },
@@ -5739,7 +5649,7 @@ Object.assign(LIVE_BUILDERS, {
            six filesystems and this is only ever the fullest of them. The
            percentage is used / (used + available) — what `df` calls Capacity —
            and not used / size, which calls a 62%-full Mac 2% full. */
-        note: `${r.disk!.mount} · ${gb(r.disk!.avail)} free`,
+        note: `${r.disk!.mount} · ${bytes(r.disk!.avail)} free`,
       }));
     return { meters };
   },
@@ -5816,8 +5726,8 @@ Object.assign(LIVE_BUILDERS, {
         return [
           b.label,
           b.hostname ?? b.target ?? "—",
-          b.sample?.memory ? pct(b.sample.memory.percent, 0) : "no sample",
-          disk ? `${disk.mount} ${pct(disk.meter!.percent, 0)}` : "—",
+          b.sample?.memory ? percent(b.sample.memory.percent, 0) : "no sample",
+          disk ? `${disk.mount} ${percent(disk.meter!.percent, 0)}` : "—",
           b.sample?.loadPerCpu === null || !b.sample ? "—" : String(b.sample.loadPerCpu),
           b.docker === null ? "not reached" : String(b.docker.running),
         ];
@@ -6051,7 +5961,7 @@ const audited = (A: AuditOverview | null | undefined) =>
 /**
  * The bare hostname inside whatever the audit answered with.
  *
- * `canonicalHost` is a URL — "https://support.example.test/" — because it is where
+ * `canonicalHost` is a URL — "https://example.com/" — because it is where
  * the crawler's redirects ended up, and a venture's `host` is a bare name. A
  * string comparison between the two is `false` for every venture on the
  * portfolio, which would draw an apex/www warning on all of them and teach the
@@ -6136,7 +6046,7 @@ Object.assign(LIVE_BUILDERS, {
                  everything is allowed, which is the correct reading and the
                  reason this column says "none" and not "missing". */
               v.robots ? "yes" : "none",
-              sinceWord(v.ts),
+              ago(v.ts),
             ]
           : [v.name, "—", "—", "—", "—", "—", "—", "—", "never"],
       ),
@@ -6229,23 +6139,12 @@ Object.assign(LIVE_BUILDERS, {
 const kindWord = (R: RunsReport | null | undefined, kind: string) =>
   R?.kinds.find((k) => k.kind === kind)?.name ?? kind;
 
-/** How long a finished run took. Null `ms` is a run that has not finished, and
- *  it says so rather than borrowing the elapsed time — a running row rendered
- *  as "4m" reads as a run that is over. */
-function took(msTaken: number | null): string {
-  if (msTaken === null) return "still going";
-  const seconds = Math.round(msTaken / 1000);
-  if (seconds < 90) return `${seconds}s`;
-  const minutes = Math.round(seconds / 60);
-  return minutes < 90 ? `${minutes}m` : `${(minutes / 60).toFixed(1)}h`;
-}
-
 /** What became of a run, in one phrase. Five statuses and none of them
  *  collapses: a cancelled run is not a failure, and a queued one is not work. */
 function runOutcome(r: AgentRun): string {
   switch (r.status) {
     case "done":
-      return `done · ${took(r.ms)} · ${count(r.outputChars)} chars`;
+      return `done · ${duration(r.ms, { nullText: "still going" })} · ${count(r.outputChars)} chars`;
     case "failed":
       return `failed · ${shorten(r.error ?? "no reason recorded", 34)}`;
     case "running":
@@ -6267,7 +6166,7 @@ Object.assign(LIVE_BUILDERS, {
          of work is in flight. */
       value: r ? kindWord(R, r.kind) : "idle",
       sub: r
-        ? `${r.ventureName ?? "no venture"} · started ${sinceWord(r.startedAt)}${R.queued ? ` · ${R.queued} queued` : ""}`
+        ? `${r.ventureName ?? "no venture"} · started ${ago(r.startedAt)}${R.queued ? ` · ${R.queued} queued` : ""}`
         : R.queued
           ? `${R.queued} queued, none started`
           : /* NOT a count of the ledger. The route answers with the newest
@@ -6278,7 +6177,7 @@ Object.assign(LIVE_BUILDERS, {
               "nothing queued",
               (() => {
                 const last = R.runs.find((r) => r.finishedAt);
-                return last ? `last run ${sinceWord(last.finishedAt)}` : "";
+                return last ? `last run ${ago(last.finishedAt)}` : "";
               })(),
             ),
     };
@@ -6352,7 +6251,7 @@ Object.assign(LIVE_BUILDERS, {
       value: count(profiles.length),
       sub: also(
         `across ${ventures} venture${ventures === 1 ? "" : "s"} · ${C.runs} sweep${C.runs === 1 ? "" : "s"}`,
-        C.lastRun ? `last ${sinceWord(C.lastRun)}` : "",
+        C.lastRun ? `last ${ago(C.lastRun)}` : "",
       ),
     };
   },
@@ -6385,7 +6284,7 @@ Object.assign(LIVE_BUILDERS, {
           p.positioning ? shorten(p.positioning, 60) : "not established",
           p.pricing ? shorten(p.pricing, 32) : "not established",
           verifiedWord(p.lastVerified),
-          p.firstSeen ? sinceWord(p.firstSeen) : "—",
+          p.firstSeen ? ago(p.firstSeen) : "—",
         ]),
     };
   },

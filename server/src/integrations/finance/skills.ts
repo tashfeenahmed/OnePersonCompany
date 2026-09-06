@@ -194,10 +194,13 @@ export const SKILLS: Skill[] = [
         "`basis` and `share` are on the line; say them.",
       "`costs.complete: false` MEANS THE MARGIN IS A CEILING. Some cost this venture carries has no price yet; " +
         "`costs.unpriced` names them. Report the margin as “at best” in that case.",
-      "`modelSpend.usd: null` means no model price per million is configured in the run budgets, so the stored " +
-        "dollar figures are structurally zero and none is reported. The TOKEN count is measured. This meter covers " +
-        "only work dispatched through this box's runtime — provider bills are on the `costs` skill's own sources " +
-        "and on /api/costs.",
+      "MODEL SPEND IS THE PROVIDER'S INVOICE, APPORTIONED. `modelSpend.usd` is the model dollars the providers " +
+        "actually billed for the month, split across ventures by their share of metered tokens — an allocation, " +
+        "flagged `basis: \"invoice-token-share\"` and `estimated: true`, because no provider publishes spend per " +
+        "venture. `usd: null` means no invoice covers the month. `modelSpend.reservationUsd` is the runtime's own " +
+        "enforcement meter — what a budget RESERVED before each call at a flat price per million — and is never a " +
+        "cost and never added to `usd`. The TOKEN count is measured either way. Per-provider, per-day spend is on " +
+        "/api/costs.",
       "AdSense lines are matched to a venture by HOSTNAME, not by a stored link, and AdSense earnings are Google's " +
         "own estimate revised after the month closes. `basis: \"host\"` on a line is the flag for that.",
     ],

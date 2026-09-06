@@ -58,23 +58,12 @@ import {
  *  this app imports it from here and a venture is still a store-shaped thing
  *  from a page's point of view. */
 export type { Venture, VentureStage } from "@/lib/api";
+import type { SessionChild } from "@/lib/api";
 
-/**
- * ONE THING A CHAT SET IN MOTION. Not a chat: `to` sends the rail somewhere
- * that is not /chat/<id>, and `status` is a run's status word rather than
- * anything a conversation has.
- */
-export type SessionChild = {
-  id: string;
-  title: string;
-  /** Where pressing it goes. Absent means "treat it as a chat", which is what
-   *  the rail did before anything wrote to this list. */
-  to?: string;
-  /** The server's own word — queued, running, done, failed, cancelled. Drawn
-   *  as a word rather than a dot, because a run under a chat is worth reading
-   *  the state of without hovering it. */
-  status?: string;
-};
+/** ONE THING A CHAT SET IN MOTION — a run, not a chat. Declared in
+ *  `@/lib/api` beside the document it arrives in, and re-exported because the
+ *  rail reads it from the store. */
+export type { SessionChild } from "@/lib/api";
 
 export type Session = {
   id: string;
@@ -357,10 +346,10 @@ const SEED: StoreState = {
   plugins: Object.fromEntries(PLUGINS.map((p) => [p.id, p.connected])),
 
   /*
-    NO VENTURES. The four that used to be here — Example Support, Example Video,
-    Example App 1, example.ie — are seeded by the SERVER now, under the same ids, and
-    the first fetch puts them in this cache. Seeding them here as well would
-    mean two copies of the same four rows written by two different builds, and
+    NO VENTURES. The ones that used to be listed here by name are the
+    SERVER's to seed now, and the first fetch puts them in this cache. Seeding
+    them here as well would mean two copies of the same rows written by two
+    different builds, and
     the moment one of them gained a website or changed stage they would
     disagree — with the local copy winning until a fetch landed, which is the
     worst way round.
@@ -421,7 +410,7 @@ const SEED: StoreState = {
       ],
     },
     /*
-      SERVERS. Modelled on the fleet page in workdash: the four figures first,
+      SERVERS. The four figures first,
       then the fleet's own line, then every box as a meter, then the numbers
       behind the pictures. The difference is what can be measured — Hetzner
       reports from the hypervisor, so this has CPU, network and disk throughput
@@ -451,7 +440,7 @@ const SEED: StoreState = {
       ],
     },
     /*
-      DOMAINS. The portfolio as workdash's own page reads it: the counts, then
+      DOMAINS. The whole portfolio on one page: the counts, then
       the renewal horizon — every name as a length on one axis, which is the
       only way "5 Dec" and "3 Feb" become a distance without arithmetic — then
       the list of what actually wants doing, then the table behind it.
@@ -1301,7 +1290,7 @@ const SEEDED_SESSION_TITLES = new Map<string, string>([
   ["s-3b", "Demand — what r/editing asked for"],
   ["s-4", "Domain DNS check"],
   ["s-5", "Render queue backpressure"],
-  ["s-6", "Why is example.ie sliding on brand terms"],
+  ["s-6", "Why is the site sliding on brand terms"],
   ["s-6a", "SEO — crawl and Search Console"],
   ["s-6b", "AI visibility — what the models say"],
   ["s-7", "Council CSV import"],
@@ -1564,12 +1553,7 @@ function sameChildren(a?: SessionChild[], b?: SessionChild[]): boolean {
     a.length === b.length &&
     a.every((c, i) => {
       const d = b[i];
-      return (
-        c.id === d.id &&
-        c.title === d.title &&
-        c.to === d.to &&
-        c.status === d.status
-      );
+      return c.id === d.id && c.title === d.title && c.to === d.to && c.status === d.status;
     })
   );
 }

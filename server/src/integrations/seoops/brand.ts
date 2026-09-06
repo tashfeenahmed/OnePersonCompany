@@ -14,8 +14,8 @@
  * FINDS, and asks for COMPUTED styles: what the body's background actually
  * resolved to, which colours are painted over how much AREA, what font the
  * headings really got, what the buttons are, and which image is the logo. It
- * is the reading workdash's `agent/branddna.js` took, on the browser this box
- * already has for screenshots.
+ * is the reading an earlier brand-extraction pass took, on the browser this
+ * box already has for screenshots.
  *
  * COLOURS ARE RANKED BY AREA AND NOT BY COUNT, which is the one place this
  * departs from both ancestors. A page with ninety little grey borders and one

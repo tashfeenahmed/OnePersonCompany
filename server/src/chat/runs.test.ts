@@ -379,7 +379,7 @@ test("regression: a cancel that lands after the answer is refused rather than mi
   assert.equal(frames(row.id).at(-1)!.event, "done");
 });
 
-test("a successful cancel answers `stopping`, because the run has not landed yet", async () => {
+test("a successful cancel answers `cancelling`, because the run has not landed yet", async () => {
   const id = session();
   const row = startChatRun(
     plan(id, async function* (signal) {
@@ -393,7 +393,7 @@ test("a successful cancel answers `stopping`, because the run has not landed yet
   await new Promise((r) => setTimeout(r, 10));
   const r = cancelChatRun(row.id);
   assert.equal(r.ok, true);
-  assert.equal(r.status, "stopping");
+  assert.equal(r.status, "cancelling");
   await runHandle(row.id)!.ended;
   assert.equal(sessionRunState(id)!.status, "cancelled");
 });

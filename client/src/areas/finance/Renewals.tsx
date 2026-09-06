@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { finance, type RenewalDecision } from "@/lib/api/finance";
-import { amount, inDays } from "./format";
+import { inDays } from "@/lib/format";
+import { amount } from "./format";
 
 /**
  * RENEWALS DUE — the only rows in the ledger with a decision date.

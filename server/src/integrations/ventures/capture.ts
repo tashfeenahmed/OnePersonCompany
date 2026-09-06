@@ -17,38 +17,26 @@
  * respectively — which is the whole of what is wanted here. Driving it over
  * DevTools would buy scrolling, waiting on selectors and a full-page capture,
  * at the cost of a websocket client and a dependency this project does not
- * have. The window is 1280x800 and the shot is the fold, which is what a
- * thumbnail wants anyway.
+ * have. The shot is the fold at SHOT_VIEWPORT, which is what a thumbnail wants
+ * anyway.
  *
- * THE BROWSER IS FOUND RATHER THAN CONFIGURED, and then configurable. Four
- * macOS applications and four names on PATH are tried in order, because the
- * overwhelmingly likely case is that one of them is there and asking the owner
- * to type a path to a thing this code could have found is the kind of setup
- * step that makes a feature go unused. The config key exists for the case the
- * search cannot cover: a browser installed somewhere else, or a second one the
- * owner would rather this used.
+ * HOW THE BROWSER IS FOUND AND RUN IS NOT HERE. It was copied into four files
+ * and had drifted three ways; tools/chrome.ts is the one launcher now, and
+ * everything this file used to say about ProcessSingleton locks, a browser
+ * that does not exit and node's useless error message is written down there.
+ * What is left here is what a CAPTURE is: which site, which row, which
+ * failures are worth telling the owner about.
  *
  * A FAILED CAPTURE IS A ROW. "There is no picture yet", "Chrome is not
  * installed", "the page took longer than 25 seconds" and "the venture has no
  * website" are four different answers and the page has to be able to tell them
  * apart, which a nullable path on the ventures table could not.
  */
-import { spawn } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  unlinkSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { Hono } from "hono";
 import { DATA_DIR } from "../../config.ts";
 import {
-  configValue,
   db,
   now,
   ventureRow,
@@ -57,26 +45,29 @@ import {
   writeVentureBrand,
   type VentureRow,
 } from "../../db.ts";
+import {
+  CAPTURE_PLUGIN,
+  RUN_MS,
+  SHOT_VIEWPORT,
+  VIRTUAL_TIME_MS,
+  baseArgs,
+  dump,
+  findBrowser,
+  imageDimensions,
+  shoot,
+  withProfile,
+  type Browser,
+} from "../../tools/chrome.ts";
 import { assignRoles, readBrand, type ColourCount } from "../../ventures/enrich.ts";
+
+/* The browser lives in tools/chrome.ts now. These two are re-exported because
+   other areas still ask this module for them and it is the venture capture
+   they are asking about — seoops/brand.ts drives the same browser over CDP. */
+export { CAPTURE_PLUGIN, findBrowser, SHOT_VIEWPORT, type Browser };
 
 export const captureRoutes = new Hono();
 
-/** The pseudo-plugin the browser path hangs off. `chat` and `models` do the
- *  same thing one layer up: plugin_config has a foreign key onto plugins, so a
- *  setting has to hang off something, and there is no `capture` integration. */
-export const CAPTURE_PLUGIN = "capture";
-
 export const SHOTS_DIR = resolve(DATA_DIR, "shots");
-
-/** The whole run, wall clock. A page that has not painted in twenty-five
- *  seconds is a page whose picture is not worth the socket. */
-const RUN_MS = 25_000;
-/** Chrome's own budget for virtual time, i.e. how long the page is allowed to
- *  keep loading before the shot is taken. Six seconds is a slow site with
- *  fonts and a hero image. */
-const VIRTUAL_TIME_MS = 6_000;
-const WIDTH = 1280;
-const HEIGHT = 800;
 
 /** How many pictures of one venture are kept on disk. History rows outlive
  *  their files — the row says a capture happened, the file is the picture —
@@ -86,324 +77,6 @@ const KEEP_SHOTS = 3;
 
 /** How stale a picture may get before the background pass takes another. */
 export const REFRESH_DAYS = 7;
-
-/* ------------------------------------------------------------- the browser */
-
-/**
- * Where a headless-capable browser might be, in the order they are tried.
- *
- * Chrome first because it is what is installed on this machine and because
- * `--headless=new` is its flag; the Chromium builds accept the same one.
- */
-const MAC_CANDIDATES = [
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/Applications/Chromium.app/Contents/MacOS/Chromium",
-  "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-  "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-];
-
-const PATH_CANDIDATES = [
-  "chromium",
-  "google-chrome",
-  "chromium-browser",
-  "google-chrome-stable",
-  "brave-browser",
-];
-
-function onPath(name: string): string | null {
-  const dirs = (process.env.PATH ?? "").split(":").filter(Boolean);
-  for (const d of dirs) {
-    const full = resolve(d, name);
-    try {
-      if (existsSync(full) && statSync(full).isFile()) return full;
-    } catch {
-      /* an unreadable PATH entry is not this feature's problem */
-    }
-  }
-  return null;
-}
-
-export type Browser =
-  | { found: true; path: string; source: "configured" | "application" | "path"; error: null }
-  | { found: false; path: null; source: "none"; error: string };
-
-/**
- * The browser this box will use, and where the answer came from.
- *
- * A CONFIGURED PATH THAT DOES NOT EXIST IS AN ERROR RATHER THAN A FALLBACK.
- * Silently using Chrome when the owner typed a path to Brave would mean the
- * setting appears to work and does nothing, which is the exact failure the
- * settings registry's `check` exists to prevent one layer up.
- */
-export function findBrowser(): Browser {
-  const configured = (configValue(CAPTURE_PLUGIN, "chromium") ?? "").trim();
-  if (configured) {
-    if (existsSync(configured))
-      return { found: true, path: configured, source: "configured", error: null };
-    return {
-      found: false,
-      path: null,
-      source: "none",
-      error: `The browser configured under Capture — ${configured} — is not there.`,
-    };
-  }
-
-  if (process.platform === "darwin")
-    for (const p of MAC_CANDIDATES)
-      if (existsSync(p)) return { found: true, path: p, source: "application", error: null };
-
-  for (const name of PATH_CANDIDATES) {
-    const p = onPath(name);
-    if (p) return { found: true, path: p, source: "path", error: null };
-  }
-
-  return {
-    found: false,
-    path: null,
-    source: "none",
-    error:
-      "No Chrome or Chromium was found. Looked in /Applications for Google " +
-      "Chrome, Chromium, Brave and Edge, and on PATH for chromium, " +
-      "google-chrome, chromium-browser, google-chrome-stable and brave-browser. " +
-      "Install one, or set the path under the Capture settings.",
-  };
-}
-
-/**
- * A profile directory of this run's own, made fresh and thrown away after.
- *
- * `--user-data-dir` IS LOAD-BEARING AND NOT TIDINESS: without it a headless
- * run reaches for the OWNER'S Chrome profile, which is locked while their
- * browser is open and which this has no business reading.
- *
- * ONE PER RUN RATHER THAN ONE SHARED, and that is not caution either — it is
- * what a shared one actually did on this machine. Chrome puts a
- * `ProcessSingleton` lock in a profile and refuses to start a second instance
- * against it: the screenshot and the DOM dump one minute later failed with
- * "Failed to create a ProcessSingleton for your profile directory. Aborting",
- * and a screenshot run that had already written its PNG hung on shutdown until
- * the 25-second kill. A directory per run cannot contend with itself, and it
- * costs Chrome's fresh-profile init — a second or two — which is a fraction of
- * the page load this is waiting for anyway.
- */
-function profileDir(): string {
-  const base = resolve(DATA_DIR, "chrome-profile");
-  mkdirSync(base, { recursive: true });
-  return mkdtempSync(resolve(base, "run-"));
-}
-
-function dropProfile(dir: string) {
-  try {
-    rmSync(dir, { recursive: true, force: true });
-  } catch {
-    /* A profile that will not delete costs a few megabytes until the next
-       backup prune. It is not worth failing a capture over. */
-  }
-}
-
-/** Chrome's flags, shared by the screenshot and the DOM dump. */
-function baseArgs(profile: string): string[] {
-  const args = [
-    "--headless=new",
-    "--disable-gpu",
-    "--hide-scrollbars",
-    `--window-size=${WIDTH},${HEIGHT}`,
-    `--virtual-time-budget=${VIRTUAL_TIME_MS}`,
-    "--timeout=20000",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-extensions",
-    /* Nothing this does needs the network except the page itself: no sync, no
-       crash upload, no component updates on somebody else's dashboard. */
-    "--disable-background-networking",
-    "--disable-sync",
-    "--disable-crash-reporter",
-    `--user-data-dir=${profile}`,
-  ];
-  /* Chrome's sandbox refuses to start as root, which is how this runs on a
-     server box and never how it runs on the owner's Mac. Added only in the
-     case that needs it, because turning the sandbox off unconditionally would
-     be doing it on the machine where it works. */
-  if (typeof process.getuid === "function" && process.getuid() === 0)
-    args.push("--no-sandbox");
-  return args;
-}
-
-/**
- * RUN THE BROWSER, TAKE ITS OUTPUT, AND END IT.
- *
- * THE BROWSER DOES NOT EXIT ON ITS OWN, AND THAT IS THE WHOLE REASON THIS IS
- * NOT A `execFile` ONE-LINER. Measured on Google Chrome 152.0.7977.76 on
- * macOS, 2026-09-05: `--headless=new --screenshot=…` writes a complete, valid
- * PNG and then sits there; `--headless=new --dump-dom` prints a complete
- * document to stdout and then sits there. Both had to be killed. The old
- * `--headless` mode, which did exit, was removed from Chrome long before this
- * version. So waiting for the process is waiting for something that will not
- * happen, and the first version of this file did exactly that: every capture
- * took the full twenty-five-second cap and only worked because the PNG was
- * already on disk when the kill landed.
- *
- * WHAT IS WAITED FOR INSTEAD IS THE OUTPUT ITSELF, which is the thing that was
- * actually wanted:
- *
- *   a screenshot   the file appears, and its size stops changing between two
- *                  polls a quarter-second apart. A PNG is written in one pass,
- *                  so a size that has settled is a file that is finished.
- *   a DOM dump     stdout carries a `</html>` and then goes quiet for most of
- *                  a second. A document that has closed and stopped growing is
- *                  a document.
- *
- * Then the browser is killed on purpose, which is not a failure and is not
- * reported as one. The wall-clock cap is still there and still means what it
- * says: nothing was produced in time.
- */
-
-/** How often the output is checked. */
-const POLL_MS = 250;
-/** How long stdout must be quiet before a dumped DOM is called finished. */
-const QUIET_MS = 800;
-
-type Run = { ok: boolean; stdout: string; error: string | null };
-
-function run(
-  bin: string,
-  args: string[],
-  want: { file: string } | { dom: true },
-  maxBytes = 32 * 1024 * 1024,
-): Promise<Run> {
-  return new Promise((done) => {
-    const child = spawn(bin, args, { windowsHide: true });
-    const deadline = Date.now() + RUN_MS;
-
-    let out = "";
-    let err = "";
-    let lastOut = Date.now();
-    let overflowed = false;
-    let settled = false;
-    let lastSize = -1;
-
-    child.stdout.on("data", (b: Buffer) => {
-      if (out.length + b.length > maxBytes) {
-        overflowed = true;
-        return;
-      }
-      out += b.toString("utf8");
-      lastOut = Date.now();
-    });
-    child.stderr.on("data", (b: Buffer) => {
-      if (err.length < 16_384) err += b.toString("utf8");
-    });
-
-    const finish = (result: Run) => {
-      if (settled) return;
-      settled = true;
-      clearInterval(timer);
-      /* SIGKILL rather than SIGTERM: a browser that would not exit when it had
-         finished its one job is not a browser that is going to honour a polite
-         request, and every renderer it started is a child of it. */
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* already gone */
-      }
-      done(result);
-    };
-
-    const timer = setInterval(() => {
-      if (Date.now() > deadline) {
-        return finish({
-          ok: false,
-          stdout: out,
-          error:
-            `The browser produced nothing usable within ${RUN_MS / 1000} seconds — ` +
-            (reason(err) ?? "the page was too slow, or never loaded."),
-        });
-      }
-      if (overflowed)
-        return finish({
-          ok: false,
-          stdout: out,
-          error: `The page produced more than ${Math.round(maxBytes / 1024 / 1024)} MB of output, which is more than this reads.`,
-        });
-
-      if ("file" in want) {
-        let size = -1;
-        try {
-          size = existsSync(want.file) ? statSync(want.file).size : -1;
-        } catch {
-          size = -1;
-        }
-        if (size > 0 && size === lastSize) return finish({ ok: true, stdout: out, error: null });
-        lastSize = size;
-        return;
-      }
-
-      if (out.includes("</html>") && Date.now() - lastOut > QUIET_MS)
-        return finish({ ok: true, stdout: out, error: null });
-    }, POLL_MS);
-
-    /* A browser that DOES exit — a bad flag, a missing library, a future
-       version that behaves — is honoured rather than waited out. */
-    child.on("close", (code) => {
-      const enough =
-        "file" in want ? existsSync(want.file) : out.includes("</html>");
-      if (enough) return finish({ ok: true, stdout: out, error: null });
-      finish({
-        ok: false,
-        stdout: out,
-        error: reason(err) ?? `The browser exited with code ${code} and produced nothing.`,
-      });
-    });
-
-    child.on("error", (e) =>
-      finish({ ok: false, stdout: out, error: `The browser could not be started — ${e.message}` }),
-    );
-  });
-}
-
-/**
- * The fault out of Chrome's stderr, or null.
- *
- * Chrome logs a line per subsystem on the way up and several of them are
- * ERRORs that mean nothing (a display link on a machine with no display, a
- * GPU it was told not to use). The LAST line is the one that stopped it — and
- * `err.message` from node is never it, because node's message is "Command
- * failed: " followed by three hundred characters of Chrome flags. That is not
- * a guess: the first version of this file reported exactly that truncated
- * command line and nothing else.
- */
-function reason(stderr: string): string | null {
-  const lines = stderr
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .filter((l) => !/cv_display_link_mac|CVDisplayLinkCreate|GPU|gpu_/i.test(l));
-  const last = lines[lines.length - 1];
-  if (!last) return null;
-  /* Chrome prefixes every line with pid, tid, timestamp and source location.
-     The sentence is after the last "] ". */
-  const i = last.lastIndexOf("] ");
-  return (i >= 0 ? last.slice(i + 2) : last).slice(0, 300);
-}
-
-/* ------------------------------------------------------------------ the PNG */
-
-/**
- * A PNG's own idea of its size, from the IHDR chunk.
- *
- * Read rather than assumed, because the window size is what was ASKED for and
- * the file is what was produced — a device pixel ratio, a page that forced a
- * wider layout, or a Chrome that ignored the flag would all make the two
- * disagree, and the row should say what is in the file.
- */
-function pngSize(bytes: Uint8Array): { width: number; height: number } | null {
-  if (bytes.length < 24) return null;
-  const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  for (let i = 0; i < sig.length; i++) if (bytes[i] !== sig[i]) return null;
-  const u32 = (i: number) =>
-    ((bytes[i]! << 24) | (bytes[i + 1]! << 16) | (bytes[i + 2]! << 8) | bytes[i + 3]!) >>> 0;
-  return { width: u32(16), height: u32(20) };
-}
 
 /* --------------------------------------------------------------- the rows */
 
@@ -420,7 +93,15 @@ export type ShotRow = {
 };
 
 /**
- * The newest CAPTURE of a venture, or the newest successful one.
+ * THE NEWEST CAPTURE OF A VENTURE, or the newest SUCCESSFUL one.
+ *
+ * EXPORTED, because this query was written out three times and the copies
+ * already disagreed: one took the newest row, another added "path IS NOT NULL
+ * AND error IS NULL" and took the newest successful one. So after a single
+ * failed capture, one report printed "the last attempt failed" beside a
+ * verdict on last week's perfectly good picture — two answers about one
+ * venture in one document. `okOnly` makes the difference a PARAMETER the
+ * caller states rather than a rule each copy re-decided.
  *
  * `brand_rendered IS NULL` is what keeps the two kinds of row in this table
  * apart, and it has to be here rather than left to the caller. A rebrand
@@ -430,7 +111,7 @@ export type ShotRow = {
  * failed, with no error". The column's own comment in 061 says NULL means "a
  * capture that did not dump"; this is the other side of that sentence.
  */
-function lastShot(ventureId: string, okOnly = false): ShotRow | undefined {
+export function lastShot(ventureId: string, okOnly = false): ShotRow | undefined {
   return db
     .prepare(
       `SELECT * FROM venture_shots
@@ -441,7 +122,7 @@ function lastShot(ventureId: string, okOnly = false): ShotRow | undefined {
 }
 
 /** The newest rendered-DOM reading, which is the other kind of row here. */
-function lastRendered(ventureId: string): ShotRow | undefined {
+export function lastRendered(ventureId: string): ShotRow | undefined {
   return db
     .prepare(
       `SELECT * FROM venture_shots
@@ -512,26 +193,30 @@ export async function captureVenture(v: VentureRow): Promise<CaptureResult> {
   mkdirSync(SHOTS_DIR, { recursive: true });
   const file = resolve(SHOTS_DIR, `${v.id}-${ts.replace(/[:.]/g, "")}.png`);
 
-  const profile = profileDir();
-  const res = await run(
-    browser.path,
-    [...baseArgs(profile), `--screenshot=${file}`, v.website],
-    { file },
+  /* `shoot` waits on the FILE rather than on the process, because Chrome exits
+     non-zero for things that have nothing to do with whether it took the
+     picture and exits zero having written nothing when the page never loaded.
+     tools/chrome.ts says why at length. */
+  const res = await withProfile((profile) =>
+    shoot({
+      bin: browser.path,
+      args: [...baseArgs({ profile, timeoutMs: RUN_MS }), `--screenshot=${file}`, v.website!],
+      out: file,
+    }),
   );
-  dropProfile(profile);
 
-  /* THE EXIT CODE IS NOT THE TEST — the file is. Chrome exits non-zero for
-     things that have nothing to do with whether it took the picture (a GPU
-     warning, a profile lock it recovered from), and it exits zero having
-     written nothing when the page never loaded. */
-  if (!existsSync(file))
+  /* THE FILE IS THE TEST, not the run's verdict: a page that painted and then
+     hung past the wall-clock cap has still produced the picture, and throwing
+     it away would be this code being right at the owner's expense. A file of
+     zero bytes is not one — Chrome creates the output before it writes to it. */
+  const bytes = existsSync(file) ? readFileSync(file) : null;
+  if (!bytes?.length)
     return fail(
       res.error ?? "The browser ran and wrote no image, which usually means the page never loaded.",
       browser.path,
     );
 
-  const bytes = readFileSync(file);
-  const size = pngSize(bytes);
+  const size = imageDimensions(bytes);
 
   db.prepare(
     `INSERT INTO venture_shots (venture_id, ts, path, bytes, width, height, brand_rendered, error)
@@ -688,14 +373,16 @@ captureRoutes.get("/", (c) => {
     browser: {
       found: browser.found,
       path: browser.path,
-      /* Where the path came from, because "found in /Applications" and "you
-         typed this" are different claims and only one of them is the owner's. */
+      /* Where the path came from, because "found in one of the usual places"
+         and "you typed this" are different claims and only one of them is the
+         owner's. `known` is the former; it read `application` before the
+         search moved into tools/find-binary.ts and stopped being macOS-shaped. */
       source: browser.source,
       error: browser.error,
-      windowSize: `${WIDTH}x${HEIGHT}`,
+      windowSize: `${SHOT_VIEWPORT.width}x${SHOT_VIEWPORT.height}`,
       note:
         "A capture is the top of the page at " +
-        `${WIDTH}x${HEIGHT} after ${VIRTUAL_TIME_MS / 1000}s of loading — not a ` +
+        `${SHOT_VIEWPORT.width}x${SHOT_VIEWPORT.height} after ${VIRTUAL_TIME_MS / 1000}s of loading — not a ` +
         "full-page scroll. The whole run is capped at " +
         `${RUN_MS / 1000}s.`,
     },
@@ -826,25 +513,24 @@ captureRoutes.post("/:ventureKey/rebrand", async (c) => {
   const browser = findBrowser();
   if (!browser.found) return c.json({ error: browser.error }, 400);
 
-  const profile = profileDir();
-  const res = await run(
-    browser.path,
-    [...baseArgs(profile), "--dump-dom", v.website],
-    { dom: true },
+  const res = await withProfile((profile) =>
+    dump({
+      bin: browser.path,
+      args: [...baseArgs({ profile, timeoutMs: RUN_MS }), "--dump-dom", v.website!],
+    }),
   );
-  dropProfile(profile);
-  if (!res.stdout.trim())
+  if (!res.html.trim())
     return c.json(
       { error: res.error ?? "The browser produced no DOM, which usually means the page never loaded." },
       200,
     );
 
-  const reading = readRendered(res.stdout);
+  const reading = readRendered(res.html);
   const ts = now();
   db.prepare(
     `INSERT INTO venture_shots (venture_id, ts, path, bytes, width, height, brand_rendered, error)
      VALUES (?, ?, NULL, ?, NULL, NULL, ?, NULL)`,
-  ).run(v.id, ts, res.stdout.length, JSON.stringify(reading));
+  ).run(v.id, ts, res.html.length, JSON.stringify(reading));
 
   const primary = reading.palette.primary;
   let colourTaken: string | null = null;
@@ -857,7 +543,7 @@ captureRoutes.post("/:ventureKey/rebrand", async (c) => {
   return c.json({
     venture: { id: v.id, slug: v.slug, name: v.name },
     rendered: reading,
-    domBytes: res.stdout.length,
+    domBytes: res.html.length,
     colourTaken,
     colorSource: after.color_source,
     color: after.color,

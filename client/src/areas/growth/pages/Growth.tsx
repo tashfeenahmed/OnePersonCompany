@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { AlertTriangle, Check, Loader2, RefreshCw } from "lucide-react";
+import { Check, RefreshCw } from "lucide-react";
+import { SubTabs } from "@/components/TabStrip";
 import { PageShell } from "@/components/PageShell";
 import { VentureSelect } from "@/components/VentureSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Failed, Loading } from "@/components/ui/state";
 import { useApi } from "@/hooks/useApi";
+import { count, pct } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { growthApi, type AdsHealth, type Authority, type Cro, type Indexing, type SubmitResult } from "@/areas/growth/api";
@@ -53,21 +56,12 @@ export function Growth() {
       wide
       sub="Four readings computed from what this box already collected: how much authority a host has, where a funnel leaks, what has been told to IndexNow, and whether an ad account is healthy."
     >
-      <div className="border-line-soft mb-5 flex gap-1 border-b pb-2">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setParams(t.key === "authority" ? {} : { tab: t.key })}
-            className={cn(
-              "rounded-[8px] px-2.5 py-1 text-[12.5px] transition-colors",
-              tab === t.key ? "bg-card border" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <SubTabs
+        tabs={TABS}
+        activeKey={tab}
+        onSelect={(k) => setParams(k === "authority" ? {} : { tab: k })}
+        rule
+      />
 
       {tab === "authority" && <AuthorityTab />}
       {tab === "cro" && <CroTab />}
@@ -78,23 +72,6 @@ export function Growth() {
 }
 
 /* ------------------------------------------------------------ small parts */
-
-function Loading({ what }: { what: string }) {
-  return (
-    <p className="text-muted-foreground flex items-center gap-2 text-[13px]">
-      <Loader2 className="size-3.5 animate-spin" strokeWidth={1.6} /> reading {what}…
-    </p>
-  );
-}
-
-function Failed({ error }: { error: string }) {
-  return (
-    <p className="text-destructive flex items-start gap-2 text-[13px]">
-      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.6} />
-      {error}
-    </p>
-  );
-}
 
 /** The working, folded away. Open by a press, because an arithmetic block
  *  nobody can see is a score nobody can check. */
@@ -289,15 +266,12 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
             {doc.funnel.steps.map((s, i) => (
               <span key={s.stage} className="flex items-center gap-2">
                 <span className="bg-background rounded-[8px] border px-2.5 py-1.5 text-[12px]">
-                  <span className="text-muted-foreground">{s.stage}</span> <span className="tabular-nums">{s.count.toLocaleString()}</span>
+                  <span className="text-muted-foreground">{s.stage}</span> <span className="tabular-nums">{count(s.count)}</span>
                   <span className="text-muted-foreground text-[11px]"> · {s.key}</span>
                 </span>
                 {i < doc.funnel.transitions.length && (
                   <span className="text-muted-foreground text-[11.5px] tabular-nums" title={doc.funnel.transitions[i]!.why}>
-                    →{" "}
-                    {doc.funnel.transitions[i]!.ratio === null
-                      ? "not computed"
-                      : `${(doc.funnel.transitions[i]!.ratio! * 100).toPrecision(3)}%`}
+                    → {pct(doc.funnel.transitions[i]!.ratio, { digits: 2, nullText: "not computed" })}
                   </span>
                 )}
               </span>

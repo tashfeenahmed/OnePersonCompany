@@ -1,4 +1,5 @@
 import { Download, Film } from "lucide-react";
+import { bytes } from "@/lib/format";
 import { useApi } from "@/hooks/useApi";
 import { videoApi, type VideoJob } from "@/lib/api/video";
 
@@ -64,7 +65,7 @@ export function VideoPanel({ job }: { job: VideoJob }) {
         <span className="text-muted-foreground text-[12px]">
           {job.width && job.height ? `${job.width}×${job.height}` : job.aspect}
           {job.durationS !== null && ` · ${job.durationS.toFixed(1)}s`}
-          {job.bytes !== null && ` · ${(job.bytes / 1024 / 1024).toFixed(1)} MB`}
+          {job.bytes !== null && ` · ${bytes(job.bytes)}`}
         </span>
       </div>
 

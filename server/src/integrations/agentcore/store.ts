@@ -15,7 +15,9 @@
  * able to say that a run it no longer holds did not finish. None of those can
  * be answered from memory, because memory is exactly what was lost.
  */
+import type { RunStatus } from "../../../../shared/runStatus.ts";
 import { configValue, db, now } from "../../db.ts";
+import { NOW, settleOpenRows } from "../../shared/settle.ts";
 import { DEFAULT_RESPONSE_BYTES } from "./bound.ts";
 
 /** The pseudo-plugin the runtime's own settings hang off — no credential, no
@@ -40,7 +42,11 @@ export function responseBudget(): { bytes: number; source: "setting" | "default"
 
 /* ------------------------------------------------------------------- runs */
 
-export type ChatRunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+/* The same five states the run queue uses, from the same declaration. The
+   local name stays: a chat run and a queued agent run are different rows with
+   the same lifecycle, and reading `ChatRunStatus` at a call site says which
+   table is meant. */
+export type ChatRunStatus = RunStatus;
 
 export type ChatRunRow = {
   id: string;
@@ -205,17 +211,18 @@ export function pruneChatRuns(days = 30): number {
  * it was writing" send an owner to two different places.
  */
 export function failInterruptedChatRuns(): number {
-  const info = db
-    .prepare(
-      `UPDATE chat_runs
-          SET status = 'failed',
-              error = ?,
-              finished_at = ?
-        WHERE status IN ('queued','running')`,
-    )
-    .run(
-      "The server restarted while this answer was being written. Whatever had been said is in the transcript, marked as cut off.",
-      now(),
-    );
-  return Number(info.changes ?? 0);
+  return settleOpenRows({
+    table: "chat_runs",
+    /* QUEUED COUNTS AS OPEN HERE and does not elsewhere: a queued chat run is
+       a turn this process was about to answer, not a row on a durable queue
+       something else will pick up. Nothing will ever start it. */
+    openWhen: "status IN ('queued','running')",
+    set: { status: "failed", finished_at: NOW },
+    note: {
+      column: "error",
+      text:
+        "The server restarted while this answer was being written. Whatever had been said " +
+        "is in the transcript, marked as cut off.",
+    },
+  });
 }

@@ -38,6 +38,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { db, now } from "../../db.ts";
+import { registerRetention } from "../../shared/retention.ts";
 
 /**
  * WHAT KIND OF WORK HOLDS THE LEASE. Reported verbatim to the owner and to the
@@ -350,17 +351,27 @@ export function releaseStale(reason = "swept: the lease expired without being re
   return rows.length;
 }
 
-/** Rows older than this are dropped by the collector-side sweep. Sixty days
- *  answers "what has been using the GPU this quarter"; keeping them for ever
- *  would answer nothing better and this table has no cap of its own. */
+/**
+ * Rows older than this are dropped by the box's own sweep. Sixty days answers
+ * "what has been using this machine this quarter"; keeping them for ever would
+ * answer nothing better and this table has no cap of its own.
+ *
+ * AN OPEN LEASE IS NEVER AGED OUT, whatever its date. It is not history, it is
+ * a CLAIM — something believes it still holds this resource — and deleting the
+ * claim would hand the resource to the next caller without anything having
+ * decided that. `releaseStale()` is what closes a lapsed one, and it says on
+ * the row that a sweep did it rather than the job; only then is the row
+ * history and only then does this window reach it.
+ */
 export const RETAIN_DAYS = 60;
-
-export function prune(days = RETAIN_DAYS): number {
-  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-  return Number(
-    db.prepare("DELETE FROM job_leases WHERE released_at IS NOT NULL AND released_at < ?").run(cutoff).changes,
-  );
-}
+registerRetention({
+  table: "job_leases",
+  column: "released_at",
+  days: RETAIN_DAYS,
+  source: "area",
+  where: "released_at IS NOT NULL",
+  note: "Released leases only — an open lease is a claim, not history. Sixty days is a quarter of shared-machine use.",
+});
 
 /* ------------------------------------------------------------ wake ownership */
 

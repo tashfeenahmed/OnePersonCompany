@@ -38,50 +38,36 @@
  * calendar month, which is stated rather than smoothed over.
  */
 import { db, metaCampaigns, ventureRows, type VentureRow } from "../../db.ts";
-import { adDaysSince, campaignVentures, utmOf, type UtmRow } from "./store.ts";
+import { hostOf, sameSite, ventureForHost } from "../../shared/host.ts";
+import { adDaysSince, campaignVentures, eventsOf, siteWindows, utmOf, type UtmRow } from "./store.ts";
 import { adCreatives, adSets } from "./store.ts";
 import { conversionEvents, revenueSources, unitFor } from "./settings.ts";
 import { isoDay, dayStart } from "../analytics/umami.ts";
 
 /* ------------------------------------------------------------------ hosts */
 
-/** A hostname out of anything host-shaped, `www.` removed so `www.x.com` and
- *  `x.com` are one business. */
-export function host(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  let v = String(raw).trim().toLowerCase();
-  if (!v) return null;
-  if (v.includes("://")) {
-    try {
-      v = new URL(v).hostname;
-    } catch {
-      return null;
-    }
-  } else {
-    v = v.split("/")[0]!.split("?")[0]!;
-  }
-  v = v.replace(/^www\./, "").replace(/:\d+$/, "");
-  return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(v) ? v : null;
-}
-
 /**
  * Every hostname mentioned in a piece of text.
  *
- * Meta names campaigns and ad sets after what they promote — the live account
- * carries `Promoting https://example-app-4.example.test/become-a-tutor/apply` and
+ * Advertising platforms name campaigns and ad sets after what they promote —
+ * a live account carried `Promoting https://example.com/apply` and
  * `Promoting website: https://api.whatsapp.com/send` — so the destination is
  * very often sitting in the name as text. Both full URLs and bare hostnames
  * are found, because both forms appear.
+ *
+ * The reducer is `shared/host.ts`'s. It used to be a fifth private copy, with
+ * a looser validating regex than the rest, which is how the same campaign name
+ * produced a host on one page and nothing on another.
  */
 export function hostsIn(text: string | null | undefined): string[] {
   if (!text) return [];
   const out = new Set<string>();
   for (const m of String(text).matchAll(/https?:\/\/[^\s"'<>)\]]+/gi)) {
-    const h = host(m[0]);
+    const h = hostOf(m[0]);
     if (h) out.add(h);
   }
   for (const m of String(text).matchAll(/\b((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})\b/gi)) {
-    const h = host(m[1]);
+    const h = hostOf(m[1]);
     if (h) out.add(h);
   }
   return [...out];
@@ -90,7 +76,7 @@ export function hostsIn(text: string | null | undefined): string[] {
 /** The hostnames one venture answers to: its own `host` column and the host
  *  of its website, which are usually but not always the same. */
 export function ventureHosts(v: VentureRow): string[] {
-  return [...new Set([host(v.host), host(v.website)].filter((h): h is string => Boolean(h)))];
+  return [...new Set([hostOf(v.host), hostOf(v.website)].filter((h): h is string => Boolean(h)))];
 }
 
 /* ------------------------------------------------------------ suggestions */
@@ -125,8 +111,15 @@ export type CampaignSuggestion = {
 export function suggestions(): CampaignSuggestion[] {
   const mapped = new Set(campaignVentures().map((r) => `${r.platform} ${r.campaign_id}`));
   const ventures = ventureRows();
-  const byHost = new Map<string, VentureRow>();
-  for (const v of ventures) for (const h of ventureHosts(v)) if (!byHost.has(h)) byHost.set(h, v);
+  /* WHOSE HOST IS THIS, ASKED THE ONE WAY. `ventureForHost` prefers an exact
+     match over a subdomain one and the longest venture host among subdomain
+     matches, so a campaign pointing at `shop.example.com` is filed to the
+     venture at `shop.example.com` rather than to whichever of it and
+     `example.com` the roster listed first. The exact-host map this replaced
+     saw a subdomain as nobody's, which is the other half of the same bug: the
+     other suggestion engine in this box matched subdomains and this one did
+     not, so the two disagreed about the same campaign. */
+  const owner = (h: string | null): VentureRow | null => ventureForHost(h, ventures);
 
   const sets = adSets();
   const ads = adCreatives();
@@ -169,18 +162,18 @@ export function suggestions(): CampaignSuggestion[] {
     };
 
     for (const h of hostsIn(campaign.name)) {
-      const v = byHost.get(h);
+      const v = owner(h);
       if (v) propose(v, "campaign-name", `The campaign's own name mentions ${h}, which is ${v.name}'s host.`);
     }
     for (const s of setsByCampaign.get(campaign.campaign_id) ?? [])
       for (const h of hostsIn(s.name)) {
-        const v = byHost.get(h);
+        const v = owner(h);
         if (v)
           propose(v, "adset-name", `Its ad set “${s.name}” mentions ${h}, which is ${v.name}'s host.`);
       }
     for (const a of adsByCampaign.get(campaign.campaign_id) ?? []) {
-      const linked = host(a.link_url);
-      const v = linked ? byHost.get(linked) : undefined;
+      const linked = hostOf(a.link_url);
+      const v = owner(linked);
       if (v)
         propose(
           v,
@@ -188,7 +181,7 @@ export function suggestions(): CampaignSuggestion[] {
           `Its advertisement “${a.name}” sends people to ${linked}, which is ${v.name}'s host.`,
         );
       for (const h of hostsIn(a.name)) {
-        const w = byHost.get(h);
+        const w = owner(h);
         if (w) propose(w, "ad-name", `Its advertisement “${a.name}” mentions ${h}, which is ${w.name}'s host.`);
       }
     }
@@ -216,6 +209,170 @@ export function linkedUmamiSites(ventureId: string): string[] {
       .prepare("SELECT entity FROM venture_links WHERE venture_id = ? AND plugin = 'umami' ORDER BY entity")
       .all(ventureId) as { entity: string }[]
   ).map((r) => r.entity);
+}
+
+/**
+ * WHICH UMAMI WEBSITES ARE THIS VENTURE'S.
+ *
+ * The links the owner confirmed first, because a confirmed link is a decision
+ * and a host match is only evidence. Failing those, the sites whose own domain
+ * is this venture's host — through `shared/host.ts`, so this asks the same
+ * question the map, the listings check and the SEO property match ask, and
+ * gets the same answer. It is ONE-DIRECTIONAL: a site at `blog.example.com`
+ * belongs to a venture at `example.com` and never the other way round.
+ */
+export function ventureSites(v: VentureRow): string[] {
+  const linked = linkedUmamiSites(v.id);
+  if (linked.length) return linked;
+  const rows = db
+    .prepare("SELECT website_id, domain FROM umami_websites")
+    .all() as unknown as { website_id: string; domain: string | null }[];
+  return rows
+    .filter((r) => sameSite(v.host ?? v.website, r.domain))
+    .map((r) => r.website_id);
+}
+
+/* --------------------------------------------------- conversion steps */
+
+/** The window every conversion figure in this box is measured over: 30
+ *  COMPLETE days. Today is deliberately outside it — a partial day in the
+ *  numerator of a step, against a denominator that is not partial, invents a
+ *  fall that nothing did. */
+export const CONVERSION_WINDOW_DAYS = 30;
+
+export type ConversionStep = {
+  event: string;
+  websiteId: string;
+  /** True when the owner named this event as one of this venture's conversion
+   *  events. False for every other event the collector found on the site. */
+  named: boolean;
+  /**
+   * SESSIONS THAT FIRED IT. This is the conversion figure and the only one
+   * that may be divided by anything.
+   */
+  participants: number | null;
+  /** Why there is no participant figure. `participants: null` with a reason is
+   *  NOT MEASURED; it is never nought and never the occurrence count. */
+  participantsError: string | null;
+  /**
+   * HOW MANY TIMES IT FIRED, repeats included. NEVER a number of people, and
+   * never a numerator: one connected instance had an event that fired 5,978
+   * times in 4,434 sessions, so publishing this as the step overstates it by a
+   * third.
+   */
+  occurrences: number | null;
+  startDay: string | null;
+  endDay: string | null;
+  /** Set when the owner named the event and the collector has no row for it. */
+  missing: string | null;
+};
+
+export type VentureConversions = {
+  windowDays: number;
+  websites: string[];
+  /**
+   * THE DENOMINATOR, and it is a stored window figure rather than a sum.
+   *
+   * `visits` is the analytics instance's own session count for the same 30
+   * complete days, asked for as a window. It is NOT thirty daily session
+   * counts added up: the window table's own header says two of its five
+   * figures cannot be recovered from a daily line, and the daily line includes
+   * today — a partial day that drags a summed denominator down and inflates
+   * every step computed against it. A step measured that way ran about a third
+   * high on the live instance this was found on.
+   */
+  sessions: {
+    websiteId: string;
+    visits: number | null;
+    visitors: number | null;
+    startDay: string | null;
+    endDay: string | null;
+    /** Which window table answered. See `siteWindows`. */
+    source: string | null;
+  }[];
+  steps: ConversionStep[];
+  /** Why there is nothing here, where there is nothing. */
+  note: string | null;
+};
+
+/**
+ * ONE READER FOR CONVERSION STEPS, OVER `web_events`.
+ *
+ * THERE USED TO BE TWO, AND THEY DISAGREED BY DESIGN. One counted event
+ * OCCURRENCES out of a top-N ranking table and divided them by summed daily
+ * sessions; this one counts PARTICIPANTS — sessions that fired the event —
+ * against the window's own session figure. The two populations are not the
+ * same population and the ratio between them is not a rate.
+ *
+ * WHAT THIS DOES NOT ASSERT, and the reason the type is called steps rather
+ * than a funnel: nothing here establishes that the sessions at one step are a
+ * subset of the sessions at another. These are independent counts over one
+ * window. A ratio between two of them may be quoted as exactly that.
+ *
+ * Every event the collector holds for the venture's sites is returned, with
+ * `named` marking the ones the owner listed as this venture's conversions, so
+ * a caller that wants the owner's list and a caller that wants everything read
+ * the same rows.
+ */
+export function conversionSteps(venture: VentureRow): VentureConversions {
+  const websites = ventureSites(venture);
+  const wanted = conversionEvents().get(venture.slug.toLowerCase()) ?? [];
+  const windows = new Map<string, ReturnType<typeof siteWindows>[number]>();
+  for (const w of siteWindows())
+    if (w.window_days === CONVERSION_WINDOW_DAYS && w.offset_days === 0)
+      windows.set(w.website_id, w);
+
+  const steps: ConversionStep[] = [];
+  for (const websiteId of websites) {
+    const rows = eventsOf(websiteId, CONVERSION_WINDOW_DAYS);
+    for (const r of rows)
+      steps.push({
+        event: r.event_name,
+        websiteId,
+        named: wanted.includes(r.event_name),
+        participants: r.participants,
+        participantsError: r.participants_error,
+        occurrences: r.occurrences,
+        startDay: r.start_day,
+        endDay: r.end_day,
+        missing: null,
+      });
+    for (const event of wanted)
+      if (!rows.some((r) => r.event_name === event))
+        steps.push({
+          event,
+          websiteId,
+          named: true,
+          participants: null,
+          participantsError: null,
+          occurrences: null,
+          startDay: null,
+          endDay: null,
+          missing: `No “${event}” row was collected for this site over ${CONVERSION_WINDOW_DAYS} complete days.`,
+        });
+  }
+
+  return {
+    windowDays: CONVERSION_WINDOW_DAYS,
+    websites,
+    sessions: websites.map((websiteId) => {
+      const w = windows.get(websiteId);
+      return {
+        websiteId,
+        visits: w?.visits ?? null,
+        visitors: w?.visitors ?? null,
+        startDay: w?.start_day ?? null,
+        endDay: w?.end_day ?? null,
+        source: w?.source ?? null,
+      };
+    }),
+    steps,
+    note: !websites.length
+      ? `No analytics website is linked to “${venture.slug}” and none carries its host, so there is nothing to read a step from.`
+      : !wanted.length
+        ? `No conversion events are named for “${venture.slug}”. Nothing in the analytics instance says which event matters; set them under Integrations → Web analytics.`
+        : null,
+  };
 }
 
 /* --------------------------------------------------------------- the join */
@@ -396,33 +553,18 @@ export function joinFor(venture: VentureRow, windowDays: number): VentureJoin {
       );
   }
 
-  /* ---- conversions, from the setting ---- */
-  const wanted = conversionEvents().get(venture.slug.toLowerCase()) ?? [];
-  const conversions: VentureJoin["conversions"] = [];
-  if (!wanted.length)
-    notes.push(
-      `No conversion events are named for “${venture.slug}”. Nothing in Umami says which event matters; set them under Integrations → Web analytics.`,
-    );
-  else if (sites.length) {
-    const q = sites.map(() => "?").join(",");
-    for (const event of wanted) {
-      const rows = db
-        .prepare(
-          `SELECT website_id, occurrences, participants FROM web_events
-            WHERE website_id IN (${q}) AND window_days = 30 AND event_name = ?`,
-        )
-        .all(...sites, event) as { website_id: string; occurrences: number | null; participants: number | null }[];
-      if (!rows.length)
-        notes.push(`No “${event}” row was collected for this venture's sites over 30 complete days.`);
-      for (const r of rows)
-        conversions.push({
-          event,
-          websiteId: r.website_id,
-          occurrences: r.occurrences,
-          participants: r.participants,
-        });
-    }
-  }
+  /* ---- conversions, from the ONE reader over web_events ---- */
+  const measured = conversionSteps(venture);
+  const conversions: VentureJoin["conversions"] = measured.steps
+    .filter((s) => s.named)
+    .map((s) => ({
+      event: s.event,
+      websiteId: s.websiteId,
+      occurrences: s.occurrences,
+      participants: s.participants,
+    }));
+  if (measured.note) notes.push(measured.note);
+  for (const s of measured.steps) if (s.named && s.missing) notes.push(s.missing);
 
   return {
     venture: { id: venture.id, slug: venture.slug, name: venture.name, stage: venture.stage },

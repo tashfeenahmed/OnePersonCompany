@@ -633,7 +633,9 @@ export type PresenceProduct = {
   product: string;
   host: string;
   sources: PresenceCell[];
-  candidates: { source: string; url: string | null; note: string | null }[];
+  /** `url` is never null here: the route only offers a candidate it can link
+   *  to, and filters out the rows it cannot. */
+  candidates: { source: string; url: string; note: string | null }[];
   summary: {
     present: number;
     absent: number;
@@ -702,7 +704,7 @@ export type AuditVentureRow = {
    *  fault, and no card below colours it red. */
   robots: boolean | null;
   /** WHERE THE SITE ACTUALLY ANSWERED, as a URL and not a hostname —
-   *  "https://support.example.test/" — because that is what the crawler followed the
+   *  "https://example.com/" — because that is what the crawler followed the
    *  redirects to. Anything comparing it to a venture's `host` has to take the
    *  hostname out of it first; `hostOf` in lib/liveWidgets.ts is that. Null
    *  when nothing answered. */
@@ -716,7 +718,12 @@ export type AuditOverview = {
 
 /* ------------------------------------------------------------------- runs */
 
-export type AgentRunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+/* The one run vocabulary, from the repo-root `shared/runStatus.ts`. The name
+   stays local because the board's document calls the field that, but the SET
+   is not the board's to decide — a sixth status added to the table has to
+   reach every reader of it at once. */
+export type { RunStatus as AgentRunStatus } from "../../../../shared/runStatus";
+import type { RunStatus as AgentRunStatus } from "../../../../shared/runStatus";
 
 /**
  * One piece of long agent work, as the ledger holds it.

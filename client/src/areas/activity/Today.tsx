@@ -1,3 +1,4 @@
+import { count, money } from "@/lib/format";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { activityApi, type LeakageBucket } from "@/lib/api/activity";
@@ -22,11 +23,6 @@ import { activityApi, type LeakageBucket } from "@/lib/api/activity";
  * refusal `combined: null` makes on the wire.
  */
 
-function amount(n: number | null, currency: string): string {
-  if (n === null) return "—";
-  return `${n.toLocaleString("en-IE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency.toUpperCase()}`;
-}
-
 function Bucket({ b, currency }: { b: LeakageBucket; currency: string }) {
   return (
     <div className="bg-card rounded-[10px] border px-3.5 py-3">
@@ -37,10 +33,10 @@ function Bucket({ b, currency }: { b: LeakageBucket; currency: string }) {
             b.amount === null && "text-muted-foreground",
           )}
         >
-          {amount(b.amount, currency)}
+          {money(b.amount, currency)}
         </span>
         <span className="text-muted-foreground text-[12px]">
-          {b.count !== null && b.count > 0 ? `${b.count.toLocaleString()} · ` : ""}
+          {b.count !== null && b.count > 0 ? `${count(b.count)} · ` : ""}
           {b.window}
         </span>
       </div>
@@ -73,7 +69,7 @@ export function Today({ days }: { days: number }) {
           <div className="mb-3 flex flex-wrap items-baseline gap-x-6 gap-y-2">
             <div>
               <div className="text-[25px] font-normal tracking-[-0.03em] tabular-nums">
-                {amount(c.totals.window, c.currency)}
+                {money(c.totals.window, c.currency)}
               </div>
               <div className="text-muted-foreground mt-0.5 text-[11.5px]">
                 left in the last {c.totals.windowLabel} · {c.totals.windowIs}
@@ -81,7 +77,7 @@ export function Today({ days }: { days: number }) {
             </div>
             <div>
               <div className="text-[25px] font-normal tracking-[-0.03em] tabular-nums">
-                {amount(c.totals.perMonth, c.currency)}
+                {money(c.totals.perMonth, c.currency)}
               </div>
               <div className="text-muted-foreground mt-0.5 text-[11.5px]">
                 per month · {c.totals.perMonthIs}
@@ -120,7 +116,7 @@ export function Today({ days }: { days: number }) {
             >
               (at list, had they paid){" "}
               <span className="text-foreground tabular-nums">
-                {amount(c.counts.listedIfBilled, c.currency)}/mo
+                {money(c.counts.listedIfBilled, c.currency)}/mo
               </span>
             </span>
           </div>
@@ -145,7 +141,7 @@ export function Today({ days }: { days: number }) {
 
       <p className="text-muted-foreground mt-2.5 text-[11.5px] leading-relaxed">
         {d.coverage.note} Charge days from {d.coverage.chargeDaysFrom ?? "—"};{" "}
-        {d.coverage.subscriptions.toLocaleString()} subscriptions in the book.
+        {count(d.coverage.subscriptions)} subscriptions in the book.
       </p>
     </>
   );

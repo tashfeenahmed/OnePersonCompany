@@ -856,7 +856,7 @@ export const useLive = () => useContext(LiveContext);
  * those are and why.
  *
  * THE VENTURE'S LINKS COME IN BESIDE ITS HOSTS, and either of them is enough.
- * A link is the owner having said "this Cloudflare zone is Example App 1's", which
+ * A link is the owner having said "this zone belongs to that venture", which
  * is a stronger statement than a hostname that happens to match — and the only
  * statement there is for a thing with no hostname at all, like a fleet box. So
  * a venture with links and no website narrows properly instead of falling
@@ -901,7 +901,7 @@ export function ScopeProvider({
       scope: {
         hosts: list,
         entities: links,
-        /* The hosts name the scope wherever there are any: "support.example.test" is
+        /* The hosts name the scope wherever there are any: the hostname is
            what the owner calls this, and "7 links" is a count the board's own
            sub-line already carries. A venture with no website is named by the
            only thing it has — what it has been linked to. */
@@ -936,15 +936,6 @@ export function deltaOver(points: Point[]): number | null {
   const spanMs = Date.parse(last.ts) - Date.parse(first.ts);
   if (spanMs < 86_400_000 || !first.value) return null;
   return Number((((last.value - first.value) / first.value) * 100).toFixed(1));
-}
-
-export function ago(iso: string | null | undefined): string {
-  if (!iso) return "never";
-  const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 }
 
 /**

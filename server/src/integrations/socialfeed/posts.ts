@@ -47,7 +47,7 @@ import * as meta from "../../providers/meta.ts";
    exists so the publishing pipeline can be rehearsed; this reader has nothing
    to rehearse and takes the live one. */
 import { liveTransport } from "../../providers/social.ts";
-import { destinationRows, META_PLUGIN } from "../publishing/destinations.ts";
+import { mappedPages, META_PLUGIN } from "../publishing/destinations.ts";
 import { SOCIALFEED_PLUGIN } from "./novelty.ts";
 
 /** How many posts are read per Page. Meta pages its edges and this is one
@@ -227,8 +227,8 @@ export async function readPosts(): Promise<ReadResult> {
     return { ok: false, at, pages: 0, posts: 0, problems: [], instagram: 0, error: "A read was already in flight." };
   reading = true;
   try {
-    const destinations = destinationRows().filter((d) => d.plugin_id === META_PLUGIN);
-    if (!destinations.length)
+    const mapped = mappedPages();
+    if (!mapped.length)
       return {
         ok: false,
         at,
@@ -241,14 +241,12 @@ export async function readPosts(): Promise<ReadResult> {
           "business. Probe them under Social media → Publishing first; nothing here guesses a mapping.",
       };
 
-    /* The owner's mapping, taken from the destination rows: page id → venture.
-       Read once rather than per post. */
-    const ventureOf = new Map<string, string>();
-    const labelOf = new Map<string, string>();
-    for (const d of destinations) {
-      if (d.kind === "page") ventureOf.set(d.external_id, d.venture_id);
-      if (d.handle) labelOf.set(d.external_id, d.handle);
-    }
+    /* The owner's mapping, page id → venture, out of the ONE accessor that
+       answers that question — see publishing/destinations.ts. This used to be
+       built inline from the same query, which is how a Page re-mapped to
+       another venture came to be filed two ways. Read once rather than per
+       post. */
+    const ventureOf = new Map(mapped.map((p) => [p.externalId, p.ventureId]));
 
     const { ready } = accounts.credentialed(META_PLUGIN, ["token"], "socialfeed_posts");
     const problems: { page: string; error: string }[] = [];
@@ -470,10 +468,7 @@ export function startPostsTimer() {
     try {
       const last = lastRead();
       if (last && Date.now() - Date.parse(last) < READ_EVERY_MS) return;
-      const any = db
-        .prepare("SELECT COUNT(*) AS n FROM publish_destinations WHERE plugin_id = 'meta' AND kind = 'page'")
-        .get() as { n: number } | undefined;
-      if (!any?.n) return;
+      if (!mappedPages().length) return;
       void readPosts().catch(() => {
         /* A read that throws has already written whatever it managed. The
            timer must not die with it. */

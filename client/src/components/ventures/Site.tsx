@@ -10,6 +10,7 @@ import {
   type Rebrand,
   type RenderedReading,
 } from "@/lib/api/ventures";
+import { bytes } from "@/lib/format";
 
 /**
  * WHAT THE SITE ACTUALLY LOOKS LIKE, AND WHAT COLOURS IT ACTUALLY USES.
@@ -160,7 +161,7 @@ export function Site({ venture }: { venture: Venture }) {
                     {mine.last?.width && mine.last.height
                       ? ` · ${mine.last.width}×${mine.last.height}`
                       : ""}
-                    {mine.last?.bytes ? ` · ${kb(mine.last.bytes)}` : ""}
+                    {mine.last?.bytes ? ` · ${bytes(mine.last.bytes)}` : ""}
                     {data && ` · re-taken every ${data.refreshEveryDays} days`}
                     {mine.due && " · due for a fresh one"}
                     {mine.picture.onDisk === false &&
@@ -356,8 +357,4 @@ function source(kind: "owner" | "site" | "default"): string {
   return "one of the seven defaults";
 }
 
-function kb(bytes: number): string {
-  return bytes < 1024 * 1024
-    ? `${Math.round(bytes / 1024)} kB`
-    : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
+

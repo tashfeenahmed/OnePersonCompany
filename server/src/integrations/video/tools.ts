@@ -1,19 +1,22 @@
 /**
- * THE FOUR BINARIES THIS AREA SHELLS OUT TO, AND HOW IT FINDS THEM.
+ * THE BINARIES THIS AREA SHELLS OUT TO, AND HOW IT RUNS THEM.
  *
  * Everything else on this box is HTTP. Video is not: cutting, scaling and
  * encoding a 1080x1920 file is ffmpeg's job, downloading a YouTube video is
  * yt-dlp's, and neither has an API. So this area runs processes, and the whole
- * of that decision — where a binary is, whether it is there, what it is allowed
- * to be told, how long it may take — is in this one file, so no pipeline below
- * grows its own idea of it.
+ * of that decision — which binary, what it is allowed to be told, how long it
+ * may take — is in this one file, so no pipeline below grows its own idea of
+ * it. The typesetter is named by runs/typst.ts instead: it is the papers
+ * area's tool and captions borrow it, and having video name it a second time
+ * under a second settings key is exactly the bug that left every video
+ * captionless on a box that had typst installed.
  *
- * DISCOVERY IS PROBED AND NOT ASSUMED, and it follows papers.ts's pattern
- * exactly: a configured path first, then the two or three places a package
- * manager puts things, then PATH. THE PATHS DIFFER PER MACHINE — this is a
- * laptop with Homebrew, the next install will be a Linux box with apt — so a
- * constant would be a feature that works here and nowhere else, which is the
- * one thing every feature in this codebase is forbidden to be.
+ * DISCOVERY IS NOT HERE ANY MORE. Four areas wrote the same twenty lines of
+ * "a configured path, then the places a package manager puts things, then
+ * PATH", and two of them had `onPath` byte for byte identical; it lives once
+ * in tools/find-binary.ts and this file only names the binaries. THE PATHS
+ * DIFFER PER MACHINE — one install is a laptop with Homebrew, the next a Linux
+ * box with apt — which is why discovery is probed at all.
  *
  * NO ARGUMENT IS EVER A STRING THE OWNER TYPED, joined into a shell. Every
  * call below is `execFile` with an ARRAY, so there is no shell, no quoting
@@ -31,9 +34,8 @@
  * of what is actually there. See that file for the three ways it can go.
  */
 import { execFile } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
-import { resolve } from "node:path";
-import { configValue } from "../../db.ts";
+import { statSync } from "node:fs";
+import { findBinary, type Binary, type ConfigKey } from "../../tools/find-binary.ts";
 
 /** The settings plugin. Config only — there is no video credential; the one
  *  key this area needs (Pexels) belongs to the stock plugin that already
@@ -42,70 +44,34 @@ export const VIDEO_PLUGIN = "video";
 
 /* --------------------------------------------------------------- discovery */
 
-export type Tool = {
-  name: string;
-  /** Absolute path, or null when nothing was found. */
-  path: string | null;
-  /** Where it came from, so a page can say "the one you configured" rather
-   *  than just naming a path. */
-  source: "configured" | "known" | "path" | "none";
-  /** Why there is none, in a sentence somebody can act on. Null when found. */
-  error: string | null;
-};
+/** A settings key under the Video page. `label` is what a failure sentence
+ *  tells somebody to go and open, so it names a screen and not a table. */
+const videoKey = (key: string): ConfigKey => ({
+  plugin: VIDEO_PLUGIN,
+  key,
+  label: "the Video settings",
+});
 
-/** The places a package manager puts a binary on the two systems this is
- *  likely to run on. Homebrew on Apple silicon, Homebrew on Intel, and the
- *  two Linux prefixes. PATH is asked after all of them. */
-const PREFIXES = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/snap/bin"];
+export const findFfmpeg = (): Binary =>
+  findBinary({
+    name: "ffmpeg",
+    configKeys: [videoKey("ffmpeg")],
+    install: "brew install ffmpeg, or apt install ffmpeg",
+  });
 
-function onPath(name: string): string | null {
-  for (const dir of (process.env.PATH ?? "").split(":")) {
-    if (!dir) continue;
-    const p = resolve(dir, name);
-    if (existsSync(p)) return p;
-  }
-  return null;
-}
+export const findFfprobe = (): Binary =>
+  findBinary({
+    name: "ffprobe",
+    configKeys: [videoKey("ffprobe")],
+    install: "it ships with ffmpeg",
+  });
 
-/**
- * One binary, found or explained.
- *
- * `configKey` names the setting that overrides discovery. A configured path
- * that is not there is a HARD failure rather than a fall-through to the
- * probe: the owner said where it is, and quietly using a different one would
- * make the setting a lie the next time somebody read it.
- */
-export function findTool(name: string, configKey: string, install: string): Tool {
-  const configured = (configValue(VIDEO_PLUGIN, configKey) ?? "").trim();
-  if (configured) {
-    if (existsSync(configured)) return { name, path: configured, source: "configured", error: null };
-    return {
-      name,
-      path: null,
-      source: "none",
-      error: `The ${name} configured under the Video settings — ${configured} — is not there.`,
-    };
-  }
-  for (const dir of PREFIXES) {
-    const p = `${dir}/${name}`;
-    if (existsSync(p)) return { name, path: p, source: "known", error: null };
-  }
-  const found = onPath(name);
-  if (found) return { name, path: found, source: "path", error: null };
-  return {
-    name,
-    path: null,
-    source: "none",
-    error:
-      `No ${name} was found. Looked in ${PREFIXES.join(", ")} and on PATH. ` +
-      `Install it (${install}) or set its path under the Video settings.`,
-  };
-}
-
-export const findFfmpeg = () => findTool("ffmpeg", "ffmpeg", "brew install ffmpeg, or apt install ffmpeg");
-export const findFfprobe = () => findTool("ffprobe", "ffprobe", "it ships with ffmpeg");
-export const findYtDlp = () => findTool("yt-dlp", "ytdlp", "brew install yt-dlp, or pipx install yt-dlp");
-export const findTypstBin = () => findTool("typst", "typst", "brew install typst");
+export const findYtDlp = (): Binary =>
+  findBinary({
+    name: "yt-dlp",
+    configKeys: [videoKey("ytdlp")],
+    install: "brew install yt-dlp, or pipx install yt-dlp",
+  });
 
 /* ----------------------------------------------------------------- running */
 

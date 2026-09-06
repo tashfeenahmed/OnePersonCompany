@@ -1,3 +1,4 @@
+import { duration as span } from "@/lib/format";
 import type { RunStatus, RunSummary } from "@/lib/api/runs";
 
 /**
@@ -6,32 +7,31 @@ import type { RunStatus, RunSummary } from "@/lib/api/runs";
  * A .ts beside the components rather than inside one of them: five files draw
  * a run's status and a run's duration, and the fifth copy is the one that
  * starts saying "0.0s" where the others say "still going".
+ *
+ * THE DURATION ITSELF IS `@/lib/format`'s. It was written here in
+ * milliseconds and, under the same name, in seconds on the integration
+ * panels — one signature, a factor of a thousand apart, so importing the wrong
+ * one drew a four-second run as "1h 6m" with nothing to catch it.
  */
 
 /**
- * How long it took, in the largest unit that is still honest.
+ * DEPRECATED: call `duration` from `@/lib/format` and pass the word absence
+ * means as `nullText`.
  *
- * NULL IS NOT ZERO and is not drawn as a duration at all — a run that has not
- * finished has no duration, and "0.0s" beside a report being written is the
- * interface making something up. The callers pass null straight through to a
- * word.
+ * The shared one answers with a word for a run that has not finished; this
+ * shim answers with `null` so the callers that still write `?? "still going"`
+ * keep meaning it. Nothing here computes a duration — only the absent case
+ * differs.
  */
 export function duration(ms: number | null): string | null {
-  if (ms === null || !Number.isFinite(ms) || ms < 0) return null;
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  const s = ms / 1000;
-  if (s < 90) return `${s.toFixed(1)}s`;
-  const m = Math.floor(s / 60);
-  const rest = Math.round(s - m * 60);
-  return m < 60 ? `${m}m ${rest}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+  return ms === null || !Number.isFinite(ms) || ms < 0 ? null : span(ms);
 }
 
 /** How long a run has been going, from its start to now. Used only while it is
  *  running, where the server's `ms` is not written yet. */
 export function since(iso: string | null): string | null {
-  if (!iso) return null;
-  const ms = Date.now() - Date.parse(iso);
-  return Number.isFinite(ms) && ms >= 0 ? duration(ms) : null;
+  const ms = iso ? Date.now() - Date.parse(iso) : Number.NaN;
+  return Number.isFinite(ms) && ms >= 0 ? span(ms) : null;
 }
 
 /** The status as a sentence fragment a row can end with. */

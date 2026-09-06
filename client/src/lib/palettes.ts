@@ -6,10 +6,10 @@
  * palette is a fact about what they want the thing to look like. So every
  * palette below ships a COMPLETE light block and a COMPLETE dark block, and
  * picking one never overrides the mode: a person on Coral who moves to a dark
- * office at six still gets dark Coral. This is the arrangement WorkDash's
- * `src/theme.ts` arrived at over seven palettes, ported here with generic
- * names, because a dashboard skinned after somebody else's company is a
- * dashboard that says something about them rather than about the owner.
+ * office at six still gets dark Coral. This is the arrangement seven palettes
+ * of an earlier system arrived at, carried here with generic names, because a
+ * dashboard skinned after somebody else's company is a dashboard that says
+ * something about them rather than about the owner.
  *
  * WHY THE TOKENS LIVE IN TYPESCRIPT AND NOT IN index.css. Two reasons, and the
  * second is the one that decided it:

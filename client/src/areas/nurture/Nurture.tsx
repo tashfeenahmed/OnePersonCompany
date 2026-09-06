@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { Loader2, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { SubTabs } from "@/components/TabStrip";
+import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,20 +46,18 @@ type Tab = (typeof TABS)[number];
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—");
 
-function Tag({ tone, children }: { tone: "ok" | "warn" | "bad" | "muted"; children: React.ReactNode }) {
-  return (
-    <span
-      className={cn(
-        "rounded border px-1 py-px text-[11px]",
-        tone === "ok" && "border-ok/40 text-ok",
-        tone === "warn" && "border-warn/40 text-warn",
-        tone === "bad" && "border-destructive/40 text-destructive",
-        tone === "muted" && "border-line-soft text-muted-foreground",
-      )}
-    >
-      {children}
-    </span>
-  );
+/**
+ * A state pill. FOUR TONES, AND THEY ARE THE SHARED ONES.
+ *
+ * This drew its own border-tinted pill while two other areas drew a
+ * background-tinted one and a third drew a filled badge, so "ok" was three
+ * colour languages for one idea. The tone names stay — they are what this
+ * page's twelve call sites read as — and the drawing is `Badge`.
+ */
+const TONE = { ok: "ok", warn: "warn", bad: "destructive", muted: "outline" } as const;
+
+function Tag({ tone, children }: { tone: keyof typeof TONE; children: React.ReactNode }) {
+  return <Badge variant={TONE[tone]}>{children}</Badge>;
 }
 
 /* ------------------------------------------------------------- sequences */
@@ -273,102 +274,102 @@ function Enrollments() {
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap gap-1">
-        {["", "active", "stopped", "done"].map((s) => (
-          <button
-            key={s || "all"}
-            onClick={() => setStatus(s)}
-            className={cn(
-              "rounded-lg border px-2.5 py-1 text-[12.5px]",
-              status === s ? "bg-muted border-border" : "border-line-soft hover:bg-muted/50",
-            )}
-          >
-            {s || "Everyone"}
-          </button>
-        ))}
-        <button className="text-muted-foreground ml-auto text-[12.5px] underline" onClick={doc.reload}>
-          Refresh
-        </button>
-      </div>
-      {doc.error && <p role="alert" className="text-destructive text-[13px]">{doc.error}</p>}
-      {doc.data?.items.length === 0 && (
-        <p className="text-muted-foreground text-[13px]">Nobody is in a sequence in this view.</p>
-      )}
-      {doc.data?.items.map((e: Enrollment) => (
-        <div key={e.id} className="bg-card border-line-soft mb-2 rounded-xl border p-3">
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className="text-[13px]">{e.name ? `${e.name} · ${e.address}` : e.address}</span>
-            {e.status === "active" && !e.blocked && <Tag tone="ok">active</Tag>}
-            {e.status === "active" && e.blocked && <Tag tone="warn">held</Tag>}
-            {e.status === "stopped" && <Tag tone="muted">stopped</Tag>}
-            {e.status === "done" && <Tag tone="muted">finished</Tag>}
-            <span className="text-muted-foreground text-[11.5px]">{e.sequenceName}</span>
+          <div className="mb-3 flex flex-wrap gap-1">
+            {["", "active", "stopped", "done"].map((s) => (
+              <button
+                key={s || "all"}
+                onClick={() => setStatus(s)}
+                className={cn(
+                  "rounded-lg border px-2.5 py-1 text-[12.5px]",
+                  status === s ? "bg-muted border-border" : "border-line-soft hover:bg-muted/50",
+                )}
+              >
+                {s || "Everyone"}
+              </button>
+            ))}
+            <button className="text-muted-foreground ml-auto text-[12.5px] underline" onClick={doc.reload}>
+              Refresh
+            </button>
           </div>
-          <div className="text-muted-foreground mt-0.5 text-[11.5px]">
-            step {e.step} · enrolled {when(e.enrolledAt)}
-            {e.nextDue && e.status === "active" && ` · next due ${when(e.nextDue)}`}
-            {e.lastDraftAt && ` · last drafted ${when(e.lastDraftAt)}`}
-          </div>
-          {e.blocked && (
-            <p className="text-warn mt-1.5 text-[12px]">
-              Held, and nothing was written: {e.blocked}. This is not a stop — it resumes on its own.
-            </p>
+          {doc.error && <p role="alert" className="text-destructive text-[13px]">{doc.error}</p>}
+          {doc.data?.items.length === 0 && (
+            <p className="text-muted-foreground text-[13px]">Nobody is in a sequence in this view.</p>
           )}
-          {e.stopReason && <p className="text-muted-foreground mt-1.5 text-[12px]">Stopped — {e.stopReason}</p>}
-          {e.status === "active" && (
-            <div className="mt-2 flex gap-1.5">
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy === e.id}
-                onClick={async () => {
-                  setBusy(e.id);
-                  try {
-                    await nurtureApi.stop(e.id, "stopped from the Nurture page");
-                    doc.reload();
-                  } finally {
-                    setBusy(null);
-                  }
-                }}
-              >
-                Stop
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy === e.id}
-                onClick={async () => {
-                  if (!confirm(`Record that ${e.address} asked not to be written to again? This is permanent and covers every sequence, including ones written later.`)) return;
-                  setBusy(e.id);
-                  try {
-                    await nurtureApi.optOut(e.address, "asked not to be written to");
-                    doc.reload();
-                  } finally {
-                    setBusy(null);
-                  }
-                }}
-              >
-                They asked to be left alone
-              </Button>
+          {doc.data?.items.map((e: Enrollment) => (
+            <div key={e.id} className="bg-card border-line-soft mb-2 rounded-xl border p-3">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-[13px]">{e.name ? `${e.name} · ${e.address}` : e.address}</span>
+                {e.status === "active" && !e.blocked && <Tag tone="ok">active</Tag>}
+                {e.status === "active" && e.blocked && <Tag tone="warn">held</Tag>}
+                {e.status === "stopped" && <Tag tone="muted">stopped</Tag>}
+                {e.status === "done" && <Tag tone="muted">finished</Tag>}
+                <span className="text-muted-foreground text-[11.5px]">{e.sequenceName}</span>
+              </div>
+              <div className="text-muted-foreground mt-0.5 text-[11.5px]">
+                step {e.step} · enrolled {when(e.enrolledAt)}
+                {e.nextDue && e.status === "active" && ` · next due ${when(e.nextDue)}`}
+                {e.lastDraftAt && ` · last drafted ${when(e.lastDraftAt)}`}
+              </div>
+              {e.blocked && (
+                <p className="text-warn mt-1.5 text-[12px]">
+                  Held, and nothing was written: {e.blocked}. This is not a stop — it resumes on its own.
+                </p>
+              )}
+              {e.stopReason && <p className="text-muted-foreground mt-1.5 text-[12px]">Stopped — {e.stopReason}</p>}
+              {e.status === "active" && (
+                <div className="mt-2 flex gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy === e.id}
+                    onClick={async () => {
+                      setBusy(e.id);
+                      try {
+                        await nurtureApi.stop(e.id, "stopped from the Nurture page");
+                        doc.reload();
+                      } finally {
+                        setBusy(null);
+                      }
+                    }}
+                  >
+                    Stop
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy === e.id}
+                    onClick={async () => {
+                      if (!confirm(`Record that ${e.address} asked not to be written to again? This is permanent and covers every sequence, including ones written later.`)) return;
+                      setBusy(e.id);
+                      try {
+                        await nurtureApi.optOut(e.address, "asked not to be written to");
+                        doc.reload();
+                      } finally {
+                        setBusy(null);
+                      }
+                    }}
+                  >
+                    They asked to be left alone
+                  </Button>
+                </div>
+              )}
+              {e.history.length > 0 && (
+                <details className="mt-2">
+                  <summary className="text-muted-foreground cursor-pointer text-[11.5px]">
+                    What happened ({e.history.length})
+                  </summary>
+                  <ul className="mt-1 space-y-0.5">
+                    {e.history.map((h, i) => (
+                      <li key={i} className="text-muted-foreground text-[11.5px]">
+                        {when(h.at)} — {h.what}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
-          )}
-          {e.history.length > 0 && (
-            <details className="mt-2">
-              <summary className="text-muted-foreground cursor-pointer text-[11.5px]">
-                What happened ({e.history.length})
-              </summary>
-              <ul className="mt-1 space-y-0.5">
-                {e.history.map((h, i) => (
-                  <li key={i} className="text-muted-foreground text-[11.5px]">
-                    {when(h.at)} — {h.what}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </div>
-      ))}
-      {doc.data && <p className="text-muted-foreground/70 mt-6 text-[11.5px]">{doc.data.note}</p>}
+          ))}
+          {doc.data && <p className="text-muted-foreground/70 mt-6 text-[11.5px]">{doc.data.note}</p>}
     </>
   );
 }
@@ -679,114 +680,106 @@ export function Nurture() {
   const d = doc.data;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
-      <div className="mx-auto w-full max-w-[940px]">
-        <div className="mt-2 mb-5">
-          <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">Nurture</h1>
-          <p className="text-muted-foreground text-[13.5px]">
-            Sequences that WRITE. A step that comes due becomes a draft in the Outbox with the facts that
-            justify it printed beside it — and stays there until you approve and send it. Nothing on this page
-            can send anything.
-          </p>
-        </div>
+    <PageShell
+      title="Nurture"
+      sub={
+        <>
+          Sequences that WRITE. A step that comes due becomes a draft in the Outbox with the facts that
+          justify it printed beside it — and stays there until you approve and send it. Nothing on this page
+          can send anything.
+        </>
+      }
+    >
+      {d && (
+        <p className="text-muted-foreground mb-4 text-[11.5px] leading-relaxed">
+          The daily pass runs at {String(d.settings.hour).padStart(2, "0")}:00 · at most{" "}
+          {d.settings.draftsPerPass} drafts a pass · at most {d.settings.maxActive} people in sequences at
+          once · the Outbox lets {d.settings.outboxDailyCap} messages leave a day and keeps one message per
+          address per {d.settings.outboxGapDays} days ·{" "}
+          {d.settings.styleLearning ? "style learning is on" : "style learning is off"}
+          {d.passes[0] &&
+            ` · last pass ${d.passes[0].day}: ${d.passes[0].enrolled} enrolled, ${d.passes[0].drafted} drafted, ${d.passes[0].stopped} stopped`}
+        </p>
+      )}
 
-        {d && (
-          <p className="text-muted-foreground mb-4 text-[11.5px] leading-relaxed">
-            The daily pass runs at {String(d.settings.hour).padStart(2, "0")}:00 · at most{" "}
-            {d.settings.draftsPerPass} drafts a pass · at most {d.settings.maxActive} people in sequences at
-            once · the Outbox lets {d.settings.outboxDailyCap} messages leave a day and keeps one message per
-            address per {d.settings.outboxGapDays} days ·{" "}
-            {d.settings.styleLearning ? "style learning is on" : "style learning is off"}
-            {d.passes[0] &&
-              ` · last pass ${d.passes[0].day}: ${d.passes[0].enrolled} enrolled, ${d.passes[0].drafted} drafted, ${d.passes[0].stopped} stopped`}
-          </p>
-        )}
-
-        <div className="mb-4 flex flex-wrap items-center gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={cn(
-                "rounded-lg border px-2.5 py-1 text-[12.5px] capitalize",
-                tab === t ? "bg-muted border-border" : "border-line-soft hover:bg-muted/50",
-              )}
-            >
-              {t}
-            </button>
-          ))}
-          <Button
-            size="sm"
-            variant="outline"
-            className="ml-auto"
-            disabled={running}
-            onClick={async () => {
-              setRunning(true);
-              try {
-                const out = await nurtureApi.run(false);
-                setRan(out.note);
-                doc.reload();
-              } catch (err) {
-                setRan(err instanceof Error ? err.message : String(err));
-              } finally {
-                setRunning(false);
-              }
-            }}
-          >
-            {running ? <Loader2 className="animate-spin" /> : null} Run today's pass
-          </Button>
-        </div>
-
-        {ran && <p className="text-muted-foreground mb-3 text-[12.5px]">{ran}</p>}
-        {doc.error && (
-          <p className="text-muted-foreground mb-4 text-[13px]">
-            Nurture could not be read. <span className="text-destructive">{doc.error}</span>
-          </p>
-        )}
-        {doc.loading && !d && (
-          <p className="text-muted-foreground text-[13px]">
-            <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
-            Reading the sequences.
-          </p>
-        )}
-
-        {d && tab === "sequences" && (
-          <>
-            <NewSequence doc={d} onCreated={doc.reload} />
-            {d.sequences.length === 0 && (
-              <p className="text-muted-foreground mt-3 text-[13px]">
-                No sequences yet. One is a name, a venture and a few steps; every step it produces is a draft.
-              </p>
-            )}
-            <div className="mt-3">
-              {d.sequences.map((s) => (
-                <SequenceCard key={s.id} seq={s} onChanged={doc.reload} />
-              ))}
-            </div>
-          </>
-        )}
-        {tab === "enrollments" && <Enrollments />}
-        {d && tab === "identities" && <Identities doc={d} onChanged={doc.reload} />}
-        {tab === "style" && <Style />}
-
-        {d && tab === "sequences" && d.optouts.length > 0 && (
-          <details className="mt-6">
-            <summary className="text-muted-foreground cursor-pointer text-[12px]">
-              People who asked to be left alone ({d.optouts.length})
-            </summary>
-            <ul className="mt-1 space-y-0.5">
-              {d.optouts.map((o) => (
-                <li key={o.address} className="text-muted-foreground text-[11.5px]">
-                  {o.address} — {when(o.at)}
-                  {o.reason && ` · ${o.reason}`}
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
-
-        {d && <p className="text-muted-foreground/70 mt-8 text-[11.5px] leading-relaxed">{d.note}</p>}
+      <div className="mb-4 flex flex-wrap items-center gap-1">
+        <SubTabs
+          tabs={TABS.map((t) => ({ key: t, label: t }))}
+          activeKey={tab}
+          onSelect={(k) => setTab(k as Tab)}
+          className="mb-0 capitalize"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-auto"
+          disabled={running}
+          onClick={async () => {
+            setRunning(true);
+            try {
+              const out = await nurtureApi.run(false);
+              setRan(out.note);
+              doc.reload();
+            } catch (err) {
+              setRan(err instanceof Error ? err.message : String(err));
+            } finally {
+              setRunning(false);
+            }
+          }}
+        >
+          {running ? <Loader2 className="animate-spin" /> : null} Run today's pass
+        </Button>
       </div>
-    </div>
+
+      {ran && <p className="text-muted-foreground mb-3 text-[12.5px]">{ran}</p>}
+      {doc.error && (
+        <p className="text-muted-foreground mb-4 text-[13px]">
+          Nurture could not be read. <span className="text-destructive">{doc.error}</span>
+        </p>
+      )}
+      {doc.loading && !d && (
+        <p className="text-muted-foreground text-[13px]">
+          <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
+          Reading the sequences.
+        </p>
+      )}
+
+      {d && tab === "sequences" && (
+        <>
+          <NewSequence doc={d} onCreated={doc.reload} />
+          {d.sequences.length === 0 && (
+            <p className="text-muted-foreground mt-3 text-[13px]">
+              No sequences yet. One is a name, a venture and a few steps; every step it produces is a draft.
+            </p>
+          )}
+          <div className="mt-3">
+            {d.sequences.map((s) => (
+              <SequenceCard key={s.id} seq={s} onChanged={doc.reload} />
+            ))}
+          </div>
+        </>
+      )}
+      {tab === "enrollments" && <Enrollments />}
+      {d && tab === "identities" && <Identities doc={d} onChanged={doc.reload} />}
+      {tab === "style" && <Style />}
+
+      {d && tab === "sequences" && d.optouts.length > 0 && (
+        <details className="mt-6">
+          <summary className="text-muted-foreground cursor-pointer text-[12px]">
+            People who asked to be left alone ({d.optouts.length})
+          </summary>
+          <ul className="mt-1 space-y-0.5">
+            {d.optouts.map((o) => (
+              <li key={o.address} className="text-muted-foreground text-[11.5px]">
+                {o.address} — {when(o.at)}
+                {o.reason && ` · ${o.reason}`}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {d && <p className="text-muted-foreground/70 mt-8 text-[11.5px] leading-relaxed">{d.note}</p>}
+    </PageShell>
   );
 }

@@ -5,8 +5,8 @@ import type { RunSummary } from "@/lib/api/runs";
  * THE ORG: who works here, for which venture, and what they run.
  *
  * A SUB-AGENT IS NOT A NEW KIND OF WORK. It is a NAME on work this box has
- * been doing for weeks: a run of kind `seo` filed under Example App 1 was always
- * "Example App 1's SEO analyst doing its job", and the only thing that was missing
+ * been doing for weeks: a run of kind `seo` filed under a venture was always
+ * "that venture's SEO analyst doing its job", and the only thing that was missing
  * was somebody to address. So nothing here starts a seventh sort of run —
  * `dispatch` posts the same run the SEO app posts, with a brief typed at a
  * worker rather than into a form, and the report lands in the same place with

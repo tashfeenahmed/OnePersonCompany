@@ -5,7 +5,8 @@ import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { Section } from "@/components/settings/Section";
 import { PluginSettingsForm } from "@/components/settings/PluginSettingsForm";
-import { captureApi } from "@/lib/api/studio";
+import { ventureApi } from "@/lib/api/ventures";
+import { when } from "@/lib/format";
 
 /**
  * SITE CAPTURE — whether this machine has a browser, and what each venture's
@@ -31,21 +32,12 @@ import { captureApi } from "@/lib/api/studio";
  * last attempt failed shows both.
  */
 
-function when(iso: string | null): string {
-  if (!iso) return "never";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-}
+/** On this panel a missing timestamp really does mean never-captured — the
+ *  em dash `when` defaults to would be the weaker claim. */
+const NEVER = { nullText: "never" } as const;
 
 export function CaptureSettings() {
-  const doc = useApi(() => captureApi.get(), []);
+  const doc = useApi(() => ventureApi.capture(), []);
   /** The venture currently in front of the browser, by slug. */
   const [shooting, setShooting] = useState<string | null>(null);
   const [all, setAll] = useState(false);
@@ -57,7 +49,7 @@ export function CaptureSettings() {
     setShooting(slug);
     setProblem(null);
     try {
-      const res = await captureApi.shoot(slug);
+      const res = await ventureApi.captureNow(slug);
       if (!res.ok && res.error) setProblem(res.error);
     } catch (e) {
       setProblem(e instanceof Error ? e.message : String(e));
@@ -76,7 +68,7 @@ export function CaptureSettings() {
     for (const v of d.ventures.filter((v) => v.website)) {
       setShooting(v.slug);
       try {
-        await captureApi.shoot(v.slug);
+        await ventureApi.captureNow(v.slug);
       } catch (e) {
         setProblem(e instanceof Error ? e.message : String(e));
       }
@@ -102,7 +94,7 @@ export function CaptureSettings() {
         <div className="bg-card grid gap-1 rounded-[10px] border px-3.5 py-3">
           <div className="text-[13px]">
             {d.browser.found
-              ? d.browser.source === "config"
+              ? d.browser.source === "configured"
                 ? "Using the browser you pointed it at"
                 : "Found a browser without being told where to look"
               : "No browser on this machine"}
@@ -180,14 +172,14 @@ export function CaptureSettings() {
                     : !v.last
                       ? "never captured"
                       : v.last.ok
-                        ? `${when(v.last.ts)}${v.last.width ? ` · ${v.last.width}×${v.last.height}` : ""}${v.due ? " · due" : ""}`
+                        ? `${when(v.last.ts, NEVER)}${v.last.width ? ` · ${v.last.width}×${v.last.height}` : ""}${v.due ? " · due" : ""}`
                         : `last attempt failed — ${v.last.error ?? "no reason given"}`}
                 </span>
                 {/* A picture that is good while the last attempt failed is two
                     facts, and both are worth having. */}
                 {v.picture && v.last && !v.last.ok && (
                   <span className="text-muted-foreground shrink-0 text-[11.5px]">
-                    the picture from {when(v.picture.ts)} is still there
+                    the picture from {when(v.picture.ts, NEVER)} is still there
                   </span>
                 )}
                 <Button

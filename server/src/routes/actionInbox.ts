@@ -1,16 +1,70 @@
+/**
+ * THE ACTION INBOX — one list of everything on this box waiting for the owner,
+ * and one place to answer it from.
+ *
+ * IT OWNS NOTHING. Every row it draws belongs to an area that already has a
+ * table, a reader and a write verb, so the reads and the writes go through
+ * those rather than through SQL of its own. Three things went wrong when they
+ * did not:
+ *
+ *   - "An open alert" had three hand-written definitions — the area's, this
+ *     file's and the nightly proposal's — which already differed on which
+ *     kinds count. Three counts on three surfaces and nothing to say which was
+ *     right. `openEvents()` is the definition now.
+ *   - Acknowledging, deciding and marking an email handled were re-implemented
+ *     here as raw UPDATEs, so anything an area adds to its verb later — a
+ *     second column, an audit row, a refusal — silently did not happen when
+ *     the same button was pressed from here. The board case always did this
+ *     right by importing `fileCard`; the rest now match.
+ *   - SNOOZING NOW WRITES THROUGH. This read the mail triage's own snooze
+ *     column for visibility but wrote only its own, so snoozing an email here
+ *     hid it here for a hard-coded 24 hours and left it fully visible on the
+ *     Mail page. Two states, one item, one direction. The source table owns
+ *     the state wherever it has one, exactly as resolve already did;
+ *     `action_inbox_state` is the fallback for the kinds with nowhere else.
+ */
 import { Hono } from "hono";
 import { db, now } from "../db.ts";
 import { fileCard } from "./board.ts";
 import { runPage } from "../../../shared/runRoutes.ts";
+import { ackEvent, openEvents } from "../integrations/proactive/store.ts";
+import { commitmentRows, decide } from "../integrations/people/commitments.ts";
+
 type Item = { id: string; source: string; title: string; detail: string; priority: number; at: string; href: string; venture: string | null; resolution: string };
 type Row = Record<string, string | number | null>;
 const select = (sql: string) => db.prepare(sql).all() as Row[];
+
+/** How many of any one kind reach the list. A cap rather than everything: this
+ *  is a list a person reads, and the ordering below is what decides which of
+ *  them they read first. */
+const PER_KIND = 500;
+
+/* The mail triage's two columns, written the way that area writes them —
+   upsert included, because a thread the owner acts on may have no scored row
+   and a NULL score is a row without an opinion rather than an invented one.
+   THIS SHOULD NOT BE HERE: it is a copy of `mailflow/triage-routes.ts`'s own
+   `verb`, kept only because that statement is module-private there. The moment
+   mailflow exports it this goes and an import takes its place. */
+const triageVerb = db.prepare(
+  `INSERT INTO mailflow_triage
+     (account_id, thread_id, score, reason, urgency, venture, venture_by, at_ms, scored_at, model, snoozed_until, done_at)
+   VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+   ON CONFLICT(account_id, thread_id) DO UPDATE SET
+     snoozed_until = excluded.snoozed_until, done_at = excluded.done_at`,
+);
+const triageRow = db.prepare(
+  "SELECT snoozed_until, done_at FROM mailflow_triage WHERE account_id = ? AND thread_id = ?",
+);
+
+/** How long a snooze lasts when the item's own area has no setting for it. */
+const SNOOZE_MS = 86_400_000;
+
 export function inboxItems(): Item[] {
   const items: Item[] = [];
-  for (const r of select("SELECT * FROM alert_events WHERE acknowledged_at IS NULL AND kind <> 'test' ORDER BY ts DESC LIMIT 500"))
-    items.push({ id: `alert:${r.id}`, source: "Alert", title: String(r.message), detail: String(r.narration ?? ""), priority: 1, at: String(r.ts), href: "/alerts", venture: null, resolution: "Acknowledge" });
-  for (const r of select("SELECT * FROM people_commitments WHERE status = 'open' ORDER BY due, found_at DESC LIMIT 500"))
-    items.push({ id: `commitment:${r.id}`, source: "Commitment", title: String(r.what), detail: `To ${r.to_name || r.to_address}${r.due ? ` · Due ${r.due}` : ""}`, priority: r.due && String(r.due) < now() ? 1 : 2, at: String(r.found_at), href: "/people/commitments", venture: null, resolution: "Mark done" });
+  for (const e of openEvents({ limit: PER_KIND }))
+    items.push({ id: `alert:${e.id}`, source: "Alert", title: e.message, detail: e.narration ?? "", priority: 1, at: e.ts, href: "/alerts", venture: null, resolution: "Acknowledge" });
+  for (const r of commitmentRows("open").slice(0, PER_KIND))
+    items.push({ id: `commitment:${r.id}`, source: "Commitment", title: r.what, detail: `To ${r.to_name || r.to_address}${r.due ? ` · Due ${r.due}` : ""}`, priority: r.due && r.due < now() ? 1 : 2, at: r.found_at, href: "/people/commitments", venture: null, resolution: "Mark done" });
   for (const r of select("SELECT * FROM mailflow_triage WHERE score = 'needs_reply' AND done_at IS NULL AND (snoozed_until IS NULL OR snoozed_until <= strftime('%Y-%m-%dT%H:%M:%fZ','now')) ORDER BY scored_at DESC LIMIT 500"))
     items.push({ id: `triage:${r.account_id}:${r.thread_id}`, source: "Email", title: "Reply needed", detail: String(r.reason ?? "Review the conversation"), priority: r.urgency === "high" ? 1 : 2, at: String(r.scored_at), href: `/mail/email?thread=${encodeURIComponent(String(r.thread_id))}&account=${r.account_id}`, venture: r.venture as string | null, resolution: "Mark handled" });
   for (const r of select("SELECT * FROM agent_runs WHERE status = 'failed' ORDER BY finished_at DESC LIMIT 500"))
@@ -33,17 +87,30 @@ actionInboxRoutes.post("/:id/:action", async c => {
     return c.json({ ok: true, ...result, href: "/board" });
   }
   const ts = now();
+  const until = new Date(Date.now() + SNOOZE_MS).toISOString();
+  const [kind, ...parts] = id.split(":");
+  /* Whether the source table took the state itself. When it did, the inbox's
+     own row is left clear rather than written with a second copy that the two
+     surfaces could then disagree about. */
+  let wroteThrough = false;
   db.exec("BEGIN IMMEDIATE");
   try {
-    if (action === "resolve") {
-      const [kind, ...parts] = id.split(":");
-      if (kind === "alert") db.prepare("UPDATE alert_events SET acknowledged_at = ? WHERE id = ?").run(ts, parts[0]!);
-      if (kind === "commitment") db.prepare("UPDATE people_commitments SET status = 'done', decided_at = ? WHERE id = ?").run(ts, parts.join(":"));
-      if (kind === "triage") db.prepare("UPDATE mailflow_triage SET done_at = ? WHERE account_id = ? AND thread_id = ?").run(ts, parts[0]!, parts[1]!);
+    if (kind === "alert" && action === "resolve") { ackEvent(Number(parts[0])); wroteThrough = true; }
+    if (kind === "commitment" && action === "resolve") { decide(parts.join(":"), "done"); wroteThrough = true; }
+    if (kind === "triage") {
+      const held = triageRow.get(Number(parts[0]), parts[1]!) as { snoozed_until: string | null; done_at: string | null } | undefined;
+      triageVerb.run(
+        Number(parts[0]),
+        parts[1]!,
+        action === "snooze" ? until : (held?.snoozed_until ?? null),
+        action === "resolve" ? ts : (held?.done_at ?? null),
+      );
+      wroteThrough = true;
     }
-    db.prepare("INSERT INTO action_inbox_state (id, resolved_at, snoozed_until) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET resolved_at=excluded.resolved_at, snoozed_until=excluded.snoozed_until")
-      .run(id, action === "resolve" ? ts : null, action === "snooze" ? new Date(Date.now() + 86400000).toISOString() : null);
+    if (!wroteThrough)
+      db.prepare("INSERT INTO action_inbox_state (id, resolved_at, snoozed_until) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET resolved_at=excluded.resolved_at, snoozed_until=excluded.snoozed_until")
+        .run(id, action === "resolve" ? ts : null, action === "snooze" ? until : null);
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
-  return c.json({ ok: true });
+  return c.json({ ok: true, wroteThrough });
 });

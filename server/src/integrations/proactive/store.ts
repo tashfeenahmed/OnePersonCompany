@@ -302,21 +302,81 @@ export function events(opts: {
 }
 
 /**
- * How many events are OPEN — a trip nobody has acknowledged.
+ * WHAT AN OPEN ALERT IS — one definition, and this is it.
  *
- * `unreadable` is counted too, and that is a decision rather than an
- * oversight: a rule that has not been able to read its document for three days
- * is a thing the owner needs to know about, and hiding it because it is not a
- * trip would make a broken watchdog look like a quiet business. `test` never
- * counts: it is a thing the owner did on purpose, two seconds ago.
+ * There were THREE hand-written versions of this predicate: this one, a raw
+ * SELECT in the action inbox and another in the nightly proposal's evidence,
+ * and they already differed on kind filtering. Two of them said `kind <>
+ * 'test'` and this one named the kinds; equal today, one new kind from
+ * disagreeing, and the disagreement would show as three different counts on
+ * three surfaces with nothing to say which was right.
+ *
+ * `unreadable` IS OPEN, and that is a decision rather than an oversight: a
+ * rule that has not been able to read its document for three days is a thing
+ * the owner needs to know about, and hiding it because it is not a trip would
+ * make a broken watchdog look like a quiet business. `test` never counts — it
+ * is a thing the owner did on purpose, two seconds ago — and naming the kinds
+ * rather than excluding one is what makes a FOURTH kind a decision somebody
+ * has to make here instead of a row that silently appears on one surface.
  */
+export const OPEN_KINDS: EventRow["kind"][] = ["trip", "unreadable"];
+
+/** The open events themselves, newest first. Every surface that draws "what
+ *  needs attention" reads this rather than writing the predicate again. */
+export const openEvents = (opts: { limit?: number; ruleId?: number | null } = {}): EventRow[] =>
+  events({ ...opts, openOnly: true, kinds: OPEN_KINDS, limit: opts.limit ?? 500 });
+
+/**
+ * One venture's open alerts, with the rule that raised each.
+ *
+ * The join is here rather than in the two assemblers that need it — the
+ * morning briefing and the nightly proposal's evidence packet — because they
+ * were describing one venture's open alerts to a model on the same night out
+ * of two independently written queries with two windows and two caps. Neither
+ * was wrong; they were two accounts of one state, which is worse than one
+ * account that is merely incomplete, because the disagreement is what a reader
+ * has to resolve.
+ */
+export function openEventsForVenture(
+  ventureId: string,
+  opts: { days?: number; limit?: number } = {},
+): { ts: string; rule: string; skill: string; message: string; narration: string | null }[] {
+  const args: (string | number)[] = [ventureId, ...OPEN_KINDS];
+  const since = opts.days
+    ? new Date(Date.now() - opts.days * 86_400_000).toISOString()
+    : null;
+  if (since) args.push(since);
+  args.push(opts.limit ?? 20);
+  return db
+    .prepare(
+      `SELECT e.ts AS ts, r.name AS rule, r.skill AS skill, e.message AS message,
+              e.narration AS narration
+         FROM alert_events e JOIN alert_rules r ON r.id = e.rule_id
+        WHERE r.venture_id = ? AND e.acknowledged_at IS NULL
+          AND e.kind IN (${OPEN_KINDS.map(() => "?").join(", ")})
+          ${since ? "AND e.ts >= ?" : ""}
+        ORDER BY e.ts DESC LIMIT ?`,
+    )
+    .all(...args) as unknown as ReturnType<typeof openEventsForVenture>;
+}
+
+/** Whether any rule on this box names a venture at all. "No rule watches this"
+ *  and "nothing has tripped" are different findings and only one of them is
+ *  about the business. */
+export const ruleCountForVenture = (ventureId: string): number =>
+  Number(
+    (db.prepare("SELECT COUNT(*) AS n FROM alert_rules WHERE venture_id = ?").get(ventureId) as {
+      n: number;
+    }).n,
+  );
+
 export function openEventCount(): number {
   const row = db
     .prepare(
       `SELECT COUNT(*) AS n FROM alert_events
-        WHERE acknowledged_at IS NULL AND kind IN ('trip','unreadable')`,
+        WHERE acknowledged_at IS NULL AND kind IN (${OPEN_KINDS.map(() => "?").join(", ")})`,
     )
-    .get() as unknown as { n: number };
+    .get(...OPEN_KINDS) as unknown as { n: number };
   return row.n;
 }
 

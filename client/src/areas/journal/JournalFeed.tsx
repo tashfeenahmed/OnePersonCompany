@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Check, ExternalLink, Flame, Loader2, Plus, Target, Trash2 } from "lucide-react";
+import { WindowPicker } from "@/components/WindowPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
@@ -149,19 +150,13 @@ export function JournalFeed({
               </option>
             ))}
           </select>
-          <select
-            value={days}
-            onChange={(e) => setDays(e.target.value)}
-            className="border-input bg-background h-8 rounded-lg border px-2 text-[12.5px]"
-            aria-label="Window"
-          >
-            {(doc.data?.windows ?? [7, 30, 90, 365]).map((d) => (
-              <option key={d} value={String(d)}>
-                last {d} days
-              </option>
-            ))}
-            <option value="all">everything</option>
-          </select>
+          {/* "all" IS ONE OF THE OPTIONS, not a separate control: the journal
+              genuinely has an everything reading and a number cannot say it. */}
+          <WindowPicker
+            value={days === "all" ? "all" : Number(days)}
+            onChange={(d) => setDays(String(d))}
+            options={[...(doc.data?.windows ?? [7, 30, 90, 365]), "all"]}
+          />
           <Button asChild size="sm" variant="ghost">
             <a href={journalApi.exportHref("csv", ventureSlug)}>CSV</a>
           </Button>

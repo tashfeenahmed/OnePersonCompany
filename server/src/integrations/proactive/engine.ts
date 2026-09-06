@@ -27,9 +27,8 @@
  * to nothing". Both are `unreadable`, with the route's own sentence attached,
  * and the events list draws them differently from a trip.
  */
-import { apiBase, takeSnapshots } from "./catalogue.ts";
-import { serviceHeaders } from "../../auth.ts";
-import { resolvePath } from "./path.ts";
+import { takeSnapshots } from "./catalogue.ts";
+import { takeReading, urlFor } from "../../shared/metrics-address.ts";
 import {
   insertEvent,
   lastEventAt,
@@ -53,28 +52,32 @@ const OBSERVATION_DAYS = 30;
 
 /* ------------------------------------------------------------- reading */
 
-export function readParams(raw: string): Record<string, string> {
-  try {
-    const p = JSON.parse(raw) as unknown;
-    if (!p || typeof p !== "object" || Array.isArray(p)) return {};
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(p as Record<string, unknown>))
-      if (v !== null && v !== undefined && typeof v !== "object") out[k] = String(v);
-    return out;
-  } catch {
-    return {};
-  }
-}
+/**
+ * A RULE IS AN ADDRESS, and the address lives in `shared/metrics-address.ts`.
+ *
+ * `skill` + `view` + `params` + `path` is how everything on this box names a
+ * figure, and this area and the outcomes tracker had each written the whole
+ * thing out — the parameter reader, the URL builder, the loopback fetch and
+ * the dotted-path resolver — separately. They had already drifted: only this
+ * side supported `@count(...)`, so a path copied from a working rule into an
+ * outcome read as "nothing at that path".
+ *
+ * ONE BEHAVIOUR CHANGED HERE AND IT IS A FIX. This file used to send
+ * `?view=default` whenever the column held that word. `default` is the
+ * SENTINEL both features store for "the entry's own first view", and the
+ * skills route resolves an ABSENT view to exactly that — while a literal
+ * `?view=default` 404s on any skill whose first view is keyed something else.
+ * The shared builder omits it.
+ */
+
+export { paramsOf as readParams } from "../../shared/metrics-address.ts";
 
 /** The URL a rule reads. Public so the routes can show it: an owner who can
  *  see the request can check the answer themselves with curl. */
-export function ruleUrl(r: Pick<RuleRow, "skill" | "view" | "params">): string {
-  const q = new URLSearchParams();
-  if (r.view) q.set("view", r.view);
-  for (const [k, v] of Object.entries(readParams(r.params))) q.set(k, v);
-  const qs = q.toString();
-  return `${apiBase()}/api/skills/${encodeURIComponent(r.skill)}${qs ? `?${qs}` : ""}`;
-}
+export const ruleUrl = (r: Pick<RuleRow, "skill" | "view" | "params">): string =>
+  /* The URL is the first three columns of the address; the path picks a field
+     out of the answer and has nothing to do with the request. */
+  urlFor({ ...r, path: "" });
 
 export type Read =
   | { ok: true; value: number; doc: unknown; url: string }
@@ -93,47 +96,10 @@ export async function readRule(
   docs?: Map<string, unknown>,
   signal?: AbortSignal,
 ): Promise<Read> {
-  const url = ruleUrl(r);
-  let doc: unknown;
-  if (docs?.has(url)) doc = docs.get(url);
-  else {
-    let res: Response;
-    try {
-      /* The service key, for the reason every loopback call here carries it:
-         no cookie, and the gate refuses once a password is set. */
-      res = await fetch(url, { headers: serviceHeaders(), signal });
-    } catch (err) {
-      return {
-        ok: false,
-        url,
-        why: `${r.skill} could not be read: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    const text = await res.text();
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      return { ok: false, url, why: `${r.skill} answered something that is not JSON.` };
-    }
-    if (!res.ok) {
-      /* The proxy's own sentence, verbatim. It already distinguishes "there is
-         no such skill" from "the credential is missing" from "that view takes
-         no such parameter", and every one of those is a better message than
-         anything this file could compose from a status code. */
-      const why =
-        parsed && typeof parsed === "object" && "error" in parsed
-          ? String((parsed as { error: unknown }).error)
-          : `${r.skill} answered ${res.status}.`;
-      return { ok: false, url, why };
-    }
-    doc = parsed;
-    docs?.set(url, doc);
-  }
-
-  const got = resolvePath(doc, r.path);
-  if (!got.ok) return { ok: false, url, why: got.why };
-  return { ok: true, value: got.value, doc, url };
+  const reading = await takeReading(r, { docs, signal });
+  return reading.error === null
+    ? { ok: true, value: reading.value as number, doc: reading.doc, url: reading.url }
+    : { ok: false, why: reading.error, url: reading.url };
 }
 
 /* ---------------------------------------------------------- the comparison */

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
+import { SubTabs } from "@/components/TabStrip";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { BrandTile } from "@/components/BrandTile";
@@ -115,32 +116,21 @@ export function Plugins() {
           />
         </div>
 
-        <div className="mb-4.5 flex flex-wrap gap-0.5">
-          {CATEGORIES.map((c) => {
-            const n =
+        <SubTabs
+          tabs={CATEGORIES.map((c) => ({
+            key: c.id,
+            label: c.label,
+            count:
               c.id === "all"
                 ? total
                 : c.id === "connected"
                   ? on
-                  : PLUGINS.filter((p) => p.cat === c.id).length;
-            return (
-              <button
-                key={c.id}
-                onClick={() => setCat(c.id)}
-                aria-selected={c.id === cat}
-                className={cn(
-                  "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap",
-                  c.id === cat && "bg-accent text-foreground font-medium",
-                )}
-              >
-                {c.label}
-                <span className="text-muted-foreground ml-1 text-[11px]">
-                  {n}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                  : PLUGINS.filter((p) => p.cat === c.id).length,
+          }))}
+          activeKey={cat}
+          onSelect={setCat}
+          className="mb-4.5"
+        />
 
         {!visible.length && (
           <p className="text-muted-foreground py-8 text-[13px]">

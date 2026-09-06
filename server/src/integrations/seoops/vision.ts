@@ -12,8 +12,8 @@
  *
  * THE CAPABILITY IS PROBED, NEVER ASSUMED. `models/provider.ts` still declares
  * nothing about whether the model behind the active provider can see — it
- * cannot, because FreeLLMAPI and a local router both route per request and
- * answer `defaultModel: null`. So this sends ONE tiny image (a 1×1 PNG, about
+ * cannot, because an aggregating gateway and a local router both route per
+ * request and answer `defaultModel: null`. So this sends ONE tiny image (a 1×1 PNG, about
  * seventy bytes) and reads what comes back: an answer means images are
  * accepted, a 4xx naming the image means they are not, and anything else means
  * we could not tell. The result is cached in `model_vision_probe` per

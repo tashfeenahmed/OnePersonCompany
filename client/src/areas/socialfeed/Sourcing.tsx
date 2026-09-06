@@ -15,6 +15,7 @@
  * neither of these panels has one, because a gate cannot fail: it can only
  * allow or refuse.
  */
+import { when } from "@/lib/format";
 import { useState } from "react";
 import { Archive, ExternalLink, Loader2, RotateCcw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,12 +25,6 @@ import { useApi } from "@/hooks/useApi";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { socialfeedApi, type Candidate, type HistoryEntry, type SourcingDoc, type Verdict } from "./api";
-
-function when(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 
 const mins = (s: number | null) => (s === null ? null : `${Math.round(s / 60)} min`);
 

@@ -58,7 +58,10 @@ import {
 } from "../mailflow/outbox.ts";
 import { contactFor, productUser } from "./facts.ts";
 import { defaultIdentity, identityRow, transportFor, verificationWarning } from "./identities.ts";
-import { planAndFacts, PlanRefused } from "./planner.ts";
+/* `optedOut` is the planner's. This file used to carry a second copy of the
+   same SELECT, which is one edit away from two answers to "may we write to
+   this person" — the one question in this area nobody may get wrong twice. */
+import { optedOut as optOutRecord, planAndFacts, PlanRefused } from "./planner.ts";
 import { word } from "./wording.ts";
 import {
   dueStep,
@@ -240,10 +243,6 @@ async function repliedSince(
   }
 }
 
-function optedOutRow(address: string): boolean {
-  return Boolean(db.prepare("SELECT address FROM nurture_optouts WHERE address = ?").get(address));
-}
-
 /**
  * Was a draft this sequence wrote for this person dismissed?
  *
@@ -277,7 +276,7 @@ async function observe(
   stopOn: string[],
   gmailAccount: number | null,
 ): Promise<Observed> {
-  const optedOut = optedOutRow(enrollment.address);
+  const optedOut = Boolean(optOutRecord(enrollment.address));
   const dismissedDraft =
     stopOn.includes("dismissed") &&
     dismissedFor(enrollment.sequence_id, enrollment.address, enrollment.enrolled_at);
@@ -379,7 +378,7 @@ export function candidates(seq: SequenceRow, limit: number): { address: string; 
   const nowMs = Date.now();
   for (const row of rows) {
     if (out.length >= limit) break;
-    if (known.has(row.address) || optedOutRow(row.address)) continue;
+    if (known.has(row.address) || optOutRecord(row.address)) continue;
     if (wantDomain && row.domain !== wantDomain) continue;
     const { user } = productUser(row.address);
     if (!user) continue;
@@ -441,7 +440,7 @@ export function enrol(
   if (!seq) return { refused: `There is no sequence ${sequenceId}.` };
   const addr = address.trim().toLowerCase();
   if (!addr.includes("@")) return { refused: `“${address}” is not an email address.` };
-  if (optedOutRow(addr)) return { refused: `${addr} asked not to be written to again.` };
+  if (optOutRecord(addr)) return { refused: `${addr} asked not to be written to again.` };
   const existing = db
     .prepare("SELECT * FROM nurture_enrollments WHERE sequence_id = ? AND address = ?")
     .get(sequenceId, addr) as EnrollmentRow | undefined;

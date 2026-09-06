@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Copy, ImageOff, Loader2, RefreshCw, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { when } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { studioApi, type StudioPost } from "@/lib/api/studio";
 import { publishingApi } from "@/areas/publishing/api";
@@ -33,18 +34,6 @@ import { publishingApi } from "@/areas/publishing/api";
 function swatches(prompt: string | null): string[] {
   if (!prompt) return [];
   return [...prompt.matchAll(/#[0-9a-fA-F]{6}\b/g)].map((m) => m[0]);
-}
-
-function when(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
 }
 
 /**

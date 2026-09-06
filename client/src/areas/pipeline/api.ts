@@ -1,4 +1,4 @@
-import { call } from "@/lib/api";
+import { api, call } from "@/lib/api";
 
 /**
  * THE PIPELINE AND THE SYNTHESIS PASS, transcribed from the server's shapes.
@@ -157,12 +157,13 @@ export const pipelineApi = {
       body: JSON.stringify(cancel ? { cancel: true } : {}),
     }),
   /* The night's settings are SETTINGS and are written where every other one is,
-     through the plugin config door — one validator, on the server. */
+     through the plugin config door — one validator, on the server, and ONE
+     CLIENT FUNCTION. This used to rebuild the URL and the body itself, and its
+     hand-written return type dropped `connected` and `collected`, so the page
+     could not say whether saving a credential had actually reconnected the
+     plugin — the one question somebody pressing Save is asking. */
   save: (plugin: "pipeline" | "synthesis", config: Record<string, string>) =>
-    call<{ id: string; config: Record<string, string> }>(`/plugins/${plugin}/config`, {
-      method: "PUT",
-      body: JSON.stringify({ config }),
-    }),
+    api.savePluginConfig(plugin, config),
 };
 
 /* --------------------------------------------------------------- synthesis */
@@ -241,11 +242,8 @@ export const synthesisApi = {
     call<VenturePass>("/synthesis/plan", { method: "POST", body: JSON.stringify({ ventureId }) }),
   run: (ventureId: string) =>
     call<VenturePass>("/synthesis/run", { method: "POST", body: JSON.stringify({ ventureId }) }),
-  saveConfig: (config: Record<string, string>) =>
-    call<{ id: string; config: Record<string, string> }>("/plugins/synthesis/config", {
-      method: "PUT",
-      body: JSON.stringify({ config }),
-    }),
+  /** The same one door as `pipelineApi.save` — see the note there. */
+  saveConfig: (config: Record<string, string>) => api.savePluginConfig("synthesis", config),
   setProposals: (key: string, proposals: boolean) =>
     call<{ ventureId: string; venture: string; proposals: boolean }>(
       `/synthesis/ventures/${encodeURIComponent(key)}`,

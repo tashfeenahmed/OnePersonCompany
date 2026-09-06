@@ -41,9 +41,11 @@ import { segmentsFor } from "./segments.ts";
 import { fatigueRows, statusRows, MIN_IMPRESSIONS } from "./fatigue.ts";
 import {
   blended,
+  conversionSteps,
   joinFor,
   linkedUmamiSites,
   suggestions,
+  CONVERSION_WINDOW_DAYS,
   type CampaignSuggestion,
 } from "./attribution.ts";
 import {
@@ -57,7 +59,7 @@ import {
   linkCampaign,
   unlinkCampaign,
 } from "./store.ts";
-import { conversionEvents, unitFor, SITE_EVERY_HOURS } from "./settings.ts";
+import { unitFor, SITE_EVERY_HOURS } from "./settings.ts";
 
 export const webAnalyticsRoutes = new Hono();
 
@@ -208,33 +210,24 @@ webAnalyticsRoutes.get("/events/funnel-inputs", (c) => {
   const key = c.req.query("venture");
   const wanted = key ? [ventureRow(key)].filter((v) => v !== undefined) : ventureRows();
   if (key && !wanted.length) return c.json({ error: "No venture with that slug or id." }, 404);
-  const named = conversionEvents();
 
   return c.json({
-    windowDays: 30,
+    windowDays: CONVERSION_WINDOW_DAYS,
     ventures: wanted.map((v) => {
-      const sites = linkedUmamiSites(v!.id);
-      const events = named.get(v!.slug.toLowerCase()) ?? [];
-      const rows = sites.flatMap((websiteId) => {
-        const all = eventsOf(websiteId, 30);
-        return events.map((name) => {
-          const row = all.find((e) => e.event_name === name);
-          return {
-            websiteId,
-            event: name,
-            occurrences: row?.occurrences ?? null,
-            participants: row?.participants ?? null,
-            missing: row ? null : "No row for this event was collected on this site over the window.",
-          };
-        });
-      });
+      /* THE ONE READER. The conversion-work view, the campaign join and the
+         growth area's funnel all read these rows through `conversionSteps`, so
+         a step quoted on one page is the same count as the step quoted on
+         another. They used to be three reads of two tables with two
+         populations. */
+      const measured = conversionSteps(v!);
       return {
         venture: { id: v!.id, slug: v!.slug, name: v!.name, stage: v!.stage },
-        websites: sites,
-        steps: rows,
-        note: events.length
-          ? null
-          : `No conversion events are named for “${v!.slug}”. Set them under Integrations → Web analytics; nothing in Umami says which event matters.`,
+        websites: measured.websites,
+        /** The window's own session figure per site — the only honest
+         *  denominator for a step, and never a sum of daily sessions. */
+        sessions: measured.sessions,
+        steps: measured.steps.filter((s) => s.named),
+        note: measured.note,
       };
     }),
     rules: [

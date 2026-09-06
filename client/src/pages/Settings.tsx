@@ -1,8 +1,9 @@
-import { BudgetSettings } from "@/components/settings/BudgetSettings";
-import { SetupChecklist } from "@/components/settings/SetupChecklist";
 import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Check, Download, Monitor, Moon, Sun, Upload } from "lucide-react";
+import { Tiles } from "@/components/integrations/Panel";
+import { BudgetSettings } from "@/components/settings/BudgetSettings";
+import { SetupChecklist } from "@/components/settings/SetupChecklist";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -272,29 +273,17 @@ export function Settings() {
               title="What is stored"
               hint="Preferences sync to your local server and are included in backups. This browser keeps a cached copy. Ventures and connected accounts are managed separately."
             >
-              <div className="flex flex-wrap gap-2">
-                {[
-                  [state.ventures.length, "ventures"],
-                  [state.sessions.length, "sessions"],
-                  [state.dashboards.length, "dashboards"],
-                  [
-                    state.dashboards.reduce((n, d) => n + d.widgets.length, 0),
-                    "placed widgets",
-                  ],
-                ].map(([v, k]) => (
-                  <div
-                    key={k as string}
-                    className="bg-card min-w-[130px] flex-1 rounded-[10px] border px-3.5 py-3"
-                  >
-                    <div className="text-[22px] font-normal tracking-[-0.03em] tabular-nums">
-                      {v}
-                    </div>
-                    <div className="text-muted-foreground mt-0.5 text-[11.5px]">
-                      {k}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <Tiles
+                items={[
+                  { v: state.ventures.length, k: "ventures" },
+                  { v: state.sessions.length, k: "sessions" },
+                  { v: state.dashboards.length, k: "dashboards" },
+                  {
+                    v: state.dashboards.reduce((n, d) => n + d.widgets.length, 0),
+                    k: "placed widgets",
+                  },
+                ]}
+              />
             </Section>
 
             <Section

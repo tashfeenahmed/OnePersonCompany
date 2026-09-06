@@ -5,7 +5,7 @@ import { Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
+import { ago, when } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { roundsApi, type Job, type Round, type Schedule } from "@/lib/api/chief";
 
@@ -14,8 +14,8 @@ import { roundsApi, type Job, type Round, type Schedule } from "@/lib/api/chief"
  *
  * THE LEDGER IS THE POINT OF THIS TAB, not the button. A round that dispatched
  * nothing and a round that never ran look identical from the runs page, and the
- * question an owner actually asks in the morning is "why has Example App 1 not been
- * looked at". So every job the walk considered has a row, with the reason it
+ * question an owner actually asks in the morning is "why has that venture not
+ * been looked at". So every job the walk considered has a row, with the reason it
  * became a run or did not, and `skipped` is drawn as an ordinary outcome rather
  * than in a warning colour — a venture inside its cadence is the schedule
  * working.
@@ -254,7 +254,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
         </Button>
         <span className="text-muted-foreground text-[11.5px]">
           {schedule.nextRunAt
-            ? `Next run ${new Date(schedule.nextRunAt).toLocaleString()} (${schedule.timezone ?? schedule.resolvedTimezone})`
+            ? `Next run ${when(schedule.nextRunAt, { year: true })} (${schedule.timezone ?? schedule.resolvedTimezone})`
             : "Nothing is scheduled while this is off."}
         </span>
       </div>

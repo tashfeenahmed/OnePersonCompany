@@ -10,8 +10,8 @@
  * who never looks at this file still sees exactly what /api/umami has always
  * shown; a reader who does can see what a heuristic would take off and why.
  *
- * WHY THESE HEURISTICS ARE WEAKER THAN WORKDASH'S, AND THE HONEST REASON.
- * Workdash's probe reads Umami's POSTGRES: it can group sessions by
+ * WHY THESE HEURISTICS ARE WEAKER THAN A DATABASE-SIDE PROBE'S, AND THE
+ * HONEST REASON. A probe with Umami's POSTGRES can group sessions by
  * country × browser × os × device × screen, count pages per session inside a
  * group, and ask what share of one screen SHAPE lives in one country. None of
  * that exists on the HTTP API this box has. `/metrics?type=…` answers ONE
@@ -66,10 +66,10 @@ export const SCREEN_MIN_VISITORS = 40;
 /**
  * The site-wide gate under the screen test: pageviews per VISIT.
  *
- * Workdash applies this per fingerprint because it can. This box cannot, so it
- * is applied to the whole site — which makes it a weaker test and a different
- * one, and the evidence line says exactly that. 1.3 is workdash's own loosened
- * ceiling for the screen trigger: a crawler that follows a link one time in
+ * A database-side probe applies this per fingerprint because it can. This box
+ * cannot, so it is applied to the whole site — which makes it a weaker test and
+ * a different one, and the evidence line says exactly that. 1.3 is the loosened
+ * ceiling that rule arrived at for the screen trigger: a crawler that follows a link one time in
  * seven still walks under 1.05, and 1.3 is where a reading audience starts.
  */
 export const SCREEN_MAX_VIEWS_PER_VISIT = 1.3;

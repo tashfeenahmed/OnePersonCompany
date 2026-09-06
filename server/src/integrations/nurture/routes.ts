@@ -30,6 +30,8 @@ import { firstGmailAccount, prepareDraft, row as outboxRow, settings as outboxSe
 import {
   createIdentity,
   deleteIdentity,
+  domainOf,
+  domainStatus,
   gmailAddress,
   identityRow,
   identityRows,
@@ -136,8 +138,14 @@ nurtureRoutes.get("/", (c) => {
       accountId: i.account_id,
       isDefault: i.is_default === 1,
       /** Resend's own word, or "mailbox" for a Gmail identity. NULL means
-       *  nobody has asked, which is NOT "unverified". */
-      verified: i.verified,
+       *  nobody has asked, which is NOT "unverified".
+       *
+       *  READ OUT OF `resend_domains` FOR A RESEND IDENTITY, which is the one
+       *  table that now holds it — see identities.ts. There used to be a copy
+       *  on this row, refreshed on its own trigger, so a domain that had lapsed
+       *  read "verified" beside the draft while the mailbox page — reading the
+       *  collector's table — said otherwise. */
+      verified: i.kind === "resend" ? domainStatus(domainOf(i.from_address)) : i.verified,
       verifiedAt: i.verified_at,
       verifyNote: i.verify_note,
     })),

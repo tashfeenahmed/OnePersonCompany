@@ -1,3 +1,5 @@
+import type { ComponentProps } from "react";
+import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
 import { AlertTriangle, Check, ExternalLink, Loader2, Pencil, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,11 +39,11 @@ import {
  * made them reach for it.
  */
 
-const TIER_STYLE: Record<FactTier, string> = {
-  owner: "bg-foreground text-background",
-  repo: "border-line-soft text-foreground border",
-  measured: "bg-muted text-muted-foreground",
-  proposed: "bg-warn/20 text-warn border-warn/40 border",
+const TIER_STYLE: Record<FactTier, ComponentProps<typeof Badge>["variant"]> = {
+  owner: "default",
+  repo: "outline",
+  measured: "secondary",
+  proposed: "warn",
 };
 
 const KIND_LABEL: Record<FactKind, string> = {
@@ -464,11 +466,9 @@ export function KnowledgeTab({ slug }: { slug: string }) {
 
 function TierChip({ tier }: { tier: FactTier }) {
   return (
-    <span
-      className={`inline-block shrink-0 rounded px-1.5 py-0.5 text-[10.5px] tracking-wide uppercase ${TIER_STYLE[tier]}`}
-    >
+    <Badge variant={TIER_STYLE[tier]} className="text-[10.5px] tracking-wide uppercase">
       {tier === "proposed" ? "unconfirmed" : tier}
-    </span>
+    </Badge>
   );
 }
 

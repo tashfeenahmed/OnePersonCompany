@@ -46,11 +46,10 @@
  */
 import { db, now, type VentureRow } from "../../db.ts";
 import * as searxng from "../../providers/searxng.ts";
+import { hostMatch, hostOf, registrable } from "../../shared/host.ts";
 import {
   gapsAgainst,
-  hostOf,
   readPage,
-  registrable,
   relevance,
   tokens,
   unmeasurable,
@@ -79,45 +78,71 @@ export type PickedQuery = {
   gscImpressions: number | null;
 };
 
-/** The Search Console property that is this venture's, matched on host. The
- *  property string is `sc-domain:example.com` or a URL prefix; both reduce to
- *  a host, and a venture with no matching property gets none rather than the
- *  first one in the table. */
+/** The Search Console property that COVERS this venture's host. The property
+ *  string is `sc-domain:example.com` or a URL prefix; `hostOf` reduces both,
+ *  and a venture with no matching property gets none rather than the first one
+ *  in the table.
+ *
+ *  ONE-DIRECTIONAL, through `shared/host.ts`. A property covers a host when it
+ *  IS that host or the host sits under it. Folding both sides to the
+ *  registrable domain — which is what this did — also matched a property for
+ *  `blog.example.com` against a venture at `example.com`, which is a property
+ *  that measures a different site. */
 export function propertyFor(host: string | null): string | null {
   if (!host) return null;
   const rows = db.prepare("SELECT property FROM gsc_sites").all() as unknown as { property: string }[];
-  const want = registrable(host);
-  for (const r of rows) {
-    const name = r.property.replace(/^sc-domain:/, "").replace(/^https?:\/\//, "");
-    const h = name.split("/")[0]!.replace(/^www\./, "");
-    if (registrable(h) === want) return r.property;
-  }
+  for (const r of rows) if (hostMatch(r.property, host)) return r.property;
   return null;
 }
 
 /**
- * Striking-distance queries: position 5 to 20, at least MIN_IMPRESSIONS of
- * them, most impressions first.
+ * STRIKING DISTANCE, DEFINED ONCE.
+ *
+ * Position 5 to 20, at least `MIN_IMPRESSIONS` of them, most impressions
+ * first.
  *
  * Above position 5 there is little between us and the click that a
  * competitor's page explains; past 20 the pages above are not competing for
  * the same intent. The floor on impressions is there because sorting by
  * impressions with no floor means the best candidate on a quiet site wins by
  * default rather than on merit.
+ *
+ * THERE USED TO BE TWO DEFINITIONS OF THIS ONE RECOMMENDATION and they
+ * published different lists over the same rows: the dashboard took 11–20 with
+ * no impressions floor, this took 5–20 with one. A query at position 7 was a
+ * target for the teardown and invisible on the dashboard; a query at 15 with a
+ * single impression was on the dashboard and excluded from the teardown. The
+ * band below is the one with the reasons written down, and both surfaces read
+ * it.
+ *
+ * `property` narrows it to one Search Console property; `null` means every
+ * property this box holds, which is what a portfolio-wide board wants.
  */
-export function strikingQueries(property: string, limit: number): PickedQuery[] {
-  const rows = db
+export const STRIKING_MIN_POSITION = 5;
+export const STRIKING_MAX_POSITION = 20;
+
+export type StrikingRow = {
+  property: string;
+  query: string;
+  clicks: number;
+  impressions: number;
+  position: number | null;
+};
+
+export function strikingRows(property: string | null, limit: number): StrikingRow[] {
+  const scoped = property ? "AND property = ?" : "";
+  const args: (string | number)[] = property ? [property] : [];
+  return db
     .prepare(
-      `SELECT query, impressions, position FROM gsc_queries
-        WHERE property = ? AND position >= 5 AND position <= 20 AND impressions >= ?
+      `SELECT property, query, clicks, impressions, position FROM gsc_queries
+        WHERE position >= ? AND position <= ? AND impressions >= ? ${scoped}
         ORDER BY impressions DESC, query LIMIT ?`,
     )
-    .all(property, MIN_IMPRESSIONS, limit) as unknown as {
-    query: string;
-    impressions: number;
-    position: number | null;
-  }[];
-  return rows.map((r) => ({
+    .all(STRIKING_MIN_POSITION, STRIKING_MAX_POSITION, MIN_IMPRESSIONS, ...args, limit) as unknown as StrikingRow[];
+}
+
+export function strikingQueries(property: string, limit: number): PickedQuery[] {
+  return strikingRows(property, limit).map((r) => ({
     query: r.query,
     source: "gsc" as const,
     gscPosition: r.position ?? null,
@@ -563,4 +588,107 @@ export function rowsForVenture(ventureId: string, limit: number) {
     .prepare("SELECT * FROM growth_serp WHERE venture_id = ? ORDER BY ts DESC, rowid LIMIT ?")
     .all(ventureId, limit) as unknown as StoredSerpRow[];
   return rows.map(shapeRow);
+}
+
+/* ------------------------------------------------------ the competitor set */
+
+export type Competitor = {
+  /** The registrable domain, which is the key the two registries can be joined
+   *  on. Grouping only — see `shared/host.ts` on why it may never decide
+   *  ownership. */
+  domain: string;
+  /** The written profile, where a sweep produced one. */
+  profile: {
+    name: string;
+    url: string | null;
+    positioning: string | null;
+    pricing: string | null;
+    lastVerified: string;
+    firstSeen: string;
+  } | null;
+  /** How the teardowns actually saw them: which queries, and the best rank the
+   *  stored rows put them at. Empty means nobody has measured them ranking. */
+  ranking: { queries: string[]; pages: number };
+  /** Which registry knew about them. `both` is the interesting one. */
+  evidence: "ranking" | "profile" | "both";
+};
+
+/**
+ * ONE COMPETITOR SET FOR A VENTURE, OUT OF THE TWO REGISTRIES THAT HOLD ONE.
+ *
+ * TWO ANSWERS TO ONE QUESTION, AND THEY NEVER JOINED. A teardown discovers
+ * rivals mechanically — a search engine put them above us on our own query and
+ * their page was read — and files them per query inside a run's row. A
+ * competitor sweep writes PROFILES: a name, a positioning, a price, verified
+ * by a model and edited by the owner. So a domain outranking the venture on
+ * every teardown query never appeared among the profiles, and a profiled rival
+ * carried no evidence it ranks for anything.
+ *
+ * THE JOIN KEY IS THE REGISTRABLE DOMAIN, because it is the only thing both
+ * sides have: a profile has a name and usually a URL, a teardown has a URL and
+ * no name. A profile with no readable URL cannot be joined and is returned on
+ * its own name rather than dropped — an unjoined profile is still the owner's
+ * research.
+ *
+ * THIS IS THE READ HALF. The two registries are still two tables; one table
+ * keyed on the registrable domain, with the teardown filing what it discovers,
+ * is a migration.
+ */
+export function competitorSet(ventureId: string, limit = 60): Competitor[] {
+  const out = new Map<string, Competitor>();
+
+  for (const row of rowsForVenture(ventureId, limit)) {
+    for (const c of row.competitors) {
+      const domain = registrable(c.domain ?? hostOf(c.url));
+      if (!domain) continue;
+      const held = out.get(domain) ?? {
+        domain,
+        profile: null,
+        ranking: { queries: [], pages: 0 },
+        evidence: "ranking" as const,
+      };
+      if (!held.ranking.queries.includes(row.query)) held.ranking.queries.push(row.query);
+      held.ranking.pages += 1;
+      out.set(domain, held);
+    }
+  }
+
+  const profiles = db
+    .prepare(
+      `SELECT name, url, positioning, pricing, last_verified, first_seen
+         FROM competitor_profiles WHERE venture_id = ?`,
+    )
+    .all(ventureId) as unknown as {
+    name: string;
+    url: string | null;
+    positioning: string | null;
+    pricing: string | null;
+    last_verified: string;
+    first_seen: string;
+  }[];
+
+  for (const p of profiles) {
+    const domain = registrable(hostOf(p.url)) || p.name.trim().toLowerCase();
+    const held = out.get(domain);
+    const profile = {
+      name: p.name,
+      url: p.url,
+      positioning: p.positioning,
+      pricing: p.pricing,
+      lastVerified: p.last_verified,
+      firstSeen: p.first_seen,
+    };
+    if (held) out.set(domain, { ...held, profile, evidence: "both" });
+    else
+      out.set(domain, {
+        domain,
+        profile,
+        ranking: { queries: [], pages: 0 },
+        evidence: "profile",
+      });
+  }
+
+  return [...out.values()].sort(
+    (a, b) => b.ranking.queries.length - a.ranking.queries.length || a.domain.localeCompare(b.domain),
+  );
 }

@@ -42,7 +42,7 @@ import { tokenAccounts, REPLICATE_API } from "../../providers/replicate.ts";
 import { readBrand } from "../../ventures/enrich.ts";
 import { imageModel, makeImage, STUDIO_DIR } from "../ventures/studio.ts";
 import { assetAsDataUrl, assetAsText, assetRows, markUsed, modelImageInput } from "../publishing/assets.ts";
-import { createItem, sniff } from "../publishing/items.ts";
+import { correctMediaKind, createItem, sniff } from "../publishing/items.ts";
 import { runDir, StepError, type RunSession } from "../video/faceless.ts";
 import { ASPECTS, segment, type Fit } from "../video/assemble.ts";
 import { pickCaptioner, stripPath, type CaptionStyle } from "../video/captions.ts";
@@ -591,12 +591,14 @@ export async function ugcVideo(opts: {
      kind and wrong for this one — and the queue uses that column to pick which
      platform limits apply and whether the destination can post it at all. So
      the kind is re-derived from the file's OWN FIRST BYTES with the publishing
-     area's own sniffer, and the row is corrected only when the two disagree.
-     Nothing else about the item is touched. */
+     area's own sniffer, and the row is corrected THROUGH THAT AREA'S OWN
+     function rather than by an UPDATE from here. A raw write to
+     `publish_items` from outside publishing is what made its "an edit
+     withdraws the approval" guarantee conditional; `correctMediaKind` refuses
+     anything that is not still a draft. */
   if (filed.ok && filed.created && filed.item.media_path) {
     const real = mediaKindOf(filed.item.media_path);
-    if (real && real !== filed.item.media_kind)
-      db.prepare("UPDATE publish_items SET media_kind = ?, updated_at = ? WHERE id = ?").run(real, now(), filed.item.id);
+    if (real && real !== filed.item.media_kind) correctMediaKind(filed.item.id, real);
   }
   record("draft", filed.ok, filed.ok ? `filed as draft ${filed.item.id}` : filed.error);
 

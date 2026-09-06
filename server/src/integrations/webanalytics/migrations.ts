@@ -114,8 +114,8 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- thresholds — but ONE fact cannot be recomputed and must be kept: the
       -- date this box first said a given fingerprint looked automated.
       --
-      -- Workdash learned this the expensive way and hard-coded a date per
-      -- trigger. A series that steps down by a third overnight is either a
+      -- An earlier system learned this the expensive way and hard-coded a
+      -- date per trigger. A series that steps down by a third overnight is either a
       -- story about the internet or a story about a policy, and a chart cannot
       -- tell the two apart on its own. This table is how a reader in November
       -- learns which it was, per site and per fingerprint rather than per
@@ -456,7 +456,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       --
       -- Added after the first live collection proved the assumption 310 was
       -- written on. Umami's /metrics answers at most the row limit asked for
-      -- and says nothing about a tail; freellmapi.co's screen dimension came
+      -- and says nothing about a tail; one live site's screen dimension came
       -- back exactly 500 rows long in all three windows, which is the cap and
       -- not the site. Two things were wrong as a result and both are the same
       -- error: every share in that block was computed against a short

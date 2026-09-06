@@ -1,4 +1,5 @@
 import { call } from "@/lib/api";
+import { qs } from "@/lib/qs";
 
 /**
  * MOBILE HEALTH FROM THIS SIDE — what the apps DO, beside /api/mobile's money.
@@ -274,30 +275,22 @@ export type TriageResult = {
   note: string;
 };
 
-const q = (params: Record<string, string | number | undefined>) => {
-  const search = new URLSearchParams();
-  for (const [k, v] of Object.entries(params))
-    if (v !== undefined && v !== "") search.set(k, String(v));
-  const s = search.toString();
-  return s ? `?${s}` : "";
-};
-
 export const mobileHealthApi = {
   readiness: () => call<Readiness>("/mobilehealth/readiness"),
   segments: (o: { days?: number; store?: string; app?: string; dimension?: string; limit?: number } = {}) =>
-    call<Segments>(`/mobilehealth/segments${q(o)}`),
+    call<Segments>(`/mobilehealth/segments${qs(o)}`),
   conversion: (o: { days?: number; app?: string } = {}) =>
-    call<Conversion>(`/mobilehealth/conversion${q(o)}`),
+    call<Conversion>(`/mobilehealth/conversion${qs(o)}`),
   retention: (o: { days?: number; app?: string } = {}) =>
-    call<Retention>(`/mobilehealth/retention${q(o)}`),
+    call<Retention>(`/mobilehealth/retention${qs(o)}`),
   stability: (o: { days?: number; app?: string; store?: string } = {}) =>
-    call<Stability>(`/mobilehealth/stability${q(o)}`),
+    call<Stability>(`/mobilehealth/stability${qs(o)}`),
   reviews: (o: { days?: number; store?: string; app?: string; minRating?: number; maxRating?: number; limit?: number } = {}) =>
-    call<Reviews>(`/mobilehealth/reviews${q(o)}`),
+    call<Reviews>(`/mobilehealth/reviews${qs(o)}`),
   trend: (o: { days?: number; store?: string; app?: string; n?: number; themes?: string } = {}) =>
-    call<ReviewTrend>(`/mobilehealth/reviews/trend${q(o)}`),
+    call<ReviewTrend>(`/mobilehealth/reviews/trend${qs(o)}`),
   versions: (o: { days?: number; app?: string } = {}) =>
-    call<Versions>(`/mobilehealth/versions${q(o)}`),
+    call<Versions>(`/mobilehealth/versions${qs(o)}`),
   collect: () => call<CollectResult>("/mobilehealth/collect", { method: "POST" }),
   sendToBoard: (reviewIds: string[], title?: string) =>
     call<TriageResult>("/mobilehealth/reviews/triage", {

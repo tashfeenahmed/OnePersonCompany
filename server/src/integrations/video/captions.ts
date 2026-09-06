@@ -37,7 +37,11 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { configValue } from "../../db.ts";
-import { VIDEO_PLUGIN, findFfmpeg, findTypstBin, ffmpegFilters, run } from "./tools.ts";
+import { VIDEO_PLUGIN, findFfmpeg, ffmpegFilters, run } from "./tools.ts";
+/* ONE typesetter, named once. It is the papers area's binary and this borrows
+   it; discovering it again here under a second settings key is what used to
+   leave every video captionless on a box that had typst installed. */
+import { findTypst } from "../runs/typst.ts";
 
 /* ------------------------------------------------------------------ fonts */
 
@@ -112,7 +116,7 @@ export type Captioner = {
  */
 export async function pickCaptioner(): Promise<Captioner> {
   const configured = (configValue(VIDEO_PLUGIN, "captions") ?? "").trim().toLowerCase();
-  const typst = findTypstBin();
+  const typst = findTypst();
   const ffmpeg = findFfmpeg();
   const filters = ffmpeg.path ? await ffmpegFilters(ffmpeg.path) : new Set<string>();
   const fontFile = FONT_FILES.find((f) => existsSync(f)) ?? null;

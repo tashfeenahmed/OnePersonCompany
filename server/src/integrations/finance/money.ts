@@ -33,15 +33,12 @@ export const CATEGORIES: Category[] = ["server", "domain", "service", "subscript
 export const DECISIONS: RenewalDecision[] = ["keep", "cancel", "undecided"];
 export const BASES: Basis[] = ["equal", "manual", "revenue", "traffic"];
 
-/** Currency codes are upper-case ISO 4217 throughout this area. Hetzner says
- *  "EUR", Stripe says "usd", the app stores say both — one shape here so a map
- *  keyed by currency cannot hold the same money twice under two spellings. */
-export const currencyCode = (raw: string): string => raw.trim().toUpperCase();
-
-/** Four places internally, because a twelfth of a yearly bill has a real tail
- *  and a thousand of them summed at two places is off by cents. Rendering is
- *  the caller's business. */
-export const money = (n: number): number => Number(n.toFixed(4));
+/* The amount and currency-code primitives moved to `shared/money.ts` — nine
+   copies of them shipped at three precisions, so two documents about one month
+   never tied out. Re-exported here because this area's own rules are written in
+   terms of them and a reader of this file should not have to chase two. */
+export { compactMonth, currencyCode, isoMonth, money, monthOf } from "../../shared/money.ts";
+import { currencyCode, money } from "../../shared/money.ts";
 
 /**
  * This expense's contribution to a MONTHLY run rate.
@@ -200,14 +197,8 @@ export function convert(
 
 /* ------------------------------------------------------------- calendars */
 
-/** "2026-09" → the number of days in it. Months are the unit every bill and
- *  every store report uses, so this area counts in them rather than in 30s. */
-export function daysInMonth(month: string): number {
-  const [y, m] = month.split("-").map(Number);
-  return new Date(Date.UTC(y!, m!, 0)).getUTCDate();
-}
-
-export const isMonth = (s: string): boolean => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
+export { daysInMonth, isMonth } from "../../shared/money.ts";
+import { daysInMonth } from "../../shared/money.ts";
 
 /** The month this box is in, in UTC — the same clock every stored day uses. */
 export const currentMonth = (): string => new Date().toISOString().slice(0, 7);

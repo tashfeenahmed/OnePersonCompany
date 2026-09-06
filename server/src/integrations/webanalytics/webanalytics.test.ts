@@ -37,7 +37,7 @@ import {
   type BotInput,
 } from "./bots.ts";
 import { fatigueOf, MIN_IMPRESSIONS } from "./fatigue.ts";
-import { host, hostsIn, ventureHosts } from "./attribution.ts";
+import { hostsIn, ventureHosts } from "./attribution.ts";
 import { boundedError, summariseProperties, MAX_ERROR_CHARS } from "./umami-collect.ts";
 import { creativeLink } from "../../providers/meta.ts";
 import { parseUtm, windowAt } from "../analytics/umami.ts";
@@ -71,6 +71,7 @@ const window_ = (
   bounces: 500,
   totaltime: 12_000,
   seen_at: "",
+  source: "web_site_windows",
   ...over,
 });
 
@@ -396,16 +397,16 @@ test("the run row's error string is bounded and says how many it dropped", () =>
 /* --------------------------------------------- the settings checks accept */
 
 test("two lines for one venture are valid input, not a parse failure", () => {
-  const value = "example-app-1 = signup-cta-clicked\nexample-app-1 = checkout-clicked\nneu = a";
+  const value = "alpha = signup-cta-clicked\nalpha = checkout-clicked\nbeta = a";
   assert.equal(checkVentureLists(value), null);
-  assert.deepEqual(parseVentureLists(value).get("example-app-1"), [
+  assert.deepEqual(parseVentureLists(value).get("alpha"), [
     "signup-cta-clicked",
     "checkout-clicked",
   ]);
   /* And a line that genuinely cannot be read is still reported. */
-  assert.match(checkVentureLists("example-app-1 = a\nnot a setting line") ?? "", /1 line/);
-  assert.equal(checkRevenue("freellmapi = payment-completed.revenue\nneu = x.y"), null);
-  assert.match(checkRevenue("freellmapi = payment-completed") ?? "", /freellmapi/);
+  assert.match(checkVentureLists("alpha = a\nnot a setting line") ?? "", /1 line/);
+  assert.equal(checkRevenue("alpha = payment-completed.revenue\nbeta = x.y"), null);
+  assert.match(checkRevenue("alpha = payment-completed") ?? "", /alpha/);
   assert.equal(checkUnits("a.b = USD\nc.d = seconds"), null);
 });
 
@@ -491,36 +492,28 @@ test("a missing comparison week is no verdict, never steady", () => {
 
 /* ---------------------------------------------------------------- joins */
 
-test("host folds www and refuses anything that is not a hostname", () => {
-  assert.equal(host("https://www.Example App 4.io/apply?x=1"), "example-app-4.example.test");
-  assert.equal(host("example-app-1.example.test"), "example-app-1.example.test");
-  assert.equal(host("localhost"), null);
-  assert.equal(host(""), null);
-  assert.equal(host(null), null);
-});
-
-test("hostsIn finds hosts in the exact campaign names Meta produces", () => {
+test("hostsIn finds hosts in the exact campaign-name shapes ad platforms produce", () => {
   assert.deepEqual(hostsIn("Promoting website: https://api.whatsapp.com/send"), ["api.whatsapp.com"]);
   assert.deepEqual(
-    hostsIn("[8/4/2026] Promoting https://example-app-4.example.test/become-a-tutor/apply"),
-    ["example-app-4.example.test"],
+    hostsIn("[8/4/2026] Promoting https://example.com/become-a-tutor/apply"),
+    ["example.com"],
   );
   assert.deepEqual(
-    hostsIn("Promoting https://freellmapi.co/?utm_source=meta&utm_medium=paid"),
-    ["freellmapi.co"],
+    hostsIn("Promoting https://example.co/?utm_source=meta&utm_medium=paid"),
+    ["example.co"],
   );
-  assert.deepEqual(hostsIn("Leads — example-app-1.example.test — August"), ["example-app-1.example.test"]);
+  assert.deepEqual(hostsIn("Leads — example.ie — August"), ["example.ie"]);
   assert.deepEqual(hostsIn("Summer sale, no links here"), []);
 });
 
 test("ventureHosts folds the record's host and its website into one set", () => {
   const v = {
     id: "v1",
-    slug: "neu",
-    name: "Neu",
+    slug: "acme",
+    name: "Acme",
     description: "",
-    website: "https://www.example.ie/",
-    host: "example.ie",
+    website: "https://www.acme.ie/",
+    host: "acme.ie",
     stage: "launched",
     color: "",
     color_source: "",
@@ -529,7 +522,7 @@ test("ventureHosts folds the record's host and its website into one set", () => 
     created_at: "",
     updated_at: "",
   };
-  assert.deepEqual(ventureHosts(v), ["example.ie"]);
+  assert.deepEqual(ventureHosts(v), ["acme.ie"]);
 });
 
 test("creativeLink digs the destination out of each creative shape Meta uses", () => {
@@ -618,12 +611,12 @@ test("a string property gets a capped ranking and no arithmetic", () => {
 /* ------------------------------------------------------------- settings */
 
 test("the settings parsers keep the shapes the hints promise", () => {
-  const conv = parseVentureLists("example-app-1 = a, b\n# comment\nneu = c");
-  assert.deepEqual(conv.get("example-app-1"), ["a", "b"]);
-  assert.deepEqual(conv.get("neu"), ["c"]);
+  const conv = parseVentureLists("alpha = a, b\n# comment\nbeta = c");
+  assert.deepEqual(conv.get("alpha"), ["a", "b"]);
+  assert.deepEqual(conv.get("beta"), ["c"]);
 
-  const rev = parseRevenue("freellmapi = payment-completed.revenue");
-  assert.deepEqual(rev.get("freellmapi"), { event: "payment-completed", property: "revenue" });
+  const rev = parseRevenue("alpha = payment-completed.revenue");
+  assert.deepEqual(rev.get("alpha"), { event: "payment-completed", property: "revenue" });
 
   const units = parseUnits("payment-completed.revenue = USD\nnonsense");
   assert.equal(units.get("payment-completed.revenue"), "USD");

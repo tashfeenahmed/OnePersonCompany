@@ -41,6 +41,7 @@
  */
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { db, now } from "../../db.ts";
+import { registerRetention } from "../../shared/retention.ts";
 
 /* ------------------------------------------------------------- the password */
 
@@ -159,6 +160,30 @@ export type SessionRow = {
 
 export const SESSION_MAX_AGE_MS = 30 * 24 * 3600_000;
 export const SESSION_IDLE_MS = 7 * 24 * 3600_000;
+
+/**
+ * SESSIONS ARE KEPT FOR NINETY DAYS AFTER THEY WERE OPENED, AND NOTHING KEPT
+ * THEM BEFORE — one row per sign-in, for the life of the box.
+ *
+ * A row past `SESSION_MAX_AGE_MS` cannot log anybody in whatever it says: the
+ * lookup above compares `created_at` against that thirty days and finds
+ * nothing older. So everything this window deletes is already dead as a
+ * credential, and what it is keeping is the ANSWER TO "WHO SIGNED IN, FROM
+ * WHAT, AND WHEN" — the revoke list's whole reason to show closed sessions.
+ * Ninety days is three times the longest a session can live, which is enough
+ * to notice a sign-in nobody remembers and short enough that the table is a
+ * page rather than a history.
+ */
+export const SESSION_RETAIN_DAYS = 90;
+registerRetention({
+  table: "security_sessions",
+  column: "created_at",
+  days: SESSION_RETAIN_DAYS,
+  source: "area",
+  note:
+    "One row per sign-in. Anything past SESSION_MAX_AGE_MS (30 days) can no longer authenticate, so this window " +
+    "only decides how long the sign-in HISTORY is readable on the sessions list.",
+});
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
 /** Only the login response receives the token. Lists and the database hold its digest. */

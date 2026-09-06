@@ -145,7 +145,7 @@ const skills: Skill[] = [
     ],
     asks: [
       "How hard a keyword is worth going after for this site, and why?",
-      "What is the authority estimate for example-app-1.example.test built from?",
+      "What is the authority estimate for one of my hosts built from?",
     ],
   },
 

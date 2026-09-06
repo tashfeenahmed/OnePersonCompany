@@ -12,17 +12,21 @@ import { Note, PanelEmpty, PanelSection, Rows, Row, Suggest, Tiles } from "./Pan
    that means a person looked. See integrations/seoops/listings.ts. */
 import { ListingsPanel } from "@/areas/seoops/ListingsPanel";
 
-/** The four states a cell can be in, and the colour each earns. `blocked` is
+/** The five states a cell can be in, and the colour each earns. `blocked` is
  *  deliberately NOT the same grey as `absent`: one is a fact and the other is
- *  a question nobody could ask. */
-function cellClass(status: PresenceStatus): string {
+ *  a question nobody could ask. NULL IS A SIXTH STATE ONLY IN THAT IT IS THE
+ *  ABSENCE OF ONE — this source has never been asked about this product, which
+ *  is not the same as having been asked and refused. */
+function cellClass(status: PresenceStatus | null): string {
+  if (status === null) return "text-muted-foreground border-dotted opacity-70";
   if (status === "present") return "bg-ok-bg text-ok border-transparent";
   if (status === "blocked") return "border-dashed";
   if (status === "error") return "text-destructive border-transparent";
   return "text-muted-foreground";
 }
 
-function cellLabel(status: PresenceStatus): string {
+function cellLabel(status: PresenceStatus | null): string {
+  if (status === null) return "never checked";
   if (status === "present") return "listed";
   if (status === "blocked") return "not checked";
   if (status === "error") return "error";
@@ -34,7 +38,7 @@ function cellLabel(status: PresenceStatus): string {
  * source, and one distinction it is built entirely around.
  *
  * `BLOCKED` IS NOT `ABSENT`. Blocked means the source could not be asked: a
- * 403 from a WAF, a rate limit, a timeout, or a directory like Capterra whose
+ * 403 from a WAF, a rate limit, a timeout, or a software directory whose
  * urls carry a numeric id that cannot be derived from a name and which
  * publishes no keyless lookup. Reporting a product as unlisted because a
  * firewall answered is the single worst mistake available on this page, so
@@ -43,9 +47,9 @@ function cellLabel(status: PresenceStatus): string {
  *
  * `PRESENT` MEANS THE RECORD NAMED THE BRAND AND POINTED BACK. Half these
  * names are two ordinary English words and strangers own projects with the
- * same ones — so a GitHub repo called Example App 1 whose homepage is not
- * example-app-1.example.test is filed as a CANDIDATE on an absent row, listed separately for
- * the owner to judge. Nothing here is a submission and nothing counts as done.
+ * same ones — so a repository sharing a product's name, whose homepage is not
+ * that product's site, is filed as a CANDIDATE on an absent row, listed
+ * separately for the owner to judge. Nothing here is a submission and nothing counts as done.
  *
  * THERE IS NO FOOTPRINT SCORE. The original collector's score was mostly a
  * search sweep this port does not carry, and a score built from what is left

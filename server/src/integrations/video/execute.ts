@@ -24,7 +24,7 @@ import { rmSync } from "node:fs";
 import type { VentureRow } from "../../db.ts";
 import { facelessVideo, runDir, StepError, type RunSession } from "./faceless.ts";
 import { shortsVideo } from "./shorts.ts";
-import { ASPECTS, type Fit } from "./assemble.ts";
+import { ASPECTS, DEFAULT_ASPECT, type Fit } from "./assemble.ts";
 import { forgetJob } from "./store.ts";
 import * as leases from "../deploy/leases.ts";
 import { motionVideo } from "../videoplus/motion.ts";
@@ -119,7 +119,7 @@ async function renderVideo(opts: {
   signal?: AbortSignal;
 }): Promise<void> {
   const format = readFormat(opts.input.format);
-  const aspect = (opts.input.aspect ?? "").trim() in ASPECTS ? opts.input.aspect!.trim() : "9:16";
+  const aspect = (opts.input.aspect ?? "").trim() in ASPECTS ? opts.input.aspect!.trim() : DEFAULT_ASPECT;
   const fit: Fit = (opts.input.fit ?? "").trim().toLowerCase() === "letterbox" ? "letterbox" : "cover";
   const brief = (opts.input.brief ?? "").trim();
 

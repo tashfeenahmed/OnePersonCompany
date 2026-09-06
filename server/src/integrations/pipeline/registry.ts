@@ -45,6 +45,7 @@
  * until two in the morning is a schedule nobody checks.
  */
 import { configValue, db, now } from "../../db.ts";
+import { dailySchedule, wall } from "../../shared/time.ts";
 
 /** The pseudo-plugin the night's settings hang off. `plugin_config` points at
  *  `plugins`, so a setting has to hang off a row and there is no credential
@@ -351,7 +352,7 @@ export function dueByCadence(
   const last = Date.parse(lastAt);
   if (!Number.isFinite(last)) return true;
   const days = { daily: 1, weekly: 7, monthly: 28 }[cadence];
-  const lastDay = zoned({ timezone: zone }, new Date(last)).day;
+  const lastDay = wall(zone, new Date(last)).day;
   if (cadence === "daily") return lastDay !== today;
   const elapsed = (Date.parse(`${today}T12:00:00Z`) - Date.parse(`${lastDay}T12:00:00Z`)) / 86_400_000;
   return elapsed >= days;
@@ -420,22 +421,21 @@ export function spend(
 export type PipelineSettings = {
   enabled: boolean;
   hour: number;
-  timezone: string | null;
-  resolvedTimezone: string;
+  /**
+   * ALWAYS A REAL ZONE NAME. This used to be `string | null` beside a second
+   * `resolvedTimezone` field, and the pair said one thing twice: null meant
+   * "the machine's own", and the resolved name was the machine's own. Two
+   * fields for one fact is two chances to read the wrong one, and the copies
+   * in other areas each picked a different one of the two. `zoneWasSet` keeps
+   * the only information the null carried — whether the owner ever typed one.
+   */
+  timezone: string;
+  zoneWasSet: boolean;
   blackouts: Blackout[];
   blackoutErrors: string[];
   maxUsd: number | null;
   maxMinutes: number | null;
 };
-
-export function zoneIsReal(zone: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-GB", { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function whole(raw: string | null, fallback: number, min: number, max: number): number {
   const t = (raw ?? "").trim();
@@ -456,14 +456,19 @@ function money(raw: string | null): number | null {
 }
 
 export function settings(): PipelineSettings {
-  const zone = (configValue(PIPELINE_PLUGIN, "timezone") ?? "").trim();
   const { blackouts, errors } = parseBlackouts(configValue(PIPELINE_PLUGIN, "blackouts"));
   const minutes = whole(configValue(PIPELINE_PLUGIN, "max-minutes"), DEFAULT_MAX_MINUTES, 0, 1440);
+  /* The enabled flag, the hour and the zone all come from one reader now —
+     `shared/time.ts` — which is also where the rule that an out-of-range hour
+     falls back rather than CLAMPS is written down. This file used to clamp,
+     turning a typed 25 into 23:00: an hour the owner never chose, presented
+     as one they did. */
+  const daily = dailySchedule(PIPELINE_PLUGIN, { defaultHour: DEFAULT_HOUR });
   return {
-    enabled: (configValue(PIPELINE_PLUGIN, "enabled") ?? "").trim().toLowerCase() === "on",
-    hour: whole(configValue(PIPELINE_PLUGIN, "hour"), DEFAULT_HOUR, 0, 23),
-    timezone: zone && zoneIsReal(zone) ? zone : null,
-    resolvedTimezone: zone && zoneIsReal(zone) ? zone : Intl.DateTimeFormat().resolvedOptions().timeZone,
+    enabled: daily.enabled,
+    hour: daily.hour,
+    timezone: daily.timezone,
+    zoneWasSet: daily.zoneWasSet,
     blackouts,
     blackoutErrors: errors,
     maxUsd: money(configValue(PIPELINE_PLUGIN, "max-usd")),
@@ -471,53 +476,6 @@ export function settings(): PipelineSettings {
        "a night of zero minutes", which nobody has ever wanted to type. */
     maxMinutes: minutes > 0 ? minutes : null,
   };
-}
-
-/** The hour, the calendar day, the minute of the day and the weekday, where
- *  the owner says they are — all from ONE formatter call, because asking twice
- *  at 23:59:59.9 can straddle midnight and give an hour from one day beside a
- *  date from the next. */
-export function zoned(
-  s: Pick<PipelineSettings, "timezone">,
-  at = new Date(),
-): { day: string; hour: number; minute: number; weekday: number } {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: s.timezone ?? undefined,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    weekday: "short",
-  });
-  const parts = Object.fromEntries(fmt.formatToParts(at).map((p) => [p.type, p.value]));
-  /* "24" is what some ICU builds call midnight in an hour12:false format. Read
-     as 24 it would never equal a configured hour and a night set to midnight
-     would never start. */
-  const hour = Number(parts.hour) % 24;
-  const minute = Number(parts.minute);
-  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(String(parts.weekday));
-  return {
-    day: `${parts.year}-${parts.month}-${parts.day}`,
-    hour,
-    minute: hour * 60 + minute,
-    weekday: weekday < 0 ? new Date(at).getUTCDay() : weekday,
-  };
-}
-
-/** The next moment a night is due, or null when the schedule is off. Walked
- *  hour by hour rather than computed: "02:00 in Europe/Dublin" is not an
- *  arithmetic offset from now, and a day with a DST transition in it is 23 or
- *  25 hours long. Fifty probes of a formatter is microseconds. */
-export function nextRunAt(s = settings(), at = new Date()): string | null {
-  if (!s.enabled) return null;
-  for (let i = 1; i <= 48; i += 1) {
-    const probe = new Date(at.getTime() + i * 3_600_000);
-    if (zoned(s, probe).hour === s.hour)
-      return new Date(Math.floor(probe.getTime() / 3_600_000) * 3_600_000).toISOString();
-  }
-  return null;
 }
 
 /* -------------------------------------------------------- per-stage overrides */

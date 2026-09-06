@@ -9,6 +9,7 @@
  * not zero, and nothing on this side supplies one.
  */
 import { call } from "@/lib/api";
+import { qs } from "@/lib/qs";
 
 /* --------------------------------------------------------------- posts */
 
@@ -205,25 +206,18 @@ export type UgcStarted = {
   note: string;
 };
 
-const q = (params: Record<string, string | number | undefined>) => {
-  const s = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") s.set(k, String(v));
-  const text = s.toString();
-  return text ? `?${text}` : "";
-};
-
 export const socialfeedApi = {
   posts: (params: { venture?: string; platform?: string; limit?: number } = {}) =>
-    call<PostsDoc>(`/socialfeed/posts${q(params)}`),
+    call<PostsDoc>(`/socialfeed/posts${qs(params)}`),
   collect: () => call<CollectResult>("/socialfeed/collect", { method: "POST" }),
   sourcing: (params: { venture?: string; limit?: number } = {}) =>
-    call<SourcingDoc>(`/socialfeed/sourcing${q(params)}`),
+    call<SourcingDoc>(`/socialfeed/sourcing${qs(params)}`),
   discover: (venture: string, topic: string) =>
     call<Discovery>("/socialfeed/discover", { method: "POST", body: JSON.stringify({ venture, topic }) }),
   forget: (id: number) => call<{ ok: true; id: number; already: boolean; note: string }>("/socialfeed/forget", { method: "POST", body: JSON.stringify({ id }) }),
   restore: (id: number) => call<{ ok: true; id: number; note: string }>("/socialfeed/restore", { method: "POST", body: JSON.stringify({ id }) }),
   deliver: () => call<{ looked: number; delivered: { ref: string; sent: boolean; reason: string | null }[]; note: string }>("/socialfeed/deliver", { method: "POST" }),
-  ugc: (params: { venture?: string; limit?: number } = {}) => call<UgcDoc>(`/socialfeed/ugc${q(params)}`),
+  ugc: (params: { venture?: string; limit?: number } = {}) => call<UgcDoc>(`/socialfeed/ugc${qs(params)}`),
   startUgc: (body: { venture: string; brief?: string; assets?: string[]; aspect?: string }) =>
     call<UgcStarted>("/socialfeed/ugc/start", { method: "POST", body: JSON.stringify(body) }),
 };

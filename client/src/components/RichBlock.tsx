@@ -32,6 +32,7 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { cn } from "@/lib/utils";
 import type { ChartSeries, Meter, StatusTone } from "@/data/widgets";
 import type { RichLang } from "@/lib/rich";
+import { compact } from "@/lib/format";
 
 /* ------------------------------------------------------------------ parse */
 
@@ -66,9 +67,12 @@ function fmt(value: unknown, unit: string | null): string {
   const money = key in CURRENCY;
   const abs = Math.abs(n);
   let s: string;
-  if (abs >= 1e6) s = `${(n / 1e6).toFixed(abs >= 1e7 ? 0 : 1).replace(/\.0$/, "")}M`;
-  else if (abs >= 1e4) s = `${(n / 1e3).toFixed(abs >= 1e5 ? 0 : 1).replace(/\.0$/, "")}K`;
-  /* Money keeps its cents below a thousand — $28.15 is a figure and $28.2 is
+  /* The shortening is `@/lib/format`'s, so a figure written by an agent here
+     and the same figure on a tile next to it are the same string — this copy
+     wrote "12.9K" where the widgets wrote "13k", and a reader comparing two
+     cards should not have to work out whether they are the same magnitude. */
+  if (abs >= 1e4) s = compact(n);
+  /* Money keeps its cents below a thousand — 28.15 is a figure and 28.2 is
      a rounding the agent did not do. Counts drop decimals as they grow. */
   else if (money && abs < 1000) s = n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   else s = n.toLocaleString("en-GB", { maximumFractionDigits: abs < 10 ? 2 : abs < 100 ? 1 : 0 });

@@ -18,8 +18,8 @@ import { cn } from "@/lib/utils";
  * none of them could be captioned with a business's name.
  *
  * A SUGGESTION IS EVIDENCE AND A LINK IS A DECISION, and the two halves of
- * this screen are drawn differently on purpose. `example.ie` and `neu.so` are two
- * businesses here: a box that filed one under the other because the hostnames
+ * this screen are drawn differently on purpose. `acme.ie` and `acme.so` can be
+ * two separate businesses: a box that filed one under the other because the hostnames
  * rhymed would be wrong in a way nobody notices until a revenue figure carries
  * the wrong name. So a suggestion always shows the SENTENCE that produced it —
  * the server's own `why`, quoted rather than summarised — and nothing is

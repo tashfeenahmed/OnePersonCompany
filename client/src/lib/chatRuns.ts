@@ -212,9 +212,9 @@ export async function attachChatRun(
  * made by something that survives the tab.
  */
 export function cancelChatRun(runId: string) {
-  /* `stopping`, not a run status: the server has been ASKED and the run still
-     has a partial row to write. What actually happened arrives on the stream as
-     the terminal frame — see the route's own comment. */
+  /* `cancelling`, not a run status: the server has been ASKED and the run
+     still has a partial row to write. What actually happened arrives on the
+     stream as the terminal frame — see the route's own comment. */
   return call<ChatCancelled>(`/chat/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
 }
 

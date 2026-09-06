@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleAlert, Loader2, Server, ShieldAlert, Timer } from "lucide-react";
+import { ago, when } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/settings/Section";
 import { PluginSettingsForm } from "@/components/settings/PluginSettingsForm";
@@ -30,24 +31,14 @@ import { deployApi, type Check, type Lease, type Schedule, type Verdict } from "
  * somebody for the default would be worse than no page.
  */
 
-function when(iso: string | null | undefined): string {
-  if (!iso) return "never";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
+/* A COLLECTOR THAT HAS NEVER RUN IS NOT A DATE NOBODY RECORDED. `when` draws
+   an unknown date as the em dash; on this panel the absence is the answer, so
+   the word is passed in.
 
-function ago(iso: string | null | undefined): string {
-  if (!iso) return "never";
-  const ms = Date.now() - Date.parse(iso);
-  if (!Number.isFinite(ms)) return iso;
-  const m = Math.round(ms / 60_000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
-}
+   `ago` NOW SWITCHES TO DAYS AT 24 HOURS, not 48. This copy was the one that
+   disagreed with the other six, so the same collected-at stamp read "36h ago"
+   here and "2d ago" on the integrations panel. */
+const NEVER = { nullText: "never" } as const;
 
 const DOT: Record<Verdict, string> = { ok: "bg-ok", warn: "bg-warn", fail: "bg-destructive" };
 
@@ -79,7 +70,7 @@ function ScheduleRow({ s }: { s: Schedule }) {
       </td>
       <td className="text-muted-foreground py-1.5 pr-3 text-[12.5px]">{ago(s.lastStartedAt)}</td>
       <td className="text-muted-foreground py-1.5 text-[12.5px]">
-        {s.everyMinutes === null ? "—" : s.due ? "due now" : when(s.nextDueAt)}
+        {s.everyMinutes === null ? "—" : s.due ? "due now" : when(s.nextDueAt, NEVER)}
       </td>
     </tr>
   );
@@ -442,7 +433,7 @@ export function DeploymentSettings() {
                           : "this app could not tell what state it was in, so it will not sleep it"}
                   </div>
                   <div className="text-muted-foreground text-[11.5px]">
-                    {w.wokeBy} · {when(w.wokeAt)}
+                    {w.wokeBy} · {when(w.wokeAt, NEVER)}
                   </div>
                 </div>
                 {!w.owns && w.releasedAt === null && (

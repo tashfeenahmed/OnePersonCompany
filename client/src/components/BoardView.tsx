@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BrandTile } from "@/components/BrandTile";
 import { WidgetCard } from "@/components/WidgetCard";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   defaultWidth,
@@ -23,7 +24,7 @@ import {
   type Dashboard,
   type PlacedWidget,
 } from "@/lib/store";
-import { ago, collectedAt, useLive } from "@/lib/live";
+import { collectedAt, useLive } from "@/lib/live";
 import { DASHBOARD_PRESETS, SOURCES, WIDGETS } from "@/data/widgets";
 
 /**
@@ -68,7 +69,7 @@ export function BoardView({
   /** The venture this board belongs to, or null for the global set. */
   ventureId: string | null;
   /** One clause under the title saying what the numbers were narrowed to —
-   *  "scoped to support.example.test", or why they were not. */
+   *  "scoped to example.com", or why they were not. */
   scopeNote?: string;
 }) {
   const { state, renameDashboard, deleteDashboard, copyDashboard, setWidgets } =
@@ -712,7 +713,7 @@ function NewDashboardForm({
 
               A board is an arrangement, and an arrangement that took ten
               minutes to get right is worth more than the widgets in it. Being
-              able to say "the same as Example Video's Search board, but for
+              able to say "the same as that venture's Search board, but for
               this one" is the difference between a venture getting a proper
               board and getting whatever somebody had the patience to rebuild.
             */}

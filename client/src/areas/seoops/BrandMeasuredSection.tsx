@@ -3,7 +3,7 @@ import { Loader2, Paintbrush } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ago } from "@/components/integrations/format";
+import { ago, pct } from "@/lib/format";
 import { seoopsApi, type BrandField } from "@/lib/api/seoops";
 
 /**
@@ -175,12 +175,12 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
             {d.rendered.colours.slice(0, 10).map((c) => (
               <span
                 key={`${c.hex}-${c.kind}`}
-                title={`${c.hex} · ${c.kind} · ${c.share}% of the painted area`}
+                title={`${c.hex} · ${c.kind} · ${pct(c.share / 100)} of the painted area`}
                 className="border-line-soft flex items-center gap-1.5 rounded-[6px] border px-1.5 py-0.5 text-[11px]"
               >
                 <span className="size-3 rounded-[3px]" style={{ background: paint(c.hex) }} />
                 <span className="font-mono">{c.hex}</span>
-                <span className="text-muted-foreground">{c.share}%</span>
+                <span className="text-muted-foreground">{pct(c.share / 100)}</span>
               </span>
             ))}
           </div>

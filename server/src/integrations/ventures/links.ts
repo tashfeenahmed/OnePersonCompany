@@ -2,14 +2,14 @@
  * THE CONNECTION MAP — which of the things this box measures belong to which
  * business.
  *
- * Twenty-seven integrations, four ventures, and until now no statement
- * anywhere that `sc-domain:example-app-1.example.test`, the Cloudflare zone `example-app-1.example.test`
- * and the Resend sending domain `example-app-1.example.test` are three views of ONE thing
+ * Twenty-seven integrations, several ventures, and until now no statement
+ * anywhere that `sc-domain:acme.example`, the Cloudflare zone `acme.example`
+ * and the Resend sending domain `acme.example` are three views of ONE thing
  * the owner runs. Every page on this dashboard could show a figure; none of
  * them could put a business's name on it.
  *
  * WHY THE LINK IS STORED AND THE SUGGESTION IS NOT. A hostname match is
- * evidence, not a decision — `example.ie` and `neu.so` are two businesses here,
+ * evidence, not a decision — `acme.ie` and `acme.so` can be two businesses,
  * and a box that filed one under the other automatically would be wrong in a
  * way nobody notices until a revenue figure is captioned with the wrong name.
  * So suggestions are computed on every read, out of live tables, and carry the
@@ -282,7 +282,7 @@ ventureLinkRoutes.post("/:ventureKey/accept-all", async (c) => {
  * Unlink.
  *
  * The entity is the last segment and it is matched greedily — `{.+}` — because
- * a Bing site is `https://example-app-1.example.test/` and a path parameter that stopped at
+ * a Bing site is `https://acme.example/` and a path parameter that stopped at
  * the first slash could never name one. An encoded entity works too; Hono
  * decodes either.
  */

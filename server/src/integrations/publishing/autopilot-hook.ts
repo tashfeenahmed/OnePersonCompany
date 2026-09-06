@@ -20,8 +20,7 @@
  * separable — the Autopilot works with this file absent, and everything here
  * works with the Autopilot switched off.
  */
-import { db } from "../../db.ts";
-import { createItem } from "./items.ts";
+import { createItem, proposeSlot } from "./items.ts";
 import { destinationRows } from "./destinations.ts";
 import { settings, wall } from "./settings.ts";
 
@@ -102,12 +101,11 @@ export function onAutopilotAsset(input: {
         note: "Queued as a draft. No auto-schedule slot is set for this venture.",
       };
 
-    /* The date is written directly rather than through `schedule()`, because
-       that function correctly refuses an unapproved item. What is stored is a
-       PROPOSED date on a draft: the status stays `draft`, so nothing can
-       publish it, and the calendar can already draw where it would go. */
+    /* A PROPOSED date on a draft, through items.ts rather than by an UPDATE
+       from here — see `proposeSlot`, which refuses anything past `draft` so
+       this can never move a slot a person actually chose. */
     const at = nextSlot(s.timezone, slot.hour, slot.minute);
-    db.prepare("UPDATE publish_items SET scheduled_for = ? WHERE id = ?").run(at, created.item.id);
+    proposeSlot(created.item.id, at);
     return {
       itemId: created.item.id,
       scheduledFor: at,

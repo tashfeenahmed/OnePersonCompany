@@ -3,6 +3,9 @@ import { useDraft } from "@/hooks/useDraft";
 import { useStore } from "@/lib/store";
 import { useEffect, useState } from "react";
 import { Check, Loader2, Pencil, Send, Trash2, X } from "lucide-react";
+import { SubTabs } from "@/components/TabStrip";
+import { when } from "@/lib/format";
+import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -62,10 +65,6 @@ const STATUS_TONE: Record<string, string> = {
   dismissed: "text-muted-foreground/70",
   failed: "text-destructive",
 };
-
-function when(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString() : "—";
-}
 
 /**
  * THE REASONS BEHIND THE WORDS — the plan, the facts and what the validator
@@ -205,11 +204,11 @@ function Card({
             <span>from {item.fromName ?? item.from ?? "unknown mailbox"} → {item.to}</span>
             {item.via && (
               <>
-                <span>·</span>
-                {/* WHICH DOOR IT LEAVES BY. A product-domain message going out
-                    through Gmail would land in spam; the card says which
-                    transport before anybody approves it, not after. */}
-                <span className="border-line-soft rounded border px-1 py-px">via {item.via}</span>
+          <span>·</span>
+          {/* WHICH DOOR IT LEAVES BY. A product-domain message going out
+              through Gmail would land in spam; the card says which
+              transport before anybody approves it, not after. */}
+          <span className="border-line-soft rounded border px-1 py-px">via {item.via}</span>
               </>
             )}
             <span>·</span>
@@ -428,92 +427,79 @@ export function Outbox() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
-      <div className="mx-auto w-full max-w-[940px]">
-        <div className="mt-2 mb-5 flex items-end gap-3">
-          <div>
-            <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">Outbox</h1>
-            <p className="text-muted-foreground text-[13.5px]">
-              Mail written here — by the agent or by you — and sent only when you
-              press Send. Nothing on this page goes out on its own.
-            </p>
-          </div>
-          <div className="ml-auto shrink-0">
+    <PageShell
+      title="Outbox"
+      sub={
+        <>
+          Mail written here — by the agent or by you — and sent only when you
+          press Send. Nothing on this page goes out on its own.
+        </>
+      }
+    >
+      {d && <Composer accounts={d.accounts} onCreated={() => { setOffset(0); setTab("draft"); doc.reload(); }} />}
+      {d && (
+        <p className="text-muted-foreground mb-4 text-[11.5px] leading-relaxed">
+          Default mailbox: {d.mailbox.address ?? "connect Gmail in Integrations"} ·{" "}
+          {d.today.sent} of {d.today.cap} sent today ·{" "}
+          {d.settings.gapDays === 0
+            ? "no per-address floor"
+            : `one message per address per ${d.settings.gapDays} days, dismissed rows included`}{" "}
+          ·{" "}
+          {d.settings.requireApproval
+            ? "drafts require approval"
+            : "approval is switched off — your Send approves on the way past. The agent still cannot send."}
+        </p>
+      )}
 
-          </div>
-        </div>
+      <SubTabs
+        tabs={TABS.map((t) => ({
+          key: t.key,
+          label: t.label,
+          count: d && t.key !== "all" ? d.counts[t.key] : undefined,
+        }))}
+        activeKey={tab}
+        onSelect={(k) => {
+          setTab(k as OutboxStatus | "all");
+          setOffset(0);
+        }}
+        className="mb-4"
+      />
 
-        {d && <Composer accounts={d.accounts} onCreated={() => { setOffset(0); setTab("draft"); doc.reload(); }} />}
-        {d && (
-          <p className="text-muted-foreground mb-4 text-[11.5px] leading-relaxed">
-            Default mailbox: {d.mailbox.address ?? "connect Gmail in Integrations"} ·{" "}
-            {d.today.sent} of {d.today.cap} sent today ·{" "}
-            {d.settings.gapDays === 0
-              ? "no per-address floor"
-              : `one message per address per ${d.settings.gapDays} days, dismissed rows included`}{" "}
-            ·{" "}
-            {d.settings.requireApproval
-              ? "drafts require approval"
-              : "approval is switched off — your Send approves on the way past. The agent still cannot send."}
-          </p>
-        )}
+      {doc.error && (
+        <p className="text-muted-foreground mb-4 text-[13px]">
+          The outbox could not be read.{" "}
+          <span className="text-destructive">{doc.error}</span>
+        </p>
+      )}
 
-        <div className="mb-4 flex flex-wrap gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => { setTab(t.key); setOffset(0); }}
-              className={cn(
-                "rounded-lg border px-2.5 py-1 text-[12.5px]",
-                tab === t.key
-                  ? "bg-muted border-border"
-                  : "border-line-soft hover:bg-muted/50",
-              )}
-            >
-              {t.label}
-              {d && t.key !== "all" && (
-                <span className="text-muted-foreground"> {d.counts[t.key]}</span>
-              )}
-            </button>
-          ))}
-        </div>
+      {doc.loading && !d && (
+        <p className="text-muted-foreground text-[13px]">
+          <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
+          Reading the queue.
+        </p>
+      )}
 
-        {doc.error && (
-          <p className="text-muted-foreground mb-4 text-[13px]">
-            The outbox could not be read.{" "}
-            <span className="text-destructive">{doc.error}</span>
-          </p>
-        )}
+      {d && d.items.length === 0 && (
+        <p className="text-muted-foreground text-[13px]">
+          No messages in this view. Create a draft to get started.
+        </p>
+      )}
 
-        {doc.loading && !d && (
-          <p className="text-muted-foreground text-[13px]">
-            <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
-            Reading the queue.
-          </p>
-        )}
+      {d && <div className="flex gap-3 items-center text-sm mb-3"><button disabled={offset === 0 || doc.loading} onClick={() => setOffset(n => Math.max(0, n - 50))}>Previous</button><span>{d.pagination.total ? offset + 1 : 0}–{offset + d.items.length} of {d.pagination.total}</span><button disabled={offset + d.items.length >= d.pagination.total || doc.loading} onClick={() => setOffset(n => n + 50)}>Next</button><button className="underline ml-auto" onClick={doc.reload}>Refresh</button></div>}
+      {d?.items.map((item) => (
+        <Card
+          key={item.id}
+          item={item}
+          requireApproval={d.settings.requireApproval}
+          onChanged={replace}
+        />
+      ))}
 
-        {d && d.items.length === 0 && (
-          <p className="text-muted-foreground text-[13px]">
-            No messages in this view. Create a draft to get started.
-          </p>
-        )}
-
-        {d && <div className="flex gap-3 items-center text-sm mb-3"><button disabled={offset === 0 || doc.loading} onClick={() => setOffset(n => Math.max(0, n - 50))}>Previous</button><span>{d.pagination.total ? offset + 1 : 0}–{offset + d.items.length} of {d.pagination.total}</span><button disabled={offset + d.items.length >= d.pagination.total || doc.loading} onClick={() => setOffset(n => n + 50)}>Next</button><button className="underline ml-auto" onClick={doc.reload}>Refresh</button></div>}
-        {d?.items.map((item) => (
-          <Card
-            key={item.id}
-            item={item}
-            requireApproval={d.settings.requireApproval}
-            onChanged={replace}
-          />
-        ))}
-
-        {d && (
-          <p className="text-muted-foreground/70 mt-8 text-[11.5px] leading-relaxed">
-            {d.note}
-          </p>
-        )}
-      </div>
-    </div>
+      {d && (
+        <p className="text-muted-foreground/70 mt-8 text-[11.5px] leading-relaxed">
+          {d.note}
+        </p>
+      )}
+    </PageShell>
   );
 }

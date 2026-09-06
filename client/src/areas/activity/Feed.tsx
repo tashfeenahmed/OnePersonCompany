@@ -4,7 +4,7 @@ import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Bars } from "@/components/charts";
 import { cn } from "@/lib/utils";
-import { ago } from "@/components/integrations/format";
+import { ago, count } from "@/lib/format";
 import { activityApi, type ActivityEvent } from "@/lib/api/activity";
 
 /**
@@ -134,7 +134,7 @@ export function Feed({ days }: { days: number }) {
       <div className="bg-card mb-4 rounded-[10px] border px-3.5 py-3">
         <div className="flex items-baseline gap-2">
           <span className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">
-            {d.counts.matching.toLocaleString()}
+            {count(d.counts.matching)}
           </span>
           <span className="text-muted-foreground text-[11.5px]">
             event{d.counts.matching === 1 ? "" : "s"} in {d.window.days} days

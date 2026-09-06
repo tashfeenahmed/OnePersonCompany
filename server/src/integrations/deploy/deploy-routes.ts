@@ -9,14 +9,24 @@
  * holding a shared machine. It is what an owner opens when the dashboard was
  * fine yesterday and is silent today.
  *
- * THE THREE WRITES THAT TOUCH THE LOGIN SESSION ARE BROWSER-ONLY. Installing
- * a service puts a supervised process into the owner's account and
+ * THE THREE WRITES THAT PUT SOMETHING ON THIS MACHINE ARE BROWSER-ONLY.
+ * Installing a service puts a supervised process into the owner's account and
  * uninstalling takes it away; neither is something a chat message should be
- * able to do, so `requireBrowser` refuses any caller carrying a service key or
- * arriving through the skills proxy. The lease writes are NOT gated that way,
- * deliberately: releasing a stale lease is exactly the kind of tidying the
- * agent should be able to do, it is reversible (the job that lost it can take
- * another), and the skill publishes it.
+ * able to do, so `requireBrowser` refuses any caller carrying a service key,
+ * arriving through the skills proxy, OR sending no browser origin at all —
+ * that last one used to walk straight through, which meant these three were
+ * guarded against everything except the plainest possible `curl -XPOST`.
+ *
+ * THEY ARE ALSO ROWS IN THE GATE'S OWN TABLE (integrations/security/gate.ts),
+ * which is what makes them visible to `agentRefusal`, the isolation report and
+ * `npm run doctor`. Before that they were invisible to all three, so those
+ * three surfaces listed the routes an agent could not reach and left these
+ * out. The middleware here is the per-route belt; the table is the statement.
+ *
+ * The lease writes are NOT gated that way, deliberately: releasing a stale
+ * lease is exactly the kind of tidying the agent should be able to do, it is
+ * reversible (the job that lost it can take another), and the skill publishes
+ * it.
  */
 import { Hono } from "hono";
 import { COLLECT_MINUTES } from "../../config.ts";

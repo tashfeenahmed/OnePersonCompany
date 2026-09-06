@@ -4,23 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useApi } from "@/hooks/useApi";
 import { api } from "@/lib/api";
+import { Tiles } from "@/components/integrations/Panel";
+import { DASH, ago, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const eur = (n: number) =>
-  new Intl.NumberFormat("en-IE", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 2,
-  }).format(n);
-
-function ago(iso: string | null) {
-  if (!iso) return "never";
-  const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
-}
+/** This provider bills in euro whoever is reading the page. */
+const eur = (n: number) => money(n, "EUR");
 
 /**
  * What the last collection actually found.
@@ -77,32 +66,22 @@ export function HetznerPanel({ onCollected }: { onCollected?: () => void }) {
         </Button>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {[
-          [eur(s.monthlyEur), "per month, net of VAT"],
-          [`${s.running}/${s.servers}`, "servers running"],
-          [String(s.volumes), s.volumes === 1 ? "volume" : "volumes"],
-          [
-            Object.keys(s.byLocation).join(", ") || "—",
-            Object.keys(s.byLocation).length === 1 ? "location" : "locations",
-          ],
-          ...(multi
-            ? ([[String(s.accounts.length), "accounts, summed"]] as const)
-            : []),
-        ].map(([v, k]) => (
-          <div
-            key={k}
-            className="bg-card min-w-[132px] flex-1 rounded-[10px] border px-3.5 py-3"
-          >
-            <div className="text-[19px] font-normal tracking-[-0.03em] tabular-nums">
-              {v}
-            </div>
-            <div className="text-muted-foreground mt-0.5 text-[11.5px]">
-              {k}
-            </div>
-          </div>
-        ))}
-      </div>
+      <Tiles
+        items={[
+          { v: eur(s.monthlyEur), k: "per month, net of VAT" },
+          { v: `${s.running}/${s.servers}`, k: "servers running" },
+          { v: s.volumes, k: s.volumes === 1 ? "volume" : "volumes" },
+          {
+            /* A list of place names, not a figure — so it truncates to one
+               line and carries the whole list in its title. */
+            v: Object.keys(s.byLocation).join(", ") || DASH,
+            k: Object.keys(s.byLocation).length === 1 ? "location" : "locations",
+            title: Object.keys(s.byLocation).join(", "),
+            text: true,
+          },
+          ...(multi ? [{ v: s.accounts.length, k: "accounts, summed" }] : []),
+        ]}
+      />
 
       <div className="overflow-hidden rounded-[10px] border">
         {(fleet.data?.servers ?? []).map((srv, i) => (

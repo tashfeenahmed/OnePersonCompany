@@ -26,7 +26,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import { activeProvider } from "../../models/provider.ts";
 import { ventureRow } from "../../db.ts";
-import { ASPECTS } from "../video/assemble.ts";
+import { ASPECTS, aspectFrame } from "../video/assemble.ts";
 import { ffmpegFilters, findFfmpeg } from "../video/tools.ts";
 import { hasUntile } from "../video/assemble.ts";
 import { insertRun, mintRunId, runRow, shapeRun } from "../runs/store.ts";
@@ -170,7 +170,7 @@ motionRoutes.get("/:id", (c) => {
   if (!row) return c.json({ error: "No scene spec with that id. GET /api/motion lists the ones there are." }, 404);
   const limits = specLimits();
   const spec = readSpecRow(row, limits);
-  const frame = ASPECTS[row.aspect] ?? ASPECTS["9:16"]!;
+  const frame = aspectFrame(row.aspect);
   return c.json({
     ...shapeSpec(row, { full: true }),
     /* WHAT IT WILL COST, BEFORE ANYBODY PRESSES ANYTHING. The number of
@@ -379,7 +379,7 @@ motionRoutes.post("/:id/render", async (c) => {
     {
       run: run ? shapeRun(run) : { id, kind: "video", status: "queued" },
       spec: shapeSpec(row),
-      note: `Queued. ${spec.scenes.length} scenes, ${specSeconds(spec).toFixed(1)}s, drawn by ${plan(spec, motionFps(), ASPECTS[row.aspect] ?? ASPECTS["9:16"]!).sheets} browser launches. The file lands on the run's page; nothing is published anywhere.`,
+      note: `Queued. ${spec.scenes.length} scenes, ${specSeconds(spec).toFixed(1)}s, drawn by ${plan(spec, motionFps(), aspectFrame(row.aspect)).sheets} browser launches. The file lands on the run's page; nothing is published anywhere.`,
     },
     201,
   );

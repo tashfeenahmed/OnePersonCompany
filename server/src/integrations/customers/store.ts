@@ -21,7 +21,8 @@
  * the owner can reach.
  */
 import { createHash } from "node:crypto";
-import { configValue, db, now } from "../../db.ts";
+import { configValue, db, now, stripeLedgerDays } from "../../db.ts";
+import { currencyCode, money } from "../../shared/money.ts";
 import { hashEmail } from "../activity/users.ts";
 import { systemZone, validZone, zoned, PLUGIN as BRIEFING } from "../proactive/briefing.ts";
 
@@ -226,6 +227,43 @@ export function dispute(id: string): DisputeRecord | undefined {
 
 export function disputeCount(): number {
   return (db.prepare("SELECT COUNT(*) AS n FROM stripe_disputes").get() as { n: number }).n;
+}
+
+/**
+ * WHAT THE BALANCE LEDGER RECORDS LEAVING OVER A WINDOW, per currency.
+ *
+ * Byte-for-byte the same reduction lived in two documents — the dispute board
+ * over ninety days and the leakage board over thirty — and both printed the
+ * same sentence describing it. They were well coordinated and that was the
+ * risk: a sign convention corrected in one, or a new fee bucket added to one,
+ * leaves the other quietly reporting the old number, and nothing about either
+ * page would say which.
+ *
+ * THE WINDOW IS THE CALLER'S and the arithmetic is not. `disputes` is the
+ * disputed money itself; `disputeFees` is the fee Stripe charges whatever the
+ * outcome — kept apart, because a document that adds them and calls the result
+ * "disputes" cannot be checked against Stripe's own page.
+ *
+ * SETTLEMENT DATING, not case dating. These rows are posted when the balance
+ * moved, so they never line up with a count of cases opened in the same window
+ * and are never presented as if they did.
+ *
+ * KEYED BY UPPER-CASE ISO CODE, like every other per-currency map on this box —
+ * Stripe stores its own lower-case spelling, and a map that held one currency
+ * under two keys was the other half of this finding.
+ */
+export function ledgerDisputes(fromDay: string): Map<string, { disputes: number; disputeFees: number }> {
+  const out = new Map<string, { disputes: number; disputeFees: number }>();
+  for (const r of stripeLedgerDays(fromDay)) {
+    const code = currencyCode(r.currency);
+    const held = out.get(code) ?? { disputes: 0, disputeFees: 0 };
+    held.disputes += r.disputes;
+    held.disputeFees += r.dispute_fees;
+    out.set(code, held);
+  }
+  for (const [code, v] of out)
+    out.set(code, { disputes: money(v.disputes), disputeFees: money(v.disputeFees) });
+  return out;
 }
 
 /* ------------------------------------------------------------------- cases */

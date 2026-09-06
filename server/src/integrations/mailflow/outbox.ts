@@ -60,10 +60,11 @@ import { createHash } from "node:crypto";
  */
 import { configValue, db, now } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
-import { gmailMailboxes } from "../../db.ts";
 import { GmailError, open } from "../../providers/gmail.ts";
-import { replyContext, sendMessage, validAddress } from "./gmail-send.ts";
+import { fromAddress, replyContext, sendMessage, validAddress } from "./gmail-send.ts";
+import { claim, OUTBOX_STATUSES, type OutboxStatus } from "./outbound.ts";
 import { fromLine, identityRow, IdentityRefused, transportFor, verificationWarning } from "../nurture/identities.ts";
+import { optedOut } from "../nurture/planner.ts";
 import { resendSend } from "../nurture/resend-send.ts";
 import { captureEdit } from "../nurture/style.ts";
 
@@ -72,8 +73,12 @@ export const PLUGIN = "outbox";
 export const DEFAULT_GAP_DAYS = 14;
 export const DEFAULT_DAILY_CAP = 20;
 
-export const STATUSES = ["draft", "approved", "sent", "dismissed", "failed", "sending", "uncertain"] as const;
-export type Status = (typeof STATUSES)[number];
+/** This queue's own column values. They ARE the shared vocabulary — see
+ *  `OUTBOX_STATUSES` in outbound.ts, which took its names from here because
+ *  they read as English about anything you can send. The posting queue's
+ *  synonyms map onto the same union through `outboxStatus`. */
+export const STATUSES = OUTBOX_STATUSES;
+export type Status = OutboxStatus;
 
 export type OutboxRow = {
   id: number;
@@ -215,14 +220,9 @@ export function sentToday(): number {
 
 /* ------------------------------------------------------------- the mailbox */
 
-/** The address a mailbox sends FROM, as Gmail itself reported it to the
- *  collector. Null when the Gmail plugin has never been collected, in which
- *  case there is nothing honest to put on a From line and the send refuses. */
-export function fromAddress(accountId: number): string | null {
-  const box = gmailMailboxes().find((b) => b.account_id === accountId);
-  const addr = (box?.address ?? "").trim();
-  return addr && validAddress(addr) ? addr : null;
-}
+/** Re-exported so this area's routes keep one import, and so `grep` for the
+ *  helper still lands in the outbox. The body lives beside the send. */
+export { fromAddress };
 
 export function firstGmailAccount(): number | null {
   const a = accounts.list("gmail").find((x) => x.connected);
@@ -369,26 +369,63 @@ export function approveDraft(id: number): void {
   captureEdit(r);
 }
 
-/** A claim survives process crashes; an interrupted send must be reconciled, never retried automatically. */
+/**
+ * THE ONE DOOR, AND EVERY SUPPRESSION IS RE-ASKED AT IT.
+ *
+ * A claim survives process crashes; an interrupted send must be reconciled,
+ * never retried automatically. The claim itself is `claim` in outbound.ts,
+ * shared with the posting queue — this was the correct one of the two and is
+ * now the only one.
+ *
+ * WHY EVERY CHECK IS RUN AGAIN HERE RATHER THAN TRUSTED FROM DRAFT TIME. Time
+ * passes between "was it fair to write this" and "may this leave", and the
+ * second question is the one that costs something. The floor was already
+ * re-asked. THE OPT-OUT WAS NOT, and that was a hole with a person's name on
+ * it: `nurture_optouts` was consulted when the draft was planned and never
+ * again, so somebody who unsubscribed after a draft was written still got the
+ * mail — while the page that recorded their opt-out reported them as opted
+ * out. `optOut()` dismisses the live drafts it can see, which covers the
+ * ordinary case; this covers the one it cannot, where a draft is approved and
+ * sent in the same breath as the opt-out lands. An address that asked not to
+ * be written to is a refusal at the door, beside the floor and the cap.
+ */
 export async function sendApproved(id: number): Promise<OutboxRow> {
-  db.exec("BEGIN IMMEDIATE");
-  let r: OutboxRow;
-  try {
-    const found = row(id);
-    if (!found || found.status !== "approved") throw new SendRefused("Only an approved draft can be sent. This message may already be sending.");
-    r = found;
-    if (!r.approved_content || r.approved_content !== approvalContent(r))
-      throw new SendRefused("The message or signature changed. Edit and approve the latest preview before sending.");
-    const s = settings();
-    const blocker = floorBlocker(r.to_address, s.gapDays, id);
-    if (blocker) throw new SendRefused("Another recent message to this recipient is inside the configured contact interval.");
-    const start = new Date(); start.setHours(0,0,0,0);
-    const used = db.prepare("SELECT COUNT(*) AS n FROM mailflow_outbox WHERE sent_at >= ? OR (status IN ('sending','uncertain') AND sending_at >= ?)")
-      .get(start.toISOString(), start.toISOString()) as { n: number };
-    if (used.n >= s.dailyCap) throw new SendRefused("Today's sending allowance is used or reserved by messages in progress.");
-    db.prepare("UPDATE mailflow_outbox SET status = 'sending', sending_at = ? WHERE id = ? AND status = 'approved'").run(now(), id);
-    db.exec("COMMIT");
-  } catch (err) { db.exec("ROLLBACK"); throw err; }
+  const taken = claim<OutboxRow>({
+    read: () => row(id),
+    missing: `There is no message ${id}.`,
+    guard: (found) => {
+      if (found.status !== "approved")
+        return "Only an approved draft can be sent. This message may already be sending.";
+      if (!found.approved_content || found.approved_content !== approvalContent(found))
+        return "The message or signature changed. Edit and approve the latest preview before sending.";
+      const out = optedOut(found.to_address);
+      if (out)
+        return (
+          `${found.to_address} asked not to be written to again (recorded ${out.at.slice(0, 10)}` +
+          `${out.reason ? `: ${out.reason}` : ""}). Nothing was sent.`
+        );
+      const s = settings();
+      if (floorBlocker(found.to_address, s.gapDays, id))
+        return "Another recent message to this recipient is inside the configured contact interval.";
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const used = db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM mailflow_outbox WHERE sent_at >= ? OR (status IN ('sending','uncertain') AND sending_at >= ?)",
+        )
+        .get(start.toISOString(), start.toISOString()) as { n: number };
+      if (used.n >= s.dailyCap)
+        return "Today's sending allowance is used or reserved by messages in progress.";
+      return null;
+    },
+    update: () =>
+      db
+        .prepare("UPDATE mailflow_outbox SET status = 'sending', sending_at = ? WHERE id = ? AND status = 'approved'")
+        .run(now(), id).changes,
+    lost: "Another send of this message started in the same instant. It is not sent twice.",
+  });
+  if (!taken.ok) throw new SendRefused(taken.error);
+  const r = taken.row;
   let attempted = false;
   let via: "gmail" | "resend" = "gmail";
   try {

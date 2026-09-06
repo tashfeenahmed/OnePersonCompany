@@ -45,7 +45,8 @@
  */
 import { db, now, type VentureRow } from "../../db.ts";
 import * as searxng from "../../providers/searxng.ts";
-import { fetchHtml, registrable, tokens } from "./pages.ts";
+import { registrable } from "../../shared/host.ts";
+import { fetchHtml, tokens } from "./pages.ts";
 import type { RunTools } from "./runs.ts";
 
 /* -------------------------------------------------------- hard constants */
@@ -328,7 +329,7 @@ const alnum = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
  *      venture's name the same way — "Example App 11" is aigroupcall,
  *   2. a SEGMENT of the bundle id or package equals the venture's host without
  *      its suffix — test.example.mobile against example-app-10.example.test,
- *   3. the whole bundle id contains it — com.example-video.app.
+ *   3. the whole bundle id contains it — com.acmeapp.app against acmeapp.
  *
  * A venture with no app matches nothing, which is the common case and is not
  * an error.

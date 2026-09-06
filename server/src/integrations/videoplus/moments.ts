@@ -36,15 +36,15 @@
  */
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
+import { findBinary } from "../../tools/find-binary.ts";
 import { run, tail } from "../video/tools.ts";
-import { sceneThreshold, whisperBin, whisperModel } from "./settings.ts";
+import { VIDEOPLUS_PLUGIN, sceneThreshold, whisperModel } from "./settings.ts";
 
 /* ------------------------------------------------------------ the binary */
 
-const PREFIXES = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/snap/bin"];
 /** The names whisper.cpp has shipped its CLI under. `main` is what the older
  *  builds called it and is still what a hand-built checkout produces. */
-const WHISPER_NAMES = ["whisper-cli", "whisper-cpp", "whisper", "main"];
+const WHISPER_NAMES = ["whisper-cpp", "whisper", "main"] as const;
 
 export type WhisperTool = { path: string | null; model: string | null; error: string | null };
 
@@ -54,48 +54,39 @@ export type WhisperTool = { path: string | null; model: string | null; error: st
  * BOTH HALVES ARE REQUIRED AND THEY FAIL SEPARATELY. A machine with the binary
  * and no model and a machine with neither are two different problems with two
  * different fixes, and one message covering both would send somebody to
- * install something they already have.
+ * install something they already have. So the binary goes through the shared
+ * finder — which knows the prefixes, the aliases and the rule that a
+ * configured path that is not there is an error — and the MODEL is checked
+ * here, because nothing discovers a two-gigabyte file somebody downloaded on
+ * purpose.
  */
 export function findWhisper(): WhisperTool {
-  const configured = whisperBin();
-  let path: string | null = null;
-  if (configured) {
-    if (!existsSync(configured))
-      return { path: null, model: null, error: `The whisper configured under the Video extras settings — ${configured} — is not there.` };
-    path = configured;
-  } else {
-    for (const dir of PREFIXES)
-      for (const name of WHISPER_NAMES) {
-        const p = `${dir}/${name}`;
-        if (!path && existsSync(p)) path = p;
-      }
-    if (!path)
-      for (const dir of (process.env.PATH ?? "").split(":").filter(Boolean))
-        for (const name of WHISPER_NAMES) {
-          const p = resolve(dir, name);
-          if (!path && existsSync(p)) path = p;
-        }
-  }
-  if (!path)
+  const bin = findBinary({
+    name: "whisper-cli",
+    aliases: WHISPER_NAMES,
+    configKeys: [{ plugin: VIDEOPLUS_PLUGIN, key: "whisper", label: "the Video extras settings" }],
+    install: "brew install whisper-cpp",
+  });
+  if (!bin.found)
     return {
       path: null,
       model: null,
       error:
-        `No whisper was found. Looked for ${WHISPER_NAMES.join(", ")} in ${PREFIXES.join(", ")} and on PATH. ` +
-        `Install one (brew install whisper-cpp) or set its path under the Video extras settings. ` +
-        `Without it there are no word timings and the pipeline uses whatever subtitles the site published.`,
+        `${bin.error} Without it there are no word timings and the pipeline uses ` +
+        "whatever subtitles the site published.",
     };
   const model = whisperModel();
   if (!model)
     return {
-      path,
+      path: bin.path,
       model: null,
       error:
-        `whisper is at ${path} but no model file is set. A ggml model is a file you downloaded on purpose — ` +
+        `whisper is at ${bin.path} but no model file is set. A ggml model is a file you downloaded on purpose — ` +
         `nothing here fetches one — so set \`whisperModel\` under the Video extras settings to its path.`,
     };
-  if (!existsSync(model)) return { path, model: null, error: `The whisper model set under the Video extras settings — ${model} — is not there.` };
-  return { path, model, error: null };
+  if (!existsSync(model))
+    return { path: bin.path, model: null, error: `The whisper model set under the Video extras settings — ${model} — is not there.` };
+  return { path: bin.path, model, error: null };
 }
 
 /* ------------------------------------------------------------- the words */

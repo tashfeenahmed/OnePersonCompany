@@ -23,7 +23,9 @@
  * how many roles, under what cap. That is the honest half of the answer, and
  * it is a smaller lie than a plan derived from a copy of the rules.
  */
-import { configValue, db } from "../../db.ts";
+import { configValue } from "../../db.ts";
+import { RUNTIME_KEYS, writeSetting } from "../../runtime/settings.ts";
+import { zoned } from "../../shared/time.ts";
 import { ROUNDS_PLUGIN, runRound, settings as roundSettings } from "../chief/rounds.ts";
 import { PIPELINE_PLUGIN, prefs, registerStage, settled, stage, type StageResult } from "./registry.ts";
 
@@ -121,15 +123,12 @@ export function registerCalledStages(): void {
         the watermark belongs to the reader.
       */
       try {
-        const day = new Intl.DateTimeFormat("en-CA", {
-          timeZone: s.timezone ?? undefined,
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-        }).format(new Date());
-        db.prepare(
-          "INSERT INTO runtime_settings (key,value) VALUES ('rounds-last-due',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        ).run(day);
+        /* One clock (`shared/time.ts`) and one key constant, because THIS IS
+           THE SECOND WRITER of that watermark: the chief's own timer writes it
+           too, and a bare string literal in either place is a typo away from a
+           key nobody reads — which does not fail, it just runs the round twice
+           on the day the pipeline is switched off. */
+        writeSetting(RUNTIME_KEYS.roundsLastDue, zoned(s.timezone).day);
       } catch {
         /* A watermark that could not be written costs at worst one duplicated
            round after the pipeline is switched off. It must not cost the round

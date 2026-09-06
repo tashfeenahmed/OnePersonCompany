@@ -29,7 +29,7 @@ import { Note, PanelEmpty, PanelSection, Row, Rows, Tiles } from "./Panel";
  * is never drawn as a rate of anything per day.
  */
 export function BlueskyPanel({ onCollected }: { onCollected?: () => void }) {
-  const report = useApi(() => integrations.bluesky(30), []);
+  const report = useApi(() => integrations.bluesky(), []);
   const map = useApi(() => integrations.ventureMap(), []);
   const [collecting, setCollecting] = useState(false);
 

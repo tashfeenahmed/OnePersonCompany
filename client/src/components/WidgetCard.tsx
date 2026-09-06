@@ -9,11 +9,12 @@ import {
   Runway,
   Sparkline,
 } from "@/components/charts";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BRAND_ICONS } from "@/data/brandIcons";
 import { SOURCES, WIDGETS, type Widget } from "@/data/widgets";
 import type { PlacedWidget } from "@/lib/store";
-import { ago, collectedAt, deltaOver, useLive } from "@/lib/live";
+import { collectedAt, deltaOver, useLive } from "@/lib/live";
 import { LIVE_BUILDERS } from "@/lib/liveWidgets";
 import { isScopedWidget, useScope } from "@/lib/scope";
 
@@ -125,7 +126,7 @@ export function WidgetCard({
 
     On the global board a catalog sample is a placeholder for a provider that
     is not connected yet, and everybody reads it as one. Under a venture's name
-    it is not a placeholder at all — it is "support.example.test had 60,912
+    it is not a placeholder at all — it is "this venture had 60,912
     impressions", in the same typeface as the cards that measured something.
     So a narrowed card whose builder could not answer draws a sentence instead,
     and the sentence separates the two reasons: the provider measured the

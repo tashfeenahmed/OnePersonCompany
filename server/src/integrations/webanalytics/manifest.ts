@@ -214,7 +214,7 @@ export const manifest: IntegrationManifest = {
             "the order they are shown in, and it is NOT evidence of an order in which anything " +
             "happened: each step is an independent count of the sessions that fired that event, " +
             "and the document says so rather than drawing a funnel.",
-          ph: "example-app-1 = signup-cta-clicked, signup-page-viewed, checkout-clicked",
+          ph: "my-venture = signup-cta-clicked, signup-page-viewed, checkout-clicked",
           check: checkVentureLists,
         },
         revenue: {
@@ -225,7 +225,7 @@ export const manifest: IntegrationManifest = {
             "SITE reported over 30 complete days — and it is never added to the ledger revenue " +
             "beside it, because the same sale would be counted twice. Leave it empty and the " +
             "blended efficiency line uses the ledger alone.",
-          ph: "freellmapi = payment-completed.revenue",
+          ph: "my-venture = payment-completed.revenue",
           check: checkRevenue,
         },
         units: {

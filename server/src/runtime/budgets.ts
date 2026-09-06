@@ -1,13 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { db, now } from "../db.ts";
+import { RUNTIME_KEYS, readFlag, readJson, writeFlag, writeJson } from "./settings.ts";
 export const DEFAULT_BUDGETS = { runSeconds: 900, runCalls: 100, dailyCalls: 1000, automationDailyCalls: 100,
   runTokens: 0, dailyTokens: 0, ventureDailyTokens: 0, runUsd: 0, dailyUsd: 0, ventureDailyUsd: 0,
   usdPerMillion: 0, maxOutputTokens: 4096 };
 export type Budgets = typeof DEFAULT_BUDGETS;
 export function budgets(): Budgets {
-  const row = db.prepare("SELECT value FROM runtime_settings WHERE key = 'budgets'").get() as { value: string } | undefined;
-  return { ...DEFAULT_BUDGETS, ...(row ? JSON.parse(row.value) : {}) };
+  return { ...DEFAULT_BUDGETS, ...readJson<Partial<Budgets>>(RUNTIME_KEYS.budgets, {}) };
 }
 export function saveBudgets(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Expected budget settings.";
@@ -18,11 +18,11 @@ export function saveBudgets(value: unknown): string | null {
   }
   if (p.runSeconds < 1 || p.maxOutputTokens < 1 || p.maxOutputTokens > 65536) return "Choose a positive runtime and an output limit of 1–65,536 tokens.";
   if ((p.runUsd || p.dailyUsd || p.ventureDailyUsd) && !p.usdPerMillion) return "Set a conservative model price per million tokens before enabling dollar budgets.";
-  db.prepare("INSERT INTO runtime_settings (key,value) VALUES ('budgets',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(p));
+  writeJson(RUNTIME_KEYS.budgets, p);
   return null;
 }
-export function queuePaused() { return (db.prepare("SELECT value FROM runtime_settings WHERE key='queue-paused'").get() as {value: string} | undefined)?.value === "true"; }
-export function setQueuePaused(paused: boolean) { db.prepare("INSERT INTO runtime_settings (key,value) VALUES ('queue-paused',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(paused)); }
+export function queuePaused() { return readFlag(RUNTIME_KEYS.queuePaused); }
+export function setQueuePaused(paused: boolean) { writeFlag(RUNTIME_KEYS.queuePaused, paused); }
 type Context = { id: string; venture: string | null; automation: boolean; signal: AbortSignal; sequence: number; resume: boolean };
 export const runContext = new AsyncLocalStorage<Context>();
 export function hasMeteredLimits(p = budgets()) { return !!(p.runTokens || p.dailyTokens || p.ventureDailyTokens || p.runUsd || p.dailyUsd || p.ventureDailyUsd); }
@@ -76,6 +76,34 @@ export async function budgeted<T extends { usage?: { prompt: number; completion:
     throw error;
   }
 }
+/**
+ * WHAT ONE RUN HAS SPENT, or null when this box prices nothing.
+ *
+ * NULL AND ZERO ARE DIFFERENT ANSWERS, and reading one as the other was a live
+ * bug. Two copies of this query existed: one returned null on an unpriced box
+ * and the stage it fed showed "unknown"; the other returned 0, and the tool
+ * loop it fed read "no price is configured" as "this turn has spent nothing"
+ * — so a per-turn dollar ceiling on a box with no `usdPerMillion` could never
+ * trip, however long the turn ran. A ceiling that cannot be reached is worse
+ * than no ceiling, because the owner believes they have one.
+ *
+ * Every `usd` in `budget_usage` is derived from `usdPerMillion`; with no price
+ * set they are all zero, and zero is not a measurement. So the price is what is
+ * checked, and the caller is made to decide what to do about not knowing.
+ */
+export function spentOnRun(runId: string): number | null {
+  if (!budgets().usdPerMillion) return null;
+  try {
+    const row = db
+      .prepare("SELECT coalesce(sum(usd), 0) AS usd FROM budget_usage WHERE run_id = ?")
+      .get(runId) as { usd: number } | undefined;
+    return Number(row?.usd ?? 0);
+  } catch {
+    /* The ledger could not be read, which is not the same as nothing spent. */
+    return null;
+  }
+}
+
 export function usageReport() {
   return db.prepare("SELECT run_id AS runId, venture_id AS ventureId, count(*) AS calls, sum(tokens) AS tokens, sum(usd) AS usd, sum(status <> 'reported') AS estimatedCalls FROM budget_usage WHERE at >= ? GROUP BY run_id ORDER BY max(at) DESC").all(now().slice(0,10) + "T00:00:00.000Z");
 }

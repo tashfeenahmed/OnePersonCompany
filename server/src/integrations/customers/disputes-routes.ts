@@ -28,13 +28,18 @@
  * "23:59 UTC" and "00:59 tomorrow" are the same moment described two ways.
  */
 import { Hono } from "hono";
-import { stripeLedgerDays, ventureRows } from "../../db.ts";
+import { ventureRows } from "../../db.ts";
 import { NEEDS_RESPONSE_STATUSES, OPEN_DISPUTE_STATUSES } from "../../providers/stripe.ts";
-import { disputes as storedDisputes, disputeCount, settings, type DisputeRecord } from "./store.ts";
+import { currencyCode, money } from "../../shared/money.ts";
+import {
+  disputes as storedDisputes,
+  disputeCount,
+  ledgerDisputes as ledgerDisputeMoney,
+  settings,
+  type DisputeRecord,
+} from "./store.ts";
 
 export const disputeRoutes = new Hono();
-
-const money = (n: number) => Number(n.toFixed(2));
 
 /** The same instant in the owner's zone, as words. Never replaces the ISO
  *  value — it sits beside it. */
@@ -59,7 +64,7 @@ function shape(d: DisputeRecord, timezone: string, names: Map<string, string>) {
     ventureName: d.venture_id ? (names.get(d.venture_id) ?? null) : null,
     charge: d.charge,
     amount: d.amount,
-    currency: d.currency,
+    currency: currencyCode(d.currency),
     reason: d.reason,
     /** Stripe's own word. Kept verbatim because it is the word the account's
      *  risk page uses and a paraphrase would not match what the owner sees. */
@@ -92,17 +97,18 @@ disputeRoutes.get("/", (c) => {
   const inWindow = all.filter((d) => d.created_at >= fromIso);
   const openAll = all.filter((d) => d.outcome === null && OPEN_DISPUTE_STATUSES.has(d.status));
 
-  const currencies = [...new Set(all.map((d) => d.currency))].sort();
-  const ledger = stripeLedgerDays(fromDay);
+  const currencies = [...new Set(all.map((d) => currencyCode(d.currency)))].sort();
+  const ledger = ledgerDisputeMoney(fromDay);
 
   const perCurrency = currencies.map((currency) => {
-    const mine = inWindow.filter((d) => d.currency === currency);
-    const open = openAll.filter((d) => d.currency === currency);
+    const is = (d: { currency: string }) => currencyCode(d.currency) === currency;
+    const mine = inWindow.filter(is);
+    const open = openAll.filter(is);
     const won = mine.filter((d) => d.outcome === "won");
     const lost = mine.filter((d) => d.outcome === "lost");
-    const le = ledger.filter((r) => r.currency === currency);
-    const ledgerDisputes = money(le.reduce((n, r) => n + r.disputes, 0));
-    const ledgerFees = money(le.reduce((n, r) => n + r.dispute_fees, 0));
+    const le = ledger.get(currency) ?? { disputes: 0, disputeFees: 0 };
+    const ledgerDisputes = le.disputes;
+    const ledgerFees = le.disputeFees;
     const caseLost = money(lost.reduce((n, r) => n + r.amount, 0));
 
     return {
@@ -131,7 +137,7 @@ disputeRoutes.get("/", (c) => {
             .sort()[0] ?? null,
         arithmetic:
           `COUNT and SUM(amount) over stripe_disputes, dated by the case's own created ` +
-          `timestamp, for the last ${days} days, in ${currency.toUpperCase()}. The disputed ` +
+          `timestamp, for the last ${days} days, in ${currency}. The disputed ` +
           `amount only — Stripe's dispute FEE is not in any figure here.`,
       },
       ledger: {

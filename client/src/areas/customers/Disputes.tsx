@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { WindowPicker } from "@/components/WindowPicker";
+import { money } from "@/lib/format";
 import { useApi } from "@/hooks/useApi";
 import { customersApi, type DisputeCase } from "@/lib/api/customers";
 import { Empty, Notes, Problem, Stats } from "./Customers";
@@ -23,10 +25,6 @@ import { Empty, Notes, Problem, Stats } from "./Customers";
 
 const WINDOWS = [30, 90, 365];
 
-function cash(amount: number, currency: string) {
-  return `${currency.toUpperCase()} ${amount.toFixed(2)}`;
-}
-
 export function DisputesTab() {
   const [days, setDays] = useState(90);
   const q = useApi(() => customersApi.disputes(days), [days]);
@@ -44,25 +42,13 @@ export function DisputesTab() {
     <>
       <Stats items={stats} />
 
-      <div className="mb-4 flex items-center gap-0.5">
-        {WINDOWS.map((w) => (
-          <button
-            key={w}
-            onClick={() => setDays(w)}
-            className={
-              "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[12.5px]" +
-              (days === w ? " bg-accent text-foreground font-medium" : "")
-            }
-          >
-            {w}d
-          </button>
-        ))}
-        {d && (
-          <span className="text-muted-foreground ml-auto text-[11.5px]">
-            deadlines shown in {d.timezone} ({d.timezoneFrom})
-          </span>
-        )}
-      </div>
+      <WindowPicker
+        value={days}
+        onChange={(w) => setDays(Number(w))}
+        options={WINDOWS}
+        className="mb-4"
+        right={d ? `deadlines shown in ${d.timezone} (${d.timezoneFrom})` : undefined}
+      />
 
       {q.error && <Problem error={q.error} />}
 
@@ -79,12 +65,12 @@ export function DisputesTab() {
                 From the CASES
               </div>
               <dl className="space-y-0.5 text-[12.5px]">
-                <Row k="Opened" v={`${c.cases.opened} · ${cash(c.cases.openedAmount, c.currency)}`} />
-                <Row k="Lost" v={`${c.cases.lost} · ${cash(c.cases.lostAmount, c.currency)}`} />
-                <Row k="Won" v={`${c.cases.won} · ${cash(c.cases.wonAmount, c.currency)}`} />
+                <Row k="Opened" v={`${c.cases.opened} · ${money(c.cases.openedAmount, c.currency)}`} />
+                <Row k="Lost" v={`${c.cases.lost} · ${money(c.cases.lostAmount, c.currency)}`} />
+                <Row k="Won" v={`${c.cases.won} · ${money(c.cases.wonAmount, c.currency)}`} />
                 <Row
                   k="Open now (no window)"
-                  v={`${c.cases.openNow} · ${cash(c.cases.openNowAmount, c.currency)}`}
+                  v={`${c.cases.openNow} · ${money(c.cases.openNowAmount, c.currency)}`}
                 />
               </dl>
               <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
@@ -96,10 +82,10 @@ export function DisputesTab() {
                 From the LEDGER
               </div>
               <dl className="space-y-0.5 text-[12.5px]">
-                <Row k="Money out" v={cash(c.ledger.moneyOut, c.currency)} />
-                <Row k="Disputed amounts" v={cash(c.ledger.disputes, c.currency)} />
-                <Row k="Dispute fees" v={cash(c.ledger.disputeFees, c.currency)} />
-                <Row k="Difference" v={cash(c.difference, c.currency)} />
+                <Row k="Money out" v={money(c.ledger.moneyOut, c.currency)} />
+                <Row k="Disputed amounts" v={money(c.ledger.disputes, c.currency)} />
+                <Row k="Dispute fees" v={money(c.ledger.disputeFees, c.currency)} />
+                <Row k="Difference" v={money(c.difference, c.currency)} />
               </dl>
               <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
                 {c.ledger.arithmetic}
@@ -153,7 +139,7 @@ function CaseLine({ c }: { c: DisputeCase }) {
   return (
     <div className="bg-card rounded-[10px] border px-3.5 py-2.5">
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <span className="text-[13px] tabular-nums">{`${c.currency.toUpperCase()} ${c.amount.toFixed(2)}`}</span>
+        <span className="text-[13px] tabular-nums">{money(c.amount, c.currency)}</span>
         <span className="text-muted-foreground text-[12px]">{c.reason ?? "no reason given"}</span>
         {/* Stripe's own word, not a paraphrase — it is what the risk page says. */}
         <span className="text-muted-foreground text-[11.5px]">· {c.status}</span>

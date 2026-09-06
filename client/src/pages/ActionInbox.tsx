@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { when } from "@/lib/format";
 import { useApi } from "@/hooks/useApi";
 import { call } from "@/lib/api";
 import { PageShell, TopBar } from "@/components/PageShell";
@@ -20,6 +21,6 @@ export function ActionInbox() {
     {(error || note) && <p role="status" className="mb-3 text-sm">{error || note}</p>}
     {loading && !data && <p role="status">Loading actions…</p>}
     {data && !items.length && <p>No open actions match this view.</p>}
-    <div className="space-y-3">{items.map(item => <article key={item.id} className="rounded-xl border p-4"><div className="text-xs text-muted-foreground">{item.source} · {item.priority === 1 ? "High priority" : "Normal priority"} · {new Date(item.at).toLocaleString()}</div><h2 className="font-medium mt-1">{item.title}</h2><p className="text-sm mt-1">{item.detail}</p><div className="flex flex-wrap gap-3 mt-3 text-sm"><Link className="underline" to={item.href}>Open source</Link><button disabled={busy === item.id} className="underline" onClick={() => void act(item, "resolve")}>{item.resolution}</button><button disabled={busy === item.id} className="underline" onClick={() => void act(item, "snooze")}>Snooze 1 day</button><button disabled={busy === item.id} className="underline" onClick={() => void act(item, "board")}>Add to board</button></div></article>)}</div>
+    <div className="space-y-3">{items.map(item => <article key={item.id} className="rounded-xl border p-4"><div className="text-xs text-muted-foreground">{item.source} · {item.priority === 1 ? "High priority" : "Normal priority"} · {when(item.at, { year: true })}</div><h2 className="font-medium mt-1">{item.title}</h2><p className="text-sm mt-1">{item.detail}</p><div className="flex flex-wrap gap-3 mt-3 text-sm"><Link className="underline" to={item.href}>Open source</Link><button disabled={busy === item.id} className="underline" onClick={() => void act(item, "resolve")}>{item.resolution}</button><button disabled={busy === item.id} className="underline" onClick={() => void act(item, "snooze")}>Snooze 1 day</button><button disabled={busy === item.id} className="underline" onClick={() => void act(item, "board")}>Add to board</button></div></article>)}</div>
   </PageShell></>;
 }

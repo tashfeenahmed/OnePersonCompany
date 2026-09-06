@@ -30,10 +30,13 @@ import { Hono } from "hono";
 import { adSenseDays, adSenseMonths, db, getPlugin } from "../db.ts";
 import { CONSOLE_ENABLE, SCOPE, WINDOW_DAYS } from "../providers/adsense.ts";
 import * as accounts from "../accounts.ts";
+/* Four places, not two. This route published AdSense dollars at two while the
+   finance area added the same rows at four, so a month never tied out between
+   the two documents. Rendering to cents is the page's job. */
+import { currencyCode, money } from "../shared/money.ts";
 
 export const adsenseRoutes = new Hono();
 
-const money = (n: number) => Number(n.toFixed(2));
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /**
@@ -95,7 +98,7 @@ adsenseRoutes.get("/", (c) => {
       : ("refused" as const);
 
   const thisMonth = new Date().toISOString().slice(0, 7);
-  const currencies = [...new Set(rows.map((r) => r.currency))];
+  const currencies = [...new Set(rows.map((r) => currencyCode(r.currency)))];
 
   const bySite = new Map<
     string,

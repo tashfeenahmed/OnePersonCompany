@@ -26,7 +26,7 @@ import { gate, normalise, similarity, readActions, type Proposal } from "./synth
 import { staleDeps, summarise, unsatisfied } from "./nightly.ts";
 import { dueNight } from "./routes.ts";
 import { readBool, refuseDry } from "./params.ts";
-import { dueDay } from "../../runtime/schedule.ts";
+import { dueDay } from "../../shared/time.ts";
 
 /* ------------------------------------------------------------------ stages */
 

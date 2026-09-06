@@ -45,14 +45,31 @@ import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { run, tail, type Ran } from "./tools.ts";
 
-/** The three shapes a video can be, and what they are in pixels. 9:16 is the
- *  default everywhere because it is the only one every short-form platform
- *  takes without re-cropping. */
+/**
+ * THE FRAME SHAPES THIS BOX RENDERS, and what they are in pixels.
+ *
+ * THE ONE LIST. Everything that accepts, validates, names or draws a shape
+ * asks this map rather than repeating its keys: the motion-spec reader used to
+ * hold its own copy and silently rendered 9:16 for anything not in it, and the
+ * Studio's own format names are checked against these keys so a shape the
+ * renderer supports cannot end up with no name. Adding a fourth entry here is
+ * meant to be the whole change.
+ */
 export const ASPECTS: Record<string, { width: number; height: number; about: string }> = {
   "9:16": { width: 1080, height: 1920, about: "9:16 — a reel, a short, a TikTok. The default." },
   "1:1": { width: 1080, height: 1080, about: "1:1 — a square feed post." },
   "16:9": { width: 1920, height: 1080, about: "16:9 — a landscape video for YouTube or a site." },
 };
+
+/** 9:16, because it is the only shape every short-form platform takes without
+ *  re-cropping. Named rather than typed at each of the eight places that fall
+ *  back to it. */
+export const DEFAULT_ASPECT = "9:16";
+
+/** The frame for an aspect, or the default frame. `ASPECTS[x] ?? ASPECTS["9:16"]!`
+ *  was written out at every pipeline entry point, non-null assertion included. */
+export const aspectFrame = (aspect: string | null | undefined) =>
+  ASPECTS[aspect ?? ""] ?? ASPECTS[DEFAULT_ASPECT]!;
 
 export const FPS = 30;
 /** Encoder settings. `veryfast` rather than `medium`: this runs on the owner's

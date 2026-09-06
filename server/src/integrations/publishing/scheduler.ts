@@ -157,9 +157,14 @@ let ticking = false;
 /**
  * One tick.
  *
- * Reentrant-safe by a flag rather than a lock: there is one process, and the
- * only two callers are the timer and the route that runs it by hand. Two ticks
- * at once would submit the same item twice.
+ * THE FLAG IS AN OPTIMISATION AND NOT THE GUARD, and it is worth saying which
+ * way round that is. It stops a second tick doing the same query and the same
+ * work; it does NOT stop a double submission, because it is invisible to the
+ * manual publish route, to any other entry point in this process, and to the
+ * process that replaces this one on the next file save. The guarantee that one
+ * item is submitted once lives in `publishItem`'s transactional claim — see
+ * mailflow/outbound.ts — which every caller goes through. This flag being
+ * removed would waste queries; the claim being removed would post twice.
  */
 export async function tick(trigger: "clock" | "manual" = "clock"): Promise<TickResult> {
   const at = new Date();

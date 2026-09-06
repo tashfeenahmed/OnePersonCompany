@@ -166,7 +166,7 @@ export const manifest: IntegrationManifest = {
             "Names are normalised the way PyPI normalises them — Foo.Bar_baz " +
             "and foo-bar-baz are the same package and are stored once — so " +
             "whichever spelling you paste will work. Downloads exclude mirrors.",
-          ph: "example-app-1, ob1-cli",
+          ph: "my-package, my-other-package",
           check(value) {
             const raw = value.split(/[\s,]+/).filter(Boolean);
             const bad = raw.filter((n) => !pypi.validName(n));

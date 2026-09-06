@@ -2,7 +2,7 @@
  * Google Search Console.
  *
  * EVERY FIGURE ON THIS ROUTE IS SUMMED WHEN IT IS ASKED FOR. The database
- * holds "1,004 impressions on the 12th, on example-app-1.example.test" and holds no window
+ * holds "1,004 impressions on the 12th, on one property" and holds no window
  * total anywhere — the same decision the costs board, the domain countdowns
  * and the npm weeks are built on. A stored "impressions, 28 days" is wrong the
  * next morning and badly wrong after a week of failed collections, which is
@@ -42,6 +42,11 @@ import {
   type GscSiteRow,
 } from "../db.ts";
 import { LAG_DAYS, WINDOW_DAYS, QUERY_ROWS } from "../providers/gsc.ts";
+import {
+  strikingRows,
+  STRIKING_MAX_POSITION,
+  STRIKING_MIN_POSITION,
+} from "../integrations/growth/serp.ts";
 
 export const gscRoutes = new Hono();
 
@@ -297,27 +302,26 @@ gscRoutes.get("/", (c) => {
   }));
 
   /*
-    STRIKING DISTANCE: queries already ranking 11th to 20th, which is one page
-    short of the clicks and usually the cheapest win on the board.
+    STRIKING DISTANCE, FROM THE ONE DEFINITION. `growth/serp.ts` owns the band
+    and the impressions floor, with the reasoning for both; this route and the
+    SEO teardown read the same rows so one recommendation is one list. It used
+    to filter 11–20 with no floor here and 5–20 with a floor there, and the two
+    surfaces named different queries as the cheapest win.
 
-    THE HONEST CAVEAT TRAVELS WITH IT. Google sorts these rows by CLICKS and
-    offers no other order, so this is the best of what a clicks-ordered cap
+    THE HONEST CAVEAT TRAVELS WITH IT. Google sorts the stored rows by CLICKS
+    and offers no other order, so this is the best of what a clicks-ordered cap
     returned — a query with ten thousand impressions and no clicks at all can
     be missing from it entirely, and that is exactly the sort of query this
     list is meant to surface. `basis` says so on the wire rather than in a
     comment nobody downstream can read.
   */
-  const striking = queryRows
-    .filter((r) => r.position !== null && r.position > 10 && r.position <= 20)
-    .sort((a, b) => b.impressions - a.impressions)
-    .slice(0, 12)
-    .map((r) => ({
-      query: r.query!,
-      property: named(r.property),
-      impressions: r.impressions,
-      clicks: r.clicks,
-      position: place(r.position),
-    }));
+  const striking = strikingRows(null, 12).map((r) => ({
+    query: r.query,
+    property: named(r.property),
+    impressions: r.impressions,
+    clicks: r.clicks,
+    position: place(r.position),
+  }));
 
   const pages = pageRows.slice(0, 25).map((r) => ({
     page: r.page!,
@@ -369,6 +373,7 @@ gscRoutes.get("/", (c) => {
     queries,
     striking,
     strikingBasis:
+      `Queries at position ${STRIKING_MIN_POSITION} to ${STRIKING_MAX_POSITION}, most impressions first — the same band the SEO teardown works from. ` +
       "Google returns these rows ordered by clicks and offers no other order, so this is the best of what that cap returned — a high-impression query with no clicks can be missing from it.",
     pages,
     coverage: {

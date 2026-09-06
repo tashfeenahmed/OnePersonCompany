@@ -2,14 +2,12 @@
  * Meta — Facebook Pages and the ads account, through the Graph API.
  *
  * WHAT THE OWNER PASTES: one access token, and optionally the app it was
- * minted under. Both entries already exist in workdash's vault under the names
- * this file uses — `meta-token` and `meta-app` — which makes moving them a
- * copy rather than a translation.
+ * minted under, under the names `meta-token` and `meta-app`.
  *
- * BOTH ARE COMMENT-ANNOTATED FILES, AND THAT IS THE FIRST TRAP.
- * `collect_social.py` reads the token file one line at a time, skipping blanks
- * and anything starting with `#`, because the owner keeps a note above each
- * secret explaining what it is for. Sealed whole and sent as a bearer token,
+ * A PASTED CREDENTIAL MAY BE A COMMENT-ANNOTATED FILE, AND THAT IS THE FIRST
+ * TRAP. People keep these as files with a note above the secret explaining
+ * what it is for, so the value that arrives here is read one line at a time,
+ * skipping blanks and anything starting with `#`. Sealed whole and sent as a bearer token,
  * that file produces
  *
  *     OAuthException 190 "Bad signature"
@@ -44,8 +42,8 @@
  *
  * PINNED TO v21.0, deliberately and with an escape hatch. Meta retires Graph
  * versions on a schedule and an unsupported version is a hard error on every
- * call rather than a warning; workdash pins the same version through the same
- * env var, so the two halves cannot drift apart by accident.
+ * call rather than a warning; the version is one env var so an upgrade is one
+ * edit and every call moves together.
  *
  * WHAT IT READS, and nothing else — every one of them a GET:
  *
@@ -702,10 +700,10 @@ export async function collect(reader = "collect_meta"): Promise<CollectResult> {
 
       A `.trim()` here would be enough for a value this app stored, because the
       registry refuses a multi-line paste. It is not enough for a value COPIED
-      ACROSS from workdash's vault, which is the ordinary way these two entries
-      arrive — over there `meta-token` is a file with a `#` note above the
-      secret, and reading it whole is exactly the mistake that produces
-      OAuthException 190 on a perfectly good token. Doing it at read time makes
+      ACROSS from a credential file, which is the ordinary way these two entries
+      arrive — such a file carries a `#` note above the secret, and reading it
+      whole is exactly the mistake that produces OAuthException 190 on a
+      perfectly good token. Doing it at read time makes
       the provider right whatever is in the entry.
     */
     const token = parseLines(values.token)[0] ?? "";

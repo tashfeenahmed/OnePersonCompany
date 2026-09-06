@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { api, type ModelProvider, type ProviderReply, type ProviderId } from "@/lib/api";
 import { GATE_POLL_MS } from "@/components/ModelPolicy";
 import { ToolModeNote } from "@/areas/runtime/ToolModeNote";
+import { duration } from "@/lib/format";
 
 /** The four, with the sentence that says what each one IS — because "local"
  *  and "openrouter" are ids rather than descriptions, and a page listing four
@@ -289,8 +290,8 @@ function TestCompletion({ live, label }: { live: ProviderId | null; label: strin
           <p className="text-[13px] whitespace-pre-wrap">{reply.text.trim()}</p>
           <p className="text-muted-foreground mt-2 text-[11.5px]">
             {reply.provider} · {reply.endpoint}
-            {reply.model && ` · ${reply.model}`} · {(reply.ms / 1000).toFixed(1)}s
-            {reply.queuedMs > 0 && ` · queued ${(reply.queuedMs / 1000).toFixed(1)}s`}
+            {reply.model && ` · ${reply.model}`} · {duration(reply.ms)}
+            {reply.queuedMs > 0 && ` · queued ${duration(reply.queuedMs)}`}
             {reply.usage && ` · ${reply.usage.prompt + reply.usage.completion} tokens`}
           </p>
         </div>

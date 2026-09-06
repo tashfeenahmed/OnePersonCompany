@@ -15,8 +15,8 @@ import {
   statusWord,
 } from "@/components/runs/format";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/live";
 import { useStore, type Venture } from "@/lib/store";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   isLive,
