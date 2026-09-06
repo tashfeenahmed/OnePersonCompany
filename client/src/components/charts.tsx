@@ -262,6 +262,28 @@ const clock = (ms: number) =>
   new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /**
+ * A window longer than a day and a half is labelled by DAY, not by clock. The
+ * fleet's windows are a day long at a fifteen-minute grain, so "18:15" is the
+ * right end label there; a fortnight of daily pageviews in a chat answer is
+ * not, and "01:00 AM" at both ends of it is the engine parsing `2026-08-23` as
+ * UTC midnight and this file reading it back in local time. Day-grained points
+ * are calendar days, so they are read back in UTC — dateLong's reasoning.
+ */
+const DAY_GRAIN_MS = 36 * 3600 * 1000;
+const dayShort = (ms: number) =>
+  new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
+const endLabel = (ms: number, domain: number) => (domain >= DAY_GRAIN_MS ? dayShort(ms) : clock(ms));
+const stampFor = (iso: string, domain: number) =>
+  domain >= DAY_GRAIN_MS
+    ? new Date(iso).toLocaleDateString(undefined, {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        timeZone: "UTC",
+      })
+    : stamp(iso);
+
+/**
  * The moment a sample was taken, weekday included.
  *
  * These windows are a day long and the grain is fifteen minutes, so "18:15" on
@@ -487,7 +509,7 @@ export function Chart({
               .join(", ")}. ${prim.label} peaked at ${reading(
               prim.points[peak]!.value,
               unit,
-            )} on ${stamp(prim.points[peak]!.ts)}, across ${
+            )} on ${stampFor(prim.points[peak]!.ts, domain)}, across ${
               prim.points.length
             } samples. Use the arrow keys to read a point.`}
             className="focus-visible:ring-ring block touch-pan-y rounded-[6px] outline-none focus-visible:ring-1"
@@ -627,7 +649,7 @@ export function Chart({
                   // enough in the plot that a tooltip above it would cover the
                   // axis figure and the legend.
                   below: crest < 52,
-                  title: stamp(prim.points[cursor!]!.ts),
+                  title: stampFor(prim.points[cursor!]!.ts, domain),
                   rows: lines.map((l, i) => {
                     const j = readAt(i);
                     return (
@@ -647,8 +669,8 @@ export function Chart({
       </div>
 
       <div className="text-muted-foreground mt-1 flex justify-between text-[10.5px] tabular-nums">
-        <span>{clock(t0)}</span>
-        <span>{clock(t1)}</span>
+        <span>{endLabel(t0, domain)}</span>
+        <span>{endLabel(t1, domain)}</span>
       </div>
 
       {caption && (

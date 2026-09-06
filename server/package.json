@@ -3,13 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.5" },
+  "engines": {
+    "node": ">=24.18 <27"
+  },
   "scripts": {
     "dev": "node --watch --experimental-strip-types src/index.ts",
     "start": "node --experimental-strip-types src/index.ts",
     "typecheck": "tsc --noEmit",
     "collect": "node --experimental-strip-types src/cli/collect.ts",
-    "restore": "node --experimental-strip-types src/cli/restore.ts"
+    "restore": "node --experimental-strip-types src/cli/restore.ts",
+    "test": "node --import ./test/setup.mjs --experimental-strip-types --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",

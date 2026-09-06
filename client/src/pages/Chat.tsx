@@ -1,3 +1,4 @@
+import { useDraft } from "@/hooks/useDraft";
 /**
  * THE CHAT PAGE — the one place in this app that talks to an agent.
  *
@@ -211,6 +212,7 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { VentureMark } from "@/components/VentureChrome";
 import { Markdown } from "@/components/Markdown";
+import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { ToolCallLine } from "@/components/ToolCallLine";
 import {
   ApiError,
@@ -366,21 +368,96 @@ function splitByTools(
 function AssistantBody({
   text,
   tools,
+  reasoning,
 }: {
   text: string;
   tools: ChatToolCall[] | null;
+  /** The model's working, for a turn in flight. Folded into the first
+   *  Working group so the answer's machinery is one row, not several. */
+  reasoning?: string | null;
 }) {
   const parts = splitByTools(text, tools ?? []);
+  /*
+    BUNDLED. Seven tool lines between two paragraphs used to be seven rows,
+    each with its own disclosure, and the answer was somewhere under them.
+    Consecutive calls — every run with no words between — become ONE
+    `Working` row: closed, it says how many steps and how long; open, it is
+    the lines, each of which still opens into its own detail. Two clicks to
+    the bottom, none to the answer.
+  */
+  const groups: ({ kind: "text"; text: string } | { kind: "work"; calls: ChatToolCall[] })[] = [];
+  for (const part of parts) {
+    if (part.call) {
+      const last = groups[groups.length - 1];
+      if (last?.kind === "work") last.calls.push(part.call);
+      else groups.push({ kind: "work", calls: [part.call] });
+    } else if (part.text) groups.push({ kind: "text", text: part.text });
+  }
+  const firstWork = groups.findIndex((g) => g.kind === "work");
   return (
     <>
-      {parts.map((part, i) =>
-        part.call ? (
-          <ToolCallLine key={`${part.call.toolCallId}-${i}`} call={part.call} />
+      {reasoning && firstWork === -1 && <Thinking text={reasoning} done={false} />}
+      {groups.map((g, i) =>
+        g.kind === "work" ? (
+          <Working key={`w-${g.calls[0]!.toolCallId}`} calls={g.calls} reasoning={i === firstWork ? reasoning ?? null : null} />
         ) : (
-          <Markdown key={i} text={part.text} />
+          <Markdown key={`t-${i}`} text={g.text} />
         ),
       )}
     </>
+  );
+}
+
+/**
+ * ONE ROW FOR A RUN OF TOOL CALLS. Closed by default — the answer is what the
+ * page is for — and while a call is still running the row carries that call's
+ * own label, shimmering, so "what is it doing" is answered without opening
+ * anything. Open, it is the ToolCallLines as they always were.
+ */
+function Working({ calls, reasoning }: { calls: ChatToolCall[]; reasoning: string | null }) {
+  const [open, setOpen] = useState(false);
+  const running = calls.find((c) => !c.finishedAt) ?? null;
+  const ms = calls.reduce((n, c) => {
+    if (!c.finishedAt) return n;
+    const d = Date.parse(c.finishedAt) - Date.parse(c.startedAt);
+    return Number.isFinite(d) && d > 0 ? n + d : n;
+  }, 0);
+  const steps = calls.length + (reasoning ? 1 : 0);
+  return (
+    <div className="my-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline gap-1.5 rounded-[7px] px-1.5 py-0.5 text-left text-[13.5px] leading-[1.6] transition-colors",
+          running
+            ? "tool-shimmer focus-visible:ring-ring focus-visible:ring-1"
+            : "hover:bg-accent hover:text-foreground focus-visible:bg-accent",
+        )}
+      >
+        <ChevronRight
+          className={cn("size-3 shrink-0 self-center transition-transform", open && "rotate-90")}
+          strokeWidth={1.8}
+        />
+        <span className="min-w-0 truncate">
+          {running
+            ? `Working · ${running.tool}${running.label ? ` · ${running.label}` : ""}`
+            : `Worked · ${steps} step${steps === 1 ? "" : "s"}`}
+        </span>
+        <span className="shrink-0">
+          {running ? ` · step ${calls.indexOf(running) + 1} of ${calls.length}…` : ms > 0 ? ` · ${(ms / 1000).toFixed(1)}s` : ""}
+        </span>
+      </button>
+      {open && (
+        <div className="border-line-soft mt-0.5 ml-1.5 border-l pl-2.5">
+          {reasoning && <Thinking text={reasoning} done={!running} />}
+          {calls.map((c) => (
+            <ToolCallLine key={c.toolCallId} call={c} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -551,8 +628,13 @@ function announce(id: string, ending: Ending | null = null): boolean {
      registered it, and a Set that is added to while it is being walked is a
      watcher called twice. */
   for (const watch of [...watchers]) watch(id, ending);
+  /* A turn that ended may have dispatched a sub-agent. The sidebar's badge
+     and the Sub-agents page poll on their own clocks; this is how they learn
+     to look now rather than in ten seconds — see hooks/useRunQueue.ts. */
+  if (ending) window.dispatchEvent(new Event(WORK_CHANGED));
   return watchers.size > 0;
 }
+
 
 function buffer(id: string) {
   let b = pending.get(id);
@@ -590,7 +672,10 @@ function schedule() {
 export function Chat() {
   const { state, addSession, reconcileSessions, setSessionStreaming } =
     useStore();
-  const [text, setText] = useState("");
+  const draftRoute = useParams().sessionId ?? "new";
+  const [text, setText, draftError] = useDraft(`opc-chat-draft:${draftRoute}`);
+  const attachmentRef = useRef<HTMLInputElement>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   // Empty is a real answer: most chats are about nothing in particular.
   // Settings → General presets this; the picker still overrides it per chat.
   const [targetId, setTargetId] = useState<string | null>(
@@ -628,7 +713,7 @@ export function Chat() {
     /* Focused last, so the caret is where somebody who wants to edit the
        opener would put it anyway. */
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [location.search, location.pathname, navigate]);
+  }, [location.search, location.pathname, navigate, setText]);
   /*
     THE ADDRESS IS THE SELECTION. `/chat/<id>` is a conversation, `/` is a new
     one — see the file header for what this replaced and why the store's own
@@ -1036,6 +1121,39 @@ export function Chat() {
     !loadError &&
     messages.length === 0;
 
+  /*
+    WHILE A SUB-AGENT IS WORKING, THE RAIL AND THIS TRANSCRIPT KEEP UP.
+
+    A run dispatched from a chat turns from running to done minutes later,
+    with nobody streaming: the rail child would stay "running" and the report
+    the server writes into this conversation (runs/executor.ts,
+    `reportToParent`) would sit unseen until a reload. So while any session
+    has a queued or running child, the rail is re-read every five seconds —
+    and when the OPEN conversation's live children shrink, its transcript is
+    re-read once, which is the moment the report has landed.
+  */
+  const liveChildren = state.sessions
+    .flatMap((s) => (s.children ?? []).filter((c) => c.status === "running" || c.status === "queued").map((c) => `${s.id}:${c.id}`))
+    .sort()
+    .join("|");
+  const anyLive = liveChildren.length > 0;
+  useEffect(() => {
+    if (!anyLive) return;
+    const t = setInterval(() => void syncRail(), 5_000);
+    return () => clearInterval(t);
+  }, [anyLive, syncRail]);
+  const openLive = sessionId
+    ? liveChildren.split("|").filter((k) => k.startsWith(`${sessionId}:`)).length
+    : 0;
+  const prevOpenLive = useRef(0);
+  useEffect(() => {
+    if (openLive < prevOpenLive.current && sessionId && !flights.has(sessionId)) {
+      reread(sessionId);
+      window.dispatchEvent(new Event(WORK_CHANGED));
+    }
+    prevOpenLive.current = openLive;
+  }, [openLive, sessionId, reread]);
+
   /* New turns arrive at the bottom, which is where the eye is. */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -1201,6 +1319,12 @@ export function Chat() {
             schedule();
           },
 
+          onChild: () => {
+            /* Filed under this chat a moment ago: show it now, not when the
+               answer ends. */
+            void syncRail();
+            window.dispatchEvent(new Event(WORK_CHANGED));
+          },
           onReasoning: (chunk) => {
             buffer(id).reasoning += chunk;
             schedule();
@@ -1854,7 +1978,10 @@ export function Chat() {
                       was free.
                     */}
                     <p className="text-muted-foreground mt-1.5 text-[11.5px]">
-                      {authorName(m.backend)}
+                      {/* A run's report is written by the server on the
+                          worker's behalf — runs/executor.ts — and is not the
+                          agent's turn, so it is not signed as one. */}
+                      {m.channel === "run" ? "Sub-agent report" : authorName(m.backend)}
                       {m.model && ` · ${m.model}`}
                       {m.ms !== null && ` · ${(m.ms / 1000).toFixed(1)}s`}
                       {m.usage &&
@@ -1892,10 +2019,7 @@ export function Chat() {
               */}
               {flight && (flight.text || flight.reasoning || flight.tools.length) ? (
                 <div>
-                  {flight.reasoning && (
-                    <Thinking text={flight.reasoning} done={false} />
-                  )}
-                  <AssistantBody text={flight.text} tools={flight.tools} />
+                  <AssistantBody text={flight.text} tools={flight.tools} reasoning={flight.reasoning || null} />
                   {/*
                     THE CARET, WHICH IS THE ONLY THING ON THIS PAGE THAT SAYS
                     "still going". A spinner beside a growing answer is two
@@ -1976,11 +2100,12 @@ export function Chat() {
           <div className="bg-card focus-within:border-foreground rounded-[14px] border px-3 pt-3 pb-2 transition-colors">
             <Textarea
               ref={inputRef}
+              aria-label="Message"
               value={text}
               autoFocus
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   void send();
                 }
@@ -1992,9 +2117,21 @@ export function Chat() {
               }
               className="max-h-[200px] min-h-[46px] resize-none border-0 bg-transparent p-0 px-1.5 shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
-            <div className="flex items-center gap-0.5 pt-1">
+            {(draftError || attachmentError) && <p role="alert" className="text-destructive text-xs p-1">{draftError || attachmentError}</p>}
+            <input ref={attachmentRef} hidden type="file" accept="text/*,.md,.json,.csv,.ts,.tsx,.js,.py,.html,.css,.yaml,.yml,.log" onChange={async e => {
+              const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
+              if (file.size > 100_000) { setAttachmentError("Choose a text file smaller than 100 KB."); return; }
+              try {
+                const content = await file.text();
+                if (content.includes("\0")) throw new Error("Choose a text file; binary attachments are not supported.");
+                setText(previous => `${previous}\n\nAttached file: ${file.name}\n${content}`); setAttachmentError(null); inputRef.current?.focus();
+              } catch (error) { setAttachmentError(String(error)); }
+            }} />
+            <div className="flex flex-wrap items-center gap-0.5 pt-1">
               <button
-                title="Attach"
+                title="Attach a text file"
+                aria-label="Attach a text file"
+                onClick={() => attachmentRef.current?.click()}
                 className="hover:bg-accent rounded-lg p-1.5"
               >
                 <Plus className="size-[15px]" strokeWidth={1.6} />
@@ -2052,7 +2189,7 @@ export function Chat() {
               ? `${backends.liveLabel} is answering. Only one agent is live at a time.`
               : fallback
                 ? `${fallback.label} is answering directly, across ${fallback.endpoints} endpoint${fallback.endpoints === 1 ? "" : "s"}. No agent, so no tools.`
-                : "Every chat lands in the rail. Naming a venture is optional."}
+                : "Chats save automatically. Choosing a venture is optional."}
           </p>
         </div>
       </div>

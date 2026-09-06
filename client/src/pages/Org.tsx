@@ -151,7 +151,7 @@ export function Org() {
 
   return (
     <>
-      <TopBar label="Ventures" />
+      <TopBar label="Org chart" />
       <PageShell
         wide
         title="The org"

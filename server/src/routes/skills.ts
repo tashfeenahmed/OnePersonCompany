@@ -49,6 +49,7 @@
  * document that is right here is right there.
  */
 import { Hono } from "hono";
+import { serviceHeaders } from "../auth.ts";
 import {
   ENTRIES,
   UNIVERSAL_RULES,
@@ -81,6 +82,7 @@ function shapeParam(p: SkillParam, fallbackIn: "query" | "body") {
     default: p.fallback ?? null,
     in: p.in ?? fallbackIn,
     about: p.about,
+    exampled: p.exampled === true,
   };
 }
 
@@ -327,11 +329,18 @@ skillRoutes.get("/:id", async (c) => {
     );
 
   const qs = sent.toString();
-  const url = `${apiBase()}${fillPath(v.path, inPath)}${qs ? `?${qs}` : ""}`;
+  /* A view path may fix a query of its own (`/api/ventures?brief=1`); the
+     caller's parameters are appended after it, never in place of it. */
+  const filled = fillPath(v.path, inPath);
+  const url = `${apiBase()}${filled}${qs ? `${filled.includes("?") ? "&" : "?"}${qs}` : ""}`;
 
   try {
     const res = await fetch(url, {
       method: "GET",
+      /* THE SERVICE KEY, because this proxy is this process calling itself:
+         with a password set, a loopback request carries no cookie and the gate
+         would 401 the agent at its own front door. See auth.ts. */
+      headers: serviceHeaders(),
       /* The caller's own signal. An agent that gave up, or a closed tab behind
          it, ends the inner request too rather than leaving this process waiting
          on itself for an answer nobody will read. */
@@ -497,7 +506,16 @@ skillRoutes.post("/:id/:action", async (c) => {
   try {
     const res = await fetch(url, {
       method: a.method,
-      headers: { "content-type": "application/json" },
+      /* `x-opc-via` IS PROVENANCE, NOT AUTHENTICATION. The key beside it is
+         the authentication (auth.ts); this header says only "this
+         write arrived through the skills proxy", which is a thing a route may
+         want to know. `/api/outbox/:id/approve` and `/api/outbox/:id/send` are
+         the first to care: an agent may write mail and only a person may send
+         it, and those two routes refuse this header. The structural guarantee
+         is still that the `outbox` skill publishes no such action for the
+         proxy to forward — this is the second wall, so that adding one by
+         accident is a 403 rather than a sent email. */
+      headers: serviceHeaders({ "content-type": "application/json", "x-opc-via": "skills" }),
       /*
         A BODY EVEN WHEN IT IS EMPTY, AND EVEN ON A DELETE. `{}` is a legal
         document and every route behind these either ignores the body or reads

@@ -1,3 +1,4 @@
+import { measuredWidget } from "@/lib/widgetView";
 import { Trash2, UnfoldHorizontal } from "lucide-react";
 import { BrandTile } from "@/components/BrandTile";
 import {
@@ -30,6 +31,7 @@ export function WidgetCard({
   editing,
   onCycleWidth,
   onRemove,
+  onMove,
   dragHandlers,
   dropSide,
   dragging,
@@ -38,7 +40,9 @@ export function WidgetCard({
   editing: boolean;
   onCycleWidth: () => void;
   onRemove: () => void;
-  dragHandlers?: React.HTMLAttributes<HTMLDivElement> & { draggable?: boolean };
+  onMove?: (direction: number) => void;
+  /** The grab handle's attributes — a pointerdown and a data id, from BoardView. */
+  dragHandlers?: React.HTMLAttributes<HTMLDivElement>;
   dropSide?: "before" | "after" | null;
   dragging?: boolean;
 }) {
@@ -105,12 +109,13 @@ export function WidgetCard({
         competitors: live.competitors,
       })
     : null;
-  const def: Widget = patch ? { ...base, ...patch } : base;
+  // Presentation metadata is reusable; sample data never enters a live card.
+  const def: Widget = measuredWidget(base, patch);
 
   // "No change" and "not enough history to say" are different claims. A sample
   // widget with delta 0 means the first; a live one measured twice in an hour
   // means the second, and it should say nothing rather than imply a flat line.
-  const trend = isLive ? deltaOver(points) : (base.delta ?? null);
+  const trend = isLive ? (patch?.delta ?? deltaOver(points)) : null;
 
   // Positive is not always good: churn, spend and latency read the other way.
   const good = trend ? (def.invert ? trend < 0 : trend > 0) : null;
@@ -127,29 +132,37 @@ export function WidgetCard({
     portfolio and none of it was this venture's, or the provider has never
     reported anything to narrow.
   */
+  const report = Object.keys(base.live ?? {}).find(key => key !== "metric");
+  const sourceKey = report ?? (base.live?.metric ? `metric:${base.live.metric}` : base.src);
+  const sourceState = live.sourceStates[sourceKey];
+  const unavailable = live.error ? `Server unavailable: ${live.error}`
+    : sourceState === "error" ? `Could not refresh ${src.name}: ${live.sourceErrors[sourceKey] ?? "Try again."}`
+    : sourceState === "disconnected" ? `Connect ${src.name} to see this metric.`
+    : live.loading ? "Loading…" : `No measurements collected from ${src.name} yet.`;
   const empty =
     narrowed && !isLive && scope
       ? scope.base.liveTypes.has(placed.type)
         ? `Nothing for ${scope.label} in ${src.name}.`
         : `Nothing collected from ${src.name} yet, so there is nothing to narrow.`
-      : null;
+      : !isLive ? unavailable : null;
   const brand = src.icon ? BRAND_ICONS[src.icon]?.hex : src.tint;
 
   return (
     <div
       {...dragHandlers}
-      style={{ gridColumn: `span ${placed.w} / span ${placed.w}` }}
+
       className={cn(
+        placed.w === 4 ? "col-span-2 xl:col-span-4" : placed.w === 2 ? "col-span-2" : "col-span-1",
         "bg-card relative flex min-h-[116px] flex-col rounded-[10px] border p-3.5 transition-colors",
-        editing && "hover:border-line-strong cursor-grab",
-        dragging && "opacity-35",
+        editing && "hover:border-line-strong cursor-grab touch-none select-none",
+        dragging && "cursor-grabbing opacity-35",
         dropSide === "before" &&
           "before:bg-foreground before:absolute before:top-1.5 before:-left-1.5 before:bottom-1.5 before:w-0.5 before:rounded-sm before:content-['']",
         dropSide === "after" &&
           "after:bg-foreground after:absolute after:top-1.5 after:-right-1.5 after:bottom-1.5 after:w-0.5 after:rounded-sm after:content-['']",
       )}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <BrandTile
           icon={src.icon}
           name={src.name}
@@ -176,6 +189,8 @@ export function WidgetCard({
 
         {editing && (
           <div className="ml-auto flex gap-px">
+            <button aria-label={`Move ${def.name} earlier`} className="p-1" onClick={() => onMove?.(-1)}>←</button>
+            <button aria-label={`Move ${def.name} later`} className="p-1" onClick={() => onMove?.(1)}>→</button>
             <button
               title="Cycle width"
               onClick={(e) => {

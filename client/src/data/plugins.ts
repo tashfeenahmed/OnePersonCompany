@@ -362,6 +362,25 @@ export const PLUGINS: Plugin[] = [
     ],
   },
   {
+    id: "indexing",
+    name: "IndexNow",
+    icon: null,
+    mono: "N",
+    tint: "#4B6BFB",
+    cat: "seo",
+    connected: false,
+    secret: null,
+    desc: "Tell the search engines that joined IndexNow which pages changed, and keep the receipts.",
+    help:
+      "NO CREDENTIAL, BECAUSE THE PROTOCOL HAS NONE. IndexNow authenticates by a KEY FILE on the site itself: this app generates a key, writes it back into the field below so it stays the same tomorrow, and the site must serve it at https://<host>/<key>.txt with that key as the whole body. Until that file is there every submission is refused by this box and logged as a dry run with the instruction — a submission that looked accepted while the file was missing would be worse than none. A 200 or 202 from the endpoint means the notification was RECEIVED: not crawled, not indexed. GOOGLE IS NOT PART OF INDEXNOW and never has been — Bing, Yandex, Seznam and Naver are. Google's sitemap ping endpoint was retired in 2023 and this app does not call it; Search Console's API could submit a sitemap but this box's credential is read-only on purpose, so the honest instruction for Google is robots.txt and one submission by hand. Read it, and submit, on the Growth app's Indexing tab.",
+    docs: "https://www.indexnow.org/",
+    fields: [],
+    usedBy: [
+      "POST /api/growth/indexing/submit — the URLs the last two audits show as new or changed, the sitemap's, or the ones you name",
+      "GET /api/growth/indexing/:host — the key, the key file, the audit delta and every submission with its status",
+    ],
+  },
+  {
     id: "meta",
     name: "Meta",
     icon: "meta",
@@ -639,6 +658,31 @@ export const PLUGINS: Plugin[] = [
     usedBy: [
       "collect_pypi (daily downloads, plus what each package IS from pypi.org)",
       "GET /api/pypi \u2014 per package and the portfolio, ISO weeks marked partial",
+    ],
+  },
+  {
+    /* THE BRIEFING IS SETTINGS AND NOT A CONNECTION, and it is in this catalog
+       for one reason: this is the page that draws a plugin's settings, and the
+       hour, the zone, the Telegram switch and the five section toggles have to
+       be somewhere the owner can reach. There is no credential, no account and
+       no collector — `secret: null` and `fields: []` say so — and it is
+       `connected: false` here because the server owns that flag and always
+       reports it connected. */
+    id: "briefing",
+    name: "Briefing",
+    icon: null,
+    mono: "B",
+    tint: "#7A6BB8",
+    cat: "comms",
+    connected: false,
+    secret: null,
+    desc: "The daily briefing: when it is built, in which time zone, and what goes in it.",
+    help: "ONCE A DAY, THE WHOLE BOX ASSEMBLED. Alerts raised since the last one, figures that moved over 24 hours, agent runs that finished, board cards overdue and due soon, and a line per venture — all read from this dashboard's own documents over loopback, so a plugin that is not connected contributes nothing rather than a zero. THE FACTS ARE STORED BESIDE THE PROSE. A model writes the paragraphs from the assembled facts and both halves are kept, so every sentence on the page has something checkable under it; with no model provider connected you still get a real briefing — the facts — and one line saying nobody was available to write them up. THE HOUR IS IN YOUR ZONE and the local day is the key, so building twice is one briefing and a laptop that was shut builds the morning's when it wakes. THE TELEGRAM PUSH IS OFF UNTIL YOU TURN IT ON and goes only to the chat your bot is already paired with. Read it at /alerts → Briefing.",
+    docs: null,
+    fields: [],
+    usedBy: [
+      "GET /api/briefing/latest — the newest briefing, its facts and where it went",
+      "POST /api/briefing/now — build today now and deliver it",
     ],
   },
   {
@@ -1241,6 +1285,39 @@ export const PLUGINS: Plugin[] = [
     ],
   },
   {
+    id: "users",
+    name: "App users",
+    icon: null,
+    mono: "U",
+    tint: "#5A8F6E",
+    cat: "signals",
+    connected: false,
+    secret: "users",
+    desc: "Who signed up, read from a JSON endpoint each product publishes about its own users.",
+    help: "Stripe knows who paid and Umami knows who visited. Neither knows who SIGNED UP, because a signup happens inside an application and no third party is told about it \u2014 so the application publishes it, and this reads it. ONE ACCOUNT IS ONE PRODUCT and the account's name is the product's name. THE CONTRACT HAS TWO FORMS: either { \"users\": [ { \"id\", \"createdAt\", and optionally \"email\", \"plan\", \"paid\", \"lastSeenAt\", \"country\" } ], \"total\"?, \"generatedAt\"? } or, for a product that cannot list its users at all, { \"counts\": { \"total\": n, \"new\": { \"days\": 7, \"n\": n } } }. The second form exists because an empty list and a product that cannot name its users are OPPOSITE facts, and a schema with only the first would have made the second invisible. ADDRESSES ARE HASHED with a salt made once on this install, and only the mail domain is kept readable \u2014 there is no route here that takes or returns an address, which is the point. A DOCUMENT THAT FAILS VALIDATION CHANGES NOTHING: the rows the last good one produced stay exactly as they were, beside a sentence naming the field that is wrong. Verification at connect time runs the same validator, so a mis-spelled createdAt costs a minute at the form instead of half a day as an empty chart.",
+    docs: null,
+    fields: [
+      {
+        key: "url",
+        label: "Endpoint",
+        kind: "text",
+        ph: "https://app.example.com/api/users.json",
+      },
+      {
+        key: "token",
+        label: "Bearer token",
+        kind: "secret",
+        ph: "only if the endpoint needs one",
+        optional: true,
+      },
+    ],
+    usedBy: [
+      "collect_users (one fetch per product, validated against the contract, the rows upserted)",
+      "GET /api/users \u2014 per product: its own total, new in 7d and 30d, paid, the daily series",
+      "GET /api/activity \u2014 signups become events on the feed, at their own timestamps",
+    ],
+  },
+  {
     id: "presence",
     name: "Presence",
     icon: null,
@@ -1256,6 +1333,98 @@ export const PLUGINS: Plugin[] = [
     usedBy: [
       "collect_presence (nine sources per product, once a day)",
       "GET /api/presence \u2014 the product \u00d7 source matrix, with blocked kept apart from absent",
+    ],
+  },
+  {
+    id: "workstation",
+    name: "Workstation",
+    icon: null,
+    mono: "W",
+    tint: "#5B8C7E",
+    cat: "infra",
+    connected: false,
+    secret: "workstation",
+    desc: "The machine on your desk: is it awake, what is the GPU doing, and the switch that wakes it.",
+    help: "ONE ACCOUNT IS ONE MACHINE and the account's name is the machine's name, the same rule Fleet keeps. It is NOT a second fleet box, and the difference is what \u201cnot answering\u201d means: a server that is off is an incident, a desktop that is off is a desktop. So an unreachable machine here keeps its account connected, the collection still succeeds, and the panel says \u201casleep\u201d rather than going red. THREE OF THE FOUR FIELDS ARE OPTIONAL and each absence removes exactly one thing. No key: ssh uses this machine's own agent and ~/.ssh defaults. NO MAC ADDRESS MEANS IT CANNOT BE WOKEN \u2014 a magic packet is addressed by MAC, it is the WIRED adapter's address (wake-on-LAN over wifi does not work on most machines), and with one on file a machine that is asleep when you connect it is ACCEPTED with a note instead of refused. No broadcast address: the limited broadcast 255.255.255.255, which cannot be routed off the local segment; set a subnet address like 192.168.1.255 where that is filtered. WAKE CANNOT BE CONFIRMED \u2014 nothing acknowledges a magic packet, so the answer is only that it was sent. SLEEP AND SHUTDOWN RUN A COMMAND YOU TYPED into the settings below and there is no per-OS fallback: whether suspending needs sudo is your machine's own policy, and a dashboard guessing at that is a dashboard halting the wrong thing.",
+    docs: null,
+    fields: [
+      {
+        key: "host",
+        label: "Address",
+        kind: "text",
+        ph: "user@workstation.example.test, or test@192.0.2.40:2222",
+      },
+      {
+        key: "key",
+        label: "Private key",
+        kind: "secret",
+        ph: "-----BEGIN OPENSSH PRIVATE KEY----- \u2014 or leave empty to use this machine's own ssh agent",
+        optional: true,
+      },
+      {
+        key: "mac",
+        label: "MAC address (for wake-on-LAN)",
+        kind: "text",
+        ph: "aa:bb:cc:dd:ee:ff \u2014 the WIRED adapter",
+        optional: true,
+      },
+      {
+        key: "broadcast",
+        label: "Broadcast address",
+        kind: "text",
+        ph: "255.255.255.255 by default; 192.168.1.255 where that is filtered",
+        optional: true,
+      },
+    ],
+    usedBy: [
+      "collect_workstation (one ssh per cycle: reachable, uptime, nvidia-smi \u2014 asleep is a success)",
+      "GET /api/workstation \u2014 live state, GPUs and the reachability history",
+      "POST /api/workstation/:id/wake | sleep | shutdown",
+    ],
+  },
+  {
+    /*
+      TWO CONFIG-ONLY ENTRIES AND NEITHER HAS A CREDENTIAL, which is why both
+      say `secret: null`. Everything the video area needs a key for is keyed
+      somewhere else: footage is Pexels', the script is the chosen model
+      provider's, narration and transcription are the voice plugin's. What
+      these two hold is DECISIONS — where the binaries are, and when the
+      autopilot is allowed to spend money — and the settings form below the
+      fold is the whole of each page.
+    */
+    id: "video",
+    name: "Video",
+    icon: null,
+    mono: "V",
+    tint: "#7A5CC4",
+    cat: "media",
+    connected: false,
+    secret: null,
+    desc: "Where ffmpeg, yt-dlp and typst are, and what a shorts job may download.",
+    help: "NO CREDENTIAL. This is where the video area finds its tools and is told its limits. Every path is blank by default and blank means PROBE — /opt/homebrew/bin, /usr/local/bin, /usr/bin, /bin, /snap/bin and then PATH — because those differ between a Mac with Homebrew and a Linux box with apt, and a constant would be a feature that works on one machine. A path you DO type is a hard requirement: if it is not there the tool is reported missing rather than silently falling back to the probe, because you said where it is. THE CAPTION RENDERER IS THE ONE WORTH READING ABOUT: many ffmpeg builds — including Homebrew's on macOS — are compiled without libfreetype and have NO drawtext filter at all, so captions are set by typst as transparent pages and composited instead. Blank picks the best of what is here; “typst”, “drawtext” or “off” forces one, and forcing one that is not installed gives a video with no captions and a sentence saying which you asked for. `maxSource` refuses a long download before it starts. `ytdlpArgs` exists because what a video site demands of a downloader changes every few months and the fix is always a flag.",
+    docs: null,
+    fields: [],
+    usedBy: [
+      "the `video` run kind — faceless videos and shorts",
+      "GET /api/video — every video made here, its script and its footage credits",
+    ],
+  },
+  {
+    id: "autopilot",
+    name: "Autopilot",
+    icon: null,
+    mono: "A",
+    tint: "#3F7F6E",
+    cat: "media",
+    connected: false,
+    secret: null,
+    desc: "The daily pass that queues Studio posts and videos. Off until you turn it on.",
+    help: "OFF UNTIL YOU TURN IT ON, and both cadences are zero by default, so switching it on without setting one does nothing at all. IT QUEUES WORK AND NEVER PUBLISHES ANY OF IT: a post lands in the Studio gallery and a video on its run page, for you. There is no credential for any social or video platform in this vault and no route here that would upload one. THE CADENCE IS PER VENTURE PER WEEK, counted over a ROLLING seven days rather than a calendar one — a calendar week means nineteen ventures all fire on Monday morning. Only what the autopilot queued itself is counted; a post you made by hand does not use up the cadence. THE DAY'S CAP IS THE BRAKE THAT MATTERS: there is ONE run slot on this box, shared with everything you start yourself, and without a cap a portfolio of nineteen ventures at a cadence of two would queue thirty-eight pieces of work in one second. Videos are also skipped entirely while the run queue already has work waiting. Every decision is logged including the decisions to do nothing, because a schedule working correctly and a schedule that is broken both look like silence.",
+    docs: null,
+    fields: [],
+    usedBy: [
+      "GET /api/autopilot — the schedule, the next run, and the log of every decision",
+      "POST /api/autopilot/now — run the pass now, under the same limits",
     ],
   },
 ];

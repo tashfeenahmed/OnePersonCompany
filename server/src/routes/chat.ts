@@ -71,8 +71,7 @@ import {
   chatSessionSummaries,
   deleteChatSession,
   type ChatMessageRow,
-  type ChatToolCall,
-} from "../db.ts";
+  type ChatToolCall, ventureRows } from "../db.ts";
 import {
   NoBackendError,
   activeBackend,
@@ -86,6 +85,7 @@ import {
 } from "../chat/backend.ts";
 import { readChatBackend, writeChatBackend } from "./pluginConfig.ts";
 import { WireError } from "../chat/wire.ts";
+import { subscribe, track } from "../chat/inflight.ts";
 import * as hermes from "../providers/hermes.ts";
 import * as openclaw from "../providers/openclaw.ts";
 /*
@@ -121,6 +121,9 @@ import { ventureContext } from "./ventures.ts";
   is read at, have exactly one author, and it is the file that owns them.
 */
 import { childrenBySession, ventureTeamLines } from "../integrations/subagents/store.ts";
+import { goalLines } from "../integrations/chief/goals.ts";
+import { ROUNDS_SESSION } from "../integrations/chief/rounds.ts";
+import { memoryLines } from "../integrations/chief/memory.ts";
 
 export const chat = new Hono();
 
@@ -237,7 +240,35 @@ function withVenture(
   ventureId: string | null,
   live: ChatBackend | null,
 ): ChatTurn[] {
-  if (!ventureId) return turns;
+  /*
+    NO VENTURE SELECTED IS NOT NO VENTURES. The conversation that asked for
+    "academic research for overbrilliant" had none selected, and the agent —
+    which knew nothing of the owner's businesses beyond a pack called
+    `ventures` it had not opened — asked what Overbrilliant was. So an
+    unscoped conversation with a live agent gets the roster: one line per
+    venture, name, slug and stage, which is twenty short lines and is what
+    makes a business's name a word the agent recognises. The full record of
+    any of them is one `opc ventures one --key <slug>` away, and the line says
+    so in the words the agent can act on.
+  */
+  if (!ventureId) {
+    if (!live) return turns;
+    const rows = ventureRows();
+    if (!rows.length) return turns;
+    const managed = readMode(live.id) === "managed";
+    const lines = [
+      `The owner's ventures — name (slug) · stage — in the owner's order. A name ` +
+        `in a question is one of these until proven otherwise:`,
+      ...rows.map((r) => `- ${r.name} (${r.slug}) · ${r.stage}${r.host ? ` · ${r.host}` : ""}`),
+      ``,
+      managed
+        ? `One venture in full is \`opc ventures one --key <slug>\`; its sub-agents ` +
+          `and how to dispatch one are \`opc help subagents\`.`
+        : `One venture in full is GET /api/skills/ventures?view=one&key=<slug>; its ` +
+          `sub-agents are GET /api/skills/subagents.`,
+    ];
+    return [{ role: "system", content: lines.join("\n") }, ...turns];
+  }
   const ctx = ventureContext(ventureId);
   if (!ctx) return turns;
   const { venture, stageMeans } = ctx;
@@ -259,7 +290,10 @@ function withVenture(
   if (live)
     lines.push(
       `The whole record — including the colours and the icon measured from the ` +
-        `site — is GET /api/skills/ventures.`,
+        `site — is ` +
+        (readMode(live.id) === "managed"
+          ? `\`opc ventures one --key ${venture.slug}\`.`
+          : `GET /api/skills/ventures?view=one&key=${venture.slug}.`),
     );
 
   return [{ role: "system", content: lines.join("\n") }, ...turns];
@@ -298,6 +332,63 @@ function withVenture(
  * NOT STORED, and prepended, on the rule the other two turns keep: it is
  * context for one call rather than something anybody said.
  */
+/**
+ * THE WHOLE CONTEXT, IN ONE CALL, FOR EVERY SURFACE. The web routes below
+ * compose it inline; the Telegram bridge asked the agent with the bare
+ * history and nothing else, which is how a question about a venture from a
+ * phone got an agent that had never heard of the venture. One function, so a
+ * surface that asks the agent gets the same agent.
+ */
+export function composeTurns(
+  history: ChatTurn[],
+  sessionId: string,
+  ventureId: string | null,
+  live: ChatBackend | null,
+): ChatTurn[] {
+  return withSkills(
+    withOrg(withGoals(withVenture(history, ventureId, live), ventureId), sessionId, ventureId, live),
+    live,
+  );
+}
+
+/**
+ * WHAT THE OWNER IS TRYING TO DO, AND WHAT YOU ALREADY KNOW ABOUT THEM.
+ *
+ * ONE TURN FOR BOTH, and that is not laziness. Goals and memory are the same
+ * KIND of thing — standing context that is true before the question is asked —
+ * and a model reading two adjacent system turns treats the second as a
+ * correction of the first. They are also the two documents that make every
+ * other answer on this box mean something: without the goals, "traffic is down
+ * 12%" is a fact with no significance; without the memory, the assistant meets
+ * the owner again every morning.
+ *
+ * IT GOES TO EVERYBODY, including the raw provider fallback, on `withVenture`'s
+ * argument rather than `withSkills`'s. This is not an instruction about a tool
+ * that some backends do not have — it is the SUBJECT. A model with no tools at
+ * all gives better advice for knowing that the owner has said this quarter is
+ * about revenue, and it can act on that without fetching anything.
+ *
+ * BOTH HALVES ARE CAPPED AND BOTH ARE SILENT WHEN EMPTY. The goals are two
+ * short documents at most; the memory is the newest thirty relevant notes with
+ * the remainder counted rather than hidden. A fresh install has neither, and
+ * then this function adds nothing at all — a turn saying "the owner has written
+ * no goals" would be an instruction to go and ask for some.
+ *
+ * NOT STORED, and prepended, on the rule every turn here keeps: it is context
+ * for one call rather than something anybody said, and a transcript read six
+ * weeks later must not have a paragraph in it the owner never typed.
+ */
+function withGoals(turns: ChatTurn[], ventureId: string | null): ChatTurn[] {
+  const lines = [...goalLines(ventureId)];
+  const memory = memoryLines(ventureId);
+  if (memory.length) lines.push(...(lines.length ? [``] : []), ...memory);
+  if (!lines.length) return turns;
+  return [{ role: "system", content: lines.join("\n") }, ...turns];
+}
+
+/** Sessions written by the server rather than opened by the owner. */
+const SYSTEM_SESSION_NAMES: Record<string, string> = { briefing: "Briefing", autopilot: "Autopilot" };
+
 function withOrg(
   turns: ChatTurn[],
   sessionId: string,
@@ -572,7 +663,22 @@ chat.get("/sessions", (c) => {
   */
   const children = childrenBySession();
   return c.json({
-    sessions: sessions.map((s) => ({ ...s, children: children.get(s.sessionId) ?? [] })),
+    /*
+      ONE SESSION HAS A NAME THAT NO TRANSCRIPT COULD DERIVE. `chatSessionSummaries`
+      titles a conversation with the first thing the OWNER said in it, which is the
+      only honest candidate — except for the scheduled rounds, which nobody opened
+      and nobody typed into. Its title would be null for ever and the rail would
+      draw the estate's own nightly work as "Untitled chat". So the one machine-made
+      conversation gets the one machine-made name, here rather than in db.ts: the
+      derivation there is about rows and this is about a feature.
+    */
+    sessions: sessions.map((s) => ({
+      ...s,
+      /* The system sessions — rounds, the briefing, the autopilot — have no
+         first user message to be named after, so they carry their own names. */
+      title: s.sessionId === ROUNDS_SESSION ? s.title ?? "Rounds" : (SYSTEM_SESSION_NAMES[s.sessionId] ?? s.title),
+      children: children.get(s.sessionId) ?? [],
+    })),
     /* The count is the server's own, not `sessions.length` read by the client
        after a filter — a page that shows fewer rows than exist should be able
        to tell that it is doing so. */
@@ -669,10 +775,13 @@ chat.post("/", async (c) => {
      provider fallback's — because a question about a business must not get a
      different answer depending on which of them happened to be live. */
   const turns: ChatTurn[] = withOrg(
-    withVenture(
-      history.map((m) => ({ role: m.role, content: m.content })),
+    withGoals(
+      withVenture(
+        history.map((m) => ({ role: m.role, content: m.content })),
+        ventureId,
+        live,
+      ),
       ventureId,
-      live,
     ),
     sessionId,
     ventureId,
@@ -863,10 +972,13 @@ chat.post("/stream", async (c) => {
   const history = chatMessages(sessionId, CONTEXT_TURNS);
   /* Same as the non-streaming route, for the same reason. */
   const turns: ChatTurn[] = withOrg(
-    withVenture(
-      history.map((m) => ({ role: m.role, content: m.content })),
+    withGoals(
+      withVenture(
+        history.map((m) => ({ role: m.role, content: m.content })),
+        ventureId,
+        live,
+      ),
       ventureId,
-      live,
     ),
     sessionId,
     ventureId,
@@ -950,9 +1062,19 @@ chat.post("/stream", async (c) => {
       };
     }
 
+    /* `track` registers the session as in flight for as long as the stream
+       is read — chat/inflight.ts — so a dispatch made mid-answer is filed
+       under this chat even when the agent forgot to say so. `oneShot` goes
+       through `ask`, which registers itself. */
     const events: AsyncGenerator<ChatStreamEvent> = live?.stream
-      ? live.stream(withSkills(turns, live), { sessionId, channel, signal: c.req.raw.signal })
+      ? track(sessionId, live.stream(withSkills(turns, live), { sessionId, channel, signal: c.req.raw.signal }))
       : oneShot();
+
+    /* A sub-agent dispatched from inside this answer shows in the rail the
+       moment it is filed — see chat/inflight.ts — rather than when the
+       answer ends. Nothing is stored for it here: the row is the fact and
+       the rail re-reads it. */
+    const unsubscribe = subscribe(sessionId, (child) => void say("child", child));
 
     try {
       for await (const event of events) {
@@ -1025,7 +1147,9 @@ chat.post("/stream", async (c) => {
           }
         }
       }
+      unsubscribe();
     } catch (err) {
+      unsubscribe();
       failure =
         err instanceof WireError
           ? err.message

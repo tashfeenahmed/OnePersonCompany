@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -153,7 +154,19 @@ export function Studio() {
           <p className="text-muted-foreground text-[13.5px]">
             A caption and a picture for one venture, from what this box already
             knows about it. Nothing is published — the post is copied out by
-            hand.
+            hand.{" "}
+            {/* THE TWO THINGS THAT FILL THIS GALLERY WITHOUT SOMEBODY TYPING
+                A BRIEF. Autopilot queues posts here on a schedule; Video makes
+                the moving half. Both are links rather than tabs because this
+                page is where somebody already is when they want either. */}
+            <Link to="/social/autopilot" className="underline decoration-dotted">
+              Autopilot
+            </Link>{" "}
+            fills this on a schedule, and{" "}
+            <Link to="/social/video" className="underline decoration-dotted">
+              Video
+            </Link>{" "}
+            makes the moving kind.
           </p>
         </div>
 

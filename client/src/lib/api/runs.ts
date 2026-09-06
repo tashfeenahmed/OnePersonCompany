@@ -62,6 +62,8 @@ export type RunStep = {
  * history. `outputChars` is the same trade for the markdown.
  */
 export type RunSummary = {
+  paused: boolean;
+  canResume: boolean;
   id: string;
   kind: string;
   ventureId: string | null;
@@ -135,11 +137,17 @@ export type RunInput = {
   /** Always a string, "" for none — the server's `InputSpec` has no null in
    *  it, so neither does this. Drawn as the placeholder. */
   hint: string;
-  kind: "text" | "textarea" | "number";
+  /** `select` is a closed list of `options`; the value is still a string and
+   *  the server is still the only judge of it. A client that has never heard
+   *  of the word falls through to a text input, which is why this is additive
+   *  rather than a break. */
+  kind: "text" | "textarea" | "number" | "select";
   required: boolean;
   /** What the field holds until somebody types over it. "" is the common
    *  case and is not the same as a field with no default. */
   default: string;
+  /** Only on `select`. Absent everywhere else. */
+  options?: { value: string; label: string }[];
 };
 
 /**
@@ -360,6 +368,8 @@ export const runFileUrl = (id: string, what: "markdown" | "pdf" | "typ") =>
   `/api/runs/${seg(id)}/${what}`;
 
 export const runsApi = {
+  retry: (id: string) => call<RunSummary>(`/runs/${seg(id)}/retry`, { method: "POST" }),
+  resume: (id: string) => call<RunSummary>(`/runs/${seg(id)}/resume`, { method: "POST" }),
   /** `venture` is an id or a slug; `kind` narrows to one app's runs. Both left
    *  out is the portfolio-wide list the Sub-agents page draws. */
   list: (params: { kind?: string; venture?: string | null; limit?: number } = {}) =>

@@ -49,7 +49,7 @@ const ROLE_LIST = ROLES.map((r) => r.role).join(", ");
 const skills: Skill[] = [
   {
     id: "subagents",
-    title: "The org — the owner's ventures, and the six workers on each of them",
+    title: "Sub-agents — the six workers on each venture, and how to dispatch one",
     /* No credential. The roster is derived from the ventures table and is there
        whether or not anything is connected; whether a dispatched worker will
        be ANSWERED depends on an agent or a provider being live, which the run's
@@ -65,10 +65,17 @@ const skills: Skill[] = [
       "run and its record. You can send one off with `dispatch`, and read what " +
       "it wrote later through the `runs` skill.",
     rules: [
+      "THE PAPER WRITER'S BRIEF IS A SEARCH SUBJECT, NOT A TASK. It goes to " +
+        "OpenAlex and arXiv as typed, so it is three to ten words naming the " +
+        "field — `AI coding agents with persistent project memory` — and never " +
+        "'conduct research on…, scout…, prepare a write-up…'. Instructions " +
+        "return no papers, and no papers is a failed run one second later. " +
+        "Check the run's status after dispatching a paper: a failure is " +
+        "immediate and the reply's `running` is only the first second.",
       "A DISPATCH IS QUEUED WORK, NOT AN ANSWER. It returns a run that is queued " +
         "or running and no report at all — the work takes minutes. Tell the " +
-        "owner it has been dispatched and where it will land (/apps/<app>/<run " +
-        "id>), then read the result later with the `runs` skill. Never " +
+        "owner it has been dispatched and use its returned report link, " +
+        "then read the result later with the `runs` skill. Never " +
         "summarise a dispatch as though the worker had answered.",
       "PASS `parentSessionId` SO THE WORK IS FILED UNDER THIS CHAT. The " +
         "conversation's id is in your system turn. Without it the run is still " +
@@ -152,15 +159,23 @@ const skills: Skill[] = [
               "What to look into, in a line or two — this is handed to the " +
               "worker as its brief, in front of everything this box already " +
               "measured about the venture. The owner's standing instructions " +
-              "for that worker are prepended to it automatically.",
+              "for that worker are prepended to it automatically. FOR THE PAPER " +
+              "WRITER IT IS THE SUBJECT OF THE LITERATURE SEARCH — a topic of " +
+              "three to ten words, `LLM-based code generation with persistent " +
+              "project memory`, never instructions: it is sent to OpenAlex and " +
+              "arXiv as typed, and a paragraph returns nothing and fails the run.",
           },
           {
             name: "parentSessionId",
             type: "string",
             required: false,
+            exampled: true,
             about:
               "This conversation's id, which is in your system turn. Pass it so " +
-              "the run is filed under this chat in the owner's rail.",
+              "the run is filed under this chat in the owner's rail. Left out " +
+              "while a conversation is being answered, the run is filed under " +
+              "that conversation; the reply says `parentSessionInferred: true` " +
+              "when that happened.",
           },
         ],
       },
@@ -239,6 +254,6 @@ export const manifest: IntegrationManifest = {
   packs: {
     /* Filed where a person would look: an org chart with a queue of dispatched
        work behind it is productivity, beside the runs it starts. */
-    subagents: { name: "org-chart", category: "productivity" },
+    subagents: { name: "sub-agents", category: "productivity" },
   },
 };

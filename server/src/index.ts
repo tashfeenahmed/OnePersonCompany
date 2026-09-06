@@ -1,3 +1,8 @@
+import { actionInboxRoutes } from "./routes/actionInbox.ts";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { setupRoutes } from "./routes/setup.ts";
 /**
  * The API.
  *
@@ -17,6 +22,7 @@ import { COLLECT_MINUTES, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "./config.t
 import { allPlugins, prune, ventureRows } from "./db.ts";
 import { COLLECTORS as BUILTIN_COLLECTORS } from "./collector.ts";
 import { MANIFESTS, manifestCollectors } from "./integrations/index.ts";
+import { ownerGate } from "./integrations/security/gate.ts";
 
 /* Built-in collectors plus each integration area's — see integrations/manifest.ts. */
 const COLLECTORS: Record<string, () => Promise<{ ok: boolean; error?: string | null }>> = {
@@ -106,6 +112,7 @@ import { enrichVenture, readBrand } from "./ventures/enrich.ts";
 import { skillRoutes } from "./routes/skills.ts";
 import * as agentInstances from "./agents/instance.ts";
 
+import { workspaceRoutes } from "./routes/workspace.ts";
 const app = new Hono();
 
 app.use(
@@ -115,6 +122,11 @@ app.use(
     credentials: true,
   }),
 );
+
+/* THE OWNER'S LOCK, and it does nothing at all until a password is set — see
+   integrations/security/gate.ts. After CORS deliberately: a preflight is
+   answered by that middleware and never reaches this one. */
+app.use("/api/*", ownerGate);
 
 app.get("/api/health", (c) =>
   c.json({
@@ -133,6 +145,9 @@ app.route("/api/stock", stock);
 /* The settings half of /api/plugins, mounted beside the credential half
    rather than inside it: it owns `/:id/config` and nothing else, which keeps
    the file that can write to the vault as small as it was. */
+app.route("/api/action-inbox", actionInboxRoutes);
+app.route("/api/setup", setupRoutes);
+app.route("/api/workspace", workspaceRoutes);
 app.route("/api/plugins", pluginConfig);
 app.route("/api/github", githubRoutes);
 app.route("/api/npm", npmRoutes);
@@ -279,6 +294,15 @@ app.route("/api/skills", skillRoutes);
 
 /* Every integration area's routers, at the paths their manifests name. */
 for (const m of MANIFESTS) for (const r of m.routes ?? []) app.route(r.path, r.app);
+
+const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
+if (existsSync(`${clientDist}/index.html`)) {
+  app.use("/assets/*", serveStatic({ root: clientDist }));
+  app.get("*", async (c, next) => {
+    if (c.req.path.startsWith("/api/") || c.req.path.startsWith("/assets/")) return next();
+    return serveStatic({ root: clientDist, path: "index.html" })(c, next);
+  });
+}
 
 app.notFound((c) => c.json({ error: "No such route." }, 404));
 

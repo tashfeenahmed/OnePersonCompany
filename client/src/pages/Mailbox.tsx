@@ -11,7 +11,6 @@ import {
   Paperclip,
   Search,
   Send,
-  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -101,7 +100,7 @@ export function Mailbox() {
   const [page, setPage] = useState<string | null>(null);
   const [back, setBack] = useState<(string | null)[]>([]);
 
-  const [open, setOpen] = useState<Opened>(null);
+  const [open, setOpen] = useState<Opened>(() => { const id = new URLSearchParams(window.location.search).get("thread"); return id ? { kind: "thread", id } : null; });
 
   /** Move the address, and reset everything the address invalidates. Page
    *  three of the old query is not page three of the new one — Gmail's cursors
@@ -472,15 +471,7 @@ const MODES: { key: Mode; name: string; icon: typeof Mail }[] = [
  * trusting "nothing is urgent".
  */
 function Coming() {
-  return (
-    <span
-      className="text-muted-foreground/70 ml-auto hidden items-center gap-[5px] px-1.5 text-[11px] lg:flex"
-      title="Priority ranks the inbox by importance and Promises lifts commitments out of sent mail. Both need a model to read the prose — the agent behind /api/chat is where they would come from. Neither is stubbed: an empty list would read as “nothing is urgent”."
-    >
-      <Sparkles className="size-3" strokeWidth={1.6} />
-      Priority · Promises — not built
-    </span>
-  );
+  return <span className="ml-auto flex gap-2 px-2 text-xs"><Link className="underline" to="/mail/triage">Triage</Link><Link className="underline" to="/people/commitments">Commitments</Link></span>;
 }
 
 /* ====================================================================== */
@@ -763,7 +754,8 @@ function ThreadReader({
   onRead: (id: string, unread: boolean) => void;
   venture: (key: string | null) => string;
 }) {
-  const thread = useApi(() => api.mailboxThread(id), [id]);
+  const account = Number(new URLSearchParams(window.location.search).get("account")) || undefined;
+  const thread = useApi(() => api.mailboxThread(id, { account }), [id, account]);
   /** Which message's remote images have been asked for. One at a time: the
    *  server re-reads the thread to answer, and "load them all" on a nineteen-
    *  message thread is a decision about eighteen messages nobody looked at. */
@@ -773,8 +765,8 @@ function ThreadReader({
   const [failed, setFailed] = useState<string | null>(null);
 
   const doc = useApi(
-    async () => (images ? await api.mailboxThread(id, { images }) : null),
-    [id, images],
+    async () => (images ? await api.mailboxThread(id, { images, account }) : null),
+    [id, account, images],
   );
   const shown = images && doc.data ? doc.data : thread.data;
 
@@ -785,7 +777,7 @@ function ThreadReader({
       setBusy(true);
       setFailed(null);
       try {
-        await api.mailboxMarkRead(id, next);
+        await api.mailboxMarkRead(id, next, account);
         setUnread(next);
         onRead(id, next);
       } catch (e) {
@@ -797,7 +789,7 @@ function ThreadReader({
         setBusy(false);
       }
     },
-    [id, onRead],
+    [id, account, onRead],
   );
 
   useEffect(() => {
@@ -816,7 +808,8 @@ function ThreadReader({
 
   return (
     <>
-      <header className="flex shrink-0 items-start gap-2 border-b px-3.5 py-2.5">
+      <header className="flex flex-wrap shrink-0 items-start gap-2 border-b px-3.5 py-2.5">
+        <Link className="border rounded px-2 py-1 text-xs" to="/mail/outbox" state={{ reply: { to: shown.messages.findLast(m => !m.labels.includes("SENT"))?.from ?? shown.messages.at(-1)?.to.split(",")[0] ?? "", subject: /^re:/i.test(shown.subject) ? shown.subject : `Re: ${shown.subject}`, account: shown.accountId, thread: id, back: `/mail/email?thread=${encodeURIComponent(id)}&account=${shown.accountId}` } }}>Draft reply</Link>
         <button
           type="button"
           onClick={onBack}

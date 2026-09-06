@@ -650,6 +650,20 @@ const BUILTIN: Record<
 
 const REGISTRY: Record<string, ConfigRegistryEntry> = { ...manifestConfig(), ...BUILTIN };
 
+/**
+ * Does this plugin have settings here?
+ *
+ * Exported for routes/plugins.ts, which draws the plugin page and until now
+ * answered "is this wired to the API" out of the CREDENTIAL registry alone.
+ * That is right for everything with a key and wrong for a plugin that is
+ * nothing but settings — `backups` and `briefing` both hold a schedule and a
+ * switch, no secret and no account, and were drawn the catalog-only form with
+ * their settings nowhere on the page.
+ */
+export function hasSettings(id: string): boolean {
+  return id in REGISTRY;
+}
+
 /* ------------------------------------------------------- the chat backend */
 
 /**

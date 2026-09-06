@@ -54,6 +54,7 @@ import {
   type VentureRow,
 } from "../../db.ts";
 import { PORT } from "../../config.ts";
+import { serviceHeaders } from "../../auth.ts";
 
 /** One thing a venture can be linked to. `host` is a hostname the entity is
  *  obviously ABOUT — the contract every area's `/entities` route keeps too —
@@ -344,7 +345,12 @@ export async function loopbackEntities(): Promise<{
     MANIFEST_PLUGINS.map(async (plugin) => {
       const url = `http://127.0.0.1:${PORT}/api/${plugin}/entities`;
       try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(LOOPBACK_MS) });
+        const res = await fetch(url, {
+          /* The service key — a loopback call to this same process, which has
+             no cookie and is refused once a password is set. See auth.ts. */
+          headers: serviceHeaders(),
+          signal: AbortSignal.timeout(LOOPBACK_MS),
+        });
         if (res.status === 404) {
           sources.push({
             plugin,

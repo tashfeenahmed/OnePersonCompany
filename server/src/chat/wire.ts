@@ -543,7 +543,10 @@ export async function* chatCompletionStream(opts: {
     if (!res.body) throw new WireError(502, `${opts.service} sent an empty stream.`);
 
     try {
-      for await (const frame of readSse(res.body)) {
+      /* `onActivity` is what makes a keepalive comment count: Hermes sends one
+         every thirty seconds while its model thinks, and a first token that
+         takes two minutes on a long context is an answer, not a hang. */
+      for await (const frame of readSse(res.body, { onActivity: touch })) {
         touch();
         yield frame;
       }

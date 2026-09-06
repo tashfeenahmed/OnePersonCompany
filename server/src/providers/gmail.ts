@@ -30,9 +30,20 @@
  *   * nothing else in the file constructs a non-GET Gmail request. The OAuth
  *     refresh is still a POST to `oauth2.googleapis.com`, which is not Gmail.
  *
- * So the sentence is now: this dashboard can mark a conversation read or
- * unread, and can do nothing else to your mail. That is a smaller claim than
- * the old one and it is still a property of the code. Refusing the write
+ * ONE MORE HOLE HAS SINCE BEEN OPENED AND IT IS NOT IN THIS FILE. The mailflow
+ * area's outbox can SEND, through `integrations/mailflow/gmail-send.ts`, which
+ * builds its own RFC 5322 document and POSTs it to `messages/send` with a
+ * session this file minted. It is written there rather than here precisely so
+ * that the two claims above stay literally true of this file — `get` is still
+ * the only Gmail reader, `modify` still reaches nothing but the UNREAD label —
+ * and so that the send sits beside the queue that is the only thing allowed to
+ * call it. Read that file's header for what fences it: one caller, one status,
+ * and a button pressed by a person.
+ *
+ * So the sentence is now: this file can mark a conversation read or unread and
+ * can do nothing else to your mail; the dashboard as a whole can also send one
+ * message that its owner has approved. That is a smaller claim than the old
+ * one and it is still a property of the code. Refusing the write
  * outright was the alternative and was declined for the reason the credential
  * was accepted in the first place: it would cost the feature to buy back a
  * risk this file's shape has already bounded.

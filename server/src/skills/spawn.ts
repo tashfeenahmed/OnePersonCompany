@@ -1,6 +1,6 @@
 /**
- * HOW TO LAUNCH THE MCP SERVER — one description, read by both agents' config
- * writers.
+ * HOW TO LAUNCH THE MCP SERVER — one description, read by OpenClaw's config
+ * writer (Hermes gets the `opc` command instead — see cli.ts).
  *
  * It is its own module rather than an export of `mcp.ts` because importing that
  * file RUNS it: it attaches a stdin handler and starts speaking JSON-RPC on
@@ -17,6 +17,7 @@
  */
 import { fileURLToPath } from "node:url";
 import { apiBase } from "./registry.ts";
+import { serviceKey } from "../auth.ts";
 
 export type McpCommand = {
   command: string;
@@ -36,12 +37,19 @@ export type McpCommand = {
  * `OPC_API` is passed explicitly rather than inherited: Hermes documents that
  * an stdio MCP server receives "only these + safe defaults", so an env this
  * function did not name is an env the child does not have.
+ *
+ * `OPC_KEY` IS THERE FOR THE SAME REASON AND IS WHAT KEEPS THIS WORKING once
+ * the owner puts a password on the dashboard: an MCP subprocess has no cookie
+ * jar and would be refused at the gate on its first `tools/list`. It is read
+ * from the key file at the moment the command is DESCRIBED rather than baked in
+ * at import, so a config rewritten after a rotation carries the new one. See
+ * server/src/auth.ts on exactly what the key is worth.
  */
 export function mcpCommand(): McpCommand {
   return {
     command: process.execPath,
     args: ["--experimental-strip-types", fileURLToPath(new URL("mcp.ts", import.meta.url))],
-    env: { OPC_API: apiBase() },
+    env: { OPC_API: apiBase(), OPC_KEY: serviceKey() },
   };
 }
 

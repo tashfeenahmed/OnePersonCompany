@@ -38,6 +38,7 @@
  */
 import { spawn } from "node:child_process";
 import {
+  writeFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -67,14 +68,8 @@ export const DEFAULT_HOUR = 4;
  * as it lies, and anything absent is skipped and named in the run note — a
  * fresh install has no `shots` and that is not a failure.
  */
-export const MEMBERS = [
-  "vault.key",
-  "keys",
-  "shots",
-  "studio",
-  "hermes/home/.hermes/config.yaml",
-  "hermes/home/.hermes/skills",
-];
+export { BACKUP_MEMBERS as MEMBERS } from "../../backup-manifest.ts";
+import { BACKUP_MEMBERS as MEMBERS } from "../../backup-manifest.ts";
 
 /* ------------------------------------------------------------------ settings */
 
@@ -298,13 +293,14 @@ export async function runBackup(kind: "manual" | "nightly" = "manual"): Promise<
     );
   }
 
+  writeFileSync(join(staging, "backup-manifest.json"), JSON.stringify({ version: 1, dataDir: DATA_DIR, createdAt: ts }));
   const present = MEMBERS.filter((m) => existsSync(join(DATA_DIR, m)));
   const skipped = MEMBERS.filter((m) => !present.includes(m));
   const file = join(s.dir, name);
 
   const tar = await run("tar", [
     "-czf", file,
-    "-C", staging, "opc.db",
+    "-C", staging, "opc.db", "backup-manifest.json",
     ...(present.length ? ["-C", DATA_DIR, ...present] : []),
   ]);
   rmSync(staging, { recursive: true, force: true });

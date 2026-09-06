@@ -267,7 +267,23 @@ function defaultColor(position: number): string {
 
 /* ------------------------------------------------------------------ reads */
 
-ventureRoutes.get("/", (c) => c.json(venturesDoc()));
+/**
+ * `?brief=1` leaves the brand out. The full list is 135 KB for nineteen
+ * ventures, almost all of it palettes and fonts measured from the sites, and
+ * an agent reading that through a terminal tool that truncates long output
+ * reads the first dozen and reports the rest as not existing. The brief list
+ * is the twenty lines that answer "what are my ventures"; `GET /:key` has the
+ * brand for the one being asked about. The page keeps the full list.
+ */
+ventureRoutes.get("/", (c) => {
+  const doc = venturesDoc();
+  if (!c.req.query("brief")) return c.json(doc);
+  return c.json({
+    ...doc,
+    ventures: doc.ventures.map(({ brand: _brand, ...rest }) => rest),
+    note: "Brief: the brand measured from each site is left out; read one venture for it.",
+  });
+});
 
 /* ------------------------------------------------------------------ order */
 

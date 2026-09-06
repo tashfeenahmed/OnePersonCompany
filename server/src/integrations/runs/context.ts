@@ -28,6 +28,7 @@
  * dashboard is built to avoid.
  */
 import { PORT } from "../../config.ts";
+import { serviceHeaders } from "../../auth.ts";
 import { db, type VentureRow } from "../../db.ts";
 import { pastRuns, type RunRow } from "./store.ts";
 
@@ -49,7 +50,9 @@ function trim(text: string, cap = BLOCK_CAP): string {
 async function get<T>(path: string): Promise<T | { error: string }> {
   try {
     const res = await fetch(`${BASE}${path}`, {
-      headers: { Accept: "application/json" },
+      /* The service key: this is the server fetching its own routes, which
+         carries no cookie and would be refused once a password is set. */
+      headers: serviceHeaders({ Accept: "application/json" }),
       signal: AbortSignal.timeout(15_000),
     });
     const doc = (await res.json().catch(() => null)) as T | null;

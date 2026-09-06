@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": { "strict": true, "noUncheckedIndexedAccess": true, "tsBuildInfoFile": "./node_modules/.tmp/strict.tsbuildinfo" },
+  "include": ["src/hooks/useApi.ts", "src/hooks/useDraft.ts", "src/lib/dragOrder.ts", "../shared/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

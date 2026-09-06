@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Copy, Plus, Search, Trash2 } from "lucide-react";
+import { moveTo, slotFor, type Rect } from "@/lib/dragOrder";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -86,15 +87,76 @@ export function BoardView({
     (nav as { editing?: boolean } | null)?.editing === true,
   );
   const [q, setQ] = useState("");
+  const [moveNote, setMoveNote] = useState("");
   const [renaming, setRenaming] = useState(false);
   // Reset with the board, so leaving edit mode or switching boards never
   // returns you to a half-armed delete.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const copyTargets = [
+    { id: null as string | null, name: "Global dashboards" },
+    ...state.ventures.map((v) => ({ id: v.id as string | null, name: v.name })),
+  ].filter((target) => target.id !== ventureId);
+  /*
+    DRAG, BY POINTER, TO ANYWHERE ON THE CANVAS.
+
+    The first drag was the browser's own (`draggable`, dragover, drop): it
+    could only land on another card, so the empty half of the canvas and the
+    add-widget tile swallowed drops, and on a touch screen it did nothing at
+    all. This one is a pointer session: grab a card, and on every move the
+    slot under the pointer is computed from the other cards' rectangles
+    (lib/dragOrder.ts) — between two cards, at a row's end, below the last
+    row — marked with the same indicator, and applied on release. A ghost
+    with the card's name follows the pointer so the eye has the thing it is
+    moving. Buttons inside a card are not grab handles.
+  */
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{
     id: string;
     side: "before" | "after";
   } | null>(null);
+  const [ghost, setGhost] = useState<{ x: number; y: number; label: string } | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const slotRef = useRef<number | null>(null);
+
+  function grab(e: React.PointerEvent<HTMLDivElement>, id: string) {
+    if (!editing || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button, a, input, textarea, select")) return;
+    e.preventDefault();
+    const label = WIDGETS[board.widgets.find((w) => w.id === id)?.type ?? ""]?.name ?? "widget";
+    setDragId(id);
+    setGhost({ x: e.clientX, y: e.clientY, label });
+    slotRef.current = null;
+
+    const rects = (): Rect[] =>
+      Array.from(gridRef.current?.querySelectorAll<HTMLElement>("[data-widget-id]") ?? [])
+        .filter((el) => el.dataset.widgetId !== id)
+        .map((el) => {
+          const r = el.getBoundingClientRect();
+          return { id: el.dataset.widgetId!, left: r.left, top: r.top, width: r.width, height: r.height };
+        });
+
+    const move = (ev: PointerEvent) => {
+      const slot = slotFor(rects(), ev.clientX, ev.clientY);
+      slotRef.current = slot.index;
+      setDropTarget(slot.mark);
+      setGhost({ x: ev.clientX, y: ev.clientY, label });
+    };
+    const up = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
+      const at = slotRef.current;
+      if (at !== null) setWidgets(board.id, moveTo(board.widgets, id, at));
+      setDragId(null);
+      setDropTarget(null);
+      setGhost(null);
+      slotRef.current = null;
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
+  }
 
   const sources = useMemo(
     () =>
@@ -141,20 +203,6 @@ export function BoardView({
     setWidgets(board.id, fn(board.widgets));
   }
 
-  function drop(targetId: string) {
-    if (!dragId || dragId === targetId || !dropTarget) return;
-    const list = [...board.widgets];
-    const from = list.findIndex((w) => w.id === dragId);
-    const [moved] = list.splice(from, 1);
-    const to =
-      list.findIndex((w) => w.id === targetId) +
-      (dropTarget.side === "after" ? 1 : 0);
-    list.splice(to, 0, moved);
-    setWidgets(board.id, list);
-    setDragId(null);
-    setDropTarget(null);
-  }
-
   /** Where a board in a given scope lives. One function, so a copy always
    *  lands on an address that resolves. */
   function pathFor(target: string | null, slug: string) {
@@ -165,10 +213,11 @@ export function BoardView({
 
   return (
     <>
+      <span role="status" className="sr-only">{moveNote}</span>
       <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-y-auto px-6 pt-2 pb-20">
+        <div className={cn("min-w-0 flex-1 overflow-y-auto px-3 sm:px-6 pt-2", editing ? "pb-[48vh] md:pb-20" : "pb-20")}>
           <div className="mx-auto w-full max-w-[1040px]">
-            <div className="mt-2 mb-5 flex items-end gap-3">
+            <div className="mt-2 mb-5 flex flex-wrap items-end gap-3">
               <div>
                 <h1 className="mb-1 text-[25px] font-normal tracking-[-0.025em]">
                   {board.name}
@@ -195,6 +244,7 @@ export function BoardView({
                 </p>
               </div>
               <div className="ml-auto flex items-center gap-1.5">
+                <Button variant="ghost" onClick={live.reload} disabled={live.loading}>Refresh</Button>
                 <Button variant="ghost" onClick={() => setRenaming(true)}>
                   Rename
                 </Button>
@@ -210,7 +260,7 @@ export function BoardView({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+            <div ref={gridRef} className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
               {!board.widgets.length && (
                 <div className="text-muted-foreground col-span-full rounded-[10px] border border-dashed px-5 py-11 text-center">
                   {editing
@@ -224,6 +274,7 @@ export function BoardView({
                   key={w.id}
                   placed={w}
                   editing={editing}
+                  onMove={direction => { const from = board.widgets.findIndex(x => x.id === w.id); const to = Math.max(0, Math.min(board.widgets.length - 1, from + direction)); setWidgets(board.id, moveTo(board.widgets, w.id, to)); setMoveNote(`${WIDGETS[w.type]?.name ?? "Widget"} moved to position ${to + 1}`); }}
                   dragging={dragId === w.id}
                   dropSide={dropTarget?.id === w.id ? dropTarget.side : null}
                   onCycleWidth={() =>
@@ -237,27 +288,9 @@ export function BoardView({
                     mutate((list) => list.filter((x) => x.id !== w.id))
                   }
                   dragHandlers={{
-                    draggable: editing,
-                    onDragStart: () => setDragId(w.id),
-                    onDragEnd: () => {
-                      setDragId(null);
-                      setDropTarget(null);
-                    },
-                    onDragOver: (e) => {
-                      if (!dragId || dragId === w.id) return;
-                      e.preventDefault();
-                      const r = e.currentTarget.getBoundingClientRect();
-                      setDropTarget({
-                        id: w.id,
-                        side:
-                          e.clientX > r.left + r.width / 2 ? "after" : "before",
-                      });
-                    },
-                    onDrop: (e) => {
-                      e.preventDefault();
-                      drop(w.id);
-                    },
-                  }}
+                    "data-widget-id": w.id,
+                    onPointerDown: (e) => grab(e, w.id),
+                  } as React.HTMLAttributes<HTMLDivElement>}
                 />
               ))}
 
@@ -274,8 +307,17 @@ export function BoardView({
           </div>
         </div>
 
+        {ghost && (
+          <div
+            aria-hidden
+            className="bg-card text-foreground pointer-events-none fixed z-50 rounded-[8px] border px-2.5 py-1.5 text-[12px] shadow-md"
+            style={{ left: ghost.x + 12, top: ghost.y + 12 }}
+          >
+            {ghost.label}
+          </div>
+        )}
         {editing && (
-          <aside className="bg-sidebar flex w-[300px] shrink-0 flex-col border-l">
+          <aside className="bg-sidebar fixed inset-x-0 bottom-0 z-30 flex max-h-[42vh] flex-col border-t md:static md:max-h-none md:w-[300px] md:shrink-0 md:border-l">
             <div className="border-line-soft border-b px-4 pt-3.5 pb-2.5">
               <div className="text-[13px] font-medium">Add a widget</div>
               <p className="text-muted-foreground mt-0.5 text-[11.5px]">
@@ -376,18 +418,27 @@ export function BoardView({
               to lose track of — and "move" would be the one version of this
               that can take a board away from a page somebody has bookmarked.
             */}
-            <div className="border-line-soft border-t px-4 py-3">
-              <div className="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-[11.5px]">
+            {/*
+              FOLDED, because the list is every venture. With nineteen of them
+              the open list was seven hundred pixels of footer, and the widget
+              catalog above it — the thing this panel is for — was left a
+              hundred pixels to scroll in. One row until it is asked for, then
+              a list that scrolls inside its own height.
+            */}
+            <div className="border-line-soft border-t px-4 py-2.5">
+              <button
+                type="button"
+                onClick={() => setCopyOpen((v) => !v)}
+                aria-expanded={copyOpen}
+                className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1.5 text-[11.5px] transition-colors"
+              >
                 <Copy className="size-3.5" strokeWidth={1.6} />
-                Copy to
-              </div>
-              <div className="flex flex-col gap-px">
-                {[
-                  { id: null as string | null, name: "Global dashboards" },
-                  ...state.ventures.map((v) => ({ id: v.id as string | null, name: v.name })),
-                ]
-                  .filter((target) => target.id !== ventureId)
-                  .map((target) => (
+                Copy to…
+                <span className="ml-auto text-[10.5px]">{copyOpen ? "hide" : `${copyTargets.length} places`}</span>
+              </button>
+              {copyOpen && (
+                <div className="mt-1.5 flex max-h-[32vh] flex-col gap-px overflow-y-auto">
+                  {copyTargets.map((target) => (
                     <button
                       key={target.id ?? "global"}
                       onClick={() => {
@@ -404,7 +455,8 @@ export function BoardView({
                       {target.name}
                     </button>
                   ))}
-              </div>
+                </div>
+              )}
             </div>
 
             {/*

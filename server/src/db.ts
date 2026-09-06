@@ -32,7 +32,18 @@ import { INTEGRATION_MIGRATIONS } from "./integrations/migrations.ts";
 
 export const db = new DatabaseSync(DB_FILE);
 
-db.exec("PRAGMA journal_mode = WAL");
+db.exec("PRAGMA busy_timeout = 10000");
+// SQLite can reject a concurrent journal-mode upgrade without invoking its
+// busy handler. Retry this startup-only operation before opening migrations.
+const journalDeadline = Date.now() + 10_000;
+for (;;) {
+  try { db.exec("PRAGMA journal_mode = WAL"); break; }
+  catch (error) {
+    const code = (error as { errcode?: number }).errcode;
+    if ((code !== 5 && code !== 6) || Date.now() >= journalDeadline) throw error;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  }
+}
 db.exec("PRAGMA foreign_keys = ON");
 db.exec("PRAGMA busy_timeout = 5000");
 
@@ -2570,24 +2581,15 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (
   applied_at TEXT NOT NULL
 )`);
 
-const applied = new Set(
-  db
-    .prepare("SELECT name FROM migrations")
-    .all()
-    .map((r) => String((r as { name: string }).name)),
-);
-
 for (const m of MIGRATIONS) {
-  if (applied.has(m.name)) continue;
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
-    db.exec(m.sql);
-    db.prepare("INSERT INTO migrations (name, applied_at) VALUES (?, ?)").run(
-      m.name,
-      new Date().toISOString(),
-    );
+    if (!db.prepare("SELECT 1 FROM migrations WHERE name = ?").get(m.name)) {
+      db.exec(m.sql);
+      db.prepare("INSERT INTO migrations (name, applied_at) VALUES (?, ?)").run(m.name, new Date().toISOString());
+      console.log(`[db] applied ${m.name}`);
+    }
     db.exec("COMMIT");
-    console.log(`[db] applied ${m.name}`);
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
@@ -7118,11 +7120,20 @@ export function ventureRowById(id: string): VentureRow | undefined {
  * resolves to itself by id and to the other by slug, deterministically.
  */
 export function ventureRow(key: string): VentureRow | undefined {
+  const k = key.trim();
   return (
-    ventureRowById(key) ??
-    (db.prepare("SELECT * FROM ventures WHERE slug = ?").get(key) as
-      | VentureRow
-      | undefined)
+    ventureRowById(k) ??
+    (db.prepare("SELECT * FROM ventures WHERE slug = ?").get(k) as VentureRow | undefined) ??
+    /* The name as the owner says it, or the host: an agent told "Overbrilliant
+       is the venture" should be able to ask for it by that word rather than
+       guess at a slug. Case-insensitive, whole-word, and only after the exact
+       keys have missed, so an id can never be shadowed by a name. */
+    (db
+      .prepare(
+        "SELECT * FROM ventures WHERE lower(name) = lower(?) OR lower(host) = lower(?) " +
+          "OR lower(host) = lower(?) ORDER BY position LIMIT 1",
+      )
+      .get(k, k, k.replace(/^www\./i, "")) as VentureRow | undefined)
   );
 }
 

@@ -147,8 +147,13 @@ async function request(
        a page of markup on the plugin card. */
     let reason = text.trim().slice(0, 200);
     try {
-      const doc = JSON.parse(text) as { message?: string; error?: string };
-      reason = doc.message ?? doc.error ?? reason;
+      const doc = JSON.parse(text) as {
+        message?: string;
+        error?: string | { message?: string; code?: string };
+      };
+      // Current releases wrap it: `{error: {message, code, status}}`.
+      const nested = typeof doc.error === "object" && doc.error ? doc.error.message : doc.error;
+      reason = doc.message ?? nested ?? reason;
     } catch {
       if (/^\s*</.test(text))
         reason = "that URL answered HTML rather than JSON — is it the Umami root?";
@@ -223,13 +228,32 @@ function figure(v: unknown): number | null {
   return num(v);
 }
 
-/** The websites this login can see. `{data: […]}` on current versions, a bare
- *  array on older ones. */
-export async function websites(session: Session): Promise<Website[]> {
-  const doc = await get(session, "/api/websites?pageSize=200");
-  const rows = Array.isArray(doc)
+/** `{data: […]}` on current versions, a bare array on older ones. */
+function websiteRows(doc: unknown): unknown[] {
+  return Array.isArray(doc)
     ? doc
     : ((doc as { data?: unknown } | null)?.data as unknown[]) ?? [];
+}
+
+/** The websites this login can see. */
+export async function websites(session: Session): Promise<Website[]> {
+  let rows = websiteRows(await get(session, "/api/websites?pageSize=200"));
+  /*
+    AN ADMIN THAT OWNS NOTHING. `/api/websites` lists what the login OWNS or
+    is on a team for, and a second admin created so this dashboard has a login
+    of its own owns nothing — every site belongs to the person who set the
+    instance up. Umami answers that case at `/api/admin/websites`, admin role
+    only, where every site is listed. Tried only when the first list is empty,
+    and a refusal there (a plain `user` login) is the empty list it started
+    with, not an error: a login that sees no sites is a true fact to report.
+  */
+  if (!rows.length) {
+    try {
+      rows = websiteRows(await get(session, "/api/admin/websites?pageSize=200"));
+    } catch {
+      rows = [];
+    }
+  }
   const out: Website[] = [];
   for (const raw of rows) {
     const r = raw as { id?: unknown; name?: unknown; domain?: unknown };
@@ -333,11 +357,31 @@ export async function metrics(
   startAt: number,
   endAt: number,
 ): Promise<TopRow[]> {
-  const doc = await get(
-    session,
-    `/api/websites/${encodeURIComponent(websiteId)}/metrics` +
-      `?startAt=${startAt}&endAt=${endAt}&type=${kind}&limit=${TOP_LIMIT}`,
-  );
+  /*
+    THE PAGE RANKING HAS TWO NAMES. Umami called it `type=url` for years and
+    current releases call it `type=path`, answering the old name with a bare
+    400 — the same 400 a malformed window gets, so it cannot be told apart by
+    status alone. The new name is asked first and the old one only when the
+    new one is refused, which keeps one instance on one request per site and
+    lets an old instance cost a second. The kind stays `url` everywhere else
+    here: it is the column the rows are stored under, and renaming a column
+    to follow a vendor is how history splits in two.
+  */
+  const types = kind === "url" ? ["path", "url"] : [kind];
+  let doc: unknown = null;
+  for (let i = 0; i < types.length; i++) {
+    try {
+      doc = await get(
+        session,
+        `/api/websites/${encodeURIComponent(websiteId)}/metrics` +
+          `?startAt=${startAt}&endAt=${endAt}&type=${types[i]}&limit=${TOP_LIMIT}`,
+      );
+      break;
+    } catch (err) {
+      const last = i === types.length - 1;
+      if (last || !/HTTP 400\b/.test(err instanceof Error ? err.message : String(err))) throw err;
+    }
+  }
   const rows = Array.isArray(doc)
     ? doc
     : ((doc as { data?: unknown } | null)?.data as unknown[]) ?? [];

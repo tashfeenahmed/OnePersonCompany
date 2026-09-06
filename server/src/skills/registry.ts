@@ -67,6 +67,7 @@
 import { PORT } from "../config.ts";
 import { getPlugin } from "../db.ts";
 import { manifestSkills } from "../integrations/index.ts";
+import { PRESENT_BRIEF } from "./present.ts";
 
 /* ------------------------------------------------------------------- types */
 
@@ -92,6 +93,13 @@ export type SkillParam = {
    * out of the same place either way, so a caller never has to know.
    */
   in?: "query" | "path" | "body";
+  /**
+   * Shown in the pack's and the CLI's worked example even though it is not
+   * required. For the one parameter an agent keeps leaving out because the
+   * example did not have it: a dispatch's `parentSessionId`. An example is the
+   * line the model copies; a table row under it is the line it reads.
+   */
+  exampled?: boolean;
 };
 
 export type SkillView = {
@@ -1157,10 +1165,12 @@ const BUILTIN_ENTRIES: Skill[] = [
     views: [
       {
         key: "default",
-        path: "/api/ventures",
+        path: "/api/ventures?brief=1",
         about:
-          "Every venture in the owner's own order, the count at each stage, and " +
-          "the sentence that says what each stage means.",
+          "Every venture in the owner's own order — id, slug, name, description, " +
+          "website, host, stage — the count at each stage, and the sentence that " +
+          "says what each stage means. Small enough to read whole; what was " +
+          "measured from each site is under `one`.",
         params: [],
       },
       {
@@ -1174,8 +1184,10 @@ const BUILTIN_ENTRIES: Skill[] = [
             required: true,
             in: "path",
             about:
-              "Its id (`v-example-support`) or its slug (`example-support`). Both address the " +
-              "same record; the id is what board cards carry.",
+              "Its id (`v-example-support`), its slug (`example-support`), or its name or host " +
+              "as the owner says it (`Example Support`, `support.example.test`), case " +
+              "insensitively. All address the same record; the id is what board " +
+              "cards carry.",
           },
         ],
       },
@@ -1655,7 +1667,7 @@ export function apiBase(): string {
  * registry to protect a character count would be arranging the source to suit
  * a string.
  */
-export function preamble(limit = 1800): string {
+export function preamble(limit = 2000): string {
   const base = apiBase();
   const head =
     `You can read this dashboard's own live data over HTTP. ` +
@@ -1681,5 +1693,7 @@ export function preamble(limit = 1800): string {
     lines.pop();
     body = `${lines.join("\n")}\n- …and more, see ${base}/api/skills`;
   }
-  return `${head}${body}\n${rules}`;
+  /* How to draw the figures, after the rules and never trimmed: an agent that
+     can read a document should also be able to show it. */
+  return `${head}${body}\n${rules}\n${PRESENT_BRIEF}\n`;
 }

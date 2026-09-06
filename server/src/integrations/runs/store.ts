@@ -14,13 +14,17 @@
  * at `/api/runs/:id`, which is the only place the words are sent.
  */
 import { db, now, ventureRowById } from "../../db.ts";
+import { forgetVideo } from "../video/execute.ts";
 
 /* ------------------------------------------------------------------- rows */
 
-export type RunKind = "research" | "competitors" | "seo" | "demand" | "geo" | "papers";
+export type RunKind = "research" | "competitors" | "seo" | "demand" | "geo" | "papers" | "shotsqa" | "video" | "serp" | "aso";
 export type RunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 export type RunRow = {
+  paused: number;
+  queue_priority: number;
+  resume_checkpoints: number;
   id: string;
   kind: string;
   venture_id: string | null;
@@ -110,7 +114,7 @@ export function queuedCount(): number {
  *  a finished run has no position and 0 would read as "next". */
 export function queuePosition(id: string): number | null {
   const rows = db
-    .prepare("SELECT id FROM agent_runs WHERE status = 'queued' ORDER BY queued_at, rowid")
+    .prepare("SELECT id FROM agent_runs WHERE status = 'queued' AND paused = 0 ORDER BY queue_priority DESC, queued_at, rowid")
     .all() as unknown as { id: string }[];
   const i = rows.findIndex((r) => r.id === id);
   return i < 0 ? null : i + 1;
@@ -234,6 +238,11 @@ export function deleteRun(id: string): boolean {
      the run that found it, and the next scout would only fetch it again. */
   db.prepare("DELETE FROM geo_answers WHERE run_id = ?").run(id);
   db.prepare("DELETE FROM papers WHERE run_id = ?").run(id);
+  /* A video run also owns FILES — its whole directory under data/video. They
+     go with the row, because they exist only because of it and nothing else
+     will ever look for them. Deleting a run is the only moment somebody has
+     actually said so. */
+  forgetVideo(id);
   const res = db.prepare("DELETE FROM agent_runs WHERE id = ?").run(id);
   return Number(res.changes) > 0;
 }
@@ -286,6 +295,8 @@ export function shapeRun(r: RunRow) {
     ventureName: venture?.name ?? null,
     title: r.title,
     status: r.status,
+    paused: !!r.paused,
+    canResume: r.kind === "geo" && ["failed", "cancelled"].includes(r.status) && !!db.prepare("SELECT 1 FROM run_checkpoints WHERE run_id=? LIMIT 1").get(r.id),
     queuedAt: r.queued_at,
     startedAt: r.started_at,
     finishedAt: r.finished_at,

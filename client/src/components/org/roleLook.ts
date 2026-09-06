@@ -1,3 +1,4 @@
+import { runPage } from "../../../../shared/runRoutes";
 import {
   Bot,
   FileText,
@@ -70,6 +71,10 @@ const KIND_APPS: Record<string, string> = {
   demand: "demand",
   geo: "visibility",
   papers: "papers",
+  video: "video",
+  shotsqa: "ops",
+  serp: "serp",
+  aso: "aso",
 };
 
 export const appForKind = (kind: string): string | null =>
@@ -78,7 +83,7 @@ export const appForKind = (kind: string): string | null =>
 /** A run's address, or null for a kind this client has no app for. */
 export function runAddress(run: { kind: string; id: string }): string | null {
   const app = appForKind(run.kind);
-  return app ? `/apps/${app}/${run.id}` : null;
+  return app ? runPage(run.kind, run.id) : null;
 }
 
 /**

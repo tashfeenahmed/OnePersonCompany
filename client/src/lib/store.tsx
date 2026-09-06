@@ -1,9 +1,11 @@
+import { sidebarPath } from "../../../shared/navigation";
+import { isWorkspacePreferences } from "../../../shared/workspace";
+import { useWorkspaceSync, saveRecovery, preferences } from "./workspaceSync";
 import {
   createContext,
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -206,6 +208,7 @@ export type StoreState = {
    * code; only their order is the owner's.
    */
   appOrder?: string[];
+  favoritePaths?: string[];
 };
 
 export const VENTURE_COLORS = [
@@ -1050,17 +1053,11 @@ export function uniqueSlug(name: string, taken: Iterable<string>): string {
 /** Enough of a shape check that a hand-edited or foreign file is refused
  *  rather than half-loaded into a blank page. */
 export function isStoreState(v: unknown): v is StoreState {
-  if (!v || typeof v !== "object") return false;
-  const s = v as Partial<StoreState>;
-  return (
-    !!s.workspace &&
-    typeof s.workspace.name === "string" &&
-    !!s.plugins &&
-    typeof s.plugins === "object" &&
-    Array.isArray(s.ventures) &&
-    Array.isArray(s.sessions) &&
-    Array.isArray(s.dashboards)
-  );
+  if (!isWorkspacePreferences(v)) return false;
+  const s = v as StoreState;
+  return !!s.plugins && typeof s.plugins === "object" && !Array.isArray(s.plugins)
+    && Object.values(s.plugins).every(v => typeof v === "boolean")
+    && Array.isArray(s.ventures) && s.ventures.every(v => v && typeof v === "object" && typeof v.id === "string" && typeof v.name === "string");
 }
 
 /**
@@ -1139,12 +1136,13 @@ function load(): StoreState {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as StoreState;
-      if (isStoreState(parsed)) return migrate(parsed);
+      if (isStoreState(parsed)) return migrate({ ...parsed, ventures: [] });
+      localStorage.setItem("opc-invalid-workspace", raw);
     }
   } catch {
     /* unreadable or absent — the seed is a fine starting point */
   }
-  return structuredClone(SEED);
+  return { ...structuredClone(SEED), ventures: [], sessions: [] };
 }
 
 /**
@@ -1519,6 +1517,7 @@ type StoreApi = {
   setAppOrder: (slugs: string[]) => void;
   setWidgets: (dashboardId: string, widgets: PlacedWidget[]) => void;
   setWorkspace: (patch: Partial<Workspace>) => void;
+  toggleFavorite: (path: string) => void;
   setPluginConnected: (id: string, connected: boolean) => void;
   /** Replace everything — the other half of the export on Settings → Data. */
   importState: (next: StoreState) => void;
@@ -1557,6 +1556,8 @@ function sameChildren(a?: SessionChild[], b?: SessionChild[]): boolean {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StoreState>(load);
+  const sync = useWorkspaceSync(state, setState);
+  const [storageError, setStorageError] = useState("");
 
   /* The chats with a turn in flight. Not in `state`, and not persisted — see
      `setSessionStreaming` on the API type for why that is a correctness
@@ -1566,7 +1567,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       localStorage.setItem(KEY, JSON.stringify(state));
+      setStorageError("");
     } catch {
+      setStorageError("Browser storage is full or unavailable. Keep this page open until server sync succeeds.");
       /* the session still works without persistence */
     }
   }, [state]);
@@ -1599,18 +1602,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     simply allowed to land: a second setState with the same list is a cheap
     no-op, and a dropped answer is the failure this effect exists to avoid.
   */
-  const landed = useRef(false);
   useEffect(() => {
-    if (landed.current) return;
-    void api.ventures
-      .list()
-      .then((doc) => {
-        landed.current = true;
-        setState((s) => withVentures(s, doc.ventures));
-      })
-      .catch(() => {
-        /* not knowing is not a reason to delete */
-      });
+    let alive = true;
+    const refresh = () => { void api.ventures.list().then(doc => { if (alive) setState(s => withVentures(s, doc.ventures)); }).catch(() => {}); };
+    refresh();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("opc:data-changed", refresh);
+    return () => { alive = false; window.removeEventListener("focus", refresh); window.removeEventListener("opc:data-changed", refresh); };
   }, []);
 
   const store = useMemo<StoreApi>(() => {
@@ -1891,6 +1889,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setState((s) => ({ ...s, appOrder: slugs }));
       },
 
+      toggleFavorite(path) {
+        setState(s => {
+          const favorites = [...new Set((s.favoritePaths ?? []).map(sidebarPath))];
+          const canonical = sidebarPath(path);
+          return { ...s, favoritePaths: favorites.includes(canonical) ? favorites.filter(p => p !== canonical) : [...favorites, canonical] };
+        });
+      },
       setWorkspace(patch) {
         setState((s) => ({ ...s, workspace: { ...s.workspace, ...patch } }));
       },
@@ -1900,16 +1905,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       importState(next) {
-        setState(next);
+        if (!isStoreState(next)) throw new Error("Invalid workspace export.");
+        saveRecovery(state);
+        setState(s => ({ ...s, ...preferences(next) }));
       },
 
       reset() {
-        setState(structuredClone(SEED));
+        saveRecovery(state);
+        setState(s => ({ ...s, workspace: structuredClone(SEED.workspace), dashboards: structuredClone(SEED.dashboards), appOrder: [], favoritePaths: [], seedVersion: SEED_VERSION }));
       },
     };
   }, [state, streamingSessions]);
 
-  return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
+  return <StoreContext.Provider value={store}>
+    {(sync.status || storageError) && <div role="status" className="bg-amber-50 text-black border-b p-2 text-sm flex flex-wrap gap-2 items-center">
+      <span>{storageError || sync.status}</span>
+      {sync.hasConflict ? <><button className="underline" onClick={() => void sync.resolve(false)}>Use server version</button><button className="underline" onClick={() => void sync.resolve(true)}>Keep this browser version</button></> : <button className="underline" onClick={() => void sync.retry()}>Retry sync</button>}
+      <a className="underline" href="/settings?tab=data">Export or recover</a>
+    </div>}
+    {children}
+  </StoreContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

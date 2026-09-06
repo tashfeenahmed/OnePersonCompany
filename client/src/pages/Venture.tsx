@@ -1,3 +1,4 @@
+import { appPage } from "../../../shared/navigation";
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -441,7 +442,7 @@ function Overview({
             ).map(([slug, label]) => (
               <Link
                 key={slug}
-                to={`/apps/${slug}?venture=${encodeURIComponent(venture.id)}`}
+                to={`${appPage(slug)}?venture=${encodeURIComponent(venture.id)}`}
                 className="text-muted-foreground hover:border-line-strong hover:text-foreground rounded-[9px] border px-2.5 py-1.5 text-[12px] transition-colors"
               >
                 {label}
@@ -511,7 +512,7 @@ function Overview({
           note="Cards filed under this venture, in the column they are in."
           action={
             <Link
-              to="/apps/board"
+              to="/board"
               className="text-muted-foreground hover:text-foreground text-[11.5px]"
             >
               Open the board

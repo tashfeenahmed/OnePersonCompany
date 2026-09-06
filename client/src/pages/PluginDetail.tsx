@@ -26,9 +26,11 @@ import { BlueskyPanel } from "@/components/integrations/BlueskyPanel";
 import { UptimePanel } from "@/components/integrations/UptimePanel";
 import { FleetPanel } from "@/components/integrations/FleetPanel";
 import { ProductsPanel } from "@/components/integrations/ProductsPanel";
+import { UsersPanel } from "@/components/integrations/UsersPanel";
 import { BacklinksPanel } from "@/components/integrations/BacklinksPanel";
 import { PresencePanel } from "@/components/integrations/PresencePanel";
 import { VoicePanel } from "@/components/integrations/VoicePanel";
+import { WorkstationPanel } from "@/areas/security/WorkstationPanel";
 
 /**
  * The panels that follow a connection, one per plugin that has one.
@@ -53,9 +55,11 @@ const PANELS: Record<string, ComponentType<{ onCollected: () => void }>> = {
   uptime: UptimePanel,
   fleet: FleetPanel,
   "product-stats": ProductsPanel,
+  users: UsersPanel,
   backlinks: BacklinksPanel,
   presence: PresencePanel,
   voice: VoicePanel,
+  workstation: WorkstationPanel,
 };
 
 /** The vault name a field lands under: one field takes the base name, several

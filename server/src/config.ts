@@ -1,26 +1,23 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-/** Everything the process needs to know, read once, with honest defaults. */
-function env(name: string, fallback: string): string {
-  const v = process.env[name];
-  return v === undefined || v === "" ? fallback : v;
+// Explicit environment variables win over the optional server/.env file.
+const serverDir = fileURLToPath(new URL("../", import.meta.url));
+const envFile = process.env.OPC_ENV_FILE ?? resolve(serverDir, ".env");
+if (existsSync(envFile)) process.loadEnvFile(envFile);
+function env(name: string, fallback: string): string { return process.env[name] || fallback; }
+function num(name: string, fallback: number, min: number, max = Number.MAX_SAFE_INTEGER): number {
+  const value = Number(env(name, String(fallback)));
+  if (!Number.isInteger(value) || value < min || value > max)
+    throw new Error(`${name} must be a whole number between ${min} and ${max}.`);
+  return value;
 }
-
-function num(name: string, fallback: number): number {
-  const v = Number(env(name, String(fallback)));
-  return Number.isFinite(v) ? v : fallback;
-}
-
-export const DATA_DIR = resolve(env("OPC_DATA_DIR", "./data"));
+export const DATA_DIR = resolve(serverDir, env("OPC_DATA_DIR", "./data"));
 export const DB_FILE = resolve(DATA_DIR, "opc.db");
 export const VAULT_KEY_FILE = resolve(DATA_DIR, "vault.key");
-
-export const PORT = num("PORT", 8787);
-export const COLLECT_MINUTES = num("OPC_COLLECT_MINUTES", 30);
-export const RETAIN_DAYS = num("OPC_RETAIN_DAYS", 400);
-/** Per-server load samples age out far sooner — a few thousand rows a day,
- *  answering questions only ever asked of recent history. See prune(). */
-export const LOAD_RETAIN_DAYS = num("OPC_LOAD_RETAIN_DAYS", 30);
-
+export const PORT = num("PORT", 8787, 1, 65535);
+export const COLLECT_MINUTES = num("OPC_COLLECT_MINUTES", 30, 0);
+export const RETAIN_DAYS = num("OPC_RETAIN_DAYS", 400, 1);
+export const LOAD_RETAIN_DAYS = num("OPC_LOAD_RETAIN_DAYS", 30, 1);
 mkdirSync(DATA_DIR, { recursive: true });

@@ -1,10 +1,11 @@
+import { appPage } from "../../../../shared/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { StagePill, VentureMark } from "@/components/VentureChrome";
+import { VentureSelect } from "@/components/VentureSelect";
 import { RunReport } from "@/components/runs/RunReport";
 import {
   backendPhrase,
@@ -214,12 +215,21 @@ export function RunApp({
         input,
       });
       setReload((n) => n + 1);
-      navigate(`/apps/${slug}/${run.id}`);
+      navigate(appPage(slug, run.id));
     } catch (err) {
       setRefused(err instanceof Error ? err.message : String(err));
     } finally {
       setStarting(false);
     }
+  }
+
+  async function restart(resume: boolean) {
+    if (!detail) return;
+    if (!confirm(resume ? "Resume this job using completed model checkpoints?" : "Start a new job with the same inputs? This may repeat paid work.")) return;
+    setBusyRun(true);
+    try { const result = await (resume ? runsApi.resume(detail.id) : runsApi.retry(detail.id)); setReload(n => n + 1); setTick(n => n + 1); navigate(appPage(slug, result.id)); }
+    catch (error) { setRefused(error instanceof Error ? error.message : String(error)); }
+    finally { setBusyRun(false); }
   }
 
   async function cancel() {
@@ -243,7 +253,7 @@ export function RunApp({
     try {
       await runsApi.remove(detail.id);
       setReload((n) => n + 1);
-      navigate(`/apps/${slug}`);
+      navigate(appPage(slug));
     } catch (err) {
       setRefused(err instanceof Error ? err.message : String(err));
     } finally {
@@ -305,35 +315,14 @@ export function RunApp({
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
-                  {!needsVenture && (
-                    <button
-                      onClick={() => setPicked(null)}
-                      className={cn(
-                        "rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors",
-                        venture === null
-                          ? "border-foreground"
-                          : "hover:border-line-strong",
-                      )}
-                    >
-                      No venture
-                    </button>
-                  )}
-                  {ventures.map((v) => (
-                    <button
-                      key={v.id}
-                      onClick={() => setPicked(v.id)}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors",
-                        venture?.id === v.id
-                          ? "border-foreground"
-                          : "hover:border-line-strong",
-                      )}
-                    >
-                      <VentureMark venture={v} size={15} />
-                      {v.name}
-                      <StagePill stage={v.stage} />
-                    </button>
-                  ))}
+                  {/* A menu, not chips: nineteen chips was a wall. */}
+                  <VentureSelect
+                    ventures={ventures}
+                    value={venture?.id ?? null}
+                    onChange={setPicked}
+                    none={needsVenture ? null : "No venture"}
+                    className="w-72"
+                  />
                 </div>
               )}
               {!needsVenture && (
@@ -354,7 +343,33 @@ export function RunApp({
                     </span>
                   )}
                 </div>
-                {f.kind === "textarea" ? (
+                {/* A CLOSED LIST WHERE THE SERVER PUBLISHED ONE. Buttons
+                    rather than a <select> because there are two or three of
+                    them and the hint under each one is worth reading — and
+                    because everything else on this page is a chip. A `select`
+                    with no options falls through to the text input below,
+                    which is the honest fallback for a field this client does
+                    not understand. */}
+                {f.kind === "select" && f.options?.length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {f.options.map((o) => (
+                      <button
+                        key={o.value}
+                        onClick={() =>
+                          setValues((v) => ({ ...v, [f.key]: o.value }))
+                        }
+                        className={cn(
+                          "rounded-[9px] border px-2.5 py-1.5 text-[12.5px] transition-colors",
+                          valueOf(f) === o.value
+                            ? "border-foreground"
+                            : "hover:border-line-strong",
+                        )}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : f.kind === "textarea" ? (
                   <Textarea
                     value={valueOf(f)}
                     onChange={(e) =>
@@ -436,6 +451,8 @@ export function RunApp({
                 busy={busyRun}
                 onCancel={() => void cancel()}
                 onDelete={() => void remove()}
+                onRetry={() => void restart(false)}
+                onResume={() => void restart(true)}
               />
             ) : (
               <p className="text-muted-foreground text-[13px]">Reading the run…</p>
@@ -506,7 +523,7 @@ export function RunApp({
                 key={r.id}
                 run={r}
                 open={r.id === runId}
-                onOpen={() => navigate(`/apps/${slug}/${r.id}`)}
+                onOpen={() => navigate(appPage(slug, r.id))}
               />
             ))}
           </div>

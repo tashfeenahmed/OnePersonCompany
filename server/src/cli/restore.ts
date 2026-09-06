@@ -40,6 +40,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { spawnSync } from "node:child_process";
 import {
+  readFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -64,15 +65,7 @@ const ARCHIVE = /^opc-\d{8}-\d{6}\.tar\.gz$/;
  * this list is left in the unpacked directory and named, rather than silently
  * ignored or silently copied over something.
  */
-const RESTORES = [
-  "opc.db",
-  "vault.key",
-  "keys",
-  "shots",
-  "studio",
-  "hermes/home/.hermes/config.yaml",
-  "hermes/home/.hermes/skills",
-];
+import { RESTORE_MEMBERS as RESTORES } from "../backup-manifest.ts";
 
 function die(message: string, hint?: string): never {
   console.error(`\n  ${message}`);
@@ -95,8 +88,8 @@ if (!arg || arg === "--help" || arg === "-h") {
   console.log(`
   npm run restore -- <archive>
 
-  Replaces this data directory's database, vault key, ssh keys, screenshots,
-  Studio images and agent configuration with the copies inside an archive
+  Replaces this data directory's database, vault and service keys, SSH keys,
+  screenshots, images, videos, papers and agent configuration with an archive
   written by /api/backups.
 
   <archive> is either a bare name (opc-20260905-040000.tar.gz), looked for in
@@ -261,6 +254,28 @@ for (const side of ["-wal", "-shm"]) {
   replaced.push(`opc.db${side} → opc.db${side}.replaced-${at}`);
 }
 
+// Rewrite only artifact path columns when restoring to another data directory.
+const metadata = join(staging, "backup-manifest.json");
+if (existsSync(metadata)) {
+  const oldDir = JSON.parse(readFileSync(metadata, "utf8")).dataDir as string;
+  if (typeof oldDir === "string" && oldDir !== DATA_DIR) {
+    const restoredDb = new DatabaseSync(DB_FILE);
+    const tables = restoredDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[];
+    const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
+    try {
+      restoredDb.exec("BEGIN IMMEDIATE");
+      for (const { name } of tables) {
+        const columns = restoredDb.prepare(`PRAGMA table_info(${quote(name)})`).all() as { name: string; type: string }[];
+        for (const col of columns.filter(c => /^(path|file|.*_path)$/.test(c.name) && c.type === "TEXT")) {
+          restoredDb.prepare(`UPDATE ${quote(name)} SET ${quote(col.name)} = ? || substr(${quote(col.name)}, ?) WHERE substr(${quote(col.name)}, 1, ?) = ?`)
+            .run(DATA_DIR, oldDir.length + 1, oldDir.length + 1, oldDir + "/");
+        }
+      }
+      restoredDb.exec("COMMIT");
+    } catch (error) { restoredDb.exec("ROLLBACK"); throw error; }
+    finally { restoredDb.close(); }
+  }
+}
 const extra = readdirSync(staging).filter(
   (n) => !RESTORES.some((m) => m === n || m.startsWith(`${n}/`)),
 );

@@ -9,7 +9,7 @@ export default defineConfig({
   server: {
     // The API holds the credentials; the browser never does. Proxying in dev
     // means the app calls same-origin /api and no CORS is involved.
-    proxy: { "/api": { target: "http://127.0.0.1:8787", changeOrigin: true } },
+    proxy: { "/api": { target: process.env.VITE_PROXY_TARGET || "http://127.0.0.1:8787", changeOrigin: true } },
   },
   resolve: {
     alias: { "@": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./src") },

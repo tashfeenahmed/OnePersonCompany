@@ -1,5 +1,5 @@
 import { useRef, useState, type ComponentType } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 /**
@@ -29,6 +29,7 @@ export type Tab = {
   /** A small figure after the label — a dashboard's widget count. */
   count?: number;
   icon?: ComponentType<{ className?: string; strokeWidth?: number }>;
+  fixed?: boolean;
 };
 
 /** How long the pointer must rest on a tab before a drag is armed. Short
@@ -47,6 +48,9 @@ export function TabStrip({
   onReorder: (keys: string[]) => void;
   className?: string;
 }) {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const [announcement, setAnnouncement] = useState("");
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ key: string; side: "before" | "after" } | null>(null);
   // Which tab is armed for dragging — set by a held pointer, cleared by a
@@ -67,7 +71,7 @@ export function TabStrip({
 
   function finish(targetKey: string) {
     if (!dragKey || !drop || dragKey === targetKey) return;
-    const keys = tabs.map((t) => t.key);
+    const keys = tabs.filter(t => !t.fixed).map((t) => t.key);
     const from = keys.indexOf(dragKey);
     keys.splice(from, 1);
     const to = keys.indexOf(targetKey) + (drop.side === "after" ? 1 : 0);
@@ -84,6 +88,11 @@ export function TabStrip({
 
   return (
     <div className={cn("flex items-center gap-0.5 overflow-x-auto", className)}>
+      <input aria-label="Find a tab" placeholder="Find a tab…" value={query} onChange={e => setQuery(e.target.value)} className="w-[110px] shrink-0 rounded border px-2 py-1.5 text-xs" onKeyDown={e => { if (e.key === "Enter") { const found = tabs.find(t => t.label.toLowerCase().includes(query.toLowerCase())); if (found) { navigate(found.to); setQuery(""); } } }} />
+      <select aria-label="Choose any tab" value={activeKey ?? ""} className="max-w-[160px] shrink-0 rounded border p-1.5 text-xs" onChange={e => { const tab = tabs.find(t => t.key === e.target.value); if (tab) navigate(tab.to); }}>
+        <option value="" disabled>All tabs…</option>{tabs.filter(t => t.key === activeKey || t.label.toLowerCase().includes(query.toLowerCase())).map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+      </select>
+      <span className="sr-only" role="status">{announcement}</span>
       {tabs.map((t) => {
         const active = t.key === activeKey;
         const Icon = t.icon;
@@ -92,8 +101,16 @@ export function TabStrip({
             key={t.key}
             to={t.to}
             aria-current={active ? "page" : undefined}
-            draggable={armed === t.key}
-            onPointerDown={() => arm(t.key)}
+            title={t.fixed ? undefined : "Alt + Left/Right arrow to reorder"}
+            onKeyDown={e => {
+              if (t.fixed || !e.altKey || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+              e.preventDefault(); const keys = tabs.filter(x => !x.fixed).map(x => x.key), from = keys.indexOf(t.key), to = Math.max(0, Math.min(keys.length - 1, from + (e.key === "ArrowLeft" ? -1 : 1)));
+              keys.splice(from, 1); keys.splice(to, 0, t.key); onReorder(keys);
+              const position = tabs.map((tab, index) => tab.fixed ? 0 : index + 1).filter(Boolean)[to];
+              setAnnouncement(`${t.label} moved to position ${position}`);
+            }}
+            draggable={!t.fixed && armed === t.key}
+            onPointerDown={() => { if (!t.fixed) arm(t.key); }}
             onPointerUp={clearHold}
             onPointerLeave={clearHold}
             onDragStart={(e) => {
@@ -104,7 +121,7 @@ export function TabStrip({
             }}
             onDragEnd={reset}
             onDragOver={(e) => {
-              if (!dragKey || dragKey === t.key) return;
+              if (t.fixed || !dragKey || dragKey === t.key) return;
               e.preventDefault();
               const r = e.currentTarget.getBoundingClientRect();
               setDrop({
@@ -114,7 +131,7 @@ export function TabStrip({
             }}
             onDrop={(e) => {
               e.preventDefault();
-              finish(t.key);
+              if (!t.fixed) finish(t.key);
               reset();
             }}
             onClick={(e) => {
@@ -122,7 +139,7 @@ export function TabStrip({
               if (dragKey) e.preventDefault();
             }}
             className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground relative flex items-center gap-[7px] rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap select-none",
+              "text-muted-foreground hover:bg-accent hover:text-foreground relative hidden sm:flex items-center gap-[7px] rounded-lg px-2.5 py-1.5 text-[12.5px] whitespace-nowrap select-none",
               active && "bg-accent text-foreground font-medium",
               armed === t.key && "cursor-grab",
               dragKey === t.key && "opacity-35",

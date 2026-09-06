@@ -1,3 +1,4 @@
+import { appPage } from "../../../../shared/navigation";
 import { useState } from "react";
 import { BookOpen, X } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -94,7 +95,7 @@ export function PaperShelf({
               <div key={p.runId} className="bg-card rounded-[10px] border p-3">
                 <div className="flex flex-wrap items-baseline gap-2">
                   <Link
-                    to={`/apps/papers/${p.runId}`}
+                    to={appPage("papers", p.runId)}
                     className="text-[13px] leading-snug font-medium tracking-tight hover:underline"
                   >
                     {p.title}

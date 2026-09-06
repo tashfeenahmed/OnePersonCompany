@@ -1,3 +1,8 @@
+const ActionInbox = lazy(() => import("@/pages/ActionInbox").then(m => ({ default: m.ActionInbox })));
+import { lazy, Suspense } from "react";
+import { NavigationShell } from "@/components/NavigationShell";
+import { Link, useLocation } from "react-router-dom";
+import { appPage } from "../../shared/navigation";
 import {
   BrowserRouter,
   Navigate,
@@ -6,23 +11,32 @@ import {
   useParams,
 } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AppSidebar } from "@/components/AppSidebar";
 import { LiveProvider } from "@/lib/live";
 import { StoreProvider } from "@/lib/store";
 import { ThemeProvider } from "@/lib/theme";
-import { Chat } from "@/pages/Chat";
-import { Dashboards } from "@/pages/Dashboards";
-import { PluginDetail } from "@/pages/PluginDetail";
-import { Plugins } from "@/pages/Plugins";
-import { Ventures } from "@/pages/Ventures";
-import { Venture } from "@/pages/Venture";
-import { VentureForm } from "@/pages/VentureForm";
-import { VentureMap } from "@/pages/VentureMap";
-import { Org } from "@/pages/Org";
-import { Subagent } from "@/pages/Subagent";
-import { Settings } from "@/pages/Settings";
-import { Apps } from "@/pages/Apps";
-import { Subagents } from "@/pages/Subagents";
+const Chat = lazy(() => import("@/pages/Chat").then(m => ({ default: m.Chat })));
+const Dashboards = lazy(() => import("@/pages/Dashboards").then(m => ({ default: m.Dashboards })));
+const PluginDetail = lazy(() => import("@/pages/PluginDetail").then(m => ({ default: m.PluginDetail })));
+const Plugins = lazy(() => import("@/pages/Plugins").then(m => ({ default: m.Plugins })));
+const Ventures = lazy(() => import("@/pages/Ventures").then(m => ({ default: m.Ventures })));
+const Venture = lazy(() => import("@/pages/Venture").then(m => ({ default: m.Venture })));
+const VentureForm = lazy(() => import("@/pages/VentureForm").then(m => ({ default: m.VentureForm })));
+const VentureMap = lazy(() => import("@/pages/VentureMap").then(m => ({ default: m.VentureMap })));
+const Org = lazy(() => import("@/pages/Org").then(m => ({ default: m.Org })));
+const Subagent = lazy(() => import("@/pages/Subagent").then(m => ({ default: m.Subagent })));
+const Settings = lazy(() => import("@/pages/Settings").then(m => ({ default: m.Settings })));
+const SubagentOutputs = lazy(() => import("@/pages/Outputs").then(m => ({ default: m.SubagentOutputs })));
+const Ops = lazy(() => import("@/areas/security/Ops").then(m => ({ default: m.Ops })));
+const GrowthSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.GrowthSection })));
+const Board = lazy(() => import("@/pages/Board").then(m => ({ default: m.Board })));
+const MailSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.MailSection })));
+const SocialSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.SocialSection })));
+const Subagents = lazy(() => import("@/pages/Subagents").then(m => ({ default: m.Subagents })));
+const People = lazy(() => import("@/areas/people/People").then(m => ({ default: m.People })));
+const Alerts = lazy(() => import("@/areas/proactive/Alerts").then(m => ({ default: m.Alerts })));
+const Login = lazy(() => import("@/areas/security/Login").then(m => ({ default: m.Login })));
+const Workflows = lazy(() => import("@/areas/chief/Workflows").then(m => ({ default: m.Workflows })));
+const ActivityPage = lazy(() => import("@/areas/activity/ActivityPage").then(m => ({ default: m.ActivityPage })));
 
 export default function App() {
   return (
@@ -37,9 +51,8 @@ export default function App() {
                 whatever serves the built files must fall back to index.html for
                 unknown paths; Vite's dev server and `vite preview` both do. */}
             <BrowserRouter>
-              <div className="flex h-screen overflow-hidden">
-                <AppSidebar />
-                <main className="flex min-w-0 flex-1 flex-col">
+              <NavigationShell>
+                <Suspense fallback={<p role="status" className="p-6">Loading page…</p>}>
                   <Routes>
                     {/*
                       A CHAT IS A PLACE, SO IT HAS AN ADDRESS — the same rule
@@ -96,7 +109,9 @@ export default function App() {
                     {/* The org chart, before `:slug` for the third time and
                         the third identical reason: a literal segment that a
                         venture could one day be slugged with. */}
-                    <Route path="/ventures/org" element={<Org />} />
+                    <Route path="/org" element={<Org />} />
+                    {/* The old address, kept for links already made. */}
+                    <Route path="/ventures/org" element={<Navigate to="/org" replace />} />
                     <Route path="/ventures/:slug" element={<Venture />} />
                     <Route path="/ventures/:slug/edit" element={<VentureForm />} />
                     {/*
@@ -145,6 +160,21 @@ export default function App() {
                       element={<Venture />}
                     />
                     <Route path="/subagents" element={<Subagents />} />
+                    {/* PEOPLE'S FOUR TABS ARE FOUR ADDRESSES, the rule every
+                        tabbed page here follows: /people/stale is a place
+                        somebody sends a link to, not a piece of state. All
+                        four render the same element, so moving between them
+                        reconciles rather than remounting the page. */}
+                    <Route path="/people" element={<People />} />
+                    <Route path="/people/:tab" element={<People />} />
+                    {/* ACTIVITY — one page, three tabs, the URL as the
+                        selection: what happened, who arrived, what it cost.
+                        The product route under /users is the one deep link,
+                        because one product's user table is a place somebody
+                        works in rather than a panel they glance at. */}
+                    <Route path="/activity" element={<ActivityPage />} />
+                    <Route path="/activity/:tab/:product" element={<ActivityPage />} />
+                    <Route path="/activity/:tab" element={<ActivityPage />} />
                     <Route path="/integrations" element={<Plugins />} />
                     <Route path="/integrations/:id" element={<PluginDetail />} />
                     {/* "Plugin" was the wrong word: these are connections to
@@ -162,24 +192,51 @@ export default function App() {
                         and rewrites itself to that board's own URL, so what
                         is in the bar is always something worth bookmarking. */}
                     <Route path="/dashboards" element={<Dashboards />} />
+                    <Route path="/dashboards/reports/email-stats" element={<Dashboards report="email-stats" />} />
                     <Route path="/dashboards/:slug" element={<Dashboards />} />
+                    <Route path="/board" element={<Board />} />
+                    <Route path="/mail" element={<MailSection />} />
+                    <Route path="/mail/:page" element={<MailSection />} />
+                    <Route path="/social" element={<SocialSection />} />
+                    <Route path="/social/:page" element={<SocialSection />} />
+                    <Route path="/social/video/:runId" element={<SocialSection page="video" />} />
+                    <Route path="/growth" element={<GrowthSection />} />
+                    <Route path="/growth/:page" element={<GrowthSection />} />
+                    <Route path="/growth/:page/:runId" element={<GrowthSection />} />
+                    <Route path="/ops" element={<Ops />} />
+                    <Route path="/ops/:runId" element={<Ops />} />
+                    {/* ALERTS AND THE BRIEFING, one element and two
+                        addresses — the same reconciliation trick the venture
+                        tabs use, so moving between the rules and the briefing
+                        does not remount the page and lose a poll in flight. */}
+                    <Route path="/action-inbox" element={<ActionInbox />} />
+                    <Route path="/alerts" element={<Alerts />} />
+                    <Route path="/alerts/briefing" element={<Alerts />} />
                     <Route path="/settings" element={<Settings />} />
-                    {/* Same shape as dashboards: the bare path lands on the
-                        first app and rewrites itself to that app's own URL. */}
-                    <Route path="/apps" element={<Apps />} />
-                    <Route path="/apps/:app" element={<Apps />} />
-                    {/* A RUN IS A PLACE TOO. The six run apps take minutes to
-                        produce a report worth sending somebody, so the report
-                        has an address: /apps/research/r-8f2a1c is the run, and
-                        it is linkable, refreshable and reachable with the back
-                        button while it is still being written. Same `<Apps />`
-                        element as the two above, so opening a run out of the
-                        history reconciles rather than remounting the page —
-                        which is what keeps the poll in flight. */}
-                    <Route path="/apps/:app/:runId" element={<Apps />} />
+                    {/* THE ONE SCREEN THAT EXISTS BECAUSE SOMETHING WAS
+                        REFUSED. lib/api.ts sends the browser here on a 401,
+                        with where it was in `?next=`. On a box with no
+                        password it says so instead of drawing a form — see
+                        areas/security/Login.tsx. */}
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/outputs" element={<SubagentOutputs />} />
+                    <Route path="/outputs/:output" element={<SubagentOutputs />} />
+                    <Route path="/outputs/:output/:runId" element={<SubagentOutputs />} />
+                    {/* Existing bookmarks and generated reports retain their destinations. */}
+                    <Route path="/apps" element={<LegacyApp />} />
+                    <Route path="/apps/:app" element={<LegacyApp />} />
+                    <Route path="/apps/:app/:runId" element={<LegacyApp />} />
+                    {/* THE CHIEF OF STAFF'S OWN PAGE. Same shape as Apps and
+                        Dashboards: the bare path lands on the first tab and
+                        rewrites itself to that tab's address, and every tab is
+                        a place somebody can link to. One element for both, so
+                        moving between tabs reconciles rather than remounting. */}
+                    <Route path="/workflows" element={<Workflows />} />
+                    <Route path="/workflows/:tab" element={<Workflows />} />
+                    <Route path="*" element={<div className="p-8"><h1 className="text-2xl mb-3">Page not found</h1><p>This address does not match a page.</p><Link className="underline" to="/">Go to your workspace</Link></div>} />
                   </Routes>
-                </main>
-              </div>
+                </Suspense>
+              </NavigationShell>
             </BrowserRouter>
           </TooltipProvider>
         </LiveProvider>
@@ -192,4 +249,11 @@ export default function App() {
 function LegacyIntegration() {
   const { id } = useParams();
   return <Navigate to={`/integrations/${id}`} replace />;
+}
+
+function LegacyApp() {
+  const { app, runId } = useParams();
+  const location = useLocation();
+  const path = app ? appPage(app, runId) : "/outputs";
+  return <Navigate to={`${path}${location.search}${location.hash}`} state={location.state} replace />;
 }

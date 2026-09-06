@@ -10,19 +10,23 @@ import { runsApi } from "@/lib/api/runs";
  *
  * A POLL AND NOT THE LIVE FEED. `lib/live` is a several-hundred-line context
  * that fans one collector document out to forty widgets, and the runs queue is
- * not one of its sources; hanging a badge off it would mean the rail waited on
- * a document it needs nothing else from. Ten seconds is the right interval for
- * a number whose only job is to say "something is happening" — a run takes
- * minutes, so a badge that is ten seconds stale has never been wrong about
- * anything a person would notice.
+ * two integers. Ten seconds while nothing is moving; three while something is,
+ * because a run's status is the thing the owner is watching then.
  *
- * IT FAILS TO NOTHING. A server that has not shipped the runs area answers 404
- * and this returns zeroes, which the rail draws as no badge at all. A count
- * that is absent is the honest rendering of "not known"; a zero would be a
- * claim that nothing is running, and those are not the same.
+ * AND IT LOOKS THE MOMENT A CHAT TURN ENDS. A sub-agent is dispatched from
+ * inside an answer, and the owner's eye goes to the rail as the answer lands —
+ * where a badge that would arrive within ten seconds is a badge that is not
+ * there. The Chat page fires `opc:work-changed` when a turn finishes (see
+ * `announce` in pages/Chat.tsx) and this re-reads on it, and on the tab coming
+ * back into view, which is the other moment "is it still running" is asked.
  */
+/** Fired by the Chat page when agent work changed: a turn ended, or a
+ *  sub-agent was filed under a conversation mid-answer. */
+export const WORK_CHANGED = "opc:work-changed";
+
 export function useRunQueue(): { running: number; queued: number } {
   const [counts, setCounts] = useState({ running: 0, queued: 0 });
+  const live = counts.running + counts.queued > 0;
 
   useEffect(() => {
     let alive = true;
@@ -37,12 +41,20 @@ export function useRunQueue(): { running: number; queued: number } {
           if (alive) setCounts({ running: 0, queued: 0 });
         });
     void read();
-    const t = setInterval(() => void read(), 10_000);
+    const t = setInterval(() => void read(), live ? 3_000 : 10_000);
+    const now = () => void read();
+    const visible = () => {
+      if (document.visibilityState === "visible") now();
+    };
+    window.addEventListener(WORK_CHANGED, now);
+    document.addEventListener("visibilitychange", visible);
     return () => {
       alive = false;
       clearInterval(t);
+      window.removeEventListener(WORK_CHANGED, now);
+      document.removeEventListener("visibilitychange", visible);
     };
-  }, []);
+  }, [live]);
 
   return counts;
 }

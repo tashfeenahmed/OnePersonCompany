@@ -183,6 +183,10 @@ export type LiveData = {
    *  VERIFIED rather than last written. */
   competitors: CompetitorsReport | null;
   /** Which widget types are showing real data right now. */
+  sourceStates: Record<string, "loading" | "disconnected" | "ready" | "error">;
+  sourceErrors: Record<string, string>;
+  loading: boolean;
+  error: string | null;
   liveTypes: Set<string>;
   reload: () => void;
 };
@@ -220,6 +224,9 @@ const LiveContext = createContext<LiveData>({
   audit: null,
   runs: null,
   competitors: null,
+  sourceStates: {}, sourceErrors: {},
+  loading: true,
+  error: null,
   liveTypes: new Set(),
   reload: () => {},
 });
@@ -268,6 +275,17 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [runs, setRuns] = useState<RunsReport | null>(null);
   const [competitors, setCompetitors] = useState<CompetitorsReport | null>(null);
   const [tick, setTick] = useState(0);
+  const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
+  const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const refresh = () => { if (!document.hidden) setTick(t => t + 1); };
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("opc:data-changed", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener("opc:data-changed", refresh); };
+  }, []);
 
   const wanted = useMemo(() => {
     const series = new Set<string>();
@@ -372,6 +390,39 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
 
+    setLoading(true); setError(null); setSourceErrors({}); setSourceStates({});
+      setMetrics({});
+      setHetzner(null);
+      setFleet([]);
+      setLoad(null);
+      setVolumes([]);
+      setDomains([]);
+      setDomainSummary(null);
+      setStock(null);
+      setCosts(null);
+      setGithub(null);
+      setNpm(null);
+      setMobile(null);
+      setStripe(null);
+      setAdsense(null);
+      setCloudflare(null);
+      setGsc(null);
+      setBing(null);
+      setMeta(null);
+      setDemand(null);
+      setMail(null);
+      setUmami(null);
+      setCalendar(null);
+      setPypi(null);
+      setBluesky(null);
+      setUptime(null);
+      setBoxes(null);
+      setProducts(null);
+      setBacklinks(null);
+      setPresence(null);
+      setAudit(null);
+      setRuns(null);
+      setCompetitors(null);
     void (async () => {
       /*
         WHICH PROVIDERS ARE ACTUALLY CONNECTED, asked once for the page.
@@ -390,8 +441,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       try {
         const all = await api.plugins();
         connected = new Set(all.plugins.filter((p) => p.connected).map((p) => p.id));
-      } catch {
-        return; // no API running; samples all round
+      } catch (e) {
+        if (alive) { setError(e instanceof Error ? e.message : String(e)); setLoading(false); }
+        return;
       }
       if (!alive) return;
 
@@ -405,25 +457,26 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       const libraries = connected.has("pexels") || connected.has("pixabay");
 
       /** Fetch, or leave the state alone so the cards keep their samples. */
-      const tryFetch = async <T,>(want: boolean, get: () => Promise<T>, put: (v: T) => void) => {
+      const tasks: Promise<void>[] = [];
+      const tryFetch = <T,>(want: boolean, get: () => Promise<T>, put: (v: T) => void, source: string) => {
+        setSourceStates(s => ({ ...s, [source]: want ? "loading" : "disconnected" }));
         if (!want) return;
-        try {
-          const v = await get();
-          if (alive) put(v);
-        } catch {
-          /* the cards fall back; a provider having a bad minute is not news */
-        }
+        tasks.push(Promise.resolve().then(get).then(v => {
+          if (alive) { put(v); setSourceStates(s => ({ ...s, [source]: "ready" })); }
+        }).catch(e => {
+          if (alive) { setSourceStates(s => ({ ...s, [source]: "error" })); setSourceErrors(s => ({ ...s, [source]: e instanceof Error ? e.message : String(e) })); }
+        }));
       };
 
-      await tryFetch(hz && wanted.needsSummary, api.hetznerSummary, setHetzner);
-      await tryFetch(hz && wanted.needsFleet, api.hetznerServers, (f) => setFleet(f.servers));
-      await tryFetch(hz && wanted.needsLoad, () => api.hetznerLoad(LOAD_HOURS), setLoad);
-      await tryFetch(hz && wanted.needsVolumes, api.hetznerVolumes, (v) => setVolumes(v.volumes));
-      await tryFetch(libraries && wanted.needsStock, () => api.stock(), setStock);
-      await tryFetch(registrars && wanted.needsDomains, api.domains, (d) => {
+      tryFetch(hz && wanted.needsSummary, api.hetznerSummary, setHetzner, "summary");
+      tryFetch(hz && wanted.needsFleet, api.hetznerServers, (f) => setFleet(f.servers), "fleet");
+      tryFetch(hz && wanted.needsLoad, () => api.hetznerLoad(LOAD_HOURS), setLoad, "load");
+      tryFetch(hz && wanted.needsVolumes, api.hetznerVolumes, (v) => setVolumes(v.volumes), "volumes");
+      tryFetch(libraries && wanted.needsStock, () => api.stock(), setStock, "stock");
+      tryFetch(registrars && wanted.needsDomains, api.domains, (d) => {
         setDomains(d.domains);
         setDomainSummary(d.summary);
-      });
+      }, "domains");
       /*
         ANY ONE OF THE THREE COST PROVIDERS IS ENOUGH TO ASK. The report is one
         document with a section each, and a section whose provider has never
@@ -437,7 +490,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         connected.has("openai") ||
         connected.has("openrouter") ||
         connected.has("replicate");
-      await tryFetch(spenders && wanted.needsCosts, () => api.costs(), setCosts);
+      tryFetch(spenders && wanted.needsCosts, () => api.costs(), setCosts, "costs");
 
       /*
         GitHub and npm are asked separately, because they are separate answers
@@ -447,16 +500,14 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         available — with no list there is nothing to ask npm about, and with
         one it works immediately.
       */
-      await tryFetch(
+      tryFetch(
         connected.has("github") && wanted.needsGithub,
         () => api.github(),
-        setGithub,
-      );
-      await tryFetch(
+        setGithub, "github");
+      tryFetch(
         connected.has("npm") && wanted.needsNpm,
         () => api.npm(),
-        setNpm,
-      );
+        setNpm, "npm");
 
       /*
         EITHER STORE IS ENOUGH TO ASK. The document has a section each and a
@@ -465,17 +516,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         same rule the costs report follows. An owner who ships on one platform
         is the ordinary case, not a degraded one.
       */
-      await tryFetch(
+      tryFetch(
         (connected.has("appstore") || connected.has("playstore")) && wanted.needsMobile,
         () => api.mobile(),
-        setMobile,
-      );
+        setMobile, "mobile");
 
-      await tryFetch(
+      tryFetch(
         connected.has("stripe") && wanted.needsStripe,
         () => api.stripe(),
-        setStripe,
-      );
+        setStripe, "stripe");
       /*
         ADSENSE IS ASKED WHETHER OR NOT IT IS CONNECTED, which is the one
         exception to the rule above and the reason for it: this route's most
@@ -486,7 +535,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         every one of those states, so nothing wears a live dot over numbers
         that were never read.
       */
-      await tryFetch(wanted.needsAdsense, () => api.adsense(), setAdsense);
+      tryFetch(wanted.needsAdsense, () => api.adsense(), setAdsense, "adsense");
 
       /*
         CLOUDFLARE IS FETCHED ONLY WHEN IT IS CONNECTED, unlike AdSense above.
@@ -497,11 +546,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         board has to be drawn over the same seven days or they cannot be read
         beside each other.
       */
-      await tryFetch(
+      tryFetch(
         connected.has("cloudflare") && wanted.needsCloudflare,
         () => api.cloudflare(),
-        setCloudflare,
-      );
+        setCloudflare, "cloudflare");
 
       /*
         THE TWO SEARCH ENGINES ARE FETCHED SEPARATELY, and one being
@@ -511,12 +559,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         phrase nothing of ours ranks for. An owner with one of the two
         connected has a real answer to one real question.
       */
-      await tryFetch(connected.has("gsc") && wanted.needsGsc, () => api.gsc(), setGsc);
-      await tryFetch(
+      tryFetch(connected.has("gsc") && wanted.needsGsc, () => api.gsc(), setGsc, "gsc");
+      tryFetch(
         connected.has("bing-webmaster") && wanted.needsBing,
         () => api.bing(),
-        setBing,
-      );
+        setBing, "bing");
 
       /*
         ONE FETCH FOR META AND INSTAGRAM, and Instagram is why it is gated on
@@ -528,7 +575,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         wears no live dot; with a token it says the true thing, which on this
         account is that no Instagram Business account is linked to any Page.
       */
-      await tryFetch(connected.has("meta") && wanted.needsMeta, () => api.meta(), setMeta);
+      tryFetch(connected.has("meta") && wanted.needsMeta, () => api.meta(), setMeta, "meta");
 
       /*
         ANY ONE OF THE THREE DEMAND SOURCES IS ENOUGH TO ASK, the rule the
@@ -540,14 +587,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         SearXNG's key is the one real credential of the three — and it is the
         one that keeps Reddit answering the day the Atom feed closes.
       */
-      await tryFetch(
+      tryFetch(
         (connected.has("reddit") ||
           connected.has("hackernews") ||
           connected.has("searxng")) &&
           wanted.needsDemand,
         () => api.demand(),
-        setDemand,
-      );
+        setDemand, "demand");
 
       /*
         EITHER MAIL PROVIDER IS ENOUGH TO ASK — the rule the costs report and
@@ -558,11 +604,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         and reads their own inbox elsewhere is an ordinary case, not a degraded
         one.
       */
-      await tryFetch(
+      tryFetch(
         (connected.has("gmail") || connected.has("resend")) && wanted.needsMail,
         () => api.mail(),
-        setMail,
-      );
+        setMail, "mail");
 
       /*
         THE NINE SECOND-WAVE REPORTS.
@@ -581,55 +626,46 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         same span to be read beside each other — and a per-card range switch is
         nine presses to compare two machines over the same evening.
       */
-      await tryFetch(
+      tryFetch(
         connected.has("umami") && wanted.needsUmami,
         () => reports.umami(),
-        setUmami,
-      );
-      await tryFetch(
+        setUmami, "umami");
+      tryFetch(
         connected.has("calendar") && wanted.needsCalendar,
         () => reports.calendar(),
-        setCalendar,
-      );
-      await tryFetch(
+        setCalendar, "calendar");
+      tryFetch(
         connected.has("pypi") && wanted.needsPypi,
         () => reports.pypi(),
-        setPypi,
-      );
-      await tryFetch(
+        setPypi, "pypi");
+      tryFetch(
         connected.has("bluesky") && wanted.needsBluesky,
         () => reports.bluesky(),
-        setBluesky,
-      );
-      await tryFetch(
+        setBluesky, "bluesky");
+      tryFetch(
         connected.has("uptime") && wanted.needsUptime,
         () => reports.uptime(),
-        setUptime,
-      );
-      await tryFetch(
+        setUptime, "uptime");
+      tryFetch(
         connected.has("fleet") && wanted.needsBoxes,
         () => reports.fleet(),
-        setBoxes,
-      );
+        setBoxes, "boxes");
       /* The plugin id is `product-stats`; the field, the source and the widget
          keys are all `products`. Written out here rather than renamed at either
          end, because the server's id is the server's and a rename in this file
          would be a rename that only this file knows about. */
-      await tryFetch(
+      tryFetch(
         connected.has("product-stats") && wanted.needsProducts,
         () => reports.products(),
-        setProducts,
-      );
-      await tryFetch(
+        setProducts, "products");
+      tryFetch(
         connected.has("backlinks") && wanted.needsBacklinks,
         () => reports.backlinks(),
-        setBacklinks,
-      );
-      await tryFetch(
+        setBacklinks, "backlinks");
+      tryFetch(
         connected.has("presence") && wanted.needsPresence,
         () => reports.presence(),
-        setPresence,
-      );
+        setPresence, "presence");
 
       /*
         THE THREE THAT ARE ASKED FOR UNCONDITIONALLY.
@@ -648,29 +684,33 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         end at all. With the server down there is nothing to ask and the whole
         board keeps its samples, which is the honest first screen.
       */
-      await tryFetch(wanted.needsAudit, () => reports.audit(), setAudit);
-      await tryFetch(wanted.needsRuns, () => reports.runs(), setRuns);
-      await tryFetch(
+      tryFetch(wanted.needsAudit, () => reports.audit(), setAudit, "audit");
+      tryFetch(wanted.needsRuns, () => reports.runs(), setRuns, "runs");
+      tryFetch(
         wanted.needsCompetitors,
         () => reports.competitors(),
-        setCompetitors,
-      );
+        setCompetitors, "competitors");
 
+      await Promise.all(tasks);
       const pairs = await Promise.all(
         wanted.series.map(async (m) => {
+          const source = `metric:${m}`;
+          if (!connected.has(m.split(".")[0]!)) { if (alive) setSourceStates(s => ({ ...s, [source]: "disconnected" })); return [m, [] as Point[]] as const; }
+          if (alive) setSourceStates(s => ({ ...s, [source]: "loading" }));
           try {
             const r = await api.metric(m, 90);
+            if (alive) setSourceStates(s => ({ ...s, [source]: "ready" }));
             return [
               m,
               r.points.map((p) => ({ ts: p.ts, value: p.value })),
             ] as const;
-          } catch {
+          } catch (error) {
+            if (alive) { setSourceStates(s => ({ ...s, [source]: "error" })); setSourceErrors(s => ({ ...s, [source]: error instanceof Error ? error.message : String(error) })); }
             return [m, [] as Point[]] as const;
           }
         }),
       );
-      if (alive)
-        setMetrics(Object.fromEntries(pairs.filter(([, p]) => p.length)));
+      if (alive) { setMetrics(Object.fromEntries(pairs.filter(([, p]) => p.length))); setLoading(false); }
     })();
 
     return () => {
@@ -755,10 +795,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       audit,
       runs,
       competitors,
-      liveTypes,
+      sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
     };
   }, [
+    sourceStates, sourceErrors, loading, error,
     metrics,
     hetzner,
     fleet,

@@ -185,7 +185,7 @@ export function EmailStats() {
         {!!mail.data?.cannot?.length && (
           <p className="text-muted-foreground mt-2 text-[11.5px] leading-snug">
             Not on this page because the providers do not report it:{" "}
-            {mail.data.cannot.join(" · ")}
+            {mail.data.cannot.map(item => item.what).join(" · ")}
           </p>
         )}
       </PageShell>

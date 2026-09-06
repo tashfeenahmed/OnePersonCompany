@@ -65,6 +65,17 @@ export const SSE_DONE = "[DONE]";
  */
 export async function* readSse(
   body: ReadableStream<Uint8Array>,
+  opts: {
+    /**
+     * Called on EVERY chunk the socket delivers, frame or not. Hermes writes
+     * `: keepalive` every thirty seconds while its model is still thinking, and
+     * a comment is not a frame — so a reader that only counted frames would
+     * see a live agent as a dead one the moment an answer took longer to start
+     * than the idle budget. The bytes are the proof of life; this is how the
+     * caller's idle timer learns of them.
+     */
+    onActivity?: () => void;
+  } = {},
 ): AsyncGenerator<SseFrame> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -87,6 +98,7 @@ export async function* readSse(
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      opts.onActivity?.();
       buffer += decoder.decode(value, { stream: true });
 
       /*

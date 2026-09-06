@@ -19,6 +19,25 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * ONE REDIRECT, EVER.
+ *
+ * The dashboard fires a dozen requests when a page opens, and a session that
+ * has just been revoked answers 401 to all of them. Twelve calls to
+ * `location.replace` is a browser fighting itself, and the `next` that survives
+ * is whichever raced last. So the first 401 wins and the rest are ordinary
+ * errors the pages already know how to draw.
+ */
+let redirecting = false;
+
+function goToLogin() {
+  if (redirecting) return;
+  if (window.location.pathname === "/login") return;
+  redirecting = true;
+  const next = `${window.location.pathname}${window.location.search}`;
+  window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+}
+
 export async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
     ...init,
@@ -26,12 +45,19 @@ export async function call<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
+    /* 401 IS THE ONE STATUS THIS FILE ACTS ON RATHER THAN REPORTS. It can only
+       come from the owner gate — no route here answers 401 for anything else —
+       and it means a password was set, or this browser's session was revoked.
+       The error is still thrown, so a caller that is already on /login (the
+       login form itself) shows the message rather than a blank screen. */
+    if (res.status === 401) goToLogin();
     const message =
       body && typeof body === "object" && "error" in body
         ? String((body as { error: unknown }).error)
         : `HTTP ${res.status}`;
     throw new ApiError(res.status, message);
   }
+  if (init?.method && !["GET", "HEAD"].includes(init.method) && path !== "/workspace") window.dispatchEvent(new Event("opc:data-changed"));
   return body as T;
 }
 
@@ -2789,6 +2815,9 @@ export type ChatStreamHandlers = {
   }) => void;
   onDelta?: (text: string) => void;
   onReasoning?: (text: string) => void;
+  /** A sub-agent run was filed under this conversation mid-answer. The rail
+   *  re-reads on it; nothing about the answer itself changes. */
+  onChild?: (e: { runId: string; kind: string; title: string; status: string }) => void;
   onTool?: (e: {
     toolCallId: string;
     tool: string;
@@ -3721,6 +3750,9 @@ export const api = {
             break;
           case "reasoning":
             handlers.onReasoning?.((parsed as { text: string }).text);
+            break;
+          case "child":
+            handlers.onChild?.(parsed as Parameters<NonNullable<ChatStreamHandlers["onChild"]>>[0]);
             break;
           case "tool":
             handlers.onTool?.(parsed as Parameters<

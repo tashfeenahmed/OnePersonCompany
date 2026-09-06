@@ -3,8 +3,10 @@
  * no skills mechanism and no way to be given one.
  *
  * WHY THIS EXISTS WHEN THE SKILL PACKS ALREADY WORK. They work for Hermes,
- * because Hermes reads a directory of Markdown and has a terminal to curl with.
- * OpenClaw has neither: probed against `openclaw config schema`, there is no
+ * because Hermes reads a directory of Markdown and has a terminal to run `opc`
+ * in (cli/opc.ts) — which is why Hermes is NOT configured with this server any
+ * more; the terminal is its tool. OpenClaw has neither a skills directory nor
+ * a terminal: probed against `openclaw config schema`, there is no
  * config key for a skills directory and no raw HTTP tool to hand it a URL. The
  * only door into that agent is `mcp.servers.<id>` — an MCP server it spawns and
  * whose tools it registers. So the choice was an MCP server or an OpenClaw with
@@ -55,6 +57,19 @@ type Request = { jsonrpc: "2.0"; id?: Id; method: string; params?: Record<string
 const PROTOCOL = "2025-06-18";
 
 const API = (process.env.OPC_API ?? "http://127.0.0.1:8787").replace(/\/+$/, "");
+
+/**
+ * THE SERVICE KEY, from the environment.
+ *
+ * `skills/spawn.ts` puts it in this child's environment, read from
+ * `server/data/service-key` at the moment the command is described, so rotating the key is replacing a file.
+ * Empty is the ordinary case on a box with no password: the header is sent
+ * anyway, the gate is not looking, and nothing has to know which world it is
+ * in. See server/src/auth.ts.
+ */
+const KEY = (process.env.OPC_KEY ?? "").trim();
+const AUTH: Record<string, string> = KEY ? { "x-opc-key": KEY } : {};
+
 
 /**
  * ONE SERVER PER INTEGRATION, BY DEFAULT.
@@ -117,7 +132,7 @@ type Catalog = { rules: string[]; skills: CatalogSkill[] };
  * exact failure this whole feature is built to avoid.
  */
 async function catalog(): Promise<Catalog> {
-  const res = await fetch(`${API}/api/skills`, { signal: AbortSignal.timeout(10_000) });
+  const res = await fetch(`${API}/api/skills`, { headers: AUTH, signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`${API}/api/skills answered ${res.status}`);
   return (await res.json()) as Catalog;
 }
@@ -315,7 +330,7 @@ async function call(name: string, args: Record<string, unknown>) {
         `${API}/api/skills/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...AUTH },
           /*
             THE ARGUMENTS VERBATIM, NULLS INCLUDED. A null is how a field is
             CLEARED — see routes/board.ts on absent versus null — so dropping
@@ -338,6 +353,7 @@ async function call(name: string, args: Record<string, unknown>) {
            proxy is what knows it belongs in a segment. */
         return fetch(`${API}/api/skills/${encodeURIComponent(id)}${qs.size ? `?${qs}` : ""}`, {
           method: "GET",
+          headers: AUTH,
           signal: AbortSignal.timeout(60_000),
         });
       })();

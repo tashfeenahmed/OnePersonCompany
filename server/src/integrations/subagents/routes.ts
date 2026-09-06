@@ -30,11 +30,13 @@
  * and silently dropped it — would be the two ways of getting that wrong.
  */
 import { Hono } from "hono";
+import * as inflight from "../../chat/inflight.ts";
 import { configValue, db, now } from "../../db.ts";
 import { activeBackend } from "../../chat/backend.ts";
 import { activeProvider } from "../../models/provider.ts";
 import { kindDef, type InputSpec, type KindDef } from "../runs/kinds.ts";
 import { pump } from "../runs/executor.ts";
+import { goalBriefLine } from "../chief/goals.ts";
 import { insertRun, mintRunId, runRow, shapeRun } from "../runs/store.ts";
 import {
   ROLES,
@@ -246,15 +248,24 @@ subagentRoutes.patch("/:id", async (c) => {
 
 /* ---------------------------------------------------------- the dispatch */
 
-type DispatchBody = {
+export type DispatchBody = {
   brief?: unknown;
   parentSessionId?: unknown;
   input?: unknown;
 };
 
-/** The one place a dispatch is turned into a run, shared by both doors onto
- *  it — by id, and by venture plus role. Two doors, one set of rules. */
-function dispatch(row: SubagentRow, body: DispatchBody) {
+/**
+ * The one place a dispatch is turned into a run, shared by both doors onto
+ * it — by id, and by venture plus role. Two doors, one set of rules.
+ *
+ * EXPORTED FOR THE SCHEDULED ROUNDS, which are a third door and must not be a
+ * second set of rules. `integrations/chief/rounds.ts` calls this directly
+ * rather than POSTing to itself: a loopback request from inside a timer would
+ * work and would put an HTTP hop where a function call belongs, and an INSERT
+ * of its own would skip the switched-off check, the standing instructions and
+ * the session filing that live here.
+ */
+export function dispatch(row: SubagentRow, body: DispatchBody) {
   if (row.enabled !== 1)
     return {
       status: 409 as const,
@@ -331,7 +342,23 @@ function dispatch(row: SubagentRow, body: DispatchBody) {
     that reads as part of the brief gets answered instead of followed.
   */
   const standing = row.instructions.trim();
-  input[field.key] = standing ? `Standing instructions from the owner: ${standing}\n\n${brief}` : brief;
+  /*
+    AND THE VENTURE'S GOALS GO IN FRONT OF BOTH, for the same reason and one
+    more. The reason: a worker that does not know what the owner is trying to
+    achieve writes a competent report about the wrong thing. The extra one:
+    unlike the standing instructions, the goals are not orders to this worker —
+    they are the owner's statement of what "good" means for this business — so
+    they are labelled as goals and placed first, where they read as context
+    rather than as the task. Null when nothing has been written, and then
+    nothing is prepended: a heading with no body under it is worse than
+    silence. See integrations/chief/goals.ts.
+  */
+  const goals = goalBriefLine(row.venture_id);
+  const preface = [
+    goals ? `Context — ${goals}` : null,
+    standing ? `Standing instructions from the owner: ${standing}` : null,
+  ].filter(Boolean);
+  input[field.key] = preface.length ? `${preface.join("\n\n")}\n\n${brief}` : brief;
 
   const v = venture(row.venture_id);
   if (!v)
@@ -348,10 +375,15 @@ function dispatch(row: SubagentRow, body: DispatchBody) {
   const id = mintRunId();
   insertRun({ id, kind: def.kind, ventureId: v.id, title, input });
 
-  const parentSessionId =
+  const stated =
     typeof body.parentSessionId === "string" && body.parentSessionId.trim()
       ? body.parentSessionId.trim().slice(0, MAX_SESSION_ID)
       : null;
+  /* No parent named, one conversation being answered: it is that one. See
+     chat/inflight.ts for why the server keeps this fact rather than trusting
+     the agent to pass it. Several in flight is ambiguous and stays unfiled. */
+  const inferred = stated ? null : inflight.only();
+  const parentSessionId = stated ?? inferred;
   /* The two columns only a dispatch knows. Written here rather than through
      `insertRun`, whose signature belongs to another area — see the header. */
   db.prepare("UPDATE agent_runs SET parent_session_id = ?, subagent_id = ? WHERE id = ?").run(
@@ -364,9 +396,21 @@ function dispatch(row: SubagentRow, body: DispatchBody) {
      answers "running" instead of "queued a moment ago". A no-op when something
      else holds the slot. */
   pump();
+  /* The chat it was filed under learns at once, if it is being streamed. */
+  if (parentSessionId) {
+    const r = runRow(id)!;
+    inflight.notify(parentSessionId, { runId: id, kind: r.kind, title: r.title, status: r.status });
+  }
   return {
     status: 201 as const,
-    json: { run: shapeRun(runRow(id)!), subagent: subagentDoc(subagentRow(row.id)!) },
+    json: {
+      run: shapeRun(runRow(id)!),
+      subagent: subagentDoc(subagentRow(row.id)!),
+      /* Which it was: a parent the caller stated, one the server deduced
+         from the conversation in flight, or none. */
+      parentSessionId,
+      parentSessionInferred: inferred !== null,
+    },
   };
 }
 

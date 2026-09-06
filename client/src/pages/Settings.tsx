@@ -1,5 +1,7 @@
+import { BudgetSettings } from "@/components/settings/BudgetSettings";
+import { SetupChecklist } from "@/components/settings/SetupChecklist";
 import { useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Check, Download, Monitor, Moon, Sun, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +17,7 @@ import { Section } from "@/components/settings/Section";
 import { BackupsSettings } from "@/components/settings/BackupsSettings";
 import { CaptureSettings } from "@/components/settings/CaptureSettings";
 import { StudioSettings } from "@/components/settings/StudioSettings";
+import { SecuritySettings } from "@/areas/security/SecuritySettings";
 
 const THEMES: { id: Theme; label: string; note: string; icon: typeof Sun }[] = [
   { id: "light", label: "Light", note: "Always the paper palette", icon: Sun },
@@ -29,6 +32,7 @@ const THEMES: { id: Theme; label: string; note: string; icon: typeof Sun }[] = [
 
 export function Settings() {
   const { state, setWorkspace, importState, reset } = useStore();
+  const [query, setQuery] = useSearchParams();
   const { theme, setTheme } = useTheme();
   const fileRef = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -53,10 +57,11 @@ export function Settings() {
         setNote("That file is not a workspace export.");
         return;
       }
+      if (!window.confirm(`Replace preferences with “${parsed.workspace.name}”: ${parsed.dashboards.length} dashboards and ${parsed.sessions.length} session labels? Your current preferences will be saved for recovery. Ventures and integration connections stay in the server database.`)) return;
       importState(parsed);
-      setNote("Workspace replaced from file.");
-    } catch {
-      setNote("That file could not be read as JSON.");
+      setNote("Preferences imported. The previous version is available below.");
+    } catch (error) {
+      setNote(error instanceof SyntaxError ? "That file could not be read as JSON." : "Import could not be completed. Check browser storage space; your current preferences have been kept.");
     }
   }
 
@@ -65,10 +70,10 @@ export function Settings() {
       <TopBar label="Settings" />
       <PageShell
         title="Settings"
-        sub="Workspace, appearance, the data this browser is holding — and the three things the server does with its own disk."
+        sub="Your workspace, appearance, models, backups and security."
       >
-        <Tabs defaultValue="general">
-          <TabsList>
+        <Tabs value={query.get("tab") || "general"} onValueChange={tab => setQuery({ tab })}>
+          <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="general">General</TabsTrigger>
             {/* MODELS, AND NOT UNDER "GENERAL". Which provider completes is
                 not a preference about this browser — it is the one setting on
@@ -77,6 +82,7 @@ export function Settings() {
                 it. See ModelsSettings.tsx for why the one-click switch lives
                 in the Chat header instead and this is the page you read. */}
             <TabsTrigger value="models">Models</TabsTrigger>
+            <TabsTrigger value="budgets">Usage limits</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
             {/* THE BOX'S OWN SETTINGS, and not under Data — "Data" on this
                 page has always meant the workspace in this browser's
@@ -88,14 +94,22 @@ export function Settings() {
                 Models is server-side too and stays where it is: it is a table
                 of four providers, not a form. */}
             <TabsTrigger value="server">Server</TabsTrigger>
+            {/* SECURITY, AND IT IS NOT UNDER "SERVER". That tab is three
+                settings about what the machine does with its own disk; this
+                one is the lock on the API itself, it is OFF until a password
+                is set, and it is the page somebody looks for by name the day
+                they put this box behind a tunnel. See
+                areas/security/SecuritySettings.tsx. */}
+            <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="data">Data</TabsTrigger>
           </TabsList>
 
           {/* ---------------------------------------------------- general */}
           <TabsContent value="general" className="mt-2 divide-y">
+            <SetupChecklist />
             <Section
               title="Workspace"
-              hint="What the rail calls you, at the bottom of the sidebar."
+              hint="The name shown in your workspace."
             >
               <div className="grid max-w-[420px] gap-3 sm:grid-cols-2">
                 <div className="grid gap-1.5">
@@ -119,7 +133,7 @@ export function Settings() {
 
             <Section
               title="New chats"
-              hint="Which venture the composer starts against. Sessions are a flat list either way — this only presets the picker."
+              hint="Choose the default venture for new conversations."
             >
               <div className="flex flex-wrap gap-1.5">
                 <button
@@ -157,6 +171,7 @@ export function Settings() {
           </TabsContent>
 
           {/* ----------------------------------------------------- models */}
+          <TabsContent value="budgets"><BudgetSettings /></TabsContent>
           <TabsContent value="models" className="mt-2 divide-y">
             <ModelsSettings />
           </TabsContent>
@@ -197,7 +212,7 @@ export function Settings() {
 
             <Section
               title="Type and density"
-              hint="Fixed for now. The rail sits at 12.5px against a 14px body, which is the ratio the rest of the app is drawn to."
+              hint="The interface uses a consistent type scale and spacing."
             >
               <div className="text-muted-foreground flex flex-wrap gap-4 font-mono text-[11.5px]">
                 <span>body 14px</span>
@@ -217,11 +232,16 @@ export function Settings() {
             <StudioSettings />
           </TabsContent>
 
+          {/* --------------------------------------------------- security */}
+          <TabsContent value="security" className="mt-2 divide-y">
+            <SecuritySettings />
+          </TabsContent>
+
           {/* ------------------------------------------------------- data */}
           <TabsContent value="data" className="mt-2 divide-y">
             <Section
               title="What is stored"
-              hint="Everything lives in this browser's localStorage. Nothing is sent anywhere, and clearing site data clears all of it."
+              hint="Preferences sync to your local server and are included in backups. This browser keeps a cached copy. Ventures and connected accounts are managed separately."
             >
               <div className="flex flex-wrap gap-2">
                 {[
@@ -250,7 +270,7 @@ export function Settings() {
 
             <Section
               title="Export and import"
-              hint="A plain JSON file of the whole workspace. An import replaces what is here; a file that is not an export is refused."
+              hint="Export workspace preferences for portability. Imports replace dashboard layouts and session labels after validation and confirmation."
             >
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="outline" onClick={exportJson}>
@@ -276,7 +296,7 @@ export function Settings() {
                   }}
                 />
                 {note && (
-                  <span className="text-muted-foreground text-[12px]">
+                  <span role="status" className="text-muted-foreground text-[12px]">
                     {note}
                   </span>
                 )}
@@ -285,19 +305,32 @@ export function Settings() {
 
             <Section
               title="Reset"
-              hint="Puts the ventures, sessions and dashboards back to the starting set. There is no undo."
+              hint="Restore the default workspace name and dashboard layouts. Your ventures, chats and accounts are preserved. A recovery copy is saved first."
             >
               <div>
                 <Button
                   variant="ghost"
                   className="text-destructive hover:text-destructive hover:bg-destructive/10 -ml-3"
                   onClick={() => {
-                    reset();
-                    setNote("Workspace reset to defaults.");
+                    if (!window.confirm("Reset workspace preferences and dashboard layouts? A recovery copy will be saved first.")) return;
+                    try {
+                      reset();
+                      setNote("Workspace reset to defaults.");
+                    } catch {
+                      setNote("The recovery copy could not be saved. Free browser storage space before resetting; your preferences have been kept.");
+                    }
                   }}
                 >
                   Reset to defaults
                 </Button>
+                <Button variant="outline" onClick={() => {
+                  try {
+                    const saved = JSON.parse(localStorage.getItem("opc-workspace-recovery") || "null");
+                    if (!isStoreState(saved)) { setNote("No valid recovery copy is available."); return; }
+                    if (!window.confirm("Restore the previous preferences? The current version will become the recovery copy.")) return;
+                    importState(saved); setNote("Previous preferences restored.");
+                  } catch { setNote("The recovery copy could not be read."); }
+                }}>Restore previous preferences</Button>
               </div>
             </Section>
           </TabsContent>

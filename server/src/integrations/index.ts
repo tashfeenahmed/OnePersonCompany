@@ -10,8 +10,16 @@ import { manifest as signals } from "./signals/manifest.ts";
 import { manifest as ventures } from "./ventures/manifest.ts";
 import { manifest as runs } from "./runs/manifest.ts";
 import { manifest as subagents } from "./subagents/manifest.ts";
+import { manifest as chief } from "./chief/manifest.ts";
+import { manifest as mailflow } from "./mailflow/manifest.ts";
+import { manifest as activity } from "./activity/manifest.ts";
+import { manifest as proactive } from "./proactive/manifest.ts";
+import { manifest as people } from "./people/manifest.ts";
+import { manifest as security } from "./security/manifest.ts";
+import { manifest as video } from "./video/manifest.ts";
+import { manifest as growth } from "./growth/manifest.ts";
 
-export const MANIFESTS: IntegrationManifest[] = [analytics, ops, signals, ventures, runs, subagents];
+export const MANIFESTS: IntegrationManifest[] = [analytics, ops, signals, ventures, runs, subagents, chief, mailflow, activity, proactive, people, security, video, growth];
 
 export function manifestPlugins(): Record<string, PluginRegistryEntry> {
   return Object.assign({}, ...MANIFESTS.map((m) => m.plugins ?? {}));

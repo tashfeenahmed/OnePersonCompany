@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { budgets, budgeted, runContext } from "../runtime/budgets.ts";
 /**
  * MODEL PROVIDERS — where the completions actually come from, and how many at
  * once.
@@ -285,6 +287,11 @@ export function forgetDiscovered(baseUrl: string) {
  * reading the same endpoint agree about what it said.
  */
 export async function complete(turns: WireTurn[], opts: CompleteOptions = {}): Promise<ProviderReply> {
+  const work = () => budgeted({ turns, model: opts.model, provider: activeProvider()?.id }, maxOutputTokens => completeUnmetered(turns, opts, maxOutputTokens));
+  if (runContext.getStore()) return work();
+  return runContext.run({ id: `direct:${randomUUID()}`, venture: null, automation: true, signal: opts.signal ?? AbortSignal.timeout(budgets().runSeconds * 1000), sequence: 0, resume: false }, work);
+}
+async function completeUnmetered(turns: WireTurn[], opts: CompleteOptions, maxOutputTokens?: number): Promise<ProviderReply> {
   const p = activeProvider();
   if (!p) throw new NoProviderError();
   if (!p.endpoints.length) throw new Error(`${p.label} has no endpoint configured.`);
@@ -292,6 +299,7 @@ export async function complete(turns: WireTurn[], opts: CompleteOptions = {}): P
   const { endpoint, release, queuedMs } = await acquire(p);
   const started = Date.now();
   try {
+    (opts.signal ?? runContext.getStore()?.signal)?.throwIfAborted();
     const model = await modelFor(p, endpoint, opts.model);
     const doc = await chatCompletion({
       base: endpoint.baseUrl,
@@ -300,7 +308,8 @@ export async function complete(turns: WireTurn[], opts: CompleteOptions = {}): P
       turns,
       service: `${p.label} (${endpoint.label})`,
       timeoutMs: p.policy.timeoutMs,
-      signal: opts.signal,
+      signal: opts.signal ?? runContext.getStore()?.signal,
+      body: maxOutputTokens ? { max_tokens: maxOutputTokens } : undefined,
     });
     const text = readText(doc);
     if (text === null) throw new Error(`${p.label} answered with no text.`);

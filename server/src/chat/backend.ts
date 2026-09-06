@@ -216,6 +216,8 @@ const adapters = new Map<ChatBackendId, () => ChatBackend | null>();
  * `activeBackend()` so a rotated key or a changed URL is picked up without a
  * restart. The factory returns null when its plugin is not connected.
  */
+import * as inflight from "./inflight.ts";
+
 export function registerBackend(id: ChatBackendId, make: () => ChatBackend | null) {
   adapters.set(id, make);
 }
@@ -257,7 +259,14 @@ export function backends(): { id: ChatBackendId; connected: boolean; label: stri
 export async function ask(turns: ChatTurn[], opts?: AskOptions): Promise<ChatReply> {
   const backend = activeBackend();
   if (!backend) throw new NoBackendError();
-  return backend.ask(turns, opts);
+  /* Registered for the length of the answer — see chat/inflight.ts — so a
+     sub-agent dispatched from inside it is filed under this conversation. */
+  const end = inflight.begin(opts?.sessionId);
+  try {
+    return await backend.ask(turns, opts);
+  } finally {
+    end();
+  }
 }
 
 export class NoBackendError extends Error {

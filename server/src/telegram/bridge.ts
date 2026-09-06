@@ -72,7 +72,13 @@ import * as telegram from "../providers/telegram.ts";
   below exactly as it was for a photo or a sticker.
 */
 import { hearVoice, shouldSpeakBack, speakBack } from "../integrations/signals/voice/telegram.ts";
+/* The proactive area's two commands, for the reason the voice hook above is an
+   import rather than code: the copy belongs with the feature. Both are
+   best-effort and neither throws — every path in them ends in a sentence. */
+import { alertsText, briefingText } from "../integrations/proactive/telegram.ts";
 import { escapeHtml, type TelegramUpdate } from "../providers/telegram.ts";
+import { plainRich } from "../skills/present.ts";
+import { composeTurns } from "../routes/chat.ts";
 
 export const PLUGIN = "telegram";
 
@@ -232,6 +238,10 @@ export type Outcome = {
 const COMMANDS = [
   { command: "start", description: "What this bridge is, and whether an agent is live" },
   { command: "status", description: "Bot, paired chat, message counts, agent" },
+  /* The proactive area's two. Their copy lives with the feature, in
+     integrations/proactive/telegram.ts — see that file's header. */
+  { command: "briefing", description: "Today's briefing, built now if it does not exist yet" },
+  { command: "alerts", description: "Alert events that are still open" },
 ];
 
 export { COMMANDS };
@@ -427,6 +437,21 @@ export async function handleUpdate(
     writeTelegramReply(ctx.accountId);
     return { action: "explained", reason: "status", replied: true, chatId };
   }
+  /* Two questions about this box's own data rather than about the bridge, so
+     they are intercepted for the same reason /status is: the agent knows
+     nothing about the briefing schedule or the alert ledger. Plain text, not
+     HTML — the briefing is prose a model wrote and a stray "<" in it would be
+     a Telegram parse error. */
+  if (command === "/briefing") {
+    await wire.send(chatId, await briefingText());
+    writeTelegramReply(ctx.accountId);
+    return { action: "explained", reason: "briefing", replied: true, chatId };
+  }
+  if (command === "/alerts") {
+    await wire.send(chatId, alertsText());
+    writeTelegramReply(ctx.accountId);
+    return { action: "explained", reason: "alerts", replied: true, chatId };
+  }
 
   /*
     ANY OTHER SLASH COMMAND GOES TO THE AGENT rather than being refused. This
@@ -480,10 +505,19 @@ async function answer(
   spoken = false,
 ) {
   const session = sessionFor(chatId);
-  const turns: ChatTurn[] = [
-    ...chatMessages(session, HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content })),
-    { role: "user" as const, content: text },
-  ];
+  /* The same context the Chat page gives the agent — the venture roster, the
+     session id for dispatches, the skills preamble where it applies — so the
+     agent on the phone is the agent on the page. A Telegram session is never
+     scoped to one venture, which is exactly the case the roster exists for. */
+  const turns: ChatTurn[] = composeTurns(
+    [
+      ...chatMessages(session, HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content })),
+      { role: "user" as const, content: text },
+    ],
+    session,
+    null,
+    activeBackend(),
+  );
 
   await wire.typing(chatId);
 
@@ -513,7 +547,10 @@ async function answer(
     return;
   }
 
-  await wire.send(chatId, body);
+  /* A chart is a fenced block the chat page draws; here it is its figures
+     as lines of text. The transcript below keeps the block as written, so the
+     Chat page still draws it when the same session is opened there. */
+  await wire.send(chatId, plainRich(body));
   /*
     Both halves of the exchange, into the transcript the Chat page shares —
     the assistant row carrying WHICH agent answered and what the turn cost,

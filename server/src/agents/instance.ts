@@ -104,6 +104,7 @@ import * as openclawAdapter from "../providers/openclaw.ts";
   disk before a child is spawned.
 */
 import { liveFingerprint, syncHermesSkills } from "../skills/hermes.ts";
+import { installCli } from "../skills/cli.ts";
 import { mcpCommandFor } from "../skills/spawn.ts";
 import { skills } from "../skills/registry.ts";
 
@@ -203,10 +204,15 @@ const SPECS: Record<AgentId, Spec> = {
       /* The installer writes a two-line bash wrapper that execs the venv's own
          python with absolute paths, so this needs no PATH of its own to find
          the interpreter — but the agent shells out for its tools, so it gets
-         one anyway. */
+         one anyway, and it STARTS with this app's own bin: that is where `opc`
+         lives (skills/cli.ts), and the terminal tool inherits the gateway's
+         PATH, so this line is what makes `opc` a word the agent can type. */
       file: join(spec.home, ".local", "bin", "hermes"),
       args: ["gateway", "run"],
-      env: { HERMES_HOME: hermesHome(spec) },
+      env: {
+        HERMES_HOME: hermesHome(spec),
+        PATH: `${cliBinDir(spec)}:${process.env.PATH ?? "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}`,
+      },
     }),
     probe: async (spec, key) => {
       try {
@@ -270,6 +276,13 @@ const SPECS: Record<AgentId, Spec> = {
  *  and which every later command has to be handed explicitly. */
 function hermesHome(spec: Spec) {
   return join(spec.home, ".hermes");
+}
+
+/** Where this app puts the commands it gives an agent — `opc`, today. Under
+ *  the agent's root rather than its home, because the home is the installer's
+ *  and this directory is ours. */
+function cliBinDir(spec: Spec) {
+  return join(spec.root, "bin");
 }
 
 export function spec(id: AgentId): Spec {
@@ -867,24 +880,18 @@ function configureHermes(s: Spec, pl: Plan) {
   mkdirSync(dir, { recursive: true });
 
   /*
-    THE MCP SERVER, REGISTERED ALONGSIDE THE SKILL PACKS RATHER THAN INSTEAD
-    OF THEM.
+    ONE DOOR, AND IT IS THE TERMINAL.
 
-    `mcp_servers` is the block Hermes' own cli-config.yaml.example documents
-    (command / args / env for an stdio server), and `hermes mcp add` writes the
-    same shape — so this is the config door rather than a shell-out to a CLI
-    that would want a TTY for its hook prompt.
-
-    BOTH DOORS, AND THAT IS NOT BELT AND BRACES. They are read at different
-    moments and neither covers the other's case. The packs are what the agent
-    SEES: one line each in its system prompt, which is how it knows this data
-    exists at all. The MCP tools are what a model with no terminal — or one
-    that would rather call a typed tool than compose a curl — actually invokes.
-    A pack that says "curl this" still works when the MCP subprocess is down,
-    and the tools still work in a session where the agent never read a pack.
-    The one thing that must not differ between them is the honesty rules, which
-    is why both are rendered from the same registry and neither restates a rule
-    in its own words.
+    This used to register one MCP server per integration here as well, on the
+    argument that a model with no terminal needs a typed tool. Hermes has a
+    terminal, always, and the tools it was given turned out to be the worse of
+    the two doors: a subprocess per integration to keep alive, a tool list the
+    gateway caches for the life of the process, and a second vocabulary
+    (`opc_stripe`) beside the one in the packs (`stripe`). So the packs now say
+    `opc stripe --days 30` and nothing else, the wrapper below is what makes
+    that a command, and `mcp_servers` is not written. The MCP server itself
+    still exists — OpenClaw has no terminal and is configured with it — but
+    for Hermes the terminal is the tool.
   */
   const yaml = [
     "# Written by the dashboard, whole, on every configure. Hermes' own",
@@ -897,21 +904,9 @@ function configureHermes(s: Spec, pl: Plan) {
     ...(pl.key ? [`  api_key: ${JSON.stringify(pl.key)}`] : []),
     `  default: ${JSON.stringify(pl.model)}`,
     "",
-    "# This dashboard's own data, as MCP tools — ONE SERVER PER INTEGRATION, so",
-    "# Stripe, Hetzner, Domains… each appear as their own entry in the tool list",
-    "# rather than one server called One Person Company. The skill packs under",
-    "# skills/opc/ are the other half and say the same things in prose.",
-    "mcp_servers:",
-    ...skills().flatMap((sk) => {
-      const m = mcpCommandFor(sk.id);
-      return [
-        `  opc-${sk.id}:`,
-        `    command: ${JSON.stringify(m.command)}`,
-        `    args: [${m.args.map((a) => JSON.stringify(a)).join(", ")}]`,
-        "    env:",
-        ...Object.entries(m.env).map(([k, v]) => `      ${k}: ${JSON.stringify(v)}`),
-      ];
-    }),
+    "# This dashboard's own data reaches the agent through the `opc` command on",
+    "# the terminal's PATH and the skill packs under skills/ that teach it. No",
+    "# mcp_servers block, on purpose: the terminal is the tool.",
     "",
   ].join("\n");
   const config = join(dir, "config.yaml");
@@ -947,7 +942,10 @@ function configureHermes(s: Spec, pl: Plan) {
     leaves every mtime alone — see the watcher at the bottom of this file for
     why that matters.
   */
-  const sync = syncHermesSkills(join(dir, "skills"));
+  const cli = installCli(cliBinDir(s));
+  if (cli.changed) logger(s)(`cli: wrote ${cli.path}`);
+
+  const sync = syncHermesSkills(join(dir, "skills"), { cli: cli.path });
   if (sync.changed)
     logger(s)(
       `skills: ${sync.written.length} written, ${sync.removed.length} removed` +
@@ -1722,7 +1720,9 @@ function watchSkills() {
       const r = RUNTIME.hermes;
       if (!r.installed) return;
       const log = logger(s);
-      const sync = syncHermesSkills(join(hermesHome(s), "skills"));
+      const sync = syncHermesSkills(join(hermesHome(s), "skills"), {
+        cli: join(cliBinDir(s), "opc"),
+      });
       if (!sync.changed) return;
       log(
         `skills: the connected set changed — ${sync.written.length} written, ` +

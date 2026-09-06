@@ -47,11 +47,15 @@ export function RunReport({
   run,
   onCancel,
   onDelete,
+  onRetry,
+  onResume,
   busy,
 }: {
   run: RunDetail;
   onCancel: () => void;
   onDelete: () => void;
+  onRetry?: () => void;
+  onResume?: () => void;
   busy: boolean;
 }) {
   /* Parsed on the text, so a partial report reparses at most as often as it
@@ -78,6 +82,8 @@ export function RunReport({
         </span>
 
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          {!live && onRetry && <button className="rounded border px-2 py-1 text-xs" disabled={busy} onClick={onRetry}>Retry saved inputs</button>}
+          {run.canResume && onResume && <button className="rounded border px-2 py-1 text-xs" disabled={busy} onClick={onResume}>Resume checkpoints</button>}
           {live && (
             <button
               onClick={onCancel}

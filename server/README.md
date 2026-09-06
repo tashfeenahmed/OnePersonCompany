@@ -1,5 +1,7 @@
 # server
 
+Start with the [root README](../README.md) for current setup, production startup, recovery and job controls. The [fix matrix](../FIX_PROGRESS.md) records the September 2026 review changes.
+
 The half of the app that is allowed to hold a credential. TypeScript on Node 24,
 run directly with `--experimental-strip-types` — no build step, no bundler.
 
@@ -2622,9 +2624,74 @@ agent cannot write to the board through here" is a property of the code rather
 than a promise in a comment — the same claim `providers/stripe.ts` makes about
 its own outbound half.
 
+### The `opc` command
+
+`src/cli/opc.ts` is the door for an agent with a terminal, which is to say for
+Hermes. Zero dependencies, a client of `/api/skills`, no registry and no
+database handle of its own:
+
+```
+opc                          what is connected, one line each — and what is not
+opc help <id>                one skill: its views, its actions, their flags, its rules
+opc <id> [view] [--p v …]    read a document (a GET; changes nothing)
+opc <id> <action> --p v …    change something (a POST; only what the skill allows)
+opc present                  how to draw cards, charts and tables in the chat
+```
+
+**The word after the id is looked up, never guessed.** A view key is a read,
+an action key is a write, and anything else is refused with the list of both —
+because an agent that typed `opc board create_card` and had it treated as a
+read would believe it wrote something. A flag the skill does not have is
+refused rather than dropped, for the proxy's reason. A parameter the catalog
+calls a number goes out as a number. The document comes back **verbatim,
+status code and all**, indented unless `--raw`; an error lands on stderr with
+exit code 2, a usage mistake with exit code 1.
+
+**Why a command rather than a tool.** The packs used to say `curl -s
+"http://127.0.0.1:8787/api/skills/stripe?days=30"` and `config.yaml` registered
+one MCP subprocess per integration beside them. Both put a second thing between
+the agent and the figure: a URL to assemble and a base to misquote, or a child
+process to keep alive and a tool list the gateway caches for the life of the
+process, under a second vocabulary (`opc_stripe`) beside the packs' own
+(`stripe`). A terminal is for commands. `opc stripe --days 30` is the one token
+the pack showed, the shell finds it, and the error when it is wrong is a
+sentence.
+
+`skills/cli.ts` writes the two-line wrapper that makes it a word:
+`data/hermes/bin/opc`, which execs this process's own `node` on the script with
+`OPC_API` set — and `agents/instance.ts` starts the gateway's `PATH` with that
+directory. Hermes' terminal tool inherits the gateway's environment (its
+`local.py` rewrites `PATH` only to prepend its own install dir), so the agent
+types `opc` and gets this. Every pack also names the absolute path, for a shell
+that somehow cannot.
+
+### Rich answers: cards, charts, bars, meters and tables
+
+An answer that carries figures can draw them. The chat page renders five
+fenced blocks — ```` ```cards ````, ```` ```chart ````, ```` ```bars ````,
+```` ```meters ````, ```` ```table ```` — each holding one JSON object, as live
+widgets; everywhere else they are the fenced code they look like. The contract
+is `src/skills/present.ts`, one text served through three doors so the agent
+learns one syntax: the `rich-answers` Hermes pack (always present — there is no
+plugin whose absence makes a chart wrong), the tail of the remote preamble,
+and `opc present`. The client half is `client/src/components/RichBlock.tsx`,
+which parses exactly what the guide promises and **falls back to a code block
+when the JSON does not parse** — the normal case mid-stream, and the honest
+case when the agent got a comma wrong.
+
+The guide picks the form by the data's job (headline figures → cards, over
+time → chart, categories → bars, against a limit → meters, many rows → table)
+and repeats the honesty rules a widget makes easy to break: every number from
+a document read this turn, the title names the window and the unit, one
+currency per block, nothing de-duplicated is summed, `null` is left out and
+never drawn as zero, at most three blocks. The Telegram bridge sends
+`plainRich(text)` — each block as lines of its figures — and stores the answer
+as written, so the same session opened on the Chat page draws it.
+
 ### The MCP server
 
-`src/skills/mcp.ts` is a **zero-dependency stdio JSON-RPC 2.0 server**:
+`src/skills/mcp.ts` is OpenClaw's door, and no longer Hermes' — see above. A
+**zero-dependency stdio JSON-RPC 2.0 server**:
 `initialize`, `ping`, `tools/list`, `tools/call`. One tool per connected skill,
 named `opc_<id>`, with an input schema built from the route's parameters and
 **the honesty rules in the tool description** — which is the only text an MCP
@@ -2665,22 +2732,20 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
 
 ### What is installed where
 
-**Hermes gets both doors.** `configureHermes` writes one `SKILL.md` per
-connected integration into `$HERMES_HOME/skills/opc/opc-<id>/SKILL.md` and
-registers the MCP server under `mcp_servers.opc` in the same `config.yaml` it
-already writes whole. That is not belt and braces: the packs are what the agent
-**sees** — one line each in its system prompt, which is how it knows the data
-exists at all — and the MCP tools are what a model with no terminal actually
-**invokes**. Both are rendered from the same registry, so neither restates a
-rule in its own words.
+**Hermes gets the command and the packs.** `configureHermes` writes the `opc`
+wrapper, then one `SKILL.md` per connected integration plus `rich-answers`,
+filed by subject (`finance/stripe-revenue`, `infrastructure/hetzner-fleet`,
+`communication/rich-answers`) beside Hermes' own skills, each carrying a
+`.opc-generated` marker so the prune can tell ours from anyone else's. The
+packs are what the agent **sees** — one line each in its system prompt, which is
+how it knows the data exists at all — and every one says `opc <id> …` and
+nothing else. `config.yaml` carries no `mcp_servers` block, on purpose.
 
-The names carry an `opc-` prefix and the directory name equals the frontmatter
-name, and both of those were forced. Hermes ships fifty-seven bundled skills and
-one of them is called `github`; a second `github` is not a warning here, it is
-`_locate_skill` refusing to guess — "Ambiguous skill name: 2 skills match" —
-which would stop **both** from loading by name. And Hermes' index renders
-`frontmatter.name` while its lookup collects candidates by **directory** name,
-so setting them differently shows the agent a name it cannot then load.
+The `github` pack keeps a suffix (`github-traffic`) because Hermes ships a
+bundled skill of that name and `_locate_skill` refuses an ambiguous one —
+"Ambiguous skill name: 2 skills match" — which would stop **both** from loading.
+Hermes' index renders `frontmatter.name` while its lookup collects candidates by
+**directory** name, so the two are always equal.
 
 **OpenClaw gets only the MCP server, because it has only one door.** Probed
 against `openclaw config schema`: there is no key for a skills directory and no
@@ -2692,10 +2757,63 @@ is `alsoAllow` rather than `allow` because the two cannot both be set in one
 scope and `allow` replaces the built-in tool set: the agent would gain this
 dashboard and lose its shell.
 
+**A conversation with no venture selected gets the roster.** The first
+question in a session — "can you run academic research for overbrilliant?" —
+was asked with no venture selected, and the agent, which knew of a pack called
+`ventures` it had not opened, asked what Overbrilliant was. So `withVenture`
+now gives an unscoped conversation with a live agent one line per venture:
+name, slug, stage and host, twenty short lines, plus the one command that
+reads any of them in full. A business's name is then a word the agent
+recognises. The Telegram bridge composes its turns through the same
+`composeTurns` as the web routes, so the agent on the phone is the agent on
+the page.
+
+**Documents are sized for a terminal.** The `ventures` default view is
+`/api/ventures?brief=1` — the list without the brand blobs, 7 KB rather than
+135 KB — because Hermes' terminal tool truncates long output and an agent that
+read the first dozen ventures reported the rest as not existing. A view path
+may carry a fixed query of its own; the caller's parameters are appended after
+it. `opc` prints a note on stderr for any document past 24 KB, naming the way
+out (`--raw | jq`), and never calls `process.exit` after writing — on macOS a
+piped stdout is asynchronous and an exit right after a write dropped everything
+past 64 KB, which is how a 135 KB document ended mid-string at exactly 65,536
+bytes. `ventures one --key` also accepts the name or the host, case
+insensitively, so "Overbrilliant" is an address and not a slug to guess at.
+
+**A dispatch files itself under the conversation that made it.** The
+sub-agents skill takes a `parentSessionId`, the system turn names the id, and
+the agent — asked to research a venture — wrote "Parent session: s-0jk8q6"
+INTO THE BRIEF and dispatched without the flag. The run then appeared nowhere
+near the chat. So `chat/inflight.ts` keeps the fact the agent kept dropping:
+every chat turn registers its session for as long as the backend is answering
+it (the `ask` wrapper and the stream route), a run's own `run:<id>` turns are
+excluded, and a dispatch with no parent while exactly one conversation is in
+flight is filed under it — reported as `parentSessionInferred: true`. The
+explicit flag still wins, and the pack's example now carries it (`exampled`
+on the parameter). The same run failed a second later for a second reason:
+the Paper Writer's brief is its literature-search query, and a paragraph of
+instructions returns no papers. The pack says so now, and `searchSubject` in
+the executor condenses a long brief to a phrase before the scout, naming the
+phrase on the step.
+
+**A dispatch shows in the rail at once, and its result comes back to the
+chat.** Two more things the owner asked for after the first paper. While an
+answer is streaming, a run filed under its session is pushed down the same
+stream as a `child` event (`inflight.notify`, subscribed per session in the
+stream route), and the page re-reads the rail on it rather than when the turn
+ends. When a run with a parent finishes — done, failed or cancelled —
+`reportToParent` in `runs/executor.ts` writes one assistant turn into that
+session on channel `run`: what finished and how long it took, the report's
+opening from its first section heading, a link to the run page, and for a
+paper its title, thesis, PDF and Typst source. The page polls the rail every
+five seconds while any child is live and re-reads the open transcript when
+that chat's live children shrink, which is the moment the report has landed.
+
 **A remote agent gets the preamble instead.** When the live backend's mode is
-`remote`, `routes/chat.ts` prepends `GET /api/skills/prompt` as a system turn.
-A managed agent gets nothing of the kind, and the asymmetry is deliberate: it
-already has the packs and the tools, both carrying the full rules, and putting a
+`remote`, `routes/chat.ts` prepends `GET /api/skills/prompt` as a system turn —
+the HTTP shape, since a pasted remote agent has no `opc`, with the rich-answer
+syntax at its tail. A managed agent gets nothing of the kind, and the asymmetry
+is deliberate: it already has the packs, carrying the full rules, and putting a
 summary in front of it as well is two sets of instructions about one subject.
 The failure mode of that is not redundancy — it is a model reading the short
 one, deciding it now knows how to fetch Stripe, never loading the pack, and
@@ -2723,9 +2841,9 @@ integrations and silently miss the three whose connection is a setting.
 App Store credential invites the agent to report a revenue of zero for an
 integration nobody set up, which is the single worst failure this feature can
 have, because it looks exactly like an answer. The sync deletes packs whose
-integration has gone — and only ever directories under `skills/opc/` whose name
-starts with `opc-`, so the fifty-seven bundled skills and anything the agent
-wrote for itself are untouched.
+integration has gone — and only ever directories carrying the `.opc-generated`
+marker, so the fifty-seven bundled skills and anything the agent wrote for
+itself are untouched.
 
 **A running Hermes does need a restart when the SET changes, and this was
 measured rather than assumed.** Hermes builds the `## Skills` block of its
@@ -2747,21 +2865,27 @@ every `tools/list`.
 
 ### What it answered
 
-Asked through `POST /api/chat/stream` on a fresh session — *"What is my Stripe
-MRR right now, and how many servers am I running? Use your skills."* — the live
-Hermes called `skill_view(opc-stripe)`, `skill_view(opc-hetzner)`, then
-`curl -s "http://127.0.0.1:8787/api/skills/stripe?days=30"` and one more, and
-answered:
+Asked through `POST /api/chat` on a fresh session — *"Run `opc costs --days 7`
+in your terminal and show me the USD and EUR totals as a cards block, then list
+the OpenRouter spend by model as a bars block."* — the live Hermes ran the
+command in its terminal and answered in 22 seconds with two blocks the page
+draws:
 
-> Stripe MRR is $795.21 USD (368 active subscriptions, annual plans counted as a
-> twelfth per month, net of recurring coupons; trials and one-offs excluded).
+> Total LLM spend across OpenAI and OpenRouter for the last 7 days, with the EUR
+> figure from Hetzner unavailable in this output.
 >
-> You are running 7 servers on Hetzner (all 7 running), costing €63.47/month net
-> of VAT (€59.63 for servers, €3.83 for one volume). Last seen
-> 2026-09-05T07:40:45Z.
+> ```cards
+> {"title": "LLM spend, last 7 days (USD and EUR)", "cards": [{"label": "USD total", "value": 28.15, "unit": "USD", "note": "OpenAI $7.82 + OpenRouter $20.33; Replicate cost unavailable"}, {"label": "EUR total", "value": "n/a", "note": "Hetzner section not returned by opc"}]}
+> ```
+>
+> ```bars
+> {"title": "OpenRouter spend by model, last 7 days (USD)", "unit": "USD", "bars": [{"label": "openai/gpt-4.1-mini", "value": 13.8469}, {"label": "google/gemini-3.7-flash", "value": 3.3069}, …]}
+> ```
 
-Both figures are real, and every qualifier in that reply came out of a rule in
-the registry rather than out of the model.
+Every figure is from the document, the window and the currency are in each
+title, the missing EUR figure is a note rather than a zero, and the summed USD
+is one currency — the rules, kept, by a model that read them in a pack and
+typed one command.
 
 ## LinkedIn and TikTok are registered, unset, and not built
 
@@ -2778,6 +2902,1250 @@ as the page's admin, and on the other side of it there is no read surface worth
 collecting. A registry entry would mean either a `verify` that cannot be
 exercised — storing a credential unchecked, which is the one thing the closed
 registry exists to prevent — or a stub that lies about having tried.
+
+## Activity: who signed up, what happened, and what is on the floor
+
+Three things in one area — `server/src/integrations/activity/` — because they
+are one question asked at three distances. **Users** asks the products
+themselves who is using them. **Activity** merges every source already being
+collected into one timeline. **Today** asks the Stripe tables what was tried
+and not collected. They share a page at `/activity` with a tab each, and they
+are three skills rather than one because their honesty rules are different: a
+population's trap is double counting a window, a timeline's is quoting an
+invented moment, and money's is a total that spans two units.
+
+### Users: the one population no vendor can be asked about
+
+Stripe knows who paid and Umami knows who visited. Neither knows who **signed
+up**, because a signup happens inside an application and no third party is told
+about it. So the application publishes it, at a URL, and this reads it — one
+account per product, the account's label being the product's name, exactly the
+shape `product-stats` has one integration over and for the same reason.
+
+**The contract has two forms, and the second one is the point.**
+
+```
+{ "users": [ { "id": "u_1", "createdAt": "2026-08-01T09:00:00Z",
+               "email": "…", "plan": "pro", "paid": true,
+               "lastSeenAt": "…", "country": "IE" } ],
+  "total": 4873, "generatedAt": "…" }
+```
+
+```
+{ "counts": { "total": 158, "new": { "days": 7, "n": 12 } }, "generatedAt": "…" }
+```
+
+`{"users": []}` is a product saying it has no users. `{"counts": {"total":
+158}}` is a product saying it has 158 and cannot name them. Those are opposite
+facts, and a schema that could only express the first would have made the
+second invisible — which is the mistake workdash's users page was built around
+avoiding, where counting one product's local table would have reported **1
+user** for what was its largest customer base.
+
+**Addresses are hashed and the salt is per install.** `activity_users` stores
+`sha256(salt + ":" + lowercased address)` and the mail domain, and nothing
+else about the address. The domain is in the clear because "gmail.com"
+identifies nobody and is the one part worth a chart; the hash exists for
+identity across collections and for nothing else. The salt lives in
+`activity_salt` rather than in `plugin_config` for one reason: `plugin_config`
+is read back by a route, so a salt kept there would be published to the browser
+beside the settings it sat with. **There is no route, no filter and no query
+parameter here that takes an address** — `q` on the list matches the product's
+own id, the plan, the country and the domain, and a lookup by address is the
+capability being declined rather than a feature not yet written.
+
+**A document that fails validation changes nothing.** The rows the last good
+one produced stay exactly as they were, dated, beside a sentence naming the
+field that is wrong. A product ships a bad deploy more often than it deletes
+its users, and a collector that let a malformed document truncate the table
+would turn one bad minute into a page with nobody on it. **One bad row in four
+thousand is skipped rather than fatal**, because refusing the lot would lose
+3,999 good ones over one typo — the document is accepted with `problems` on it,
+and the difference between "some rows skipped" and "the whole document refused"
+is `reachable`.
+
+**Every problem is its own sentence and names the field.** Verification at
+connect time runs the same validator, which is the one moment the owner is
+standing at the form with the endpoint's code open. Against a deliberately
+broken document:
+
+```
+$ curl -XPOST .../api/plugins/users/accounts -d '{"fields":{"url":".../broken.json"}}'
+{"error":"It answered and the shape is right, but: total is \"lots\", which is
+ not a count. Leave it out rather than send a string. users[0].createdAt is
+ missing, which is not an ISO 8601 timestamp — \"2026-08-01T09:00:00Z\" or
+ \"2026-08-01\". users[2] is \"nope\", and every item of users has to be an
+ object.", "verified": false}
+```
+
+**`total` from the product beats a count of the rows held here**, which is a
+floor: nothing in `activity_users` is ever deleted and no endpoint promises to
+list everybody. Where the two disagree `partialList` is true and both are on
+the wire — "137 users by the product's own count · 120 of them listed here" —
+rather than the smaller figure being reported as if the base had shrunk.
+
+**`new7d` and `new30d` are never summed.** The seven is inside the thirty. A
+counts-only product has **null** for both, because it publishes no rows to
+bucket, and its own window travels separately in `newWindow` with the number of
+days it chose. `summary.windowsMissing` says how many products are absent from
+the portfolio windows for that reason — absent, not zero.
+
+**`paid` is three-valued.** A product that does not publish the field has an
+unknown paid count and `paidUnknown` says how many, so nothing divides by a
+denominator that is partly guesswork.
+
+Tables: `activity_users` (one row per person per product, upserted, never
+deleted), `activity_user_days` (signups per day from the rows, rebuilt on every
+collection; `total` instead for a counts-only product, which has no rows —
+`source` says which kind of row it is and the two columns are never added),
+`activity_user_docs` (the last document with every address stripped out before
+storage, plus `problems`), `activity_salt`.
+
+Routes: `GET /api/users`, `GET /api/users/:product` (filtered and paged; **409**
+for a counts-only product, which has no list), `GET /api/users/:product/document`,
+`GET /api/users/entities`. The venture a product belongs to is resolved three
+ways in order — the `ventures` setting (a decision), a `venture_links` row (the
+same decision made on the map), then the endpoint's hostname against the
+ventures' own (a guess, reported as `matchedBy: "host"`).
+
+### Activity: the one surface on the time axis
+
+Every other page here is a set of current readings. `/activity` is a list of
+things that happened, merged from six sources already being collected, written
+into `activity_events` by a pass on the collectors' cadence. It is a pass and
+not an integration: it owns no credential, no account and no collector, and
+every row it writes is derived from a table something else filled.
+
+**Half of these timestamps are the source's own and half are computed, and every
+event says which.** `exact: true` is a moment the source published — a signup's
+`createdAt`, a run's `finished_at`, a card's `done_at`, GitHub's `pushed_at`,
+an alert's own stamp. `exact: false` is a source that publishes a **UTC day**:
+`stripe_charge_days` and `stripe_ledger_days` are one row per day per currency,
+so the best that can be said of a refund is which day it settled on. Those
+carry a ts at the start of their day and the page prints "Sep 3 · day" where an
+exact event gets a clock. **Nothing fabricates a timestamp**: an
+active-subscription count going up is real and is not here, because Stripe
+reports it as a level and the moment it moved was never recorded.
+
+**The dedupe key is the primary key**, so the pass is idempotent by
+construction: it re-derives its window every time and inserts what is not
+already there. A Stripe day that is later revised — a refund landing in
+September against a July charge — updates that day's event in place. The day is
+the event and there is one of it.
+
+**Charge, refund, dispute and `payment_failed` events have no venture and cannot
+get one.** Stripe's day tables are per account and per currency, not per
+product. `?venture=` therefore excludes every one of them, and the document says
+so in `filter.note` rather than leaving a filtered feed looking broken.
+
+**A `payment_failed` event counts declines only.** Radar blocks travel in the
+detail beside it and are never added to it — a block is card testing stopped
+before a bank saw it, which is the system working.
+
+**The day counts are counts of events, never of money.** Four refunds is four
+bars' worth whether they were four dollars or four thousand; a chart that scaled
+with currency would be a revenue chart with the currencies added together.
+
+**The alerts source is optional and reads a table it does not own.**
+`alert_events` may not exist; if it does, its columns are read off
+`sqlite_master` and mapped by the names actually present. If no timestamp or
+title column can be found the source is skipped **with a note saying so**,
+because guessing which column is the time is how invented moments get onto a
+timeline.
+
+A first pass only derives back `WINDOW_DAYS` (90). That is not retention —
+events already written are kept — it is the boundary on what a first run may
+create, so the first collection of a product with five years of users does not
+put five thousand signups on the feed at once.
+
+Route: `GET /api/activity?days=&venture=&kind=&limit=`, plus
+`POST /api/activity/refresh`, which is the page's Collect button for a
+derivation whose collector is not a plugin.
+
+### Today: money on the floor, with the arithmetic printed under it
+
+Computed from the Stripe tables on every read and **stored nowhere**, for the
+reason the uptime route computes availability on read: a stored "money on the
+floor: $9,271" is wrong ten minutes later and badly wrong after a week of failed
+collections, which is the week somebody looks at it.
+
+Every bucket carries the sentence that produced it — which table, which columns,
+which window — because a figure like this gets quoted, and a quoted figure whose
+derivation lives only in a server file is one nobody can check.
+
+Four rules decide every figure:
+
+- **Per currency, and no blended total.** `combined` is null at both levels.
+- **Attempts are not settlement.** Declines come from `stripe_charge_days`,
+  which is attempts; refunds and disputes from `stripe_ledger_days`, which is
+  money that moved. They are dated differently and no total spans them.
+- **Declined and blocked are never added.** On this account over 30 days that is
+  112 declines against 125 Radar blocks; reporting 240 as a payment failure rate
+  would be an alarm about card testing rather than about the business.
+- **A window figure and a per-month rate are not summed.** `totals.window` is
+  money that left in the window (refunds + disputes + dispute fees, all from the
+  ledger). `totals.perMonth` is past-due MRR plus the recurring coupon discount
+  — dollars per month for as long as they last. Two numbers, with their units.
+
+**Two buckets carry `amount: null` and it is not zero.** A decline has no amount
+because the charge-day table records attempts as counts; an abandoned checkout
+has none because nothing was ever invoiced. While `noAmount` is non-empty every
+total is a floor, and the page draws an em dash where a `$0` would have read as
+"cost us nothing".
+
+**`wrongFigures` names what the route refuses to produce**, said out loud rather
+than left as an absence somebody fills in with a division of their own. First
+among them is **the dispute rate**: Stripe measures disputes against lifetime
+successful transactions, this box holds neither a lifetime charge count nor a
+dispute-level table, and any ratio buildable here has the wrong denominator —
+and is exactly the figure a risk reviewer would be quoted. So it is not computed
+at all. The other three are the payment failure rate, a single number for money
+on the floor, and the value of an abandoned checkout (`listedIfBilled` is on the
+document as a hypothetical and in no total).
+
+Route: `GET /api/leakage?days=`.
+
+## The Chief of Staff: goals, memory, rounds and outcomes
+
+Every other section of this file describes something that is **measured**. This
+one describes the four documents that make the measurements mean anything, and
+not one of them is collected from anywhere.
+
+- **Goals** — what the owner is trying to do, in their own words. Without it
+  "traffic is down 12%" is a fact with no significance.
+- **Memory** — what the assistant has learned and can be held to, dated.
+  Without it, every conversation starts from nothing.
+- **Rounds** — a reason for work to happen on a Tuesday when nobody opened the
+  dashboard.
+- **Outcomes** — whether anything that was done changed a number.
+
+They are one area (`integrations/chief/`) and not four, because they are one
+feature: a round reads the goals to write its briefs, an outcome measures what a
+round produced, and the memory is where what was learned from either ends up.
+The area holds **no credential and no collector** — three of the four documents
+are somebody's writing, and the fourth reads other areas' documents through the
+skills surface at the moment a reading is due. There is one `config` entry, the
+pseudo-plugin `rounds`, for the reason `workspace`, `chat` and `backups` are
+pseudo-plugins: `plugin_config` points at plugins, a setting has to hang off
+something, and a schedule is a decision rather than a secret.
+
+### Goals: two text fields, deliberately
+
+`chief_goals` holds one row per scope: `('global','')` and `('venture', <id>)`,
+with `PRIMARY KEY (scope, venture_id)`. `venture_id` is `''` and never NULL for
+the global row — SQLite treats NULLs as distinct in a unique index, so a NULL
+global row would permit **two** global goals and then answer with whichever one
+the planner reached first. `chief_goal_history` keeps the text as it was before
+every edit, with who made it (`owner` from the page, `agent` through the skill);
+an identical save writes no version, so the history is edits rather than blurs.
+
+The temptation with a goals feature is a hierarchy — objectives, key results,
+quarters, progress bars — and it is refused. That is a project-management
+product, and its failure mode on a one-person box is that the structure outlives
+the intention: a tree of OKRs nobody has edited since March that the agent is
+still faithfully steering by. Two markdown boxes are small enough to actually
+rewrite.
+
+**"What to tailor advice to" is derived, not typed.** Every venture already
+carries a STAGE the owner picked off a form that explained it, so `tailorTo` is
+composed from that stage rather than asked for a second time — two fields saying
+the same thing would eventually disagree.
+
+`GET /api/goals` answers the global text, every venture's **including the blank
+ones** (the list that needs writing is the one that matters), and each venture's
+`tailorTo`. `GET /api/goals/:key` is one venture; `GET /api/goals/history` is the
+previous wordings. `PUT` **and** `PATCH` write, with one handler: the write is a
+whole-document replace either way, and a skill action may name only POST, PATCH
+or DELETE — so the agent's door is PATCH while the page's stays the PUT a replace
+deserves.
+
+### Memory: a dated belief, not a fact
+
+`chief_memory` carries `text`, `scope`, `venture_id`, `source` (`agent` |
+`owner`), `created_at` and `last_confirmed_at`. Both dates are on the wire and
+both are rendered into the prompt in words — "I noticed … confirmed 4 months
+ago" — because a belief quoted without its age is a belief presented as current,
+which is how an assistant becomes confidently wrong.
+
+**A restatement is a confirmation and not a duplicate.** The same sentence
+arriving again moves `last_confirmed_at` forward instead of inserting a second
+row, which is what makes "still true in September" expressible at all and what
+stops an eager agent filling the memory with forty copies of one fact.
+
+**The numbers gate.** The commonest bad note an assistant writes is a
+measurement — "MRR is €412" — which is true for a day, wrong for ever after, and
+already one skill call away. A note the AGENT writes that reads as a metrics
+snapshot is refused with a refusal that says what to save instead. An owner
+writing the same sentence is not refused: it is their memory.
+
+**The weekly consolidation pass** (`POST /api/memory/consolidate`, and an hourly
+timer that fires once per ISO week) hands the whole set to a model and asks for
+two things: merges, and drops. What the model returns is then **enforced here**:
+an id it invented changes nothing, a merged sentence longer than a note may be
+changes nothing, and a note whose `source` is `owner` is untouchable — the owner
+typed it or corrected it, and an assistant deciding which of the things it was
+told are still worth knowing would be editing the owner's mind on a timer. A
+failed pass is still recorded against the week, so a provider that is down is
+retried next week rather than every hour for a week.
+
+**And it is reversible by construction.** Before the pass touches anything, the
+entire note table is serialised into `chief_memory_versions`; `POST
+/api/memory/undo` puts the newest un-restored snapshot back, and snapshots the
+current set on its way out so undoing an undo is possible. Storing a diff would
+be smaller and would require this code to be right about what a merge is;
+storing the set requires it to be right about nothing. "The model was quite
+confident" is not an undo.
+
+**This is not Hermes' memory.** The managed agent keeps its own `MEMORY.md` and
+`USER.md` in its own directory, and those go with that backend. This table is
+the DASHBOARD's: it is injected into the system turns of every backend — managed
+agent, remote agent, raw provider — so what the assistant knows about the owner
+does not change when the owner changes which model is answering.
+
+### Both go into the chat, in one system turn
+
+`withGoals()` in `routes/chat.ts` prepends ONE system turn carrying the global
+goals, the venture's goals when the conversation is filed under one, and the
+newest 30 relevant notes. One turn rather than two, because a model reading two
+adjacent system turns treats the second as a correction of the first. It goes to
+**everybody**, the raw provider fallback included, on `withVenture`'s argument
+rather than `withSkills`'s: this is not an instruction about a tool that some
+backends lack, it is the subject. Notes past the cap are **counted rather than
+hidden**, so an agent shown 30 of 40 knows to read the rest through the skill
+instead of assuming it has seen the memory. Nothing is written when both are
+empty — a turn saying "the owner has written no goals" would be an instruction
+to go and ask for some.
+
+The venture's goals are also prepended to every sub-agent brief, in
+`subagents/routes.ts`, in front of the standing instructions and labelled as
+context rather than as orders — so a worker doing a demand study at six in the
+morning knows what "good" means for that business.
+
+### Rounds: queued work, one slot, and a ledger of decisions
+
+At the configured hour, `runRound()` walks `ventureRows()` and, for each venture
+that is due, dispatches the configured roles by calling `dispatch()` in
+`subagents/routes.ts` **directly**. Not a loopback POST, which would put an HTTP
+hop inside a timer, and not an INSERT of its own, which would skip the
+switched-off check, the standing instructions and the session filing that live
+there.
+
+Three things it will not do, each a setting because a different owner wants a
+different answer: it will not work a venture at a **quiet stage** (an idea-stage
+venture has nothing for an analyst to read), it will not work the same venture
+twice inside its **cadence**, and it will not exceed **max runs per round**. And
+one that is not a setting: it will never dispatch a role that is already running
+or queued for that venture — a second copy of the same job does not arrive
+sooner, it delays everything behind it and bills twice for one report.
+
+`chief_rounds` records what the walk considered and decided; `chief_joblog`
+records **every job, including the ones that became nothing**. That is the whole
+point of the table: `agent_runs` has no row for a venture that was skipped, so
+"why did nothing happen last night" is a question it cannot answer. `skipped`
+covers a quiet stage, a cadence, a spent cap and a busy worker; `refused` is a
+worker the owner switched off. Neither is a fault and neither is drawn as one.
+
+The work is filed under a fixed chat session, `rounds`, so the runs nest under
+one **Rounds** row in the rail rather than making a new conversation every
+morning. The round writes two short assistant turns into it — what it dispatched,
+and what it skipped and why — and never pastes a report: each run posts its own
+when it finishes. That session is the one conversation on this box whose title
+no transcript could derive (nobody typed into it), so `GET /api/chat/sessions`
+names it, rather than letting the rail draw the estate's nightly work as
+"Untitled chat".
+
+Settings live at `PUT /api/plugins/rounds/config` — `enabled`, `hour`,
+`timezone`, `roles`, `max`, `days`, `quiet` — and there is deliberately **no
+second door** on `/api/rounds`: one registry, one set of refusals.
+`GET /api/rounds/schedule` reads them back with the next run computed, which is
+the half the config route cannot answer. The hour is an hour **in a place**: the
+next run is found by walking forward hour by hour through an `Intl` formatter
+rather than by arithmetic, because "06:00 in Europe/Dublin" is not a fixed offset
+from now and a day with a DST transition in it is 23 or 25 hours long.
+
+### Outcomes: correlation, said every time
+
+An outcome links an **action** — a board card, a run's report, or a dated note —
+to a **metric addressed the way everything on this box is addressed**: a skill,
+a view, its params and a dotted path into the answer. That is what makes it
+generic: a metric another area ships next month is trackable the day it ships,
+with no edit here.
+
+The baseline is read **synchronously by the POST**, because a link made without
+a before is a link with no before, and "we will read it on the next tick" makes
+an outcome created at 09:58 and one created at 10:02 an hour apart for no reason
+anybody can see. Readings follow at **7, 14 and 30 days after the action** — not
+after the link; the action's own date is the anchor, and a future one is refused.
+
+`chief_outcome_readings.value` is nullable and that is the point. A disconnected
+plugin, a moved field, a document that reports `null` — each records a row with
+a null value and its own sentence saying which, because "the figure is null" is
+three different findings. A zero would put a cliff in the chart that the owner
+would read as a collapse in the business. The page draws a **gap in the line**,
+never a floor.
+
+Before, after, delta, percentage and verdict are computed on read. `pct` is
+**null when the baseline was zero** — a percentage of nothing is not a
+percentage — and the delta stands beside it. The verdict band is ±10% and is
+coarse on purpose: a small site's numbers move that much between Tuesdays, and a
+band narrower than the noise reports weather as consequence. There is no verdict
+at all (`pending`) until a reading has been taken after the action, and
+`unreadable` is its own bucket rather than folded into `flat` — a metric nobody
+could read is not a metric that did not move. Every document carries the window
+in words and the caveat in full: **this is correlation, not causation; nothing
+here controls for anything else that happened.**
+
+### The skills, and what their rules forbid
+
+`goals`, `memory` (pack `agent-memory`), `rounds` (pack `rounds-and-schedule`)
+and `outcomes`, all `plugins: []` and therefore always live. Three of them write,
+which is why their rules are longer than most:
+
+- `goals.set` exists — an owner saying "change my goal for X to Y" should not
+  have to go and type it — but the rules forbid the thing an eager assistant
+  does otherwise: tidying the wording, merging two goals, or "updating" one to
+  match what it has just measured. A goal quietly rewritten to match reality is
+  no longer a goal.
+- `memory.remember` is gated against measurements; `memory.forget` is marked
+  `destructive`, because the consolidation undo restores a whole pass and not a
+  note the agent deleted on purpose.
+- `rounds.start_now` says in its own text that it spends the single slot and
+  real tokens, and there is **no action that writes the schedule** — an
+  assistant that could widen its own schedule has no schedule.
+- `outcomes` repeats the correlation caveat as its first rule and the
+  null-is-not-zero rule as its second.
+
+### Three timers, all idle until configured
+
+`onStart` arms the rounds walk (ten minutes, returns immediately unless rounds
+are on and the hour matches and no round has run today **in the owner's zone**),
+the consolidation pass (hourly, returns unless a week has passed and there are at
+least three notes) and the outcome readings (hourly, returns unless something is
+due). Every watermark is asked of a TABLE rather than of a variable, because
+`node --watch` restarts this process dozens of times a day. On a fresh install
+all three are no-ops for ever, which is the correct behaviour for a feature
+nobody has configured.
+
+### The page
+
+`/workflows` — one rail row, four tabs: Rounds (schedule, next run, the last
+walk, the whole job ledger), Goals (an editor per scope), Memory (the notes with
+edit and delete, consolidate and undo side by side), Outcomes (before/after with
+a gapped sparkline, and a form that picks the metric out of the **live** skills
+catalogue rather than a hard-coded list that would be stale the first time an
+area shipped a route).
+
+## Mailflow: what needs you this morning, and what you are going to say
+
+`/api/mail` measures the mailbox and `/api/mailbox` reads it. Neither answers
+the two questions a person actually has at nine in the morning — which of these
+need me, and what do I say — so `integrations/mailflow/` adds the two halves
+that do. Triage sorts what arrived. The outbox holds what this box has WRITTEN
+and, until somebody presses a button, has not sent.
+
+Both halves use the GMAIL plugin's existing accounts through
+`providers/gmail.ts`'s own `open()`. There is no second Google credential here
+and there must not be: a second copy of a refresh token is a second thing to
+revoke.
+
+### Triage
+
+The pass lists the inbox over a short window — three days by default, up to
+fourteen — with `format=metadata`, so it gets headers and Gmail's own snippet
+and never a body. It takes the threads whose score is missing or whose
+last-message time has moved, sends them to the model ten at a time with the
+venture roster, and stores what comes back.
+
+`mailflow_triage` is keyed `(account_id, thread_id)`, because Gmail issues
+thread ids per mailbox and two connected accounts can hand out the same one. It
+has columns for a category, a one-line reason, an urgency, a venture guess, the
+thread's last-message time, and the owner's two verbs. **It has no column for a
+subject, a sender or a snippet**, and that absence is the privacy claim: what
+is stored is the judgement about the mail, never the mail. Everything the page
+shows — subject, sender, snippet, time — is fetched live from Gmail on the read
+and joined by thread id, exactly as `routes/mailbox.ts` does.
+
+Four categories: `needs_reply`, `waiting_on_them`, `fyi`, `noise`. The fifth
+group on the page is `unscored`, and it is the one the whole design is arranged
+around: **a thread the model has not read is not noise**. Too new for the last
+pass, or a pass with no provider behind it — either way it comes back counted,
+in its own group, with the reason. A page that folded those into the bottom of
+the list would be hiding mail because nobody had looked at it. `score` is
+nullable in the schema for the same reason: the owner can mark a thread done
+before anything has read it, and giving that row a category to satisfy a NOT
+NULL would be the schema inventing the model's opinion.
+
+A venture matched by domain (`ventureBy: "host"`) is a fact; one the model
+named (`"model"`) is a guess, and the page prints "guess" beside it. The match
+is on the venture's own `host`, whole-label — `mail.example-app-1.example.test` matches,
+`notexample-app-1.example.test` does not.
+
+`stale: true` means a reply has arrived since the score was made. The category
+is still shown, because it is the last thing anybody read, and it is flagged.
+
+`done` and `snooze` change this list and **nothing in Gmail**. A thread marked
+done is still in the inbox, still unread if it was. A reply arriving clears
+both, because a new message is new work.
+
+There is no registered collector, deliberately: `manifestCollectors()` merges
+each area's map OVER `collector.ts`'s built-ins by plugin id, so an entry under
+`gmail` here would silently replace the mail collector and take `/api/mail`
+down with it. The pass runs on this area's own half-hour timer (`onStart`) and
+keeps a one-row-per-mailbox ledger in `mailflow_triage_runs`, which is what the
+page's "last scored" line reads.
+
+Routes: `GET /api/triage` (`days`, `max`, `account`),
+`POST /api/triage/:threadId/done`, `POST /api/triage/:threadId/snooze`,
+`POST /api/triage/run`. The read costs a `threads.get` per row, so it fetches
+fifty by default and says so; the scan's own cap is 200, about fourteen seconds
+through the provider's rate gate.
+
+### The outbox
+
+`mailflow_outbox` is one row per message this box has written: recipient,
+subject, markdown body, an optional `in_reply_to` thread id, venture, status,
+who wrote it, and — once it has gone — `sent_at` and Gmail's own `message_id`.
+Status is `draft | approved | sent | dismissed | failed`. Only `sent` has left,
+and only a row with a message id has proof of it. `failed` is terminal: it was
+approved, attempted, and refused, with the reason in `error`; nothing retries
+it, because whether a copy arrived is Google's answer rather than this table's.
+
+**Nothing sends without an explicit approve, and it is enforced by shape.**
+
+1. `sendMessage` lives in `integrations/mailflow/gmail-send.ts` and is imported
+   in exactly one place — `outbox.ts`'s `sendApproved`. `grep -rn sendMessage
+   src/` returns the definition and one call site.
+2. `sendApproved` refuses any row that is not `approved`. There is no
+   approve-all and no send-all, because a send-all is an approve-all wearing a
+   different word.
+3. The `outbox` SKILL publishes `draft`, `edit` and `dismiss` and **no approve
+   and no send**. The skills proxy composes no URL a registry entry does not
+   name, so those two routes are unreachable from an agent. As a second wall,
+   `routes/skills.ts` now stamps every action it forwards with
+   `x-opc-via: skills`, and both routes reject it with a 403 — so adding the
+   action to the registry by accident is a refusal rather than a sent email.
+4. There is no timer in the outbox. The triage timer is this area's only
+   scheduled work and has no import of the outbox at all.
+
+The send is in its own file rather than in `providers/gmail.ts` so that file's
+long-standing claim stays literally true — `get` hard-codes GET, `modify`
+reaches nothing but the UNREAD label — and its header now names this file
+rather than leaving the reader to grep for the hole. The token could always do
+this: the refresh token carries `gmail.modify`, which is Google's "everything
+but permanent delete". Nothing here widens the credential; it exercises a power
+the box has held since the token was minted, in one function, behind a button.
+
+The message goes out as `text/plain` carrying the approved markdown verbatim,
+with the signature setting under it. Rendering it to HTML on the way out would
+mean the message that arrives is not the document that was approved. The page
+draws `preview` (body + signature) for the same reason. Replies are threaded at
+SEND time — Gmail's `threadId` plus `In-Reply-To` and `References` read off the
+thread's last message — because a conversation can gain three messages between
+writing and pressing the button.
+
+Two floors, both settings on the config-only `outbox` plugin:
+
+- **Days between mails to one address**, default 14. A second draft to the same
+  address inside the window is refused, and so is a send. **Every row counts,
+  including dismissed ones** — a dismissal is "not this person, not now", and
+  re-offering the same address two days later is how a queue teaches somebody
+  to stop reading it.
+- **Messages a day**, default 20, counted across every recipient over messages
+  that actually left. A circuit breaker rather than a policy.
+
+Plus **Signature** and **Drafts require approval**. The last is yes unless the
+owner types otherwise — anything unrecognised reads as yes, because this
+setting must fail towards a person pressing a button — and it governs one thing
+only: whether the owner's own Send may approve on the way past. It changes
+nothing for the agent at any value, and no route an agent can reach writes
+settings.
+
+Routes: `GET /api/outbox`, `POST /api/outbox` (draft), `PATCH /api/outbox/:id`
+(edit; an approved row returns to `draft`, because the approval was of the
+previous wording), `POST /api/outbox/:id/approve`, `POST /api/outbox/:id/send`,
+`POST /api/outbox/:id/dismiss`.
+
+### Apps and skills
+
+Two tabs under Apps beside Email: **Triage** (the five groups, each row with
+its reason, urgency and venture tag, Done and Snooze) and **Outbox** (the queue
+by status, the draft rendered as markdown, edit, approve, send, dismiss, and a
+composer for writing one by hand). Two skills: `triage` (pack `inbox-triage`)
+with `done`, `snooze` and `run`; `outbox` (pack `outbox`) with `draft`, `edit`
+and `dismiss` and nothing else.
+
+## Video: the one thing this box makes that is not a document
+
+Everything else here writes words. This writes an mp4, and the difference runs
+all the way through the area: the run's `output` is a NOTE ABOUT a file the way
+a paper run's is a note about its PDF, the artefact lives on disk under
+`data/video/<run id>/`, and the honesty problem is not "is this figure real"
+but "does this video have something in it that it does not have the right to".
+
+Two formats, both vertical, both a run of kind `video`.
+
+**faceless** — a brief becomes a script (a hook, some beats, a call to action,
+each shot with its on-screen caption and two to four stock search terms), each
+shot gets footage from the Pexels video API, the captions are burned in in the
+venture's own colour and font, and it ends on a card with the venture's name
+and address. `data/video/<run id>/` holds `final.mp4`, `script.json`,
+`assets.json` and the caption cards; the downloaded footage and the per-shot
+segments are swept unless the `keep` setting says otherwise.
+
+**shorts** — a long video is downloaded with yt-dlp and cut into two to four
+vertical clips. The whole value of that is choosing the right two, so three
+quarters of `shorts.ts` is about getting a transcript: the site's own subtitles
+first, the voice plugin's transcription endpoint second, and — where there is
+neither — even intervals, which is cutting rather than choosing and is recorded
+as such on every clip row. The downloaded source is deleted as soon as the
+clips are cut: this box does not keep a library of other people's video.
+
+### What it measures, and what it refuses to claim
+
+Nothing here is a metric, because nothing here publishes anything. There is no
+credential for any video platform in the vault and no route that would upload
+one, so there is no view count, no watch time and no engagement, and there
+never will be. What is recorded is what was MADE: the duration and byte size
+read off the finished file with ffprobe (null when it could not be probed —
+never a zero-length video), which machine drew the captions, whether there was
+narration, and every piece of footage with its photographer.
+
+Three columns exist to stop a page claiming something this box did not do:
+
+- `captions` is `typst`, `drawtext` or `none`. This machine's own ffmpeg —
+  Homebrew's 9.0.1 — is built without libfreetype and without libass, so it has
+  **no `drawtext` filter and no `subtitles` filter at all**. Captions are
+  therefore set by typst as transparent RGBA pages and composited with
+  `overlay`; `drawtext` is used where a build has it, and `none` means neither
+  was available and the video has no words on it.
+- `narration` is `tts` or `none`, and `none` is the ordinary case: speech is
+  off by default in the voice plugin and **nothing copyrighted is bundled with
+  this dashboard**, so a video made here is usually silent.
+- `chosen_by` on a clip is `transcript`, `speech` or `spacing`. The third one
+  means no transcript existed and the source was cut at even intervals. A page
+  that drew that as a chosen highlight would be the one lie this area exists to
+  prevent, so it is a column rather than an inference.
+
+`assets` is the footage manifest and it is a CREDIT rather than metadata. The
+Pexels licence permits commercial use and asks for the photographer to be
+named; the only moment their name is knowable is when the search result is in
+hand, so it is written then — id, page, author, author's page, licence, and the
+search term that found it — and it is drawn open under the player rather than
+behind a disclosure, because a credit nobody copies out is not a credit.
+
+### The autopilot
+
+Off until it is turned on, like the nightly backup and for the same reason: it
+spends Replicate credit and Pexels quota. When it is on it wakes every ten
+minutes, does nothing until the configured local hour in the configured zone,
+and then makes one pass: for each venture that is not at a quiet stage, queue a
+Studio post and a video run up to a cadence set per venture per week.
+
+**It queues work and it never posts anything anywhere.** A post lands in the
+Studio gallery and a video lands on its run page. Three brakes, each for a
+different failure: the per-venture cadence, counted over a ROLLING seven days
+so nineteen ventures do not all fire on Monday; a per-day cap across every
+venture, without which switching this on would queue thirty-eight pieces of
+work onto a queue with one slot; and a check on the run queue, so the autopilot
+never pushes work the owner started by hand down the line.
+
+Every decision is logged INCLUDING THE DECISIONS TO DO NOTHING. A log that held
+only successes answers "why was there no video this week" with silence, and
+silence sends somebody looking for a bug in a feature that is obeying its
+settings. `queued`, `skipped` and `failed` are three different words and are
+never folded into two.
+
+Topics are derived rather than typed: the model is given the venture record and
+the last few things this box actually ran and made for it, and asked for one
+line. Posts go through the Studio's own route handler (`studioRoutes.request()`
+— a direct in-process call, not a network hop) so a post the autopilot made and
+one the owner made are the same row; videos go through the sub-agent dispatch,
+so a venture whose Video Producer the owner switched off gets nothing, which is
+what that switch is for.
+
+### Tables
+
+- `video_jobs` — one row per run: format, aspect, the script as JSON, the
+  footage manifest, duration, bytes, path, and which machine did the captions
+  and the narration.
+- `video_clips` — one row per clip a shorts job cut: the window, the model's
+  own sentence for choosing it, and `chosen_by`.
+- `video_autopilot_log` — every decision of every pass, skips included.
+
+### Routes
+
+- `GET /api/video` — every video, newest first, plus a readiness block with the
+  five things a video needs (an encoder, a model, Pexels, a caption renderer, a
+  speech endpoint) each reported separately with the sentence that says what to
+  do about it. One boolean would have to pick one of the five to be wrong about.
+- `GET /api/video/:runId` — one job in full.
+- `GET /api/video/:runId/file` and `/clips/:index/file` — the mp4s, inline,
+  with real byte-range support (a `<video>` element seeks by asking for ranges;
+  a server that always answers 200 with the whole file gives a player that
+  cannot scrub). No path ever comes from the caller.
+- `GET /api/autopilot` — the schedule as it resolves, the next instant it would
+  wake (null means OFF, not unknown), each venture's cadence and how much of it
+  is used, and the log.
+- `POST /api/autopilot/now` — run the pass now, under exactly the same brakes.
+
+### Settings
+
+Two config-only plugins and no credential, because everything needing a key is
+keyed elsewhere: footage is the `pexels` plugin's key, the script is the chosen
+model provider's, narration and transcription are the `voice` plugin's.
+
+`video` holds the machine facts — paths for ffmpeg, ffprobe, yt-dlp and typst
+(blank probes `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, `/bin`,
+`/snap/bin` and then PATH, because these differ per machine), which caption
+renderer to force, the longest source a shorts job may download, extra yt-dlp
+arguments (what a video site demands of a downloader changes every few months
+and the fix is always a flag), and whether to keep the working files.
+
+`autopilot` holds the policy — the switch, posts and videos per venture per
+week, the hour, the time zone, which stages are quiet, which formats it may
+queue, and the day's cap.
+
+### Skills
+
+`video` reads what was made and has no actions: starting one is already
+published by the `runs` skill, and a second door would be a second set of
+parameter descriptions to keep in step. `autopilot` reads the schedule and has
+one action, `run_now`, which is not destructive — it queues work that can be
+cancelled and obeys every limit the clock does. Their rules are the three
+columns above plus the one that matters most: never tell the owner something
+was posted, because nothing here can post.
+
+## Alerts and the briefing: the half of this box that speaks first
+
+Everything else here answers a question you thought to ask. You open a page,
+you ask the agent, you run `opc stripe`. That is the right shape for almost all
+of it and it has exactly one failure mode, which is the only one that costs
+money: **the thing you did not think to look at.** A certificate that expired on
+a Sunday, a disk that filled overnight, a payment provider that started
+declining, a traffic collapse three days old by the time anybody opened the
+page.
+
+So: two pieces, which are the same idea at two cadences.
+
+### A rule is a comparison you wrote down, and nothing more
+
+A rule names a **skill**, a **view**, that view's **parameters**, a **dot path**
+into the JSON that view returns, an **operator** and a **threshold**. That is
+the whole vocabulary. It is the same catalogue `GET /api/skills` publishes to an
+agent, and the engine reads the document over **loopback HTTP** — byte for byte
+the request `opc` makes.
+
+That last sentence is the design and not an implementation detail. **The rule
+engine has no private knowledge of any table on this box.** It does not import a
+collector, does not open a provider's rows, and does not know what Stripe is. The
+consequences are the two things that make the feature worth having:
+
+- a rule can be written against an integration that did not exist when the
+  engine was written, and
+- a rule reads *exactly* the document you would read. If the page says failed
+  payments are 27 and the rule says 27, they cannot have got there by different
+  routes.
+
+The cost is one HTTP request per rule per cycle, to ourselves. Rules that read
+the same skill, view and parameters share one read per pass; nothing is cached
+*between* passes, because a figure held over is a figure that has stopped being
+the present.
+
+Paths are `charges[0].failed`, `[0]` for an array index, `@count(domains)` for
+the length of a list — deliberately the same syntax the product-endpoint metric
+mapping uses, because asking somebody to learn two path languages in one product
+is asking twice.
+
+Operators are `<  <=  >  >=  ==  !=`, plus three that need a memory:
+`changed` (against the previous reading), and `dropped_by_pct` / `rose_by_pct`
+(against the reading this box recorded `windowMinutes` ago — **not** against a
+figure the source computed). A windowed rule with no reading old enough says so
+and does not trip.
+
+### A document that cannot be read is never a trip
+
+This is the rule the whole area turns on, and it is why `alert_events.kind` has
+three values rather than one:
+
+| kind | what it means |
+| --- | --- |
+| `trip` | the comparison the owner configured came out true |
+| `unreadable` | the document could not be read, or the path resolved to nothing |
+| `test` | somebody pressed Test. Never acknowledged, never an alert |
+
+A Stripe outage must not read as "revenue fell to zero"; a renamed field must
+not read as "the count dropped to nothing". Both are `unreadable`, carrying the
+skills proxy's own sentence — which already distinguishes "there is no such
+skill" from "the credential is missing" from "that view takes no such
+parameter", and each of those is a better message than anything this area could
+compose from a status code. The page draws them in their own colour with their
+own word, and the rail's badge counts them beside the trips, because a watchdog
+that has stopped watching is the failure the feature exists to prevent.
+
+A **trip is a comparison, not a judgement.** Nothing here has a severity, a
+priority or a learned baseline. Anything cleverer would be this box forming an
+opinion about a business it has never been told the shape of, and presenting
+that opinion in the same list as the facts.
+
+### Five suggested rules, for connected plugins only, all deletable
+
+An alerting page that opens empty asks you to invent, from nothing, both the
+figure worth watching and the number it should cross. Almost nobody does, so the
+feature sits at zero rules forever. `seed.ts` writes five worked examples on
+first start — failed Stripe payments today, a host not answering, the fullest
+disk over 85%, a domain expiring within 30 days, portfolio pageviews down 50%
+against last week — **only for skills that are connected**, because a rule
+against a disconnected plugin is an `unreadable` event every half hour.
+
+Every one is marked `seeded: true`, which changes nothing about how it behaves
+and exists so the page can say "this box suggested this" rather than let you
+believe you configured a watch you never saw. Deleting one is you saying no, and
+the seeder does not put it back: the fact that a skill was offered its defaults
+is recorded in `alert_seeds`, separately from the rules it created. Connect
+Stripe in March and you get Stripe's suggestion in March.
+
+The one real judgement in the set is 85% disk, and it sits between the fleet
+document's own `warn` (80) and `critical` (90) — quoted rather than invented.
+Nothing in that file names a venture, a host, a domain or a product.
+
+### Narration: three sentences that may only cite what was read
+
+A trip on its own says "failed payments are 27, and your rule trips over 10".
+True, and not enough to act on; the next question is always "compared with what,
+and what else moved this morning". Answering it by hand means opening six pages.
+
+So on every evaluation the engine stores a **snapshot** of up to six connected
+skills' summary documents. When a rule trips, the narrator diffs the newest
+snapshot against the previous one — every numeric leaf, by path — ranks what
+moved, and hands the model the rule, its reading, its comparison and those
+movements, with an instruction that no other number may appear.
+
+That is a mitigation and not a guarantee, and it is worth saying so plainly: a
+model can still write a wrong sentence about right numbers. What the design buys
+is that the numbers are **checkable** — the event carries `observed` and
+`previous`, the snapshots are on disk for seven days, and the page shows the
+movements beside the prose. **If no model provider is configured, `narration` is
+null and `narration_note` says why.** Nothing writes a plausible paragraph in
+the absence of a model.
+
+Two kinds of skill are never snapshotted: anything marked `openWorld` (a
+background timer must not make a web search every half hour) and `mailbox`,
+whose own rules promise nothing is stored — a snapshot table full of subject
+lines would break that promise on this area's behalf.
+
+### The briefing: facts assembled, then written up, and both kept
+
+Once a day at an hour you set in your own time zone, `briefing.ts` assembles:
+alerts raised since the last briefing, figures that moved over 24 hours, agent
+runs that finished, board cards overdue and due within three days, and a line per
+venture. Everything but the alerts is read over loopback from `/api/skills/…`;
+nothing is a direct table read.
+
+**Movement is the snapshot diff, not a hand-written list of headlines.** That is
+what lets "revenue and traffic" need no list of which field in which document is
+revenue: whatever moved, moved, and the paths name themselves. On a box
+installed this morning there is no 24-hour-old snapshot and the section says so
+instead of showing zeroes.
+
+The model writes the prose. **The facts are stored in the same row**, and the
+page draws both — this is the whole point of the table. A daily digest written
+by a language model is the easiest place in a product like this to end up with
+confident paragraphs nobody can check; keeping the facts means every sentence
+has something behind it, and a sentence with nothing behind it is visible as
+such. A box with no provider still produces a real briefing — the facts — with
+one line saying nobody was available to write them up.
+
+The day, in the configured zone, is the primary key, which is what makes the
+schedule idempotent across restarts: building today twice is one upsert. The
+timer wakes every ten minutes rather than sleeping until the hour, the same
+shape the nightly backup uses and for the same reason — a laptop shut at seven
+builds the morning's briefing when it wakes rather than skipping the day.
+
+Delivery is two doors. The briefing is appended as an assistant message to the
+chat session `briefing` (channel `briefing`), so it sits in the same transcript
+every other conversation lives in and the agent can be asked about it. And, when
+`Push to Telegram` is switched on **and a bot is paired**, it goes to that chat
+through `notify()` — the function that cannot send to the wrong person — with
+rich blocks flattened by `plainRich`. It is off by default: a message arriving
+on your phone every morning because a default said so is a surprise.
+
+### The timer runs a minute behind the collector
+
+`COLLECT_MINUTES` after the port opens, index.ts starts collecting; a minute
+after that, this area evaluates. Evaluating *during* a collection would read
+documents that are half-written — some plugins refreshed, some not — and produce
+trips that no longer hold sixty seconds later. With the scheduler off
+(`OPC_COLLECT_MINUTES=0`) the evaluator does not arm at all, because there would
+be nothing fresh to read, and the page's **Check now** is the only way rules run.
+
+### Tables
+
+| table | what it holds |
+| --- | --- |
+| `alert_rules` | the comparison: skill, view, params, path, op, threshold, window, venture, cooldown, enabled, seeded, and the last value read with its error |
+| `alert_events` | trips, unreadables and tests, with the observed and compared figures **as read at the time**, the message, the narration and the acknowledgement |
+| `alert_observations` | one reading per rule per pass, 30 days — what the two percentage operators compare against. Re-deriving "pageviews a week ago" would work for the few routes carrying history and fail silently for the many that do not |
+| `alert_snapshots` | the whole document per snapshotted skill per pass, 7 days. Stored whole rather than summarised, because a summary here would be this file deciding which figures matter for integrations nobody has written |
+| `alert_seeds` | which skills have been offered their defaults. Separate from the rules so that deleting a suggestion is not undone by the next restart |
+| `briefings` | one row per local day: the prose, the facts, the model, and where it was delivered |
+
+### Routes
+
+| route | answers |
+| --- | --- |
+| `GET /api/alerts` | counts: rules total and enabled, open trips and unreadables, when a rule was last evaluated |
+| `GET /api/alerts/rules` | every rule, plus the operator vocabulary with what each one needs |
+| `GET /api/alerts/rules/:id` | one rule, its readings and its recent events |
+| `POST /api/alerts/rules` | create. Validated against the live catalogue: an unknown view or a parameter the view does not take is refused with the sentence the editor would have shown |
+| `PATCH /api/alerts/rules/:id` | change. A field left out is untouched; a field sent as null is cleared |
+| `DELETE /api/alerts/rules/:id` | remove the rule **and every event it raised**. Disable it instead to keep the history |
+| `POST /api/alerts/rules/:id/test` | read it now: the value, the URL used, and whether it would trip. Raises no alert |
+| `POST /api/alerts/preview` | the same read for a rule that does not exist yet — what the editor's path field shows as you type. Records nothing |
+| `POST /api/alerts/evaluate` | run the whole pass now. The same function the timer calls, so there is no second code path |
+| `GET /api/alerts/events` | the ledger: `days`, `limit`, `open=1`, `kind` |
+| `POST /api/alerts/events/:id/ack` | mark one as seen. It does **not** silence the rule |
+| `GET /api/briefing/latest` | the newest briefing, its facts, its model and its delivery |
+| `GET /api/briefing?days=` | recent briefings, newest first |
+| `GET /api/briefing/settings` | the hour, the zone, the Telegram switch and which sections are on |
+| `POST /api/briefing/now` | build today now and deliver it. Rebuilds today rather than making a second one |
+
+A rule against a **disconnected** skill is refused, and refused with its own
+sentence — the catalogue publishes no views for a skill that cannot answer, so
+there is no document shape to check the path against, and a rule stored without
+that check is a typo nobody caught. The message names the plugins to connect.
+
+### Settings
+
+Under Integrations → Briefing (`plugin_config`, id `briefing`; no credential,
+no account, no collector): **Hour** (0–23, default 7), **Time zone** (IANA,
+defaults to this machine's), **Push to Telegram** (off until switched on), and
+one on/off per section — alerts, what moved, agent runs, board cards, per-venture
+lines. A section switched off is left out of the facts entirely and the model is
+told not to mention it: it is not empty, nobody asked.
+
+### Skills
+
+`alerts` (pack `alert-rules`, productivity) — views `rules`, `events`,
+`summary`; actions `create_rule`, `update_rule`, `delete_rule` (destructive —
+it takes the event history) and `ack`. Its rules say the two things that matter:
+**a trip is a comparison the owner configured, not a judgement**, and
+**`unreadable` is not a trip and must never be reported as a figure falling to
+zero**.
+
+`briefing` (pack `daily-briefing`, productivity) — views `latest`, `history`,
+`settings`; action `send_now`. Its first rule is that **the facts and the prose
+are different things and the facts are the real one**: where they disagree, the
+facts are right.
+
+Both have `plugins: []` — always live, because neither needs a credential. An
+owner with nothing connected gets an empty rules list and a briefing whose every
+section had nothing in it, which is the true state of that box.
+
+Telegram gains `/briefing` (today's, built now if it does not exist yet) and
+`/alerts` (what is open, with trips and unreadables listed separately and
+labelled). Their copy lives in `integrations/proactive/telegram.ts` rather than
+in the bridge, which is a security-critical file and not a place for product
+prose.
+
+## Growth: what the pages above us have, and where the funnel leaks
+
+Six readings that share one question — *is anybody finding this, and do they do
+anything when they arrive* — and share no data. Every one of them reads rows
+some other collector already wrote: Search Console, Bing, the backlink sources,
+the site audit, the app stores, Meta, Umami, Stripe and the product endpoints.
+Nothing here collects on a schedule and nothing here has a credential, which is
+why the area has exactly one plugin and it is a settings page.
+
+**SERP teardown** (`serp`, a run kind) is the thing this box could never do:
+say what a page that outranks it actually looks like. The audit is a crawl of
+the owner's own sites, so every SEO recommendation was measured against a
+checklist rather than against the competition, and the most common instruction
+it could produce was a version of "add an H1". A teardown is per QUERY, because
+ranking is per query. It searches through the SearXNG node, drops our own host
+and one page per registrable domain, fetches the rest and reads them IN CODE —
+title, heading tree, word count, internal and external links, images,
+schema.org types from JSON-LD and microdata, whether there is a `<table>`, an
+FAQ or comparison framing — then computes the MEDIAN of those pages against our
+own page. Only then is a model asked for anything, and what it is asked for is
+prose: the figures are already on the page above its answer and it is told, in
+terms, that it may not recompute them.
+
+Two positions, never one, and this is the distinction the whole feature turns
+on. `ourRank` is where our host came in the SearXNG result list on ONE request
+from whichever engines answered it; `gscPosition` is Google's own average over
+Search Console's own window. They measure different things on different days,
+they are stored in different columns, and nothing merges them.
+
+The self-check gates every conclusion. A metasearch node asked a long-tail
+question frequently answers a different one, and ten results is not ten
+answers — so the share of the query's own words appearing in the titles and
+snippets is measured, and under 0.3 the query is marked `degraded` and NO gap
+list is drawn from it. A one-word query is a third state, `unmeasurable`:
+over one word the check has only two possible answers and measures nothing.
+
+Queries come from the form, else from Search Console's striking-distance rows
+(position 5 to 20, at least 3 impressions, most impressions first), else are
+derived mechanically from the venture's description — and the origin is stored,
+because a derived query is not evidence that anybody searches for it.
+
+**Authority** (`GET /api/growth/authority/:host`) is a self-declared estimate
+with its arithmetic printed, computed on every read and stored nowhere. It is
+NOT a Domain Rating and not Domain Authority: those come from link indexes this
+box does not have and will never buy, the field is called `estimate`, and the
+disclaimer travels with every answer. Three parts, each log-scaled to 0–100 —
+referring domains (the best single source, NAMED, never the sum of two indexes
+that overlap by an unknown amount), how much site there is from the audit's
+sitemap or crawl, and Search Console impressions. The estimate is the mean of
+the parts that could be read; a missing part is dropped, never zeroed, because
+zero is a real band with a real ceiling on it. The ceiling — under 15 → KD 10,
+under 30 → 20, under 45 → 35, under 60 → 50, nothing above — is the only reason
+the number exists: it is a bound on what to suggest, not a claim about the site.
+The route lists hosts and deliberately does not sort them, because an estimate
+over `pages + demand` and one over `links + pages` are two different
+measurements wearing one word.
+
+**CRO** (`GET /api/growth/cro/:ventureId`) is a static, hand-written library of
+51 experiments in seven funnel stages — hypothesis, the one change that would
+settle it, how to measure it in figures the owner already has, and roughly what
+it costs — hung off the stage that measurably leaks. The stage is read from the
+product endpoint's own funnel counters where one is connected, else from Umami's
+named events and Stripe subscriptions whose PRODUCT NAME contains the venture's
+name, else it is not claimed at all and the owner is asked. Counters are never
+summed within a stage (a site firing `checkout-started` and `checkout-requested`
+has two names for one step), a negative event like `subscription-ended` is not a
+funnel step at all, and a transition with fewer than 30 at the top is not
+computed. The leak is a TRANSITION and the stage reported is its later half: the
+step people failed to reach is the one whose page is worth changing. `POST
+.../start` and `.../finish` keep the ledger, and `dropped` is not `done` — an
+experiment abandoned before it had a result is not a finding.
+
+**Indexing** (`POST /api/growth/indexing/submit`, `GET .../:host`) is IndexNow
+and an honest account of what sitemap submission still does. The key is
+generated for the owner and written back into the settings so it stays the same
+tomorrow — the key file on the site is named after it. Every submission checks
+that `https://<host>/<key>.txt` is actually there first; where it is not, the
+batch is recorded as `dry-run` with the exact one-line instruction, because a
+submission that looked accepted while the file was missing would leave the owner
+believing something happened. A 200 or 202 means RECEIVED, not indexed, and
+nothing on this box may say otherwise. Google is not part of IndexNow and never
+has been; its sitemap ping endpoint was retired in 2023 and this box does not
+call it; Search Console's API could submit a sitemap but the credential here is
+minted `webmasters.readonly` on purpose and Google refuses a submit to that
+scope — so the honest instruction is robots.txt and one submission by hand. What
+gets submitted is either what the owner named, or the URLs the last two audits
+show as new or changed (changed meaning the title, description or word count
+moved — that is what the audit records, and it is not a content hash), or the
+URLs in the sitemap. With auto-submit on, a pass every fifteen minutes does the
+audit delta for any host whose newest crawl has not been submitted yet.
+
+**ASO** (`aso`, a run kind) audits the store listing as a shopper reads it.
+Apple's comes from the public iTunes lookup — the same document the store page
+renders from. Play's title comes from its store page and NOTHING ELSE does: that
+HTML carries a dozen other apps' names, ratings and thumbnails with nothing
+attributing a figure to this one, so the screenshot count, the descriptions and
+the update date are null with that reason, and the rating comes from the Play
+Console export instead. Apple's subtitle and its 100-BYTE keyword field are not
+fetched by this box at all and are never scored as empty. Play indexes the full
+description and Apple does not, so the same advice is wrong on one of them and
+each check says which store it is talking about. The score is a weighted rubric
+— visuals 25, title 25, ratings 20, description 20, freshness 10 — where a
+check that could not be answered is out of the denominator, a dimension under
+40% coverage is refused, and a listing with fewer than three scorable dimensions
+gets no grade at all.
+
+**Ads health** (`GET /api/growth/ads/:accountId`) scores each Meta ad account on
+read from the account, campaign and daily rows the collector already wrote:
+frequency, the week-on-week CTR and CPM trends, campaigns under the account's
+own median CTR, whether leads report at all, spend past three times the target
+with nothing to show, daily budgets against five times the target, and
+objectives that do not match what the account buys. Severity weights 5/3/1.5/0.5
+inside category weights of creative 30, tracking 30, structure 20, audience 20;
+N/A out of the denominator; a category under 40% coverage refused. The target
+cost per lead is THIS ACCOUNT'S OWN and no benchmark is ever substituted. The
+kill table gates every verdict: 7 days and 20 clicks before anything is judged,
+1,000 impressions before anything is called dead. Three of the things a paid
+audit is expected to check cannot be seen from here and say so as null checks
+rather than passing by silence — there is no ad set row, so a learning-limited
+set is invisible; no ad row, so a disapproved ad is invisible; no audience
+specification, so overlap is inferred from frequency and named as an inference.
+
+### The tables
+
+- `growth_serp` — one row per (run, query): the origin of the query, Google's
+  position beside our place in the search results, our page's structure, the
+  competitors' structures as JSON, the relevance ratio and the degraded flag,
+  and the computed gap list.
+- `growth_cro` — one row per (venture, experiment): status, stage, when it
+  started and finished, the result in the owner's words.
+- `growth_indexing` — one row per URL per submission: the endpoint, the HTTP
+  status, the outcome (`received`, `accepted`, `refused`, `unreachable`,
+  `dry-run`) and why the URL was in the batch.
+- `growth_aso` — one row per (run, store, app): the listing as it was read, the
+  checks, the dimensions, the score and the refusal when there is one.
+
+### The skills
+
+`serp`, `authority`, `cro` (with `start` and `finish`), `indexing` (with
+`submit`), `aso` and `adshealth`. Their rules are the point: two positions are
+never merged; a degraded query proves nothing; an estimate is never called a DA
+and two hosts on different bases are never compared; a stage nothing could
+measure is never guessed; a 200 from IndexNow means received; a null check is
+not a pass; and no ad figure crosses two accounts.
+
+## People: who you correspond with, and what you said you would do
+
+Everything else on this box measures a *thing* — a site, a repo, a bill. This
+measures a *correspondence*, and it does it out of mail headers alone.
+
+**The promise it is under, first, because everything below depends on it.** The
+contacts collector asks Gmail for `format=metadata` with an explicit
+`metadataHeaders` list (From, To, Cc, Date, Subject, List-Unsubscribe,
+Precedence) and a `fields` mask that selects the envelope. Three separate
+refusals of content, so one typo in any of them is not enough to put a message
+body in this area. No subject, snippet or body is stored anywhere in
+`people_contacts` or `people_days`. Subject lines are looked at once, in memory,
+to see whether a venture's host is mentioned, and are thrown away. So a leak of
+this database is a leak of "he writes to jane@acme.io about twice a month", not
+of anything either of them said — and the pages, the routes and both skills all
+say so in those words.
+
+**No credential of its own.** The Gmail credential is already in the vault,
+already verified and already refreshed by `providers/gmail.ts`; `gmail.open()`
+mints the token and nothing here reads a secret. `people` is a plugin id
+carrying five settings and a collector — the `backups` shape, one step further —
+and "connected" means THERE IS A MAILBOX TO READ, derived from the Gmail
+accounts at boot, every ten minutes and on every collection. It is deliberately
+not registered as a collector under `gmail`: the collectors map is one object
+keyed by plugin id, and an entry there would REPLACE the mail collector rather
+than run beside it.
+
+**Staleness is measured against each pair's own rhythm.** `cadence` is the
+MEDIAN gap between DAYS on which mail passed either way — days rather than
+messages, because a fourteen-message thread on one Tuesday is one contact; a
+median rather than a mean, because one four-month silence in a weekly
+correspondence drags a mean far enough that the person can never be reported as
+cooling again. Then `quiet ÷ cadence`: cooling at 1.75×, cold at 3.0×, and
+nothing is called cooling before 7 days whatever the ratio says. Under four
+measurable gaps — five separate days of contact — `temperature` is **null** with
+the reason beside it. Null is "no rhythm, no claim"; it is not cold. Somebody
+written to every August is not cold in September, and that is the whole reason
+the arithmetic is not a fixed number of days.
+
+`stale` is a second and simpler question, and it is the owner's own: no mail
+either way for the stale-after setting. Cold is relative to the relationship,
+stale is relative to the calendar, and the page keeps the two words apart.
+
+**Tables.** `people_contacts` — one row per (mailbox, address): name, domain,
+first seen, last received, last sent, counts each way, threads, and the window
+those counts are over. Two connected Google accounts are two relationships with
+the same human, side by side and never summed. `people_days` — one row per
+person per calendar day, written only for contacts that met the
+minimum-each-way rule (a year of a newsletter is 365 rows about a robot).
+`people_briefs` — one row per ISO week. `people_commitments` — one row per
+promise, keyed on a hash of mailbox + thread + normalised sentence.
+
+Nothing derived is stored. Cadence, temperature, staleness, the ratio and the
+venture link are computed on every read, for the reason the uptime table
+computes availability that way: a stored "cold" is wrong the morning after it
+was written, and it survives a collector that has stopped running — which is
+the one condition the page exists to reveal.
+
+**Floors, said out loud.** The scan has a message cap per direction (inbound is
+the `max-received` setting, default 2500; outbound has its own budget of 1500
+and no setting, because "who have I stopped writing to" is the question this
+area exists for and a knob that could starve the sent scan would make every
+answer to it a statement about the budget). Gmail lists newest first, so a cap
+that bites keeps the most RECENT part of the window — "last written to" stays
+true and the counts become floors. `scanFrom` is the oldest message actually
+reached and `floors: true` says the cap bit; the page draws it in the warning
+colour rather than leaving it to be worked out.
+
+**Who is not a contact.** Addresses at a connected mailbox's own domain, at any
+other connected mailbox, and at the domains typed into `self-domains` — get that
+setting wrong and you arrive at the top of your own contacts list with a perfect
+two-way cadence. Senders that declare themselves a mailing list (a
+List-Unsubscribe header, or a Precedence of bulk/list/junk on half their mail)
+and a short list of local parts that cannot be a person. The list is
+deliberately short: "info", "hello" and "team" are real founders writing from
+the address on their own website.
+
+**The venture link is a guess and is labelled one.** The contact's domain
+matches a venture's host; the link carries `derived: true`, a reason in words,
+and a badge that reads "· by domain". Somebody at a venture's domain is usually
+connected to it and sometimes is a stranger who bought a mailbox there.
+
+**The weekly brief.** `onStart` checks every six hours and writes at most one
+row per ISO week — the week is the primary key and that is the whole idempotence
+mechanism, so a laptop shut on Monday writes Monday's brief when it opens rather
+than skipping the week. The SKELETON is arithmetic in TypeScript: the counts,
+who has written to you more recently than you wrote to them, who crossed into
+cooling since the last brief, who is new, and the widest breaks against their
+own rhythm. The PROSE is one `complete()` handed that arithmetic and nothing
+else, and it is thrown away whole if a validator finds a number, an address or a
+capitalised word the figures do not carry. A refused paragraph is not repaired —
+the brief is then the skeleton, which is a real brief and says so. The diff is
+against the previous brief's own stored snapshot of every temperature, so
+`firstBrief: true` means there was no last week and NOBODY is reported as newly
+cooled; a missing snapshot must never read as "everybody cooled".
+
+**Commitments.** The one thing here that reads message BODIES, and it is a
+button rather than a timer for exactly that reason. Only `in:sent` is ever
+listed — the SENT label is a parameter of the request, not a string a caller can
+displace — so nothing anybody else promised can appear and nothing you were
+asked to do can either. Bodies are fetched, cleaned, scanned and gone when the
+function returns; four things reach disk: your own sentence (≤200 chars), the
+recipient, the subject you wrote, and the date.
+
+Two stages, and the model is never the only gate. A deterministic pass finds
+first-person future sentences — an "I'll"/"we will"/"let me" marker, a doing
+verb after it, no negation inside the next 48 characters, no question mark, and
+not one of the closing pleasantries that are furniture. That pass alone can put
+a row on the page (`by: "pattern"`). The model is then shown ONLY those
+sentences — never the body, the subject or the recipient — and asked for the
+shortest CONTIGUOUS SPAN of each. Anything it returns that is not a literal
+substring of the message is thrown away and the raw sentence used instead, and
+every failure path (unparseable JSON, missing item, reworded promise, no
+provider connected) ends at the raw candidate. The recipient and the date come
+from headers, which cannot hallucinate. `dueText` is your own words, held to the
+same verbatim test; `due` is a date only where those words resolve
+unambiguously — a weekday, today, tomorrow — and is null otherwise. "End of the
+week" stays as words, because deciding which Friday you meant is not this
+dashboard's decision. Nothing is deleted: done and dismissed are decisions, and
+a rescan of the same fortnight finds the same promises by hash and leaves them.
+
+**Rate limiting, learned the hard way.** `providers/gmail.ts` paces itself at
+140 quota units a second and its spacer is module-private. The first live
+collection here came back `403 Quota exceeded for quota metric 'Total Query
+Cost'` on its very first call, because two areas were reading the same grant at
+once. So `gmail-get.ts` paces at 60, a throttle pushes the SHARED spacer forward
+rather than backing off one request, and every call retries five times with
+5s/20s/45s/80s of wait. The failure being guarded against is a half-scanned
+window, which reads exactly like a quiet mailbox.
+
+**Routes.** `GET /api/people` (filters: `stale`, `domain`, `venture`, `q`,
+`all`, `limit`), `GET /api/people/:address` (per mailbox, with the day series),
+`GET /api/people/brief` and `POST /api/people/brief?force=1`,
+`GET /api/commitments`, `POST /api/commitments/:id/done|dismiss|reopen`,
+`POST /api/commitments/scan`.
+
+**Settings** (plugin id `people`, edited from the People page's Settings
+button — there is no catalog card because there is no credential): window days
+(365), minimum messages each way (2), your own domains, received messages to
+scan (2500), stale after (90).
+
+**Skills.** `people` (pack `people-and-relations`) with views default, contact,
+stale and brief, and no actions — there is nothing here to change. Its rules:
+this is metadata and cannot say what anybody talked about; temperature is
+relative to the pair; `null` is no rhythm and not cold; `stale` and `cold` are
+different words for different questions; counts are per contact and per window
+and must never be summed into mail volume; `floors: true` makes every count a
+floor; a venture link is a guess; `weight` orders a list and measures nothing;
+where the brief carries no paragraph the figures ARE the brief. `commitments`
+(pack `commitments`) with the `open` view and three actions — `mark_done`,
+`dismiss`, `scan`, none destructive. Its rules: always show the quoted sentence;
+`by: "pattern"` means no model touched it; never invent a deadline and an
+undated promise is not overdue; these are promises you made, not a to-do list
+somebody gave you.
 
 ## The board: the first table here that is not a transcript
 
@@ -2924,3 +4292,218 @@ are arriving the whole time. What is actually wrong with a stream is silence, so
 there is an idle timer that resets on every frame (90s) and a hard cap for a
 runaway agent (10m). Both abort the same controller, and the error says which
 fired.
+
+**A keepalive comment is activity.** Hermes writes `: keepalive` every thirty
+seconds while its model is still thinking, and an SSE comment is not a frame —
+so a reader that only counted frames saw a long first-token wait as a dead
+agent. That is exactly what happened on a 97,000-token conversation: the model
+was still working at ninety seconds, the timer fired, and the answer was lost.
+`readSse` now reports every chunk through `onActivity`, comment or not, and
+`sse.test.ts` pins that down. Silence still means silence; thinking no longer
+does.
+
+## Security: a lock on the door, snapshots, screenshot QA and the workstation
+
+Four things that are all about THIS BOX AND THE MACHINES AROUND IT rather than
+about a business. `integrations/security/`.
+
+### The lock, and what it is not
+
+`/api` had no authentication at all. That is the right default for a service
+bound to 127.0.0.1 and it stops being right the first time somebody puts this
+behind a tunnel, a reverse proxy or a `--host` flag. So there is now an
+OPTIONAL owner password, and the important property is the word optional:
+`security_owner` empty means the middleware in front of `/api/*` passes every
+request through untouched — not "an empty allow list", not "a check that always
+passes". A box that never opens the Security tab behaves in every respect
+exactly as it did before this existed, which was verified first and last.
+
+**IT IS ONE PASSWORD, ONE OWNER, AND IT IS NOT A USER SYSTEM.** No accounts, no
+roles, no per-venture permissions, no record of who did what — because there is
+one owner and every route here was written for that owner. It is a latch on a
+front door, not a security desk in a lobby. Anything that describes it as access
+control is describing something this app does not have.
+
+- `security_owner` — one row, `id` pinned to 1 by a CHECK so the second INSERT
+  fails loudly rather than letting a half-built multi-user system exist. scrypt
+  from `node:crypto`, per-owner salt, N=32768. The hash sits in a database file
+  the nightly backup copies to wherever the owner pointed it, which is the real
+  threat model for a password on a personal box.
+- `security_sessions` — one row per browser with a public ID and a separate
+  random cookie token. Only the token's SHA-256 hash is stored. Revocation,
+  30-day absolute expiry and seven-day idle expiry are enforced on the server.
+  `last_seen_at` is touched at most once a minute. The token migration revokes
+  sessions created by the old format.
+
+Routes: `POST /api/security/password` (set, or change with the old one
+required), `DELETE /api/security/password` (requires the current one),
+`POST /api/security/login`, `POST /api/security/logout`,
+`GET /api/security/status`, `DELETE /api/security/sessions/:id`. Changing or
+removing the password takes a live session AND the password — two facts, because
+a browser left open on a desk is one of them. Changing it revokes every session,
+which is the only thing that makes changing a password mean anything.
+
+The cookie is HttpOnly, SameSite=Strict, Path=/, and deliberately NOT `Secure`:
+this is served over plain http on loopback and a Secure cookie there is silently
+dropped, which presents as a login that succeeds and changes nothing. That flag
+requires deliberate configuration if this ever goes behind TLS. Login sets the
+token only in the cookie. `GET /api/security/status` returns public IDs for
+revocation; those IDs cannot authenticate a request.
+
+Open even with a password set: `GET /api/health` (a liveness probe carrying no
+data about anything, which `cli/restore.ts` checks so it can refuse to overwrite
+a live database), `POST /api/security/login`, `GET /api/security/status` (the
+login page has to be able to ask whether there is a lock before drawing a form),
+and `POST /api/security/logout`. Everything else is behind it. A preflight
+OPTIONS never reaches the gate — the CORS middleware answers it — which is why
+the one `app.use` line in `index.ts` is placed after CORS.
+
+### The service key — what keeps the agent working
+
+`server/data/service-key`, 0600, 32 random bytes as hex, minted at start-up.
+Nothing on this box that reads its own API has a browser: `opc` is a shell
+wrapper, the MCP server is a subprocess on a pipe, the skills proxy is this
+process calling itself, a run's brief is six loopback fetches. Every one of them
+would 401 the moment a password existed. So `auth.ts` exports `serviceHeaders()`
+and every in-process caller sends it — unconditionally, even with no password
+set, because a header added only "when auth is on" is a header whose absence is
+discovered at the worst possible moment.
+
+The call sites, all of them: `routes/skills.ts` (the view proxy and the action
+proxy), `integrations/runs/context.ts`, `integrations/ventures/entities.ts`,
+`integrations/proactive/catalogue.ts` (×2), `integrations/proactive/engine.ts`,
+`integrations/proactive/briefing.ts`, `integrations/chief/outcomes.ts`,
+`cli/opc.ts` (×3, from `OPC_KEY`), `skills/mcp.ts` (×3, from `OPC_KEY`),
+`skills/spawn.ts` (puts `OPC_KEY` in every MCP child's environment) and
+`skills/cli.ts` (the `opc` wrapper). The wrapper reads the file with `$(cat …)`
+at EVERY invocation rather than baking the key in, so rotating the key is
+replacing one file — nothing is rewritten and no agent is restarted — and the
+wrapper's own text, which sits in the agent's home directory at 0755, contains
+no credential. `providers/hermes.ts` needed nothing: it talks to the Hermes
+gateway on 8645 and never to `/api`. The Telegram bridge needed nothing for the
+same reason.
+
+The service key grants broad API access, with explicit exceptions: mail
+approval/sending/delivery resolution, owner authentication/session changes and
+usage-limit changes require owner browser authority. The key cannot remove the
+password. Set the password before enabling agents. Unrestricted code under the
+same OS account can still read the vault key or modify the database; separate
+OS isolation is required for hostile agents.
+
+One honest limit: an agent that composes a RAW HTTP request to
+`http://127.0.0.1:8787/api/skills` — which `runs/kinds.ts` tells it exists —
+gets a 401 with a password set. The doors that carry the key are `opc` and the
+MCP servers, which is what both managed agents actually use.
+
+Client: `/login` (shown when `lib/api.ts`'s `call` sees a 401, once, with where
+you were in `?next=` — checked to start with a single slash, because an open
+redirect on a login page is a real one), and Settings → Security for the
+password, the sessions and the revoke.
+
+### Server snapshots — an instant, not a trend
+
+`fleet_samples` is a dozen numbers per box every half hour, read as a line. That
+is the wrong shape for the question asked at three in the morning: WHAT was
+eating the CPU, WHAT was listening, what did the log say just before it stopped.
+Sampling those on a schedule is sixty rows per box per half hour to answer a
+question asked twice a year. So a snapshot is taken ON DEMAND, or when something
+already went wrong, and kept whole in `security_snapshots` (account, host, ts,
+reason, one JSON document, size, ok).
+
+It reuses the fleet plugin's ssh — `ssh()`, `parseSsh()`, `writeKeyFile()`,
+`sshProblem()` imported, not reimplemented — and adds no credential: it can
+snapshot exactly the boxes already connected under Fleet. One POSIX sh script
+per capture, printing SECTIONS rather than JSON: a snapshot is fifty lines of a
+journal and a `ps` line with a whole java command in it, and one malformed byte
+would lose the entire document to a parse error. It reads: the top fifteen
+processes by CPU and by memory from ONE `ps` (two calls would be two instants),
+listening sockets via ss/netstat/lsof, the count of established connections,
+`df -Pk`, the last fifty lines of journalctl or syslog if readable, and
+`docker ps`. Every section names the tool that answered it, so an empty list is
+never mistaken for "nothing is listening".
+
+Routes: `GET /api/snapshots?host=`, `POST /api/snapshots/:host/now`,
+`GET /api/snapshots/:id`. A refused ssh is a 200 with `ok: false` and the reason
+— "the box would not answer at 03:12" is the finding, and a 502 would lose it.
+
+**THE AUTOMATIC TRIGGER**, an `onStart` timer every five minutes: uptime checks
+that failed AND whose previous check for the same host had succeeded — the
+transitions, not the ongoing outage. A failing host is mapped to boxes through
+`venture_links`: a host and a box that share a VENTURE are related. That is the
+owner's own statement, and it is the only join used; matching hostnames or
+resolving DNS would mean ssh'ing into somebody's server because an unrelated site
+went down. At most one automatic capture per box per hour. A failing host linked
+to no box produces nothing and logs why.
+
+### Screenshot QA — a run kind that asks no model
+
+`ventures/capture.ts` photographs every venture weekly and its success test is
+"did Chrome write a file", which is right for what it does and cannot tell a
+homepage from a 502: Cloudflare's error page renders, and Chrome writes a
+perfectly good PNG of it. `shotsqa` is a RUN KIND (`runs/kinds.ts`, one branch in
+`executor.ts`) that looks at the pictures. It is a run because decoding a dozen
+PNGs is seconds of CPU that must not sit inside a request, and because the queue,
+the ledger and an addressed report are worth having — not because a model
+answers, since none does.
+
+Six checks with THREE verdicts each — `pass`, `fail`, `unchecked` — and
+`unchecked` is never a pass: a capture exists, sensible dimensions, not a blank
+rectangle, no error wording in the page title, nothing insecure in the latest
+audit, recent enough to believe. The blankness check decodes the PNG in-process
+with `zlib.inflateSync` and the five PNG filters (about sixty lines, no
+dependency, works on a Pi with nothing installed) and computes a luminance
+standard deviation and a dominant-colour share over every ninth pixel. Interlaced
+files, bit depths other than 8 and palette images are reported as `unchecked`
+with the reason — Chrome writes none of those, so a file that is one of them is
+worth being told about. Rows go in `security_shotsqa`, one per venture per pass;
+the markdown report is on the run.
+
+**NO VISION MODEL, AND THAT WAS CHECKED RATHER THAN ASSUMED.**
+`models/provider.ts` has no capability flag: a provider declares an id, a label,
+endpoints and a concurrency policy, and nothing on this box says whether the
+model behind it can accept an image. So nothing is sent one. That is stated in
+the report, on the route and in the skill's rules rather than left for a reader
+to wonder about.
+
+### The workstation — one account, one desk machine
+
+The plugin is `workstation`: `host` (user@host), and optionally a key, the MAC
+address of the WIRED adapter, and a broadcast address. It is not a second fleet
+box, and the difference is what "not answering" means: a server that is off is an
+incident, a desktop that is off is a desktop. So an unreachable machine keeps its
+account connected, the collection SUCCEEDS, and the panel says asleep. Verify has
+the matching rule: an ssh that fails with a MAC on file is ACCEPTED with a note,
+because the expected state is off; with no MAC it is refused, since at that point
+nothing about the account could ever work.
+
+Routes: `GET /api/workstation` (state read LIVE on the request — a figure from
+half an hour ago is the wrong answer to "is it awake" — plus the collector's
+history), `POST /api/workstation/:id/wake`, `.../sleep`, `.../shutdown`. Wake is
+a magic packet over `node:dgram`: six 0xFF bytes and the MAC sixteen times, sent
+three times because UDP to a broadcast has no retransmission. **Nothing
+acknowledges a magic packet**, so the answer is that it was SENT and never that
+the machine woke. `workstation_state` records reachability every cycle; `gpu` is
+JSON from `nvidia-smi --query-gpu=…` or NULL with a reason in `gpu_note` — never
+"no GPU" and never zero.
+
+Sleep and shutdown run a command the OWNER TYPED into the plugin's settings.
+There is no per-OS fallback in code: whether suspending needs sudo is that
+machine's own policy, and a route composing a privileged command from a table is
+one bug away from halting the wrong machine. With nothing set, the route refuses
+and names the documented command (`systemctl suspend`, `pmset sleepnow`,
+`acpiconf -s3`, and their shutdown counterparts) so there is something to paste.
+A machine going down usually kills the ssh connection before the shell reports a
+status, so a non-zero exit is not evidence of failure and the answer says so.
+
+### Skills
+
+`security` (pack `dashboard-security`) — the state of the lock, NO actions at
+all: the skills proxy carries the service key on every call, so an action that
+could remove the password would be an agent unlocking the box it is standing in.
+`snapshots` (`server-snapshots`) — views `default` and `one`, action `take_now`;
+the first rule is that a snapshot is an instant and two of them are two moments
+with nothing measured in between. `shotsqa` (`screenshot-qa`) — the last pass,
+action `run_now`; the first rule is that `unchecked` is never a pass.
+`workstation` (`workstation-power`) — the live state, actions `wake` and `sleep`;
+`shutdown` is a route and not a published action.
+

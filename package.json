@@ -1,0 +1,17 @@
+{
+  "name": "one-person-company",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.18 <27"
+  },
+  "scripts": {
+    "setup": "npm --prefix server ci && npm --prefix client ci",
+    "dev": "node scripts/dev.mjs",
+    "build": "npm --prefix server run typecheck && npm --prefix client run build",
+    "start": "node --experimental-strip-types server/src/index.ts",
+    "doctor": "node --experimental-strip-types server/src/cli/doctor.ts",
+    "test": "npm --prefix server test && npm --prefix client test",
+    "check": "npm run test && npm run build && npm --prefix client run lint && npm --prefix client run check:catalog && npm --prefix client run check:strict"
+  }
+}

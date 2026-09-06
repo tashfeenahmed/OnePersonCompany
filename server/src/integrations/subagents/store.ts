@@ -1,3 +1,4 @@
+import { runPage } from "../../../../shared/runRoutes.ts";
 /**
  * THE ROSTER, AND WHAT IT IS DERIVED FROM.
  *
@@ -42,7 +43,7 @@ import { readBrand } from "../../ventures/enrich.ts";
 
 /* -------------------------------------------------------------- the roles */
 
-export type Role = "researcher" | "competitors" | "seo" | "demand" | "visibility" | "writer";
+export type Role = "researcher" | "competitors" | "seo" | "demand" | "visibility" | "writer" | "producer" | "serp" | "aso";
 
 export type RoleDef = {
   role: Role;
@@ -62,6 +63,9 @@ export const ROLES: RoleDef[] = [
   { role: "demand", kind: "demand", title: "Demand analyst", suffix: "Demand Analyst", app: "demand" },
   { role: "visibility", kind: "geo", title: "AI visibility analyst", suffix: "Visibility Analyst", app: "visibility" },
   { role: "writer", kind: "papers", title: "Academic paper writer", suffix: "Paper Writer", app: "papers" },
+  { role: "producer", kind: "video", title: "Video producer", suffix: "Video Producer", app: "video" },
+  { role: "serp", kind: "serp", title: "SERP analyst", suffix: "SERP Analyst", app: "serp" },
+  { role: "aso", kind: "aso", title: "Store listing auditor", suffix: "ASO Auditor", app: "aso" },
 ];
 
 export function roleDef(role: string): RoleDef | null {
@@ -369,7 +373,7 @@ export function childrenBySession(): Map<string, RunChild[]> {
       kind: r.kind,
       app,
       status: r.status,
-      to: `/apps/${app}/${r.id}`,
+      to: runPage(r.kind, r.id),
     };
     const list = out.get(r.parent_session_id);
     if (list) list.push(child);

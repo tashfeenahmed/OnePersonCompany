@@ -161,7 +161,7 @@ export function RunCards({
         </Button>
         {filed.size > 0 && (
           <Link
-            to="/apps/board"
+            to="/board"
             className="text-muted-foreground hover:text-foreground text-[12px]"
           >
             {filed.size} {filed.size === 1 ? "card is" : "cards are"} in Backlog —

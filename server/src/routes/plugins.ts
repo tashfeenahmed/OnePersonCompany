@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { hasSettings } from "./pluginConfig.ts";
 import { allPlugins, getPlugin, recentRuns, upsertPlugin } from "../db.ts";
 import * as vault from "../vault.ts";
 import * as accounts from "../accounts.ts";
@@ -1072,7 +1073,11 @@ function shape(id: string) {
       back to its catalog-only form and write the endpoint into localStorage
       instead of the vault.
     */
-    configurable: id in REGISTRY,
+    /* A CREDENTIAL OR SETTINGS — either one means the API backs this plugin.
+       `backups` and `briefing` have no credential at all and are nothing but
+       settings; without the second half they were drawn the catalog-only form
+       and their settings had nowhere to appear. */
+    configurable: id in REGISTRY || hasSettings(id),
     runs: recentRuns(id, 5).map((r) => ({
       id: r.id,
       startedAt: r.started_at,

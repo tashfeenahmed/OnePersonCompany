@@ -1,6 +1,8 @@
+import { QueueControls } from "@/components/runs/QueueControls";
 import { useEffect, useMemo, useState } from "react";
+import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { Link } from "react-router-dom";
-import { ChevronRight, Network, RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw } from "lucide-react";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
 import { SubagentRow } from "@/components/org/SubagentRow";
@@ -73,7 +75,14 @@ export function Subagents() {
   const live = !!running || queued.length > 0;
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), live ? 1500 : 10_000);
-    return () => clearInterval(t);
+    /* And the moment a chat turn ends, which is when a dispatch has just
+       happened — see hooks/useRunQueue.ts. */
+    const now = () => setTick((n) => n + 1);
+    window.addEventListener(WORK_CHANGED, now);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(WORK_CHANGED, now);
+    };
   }, [live]);
   useEffect(() => {
     const t = setInterval(() => setOrgTick((n) => n + 1), live ? 6000 : 60_000);
@@ -113,17 +122,9 @@ export function Subagents() {
 
       <PageShell
         title="Sub-agents"
-        sub="Six workers per venture, one per app, provisioned rather than created. They share one queue: the oldest waiting run starts when the one before it finishes, and it carries on with every tab shut."
-        action={
-          <Link
-            to="/ventures/org"
-            className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[12.5px]"
-          >
-            <Network className="size-[15px]" strokeWidth={1.8} />
-            The org chart
-          </Link>
-        }
+        sub="Manage each venture's workers and their shared job queue. Reorder or hold waiting jobs below; work continues while the server is running."
       >
+        <QueueControls />
         {doc.error ? (
           <p className="text-muted-foreground text-[13px]">
             The queue could not be read, so there is nothing to show — not even
@@ -201,7 +202,9 @@ export function Subagents() {
             />
 
             {org.data?.roles.length ? (
-              <div className="mt-4 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+              <details className="mt-4">
+                <summary className="cursor-pointer text-sm">What each worker does</summary>
+                <div className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
                 {org.data.roles.map((r) => (
                   <div
                     key={r.role}
@@ -214,7 +217,8 @@ export function Subagents() {
                     </span>
                   </div>
                 ))}
-              </div>
+                </div>
+              </details>
             ) : null}
 
             {/* ---------------------------------------------------- history */}
@@ -230,8 +234,7 @@ export function Subagents() {
             </div>
             {runs.length === 0 ? (
               <p className="text-muted-foreground text-[13px]">
-                Nothing has been run yet. Every one of the six apps starts its
-                own kind of run, and they all queue here.
+                No jobs yet. Start a job from an app to track it here.
               </p>
             ) : (
               <div className="flex flex-col gap-px">
@@ -242,10 +245,9 @@ export function Subagents() {
             )}
 
             <p className="text-muted-foreground pt-5 text-[13px]">
-              Every run above is kept until it is deleted — the reports are the
-              ledger, not a 48-hour window. A run that was executing when the
-              server restarted is marked failed with the reason, because it did
-              not finish and nothing here is allowed to say it did.
+              Reports stay until you delete them. Interrupted jobs are marked
+              failed and can be retried from their report. AI visibility jobs
+              can also resume saved model steps.
             </p>
           </>
         )}

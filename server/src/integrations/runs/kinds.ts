@@ -34,9 +34,17 @@ export type InputSpec = {
   key: string;
   label: string;
   hint: string;
-  kind: "text" | "textarea" | "number";
+  /** `select` is drawn as a closed list of `options` and is otherwise a text
+   *  field: the value on the wire is still a string and the SERVER is still
+   *  the only judge of it. It exists because a kind with a `format` that is
+   *  one of two words should not be a box somebody can misspell — and because
+   *  a client that has never heard of `select` falls back to a text input and
+   *  still works. */
+  kind: "text" | "textarea" | "number" | "select";
   required: boolean;
   default: string;
+  /** Only for `select`. `value` is what is sent; `label` is what is drawn. */
+  options?: { value: string; label: string }[];
 };
 
 export type KindDef = {
@@ -160,6 +168,146 @@ export const KINDS: KindDef[] = [
       },
     ],
   },
+  {
+    /* THE ONE KIND HERE THAT NO MODEL ANSWERS. Every other brief above is a
+       question put to an agent; this is arithmetic over the venture
+       screenshots — a PNG decoded in-process, two tables read, six heuristics
+       with three verdicts each. It is a RUN because decoding a dozen images is
+       seconds of CPU that must not sit inside a request, and because the queue,
+       the ledger and the addressed report are worth having for it. See
+       integrations/security/shotsqa.ts. */
+    kind: "shotsqa",
+    name: "Screenshot QA",
+    what:
+      "Audits the screenshot on every venture's card: dimensions, whether the picture is a flat rectangle rather than a page, error wording in the page title, what the latest audit says about http, and how stale the capture is. No model looks at the images — nothing on this box says whether a configured provider can accept one — so every verdict is arithmetic, and a check that could not be run is reported as unchecked rather than as a pass.",
+    needsVenture: false,
+    inputs: [],
+  },
+  {
+    /* THE ONE KIND THAT PRODUCES A FILE RATHER THAN A DOCUMENT. Its `output`
+       is a note ABOUT the video — the script, the credits, what could not be
+       done — the way a paper run's is a note about its PDF. See
+       integrations/video/. */
+    kind: "video",
+    name: "Video",
+    what:
+      "Makes a vertical video on this machine. `faceless` writes a script from the venture, finds stock footage on Pexels for every beat, burns captions in the venture's own colour and font, and adds an end card. `shorts` downloads a long video with yt-dlp and cuts two to four vertical clips out of it, chosen from the transcript where there is one and from even spacing where there is not — which it says. It publishes nothing anywhere: the file lands on this page.",
+    needsVenture: false,
+    inputs: [
+      {
+        key: "format",
+        label: "What to make",
+        hint: "faceless or shorts",
+        kind: "select",
+        required: true,
+        default: "faceless",
+        options: [
+          { value: "faceless", label: "Faceless — script and stock footage" },
+          { value: "shorts", label: "Shorts — cut up a long video" },
+        ],
+      },
+      {
+        key: "brief",
+        label: "What it is about",
+        hint: "One or two lines. For a faceless video this is the whole subject; for shorts it steers which moments are chosen. Empty makes the general case for the venture.",
+        kind: "textarea",
+        required: false,
+        default: "",
+      },
+      {
+        key: "url",
+        label: "Source video",
+        hint: "Shorts only, and required for it: a YouTube address or a direct link to a video file.",
+        kind: "text",
+        required: false,
+        default: "",
+      },
+      {
+        key: "seconds",
+        label: "Length in seconds",
+        hint: "For faceless, how long the whole video is — 10 to 120, and the beats are shared out inside it. For shorts, the LONGEST a single clip may be — 15 to 90.",
+        kind: "number",
+        required: false,
+        default: "30",
+      },
+      {
+        key: "clips",
+        label: "How many clips",
+        hint: "Shorts only. Two to four.",
+        kind: "number",
+        required: false,
+        default: "3",
+      },
+      {
+        key: "aspect",
+        label: "Shape",
+        hint: "9:16 unless you have a reason.",
+        kind: "select",
+        required: false,
+        default: "9:16",
+        options: [
+          { value: "9:16", label: "9:16 — reels, shorts, TikTok" },
+          { value: "1:1", label: "1:1 — a square feed post" },
+          { value: "16:9", label: "16:9 — landscape" },
+        ],
+      },
+      {
+        key: "fit",
+        label: "How the picture fits",
+        hint: "Matters for shorts, where the source is usually landscape. Centre crop fills the frame and loses the edges; letterbox keeps the whole picture over a blurred copy of itself and is the face-safe one.",
+        kind: "select",
+        required: false,
+        default: "cover",
+        options: [
+          { value: "cover", label: "Centre crop — fills the frame" },
+          { value: "letterbox", label: "Letterbox — keeps the whole picture" },
+        ],
+      },
+    ],
+  },
+  {
+    kind: "serp",
+    name: "SERP teardown",
+    what:
+      "Searches for a set of queries, reads the pages that outrank this venture in code — headings, word count, links, schema, FAQ and table markup — and compares them with our own page. Queries come from the form, else from Search Console's striking-distance rows, else derived from the venture record and labelled as derived. It ranks nothing itself: the order is whichever engines the search node had.",
+    needsVenture: true,
+    inputs: [
+      {
+        key: "queries",
+        label: "Queries to tear down",
+        hint: "One per line, up to five. Empty takes the venture's Search Console queries sitting between positions 5 and 20 — the ones where a page already exists and only the pages above it are in the way — and, with no Search Console property, derives one from the venture's own description and says so.",
+        kind: "textarea",
+        required: false,
+        default: "",
+      },
+      {
+        key: "results",
+        label: "Competitor pages per query",
+        hint: "How many of the pages above us to read. One page per registrable domain, so a rival's three subdomains do not eat the sample. Clamped to 3-8.",
+        kind: "number",
+        required: false,
+        default: "5",
+      },
+    ],
+  },
+  {
+    kind: "aso",
+    name: "Store listing audit",
+    what:
+      "Reads this venture's App Store and Play listings the way a shopper does — title, description, screenshots, rating, how long since the last version — checks them against each store's own rules, and scores them on this app's rubric with the arithmetic printed. It cannot see Apple's subtitle or keyword field, and it says so rather than passing them by silence.",
+    needsVenture: true,
+    inputs: [
+      {
+        key: "store",
+        label: "Which store",
+        hint: "Empty audits every listing this venture has. `appstore` or `play` narrows it to one.",
+        kind: "text",
+        required: false,
+        default: "",
+      },
+    ],
+  },
+
 ];
 
 export const KIND_KEYS = KINDS.map((k) => k.kind);

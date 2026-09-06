@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { lazy, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { BarChart3, Plus } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import {
   BoardView,
@@ -8,6 +8,8 @@ import {
   NoBoard,
 } from "@/components/BoardView";
 import { useStore } from "@/lib/store";
+import { appPage } from "../../../shared/navigation";
+const EmailStats = lazy(() => import("@/pages/EmailStats").then(m => ({ default: m.EmailStats })));
 
 /**
  * THE GLOBAL DASHBOARDS — every board that is about the whole operation.
@@ -30,7 +32,7 @@ import { useStore } from "@/lib/store";
  * `ventureId` at all, which is why the test is falsiness rather than a null
  * check: a board from before the distinction existed is a global board.
  */
-export function Dashboards() {
+export function Dashboards({ report }: { report?: "email-stats" }) {
   const { state, addDashboard, copyDashboard, reorderDashboards } = useStore();
   const { slug } = useParams();
   const navigate = useNavigate();
@@ -51,19 +53,14 @@ export function Dashboards() {
 
   // The bare /dashboards: land on the first board and put its own address in
   // the bar, replacing rather than pushing so Back still leaves the page.
-  if (!slug)
+  if (!slug && !report)
     return first ? (
       <Navigate to={`/dashboards/${first.slug}`} replace />
     ) : (
-      <NoBoard
-        title="No dashboards yet"
-        body="Create one and it gets its own address."
-        basePath="/dashboards"
-        onCreate={create}
-      />
+      <Navigate to={appPage("email-stats")} replace />
     );
 
-  if (!board)
+  if (!board && !report)
     return (
       <NoBoard
         title="No dashboard at this address"
@@ -80,13 +77,13 @@ export function Dashboards() {
         {/* Links, not buttons: each tab IS the board's address. Hold and drag
             to reorder — the order lives in the store beside the boards. */}
         <TabStrip
-          tabs={boards.map((d) => ({
+          tabs={[{ key: "report:email-stats", to: appPage("email-stats"), label: "Email stats", icon: BarChart3, fixed: true }, ...boards.map((d) => ({
             key: d.id,
             to: `/dashboards/${d.slug}`,
             label: d.name,
             count: d.widgets.length,
-          }))}
-          activeKey={board.id}
+          }))]}
+          activeKey={report ? "report:email-stats" : board?.id ?? null}
           onReorder={reorderDashboards}
         />
         <button
@@ -94,19 +91,19 @@ export function Dashboards() {
           className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px]"
         >
           <Plus className="size-3.5" strokeWidth={1.6} />
-          New dashboard
+          <span className="hidden sm:inline">New dashboard</span><span className="sr-only sm:hidden">New dashboard</span>
         </button>
       </header>
 
       {/* Keyed by board: switching dashboards ends an edit session rather than
           carrying a half-open widget panel across to a different board. */}
-      <BoardView
+      {report ? <EmailStats /> : board && <BoardView
         key={board.id}
         board={board}
         basePath="/dashboards"
         homePath="/dashboards"
         ventureId={null}
-      />
+      />}
 
       <NewDashboardDialog
         open={creating}

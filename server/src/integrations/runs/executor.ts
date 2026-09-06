@@ -1,3 +1,5 @@
+import { budgets, budgeted, runContext, queuePaused, assertMeterable } from "../../runtime/budgets.ts";
+import { runPage } from "../../../../shared/runRoutes.ts";
 /**
  * THE EXECUTOR — one piece of long work at a time, on whatever will answer.
  *
@@ -78,7 +80,7 @@ import { resolve } from "node:path";
 import { ask, activeBackend, type ChatTurn } from "../../chat/backend.ts";
 import { activeProvider, complete, type ProviderId } from "../../models/provider.ts";
 import { ventureContext } from "../../routes/ventures.ts";
-import { db, now, ventureRowById, type VentureRow } from "../../db.ts";
+import { appendChatMessage, db, now, ventureRowById, type VentureRow } from "../../db.ts";
 import {
   auditBlock,
   backlinksBlock,
@@ -93,6 +95,11 @@ import {
   type Block,
 } from "./context.ts";
 import { fencedJson, kindDef, systemBrief, type KindDef } from "./kinds.ts";
+import { growthRun } from "../growth/runs.ts";
+import { videoRun } from "../video/execute.ts";
+/* The screenshot-QA kind's whole implementation, which asks no model — see
+   integrations/security/shotsqa.ts. */
+import { report as shotsqaReport, runQaAsync, storeQa } from "../security/shotsqa.ts";
 import { printPdf, writePaperFiles } from "./pdf.ts";
 import { libraryRows, saveLibrary, scout, type Paper } from "./scout.ts";
 import {
@@ -277,10 +284,10 @@ export function isRunning(id: string): boolean {
  * is.
  */
 function claim(): RunRow | null {
-  if (live) return null;
+  if (live || queuePaused()) return null;
   if (runningRow()) return null;
   const next = db
-    .prepare("SELECT * FROM agent_runs WHERE status = 'queued' ORDER BY queued_at, rowid LIMIT 1")
+    .prepare("SELECT * FROM agent_runs WHERE status = 'queued' AND paused = 0 ORDER BY queue_priority DESC, queued_at, rowid LIMIT 1")
     .get() as RunRow | undefined;
   if (!next) return null;
   const res = db
@@ -293,13 +300,122 @@ function claim(): RunRow | null {
 
 /** Start the next run if there is one, and go round again when it ends. Safe
  *  to call at any time from anywhere — it is a no-op when the slot is busy. */
+/**
+ * THE RESULT, BACK IN THE CHAT THAT ASKED FOR IT.
+ *
+ * A run dispatched from a conversation used to end in silence there: the rail's
+ * child turned from "running" to "done" and the owner had to go and find the
+ * report. So a finished run whose row names a parent session writes one
+ * assistant turn into that session — what finished, how long it took, the
+ * opening of the report, and where the whole thing and its artefacts are. A
+ * failure writes the same turn with the reason, because a run that failed
+ * quietly is a run the owner thinks is still going.
+ *
+ * WRITTEN, NOT ASKED FOR. This is not the agent summarising the report — it is
+ * the report's own first paragraphs, cut at a paragraph boundary, so nothing
+ * in the chat says something the report does not. The links are relative to
+ * this app: the run page, and for a paper its PDF.
+ */
+function reportToParent(runId: string, ms: number) {
+  const row = runRow(runId);
+  if (!row) return;
+  /* The parent is a dispatch's column, written beside `insertRun` rather than
+     through it — see subagents/routes.ts — so `RunRow` does not carry it. */
+  const parent = (
+    db.prepare("SELECT parent_session_id AS p FROM agent_runs WHERE id = ?").get(runId) as { p: string | null } | undefined
+  )?.p;
+  if (!parent || parent.startsWith("run:")) return;
+  const def = kindDef(row.kind);
+  const what = def?.name ?? row.kind;
+  const took = ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`;
+  const page = runPage(row.kind, row.id);
+  const lines: string[] = [];
+
+  if (row.status === "done") {
+    lines.push(`**${what} finished — ${row.title}** · ${took} · [open the run](${page})`);
+    const paper =
+      row.kind === "papers"
+        ? (db.prepare("SELECT title, thesis, pdf_path, typeset, pages FROM papers WHERE run_id = ?").get(row.id) as
+            | { title: string; thesis: string; pdf_path: string | null; typeset: string | null; pages: number | null }
+            | undefined)
+        : undefined;
+    if (paper) {
+      lines.push("", `*${paper.title}*`);
+      if (paper.thesis) lines.push("", paper.thesis);
+      if (paper.pdf_path)
+        lines.push(
+          "",
+          `[Paper PDF](/api/runs/${row.id}/pdf)` +
+            (paper.typeset === "typst" ? " — typeset with Typst" : " — printed from markdown") +
+            (paper.pages ? `, ${paper.pages} page${paper.pages === 1 ? "" : "s"}` : "") +
+            `. [Typst source](/api/runs/${row.id}/typ).`,
+        );
+    } else {
+      const opening = openingOf(row.output ?? "");
+      if (opening) lines.push("", opening);
+      lines.push("", `The whole report is on the run page.`);
+    }
+  } else {
+    lines.push(
+      `**${what} ${row.status} — ${row.title}** · ${took} · [open the run](${page})`,
+      "",
+      row.error ? `It stopped because: ${row.error}` : "It was stopped before it finished.",
+    );
+  }
+
+  try {
+    appendChatMessage({
+      sessionId: parent,
+      role: "assistant",
+      content: lines.join("\n"),
+      channel: "run",
+      backend: null,
+      model: null,
+      ms,
+    });
+  } catch (err) {
+    console.error(`[runs] ${row.id}: could not report to ${parent} — ${String(err)}`);
+  }
+}
+
+/** The report's first paragraphs, up to about 700 characters, cut at a
+ *  paragraph and never mid-sentence; the H1 the writer put on top is dropped
+ *  because the turn already names the run. */
+function openingOf(output: string): string {
+  /* From the first section heading on, when there is one: what comes before
+     it is the writer clearing its throat — "Now I have everything I need.
+     Let me write the report." — and the report starts at "## Findings". */
+  const firstH2 = output.search(/^##\s/m);
+  const body = firstH2 > 0 ? output.slice(firstH2) : output;
+  const paras = body
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter((p) => p && !/^#\s/.test(p));
+  const out: string[] = [];
+  let n = 0;
+  for (const p of paras) {
+    if (n + p.length > 700 && out.length) break;
+    out.push(p);
+    n += p.length;
+    if (n > 700) break;
+  }
+  return out.join("\n\n");
+}
+
 export function pump() {
   const row = claim();
   if (!row) return;
   const started = Date.now();
   const session = new Session(row.id);
-  void execute(row, session)
-    .then(() => {
+  const abort = live!.abort;
+  const timeout = setTimeout(() => abort.abort(new Error("Job runtime budget exceeded.")), budgets().runSeconds * 1000);
+  timeout.unref();
+  const parent = db.prepare("SELECT parent_session_id AS id FROM agent_runs WHERE id=?").get(row.id) as {id: string | null} | undefined;
+  void runContext.run({ id: row.id, venture: row.venture_id, automation: parent?.id === "rounds", signal: abort.signal, sequence: 0, resume: !!row.resume_checkpoints }, async () => {
+    assertMeterable(row.kind);
+    await execute(row, session);
+    abort.signal.throwIfAborted();
+  }).then(() => {
       finishRunRow(row.id, {
         status: "done",
         output: session.output,
@@ -310,6 +426,7 @@ export function pump() {
         ms: Date.now() - started,
         usage: session.sawUsage ? session.usage : null,
       });
+      reportToParent(row.id, Date.now() - started);
     })
     .catch((err: unknown) => {
       const cancelled = live?.cancelling === true;
@@ -329,8 +446,10 @@ export function pump() {
         usage: session.sawUsage ? session.usage : null,
       });
       if (!cancelled) console.error(`[runs] ${row.id} (${row.kind}) failed — ${message}`);
+      reportToParent(row.id, Date.now() - started);
     })
     .finally(() => {
+      clearTimeout(timeout);
       live = null;
       /* Straight on to the next one rather than waiting for the tick: a queue
          of three should not take fifteen seconds of nothing between them. */
@@ -387,6 +506,12 @@ async function turn(
   turns: ChatTurn[],
   opts: { toOutput: boolean; forceProvider?: boolean },
 ): Promise<TurnResult> {
+  const backend = opts.forceProvider ? null : activeBackend();
+  if (backend) return budgeted(turns, () => agentTurn(s, turns, opts), true);
+  return agentTurn(s, turns, opts);
+}
+async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean }): Promise<TurnResult & { usage?: {prompt: number; completion: number} | null }> {
+  const before = { ...s.usage };
   const signal = live?.id === s.id ? live.abort.signal : undefined;
   const backend = opts.forceProvider ? null : activeBackend();
 
@@ -429,7 +554,7 @@ async function turn(
     }
     s.model = model ?? s.model;
     s.flush();
-    return { text, backend: backend.id, model };
+    return { text, backend: backend.id, model, usage: s.sawUsage ? { prompt: s.usage.prompt - before.prompt, completion: s.usage.completion - before.completion } : null };
   }
 
   if (backend) {
@@ -442,7 +567,7 @@ async function turn(
       s.sawUsage = true;
     }
     if (opts.toOutput) s.say(reply.text);
-    return { text: reply.text, backend: backend.id, model: reply.model };
+    return { text: reply.text, backend: backend.id, model: reply.model, usage: reply.usage };
   }
 
   const provider = activeProvider();
@@ -475,7 +600,54 @@ async function execute(row: RunRow, s: Session) {
 
   if (row.kind === "geo") return geoRun(row, s, venture!);
   if (row.kind === "papers") return papersRun(row, s, venture ?? null, input);
+  /* NO MODEL AT ALL — the only branch here that asks nothing. See kinds.ts and
+     integrations/security/shotsqa.ts for why a deterministic audit is still a
+     run: the queue, the ledger and a report with an address. */
+  if (row.kind === "shotsqa") return shotsqaRun(row, s);
+  /* THE ONE BRANCH THAT WRITES A FILE. Everything behind it is in
+     integrations/video/, including the abort signal — an encode that is not
+     killed on cancel is a minute of CPU spent on a video nobody will watch. */
+  if (row.kind === "video")
+    return videoRun({
+      runId: row.id,
+      session: s,
+      venture: venture ?? null,
+      input,
+      signal: live?.id === s.id ? live.abort.signal : undefined,
+    });
+  /* THE TWO GROWTH KINDS. Both fetch what they need themselves — a search
+     node, competitors' HTML, a store's public listing — so what they borrow
+     from here is only the ability to be WATCHED while they do it: the report,
+     the steps and one turn on whoever is answering. integrations/growth/runs.ts
+     is the seam, and it is an interface in that direction because an import
+     back into this file would be a cycle through integrations/index.ts. */
+  if (row.kind === "serp" || row.kind === "aso")
+    return growthRun(row.kind, row.id, venture!, input, {
+      say: (text) => s.say(text),
+      startStep: (tool, label) => s.startStep(tool, label),
+      endStep: (step, label) => s.endStep(step, label),
+      turn: (turns, opts) => turn(s, turns, opts),
+      hasTools: activeBackend() !== null,
+    });
   return reportRun(row, s, def, venture!, input);
+}
+
+/**
+ * SCREENSHOT QA — the one run on this box that never asks anything to think.
+ *
+ * It reads every venture's newest capture, decodes the PNG, checks it against
+ * the audit and the rendered title, writes a row per venture and says what it
+ * found. `s.say` rather than a model's stream: the report IS the output, it is
+ * written by shotsqa.ts, and there is nothing to summarise that would not be a
+ * paraphrase of arithmetic. `backend` and `model` stay null on the row for the
+ * same reason — claiming a model answered would be claiming a model answered.
+ */
+async function shotsqaRun(row: RunRow, s: Session) {
+  const step = s.startStep("shotsqa", "reading every venture's capture");
+  const pass = await runQaAsync();
+  storeQa(row.id, pass);
+  s.endStep(step, `${pass.ventures.length} venture(s) examined`);
+  s.say(shotsqaReport(pass));
 }
 
 /** What each kind is handed. Only what the kind needs: a demand report does
@@ -850,15 +1022,67 @@ async function geoRun(row: RunRow, s: Session, v: VentureRow) {
  * about the second that is only true of the first.
  */
 
+/**
+ * THE SEARCH SUBJECT, OUT OF WHATEVER WAS TYPED.
+ *
+ * The topic goes to OpenAlex and arXiv as a query, and a query is a phrase.
+ * The first paper dispatched from the chat arrived as a paragraph — "Conduct
+ * academic research on…, scout…, build a library…, prepare a write-up with
+ * figures using Typst. Parent session: s-…" — which both indexes answered
+ * with nothing, and the run failed one second in with no library to cite
+ * from. The pack now says the brief is a subject; this is the floor under
+ * that rule. A short topic is used as typed. A long one is reduced to its
+ * subject by the model — three to ten words, the field and the angle, no
+ * verbs — and the step label says so, because the phrase that was searched
+ * is a fact about the run a reader is entitled to. If the model's phrase is
+ * unusable the first ten words of the brief are the fallback: worse than a
+ * subject, better than a paragraph.
+ */
+async function searchSubject(s: Session, asked: string): Promise<string> {
+  const words = asked.split(/\s+/).filter(Boolean);
+  if (words.length <= 10 && asked.length <= 90) return asked;
+  const fallback = words.slice(0, 10).join(" ");
+  try {
+    const r = await turn(
+      s,
+      [
+        {
+          role: "system",
+          content:
+            "You turn a research brief into the subject of a literature search. Answer with " +
+            "one phrase of three to ten words naming the field and its specific angle — no " +
+            "verbs, no instructions, no quotes, nothing else.",
+        },
+        { role: "user", content: asked },
+      ],
+      { toOutput: false, forceProvider: true },
+    );
+    const phrase = r.text
+      .split("\n")
+      .map((l) => l.trim().replace(/^["“'`]+|["”'`.]+$/g, "").trim())
+      .find((l) => l.length > 0);
+    const n = phrase ? phrase.split(/\s+/).length : 0;
+    return phrase && n >= 2 && n <= 14 ? phrase : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 async function papersRun(row: RunRow, s: Session, v: VentureRow | null, input: Record<string, string>) {
-  const topic =
+  const asked =
     (input.topic ?? "").trim() ||
     (v ? `${v.name} — ${v.description || "the field this product is in"}`.slice(0, 200) : "");
-  if (!topic) throw new Error("A paper needs a topic or a venture, and this run has neither.");
+  if (!asked) throw new Error("A paper needs a topic or a venture, and this run has neither.");
+  const topic = await searchSubject(s, asked);
 
   /* THE SCOUT, FIRST AND ALWAYS. See scout.ts: the citation list has to be a
      closed set handed to the model, or the citations are invented. */
-  const scoutStep = s.startStep("scout", `OpenAlex and arXiv for “${topic}”`);
+  const scoutStep = s.startStep(
+    "scout",
+    topic === asked
+      ? `OpenAlex and arXiv for “${topic}”`
+      : `OpenAlex and arXiv for “${topic}” — the brief, condensed to a subject`,
+  );
   const found = await scout(topic);
   saveLibrary(found.papers, topic, v?.id ?? null);
   s.endStep(

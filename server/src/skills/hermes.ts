@@ -36,8 +36,9 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { UNIVERSAL_RULES, apiBase, skills, type Skill } from "./registry.ts";
+import { UNIVERSAL_RULES, skills, type Skill, type SkillParam } from "./registry.ts";
 import { manifestPacks } from "../integrations/index.ts";
+import { PRESENT_GUIDE } from "./present.ts";
 
 /** The category directory these all live in, under `$HERMES_HOME/skills/`. One
  *  of its own so the agent's index groups them, and so the prune below has a
@@ -129,8 +130,8 @@ function frontmatter(s: Skill): string {
        can write, that it can, with the action names. An agent asked to move a
        card does not open a pack whose one line only offers to read. */
     `description: ${y(
-      `${s.title}. Read it live over HTTP from this machine's own dashboard, with ` +
-        `the rules for reporting the figures honestly.` +
+      `${s.title}. Read it live with the \`opc ${s.id}\` command in the terminal, ` +
+        `with the rules for reporting the figures honestly.` +
         (s.actions?.length
           ? ` It can also change it — ${s.actions.map((a) => a.key).join(", ")} — ` +
             `under the rules the pack sets out.`
@@ -149,8 +150,14 @@ function frontmatter(s: Skill): string {
   ].join("\n");
 }
 
-function body(s: Skill): string {
-  const base = apiBase();
+/** A flag's example value: a number stays a number, a string is its default
+ *  when it has one and a placeholder when it does not. */
+function exampleFlag(p: SkillParam): string {
+  if (p.type === "number") return `--${p.name} ${p.fallback ?? 1}`;
+  return `--${p.name} ${p.fallback !== undefined ? JSON.stringify(String(p.fallback)) : '"…"'}`;
+}
+
+function body(s: Skill, cli: string | null): string {
   const out: string[] = [];
 
   out.push(`\n# ${s.title}\n`);
@@ -165,84 +172,71 @@ function body(s: Skill): string {
   out.push("## What the data is\n");
   out.push(`${s.about}\n`);
 
+  /*
+    THE COMMAND, NOT A URL. `opc` is on the terminal's PATH — see skills/cli.ts —
+    and it is the only way this pack says to read anything. It forwards to the
+    dashboard's own proxy, passes the document back verbatim, refuses a flag
+    the skill does not have, and tells the read from the write by the catalog
+    rather than by what the agent believed it was doing.
+  */
   out.push("## How to read it\n");
-  for (const v of s.views) {
-    const q = v.params
-      .map((p) => `${p.name}=${p.fallback !== undefined ? p.fallback : `<${p.type}>`}`)
-      .join("&");
-    const url =
-      `${base}/api/skills/${s.id}` +
-      (v.key === "default" ? "" : `?view=${v.key}`) +
-      (q ? `${v.key === "default" ? "?" : "&"}${q}` : "");
+  s.views.forEach((v, i) => {
+    const flags = v.params.map(exampleFlag).join(" ");
+    const cmd = `opc ${s.id}${i === 0 ? "" : ` ${v.key}`}${flags ? ` ${flags}` : ""}`;
     out.push(`**${v.about}**\n`);
     out.push("```bash");
-    out.push(`curl -s "${url}"`);
+    out.push(cmd);
     out.push("```\n");
     if (v.params.length) {
-      out.push("| parameter | default | what it means |");
+      out.push("| flag | default | what it means |");
       out.push("| --- | --- | --- |");
       for (const p of v.params)
         out.push(
-          `| \`${p.name}\` | ${p.required ? "**required**" : `\`${p.fallback ?? "—"}\``} | ${p.about} |`,
+          `| \`--${p.name}\` | ${p.required ? "**required**" : `\`${p.fallback ?? "—"}\``} | ${p.about} |`,
         );
       out.push("");
     }
-  }
+  });
   const actions = s.actions ?? [];
   out.push(
-    `Those are GETs: reading changes nothing at all. ` +
+    `Reading changes nothing at all. ` +
       (actions.length
         ? `Changing something is the next section, and there is no other way to ` +
-          `write here — no other URL and no other verb. `
-        : `This skill has nothing that writes: there is no other URL here and no ` +
-          `other verb. `) +
-      `Pipe it through \`python3 -m json.tool\` or \`jq\` if the document is long; ` +
-      `\`${base}/api/skills\` lists every skill this dashboard has, with its ` +
-      `parameters.\n`,
+          `write here — no other command and no URL. `
+        : `This skill has nothing that writes: there is no other command here. `) +
+      `The document is JSON on stdout — pipe it through \`jq\` if it is long. ` +
+      `\`opc help ${s.id}\` prints this pack's commands, flags and rules again; ` +
+      `\`opc\` alone lists every skill this dashboard has, including the ones ` +
+      `that are NOT connected, which is the answer to give when a figure is missing.` +
+      (cli ? ` If the shell cannot find \`opc\`, it is \`${cli}\`.` : "") +
+      `\n`,
   );
 
   /*
-    THE WRITES, UNDER A HEADING OF THEIR OWN.
-
-    Every one of them is a POST from the caller's side whatever the route
-    behind it wants, and every parameter goes in the JSON body — including the
-    ones that end up in a URL segment, because the proxy is what knows where a
-    card id belongs. So the shape is one shape, and the example below is a
-    thing that can be pasted rather than a template to assemble.
+    THE WRITES, UNDER A HEADING OF THEIR OWN. Every one is `opc <id> <action>`
+    with its parameters as flags — a number as a bare number, a string quoted —
+    and the reply is the whole document as it now stands.
   */
   if (actions.length) {
     out.push("## Acting on it\n");
     out.push(
-      `These CHANGE the owner's own data. Each is a POST with a JSON body to the ` +
-        `URL shown — never to the route behind it — and every parameter goes in ` +
-        `the body, including ids. The reply is the whole document as it now ` +
-        `stands, so read what you changed back out of it and tell him what you ` +
-        `did. Do none of these unless he asked for that exact change.\n`,
+      `These CHANGE the owner's own data. Each is \`opc ${s.id} <action>\` with ` +
+        `every parameter as a \`--flag value\`; the reply is the whole document as ` +
+        `it now stands, so read what you changed back out of it and tell him what ` +
+        `you did. Do none of these unless he asked for that exact change.\n`,
     );
     for (const a of actions) {
-      /* The required parameters, filled with a placeholder of the right JSON
-         type — a number stays a number, because a quoted "1" is refused by the
-         routes behind these and a copied example that is refused teaches the
-         wrong lesson about the parameter. */
-      const example = JSON.stringify(
-        Object.fromEntries(
-          a.params.filter((p) => p.required).map((p) => [p.name, p.type === "number" ? 1 : "…"]),
-        ),
-      );
+      const flags = a.params.filter((p) => p.required || p.exampled).map(exampleFlag).join(" ");
       out.push(`**${a.about}**${a.destructive ? " **There is no undo.**" : ""}\n`);
       out.push("```bash");
-      out.push(
-        `curl -s -X POST -H 'content-type: application/json' \\\n` +
-          `  -d '${example}' \\\n` +
-          `  "${base}/api/skills/${s.id}/${a.key}"`,
-      );
+      out.push(`opc ${s.id} ${a.key}${flags ? ` ${flags}` : ""}`);
       out.push("```\n");
       if (a.params.length) {
-        out.push("| parameter | required | what it means |");
+        out.push("| flag | required | what it means |");
         out.push("| --- | --- | --- |");
         for (const p of a.params)
           out.push(
-            `| \`${p.name}\` | ${p.required ? "**yes**" : `no${p.fallback !== undefined ? ` (default \`${p.fallback}\`)` : ""}`} | ${p.about} |`,
+            `| \`--${p.name}\` | ${p.required ? "**yes**" : `no${p.fallback !== undefined ? ` (default \`${p.fallback}\`)` : ""}`} | ${p.about} |`,
           );
         out.push("");
       }
@@ -270,8 +264,39 @@ function body(s: Skill): string {
 /** One SKILL.md, whole. Written whole rather than patched, for the reason
  *  configureHermes writes its config.yaml whole: this app owns the file, and a
  *  surgical edit of a generated document is a merge with a version of itself. */
-function render(s: Skill): string {
-  return `${frontmatter(s)}${body(s)}`;
+function render(s: Skill, cli: string | null): string {
+  return `${frontmatter(s)}${body(s, cli)}`;
+}
+
+/*
+  THE ONE PACK THAT IS NOT A SKILL. `rich-answers` says how to draw figures in
+  the chat — cards, charts, bars, meters, tables — and it is always present,
+  because there is no plugin whose absence would make a chart wrong. It is
+  filed under communication, beside the mailbox, which is where "how do I say
+  this" lives. Its body is present.ts's guide verbatim, which is also what
+  `opc present` prints and what a remote agent gets in its preamble.
+*/
+const RICH_PACK = { name: "rich-answers", category: "communication" };
+
+function renderRichPack(): string {
+  return [
+    "---",
+    `name: ${RICH_PACK.name}`,
+    `description: ${y(
+      "How to show figures in the chat as cards, charts, bars, meters and tables — " +
+        "five fenced blocks the dashboard draws as live widgets. Use it whenever an " +
+        "answer carries numbers.",
+    )}`,
+    "version: 1.0.0",
+    "license: MIT",
+    "platforms: [linux, macos, windows]",
+    "metadata:",
+    "  hermes:",
+    "    tags: [chat, charts, presenting]",
+    "---",
+    "",
+    PRESENT_GUIDE,
+  ].join("\n");
 }
 
 /** The category's own description, which Hermes renders above the group in the
@@ -304,8 +329,16 @@ export type SkillSync = {
  * work the first time somebody disconnected a plugin. The prefix is what makes
  * "these are ours" a decidable question.
  */
-export function syncHermesSkills(skillsDir: string): SkillSync {
+export function syncHermesSkills(
+  skillsDir: string,
+  opts: {
+    /** Where the `opc` wrapper is, for the one line in each pack that says
+     *  what to type when the shell cannot find it. */
+    cli?: string | null;
+  } = {},
+): SkillSync {
   const live = skills();
+  const cli = opts.cli ?? null;
   const written: string[] = [];
   const removed: string[] = [];
 
@@ -317,14 +350,16 @@ export function syncHermesSkills(skillsDir: string): SkillSync {
     removed.push(`${LEGACY_CATEGORY}/`);
   }
 
-  const wanted = new Map<string, Skill>(
-    live.map((s) => [join(packCategory(s.id), packName(s.id)), s]),
+  /* Path → the file's whole content, so the skill packs and the one static
+     pack are written, compared and pruned by one loop. */
+  const wanted = new Map<string, string>(
+    live.map((s) => [join(packCategory(s.id), packName(s.id)), render(s, cli)]),
   );
+  wanted.set(join(RICH_PACK.category, RICH_PACK.name), renderRichPack());
 
-  for (const [rel, s] of wanted) {
+  for (const [rel, next] of wanted) {
     const packDir = join(skillsDir, rel);
     const file = join(packDir, "SKILL.md");
-    const next = render(s);
     /* Compared before writing, so a reconfigure that changed nothing leaves
        every mtime alone. Hermes decides whether its cached prompt snapshot is
        stale from a manifest of those mtimes, so a blind rewrite would make

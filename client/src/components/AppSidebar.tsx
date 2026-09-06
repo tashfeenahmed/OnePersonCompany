@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
 import {
+  Activity,
   ChevronsUpDown,
   FolderClosed,
   LayoutDashboard,
-  Blocks,
+  KanbanSquare,
+  Bell,
+  FileText,
+  HardDrive,
   MoreHorizontal,
   Moon,
   Pencil,
@@ -14,7 +18,10 @@ import {
   Settings as SettingsIcon,
   Sun,
   Trash2,
+  Users,
   Workflow,
+  Network,
+  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,28 +42,50 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useRunQueue } from "@/hooks/useRunQueue";
+import { useOpenAlerts } from "@/hooks/useOpenAlerts";
 import { api } from "@/lib/api";
+import { GROWTH_PAGES, MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
+
+import { SidebarSection } from "@/components/SidebarSection";
+import { sidebarPath } from "../../../shared/navigation";
 
 const NAV = [
+  { to: "/action-inbox", label: "Action inbox", icon: Bell },
+  { to: "/board", label: "Board", icon: KanbanSquare },
+  { to: "/outputs", label: "Sub-agent outputs", icon: FileText },
+  /* The rail's order: the business (ventures, its workers, the org), what
+     is happening (activity, alerts, people), what runs on its own (workflows),
+     then the machinery (integrations, dashboards, apps). */
   { to: "/ventures", label: "Ventures", icon: FolderClosed },
   { to: "/subagents", label: "Sub-agents", icon: Workflow },
+  { to: "/org", label: "Org chart", icon: Network },
+  { to: "/activity", label: "Activity", icon: Activity },
+  { to: "/alerts", label: "Alerts", icon: Bell },
+  { to: "/people", label: "People", icon: Users },
+  { to: "/workflows", label: "Workflows", icon: CalendarClock },
   { to: "/integrations", label: "Integrations", icon: Plug },
   { to: "/dashboards", label: "Dashboards", icon: LayoutDashboard },
-  /*
-    APPS is one row and one page, the way Dashboards is: the page carries a
-    tab per app and each app has its own address under it. It was briefly a
-    section of the rail with one entry per app, which made a single app look
-    like a whole category and would have grown the rail by a row every time
-    one was added. The rail names the place; the page names what is in it.
-  */
-  { to: "/apps", label: "Apps", icon: Blocks },
+  { to: "/ops", label: "Ops", icon: HardDrive },
+  ...MAIL_PAGES,
+  ...SOCIAL_PAGES,
+  ...GROWTH_PAGES,
+];
+
+const NAV_GROUPS = [
+  { name: "Work", paths: ["/action-inbox", "/board", "/outputs", "/ventures", "/people", "/workflows"], expanded: true },
+  { name: "Mail", paths: MAIL_PAGES.map(page => page.to), expanded: true },
+  { name: "Social media", paths: SOCIAL_PAGES.map(page => page.to), expanded: true },
+  { name: "SEO & growth", paths: GROWTH_PAGES.map(page => page.to), expanded: true },
+  { name: "Insights", paths: ["/activity", "/alerts", "/dashboards"], expanded: false },
+  { name: "Manage", paths: ["/subagents", "/org", "/integrations", "/ops"], expanded: false },
 ];
 
 export function AppSidebar() {
-  const { state, renameSession, removeSession, streamingSessions } = useStore();
+  const { state, renameSession, removeSession, streamingSessions, toggleFavorite } = useStore();
   const { theme, resolved, setTheme } = useTheme();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const favoritePaths = [...new Set((state.favoritePaths ?? []).map(sidebarPath))];
 
   /** The chats with an answer arriving. A Set because this is looked up once
    *  per row and the rail is the one place that asks. */
@@ -131,6 +160,10 @@ export function AppSidebar() {
   /** Which chat is being renamed in place, and what it says so far. Null is
    *  "none" — there is never more than one, because the input takes focus and
    *  a second one would be an edit nobody is looking at. */
+  const [search, setSearch] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
 
   /**
@@ -149,27 +182,12 @@ export function AppSidebar() {
    * again and wonder why nothing happens. There is no undo either way, which
    * is why the confirm is here at all.
    */
-  function deleteSession(id: string, title: string) {
-    if (!confirm(`Delete “${title}”? The conversation goes with it.`)) return;
-    void api.deleteChatSession(id).catch(() => {
-      /* The store's entry goes regardless — see above. A failure here means a
-         transcript is left on the server, which the next reconcile will offer
-         back rather than losing. */
-    });
-    removeSession(id);
-    /*
-      DELETING THE CHAT YOU ARE READING LEAVES NO CHAT OPEN — and that is a
-      navigation now rather than a store field being nulled, because the
-      address is what says which chat is open. Standing on /chat/<id> after the
-      row and the transcript have both gone would draw the "no session at this
-      address" screen, which is true and is the wrong thing to say to somebody
-      who just deleted it on purpose.
-
-      It is deliberately not "open the next one down": landing the owner in a
-      conversation they did not choose, one keystroke after a delete, is how
-      the wrong thing gets typed into the wrong chat.
-    */
-    if (id === openSessionId) navigate("/");
+  async function deleteSession(id: string, title: string) {
+    if (deleting || !confirm(`Delete “${title}”? The conversation goes with it.`)) return;
+    setDeleting(id); setDeleteError(null);
+    try { await api.deleteChatSession(id); removeSession(id); if (id === openSessionId) navigate("/"); }
+    catch (e) { setDeleteError(e instanceof Error ? e.message : String(e)); }
+    finally { setDeleting(null); }
   }
 
   /* THE BADGE IS THE QUEUE, NOT A ROSTER. It used to count `running: true`
@@ -179,14 +197,22 @@ export function AppSidebar() {
      to report", where a grey 0 is a number somebody has to read. */
   const queue = useRunQueue();
 
+  /* HOW MANY ALERTS ARE OPEN — a trip or an unreadable nobody has
+     acknowledged. `undefined` when there are none, and `undefined` when the
+     API could not be asked: no badge is the honest drawing of "nothing to
+     report", where a 0 drawn because the fetch failed would be a claim that
+     nothing is wrong made by a page that never found out. */
+  const openAlerts = useOpenAlerts();
+
   const counts: Record<string, number | undefined> = {
     "/ventures": state.ventures.length,
-    "/dashboards": state.dashboards.length,
+    "/dashboards": state.dashboards.length + 1,
     "/subagents": queue.running + queue.queued || undefined,
+    "/alerts": openAlerts,
   };
 
   return (
-    <aside className="bg-sidebar border-sidebar-border flex w-[252px] shrink-0 flex-col border-r px-2.5 pt-3.5 pb-2.5">
+    <aside className="bg-sidebar border-sidebar-border flex h-full min-h-0 w-[252px] shrink-0 flex-col border-r px-2.5 pt-3.5 pb-2.5">
       <div className="flex items-center gap-2.5 px-2 pt-1 pb-3.5">
         <div className="bg-primary text-primary-foreground grid size-[22px] place-items-center rounded-[7px] text-[11px] font-semibold tracking-tight">
           1
@@ -205,40 +231,36 @@ export function AppSidebar() {
         <span className="ml-auto font-mono text-[10.5px] opacity-55">⌘K</span>
       </Button>
 
-      <nav className="flex flex-col gap-px">
-        {NAV.map(({ to, label, icon: Icon }) => {
-          // /integrations stays lit while one integration's own page is open.
-          const active = pathname === to || pathname.startsWith(`${to}/`);
-          return (
-            <Link
-              key={to}
-              to={to}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-colors",
-                active ? "bg-accent font-medium" : "hover:bg-accent",
-              )}
-            >
-              <Icon className="size-[14px] shrink-0" strokeWidth={1.6} />
-              {label}
-              {counts[to] !== undefined && (
-                <span className="text-muted-foreground ml-auto text-[10.5px]">
-                  {counts[to]}
-                </span>
-              )}
-            </Link>
-          );
-        })}
+      <ScrollArea data-sidebar-scroll className="-mx-1 min-h-0 flex-1 px-1 [&_[data-slot=scroll-area-viewport]]:overscroll-contain">
+      {!!favoritePaths?.length && <div className="mb-2 border-b pb-2 text-xs"><div className="px-2 py-1 text-muted-foreground uppercase text-[10px]">Favorites</div>{favoritePaths.map(path => { const item = NAV.find(n => n.to === path); return item ? <Link key={path} to={path} className="block px-2 py-1 hover:bg-accent rounded">★ {item.label}</Link> : null; })}</div>}
+      <nav aria-label="Workspace" className="space-y-0.5">
+        {NAV_GROUPS.map(group => <SidebarSection
+          key={group.name}
+          title={group.name}
+          pathname={pathname}
+          defaultOpen={group.expanded}
+          active={group.paths.some(path => pathname === path || pathname.startsWith(`${path}/`))}
+        >
+          {NAV.filter(item => group.paths.includes(item.to)).map(({ to, label, icon: Icon }) => {
+            const active = pathname === to || pathname.startsWith(`${to}/`);
+            return <div key={to} className="flex items-center"><Link to={to} aria-current={active ? "page" : undefined} className={cn("flex flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-[12.5px]", active ? "bg-accent font-medium" : "hover:bg-accent")}>
+              <Icon className="size-[14px] shrink-0" strokeWidth={1.6} />{label}
+              {counts[to] !== undefined && <span className="ml-auto text-muted-foreground text-xs">{counts[to]}</span>}
+            </Link><button className="p-1 text-xs text-muted-foreground" aria-label={`${favoritePaths?.includes(to) ? "Remove" : "Add"} ${label} ${favoritePaths?.includes(to) ? "from" : "to"} favorites`} aria-pressed={favoritePaths?.includes(to) ?? false} onClick={() => toggleFavorite(to)}>{favoritePaths?.includes(to) ? "★" : "☆"}</button></div>;
+          })}
+        </SidebarSection>)}
       </nav>
 
-      <ScrollArea className="border-line-soft -mx-1 mt-3.5 min-h-0 flex-1 border-t px-1 pt-3">
-        <div className="bg-sidebar sticky top-0 z-10 flex items-center justify-between px-2 pb-0.5">
+      <section aria-label="Sessions" className="border-line-soft mt-3.5 border-t pt-3 pb-3">
+        <div className="flex items-center justify-between px-2 pb-0.5">
           <span className="text-muted-foreground text-[11px] tracking-[0.06em] uppercase">
             Sessions
           </span>
           <button
             className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[7px] p-1"
             title="Search sessions"
+            onClick={() => setSearching(v => !v)}
+            aria-expanded={searching}
           >
             <Search className="size-3.5" strokeWidth={1.6} />
           </button>
@@ -247,6 +269,9 @@ export function AppSidebar() {
         {/* One flat list, newest first. Most chats are about nothing in
             particular, so nothing here is grouped and nothing carries an icon;
             the only indent is a chat that dispatched sub-agent runs. */}
+        {deleteError && <p role="alert" className="p-2 text-destructive text-xs">Could not delete: {deleteError}</p>}
+        {searching && <input autoFocus aria-label="Search sessions" placeholder="Search by title or venture…" value={search} onChange={e => setSearch(e.target.value)} className="m-1 w-[95%] border rounded p-2 text-sm" />}
+        {search && !state.sessions.some(s => s.title.toLowerCase().includes(search.toLowerCase())) && <p className="p-2 text-xs" role="status">No matching session titles.</p>}
         <div className="flex flex-col gap-px pt-1">
           {/*
             THE EMPTY RAIL IS A SENTENCE RATHER THAN A GAP.
@@ -262,7 +287,7 @@ export function AppSidebar() {
               here.
             </p>
           )}
-          {state.sessions.map((s) => (
+          {state.sessions.filter(s => `${s.title} ${state.ventures.find(v => v.id === s.ventureId)?.name ?? ""}`.toLowerCase().includes(search.toLowerCase())).map((s) => (
             <div key={s.id} className="flex flex-col">
               {editing?.id === s.id ? (
                 /*
@@ -387,7 +412,7 @@ export function AppSidebar() {
                         <Pencil className="size-3.5" strokeWidth={1.6} />
                         Rename
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => deleteSession(s.id, s.title)}>
+                      <DropdownMenuItem disabled={!!deleting} onSelect={() => void deleteSession(s.id, s.title)}>
                         <Trash2 className="size-3.5" strokeWidth={1.6} />
                         Delete
                       </DropdownMenuItem>
@@ -477,11 +502,12 @@ export function AppSidebar() {
             </div>
           ))}
         </div>
+      </section>
       </ScrollArea>
 
       {/* The whole row is the trigger — the standalone theme button moved into
           Appearance, so there is one place a preference is changed. */}
-      <div className="border-line-soft mt-auto border-t pt-1.5">
+      <div className="border-line-soft shrink-0 border-t pt-1.5">
         <DropdownMenu>
           <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent data-[state=open]:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors">
             <div className="bg-muted text-foreground grid size-[22px] shrink-0 place-items-center rounded-full text-[10.5px] font-semibold">

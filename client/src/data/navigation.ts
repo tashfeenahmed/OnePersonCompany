@@ -1,0 +1,21 @@
+import { Clapperboard, Inbox, ListChecks, Mail, SearchCheck, SendHorizontal, Smartphone, Sparkles, Timer, TrendingUp } from "lucide-react";
+import { appPage } from "../../../shared/navigation";
+
+export const MAIL_PAGES = [
+  { slug: "email", label: "Email", icon: Mail },
+  { slug: "triage", label: "Triage", icon: Inbox },
+  { slug: "outbox", label: "Outbox", icon: SendHorizontal },
+].map(page => ({ ...page, to: appPage(page.slug) }));
+
+export const SOCIAL_PAGES = [
+  { slug: "studio", label: "Studio", icon: Sparkles },
+  { slug: "autopilot", label: "Autopilot", icon: Timer },
+  { slug: "video", label: "Video", icon: Clapperboard },
+].map(page => ({ ...page, to: appPage(page.slug) }));
+
+export const GROWTH_PAGES = [
+  { slug: "seo", label: "SEO", icon: SearchCheck },
+  { slug: "serp", label: "SERP", icon: ListChecks },
+  { slug: "aso", label: "ASO", icon: Smartphone },
+  { slug: "overview", label: "Growth", icon: TrendingUp },
+].map(page => ({ ...page, to: appPage(page.slug === "overview" ? "growth" : page.slug) }));
