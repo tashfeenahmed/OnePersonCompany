@@ -239,6 +239,22 @@ export type WatchPerson = {
   email: string | null;
   note: string | null;
   links: WatchLinks;
+  /**
+   * WHERE THEIR PICTURE IS ON THIS BOX, or null for somebody we have no
+   * picture of.
+   *
+   * A RELATIVE URL AND NOT A REMOTE ONE — `/api/people/watch/<id>/avatar`
+   * serves bytes this box fetched from GitHub or Bluesky and kept. Pointing
+   * the page straight at the original would tell those sites who is reading
+   * this dashboard and would break the day somebody rotates their photo's
+   * filename. Null after a pull is an answer: nothing on file to fetch.
+   *
+   * THE ADDRESS IS STABLE AND THE BYTES BEHIND IT ARE NOT, and the server
+   * caches it — so anything drawing this hangs the row's own stamp off it
+   * rather than trusting the browser to ask again. `PersonAvatar` is the one
+   * place that happens.
+   */
+  avatar: string | null;
   createdAt: string;
   /**
    * THE OWNER'S OWN WORDS FOR WHY THIS PERSON IS ON THE LIST — "investor",

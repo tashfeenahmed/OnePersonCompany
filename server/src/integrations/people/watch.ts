@@ -163,6 +163,13 @@ export type WatchRow = {
   activity_at: string | null;
   /** JSON string[] — what the last pull could not read. */
   pull_warnings: string;
+  /** WHERE THE STORED FACE CAME FROM, or NULL for "nobody here has ever had
+   *  an address to try". An address, never a picture — the bytes are in
+   *  `people_watch_avatars`. */
+  avatar_source: string | null;
+  /** When those bytes were read. NULL alongside a non-null `avatar_source` is
+   *  an import that recorded a URL and a pull that has not run yet. */
+  avatar_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -253,6 +260,21 @@ export type WatchPerson = {
    * things this week".
    */
   newEvents: number;
+  /**
+   * A RELATIVE URL ON THIS BOX, or null.
+   *
+   * `/api/people/watch/<id>/avatar`, and never the address the picture came
+   * from. A page handed `https://avatars.githubusercontent.com/…` would draw
+   * the same face and would also tell GitHub every time the owner opened this
+   * person's file — which is a record of his attention, held by somebody else,
+   * about somebody he is quietly watching. The bytes are fetched once by the
+   * pull and served from here; see `AVATAR_PATH`.
+   *
+   * NULL IS "NO FACE STORED" and it is the ordinary answer for anybody with no
+   * GitHub or Bluesky link, anybody imported without one, and anybody who has
+   * never been pulled. It is never a claim that the person has no photograph.
+   */
+  avatar: string | null;
   createdAt: string;
   updatedAt: string;
   dossiers: DossierRecord;
@@ -437,6 +459,205 @@ export function parseLinks(raw: string): Links {
   }
 }
 
+/* ------------------------------------------------------------------ the face */
+
+/**
+ * THE PICTURE IS FETCHED ONCE AND SERVED FROM HERE. IT IS NEVER HOTLINKED.
+ *
+ * This is the only rule in this section and everything else follows from it. A
+ * card that drew `<img src="https://avatars.githubusercontent.com/u/6983">`
+ * would look identical, cost this box nothing, and hand GitHub a hit every
+ * time the owner opened Patrick Collison's file — the hour, the frequency, the
+ * address it came from. On a feature whose whole subject is people he is
+ * quietly keeping an eye on, that is his attention logged by a third party. So
+ * the pull downloads the bytes on the box's own schedule and every reader is
+ * sent to `/api/people/watch/<id>/avatar`, which is loopback.
+ *
+ * THE CONSEQUENCE, STATED PLAINLY: a face can be up to a week out of date, and
+ * a person nobody has pulled has none at all. Both are cheap next to the
+ * alternative.
+ */
+
+/** Two megabytes. An avatar is tens of kilobytes; anything at this size is
+ *  either not an avatar or is something being pushed at this box, and the cap
+ *  is enforced on the STREAM rather than on a `content-length` a server is
+ *  free to lie about. */
+export const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+
+/** How long a stored face stands before the pull looks again. Seven days
+ *  rather than every pull, because the source URL almost never changes and
+ *  re-downloading the same 40 KB every twenty hours would be this box making
+ *  traffic to learn nothing. A person who changes their photo AND keeps the
+ *  same URL is a week late; a person who changes it and gets a new URL — which
+ *  is what GitHub and Bluesky both do — is picked up on the next pull. */
+export const AVATAR_FRESH_MS = 7 * 86_400_000;
+
+/** Where a stored face is read from. RELATIVE, so it is right behind whatever
+ *  hostname or tunnel the client reached this box through. */
+export const AVATAR_PATH = (id: string): string => `/api/people/watch/${id}/avatar`;
+
+export type AvatarRow = {
+  person_id: string;
+  mime: string;
+  bytes: Uint8Array;
+  fetched_at: string;
+};
+
+export function avatarRow(personId: string): AvatarRow | undefined {
+  return db.prepare("SELECT * FROM people_watch_avatars WHERE person_id = ?").get(personId) as
+    | AvatarRow
+    | undefined;
+}
+
+/**
+ * WHO HAS BYTES STORED — the whole list in one query, for the reason
+ * `newEventCounts` is one query. The list is a table of tens and shaping one
+ * person must not reach into the database on its own, or drawing a page
+ * becomes N+1 the next time somebody adds a field.
+ *
+ * Only the ids are read. `SELECT person_id` rather than `SELECT *` is not
+ * tidiness here: the rows are images, and the whole store would otherwise be
+ * loaded into memory to answer a question about which keys exist.
+ */
+export function avatarIds(): Set<string> {
+  const rows = db.prepare("SELECT person_id FROM people_watch_avatars").all() as unknown as {
+    person_id: string;
+  }[];
+  return new Set(rows.map((r) => r.person_id));
+}
+
+export function hasAvatar(personId: string): boolean {
+  return !!db.prepare("SELECT 1 FROM people_watch_avatars WHERE person_id = ?").get(personId);
+}
+
+/**
+ * WHICH ADDRESS THE FACE COMES FROM, AND WHAT TO CALL IT IN A WARNING.
+ *
+ * GITHUB FIRST, THEN BLUESKY, THEN WHATEVER AN IMPORT WROTE DOWN, and the
+ * order is an argument rather than an accident. A GitHub avatar is the one
+ * most of the people on this list actually maintain — it is on their commits,
+ * their profile and their releases — and it is the one a reader is most likely
+ * to recognise. Bluesky is second because a person with both usually keeps the
+ * same face on each, and where they differ the professional one is the one
+ * this list wants. The imported URL is LAST and is a fallback rather than a
+ * source: it is a third party's record of where somebody's picture used to be,
+ * and a live profile read this minute beats it every time.
+ *
+ * IT IS ALSO WHY THE IMPORTED URL IS NOT DISCARDED once a link exists. A
+ * GitHub source that fails to answer THIS pull yields nothing, and falling
+ * back to the address already on the row is how the face survives an outage
+ * instead of disappearing over one.
+ *
+ * NON-HTTP ADDRESSES ARE REFUSED. A `data:` or `file:` URL in this position
+ * would be a source somebody typed pointing the fetcher at this box's own
+ * disk, and there is no shape of avatar URL for which that is the right
+ * answer.
+ */
+export type AvatarPick = { url: string; from: "GitHub" | "Bluesky" | "the import" };
+
+const webUrl = (raw: string | null | undefined): string | null => {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  return /^https?:\/\/\S+$/i.test(v) ? v : null;
+};
+
+export function pickAvatar(candidates: {
+  github?: string | null;
+  bluesky?: string | null;
+  imported?: string | null;
+}): AvatarPick | null {
+  const gh = webUrl(candidates.github);
+  if (gh) return { url: gh, from: "GitHub" };
+  const bsky = webUrl(candidates.bluesky);
+  if (bsky) return { url: bsky, from: "Bluesky" };
+  const held = webUrl(candidates.imported);
+  if (held) return { url: held, from: "the import" };
+  return null;
+}
+
+/**
+ * IS IT WORTH DOWNLOADING THIS AGAIN?
+ *
+ * THREE REASONS AND NO FOURTH: the address changed, there are no bytes to
+ * show, or the ones there are have stood a week. Everything else — a pull that
+ * ran an hour ago, a page somebody refreshed, a sweep that came round again —
+ * gets the stored copy, because the picture is the one part of a person's file
+ * that essentially never changes and re-fetching it on every pull would turn a
+ * privacy measure into a traffic generator.
+ */
+export function avatarDue(
+  held: { source: string | null; at: string | null; stored: boolean },
+  wanted: string,
+  at = Date.now(),
+): boolean {
+  if (!held.stored) return true;
+  if (held.source !== wanted) return true;
+  const when = held.at ? Date.parse(held.at) : NaN;
+  return !Number.isFinite(when) || when < at - AVATAR_FRESH_MS;
+}
+
+/**
+ * IS WHAT CAME BACK AN IMAGE, AND IS IT A SANE SIZE?
+ *
+ * PURE, AND SEPARATE FROM THE FETCH, so the rule can be checked exactly rather
+ * than by pointing the box at a hostile server. It refuses on the content type
+ * rather than by sniffing the bytes because this answer is served straight
+ * back out again with the type the source declared: storing a `text/html`
+ * error page under `image/png` would be this box laundering somebody else's
+ * 404 into an image tag.
+ *
+ * The parameters are separated by `;` — `image/jpeg; charset=binary` is a real
+ * header — and the mime is lower-cased, because it is compared and it is
+ * stored.
+ */
+export function avatarGate(
+  contentType: string | null | undefined,
+  size: number,
+): { mime: string } | { error: string } {
+  const mime = (contentType ?? "").split(";")[0]!.trim().toLowerCase();
+  if (!mime.startsWith("image/"))
+    return {
+      error: mime
+        ? `it answered ${mime}, which is not an image`
+        : "it did not say what kind of file it was sending",
+    };
+  if (size <= 0) return { error: "it answered an empty body" };
+  if (size > MAX_AVATAR_BYTES)
+    return { error: `it is larger than ${MAX_AVATAR_BYTES / 1024 / 1024} MB` };
+  return { mime };
+}
+
+/**
+ * Store the bytes and stamp the row, in one call.
+ *
+ * ONLY EVER ON SUCCESS. A pull that could not read the picture leaves both the
+ * blob and `avatar_source` exactly as they were, so the face already on the
+ * card survives GitHub having a bad afternoon — the same rule the metrics
+ * follow, and for the same reason. Leaving `avatar_source` alone is also what
+ * makes the next pull try again rather than record the failure as the current
+ * state of affairs.
+ *
+ * `updated_at` IS NOT TOUCHED. It answers "when did he last change this card",
+ * and a sweep at four in the morning bumping it would destroy the only signal
+ * that column carries.
+ */
+export function writeAvatar(
+  personId: string,
+  face: { source: string; mime: string; bytes: Uint8Array; at: string },
+): void {
+  db.prepare(
+    `INSERT INTO people_watch_avatars (person_id, mime, bytes, fetched_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(person_id) DO UPDATE SET
+       mime = excluded.mime, bytes = excluded.bytes, fetched_at = excluded.fetched_at`,
+  ).run(personId, face.mime, face.bytes, face.at);
+  db.prepare("UPDATE people_watch SET avatar_source = ?, avatar_at = ? WHERE id = ?").run(
+    face.source,
+    face.at,
+    personId,
+  );
+}
+
 /** How long an event stays "new". A week rather than a day because the sweep
  *  runs every twenty hours and a badge that emptied overnight would only ever
  *  be seen by somebody who happened to look the same morning. */
@@ -465,7 +686,20 @@ export function newEventCounts(at = Date.now()): Map<string, number> {
   return new Map(rows.map((r) => [r.person_id, Number(r.n)]));
 }
 
-export function shape(row: WatchRow, runs: DossierRunRow[], fresh?: Map<string, number>): WatchPerson {
+/**
+ * `faces` IS PASSED IN FOR THE REASON `fresh` IS — one query for the whole
+ * list rather than one per card. It is optional so that a caller shaping a
+ * single person need not build a set of one, and the fallback is a lookup
+ * rather than `false`: a missing set must not quietly become "this person has
+ * no picture", which is a WRONG ANSWER rather than a slow one.
+ */
+export function shape(
+  row: WatchRow,
+  runs: DossierRunRow[],
+  fresh?: Map<string, number>,
+  faces?: Set<string>,
+): WatchPerson {
+  const stored = faces ? faces.has(row.id) : hasAvatar(row.id);
   return {
     id: row.id,
     name: row.name,
@@ -478,6 +712,10 @@ export function shape(row: WatchRow, runs: DossierRunRow[], fresh?: Map<string, 
     metrics: parseMetrics(row.metrics),
     activityAt: row.activity_at,
     newEvents: fresh?.get(row.id) ?? 0,
+    /* The relative path only where there is something to serve. A URL that
+       404s is worse than a null: a null is a card that draws initials, a 404
+       is a broken image on every row of the list. */
+    avatar: stored ? AVATAR_PATH(row.id) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     dossiers: record(runs, row.name),
@@ -489,14 +727,15 @@ export function shape(row: WatchRow, runs: DossierRunRow[], fresh?: Map<string, 
 export function watchList(): WatchPerson[] {
   const runs = dossierRuns();
   const fresh = newEventCounts();
+  const faces = avatarIds();
   return watchRows()
-    .map((r) => shape(r, runs, fresh))
+    .map((r) => shape(r, runs, fresh, faces))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id));
 }
 
 export function watchPerson(id: string): WatchPerson | null {
   const row = watchRow(id);
-  return row ? shape(row, dossierRuns(), newEventCounts()) : null;
+  return row ? shape(row, dossierRuns(), newEventCounts(), avatarIds()) : null;
 }
 
 export function insertWatch(fields: {
@@ -507,12 +746,15 @@ export function insertWatch(fields: {
   note: string;
   links: Links;
   tags?: string[];
+  /** An address to try for a picture, from an import that carried one. It is
+   *  recorded and NOT fetched: see `importPeople`. */
+  avatarSource?: string;
 }): WatchRow {
   const id = mintWatchId();
   const ts = now();
   db.prepare(
-    `INSERT INTO people_watch (id, name, company, role, email, note, links, tags, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO people_watch (id, name, company, role, email, note, links, tags, avatar_source, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     fields.name,
@@ -522,6 +764,7 @@ export function insertWatch(fields: {
     fields.note,
     JSON.stringify(fields.links),
     JSON.stringify(fields.tags ?? []),
+    fields.avatarSource?.trim() || null,
     ts,
     ts,
   );
@@ -554,6 +797,12 @@ export function updateWatch(id: string, changes: Partial<Record<string, string>>
  */
 export function deleteWatch(id: string): void {
   db.prepare("DELETE FROM people_watch_events WHERE person_id = ?").run(id);
+  /* The face goes with the events, and of everything this row owns it is the
+     least arguable. It is a copy of somebody else's profile picture, kept only
+     so a card could be drawn without telling a third party who was looking;
+     off the list there is no card, and no reason for this box to be holding
+     their photograph. */
+  db.prepare("DELETE FROM people_watch_avatars WHERE person_id = ?").run(id);
   db.prepare("DELETE FROM people_watch WHERE id = ?").run(id);
 }
 
@@ -874,7 +1123,7 @@ export type WatchFile = {
 export function watchFile(id: string): WatchFile | null {
   const row = watchRow(id);
   if (!row) return null;
-  const person = shape(row, dossierRuns(), newEventCounts());
+  const person = shape(row, dossierRuns(), newEventCounts(), avatarIds());
   return {
     person,
     contact: contactFor({ name: row.name, email: row.email }),
@@ -899,6 +1148,10 @@ export type ImportFields = {
   note: string;
   links: Links;
   tags: string[];
+  /** The exporting program's `avatar` — an ADDRESS to try, "" when it carried
+   *  none. Not one of the typed fields and not merged with them: see
+   *  `importPeople` for why it is written by its own rule. */
+  avatarSource: string;
 };
 
 const text = (v: unknown, max: number): string =>
@@ -918,6 +1171,13 @@ const text = (v: unknown, max: number): string =>
  * or to append them to `note`, which is HIS OWN WORDS and must not have an
  * importer's sentences put into it. Anything not read here is a field this box
  * has no use for rather than a field it lost.
+ *
+ * `avatar` IS READ AS AN ADDRESS AND NOTHING IS FETCHED. The exporting program
+ * carries a URL to somebody's profile picture; it is recorded as a place the
+ * next pull may look. Downloading here would turn one request holding two
+ * hundred rows into two hundred downloads against half a dozen hosts, with the
+ * owner watching a spinner — and the sweep is going to visit every one of
+ * these people within the day anyway.
  */
 export function readImportRow(raw: unknown): ImportFields | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
@@ -949,6 +1209,7 @@ export function readImportRow(raw: unknown): ImportFields | null {
     note: text(r.note, MAX_NOTE),
     links,
     tags: tags.slice(0, MAX_TAGS),
+    avatarSource: text(r.avatar, MAX_LINK),
   };
 }
 
@@ -967,11 +1228,16 @@ export function readImportRow(raw: unknown): ImportFields | null {
  * one, an empty one is filled. TAGS ARE A UNION, case-folded, because a tag is
  * a shelf rather than a value: adding "ai" takes nothing away, and there is no
  * conflict to resolve.
+ *
+ * THE AVATAR SOURCE IS NOT IN HERE. This function is the rule about the
+ * OWNER'S OWN WORDS, and an address a machine will fetch a picture from is not
+ * one of them: it obeys the same fill-a-gap rule, one line up in
+ * `importPeople`, where it can be read next to the pull that acts on it.
  */
 export function mergeWatchFields(
   existing: { company: string; role: string; email: string; note: string; links: Links; tags: string[] },
-  incoming: Omit<ImportFields, "name">,
-): Omit<ImportFields, "name"> {
+  incoming: Omit<ImportFields, "name" | "avatarSource">,
+): Omit<ImportFields, "name" | "avatarSource"> {
   const fill = (held: string, add: string) => (held.trim() ? held : add);
   const links: Links = { ...existing.links };
   for (const key of LINK_KEYS) {
@@ -1029,6 +1295,7 @@ export function importPeople(rows: unknown[]): ImportResult {
         note: fields.note,
         links: fields.links,
         tags: fields.tags,
+        avatarSource: fields.avatarSource,
       });
       added++;
       touched.push(row.id);
@@ -1051,6 +1318,16 @@ export function importPeople(rows: unknown[]): ImportResult {
     if (links !== JSON.stringify(held.links)) changes.links = links;
     const tags = JSON.stringify(merged.tags);
     if (tags !== JSON.stringify(held.tags)) changes.tags = tags;
+    /*
+      THE AVATAR SOURCE FILLS A GAP AND NEVER REPLACES ONE, the same rule the
+      typed fields follow, and it is kept OUT of `mergeWatchFields` on purpose:
+      that function is the rule about the owner's own words, and this is a
+      machine's note about where a picture lives. A row that already has a
+      source — because a pull found a live GitHub avatar — must not have it
+      overwritten by a third party's older record of the same face.
+    */
+    if (fields.avatarSource && !existing.avatar_source)
+      changes.avatar_source = fields.avatarSource;
 
     if (Object.keys(changes).length) {
       updateWatch(existing.id, changes);
@@ -1061,10 +1338,11 @@ export function importPeople(rows: unknown[]): ImportResult {
 
   const runs = dossierRuns();
   const fresh = newEventCounts();
+  const faces = avatarIds();
   const shaped = touched
     .map((id) => watchRow(id))
     .filter((r): r is WatchRow => !!r)
-    .map((r) => shape(r, runs, fresh))
+    .map((r) => shape(r, runs, fresh, faces))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   return { added, updated, people: shaped };
 }

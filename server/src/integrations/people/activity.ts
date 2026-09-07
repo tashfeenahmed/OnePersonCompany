@@ -32,6 +32,16 @@
  * `activity_at` and `pull_warnings`, and if a public profile disagrees with
  * what he typed, what he typed stands.
  *
+ * THE ONE THING THIS FILE DOWNLOADS RATHER THAN READS IS A FACE, and it does
+ * so precisely so that nobody else has to be asked for it later. GitHub and
+ * Bluesky both hand back an avatar URL on the profile call that is already
+ * being made; the alternative to fetching those bytes here is a card that
+ * points an `<img>` at somebody else's CDN, which would tell that CDN the hour
+ * of every morning the owner opened a watched person's file. The picture is
+ * pulled once, kept on this box, and served from loopback — see watch.ts's
+ * "the face". At most seven requests per person, then, and the seventh happens
+ * about once a week.
+ *
  * RATE LIMITS ARE RESPECTED BY DOING VERY LITTLE. At most six requests per
  * person, once every twenty hours, two seconds apart across a sweep. GitHub's
  * anonymous budget is sixty an hour per address; a watchlist of thirty people
@@ -39,13 +49,20 @@
  */
 import { now } from "../../db.ts";
 import {
+  MAX_AVATAR_BYTES,
+  avatarDue,
+  avatarGate,
   handle,
+  hasAvatar,
   parseLinks,
   parseMetrics,
+  pickAvatar,
   saveEvents,
   watchRow,
   watchRows,
+  writeAvatar,
   writePull,
+  type AvatarPick,
   type Metrics,
   type PulledEvent,
   type WatchRow,
@@ -134,7 +151,7 @@ const iso = (raw: unknown): string | null => {
 
 /* --------------------------------------------------------------- the sources */
 
-type GhUser = { followers?: unknown; public_repos?: unknown };
+type GhUser = { followers?: unknown; public_repos?: unknown; avatar_url?: unknown };
 type GhEvent = {
   type?: string;
   created_at?: string;
@@ -164,11 +181,17 @@ async function github(user: string, warnings: string[]) {
   const what = `GitHub (${user})`;
   const events: PulledEvent[] = [];
   const metrics: Partial<Metrics> = {};
+  /* The address of their picture, taken off a profile call that was happening
+     anyway. Nothing is downloaded here: `pullPerson` decides whether it is
+     worth fetching, because the choice is between GitHub's and Bluesky's and
+     neither source can make it alone. */
+  let avatar: string | null = null;
 
   const profile = await readJson<GhUser>(`https://api.github.com/users/${encodeURIComponent(user)}`, what, warnings);
   if (profile) {
     metrics.ghFollowers = int(profile.followers);
     metrics.ghRepos = int(profile.public_repos);
+    avatar = typeof profile.avatar_url === "string" ? profile.avatar_url : null;
   }
 
   const feed = await readJson<GhEvent[]>(
@@ -214,10 +237,10 @@ async function github(user: string, warnings: string[]) {
     } else continue;
     if (title.trim()) events.push({ source: SOURCES.github, kind, title: line(title), url, at });
   }
-  return { events, metrics };
+  return { events, metrics, avatar };
 }
 
-type BskyProfile = { followersCount?: unknown; postsCount?: unknown };
+type BskyProfile = { followersCount?: unknown; postsCount?: unknown; avatar?: unknown };
 type BskyFeed = { feed?: { post?: { uri?: string; record?: { text?: string; createdAt?: string } } }[] };
 
 /** Bluesky, replies excluded. A reply is half a conversation and reads as a
@@ -227,6 +250,7 @@ async function bluesky(who: string, warnings: string[]) {
   const events: PulledEvent[] = [];
   const metrics: Partial<Metrics> = {};
   const actor = encodeURIComponent(who);
+  let avatar: string | null = null;
 
   const profile = await readJson<BskyProfile>(
     `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${actor}`,
@@ -236,6 +260,9 @@ async function bluesky(who: string, warnings: string[]) {
   if (profile) {
     metrics.bskyFollowers = int(profile.followersCount);
     metrics.bskyPosts = int(profile.postsCount);
+    /* Absent on an account that never set one, which is a real answer and not
+       a failure — it simply loses to GitHub, or leaves the card with initials. */
+    avatar = typeof profile.avatar === "string" ? profile.avatar : null;
   }
 
   const feed = await readJson<BskyFeed>(
@@ -259,7 +286,7 @@ async function bluesky(who: string, warnings: string[]) {
       at,
     });
   }
-  return { events, metrics };
+  return { events, metrics, avatar };
 }
 
 type HnUser = { karma?: unknown };
@@ -383,6 +410,88 @@ async function rss(url: string, warnings: string[]) {
   return { events, metrics: {} as Partial<Metrics> };
 }
 
+/* ----------------------------------------------------------------- the face */
+
+/**
+ * READ A BODY UNTIL THE CAP SAYS STOP, and one byte past it so the caller can
+ * tell "exactly at the limit" from "over it".
+ *
+ * THE CAP IS ON THE STREAM AND NOT ON `content-length`. That header is a claim
+ * by a server this box did not write: it can be absent on a chunked response,
+ * it can be wrong, and it can be a small number in front of a very large body.
+ * Counting what actually arrives is the only version of this that bounds
+ * memory, and bounding memory is the entire point of a cap on a fetch of an
+ * address somebody else supplied.
+ */
+async function readCapped(res: Response, cap: number): Promise<Uint8Array> {
+  const body = res.body;
+  if (!body) return new Uint8Array(0);
+  const chunks: Uint8Array[] = [];
+  let n = 0;
+  const reader = body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      chunks.push(value);
+      n += value.length;
+      if (n > cap) break;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * FETCH ONE FACE AND STORE IT, OR SAY IN ONE SENTENCE WHY NOT.
+ *
+ * A FAILURE HERE IS A WARNING AND NEVER AN ERROR, and it must never cost the
+ * bytes already held. A picture is the least important thing on a watched
+ * person's file — the numbers, the timeline and the dossiers are what the page
+ * is for — so a 404 from somebody's CDN pushes a sentence into `warnings` and
+ * the pull carries on with the face it already had. Throwing from here would
+ * lose a whole pull over a profile photograph.
+ *
+ * REDIRECTS ARE FOLLOWED because both of the sources that produce these URLs
+ * use them: GitHub's avatar host redirects between its own buckets, and
+ * Bluesky's CDN redirects by blob reference. `avatar_source` records the
+ * address that was ASKED FOR rather than the one that answered, so a CDN that
+ * shuffles its own storage does not read as the person changing their picture.
+ */
+async function fetchAvatar(
+  personId: string,
+  face: AvatarPick,
+  warnings: string[],
+  at: string,
+): Promise<boolean> {
+  const failed = (why: string) =>
+    warnings.push(`Avatar from ${face.from} could not be fetched: ${why}.`);
+  try {
+    const res = await fetch(face.url, {
+      redirect: "follow",
+      headers: { Accept: "image/*", "User-Agent": USER_AGENT },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      failed(`HTTP ${res.status}`);
+      return false;
+    }
+    const bytes = await readCapped(res, MAX_AVATAR_BYTES);
+    const gate = avatarGate(res.headers.get("content-type"), bytes.length);
+    if ("error" in gate) {
+      failed(gate.error);
+      return false;
+    }
+    writeAvatar(personId, { source: face.url, mime: gate.mime, bytes, at });
+    return true;
+  } catch (e) {
+    failed(say(e));
+    return false;
+  }
+}
+
 /* ----------------------------------------------------------------- the pull */
 
 export type PullOutcome = { warnings: string[]; fresh: number; events: number; at: string };
@@ -428,10 +537,36 @@ export async function pullPerson(row: WatchRow): Promise<PullOutcome> {
       if (v !== undefined) (metrics as Record<string, unknown>)[k] = v;
   };
 
-  if (gh) take(await github(gh, warnings));
-  if (bsky) take(await bluesky(bsky, warnings));
+  let ghFace: string | null = null;
+  let bskyFace: string | null = null;
+  if (gh) {
+    const r = await github(gh, warnings);
+    take(r);
+    ghFace = r.avatar;
+  }
+  if (bsky) {
+    const r = await bluesky(bsky, warnings);
+    take(r);
+    bskyFace = r.avatar;
+  }
   if (hn) take(await hackernews(hn, warnings));
   if (feedUrl) take(await rss(feedUrl, warnings));
+
+  /*
+    THE FACE, AND IT IS THE ONE PART OF A PULL THAT USUALLY DOES NOTHING.
+    GitHub's URL wins, Bluesky's is second, and the address an import wrote
+    down is the fallback for somebody with neither link — see `pickAvatar`.
+    `avatarDue` then refuses to download anything unless the address changed,
+    the bytes are missing, or the copy has stood a week, so the common case is
+    two comparisons and no traffic at all. No link and no source is no picture:
+    nothing is invented and nothing already stored is thrown away.
+  */
+  const face = pickAvatar({ github: ghFace, bluesky: bskyFace, imported: row.avatar_source });
+  if (
+    face &&
+    avatarDue({ source: row.avatar_source, at: row.avatar_at, stored: hasAvatar(row.id) }, face.url)
+  )
+    await fetchAvatar(row.id, face, warnings, at);
 
   const fresh = saveEvents(row.id, events, at);
   writePull(row.id, { metrics, warnings, at });

@@ -55,6 +55,7 @@ import {
   MAX_TAG,
   MAX_TAGS,
   NEW_FOR_DAYS,
+  avatarRow,
   deleteWatch,
   dispatchDossier,
   importPeople,
@@ -459,6 +460,15 @@ const WATCH_DEFINITIONS = {
   tags:
     "His own shelf labels, at most " + MAX_TAGS + " of " + MAX_TAG + " " +
     "characters. Nothing derives them and there is no taxonomy behind them.",
+  avatar:
+    "`avatar` is a RELATIVE URL ON THIS BOX — /api/people/watch/<id>/avatar — " +
+    "and never the address the picture came from. The bytes are downloaded " +
+    "once by the pull, from the GitHub or Bluesky profile that was being read " +
+    "anyway, and stored here: a card pointing an <img> at somebody else's CDN " +
+    "would tell that CDN every time this file was opened, on a page about " +
+    "people the owner is quietly watching. null means no picture was found — " +
+    "no GitHub or Bluesky avatar, no imported URL, or nobody has pulled this " +
+    "person yet — and it is never a claim that they have no photograph.",
 };
 
 peopleRoutes.get("/watch", (c) =>
@@ -516,6 +526,65 @@ peopleRoutes.post("/watch/import", async (c) => {
       returned: "The rows added or merged, name-sorted. Not the whole list.",
     },
   });
+});
+
+/**
+ * THE STORED FACE, SERVED FROM THIS BOX.
+ *
+ * DECLARED ABOVE `/watch/:id` for the reason `/watch/import` is: Hono matches
+ * in declaration order, and while these two patterns differ in segment count
+ * today, a later `/watch/:id` catch-all would swallow this one silently — the
+ * failure being a broken image on every card rather than an error anybody
+ * reads.
+ *
+ * THIS ROUTE IS THE WHOLE POINT OF STORING THE BYTES. Every alternative to it
+ * — an `avatar` field holding GitHub's own URL, a redirect to it, a proxy that
+ * fetched on demand — ends with a third party learning when the owner looks at
+ * which watched person. The picture was downloaded once, by a pull, on this
+ * box's own schedule; this hands it back over loopback and nobody outside
+ * hears about the reader.
+ *
+ * PRIVATE AND A DAY LONG. Private because it is a face on the owner's own
+ * watchlist and no shared cache has any business holding it; a day because the
+ * bytes only change when a pull replaces them, and the ETag — the instant they
+ * were fetched — makes the revalidation free when it does.
+ *
+ * 404 WITH A SENTENCE rather than an empty body, because the caller is a card
+ * that has to draw something, and "never pulled" and "has no picture anywhere"
+ * are different things to say.
+ */
+peopleRoutes.get("/watch/:id/avatar", (c) => {
+  const id = c.req.param("id");
+  const row = watchRow(id);
+  if (!row) return c.json({ error: `Nobody on the watchlist has the id ${id}.` }, 404);
+
+  const face = avatarRow(id);
+  if (!face)
+    return c.json(
+      {
+        error: row.activity_at
+          ? `${row.name} has no stored picture. Neither their GitHub nor their Bluesky profile offered one, and no import carried a URL.`
+          : `${row.name} has never been pulled, so no picture has been fetched. POST /api/people/watch/${id}/pull.`,
+      },
+      404,
+    );
+
+  /* The instant the bytes were read. They are replaced whole or not at all, so
+     the timestamp identifies the body exactly — there is nothing to hash. */
+  const etag = `"${face.fetched_at}"`;
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304, { ETag: etag });
+
+  const bytes = face.bytes;
+  return c.body(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    200,
+    {
+      "Content-Type": face.mime,
+      "Content-Length": String(bytes.byteLength),
+      "Cache-Control": "private, max-age=86400",
+      ETag: etag,
+    },
+  );
 });
 
 /**

@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { statusWord } from "@/components/runs/format";
+import { PersonAvatar } from "@/components/org/PersonAvatar";
 import { personAddress } from "@/components/org/roleLook";
 import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -69,21 +70,6 @@ import {
  *  pile is a place rather than a person, so it gets a name of its own rather
  *  than an id that could one day collide with a real one. */
 export const UNFILED = "unfiled";
-
-/** The initial-letter tile. A picture would be better and this app has none of
- *  anybody — a generated avatar would be a face nobody has, so it is a letter. */
-export function Tile({ name, className }: { name: string; className?: string }) {
-  return (
-    <div
-      className={cn(
-        "bg-muted text-foreground grid size-[22px] shrink-0 place-items-center rounded-full text-[11.5px] font-semibold",
-        className,
-      )}
-    >
-      {name.trim()[0]?.toUpperCase() ?? "?"}
-    </div>
-  );
-}
 
 /** Amber while something is moving, green when there is a file, grey when
  *  there is not. Work in flight beats "has a dossier" for the reason every
@@ -244,7 +230,7 @@ export function WatchRail({
               onClick={() => onPick(p.id)}
               className={cn(row, current === p.id ? "bg-accent" : "hover:bg-accent")}
             >
-              <Tile name={p.name} className="size-[22px]" />
+              <PersonAvatar person={p} size={22} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
                   <span className="min-w-0 flex-1 truncate text-[13.5px]">{p.name}</span>
@@ -351,7 +337,7 @@ export function PersonHeader({
   return (
     <div className="mb-6">
       <div className="flex flex-wrap items-start gap-3">
-        <Tile name={person.name} className="mt-0.5 size-[40px] text-[16px]" />
+        <PersonAvatar person={person} size={40} className="mt-0.5" />
         <div className="min-w-0 flex-1">
           <h1 className="flex items-center gap-2 text-[24px] leading-tight font-normal tracking-[-0.02em]">
             {person.name}
@@ -459,7 +445,7 @@ export function PersonGrid({
       {people.map((p) => (
         <div key={p.id} className="bg-card flex min-h-[168px] flex-col rounded-[14px] p-4">
           <Link to={personAddress(p.id)} className="flex items-start gap-2.5">
-            <Tile name={p.name} className="mt-0.5 size-[26px] text-[12px]" />
+            <PersonAvatar person={p} size={26} className="mt-0.5" />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
                 <span className="min-w-0 flex-1 truncate text-[14px] font-medium">

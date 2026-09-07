@@ -25,6 +25,7 @@ import {
   statusTone,
 } from "@/components/runs/format";
 import { RoleIcon } from "@/components/org/RoleIcon";
+import { PersonAvatar } from "@/components/org/PersonAvatar";
 import { personAddress, runAddress, standing } from "@/components/org/roleLook";
 import { attaches } from "@/components/org/dossiers";
 import { RunRail } from "@/components/org/RunRail";
@@ -887,7 +888,8 @@ export function Subagent() {
                     means everywhere else on this app. */}
                 {chip && (
                   <div className="mb-2 flex items-center gap-1.5 px-1.5">
-                    <span className="bg-muted flex items-center gap-1 rounded-full py-1 pr-1 pl-2.5 text-[12.5px]">
+                    <span className="bg-muted flex items-center gap-1 rounded-full py-1 pr-1 pl-1.5 text-[12.5px]">
+                      <PersonAvatar person={chip} size={18} className="bg-card" />
                       About {chip.name}
                       <button
                         onClick={() => setAttached(null)}

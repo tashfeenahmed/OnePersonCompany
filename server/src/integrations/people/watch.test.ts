@@ -20,10 +20,29 @@
  * on the watchlist. A merge rule that lets an import win overwrites, silently
  * and in bulk, the notes this whole table exists to hold. None of them touch
  * the database, so all of them can be checked exactly.
+ *
+ * THE THREE ABOUT THE AVATAR ARE THERE FOR A DIFFERENT REASON: they are the
+ * rules that decide whether this box makes a request to somebody else's server
+ * and what it agrees to store when it does. A preference order that fell
+ * through to a stale imported URL would put last year's face on a card; a
+ * freshness rule that always answered yes would re-download every picture on
+ * the list every twenty hours; a gate that let a `text/html` body through
+ * would store somebody's 404 page and serve it back as an image. All three are
+ * pure, and none of them can be checked by pointing the box at a real server.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { attaches, composeBrief, handle, mergeWatchFields, nameKey } from "./watch.ts";
+import {
+  MAX_AVATAR_BYTES,
+  attaches,
+  avatarDue,
+  avatarGate,
+  composeBrief,
+  handle,
+  mergeWatchFields,
+  nameKey,
+  pickAvatar,
+} from "./watch.ts";
 import { parseFeed } from "./activity.ts";
 import { dossierTitle } from "../runs/kinds.ts";
 
@@ -328,4 +347,86 @@ test("importing the same row twice is a no-op", () => {
   const once = mergeWatchFields(held, incoming);
   const twice = mergeWatchFields({ ...held, ...once }, incoming);
   assert.deepEqual(twice, once);
+});
+
+/* --------------------------------------------------------------- the avatar */
+
+test("GitHub's avatar wins, then Bluesky, then whatever an import wrote down", () => {
+  /* The order is the argument in `pickAvatar`: the face most of these people
+     actually maintain is the one on their commits. */
+  assert.deepEqual(
+    pickAvatar({
+      github: "https://avatars.githubusercontent.com/u/6983?v=4",
+      bluesky: "https://cdn.bsky.app/img/avatar/x@jpeg",
+      imported: "https://example.com/old.png",
+    }),
+    { url: "https://avatars.githubusercontent.com/u/6983?v=4", from: "GitHub" },
+  );
+  /* Bluesky is second, and it is reached whenever GitHub offered nothing —
+     including a GitHub call that failed this time round. */
+  assert.deepEqual(
+    pickAvatar({ github: null, bluesky: "https://cdn.bsky.app/img/avatar/x@jpeg", imported: "https://example.com/old.png" }),
+    { url: "https://cdn.bsky.app/img/avatar/x@jpeg", from: "Bluesky" },
+  );
+  /* THE IMPORTED URL IS A FALLBACK AND NOT A SOURCE. It is only reached when
+     neither live profile yielded one, which is what keeps a third party's
+     older record of somebody's face from beating a profile read this minute. */
+  assert.deepEqual(pickAvatar({ imported: "https://example.com/old.png" }), {
+    url: "https://example.com/old.png",
+    from: "the import",
+  });
+});
+
+test("no address anywhere is no picture, and a non-web address is no address", () => {
+  assert.equal(pickAvatar({}), null);
+  assert.equal(pickAvatar({ github: "", bluesky: "   ", imported: null }), null);
+  /* A `data:` or `file:` URL in this position would point the fetcher at this
+     box's own disk. There is no avatar for which that is the right answer. */
+  assert.equal(pickAvatar({ imported: "file:///etc/passwd" }), null);
+  assert.equal(pickAvatar({ github: "data:image/png;base64,iVBOR" }), null);
+  assert.equal(pickAvatar({ github: "avatars.githubusercontent.com/u/1" }), null);
+});
+
+test("nothing is downloaded again unless the address, the bytes or the week changed", () => {
+  const at = Date.parse("2026-09-07T12:00:00.000Z");
+  const url = "https://avatars.githubusercontent.com/u/6983?v=4";
+  const fresh = { source: url, at: "2026-09-05T12:00:00.000Z", stored: true };
+
+  /* The common case, and it must cost no traffic at all. */
+  assert.equal(avatarDue(fresh, url, at), false);
+  /* They changed their photo and the URL changed with it — which is what both
+     GitHub and Bluesky do. */
+  assert.equal(avatarDue(fresh, `${url}&v=5`, at), true);
+  /* A source recorded by an import with nothing ever fetched against it. */
+  assert.equal(avatarDue({ source: url, at: null, stored: false }, url, at), true);
+  /* A week old, so it is worth asking whether the same URL now holds a
+     different picture. */
+  assert.equal(
+    avatarDue({ source: url, at: "2026-08-20T12:00:00.000Z", stored: true }, url, at),
+    true,
+  );
+  /* A stamp nothing can parse is not a claim about freshness. */
+  assert.equal(avatarDue({ source: url, at: "not a date", stored: true }, url, at), true);
+});
+
+test("only an image of a sane size is stored, and the reason is a sentence", () => {
+  assert.deepEqual(avatarGate("image/png", 40_000), { mime: "image/png" });
+  /* Real headers carry parameters, and the mime is stored and compared, so it
+     is cut at the semicolon and folded. */
+  assert.deepEqual(avatarGate("IMAGE/JPEG; charset=binary", 40_000), { mime: "image/jpeg" });
+
+  /* THE FAILURE THIS GATE EXISTS FOR: a source that answered 200 with an error
+     page. Storing it would launder somebody else's HTML into an <img>. */
+  assert.deepEqual(avatarGate("text/html; charset=utf-8", 4_000), {
+    error: "it answered text/html, which is not an image",
+  });
+  assert.deepEqual(avatarGate(null, 4_000), {
+    error: "it did not say what kind of file it was sending",
+  });
+  assert.deepEqual(avatarGate("image/png", 0), { error: "it answered an empty body" });
+  assert.deepEqual(avatarGate("image/png", MAX_AVATAR_BYTES + 1), {
+    error: "it is larger than 2 MB",
+  });
+  /* Exactly at the cap is inside it. */
+  assert.deepEqual(avatarGate("image/png", MAX_AVATAR_BYTES), { mime: "image/png" });
 });

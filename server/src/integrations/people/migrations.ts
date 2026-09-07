@@ -340,4 +340,62 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS people_watch_events_at ON people_watch_events(person_id, at);
     `,
   },
+  {
+    name: "115_people_watch_avatar",
+    sql: `
+      -- THE FACE ON A WATCHED PERSON'S CARD, AND THE BYTES OF IT KEPT HERE.
+      --
+      -- THE WHOLE REASON THIS IS A TABLE AND NOT A COLUMN HOLDING A URL. A
+      -- card that drew <img src="https://avatars.githubusercontent.com/…">
+      -- would work perfectly, cost this box nothing, and tell GitHub the hour
+      -- of every morning the owner opened a person's file — who he looked at,
+      -- how often, and from which address. That is a log of his attention held
+      -- by somebody else, produced by a feature whose entire subject is people
+      -- he is quietly keeping an eye on. So the image is FETCHED ONCE by the
+      -- pull, on the box's own schedule, and afterwards served from here: the
+      -- third party sees one anonymous GET every seven days and never sees a
+      -- reader at all.
+      --
+      -- A BLOB RATHER THAN A FILE ON DISK, and it is the smaller of the two
+      -- decisions. These are avatars — tens of kilobytes each, at most a few
+      -- hundred rows — so the whole store is smaller than one screenshot the
+      -- ventures area already keeps. Against that, a directory of loose files
+      -- is a second thing to back up, a second thing to clean up when a person
+      -- is deleted, and a second way for the database and the disk to disagree
+      -- about what exists. The row goes when the person goes, in the same
+      -- transaction as the rest of them.
+      --
+      -- \`avatar_source\` IS AN ADDRESS, NOT A PICTURE. It is where the bytes
+      -- came from, kept so the next pull can tell "the same face as last week"
+      -- from "they changed their photo" without downloading anything to find
+      -- out. It is also the one field an IMPORT may fill: Workdash's export
+      -- carries an avatar URL per row, and recording it costs nothing and
+      -- fetches nothing — the pull that follows does the fetching, because an
+      -- import of two hundred rows must not become two hundred downloads
+      -- inside one request.
+      --
+      -- NULL IN EITHER COLUMN IS "NOT KNOWN", the way every nullable figure in
+      -- this area is. No GitHub or Bluesky link and no imported URL means
+      -- nobody here has ever had an address to try, and it is never a claim
+      -- that the person has no photograph.
+      ALTER TABLE people_watch ADD COLUMN avatar_source TEXT;
+      ALTER TABLE people_watch ADD COLUMN avatar_at TEXT;
+
+      -- ONE ROW PER PERSON, AND THE PERSON IS THE KEY. There is no history of
+      -- somebody's old profile pictures here: a face is a label on a card, the
+      -- current one is the only one anything draws, and keeping the others
+      -- would be this box quietly archiving how people used to look.
+      CREATE TABLE IF NOT EXISTS people_watch_avatars (
+        person_id  TEXT PRIMARY KEY,
+        -- As the server declared it, verified to start with "image/". Stored
+        -- because it is served back verbatim and guessing it on the way out
+        -- would be guessing twice about the same bytes.
+        mime       TEXT NOT NULL,
+        bytes      BLOB NOT NULL,
+        -- When these bytes were read. The same instant as the row's
+        -- \`avatar_at\`, kept here too because it is what the ETag is made of.
+        fetched_at TEXT NOT NULL
+      ) WITHOUT ROWID;
+    `,
+  },
 ];

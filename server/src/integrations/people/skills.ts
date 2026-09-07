@@ -258,7 +258,7 @@ export const SKILLS: Skill[] = [
         path: "/api/people/watch/:id",
         about:
           "The file on one watched person, in four separately-sourced parts: `person` (what he typed, plus the tracked numbers), `contact` (the mailbox’s side of the relationship, or null — usually null), `events` (their public activity, newest first, at most " +
-          `${MAX_EVENTS} kept per person: GitHub pushes, releases and new repositories, Bluesky posts, Hacker News stories and comments, RSS items), and \`dossiers\` (every dossier run attaching to their name, newest first). \`warnings\` is what the LAST pull could not read.`,
+          `${MAX_EVENTS} kept per person: GitHub pushes, releases and new repositories, Bluesky posts, Hacker News stories and comments, RSS items), and \`dossiers\` (every dossier run attaching to their name, newest first). \`warnings\` is what the LAST pull could not read. \`person.avatar\` is a RELATIVE URL ON THIS BOX \u2014 /api/people/watch/<id>/avatar \u2014 and never the address the picture came from: the bytes are fetched once by the pull and served from here, so that opening somebody\u2019s file tells no third party who was looked at. null means no picture was found \u2014 no GitHub or Bluesky avatar, no imported URL, or nobody has pulled them yet \u2014 and it is never a claim that they have no photograph.`,
         params: [
           {
             name: "id",
