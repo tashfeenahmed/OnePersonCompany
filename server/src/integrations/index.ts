@@ -32,10 +32,9 @@ import { manifest as pipeline } from "./pipeline/manifest.ts";
 import { manifest as seoops } from "./seoops/manifest.ts";
 import { manifest as webanalytics } from "./webanalytics/manifest.ts";
 import { manifest as socialfeed } from "./socialfeed/manifest.ts";
-import { manifest as journal } from "./journal/manifest.ts";
 import { manifest as runtime } from "./runtime/manifest.ts";
 
-export const MANIFESTS: IntegrationManifest[] = [analytics, ops, signals, ventures, runs, subagents, chief, mailflow, activity, proactive, people, security, video, growth, mobilehealth, agentcore, knowledge, deploy, finance, pipeline, customers, migrate, nurture, publishing, webanalytics, journal, runtime, socialfeed, seoops, videoplus];
+export const MANIFESTS: IntegrationManifest[] = [analytics, ops, signals, ventures, runs, subagents, chief, mailflow, activity, proactive, people, security, video, growth, mobilehealth, agentcore, knowledge, deploy, finance, pipeline, customers, migrate, nurture, publishing, webanalytics, runtime, socialfeed, seoops, videoplus];
 
 export function manifestPlugins(): Record<string, PluginRegistryEntry> {
   return Object.assign({}, ...MANIFESTS.map((m) => m.plugins ?? {}));

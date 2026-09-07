@@ -6,7 +6,6 @@ const artwork = import.meta.glob<string>("../assets/modules/*.webp", { eager: tr
 const icons: Record<string, string> = {
   "/action-inbox": "action-inbox",
   "/board": "board",
-  "/journal": "journal",
   "/ventures": "ventures",
   "/people": "people",
   "/workflows": "workflows",

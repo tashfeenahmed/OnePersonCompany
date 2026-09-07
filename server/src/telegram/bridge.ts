@@ -76,8 +76,6 @@ import { hearVoice, shouldSpeakBack, speakBack } from "../integrations/signals/v
    import rather than code: the copy belongs with the feature. Both are
    best-effort and neither throws — every path in them ends in a sentence. */
 import { alertsText, briefingText } from "../integrations/proactive/telegram.ts";
-/* The journal area's one command, for the same reason. */
-import { didText } from "../integrations/journal/telegram.ts";
 import { escapeHtml, type TelegramUpdate } from "../providers/telegram.ts";
 import { plainRich } from "../skills/present.ts";
 import { composeTurns } from "../routes/chat.ts";
@@ -244,9 +242,6 @@ const COMMANDS = [
      integrations/proactive/telegram.ts — see that file's header. */
   { command: "briefing", description: "Today's briefing, built now if it does not exist yet" },
   { command: "alerts", description: "Alert events that are still open" },
-  /* The journal area's one. Same arrangement: the grammar and the copy live in
-     integrations/journal/telegram.ts. */
-  { command: "did", description: "Log work you did away from the dashboard" },
 ];
 
 export { COMMANDS };
@@ -461,11 +456,6 @@ export async function handleUpdate(
      two above, and one more: the row it writes is the OWNER'S record of his
      own work, and an agent between his sentence and the table would be an
      agent paraphrasing it. Plain text — the message quotes what he typed. */
-  if (command === "/did") {
-    await wire.send(chatId, didText(text));
-    writeTelegramReply(ctx.accountId);
-    return { action: "explained", reason: "did", replied: true, chatId };
-  }
 
   /*
     ANY OTHER SLASH COMMAND GOES TO THE AGENT rather than being refused. This

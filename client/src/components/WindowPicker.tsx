@@ -22,8 +22,8 @@ import { cn } from "@/lib/utils";
  * than a compromise that is bad at each.
  */
 
-/** A span, or the whole record. `"all"` exists because the journal genuinely
- *  has an "everything" reading and a number cannot express it. */
+/** A span, or the whole record. `"all"` exists because some records genuinely
+ *  have an "everything" reading and a number cannot express it. */
 export type WindowValue = number | "all";
 
 /** Six days is "6d"; "all" is a word, because it is not a length. */

@@ -414,9 +414,9 @@ export function startReadings() {
  * written independently and agree; that agreement is what this function is
  * for, and its own note is corrected here rather than left to be believed.)
  *
- * A JOURNAL ENTRY HAS NOTHING OF ITS OWN — "shipped the new pricing page" is a
- * sentence and a link — so its before is whatever the metric says at the moment
- * the owner asks to track it, and it has to be read THEN. `/api/outcomes`'s own
+ * A HAND-FILED ACTION HAS NOTHING OF ITS OWN — "shipped the new pricing page"
+ * is a sentence and a link — so its before is whatever the metric says at the
+ * moment the owner asks to track it, and it has to be read THEN. `/api/outcomes`'s own
  * POST makes the same argument for itself: "we will read it on the next tick"
  * makes two links made four minutes apart incomparable.
  *
