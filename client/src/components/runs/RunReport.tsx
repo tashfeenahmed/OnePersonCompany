@@ -1,7 +1,8 @@
-import { useMemo } from "react";
-import { Download, Loader2, Square, Trash2 } from "lucide-react";
+import { useMemo, useRef } from "react";
+import { Loader2, Square, Trash2 } from "lucide-react";
 import { Markdown } from "@/components/Markdown";
 import { PaperFacts, PaperFrame, PaperLinks } from "@/components/runs/PaperView";
+import { ExportPdf } from "@/components/runs/ExportPdf";
 import { RunCards } from "@/components/runs/RunCards";
 import { RunSteps } from "@/components/runs/RunSteps";
 import {
@@ -10,9 +11,10 @@ import {
   statusTone,
   statusWord,
 } from "@/components/runs/format";
-import { readCards, runFileUrl, type RunDetail } from "@/lib/api/runs";
+import { readCards, type RunDetail } from "@/lib/api/runs";
 import { cn } from "@/lib/utils";
-import { count, duration } from "@/lib/format";
+import { count, duration, when } from "@/lib/format";
+import { wordCount } from "@/lib/reportDocument";
 
 /**
  * ONE RUN, OPEN.
@@ -30,6 +32,14 @@ import { count, duration } from "@/lib/format";
  * provider answered, and a number that looked like money would be believed.
  * Usage counts are on the wire and are also not drawn, for the smaller reason
  * that "31,402 prompt tokens" is not a fact anybody acts on.
+ *
+ * THE EXPORT IS A PDF, NOT A MARKDOWN FILE. The button here used to hand out
+ * the raw `.md` — the run's text as the model wrote it — which is an export
+ * for pasting into another model and for nobody else. A report is read on
+ * paper or sent on, so the button prints the rendered report on its own paper
+ * and the browser's dialog is where "Save as PDF" is chosen; see
+ * `components/runs/ExportPdf`. The papers kind keeps its own three links,
+ * because for a paper the PDF is the document and the markdown is its source.
  *
  * A FAILED RUN KEEPS ITS PARTIAL REPORT. The error is drawn above it, not
  * instead of it: half a research report and the sentence that says why it
@@ -65,6 +75,8 @@ export function RunReport({
 
   const live = run.status === "queued" || run.status === "running";
   const took = duration(run.ms, { nullText: "" }) || (run.status === "running" ? since(run.startedAt) : null);
+  const reportRef = useRef<HTMLDivElement>(null);
+  const text = body.trim();
 
   return (
     <div className="bg-card rounded-[14px] p-4.5">
@@ -95,18 +107,24 @@ export function RunReport({
             </button>
           )}
           {/* The paper's own three links replace this one when there is a
-              paper — `PaperLinks` already offers the markdown, and two
-              "Markdown" buttons side by side would be a page arguing with
-              itself about which file is the document. */}
-          {!live && !run.paper && run.output.trim() && (
-            <a
-              href={runFileUrl(run.id, "markdown")}
-              download
-              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px]"
-            >
-              <Download className="size-3.5" strokeWidth={1.6} />
-              Markdown
-            </a>
+              paper — for a paper the PDF is the document, and a second
+              "PDF" button beside `PaperLinks` would be a page arguing with
+              itself about which file that is. */}
+          {!live && !run.paper && text && (
+            <ExportPdf
+              title={run.title}
+              subtitle={`${run.ventureName ? `for ${run.ventureName} · ` : ""}${statusWord(run.status)}`}
+              facts={[
+                { label: "Finished", value: when(run.finishedAt ?? run.startedAt ?? run.queuedAt, { year: true }) },
+                { label: "Took", value: took ?? "" },
+                { label: "Tool calls", value: run.steps.length ? count(run.steps.length) : "" },
+                { label: "Words", value: count(wordCount(text)) },
+                { label: "Model", value: backendPhrase(run) },
+              ]}
+              brief={Object.values(run.input).find((v) => v && v.trim()) ?? null}
+              footer={`${backendPhrase(run)} · ${run.id}`}
+              body={reportRef}
+            />
           )}
           {run.paper && <PaperLinks paper={run.paper} />}
           {!live && (
@@ -164,7 +182,7 @@ export function RunReport({
           starts when the one before it finishes — the tab can be closed and the
           work carries on.
         </p>
-      ) : body.trim() ? (
+      ) : text ? (
         <>
           {run.partial && (
             <div className="text-muted-foreground mb-2 flex items-center gap-2 text-[12.5px]">
@@ -173,7 +191,9 @@ export function RunReport({
               one.
             </div>
           )}
-          <Markdown text={body} />
+          <div ref={reportRef}>
+            <Markdown text={body} />
+          </div>
         </>
       ) : run.status === "running" ? (
         <p className="text-muted-foreground flex items-center gap-2 text-[14px]">

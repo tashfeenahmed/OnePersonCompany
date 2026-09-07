@@ -183,6 +183,24 @@ export function when(
 }
 
 /**
+ * A CLOCK WITH NO DATE ON IT: "14:02".
+ *
+ * The other half of `when`, for a row that sits under a heading which already
+ * says the day — the sub-agent rail groups runs by date, and "5 Sep, 14:02" on
+ * every row under "5 Sep" is the date three times a screen. Missing is the
+ * dash, for `when`'s reason; a string that will not parse is echoed.
+ */
+export function clock(
+  value: string | number | Date | null | undefined,
+  opts: Absent = {},
+): string {
+  if (value === null || value === undefined || value === "") return opts.nullText ?? DASH;
+  const ms = at(value);
+  if (ms === null) return String(value);
+  return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+/**
  * A DATE WITH NO CLOCK ON IT: "5 Sep".
  *
  * `when` always appends a time, which is right for a stamp and wrong for the

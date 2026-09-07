@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { statusTone, statusWord } from "@/components/runs/format";
 import { dayLabel, runLabel } from "@/components/org/dossiers";
-import { ago, day } from "@/lib/format";
+import { clock, day } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { RunSummary } from "@/lib/api/runs";
 
@@ -18,17 +18,25 @@ import type { RunSummary } from "@/lib/api/runs";
  * owner their history existed and then sent them somewhere else to see it.
  * This is the rest of it, in the place the eye already goes for a list.
  *
- * A ROW IS EITHER A SCROLL OR A NAVIGATION, and which one depends on whether
- * the run is in the transcript rather than on how it is drawn. A run that is
- * on this page moves the page to it; a run that is not opens its own report.
- * Both are "take me to this run", and the rail does not make the reader learn
- * which of the two it will be.
+ * A ROW OPENS THE RUN ON THIS PAGE. Every row, whether or not the run is in
+ * the transcript. It used to be two verbs — scroll to the exchange, or leave
+ * for the Outputs tab — and on the People Analyst, whose transcript is only
+ * the unfiled pile, a filed dossier was neither: the click did nothing. One
+ * verb now, and the page draws the run in place of the conversation — see
+ * `RunView`. The open row is marked, the way the chat rail marks the open
+ * session.
  *
  * GROUPED BY DAY BECAUSE THAT IS HOW WORK IS REMEMBERED. "Today" and
  * "Yesterday" are the two the owner actually reasons in — the rest are dates,
  * because "8d ago" as a HEADING makes a reader do arithmetic to find the
- * Tuesday they are thinking of. The right-hand column keeps the relative form,
- * which is the one that is useful per row.
+ * Tuesday they are thinking of. Under a date heading, each row carries the
+ * CLOCK — "14:02" — because that is the half of the stamp the heading does not
+ * already say; "3h ago" beside "Today" was the same fact twice, and beside
+ * "5 Sep" it was arithmetic again.
+ *
+ * THE TALLY UNDER THE NAME is Workdash's: finished, failed, and how many are
+ * still going, over the whole ledger rather than a 48-hour window, because
+ * this ledger is kept rather than expired.
  *
  * HIDDEN BELOW `lg`, AND THE PAGE STILL WORKS. It is a second view of runs the
  * page already reaches — the transcript is here, the rest are one link away —
@@ -39,7 +47,7 @@ export function RunRail({
   name,
   runs,
   label,
-  inTranscript,
+  activeId,
   onPick,
 }: {
   /** The worker's name, as the rail's own heading. */
@@ -50,8 +58,8 @@ export function RunRail({
    *  brief's first line, for a run whose title is only the venture's name.
    *  Null falls back to the title with its kind prefix stripped. */
   label?: (run: RunSummary) => string | null;
-  /** Which ids the page can scroll to rather than navigate to. */
-  inTranscript: (id: string) => boolean;
+  /** The run open on the page, if one is. */
+  activeId: string | null;
   onPick: (run: RunSummary) => void;
 }) {
   /* Grouped in the order they arrive rather than re-sorted. The server's order
@@ -59,11 +67,15 @@ export function RunRail({
      be this file quietly disagreeing with it. */
   const groups: { label: string; runs: RunSummary[] }[] = [];
   for (const run of runs) {
-    const label = dayLabel(run.queuedAt) ?? day(run.queuedAt);
+    const label = dayLabel(run.queuedAt) ?? day(run.queuedAt, { year: true });
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.runs.push(run);
     else groups.push({ label, runs: [run] });
   }
+
+  const done = runs.filter((r) => r.status === "done").length;
+  const failed = runs.filter((r) => r.status === "failed").length;
+  const going = runs.filter((r) => r.status === "running" || r.status === "queued").length;
 
   return (
     /* WHITE, NOT THE SIDEBAR'S TINT — the same change the watchlist's rail
@@ -75,10 +87,12 @@ export function RunRail({
     <aside className="border-line-soft hidden w-[264px] shrink-0 flex-col border-r bg-white lg:flex dark:bg-background">
       <div className="border-line-soft shrink-0 border-b px-3.5 pt-3.5 pb-2.5">
         <div className="truncate text-[13.5px] font-medium">{name}</div>
-        <div className="text-muted-foreground text-[12px]">
+        <div className="text-muted-foreground text-[12px] tabular-nums">
           {runs.length === 0
             ? "no runs"
-            : `${runs.length} ${runs.length === 1 ? "run" : "runs"}`}
+            : `${runs.length} ${runs.length === 1 ? "run" : "runs"} · ${done} finished` +
+              (failed > 0 ? ` · ${failed} failed` : "") +
+              (going > 0 ? ` · ${going} going` : "")}
         </div>
       </div>
 
@@ -95,12 +109,18 @@ export function RunRail({
               </div>
               {group.runs.map((run) => {
                 const live = run.status === "running" || run.status === "queued";
+                const open = run.id === activeId;
+                const stamp = run.finishedAt ?? run.startedAt ?? run.queuedAt;
                 return (
                   <button
                     key={run.id}
                     onClick={() => onPick(run)}
-                    title={run.title}
-                    className="hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-1.5 py-1.5 text-left transition-colors"
+                    aria-current={open ? "true" : undefined}
+                    title={`${run.title} · ${statusWord(run.status)} · ${day(stamp, { year: true })} ${clock(stamp)}`}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-[9px] px-1.5 py-1.5 text-left transition-colors",
+                      open ? "bg-accent text-foreground" : "hover:bg-accent",
+                    )}
                   >
                     <span
                       className={cn(
@@ -111,17 +131,12 @@ export function RunRail({
                     <span className="min-w-0 flex-1 truncate text-[13px]">
                       {label?.(run) ?? runLabel(run.title)}
                     </span>
-                    {/* THE AGE, OR WHAT IT IS DOING INSTEAD. A run in flight
-                        has no age worth reading — "just now" is true of every
-                        one of them — and "working" is the fact somebody
-                        scanning this column is looking for. */}
-                    <span className="text-muted-foreground shrink-0 text-[11.5px]">
-                      {live ? statusWord(run.status) : ago(run.queuedAt)}
+                    {/* THE CLOCK, OR WHAT IT IS DOING INSTEAD. A run in flight
+                        has no time worth reading yet — "working" is the fact
+                        somebody scanning this column is looking for. */}
+                    <span className="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">
+                      {live ? statusWord(run.status) : clock(stamp)}
                     </span>
-                    {/* The one row the page cannot scroll to says so by being
-                        drawn no differently: it opens the run's own page, which
-                        is where its report is. */}
-                    {!inTranscript(run.id) && <span className="sr-only">opens its own page</span>}
                   </button>
                 );
               })}

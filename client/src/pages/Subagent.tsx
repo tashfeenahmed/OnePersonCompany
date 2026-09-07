@@ -26,9 +26,10 @@ import {
 } from "@/components/runs/format";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { PersonAvatar } from "@/components/org/PersonAvatar";
-import { personAddress, runAddress, standing } from "@/components/org/roleLook";
+import { personAddress, standing } from "@/components/org/roleLook";
 import { attaches } from "@/components/org/dossiers";
 import { RunRail } from "@/components/org/RunRail";
+import { RunView } from "@/components/org/RunView";
 import { PersonDialog, PersonGrid, UNFILED } from "@/components/org/Watchlist";
 import { useApi } from "@/hooks/useApi";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
@@ -81,8 +82,18 @@ import {
  * to be one grey sentence — "the last 20 of 63, the rest are on the Dossiers
  * page" — which told the owner their history existed and then sent them off
  * the page to look at it. The rail is that history, in the place the eye
- * already goes for a list, and clicking a row either moves this page to the
- * exchange or opens the run that is too old to be on it. See `RunRail`.
+ * already goes for a list. See `RunRail`.
+ *
+ * A ROW OPENS THE RUN HERE, AT `?run=<id>`. It used to scroll to the exchange
+ * when the run was among the twenty and leave for the Outputs tab when it was
+ * not — and on the People Analyst, whose transcript is only the unfiled pile,
+ * a filed dossier was in the twenty by the server's count and not on the page,
+ * so the click did nothing. Now the run is drawn in place of the conversation,
+ * Workdash's way: the facts in a strip at the top, the brief, the report, and
+ * Export beside the title. The address is a query parameter rather than a
+ * route so the back button returns to the conversation, and the composer
+ * stays under it because the next brief still goes to this worker. See
+ * `RunView`.
  *
  * SETTINGS ARE A DRAWER NOW, AND IT STARTS SHUT — always, including on a
  * worker with nothing to read. The old rule opened it "when there is nothing
@@ -208,6 +219,17 @@ export function Subagent() {
   const [params, setParams] = useSearchParams();
   const chosen = watchlisted ? params.get("person") : null;
   const onUnfiled = chosen === UNFILED;
+  /** The run drawn in place of the conversation, or null for the conversation. */
+  const openRunId = params.get("run");
+  const openRun = useCallback(
+    (id: string | null) => {
+      const next = new URLSearchParams(params);
+      if (id) next.set("run", id);
+      else next.delete("run");
+      setParams(next);
+    },
+    [params, setParams],
+  );
 
   /** The rail, the cards and the crumb all mean the same three destinations. */
   const goTo = useCallback(
@@ -246,9 +268,15 @@ export function Subagent() {
     until the next one lands, which is what stops the page blinking.
   */
   const live = !!sa && (sa.running || sa.queued > 0);
+  /* Counted so the open run's own document can be told — see `RunView`'s
+     `pollKey`. A state rather than a ref because the point is a re-render. */
+  const [workTick, setWorkTick] = useState(0);
   useEffect(() => {
     const t = setInterval(reload, live ? 1500 : 10_000);
-    const now = () => reload();
+    const now = () => {
+      reload();
+      setWorkTick((n) => n + 1);
+    };
     window.addEventListener(WORK_CHANGED, now);
     return () => {
       clearInterval(t);
@@ -370,31 +398,26 @@ export function Subagent() {
   const last = shown[shown.length - 1];
   const growth = `${chosen ?? ""}:${shown.length}:${last?.output.length ?? 0}:${last?.run.status ?? ""}`;
   useEffect(() => {
+    if (openRunId) return;
     const el = scroller.current;
     if (el && stuck.current) el.scrollTop = el.scrollHeight;
-  }, [growth]);
+  }, [growth, openRunId]);
 
-  /* THE RAIL'S CLICK, WHEN THE RUN IS ON THIS PAGE. A ring for a second and a
-     half, because a page that silently jumped 4000px leaves the reader
-     hunting for what moved. The timer is held so a second click restarts it
-     rather than being cut short by the first one's cleanup. */
-  const [flash, setFlash] = useState<string | null>(null);
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-  }, []);
+  /* A RUN OPENS AT THE TOP, and a report growing under the reader does not
+     drag them: the stuck-to-bottom rule is the conversation's, not a
+     document's. Coming back to the conversation lands at its foot again. */
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    if (openRunId) el.scrollTop = 0;
+    else {
+      stuck.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [openRunId]);
 
   function pick(run: RunSummary) {
-    const here = transcript.some((x) => x.run.id === run.id);
-    if (!here) {
-      navigate(runAddress(run));
-      return;
-    }
-    stuck.current = false;
-    document.getElementById(`exchange-${run.id}`)?.scrollIntoView({ block: "center" });
-    setFlash(run.id);
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => setFlash(null), 1500);
+    openRun(run.id);
   }
 
   /* Only once the answer is in: "there is nobody here" is a claim about the
@@ -539,13 +562,15 @@ export function Subagent() {
 
   /* Stop the run that is holding the composer. A queued one is cancelled
      outright; a running one is asked to stop and keeps what it had written. */
-  async function stop() {
-    const held = [...transcript].reverse().find((x) => x.run.status === "running" || x.run.status === "queued");
+  async function stop(id?: string) {
+    const held =
+      id ??
+      [...transcript].reverse().find((x) => x.run.status === "running" || x.run.status === "queued")?.run.id;
     if (!held) return;
     setStopping(true);
     setProblem(null);
     try {
-      await runsApi.cancel(held.run.id);
+      await runsApi.cancel(held);
       reload();
       if (watchlisted) watchReload();
       window.dispatchEvent(new Event(WORK_CHANGED));
@@ -700,7 +725,7 @@ export function Subagent() {
                 const first = brief?.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
                 return first ? (first.length > 64 ? `${first.slice(0, 63).trimEnd()}…` : first) : null;
               }}
-              inTranscript={(id) => transcript.some((x) => x.run.id === id)}
+              activeId={openRunId}
               onPick={pick}
             />
           )}
@@ -728,7 +753,19 @@ export function Subagent() {
                 </p>
               )}
 
-              {sa && (venture || portfolio) && (
+              {sa && (venture || portfolio) && openRunId ? (
+                <RunView
+                  key={openRunId}
+                  runId={openRunId}
+                  worker={{ name: sa.name, title: sa.title }}
+                  ventureName={venture?.name ?? null}
+                  brief={transcript.find((x) => x.run.id === openRunId)?.brief ?? null}
+                  onBack={() => openRun(null)}
+                  onStop={(id) => void stop(id)}
+                  stopping={stopping}
+                  pollKey={workTick}
+                />
+              ) : sa && (venture || portfolio) && (
                 <>
                   {onUnfiled ? (
                     <>
@@ -854,7 +891,7 @@ export function Subagent() {
                           x={x}
                           sa={sa}
                           busy={stopping}
-                          flash={flash === x.run.id}
+                          onOpen={() => openRun(x.run.id)}
                           onStop={() => void stop()}
                         />
                       ))}
@@ -1138,22 +1175,21 @@ function EmptyTranscript({
  * board-suggestions fence taken off the end because those are filed from the
  * run's own page and a raw JSON block at the foot of a reply is noise.
  *
- * IT CARRIES ITS RUN'S ID AS A DOM ID, which is what lets the rail scroll to
- * it. A ref map would be the tidier React and would have to be threaded
- * through two components to reach a click handler that already knows the id.
+ * "OPEN THE RUN" UNDER EVERY REPLY goes to the same place the rail goes — the
+ * run drawn on this page with its facts and its export — rather than off to
+ * the Outputs tab. The Outputs tab is one link further, from there.
  */
 function ExchangeView({
   x,
   sa,
   busy,
-  flash,
+  onOpen,
   onStop,
 }: {
   x: Exchange;
   sa: SubagentDetail;
   busy: boolean;
-  /** Just arrived here from the rail. A ring for a moment, then nothing. */
-  flash: boolean;
+  onOpen: () => void;
   onStop: () => void;
 }) {
   const { run } = x;
@@ -1171,13 +1207,7 @@ function ExchangeView({
         : null;
 
   return (
-    <div
-      id={`exchange-${run.id}`}
-      className={cn(
-        "flex scroll-my-6 flex-col gap-3 rounded-[18px] transition-shadow duration-700",
-        flash && "ring-line-strong ring-2",
-      )}
-    >
+    <div className="flex flex-col gap-3 rounded-[18px]">
       <div className="flex flex-col items-end">
         <div className="bg-card max-w-[85%] rounded-[16px] px-4.5 py-3 text-[14.5px] whitespace-pre-wrap">
           {x.brief || (
@@ -1242,10 +1272,10 @@ function ExchangeView({
             {took && ` · ${took}`}
             {x.cards > 0 && ` · ${x.cards} board suggestion${x.cards === 1 ? "" : "s"}`}
             <span>·</span>
-            <Link to={runAddress(run)} className="hover:text-foreground flex items-center gap-0.5 underline">
-              Full report
+            <button onClick={onOpen} className="hover:text-foreground flex items-center gap-0.5 underline">
+              Open the run
               <ArrowUpRight className="size-3" strokeWidth={1.8} />
-            </Link>
+            </button>
           </p>
         )}
         {run.status === "failed" && body && (
