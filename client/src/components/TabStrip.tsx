@@ -1,5 +1,5 @@
 import { useRef, useState, type ComponentType } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 /**
@@ -65,8 +65,6 @@ export function TabStrip({
   onReorder: (keys: string[]) => void;
   className?: string;
 }) {
-  const navigate = useNavigate();
-  const [query, setQuery] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ key: string; side: "before" | "after" } | null>(null);
@@ -103,12 +101,12 @@ export function TabStrip({
     clearHold();
   }
 
+  /* WRAPS RATHER THAN SCROLLS. A strip that scrolled sideways hid every tab
+     past the edge, and the find box and the dropdown that stood in for them
+     were two controls for a problem the strip should not have. Every tab is
+     visible; the row grows a line when it must. */
   return (
-    <div className={cn("flex items-center gap-0.5 overflow-x-auto", className)}>
-      <input aria-label="Find a tab" placeholder="Find a tab…" value={query} onChange={e => setQuery(e.target.value)} className="w-[110px] shrink-0 rounded border px-2 py-1.5 text-xs" onKeyDown={e => { if (e.key === "Enter") { const found = tabs.find(t => t.label.toLowerCase().includes(query.toLowerCase())); if (found) { navigate(found.to); setQuery(""); } } }} />
-      <select aria-label="Choose any tab" value={activeKey ?? ""} className="max-w-[160px] shrink-0 rounded border p-1.5 text-xs" onChange={e => { const tab = tabs.find(t => t.key === e.target.value); if (tab) navigate(tab.to); }}>
-        <option value="" disabled>All tabs…</option>{tabs.filter(t => t.key === activeKey || t.label.toLowerCase().includes(query.toLowerCase())).map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-      </select>
+    <div className={cn("flex flex-wrap items-center gap-0.5", className)}>
       <span className="sr-only" role="status">{announcement}</span>
       {tabs.map((t) => {
         const active = t.key === activeKey;

@@ -382,6 +382,29 @@ const PLOT_H = 108;
  * The axis figures and the times sit in HTML around the SVG rather than inside
  * it, so they are set at the card's own type size and are selectable.
  */
+/** The hue of the nth series — green, blue, purple, then round again. */
+const seriesColour = (i: number) => `var(--chart-line-${(i % 3) + 1})`;
+
+/** A figure written on the plot: small, in the ink, with a halo of the card
+ *  colour so it stays legible over the line it labels. */
+function PlotLabel({ x, y, anchor, children }: { x: number; y: number; anchor: "start" | "middle" | "end"; children: string }) {
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor={anchor}
+      fontSize={10.5}
+      fill="var(--foreground)"
+      stroke="var(--card)"
+      strokeWidth={3}
+      paintOrder="stroke"
+      style={{ fontVariantNumeric: "tabular-nums" }}
+    >
+      {children}
+    </text>
+  );
+}
+
 export function Chart({
   series,
   unit,
@@ -458,6 +481,35 @@ export function Chart({
   const low = primValues.reduce((best, v, i) => (v < primValues[best]! ? i : best), 0);
   const mean = primValues.reduce((n, v) => n + v, 0) / primValues.length;
   const per = perWord(grain(primStamps));
+  /*
+    WHICH END OF THE MEAN LINE IS CLEAR OF THE OTHER TWO LABELS. Each label's
+    footprint is estimated from its text — six and a bit pixels a character
+    at this size — and anchored the way it will be drawn; the mean label goes
+    left unless that box crosses the peak's or the low's, and right when the
+    right end is the clearer one. A figure that lands on another figure says
+    neither, which is worse than a label on the less obvious side.
+  */
+  const CH = 6.3;
+  const meanText = `mean ${reading(mean, unit)}${per}`;
+  const anchorFor = (x: number): "start" | "middle" | "end" =>
+    x < PLOT.l + 40 ? "start" : x > PLOT.l + iw - 40 ? "end" : "middle";
+  const box = (x: number, text: string, anchor: "start" | "middle" | "end"): [number, number] => {
+    const wd = text.length * CH;
+    return anchor === "start" ? [x, x + wd] : anchor === "end" ? [x - wd, x] : [x - wd / 2, x + wd / 2];
+  };
+  /* Where each label's baseline will be drawn — above its dot unless the dot
+     is at the top, below the low unless it is on the baseline — because the
+     clash that matters is between the LABELS, not between the dots. */
+  const peakLabelY = Y(prim.points[peak]!.value) < PLOT.t + 14 ? Y(prim.points[peak]!.value) + 14 : Y(prim.points[peak]!.value) - 6;
+  const lowLabelY = Y(prim.points[low]!.value) > baseline - 14 ? Y(prim.points[low]!.value) - 6 : Y(prim.points[low]!.value) + 13;
+  const others = [
+    { box: box(X(primStamps[peak]!), `peak ${reading(prim.points[peak]!.value, unit)}`, anchorFor(X(primStamps[peak]!))), y: peakLabelY },
+    { box: box(X(primStamps[low]!), `low ${reading(prim.points[low]!.value, unit)}`, anchorFor(X(primStamps[low]!))), y: lowLabelY },
+  ];
+  const meanLabelY = Y(mean) - 4;
+  const clashes = ([a, b]: [number, number]) =>
+    others.some((o) => a < o.box[1] && b > o.box[0] && Math.abs(o.y - meanLabelY) < 12);
+  const meanAtRight = clashes(box(PLOT.l + 2, meanText, "start")) && !clashes(box(PLOT.l + iw - 2, meanText, "end"));
 
   /** The top of the hover's own marks — the y the tooltip hangs off. Falls to
    *  the baseline when nothing on the crosshair has a reading to show. */
@@ -502,10 +554,7 @@ export function Chart({
           <span className="flex items-center gap-2.5">
             {lines.map((l, i) => (
               <span key={l.label} className="flex items-center gap-1">
-                <i
-                  className="bg-foreground h-px w-3"
-                  style={{ opacity: i === 0 ? 0.9 : 0.38 }}
-                />
+                <i className="h-[2px] w-3 rounded" style={{ background: seriesColour(i) }} />
                 {l.label}
               </span>
             ))}
@@ -526,7 +575,7 @@ export function Chart({
       <div
         ref={host}
         className="relative mt-1"
-        style={{ height: PLOT_H, color: "var(--chart-1)" }}
+        style={{ height: PLOT_H, color: "var(--chart-line-1)" }}
       >
         {w > 0 && (
           <svg
@@ -605,29 +654,37 @@ export function Chart({
                   <path
                     d={d}
                     fill="none"
-                    stroke="currentColor"
+                    stroke={seriesColour(i)}
                     strokeWidth={i === 0 ? 1.75 : 1.4}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    opacity={i === 0 ? 0.9 : 0.38}
+                    opacity={0.95}
                   />
                 </g>
               );
             })}
 
-            {/* The mean, as a dashed rule the eye can hold the line against.
-                Drawn under the series so a flat run along it stays legible. */}
+            {/* The mean, as a dashed rule the eye can hold the line against,
+                with its figure written at the left end. Drawn under the
+                series so a flat run along it stays legible. */}
             {mean > 0 && (
-              <line
-                x1={PLOT.l}
-                x2={PLOT.l + iw}
-                y1={Y(mean)}
-                y2={Y(mean)}
-                stroke="currentColor"
-                strokeWidth={1}
-                strokeDasharray="3 3"
-                opacity={0.3}
-              />
+              <g>
+                <line
+                  x1={PLOT.l}
+                  x2={PLOT.l + iw}
+                  y1={Y(mean)}
+                  y2={Y(mean)}
+                  stroke="currentColor"
+                  strokeWidth={1}
+                  strokeDasharray="3 3"
+                  opacity={0.45}
+                />
+                {/* At whichever end is clear of the peak and low labels: a
+                    figure that lands on another figure says neither. */}
+                <PlotLabel x={meanAtRight ? PLOT.l + iw - 2 : PLOT.l + 2} y={meanLabelY} anchor={meanAtRight ? "end" : "start"}>
+                  {meanText}
+                </PlotLabel>
+              </g>
             )}
 
             {/* Two direct labels rather than a number on every point: when it
@@ -642,6 +699,30 @@ export function Chart({
                 opacity={0.45}
               />
             )}
+            {/*
+              THE PEAK AND THE LOW, WRITTEN WHERE THEY HAPPENED. A figure on
+              the plot is read in the same glance as the shape; one under it
+              has to be matched back to a point by eye. Each label sits on
+              the side of its dot that has room — above the peak unless the
+              peak is at the top, below the low unless the low is on the
+              baseline — and leans away from whichever edge it is near.
+            */}
+            {(() => {
+              const px = X(primStamps[peak]!);
+              const lx = X(primStamps[low]!);
+              return (
+                <g>
+                  <PlotLabel x={px} y={peakLabelY} anchor={anchorFor(px)}>
+                    {`peak ${reading(prim.points[peak]!.value, unit)}`}
+                  </PlotLabel>
+                  {low !== peak && (
+                    <PlotLabel x={lx} y={lowLabelY} anchor={anchorFor(lx)}>
+                      {`low ${reading(prim.points[low]!.value, unit)}`}
+                    </PlotLabel>
+                  )}
+                </g>
+              );
+            })()}
             <circle
               cx={X(primStamps[last]!)}
               cy={Y(prim.points[last]!.value)}
@@ -672,10 +753,9 @@ export function Chart({
                       cx={X(cursorMs)}
                       cy={Y(l.points[j]!.value)}
                       r={3.2}
-                      fill="currentColor"
+                      fill={seriesColour(i)}
                       stroke="var(--card)"
                       strokeWidth={2}
-                      opacity={i === 0 ? 1 : 0.55}
                     />
                   );
                 })}
@@ -720,20 +800,6 @@ export function Chart({
       <div className="text-muted-foreground mt-1 flex justify-between text-[11.5px] tabular-nums">
         <span>{endLabel(t0, domain)}</span>
         <span>{endLabel(t1, domain)}</span>
-      </div>
-
-      <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px] tabular-nums">
-        <span>
-          <span className="text-foreground/80">peak</span> {reading(prim.points[peak]!.value, unit)}
-          <span className="opacity-70"> · {stampFor(prim.points[peak]!.ts, domain)}</span>
-        </span>
-        <span>
-          <span className="text-foreground/80">low</span> {reading(prim.points[low]!.value, unit)}
-          <span className="opacity-70"> · {stampFor(prim.points[low]!.ts, domain)}</span>
-        </span>
-        <span>
-          <span className="text-foreground/80">mean</span> {reading(mean, unit)}{per}
-        </span>
       </div>
 
       {caption && (
@@ -802,6 +868,7 @@ export function Sparkline({
           height={SPARK_H}
           viewBox={`0 0 ${w} ${SPARK_H}`}
           role="img"
+          style={{ color: "var(--chart-line-1)" }}
           aria-label={`${series.length} samples, from ${reading(series[0]!, unit)} to ${reading(
             series[series.length - 1]!,
             unit,

@@ -106,6 +106,14 @@
     --chart-1: #100f0e;
     --chart-2: #4a4842;
     --chart-3: #6e6c65;
+    /* THE LINES ON A CHART: green, blue, purple, in series order. The grey
+       ramp above is for figures beside ink; a plotted line is the one place
+       on a card a hue earns its keep, and three that are told apart by hue
+       rather than by opacity can be read against each other. Defined here
+       rather than per palette so every palette draws them the same. */
+    --chart-line-1: #2f8f5b;
+    --chart-line-2: #3b6fd8;
+    --chart-line-3: #7a5c9e;
     --chart-4: #b0aea6;
     --chart-5: #d6d5cf;
     --radius: 0.875rem;
@@ -149,6 +157,9 @@
     --chart-1: #f4f2ed;
     --chart-2: #a8a69d;
     --chart-3: #817f77;
+    --chart-line-1: #5fd08a;
+    --chart-line-2: #7aa2ff;
+    --chart-line-3: #b18ae6;
     --chart-4: #4d4c46;
     --chart-5: #33322e;
     --sidebar: #141413;

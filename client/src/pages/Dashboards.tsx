@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { Activity, BarChart3, Globe, Plus, TrendingUp, Wallet } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NoBoard } from "@/components/BoardView";
+import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
 import { appPage } from "../../../shared/navigation";
 const EmailStats = lazy(() => import("@/pages/EmailStats").then(m => ({ default: m.EmailStats })));
@@ -75,7 +76,10 @@ export function Dashboards() {
 
   return (
     <>
-      <header className="flex h-12 shrink-0 items-center gap-2 px-4.5">
+      {/* The strip wraps, so the header grows with it; the button keeps to
+          one line at the right, because "New dashboard" is the one action
+          this page has and a wrapped button reads as two. */}
+      <header className="flex min-h-12 shrink-0 items-start gap-2 px-4.5 py-1.5">
         {/* Links, not buttons: each tab IS the board's address. Hold and drag
             to reorder — the order lives in the store beside the boards. */}
         <TabStrip
@@ -92,14 +96,14 @@ export function Dashboards() {
           }))]}
           activeKey={report ? `report:${report.key}` : board?.id ?? null}
           onReorder={reorderDashboards}
+          className="min-w-0 flex-1"
         />
-        <Link
-          to="/dashboards/new"
-          className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
-        >
-          <Plus className="size-3.5" strokeWidth={1.6} />
-          <span className="hidden sm:inline">New dashboard</span><span className="sr-only sm:hidden">New dashboard</span>
-        </Link>
+        <Button asChild size="sm" className="mt-0.5 shrink-0 whitespace-nowrap">
+          <Link to="/dashboards/new">
+            <Plus className="size-3.5" strokeWidth={1.8} />
+            New dashboard
+          </Link>
+        </Button>
       </header>
 
       {/* Keyed by board: switching dashboards ends an edit session rather than

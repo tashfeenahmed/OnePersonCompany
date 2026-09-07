@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Copy, Plus, Search, Trash2 } from "lucide-react";
 import { moveTo, slotFor, type Rect } from "@/lib/dragOrder";
@@ -84,6 +84,19 @@ export function BoardView({
   const [editing, setEditing] = useState(
     (nav as { editing?: boolean } | null)?.editing === true,
   );
+  /*
+    AND THE SIGNAL IS SPENT ON ARRIVAL. Browsers keep navigation state across
+    a reload, so the flag that meant "you just made this board" was still
+    there every time the page was refreshed, and the panel opened on a board
+    made a month ago. Replacing the entry with no state the moment it has
+    been read leaves the address intact and the flag gone.
+  */
+  useEffect(() => {
+    if ((nav as { editing?: boolean } | null)?.editing === true)
+      navigate(`${window.location.pathname}${window.location.search}`, { replace: true, state: null });
+    // Once, on arrival: the flag is read into state above and never again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [q, setQ] = useState("");
   const [moveNote, setMoveNote] = useState("");
   const [renaming, setRenaming] = useState(false);
