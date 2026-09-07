@@ -341,7 +341,7 @@ function previousBlock(runId: string, title: string): { block: Block; had: boole
  * possible place for an invention: it would read as history.
  */
 function dossierShape(hadPrevious: boolean): string {
-  return `Write ONE markdown document, and nothing before or after it, with exactly these sections in this order:
+  return `Write ONE markdown document AS YOUR REPLY — not to a file — and nothing before or after it, with exactly these sections in this order:
 
 ## Snapshot
 One paragraph: who this person is, the role and company they hold now, and where they are based. If any of those three is not in a block and not on a page you actually read, say so in the sentence rather than leaving it out.

@@ -75,7 +75,7 @@ import { runPage } from "../../../../shared/runRoutes.ts";
  * at the next convenient loop iteration. A queued run is cancelled by writing
  * the row: there is nothing running to stop.
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ask, activeBackend, type ChatTurn } from "../../chat/backend.ts";
 import { consumeTurn } from "../../chat/consume.ts";
@@ -97,6 +97,7 @@ import {
   type Block,
 } from "./context.ts";
 import { fencedJson, kindDef, systemBrief, type KindDef } from "./kinds.ts";
+import { readFiled } from "./filed.ts";
 import { growthRun } from "../growth/runs.ts";
 import { dossierRun } from "../people/dossier.ts";
 import { knowledgeBlock } from "../knowledge/store.ts";
@@ -548,6 +549,43 @@ async function turn(
   if (backend) return budgeted(turns, () => agentTurn(s, turns, opts), true);
   return agentTurn(s, turns, opts);
 }
+/**
+ * THE REPORT THE AGENT SAVED INSTEAD OF SENDING — read back into the row.
+ *
+ * An agent with a file tool sometimes writes the document to its own home and
+ * answers with a note saying so; see `filed.ts` for the three conditions under
+ * which that note is taken at its word. When they hold, the note is unwritten
+ * from the report and the file's text takes its place, and a step says so —
+ * the owner should know the reply was not the reply. Only the agent branches
+ * call this: a raw provider has no file tool and nothing to save with.
+ *
+ * THE AGENT SPECS ARE IMPORTED LAZILY. `agents/instance.ts` reaches this file
+ * through the manifests, so a static import here is a cycle that leaves a
+ * route table half-built at load — two test files found it. The homes are
+ * only needed once an agent has answered, which is long after load.
+ */
+async function unfiled(s: Session, text: string, toOutput: boolean): Promise<string> {
+  const { AGENT_IDS, spec } = await import("../../agents/instance.ts");
+  const found = readFiled(text, {
+    roots: AGENT_IDS.map((id) => spec(id).home),
+    read: (path) => {
+      try {
+        return readFileSync(path, "utf8");
+      } catch {
+        return null;
+      }
+    },
+  });
+  if (!found) return text;
+  const step = s.startStep("read", `the agent saved the report to ${found.path} instead of replying with it — read back`);
+  if (toOutput) {
+    s.output = s.output.endsWith(text) ? s.output.slice(0, s.output.length - text.length) + found.text : found.text;
+  }
+  s.endStep(step, `${found.text.length} characters read from ${found.path}`);
+  s.flush();
+  return found.text;
+}
+
 async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean }): Promise<TurnResult & { usage?: {prompt: number; completion: number} | null }> {
   const before = { ...s.usage };
   const signal = live?.id === s.id ? live.abort.signal : undefined;
@@ -587,7 +625,8 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolea
     }
     s.model = turn.model ?? s.model;
     s.flush();
-    return { text: turn.text, backend: backend.id, model: turn.model, usage: s.sawUsage ? { prompt: s.usage.prompt - before.prompt, completion: s.usage.completion - before.completion } : null };
+    const text = await unfiled(s, turn.text, opts.toOutput);
+    return { text, backend: backend.id, model: turn.model, usage: s.sawUsage ? { prompt: s.usage.prompt - before.prompt, completion: s.usage.completion - before.completion } : null };
   }
 
   if (backend) {
@@ -600,7 +639,8 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolea
       s.sawUsage = true;
     }
     if (opts.toOutput) s.say(reply.text);
-    return { text: reply.text, backend: backend.id, model: reply.model, usage: reply.usage };
+    const text = await unfiled(s, reply.text, opts.toOutput);
+    return { text, backend: backend.id, model: reply.model, usage: reply.usage };
   }
 
   const provider = activeProvider();

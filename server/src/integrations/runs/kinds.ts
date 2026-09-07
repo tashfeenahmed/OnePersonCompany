@@ -478,7 +478,7 @@ const HONESTY = [
   "NAME THE SOURCE OF EVERY CLAIM. Each block below is labelled with where it came from; quote that label when you use it.",
 ];
 
-const REPORT_SHAPE = `Write ONE markdown document, and nothing before or after it, with exactly these sections:
+const REPORT_SHAPE = `Write ONE markdown document AS YOUR REPLY — not to a file — and nothing before or after it, with exactly these sections:
 
 ## Findings
 What is true, worst or most important first. Every finding names the block it came from.
@@ -547,6 +547,8 @@ export function systemBrief(opts: {
   const tools = hasTools
     ? [
         `YOU HAVE TOOLS. Use them: web search for anything about the outside world, and this dashboard's own skills — GET http://127.0.0.1:${PORT}/api/skills lists them, each with the rules for reading its own document — for anything about the owner's own measurements. What is already below was fetched for you so you do not have to; go and get what is missing rather than guessing at it.`,
+        ``,
+        `YOUR REPLY IS THE DOCUMENT. Write the whole report as your answer, in full, in this conversation. Do not write it to a file, do not save it anywhere on disk, and do not answer with a summary, a path, or a note saying where it was written — the owner reads what you reply with and nothing else, so a reply that names a file instead of containing the report is a failed run.`,
       ]
     : [
         `YOU HAVE NO TOOLS. No web search, no fetch, no terminal, nothing. Everything you will ever know about this business is in this brief. Do not describe pages you have not seen, prices you were not shown or competitors you have not been told about as though you had checked them — if the answer needs something that is not here, the correct output is a finding that says which measurement is missing and how to get it. A confident paragraph about a page you could not read is the single worst thing you can produce here.`,
