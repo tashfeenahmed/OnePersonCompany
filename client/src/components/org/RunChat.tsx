@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowUpRight, Loader2, Square, TriangleAlert } from "lucide-react";
 import { Markdown } from "@/components/Markdown";
 import { ExportPdf } from "@/components/runs/ExportPdf";
+import { PaperFacts, PaperFrame, PaperLinks } from "@/components/runs/PaperView";
 import { ReportFrame } from "@/components/runs/ReportFrame";
 import { RunCards } from "@/components/runs/RunCards";
 import { RunSteps } from "@/components/runs/RunSteps";
@@ -54,6 +55,19 @@ import { isLive, readCards, runsApi } from "@/lib/api/runs";
  * leaves out a fact it does not have rather than drawing it as a zero. Export
  * PDF and the way through to the Outputs page sit at the end of the same line,
  * because that is where a document is signed and filed.
+ *
+ * A PAPER RUN PUTS THE PAPER FIRST AND THE REPORT SECOND — the one place this
+ * reply is not the same for every kind, and it is a fork on whether the server
+ * sent a `paper`, not on the kind. For every other worker the report IS the
+ * work; for the paper writer the report is a note about a document ("5 pages,
+ * at /data/papers/…"), and a reply that led with the note was exactly the bug
+ * the owner saw: "it didn't show the pdf here on this page". The old run page
+ * drew the paper and this view did not, so the paper is drawn here the way it
+ * is drawn everywhere else — `PaperFrame`, the PDF inline in the browser's own
+ * viewer — and the note goes under a "How it was made" label, which is what it
+ * is. The signature swaps Export PDF for the paper's own three links, because
+ * for a paper the PDF is the document and a second "PDF" button would be the
+ * page arguing with itself about which file that is.
  *
  * IT POLLS ITS OWN RUN, every second and a half while the run is moving —
  * `runsApi.get` is the only read that carries the STEPS, which the worker
@@ -246,6 +260,36 @@ export function RunChat({
           {/* WHAT IT DID, BEFORE WHAT IT WROTE. In order, and unfolded. */}
           <RunSteps steps={run.steps} />
 
+          {/* ------------------------------------------------- the paper */}
+          {run.paper && (
+            <div className="mb-4">
+              <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="text-[15px] leading-snug font-medium tracking-tight">
+                  {run.paper.title}
+                </span>
+                <PaperFacts paper={run.paper} />
+              </div>
+              {run.paper.thesis && (
+                <p className="text-muted-foreground mb-2 text-[13.5px] leading-relaxed">
+                  {run.paper.thesis}
+                </p>
+              )}
+              {run.paper.contributions.length > 0 && (
+                <ul className="text-muted-foreground mb-2.5 list-disc pl-4 text-[13.5px] leading-relaxed">
+                  {run.paper.contributions.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              )}
+              <PaperFrame paper={run.paper} />
+              {text && (
+                <div className="text-muted-foreground mt-3 mb-1 text-[12px] tracking-[0.06em] uppercase">
+                  How it was made
+                </div>
+              )}
+            </div>
+          )}
+
           {text ? (
             <>
               {run.partial && (
@@ -327,7 +371,9 @@ export function RunChat({
                   where the frame does. This one builds a document out of the
                   rendered markdown, which an HTML report does not need — it
                   already is one. */}
-              {!html && (
+              {run.paper ? (
+                <PaperLinks paper={run.paper} />
+              ) : !html ? (
                 <ExportPdf
                   title={heading}
                   subtitle={subtitle}
@@ -337,7 +383,7 @@ export function RunChat({
                   body={reportRef}
                   disabled={live || !text}
                 />
-              )}
+              ) : null}
               <Link
                 to={runAddress(run)}
                 title="The same run on the Outputs page, where it can be retried or deleted"
