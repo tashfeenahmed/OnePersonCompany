@@ -28,7 +28,7 @@ import {
 } from "@/components/runs/format";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { PersonAvatar } from "@/components/org/PersonAvatar";
-import { personAddress, standing } from "@/components/org/roleLook";
+import { personAddress, shortName, standing } from "@/components/org/roleLook";
 import { attaches } from "@/components/org/dossiers";
 import { RunRail } from "@/components/org/RunRail";
 import { RunView } from "@/components/org/RunView";
@@ -485,6 +485,11 @@ export function Subagent() {
     );
 
   const mood = sa ? standing(sa) : null;
+  /* THE WORKER'S SHORT NAME — the venture's own name taken off the front of
+     the default "<Venture> <Title>", so the crumb, the rail and the heading do
+     not each say "Example Video" twice on one line. A portfolio worker has no
+     venture to take off. See `shortName`. */
+  const workerName = sa ? (portfolio || !venture ? sa.name : shortName(sa.name, venture.name)) : null;
   const dirty =
     !!sa &&
     !!form &&
@@ -680,7 +685,7 @@ export function Subagent() {
             <span className="text-muted-foreground text-[13.5px]">/</span>
             <span className="flex items-center gap-1.5 px-2 py-1 text-[13.5px]">
               <RoleIcon role={role} className="text-muted-foreground size-3.5" />
-              {sa?.name ?? "…"}
+              {workerName ?? "…"}
             </span>
             {/* WHICH VIEW IS OPEN, IN THE BAR, because the transcript below
                 is narrowed and a filter nobody can see is a page that looks
@@ -759,7 +764,7 @@ export function Subagent() {
           (venture || portfolio) &&
           (
             <RunRail
-              name={sa.name}
+              name={workerName ?? sa.name}
               runs={runs}
               /* The brief's first line names the run better than a title that
                  is only "<Kind> — <venture>" — the rail would otherwise read
@@ -831,13 +836,50 @@ export function Subagent() {
                         otherwise imply is that the Chief of Staff is on the
                         other end. It is not.
                       */}
+                      {/*
+                        THE VENTURE IS A LABEL ABOVE THE NAME, NOT A CLAUSE
+                        AFTER IT. The heading used to read "Example Video
+                        Competitor Analyst. Competitor Analyst for Example Video."
+                        — the default name is "<Venture> <Title>", so the same
+                        four words came round twice in one line. Now the venture
+                        sits above as a mark and a name, the way its own pages
+                        carry it, and the heading is the worker's SHORT name:
+                        the title when the owner has not renamed it, their own
+                        words when they have — with the title after, muted, only
+                        when it adds something.
+                      */}
+                      {!portfolio && venture && (
+                        <Link
+                          to={`/ventures/${venture.slug}`}
+                          className="bg-card hover:bg-card-hover mb-3 inline-flex items-center gap-1.5 rounded-full py-1 pr-3 pl-1.5 text-[12.5px] font-medium transition-colors"
+                        >
+                          <VentureMark
+                            venture={{
+                              name: venture.name,
+                              color: venture.color,
+                              brand: { favicon: venture.favicon },
+                            }}
+                            size={16}
+                          />
+                          {venture.name}
+                        </Link>
+                      )}
                       <h1 className="mb-1.5 text-[27px] font-normal tracking-[-0.025em]">
-                        {sa.name}.{" "}
-                        <span className="text-muted-foreground">
-                          {portfolio
-                            ? `${sa.title}, for no venture in particular.`
-                            : `${sa.title} for ${venture!.name}.`}
-                        </span>
+                        {portfolio ? (
+                          <>
+                            {sa.name}.{" "}
+                            <span className="text-muted-foreground">
+                              {sa.title}, for no venture in particular.
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            {workerName}.
+                            {workerName!.toLowerCase() !== sa.title.trim().toLowerCase() && (
+                              <span className="text-muted-foreground"> {sa.title}.</span>
+                            )}
+                          </>
+                        )}
                       </h1>
                       <p
                         className={cn(
