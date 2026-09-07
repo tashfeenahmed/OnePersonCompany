@@ -18,7 +18,9 @@ import { cn } from "@/lib/utils";
 import { ModelMark } from "@/components/ModelMark";
 import type {
   ChartSeries,
+  DonutSlice,
   Meter,
+  RankedRow,
   RunwayRow,
   StatusTone,
 } from "@/data/widgets";
@@ -39,11 +41,14 @@ import type {
  * this file does, which is nothing.
  *
  * THE ONE RULE THAT RUNS THROUGH ALL OF IT: colour is reserved for a reading
- * that is past a limit. Lines, areas and bars are drawn in `currentColor` and
- * inherit the card's ink, so every one of them is correct in both themes for
- * free and none of them can accidentally shout. The only hues in this file are
- * the three status tokens, and they only ever appear where something is being
- * judged.
+ * that is past a limit, or for telling one series from another. Bars and
+ * sparklines are drawn in `currentColor` and inherit the card's ink, so every
+ * one of them is correct in both themes for free and none of them can
+ * accidentally shout. The hues here are the three status tokens, which only
+ * appear where something is being judged, and the four series tokens, which
+ * only appear where two lines share a plot or four groups share a whole — the
+ * donut and the ranked bars below, which are the cost board's forms and are
+ * drawn the way the money pages they are modelled on draw them.
  */
 
 /* ------------------------------------------------------------ primitives */
@@ -383,7 +388,7 @@ const PLOT_H = 108;
  * it, so they are set at the card's own type size and are selectable.
  */
 /** The hue of the nth series — green, blue, purple, then round again. */
-const seriesColour = (i: number) => `var(--chart-line-${(i % 3) + 1})`;
+const seriesColour = (i: number) => `var(--chart-line-${(i % 4) + 1})`;
 
 /** A figure written on the plot: small, in the ink, with a halo of the card
  *  colour so it stays legible over the line it labels. */
@@ -508,7 +513,13 @@ export function Chart({
   ];
   const meanLabelY = Y(mean) - 4;
   const clashes = ([a, b]: [number, number]) =>
-    others.some((o) => a < o.box[1] && b > o.box[0] && Math.abs(o.y - meanLabelY) < 12);
+    // Fourteen, not the label's own eleven: two baselines twelve apart at this
+    // size leave the ascenders of one touching the descenders of the other.
+    // And eight pixels of side room, because two labels on one baseline that
+    // merely do not overlap read as one sentence — "mean $1.50/day low $0.16".
+    others.some(
+      (o) => a < o.box[1] + 8 && b + 8 > o.box[0] && Math.abs(o.y - meanLabelY) < 14,
+    );
   const meanAtRight = clashes(box(PLOT.l + 2, meanText, "start")) && !clashes(box(PLOT.l + iw - 2, meanText, "end"));
 
   /** The top of the hover's own marks — the y the tooltip hangs off. Falls to
@@ -1042,6 +1053,246 @@ export function Bars({
       )}
       <div className="text-muted-foreground mt-1 text-[12.5px]">{labels}</div>
       <ChartTip tip={tip} width={w} />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ donut */
+
+/**
+ * Parts of one whole, with the whole written in the hole.
+ *
+ * A DONUT, because the total is worth reading. The bars this replaces on the
+ * cost board were two or three fills sharing a track with no figure between
+ * them, which draws the shares and hides the thing they are shares OF — and
+ * on a card called "Where the dollars go" that figure is the point. Four
+ * slices is where the form is still honest; a fifth is the moment for
+ * `Ranked` instead, and the builders keep to that.
+ *
+ * THE LEGEND IS THE TABLE OF FIGURES. It sits beside the ring as text rather
+ * than as labels on the arcs, because a legend that carries money wants to be
+ * selectable, tabular and readable at 13px, and hovering a row lights its
+ * slice and the other way round so the two are one control rather than a
+ * picture and a caption. Colour follows the ENTITY in slice order and never
+ * the rank: a month in which OpenRouter outspends OpenAI must not repaint
+ * them.
+ *
+ * A 2px GAP between slices, subtracted in angle so it stays 2px at the rim
+ * whatever the radius: adjacent fills that touch bleed into one another and
+ * the eye reads two segments as one. A slice with no value is left out of the
+ * ring but kept in the legend, because "€0.00 of volumes" is a fact about the
+ * bill and a hairline nobody can hover is not.
+ */
+/**
+ * The arc paths, walked in slice order from twelve o'clock. Out of the
+ * component so the running angle is a loop's own variable rather than a
+ * render-scope `let` reassigned inside a map.
+ */
+function donutArcs(
+  slices: DonutSlice[],
+  sum: number,
+  g: { cx: number; cy: number; R: number; rIn: number; gap: number },
+): { i: number; d: string }[] {
+  const { cx, cy, R, rIn } = g;
+  const out: { i: number; d: string }[] = [];
+  let a0 = -Math.PI / 2;
+  slices.forEach((s, i) => {
+    const v = Math.max(s.value, 0);
+    if (!(v > 0) || !(sum > 0)) return;
+    const sweep = (v / sum) * Math.PI * 2;
+    // One slice is the whole ring: a gap would cut a notch out of a circle.
+    const gap = sweep >= Math.PI * 2 - 1e-6 ? 0 : g.gap;
+    const s0 = a0 + gap / 2;
+    const s1 = a0 + sweep - gap / 2;
+    a0 += sweep;
+    const large = s1 - s0 > Math.PI ? 1 : 0;
+    const d =
+      gap === 0
+        ? `M${cx + R},${cy}A${R},${R} 0 1 1 ${cx - R},${cy}A${R},${R} 0 1 1 ${cx + R},${cy}Z` +
+          `M${cx + rIn},${cy}A${rIn},${rIn} 0 1 0 ${cx - rIn},${cy}A${rIn},${rIn} 0 1 0 ${cx + rIn},${cy}Z`
+        : `M${(cx + R * Math.cos(s0)).toFixed(2)},${(cy + R * Math.sin(s0)).toFixed(2)}` +
+          `A${R},${R} 0 ${large} 1 ${(cx + R * Math.cos(s1)).toFixed(2)},${(cy + R * Math.sin(s1)).toFixed(2)}` +
+          `L${(cx + rIn * Math.cos(s1)).toFixed(2)},${(cy + rIn * Math.sin(s1)).toFixed(2)}` +
+          `A${rIn},${rIn} 0 ${large} 0 ${(cx + rIn * Math.cos(s0)).toFixed(2)},${(cy + rIn * Math.sin(s0)).toFixed(2)}Z`;
+    out.push({ i, d });
+  });
+  return out;
+}
+
+export function Donut({
+  slices,
+  center,
+  caption,
+}: {
+  slices: DonutSlice[];
+  center?: { value: string; note: string };
+  caption?: string;
+}) {
+  const [active, setActive] = useState<number | null>(null);
+  const sum = slices.reduce((n, s) => n + Math.max(s.value, 0), 0);
+  const SIZE = 132;
+  const cx = SIZE / 2;
+  const cy = SIZE / 2;
+  const R = SIZE / 2 - 2;
+  const rIn = R * 0.64;
+  const gap = 2 / R;
+
+  const arcs = donutArcs(slices, sum, { cx, cy, R, rIn, gap });
+
+  return (
+    <div className="mt-1">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+        <svg
+          width={SIZE}
+          height={SIZE}
+          viewBox={`0 0 ${SIZE} ${SIZE}`}
+          role="img"
+          aria-label={`${center?.value ?? ""} ${center?.note ?? ""}: ${slices
+            .map((s) => `${s.label} ${s.text}`)
+            .join(", ")}`}
+          className="shrink-0"
+          onPointerLeave={() => setActive(null)}
+        >
+          {arcs.map((a) => (
+              <path
+                key={a.i}
+                d={a.d}
+                fill={seriesColour(a.i)}
+                fillRule="evenodd"
+                opacity={active !== null && active !== a.i ? 0.32 : 1}
+                className="transition-opacity duration-150"
+                onPointerEnter={() => setActive(a.i)}
+              >
+                <title>{`${slices[a.i]!.label} · ${slices[a.i]!.text} · ${pct(
+                  Math.max(slices[a.i]!.value, 0) / (sum || 1),
+                  { digits: 0 },
+                )}`}</title>
+              </path>
+          ))}
+          {/* An empty ring when nothing has a value: the hole still carries the
+              total, which is then a real zero rather than an absence. */}
+          {!(sum > 0) && (
+            <circle cx={cx} cy={cy} r={(R + rIn) / 2} fill="none" stroke="var(--border)" strokeWidth={R - rIn} />
+          )}
+          {center && (
+            <>
+              <text
+                x={cx}
+                y={cy - 1}
+                textAnchor="middle"
+                fill="var(--foreground)"
+                fontSize={17}
+                fontWeight={500}
+                letterSpacing="-0.02em"
+                className="tabular-nums"
+              >
+                {center.value}
+              </text>
+              <text x={cx} y={cy + 14} textAnchor="middle" fill="var(--muted-foreground)" fontSize={10}>
+                {center.note}
+              </text>
+            </>
+          )}
+        </svg>
+        <div className="flex min-w-0 flex-1 flex-col" onPointerLeave={() => setActive(null)}>
+          {slices.map((s, i) => (
+            <div
+              key={s.label}
+              onPointerEnter={() => setActive(i)}
+              className={cn(
+                "grid grid-cols-[10px_1fr_auto] items-baseline gap-x-2.5 gap-y-0.5 rounded-[8px] px-2 py-1 transition-colors",
+                active === i && "bg-muted",
+              )}
+            >
+              <span
+                aria-hidden="true"
+                className="size-2.5 self-center rounded-sm"
+                style={{ background: seriesColour(i) }}
+              />
+              <span className="truncate text-[13px]">{s.label}</span>
+              <span className="text-[13px] tabular-nums">{s.text}</span>
+              <span className="text-muted-foreground col-span-2 col-start-2 flex justify-between gap-2 text-[12px] leading-snug">
+                <span className="truncate">{s.sub}</span>
+                <span className="shrink-0 tabular-nums">
+                  {sum > 0 ? pct(Math.max(s.value, 0) / sum, { digits: 0 }) : ""}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {caption && (
+        <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{caption}</p>
+      )}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------- ranked */
+
+/**
+ * Ranked horizontal bars: which of these is biggest, and by how much.
+ *
+ * HORIZONTAL because the categories are NAMES — model ids, project names —
+ * and a row of upright bars with nine model names under it either rotates the
+ * labels or truncates them to a mark. This is what the cost board's "Spend by
+ * model" used to do: nine grey nubs, a brand mark under each, and a caption
+ * that named four of them. The name is on the row now, in full.
+ *
+ * THE FIGURE SITS AT THE TIP OF ITS OWN BAR, which is the whole reason this
+ * form needs no value axis: the number is already on the mark, and a row of
+ * gridlines would be a second reading of the same quantity. Scaled to the
+ * biggest row rather than to the total — one model is most of an account,
+ * and against a 100% scale every other bar would be a line one pixel long.
+ * The bar stops at 78% of the track so the figure always has room at the
+ * tip; the ranking is in the lengths, which a shared scale preserves.
+ *
+ * ONE COLOUR ACROSS EVERY BAR. This is a single measurement over many names,
+ * so a palette here would encode nothing but rank — which the order and the
+ * length already say. `sub` is right-aligned on the name's line: a long bar
+ * over a small token count is an expensive model, and the two are read in
+ * the same glance.
+ */
+export function Ranked({ rows, caption }: { rows: RankedRow[]; caption?: string }) {
+  const top = Math.max(1, ...rows.map((r) => Math.max(r.value, 0)));
+  return (
+    <div className="mt-1 flex flex-col gap-2">
+      {rows.map((r) => {
+        const share = (Math.max(r.value, 0) / top) * 78;
+        return (
+          <div key={r.label} className="min-w-0">
+            <div className="flex items-baseline gap-2 text-[13px]">
+              {r.mark && <ModelMark name={r.mark} size={13} className="self-center" />}
+              <span className="truncate">{r.label}</span>
+              {r.sub && (
+                <span className="text-muted-foreground ml-auto shrink-0 text-[12px] tabular-nums">
+                  {r.sub}
+                </span>
+              )}
+            </div>
+            <div
+              className="relative mt-1 h-[14px]"
+              role="img"
+              aria-label={`${r.label}: ${r.text}`}
+              title={`${r.label} · ${r.text}${r.sub ? ` · ${r.sub}` : ""}`}
+            >
+              <div
+                className="absolute inset-y-0 left-0 min-w-[3px] rounded-sm"
+                style={{ width: `${share}%`, background: seriesColour(0), opacity: 0.85 }}
+              />
+              <span
+                className="absolute top-1/2 -translate-y-1/2 text-[12px] leading-none whitespace-nowrap tabular-nums"
+                style={{ left: `calc(${Math.max(share, 0.5)}% + 6px)` }}
+              >
+                {r.text}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+      {caption && (
+        <p className="text-muted-foreground mt-0.5 text-[12px] leading-snug">{caption}</p>
+      )}
     </div>
   );
 }

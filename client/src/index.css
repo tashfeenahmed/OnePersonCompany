@@ -114,6 +114,11 @@
     --chart-line-1: #2f8f5b;
     --chart-line-2: #3b6fd8;
     --chart-line-3: #7a5c9e;
+    /* A fourth, for the parts of a whole: a cost donut has up to four groups
+       and a fourth slice in a repeated hue would read as the first one twice.
+       Clay, because it is the one hue the three above leave free and the
+       palette checker passes it beside them in both themes. */
+    --chart-line-4: #c2612f;
     --chart-4: #b0aea6;
     --chart-5: #d6d5cf;
     --radius: 0.875rem;
@@ -160,6 +165,7 @@
     --chart-line-1: #5fd08a;
     --chart-line-2: #7aa2ff;
     --chart-line-3: #b18ae6;
+    --chart-line-4: #d47845;
     --chart-4: #4d4c46;
     --chart-5: #33322e;
     --sidebar: #141413;

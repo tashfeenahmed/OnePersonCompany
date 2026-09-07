@@ -10,6 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  splitMoney,
   DASH,
   ago,
   bytes,
@@ -222,4 +223,16 @@ test("compact uses one casing for one magnitude", () => {
   assert.equal(compact(820_000), "820k");
   assert.equal(compact(9512), "9,512", "below ten thousand the digits still fit");
   assert.equal(compact(-1_500_000), "-1.5M");
+});
+
+test("splitMoney parts a currency string at the cents and nothing else", () => {
+  assert.deepEqual(splitMoney("US$95.93"), { whole: "US$95", cents: ".93" });
+  assert.deepEqual(splitMoney("€63.47"), { whole: "€63", cents: ".47" });
+  assert.deepEqual(splitMoney("≈US$1,015.36"), { whole: "≈US$1,015", cents: ".36" });
+  assert.deepEqual(splitMoney("-US$5.00"), { whole: "-US$5", cents: ".00" });
+  assert.equal(splitMoney("$212"), null);
+  assert.equal(splitMoney("8h 35m"), null);
+  assert.equal(splitMoney("12.5%"), null);
+  assert.equal(splitMoney("279"), null);
+  assert.equal(splitMoney("—"), null);
 });

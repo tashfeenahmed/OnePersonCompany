@@ -360,12 +360,31 @@ export const LIVE_BUILDERS: Record<
 
   "hetzner.spendSplit": ({ summary }) => {
     if (!summary) return null;
+    /*
+      A DONUT WITH THE BILL IN THE HOLE, the way the cost pages draw a bill
+      split into its groups: the two parts as arcs, the legend carrying each
+      figure and what it is a figure OF, and the total written once in the
+      middle rather than as a third row that has to be read as "not another
+      part". Net of VAT stays in the note, because it is a fact about every
+      number on the card and not about one of them.
+    */
     return {
-      rows: [
-        ["Servers", eur(summary.serverMonthlyEur)],
-        ["Volumes", eur(summary.volumeMonthlyEur)],
-        ["Total, net of VAT", eur(summary.monthlyEur)],
+      slices: [
+        {
+          label: "Servers",
+          value: summary.serverMonthlyEur,
+          text: eur(summary.serverMonthlyEur),
+          sub: `${count(summary.servers)} box${summary.servers === 1 ? "" : "es"}`,
+        },
+        {
+          label: "Volumes",
+          value: summary.volumeMonthlyEur,
+          text: eur(summary.volumeMonthlyEur),
+          sub: `${count(summary.volumes)} volume${summary.volumes === 1 ? "" : "s"}`,
+        },
       ],
+      center: { value: eur(summary.monthlyEur, 0), note: "per month" },
+      caption: also("net of VAT", across(summary.accounts.length)),
     };
   },
 
@@ -1410,6 +1429,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!o || o.usd === null) return null;
     return {
       value: usd(o.usd),
+      tag: "metered",
       sub: also(
         `${o.projects.length} project${o.projects.length === 1 ? "" : "s"} · ` +
           `settled to ${dayShort(o.completeThrough)}`,
@@ -1427,23 +1447,34 @@ Object.assign(LIVE_BUILDERS, {
     const o = COSTS?.openai;
     if (!o?.days.length) return null;
     const total = o.days.reduce((n, d) => n + d.usd, 0);
+    /*
+      AN AREA OVER THE DAYS, NOT THIRTY-ONE BARS. The quantity is a daily
+      magnitude off a zero baseline and a month of them is a series, not
+      thirty-one things to compare — the same call the OpenRouter day card
+      and the cost pages make. The chart draws the mean as a dashed rule and
+      labels the peak and the low itself, which is what the bars' caption
+      used to try to say in words.
+
+      THE PARTIAL BUCKETS ARE SAID ONCE, in the caption. OpenAI aggregates
+      into UTC days and the recent ones take about a day to fill, so the
+      newest point is always short and would otherwise read as a quiet
+      Tuesday. It is kept rather than dropped: the spend is real, it is just
+      not all there yet.
+    */
+    const settling = o.days.filter((d) => d.day > o.completeThrough).length;
     return {
-      bars: o.days.map((d) => d.usd),
-      labels:
-        `${o.days.length} days to ${dayShort(o.days.at(-1)!.day)} · ${usd(total)} · ` +
-        `the last bucket lags and is partial`,
-      /*
-        THE PARTIAL BUCKETS SAY SO, ONE BAR AT A TIME. OpenAI aggregates into
-        UTC days and the recent ones take about a day to fill, so the newest
-        bar is always short and would otherwise read as a quiet Tuesday. It is
-        labelled rather than dropped: the spend is real, it is just not all
-        there yet.
-      */
-      barLabels: o.days.map(
-        (d) =>
-          `${dayShort(d.day)} · ${usd(d.usd)}` +
-          (d.day > o.completeThrough ? " · still settling" : ""),
-      ),
+      chart: [
+        {
+          label: "Spend, USD",
+          points: o.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.usd })),
+        },
+      ],
+      unit: "usd" as const,
+      caption:
+        `${usd(total)} over ${o.days.length} days to ${dayShort(o.days.at(-1)!.day)}` +
+        (settling
+          ? ` · the newest ${settling === 1 ? "day is" : `${settling} days are`} still settling`
+          : ""),
     };
   },
 
@@ -1505,6 +1536,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!a || a.usd === null) return null;
     return {
       value: usd(a.usd),
+      tag: "metered",
       sub:
         `${a.models.length} models · ${count(a.requests)} requests` +
         // BYOK is inference OpenRouter routed and did NOT bill for. It is
@@ -1523,18 +1555,26 @@ Object.assign(LIVE_BUILDERS, {
     // free-tier traffic has its own card, where the zero is the point.
     const top = a.models.filter((m) => m.usd >= 0.005).slice(0, 8);
     if (!top.length) return null;
+    /*
+      RANKED BARS WITH THE NAME ON THE ROW, the way the LLM usage page draws
+      this: the model in full, its tokens right-aligned beside it, and the
+      dollars at the tip of the bar. A long bar over a small token count is
+      an expensive model, and the two are read in the same glance — which
+      nine upright nubs with a mark under each could not say.
+    */
+    const priced = a.models.filter((m) => m.usd >= 0.005).length;
     return {
-      bars: top.map((m) => m.usd),
-      marks: top.map((m) => m.model),
-      labels: top
-        .slice(0, 4)
-        .map((m) => `${shortModel(m.model)} ${usd(m.usd, 2)}`)
-        .join(" · "),
-      barLabels: top.map(
-        (m) =>
-          `${m.model} · ${usd(m.usd)} · ${count(m.requests)} requests · ` +
-          `${compact(m.promptTokens)} in, ${compact(m.completionTokens)} out`,
-      ),
+      ranked: top.map((m) => ({
+        label: m.model,
+        value: m.usd,
+        text: usd(m.usd),
+        sub: `${compact(m.promptTokens + m.completionTokens)} tokens`,
+        mark: m.model,
+      })),
+      caption:
+        `${COSTS!.window.days} days · biggest first` +
+        (priced > top.length ? ` · top ${top.length} of ${priced} priced models` : "") +
+        ` · ${count(a.requests)} requests in all`,
     };
   },
 
@@ -1613,6 +1653,7 @@ Object.assign(LIVE_BUILDERS, {
     const rate = r.runs ? (r.failed / r.runs) * 100 : 0;
     return {
       value: count(r.runs),
+      tag: "measured",
       tone: rate >= 20 ? ("bad" as StatusTone) : rate >= 5 ? ("warn" as StatusTone) : undefined,
       sub: `${count(r.succeeded)} succeeded · ${count(r.failed)} failed (${Math.round(rate)}%)`,
     };
@@ -1623,6 +1664,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!r?.runs) return null;
     return {
       value: hoursMinutes(r.predictSeconds),
+      tag: "measured",
       /*
         The whole point of this card, in its own subtitle. Replicate reports
         the time; it publishes no rate anywhere in its API, and the models this
@@ -1638,17 +1680,18 @@ Object.assign(LIVE_BUILDERS, {
     if (!r?.models.length) return null;
     const top = r.models.slice(0, 8);
     return {
-      bars: top.map((m) => m.seconds),
-      labels: top
-        .slice(0, 3)
-        .map((m) => `${shortModel(m.model)} ${hoursMinutes(m.seconds)}`)
-        .join(" · "),
-      barLabels: top.map(
-        (m) =>
-          `${m.model} · ${hoursMinutes(m.seconds)} · ${count(m.runs)} run` +
-          `${m.runs === 1 ? "" : "s"}` +
-          (m.failed ? `, ${count(m.failed)} failed` : ""),
-      ),
+      ranked: top.map((m) => ({
+        label: m.model,
+        value: m.seconds,
+        text: hoursMinutes(m.seconds),
+        sub:
+          `${count(m.runs)} run${m.runs === 1 ? "" : "s"}` +
+          (m.failed ? ` · ${count(m.failed)} failed` : ""),
+      })),
+      caption:
+        `${COSTS!.window.days} days · predict time, biggest first` +
+        (r.models.length > top.length ? ` · top ${top.length} of ${r.models.length} models` : "") +
+        " · Replicate publishes no rate, so no cost follows",
     };
   },
 
@@ -1727,6 +1770,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!parts.length) return null;
     return {
       value: usd(parts.reduce((n, p) => n + p.usd, 0)),
+      tag: "metered",
       sub: `${parts.map((p) => p.name).join(" + ")} · Replicate is not in this: it reports no spend`,
     };
   },
@@ -1739,15 +1783,35 @@ Object.assign(LIVE_BUILDERS, {
     if (COSTS.openrouter.activity.usd !== null)
       parts.push({ name: "OpenRouter", usd: COSTS.openrouter.activity.usd });
     if (!parts.length) return null;
+    /*
+      A DONUT, with the dollars in the hole. The two providers are parts of
+      one whole — the LLM bill in one currency over one window — and the whole
+      is the figure the card exists to show. The legend carries what each
+      part is a bill FOR, in the provider's own units.
+
+      Hetzner is absent on purpose: it charges in euro, and a euro slice in a
+      dollar ring is a comparison of two rulers. Replicate is absent because
+      it reports no spend at all, and the caption says which of the two
+      absences is which.
+    */
+    const o = COSTS.openai;
+    const a = COSTS.openrouter.activity;
+    const total = parts.reduce((n, p) => n + p.usd, 0);
+    const detail: Record<string, string> = {
+      OpenAI: `${count(o.projects.length)} project${o.projects.length === 1 ? "" : "s"}`,
+      OpenRouter: `${count(a.models.length)} models · ${count(a.requests)} requests`,
+    };
     return {
-      bars: parts.map((p) => p.usd),
-      // Hetzner is absent from these bars on purpose: it charges in euro, and
-      // a euro bar beside two dollar bars is a comparison of two rulers.
-      labels:
-        parts.map((p) => `${p.name} ${usd(p.usd, 0)}`).join(" · ") +
-        ` · ${COSTS!.window.days} days, USD` +
-        (COSTS!.replicate.connected ? " · Replicate reports no spend" : ""),
-      barLabels: parts.map((p) => `${p.name} · ${usd(p.usd)}`),
+      slices: parts.map((p) => ({
+        label: p.name,
+        value: p.usd,
+        text: usd(p.usd),
+        sub: detail[p.name],
+      })),
+      center: { value: usd(total, total >= 100 ? 0 : 2), note: `per ${COSTS.window.days} days` },
+      caption:
+        "USD only — Hetzner bills in euro and is on its own card" +
+        (COSTS.replicate.connected ? " · Replicate reports no spend" : ""),
     };
   },
 

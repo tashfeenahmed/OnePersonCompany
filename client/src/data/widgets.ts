@@ -14,7 +14,9 @@ export type WidgetKind =
   | "chart"
   | "meters"
   | "table"
-  | "runway";
+  | "runway"
+  | "donut"
+  | "ranked";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -63,6 +65,39 @@ export type RunwayRow = {
    * cares about one row they want the actual date.
    */
   at?: string | null;
+};
+
+/**
+ * One part of a whole, for the donut.
+ *
+ * `value` is the geometry and `text` is what the legend prints; they are two
+ * fields because the builder already knows the currency and the digits, and a
+ * chart that formatted money itself would be the second place that decided
+ * what a euro looks like. `sub` is the line under the label — "9 boxes",
+ * "32 models · 10,684 requests" — the same small print the cost pages put
+ * beside every group.
+ */
+export type DonutSlice = {
+  label: string;
+  value: number;
+  text: string;
+  sub?: string;
+};
+
+/**
+ * One row of a ranked bar chart: a name, a length and the figure at its tip.
+ *
+ * `sub` sits right-aligned on the name's line — a token count, a run count —
+ * so a long bar over a small sub reads as "expensive per unit" without a
+ * table. `mark` is a model or provider name for the small mark beside the
+ * label; see components/ModelMark.
+ */
+export type RankedRow = {
+  label: string;
+  value: number;
+  text: string;
+  sub?: string;
+  mark?: string | null;
 };
 
 export type WidgetSource = {
@@ -208,6 +243,16 @@ export type Widget = {
      *  one was last VERIFIED rather than last written. */
     competitors?: boolean;
   };
+  /**
+   * A WORD ABOUT WHAT KIND OF NUMBER THIS IS, worn as a small mono pill after
+   * the name — "measured", "est.", "metered". The cost pages this board
+   * is modelled on put one on every line, because a bill and a projection and
+   * a metered actual look identical as figures and are three different
+   * things to act on. Set by the builder, so it only ever appears on a live
+   * card: a sample cannot be "measured". One word, because it shares a line
+   * with the name in a one-column tile and the window is already in the name.
+   */
+  tag?: string;
   /** metric */
   value?: string;
   /** Colours the reading and puts a word beside it — "watch", "act". Only for
@@ -263,6 +308,14 @@ export type Widget = {
   /** table — headers and rows, scrolled sideways rather than wrapped. */
   headers?: string[];
   table?: string[][];
+  /** donut — parts of one whole, with the whole written in the hole and the
+   *  legend carrying the figures. Four slices at most; past that the form is
+   *  unreadable and `ranked` is the answer. */
+  slices?: DonutSlice[];
+  /** What the hole says: the total, and what it is per. */
+  center?: { value: string; note: string };
+  /** ranked — horizontal bars, largest first, the figure at each bar's tip. */
+  ranked?: RankedRow[];
   /** runway — deadlines on one axis, with the two lines they are judged by. */
   runway?: RunwayRow[];
   thresholds?: { warn: number; crit: number };
@@ -1270,7 +1323,7 @@ export const WIDGETS: Record<string, Widget> = {
   "hetzner.spendSplit": {
     src: "hetzner",
     name: "Where the spend goes",
-    kind: "rows",
+    kind: "donut",
     live: { summary: true },
   },
   "hetzner.avgCost": {
@@ -1723,8 +1776,9 @@ export const WIDGETS: Record<string, Widget> = {
   "openai.daily": {
     src: "openai",
     name: "Spend by day · 30d",
-    kind: "bars",
+    kind: "chart",
     live: { costs: true },
+    unit: "usd",
   },
   "openai.projects": {
     src: "openai",
@@ -1755,7 +1809,7 @@ export const WIDGETS: Record<string, Widget> = {
   "openrouter.models": {
     src: "openrouter",
     name: "Spend by model · 30d",
-    kind: "bars",
+    kind: "ranked",
     live: { costs: true },
   },
   "openrouter.keys": {
@@ -1848,7 +1902,7 @@ export const WIDGETS: Record<string, Widget> = {
   "replicate.models": {
     src: "replicate",
     name: "Compute by model",
-    kind: "bars",
+    kind: "ranked",
     live: { costs: true },
   },
   "replicate.outputs": {
@@ -1892,7 +1946,7 @@ export const WIDGETS: Record<string, Widget> = {
   "costs.byProvider": {
     src: "costs",
     name: "Where the dollars go",
-    kind: "bars",
+    kind: "donut",
     live: { costs: true },
   },
   "costs.limits": {

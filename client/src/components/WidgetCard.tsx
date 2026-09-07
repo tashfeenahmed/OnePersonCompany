@@ -4,12 +4,14 @@ import { BrandTile } from "@/components/BrandTile";
 import {
   Bars,
   Chart,
+  Donut,
   Figures,
   MeterRow,
+  Ranked,
   Runway,
   Sparkline,
 } from "@/components/charts";
-import { ago } from "@/lib/format";
+import { ago, splitMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BRAND_ICONS } from "@/data/brandIcons";
 import { ModelMark } from "@/components/ModelMark";
@@ -174,7 +176,28 @@ export function WidgetCard({
           className="size-5 rounded-md"
           glyphClassName="size-[11px] text-[10px]"
         />
-        <span className="text-[12.5px]">{def.name}</span>
+        {/* NAME, TAG AND LIVE DOT STAY ON ONE LINE. The header wraps, and a
+            one-column tile is narrow enough that a tag pushed the dot onto a
+            line of its own under the name. The three are one group with the
+            name the only thing allowed to give, so a long name truncates
+            rather than the dot dropping. */}
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate text-[12.5px]">{def.name}</span>
+          {/* WHAT KIND OF NUMBER, in a word — "measured", "est.", "metered".
+              Only a builder sets one, so it is only ever on a live card; see
+              Widget.tag. */}
+          {isLive && def.tag && (
+            <span className="text-muted-foreground bg-muted shrink-0 rounded-[5px] px-1.5 py-px font-mono text-[10px] font-medium">
+              {def.tag}
+            </span>
+          )}
+          {isLive && (
+            <span
+              className="bg-ok size-1.5 shrink-0 rounded-full"
+              title={`Live — ${describeCollected(collectedAt(base.src, live))}`}
+            />
+          )}
+        </span>
         {scope && !narrowed && (
           <span
             title={`This figure has no per-site breakdown, so it is the whole portfolio rather than ${scope.label}.`}
@@ -183,13 +206,6 @@ export function WidgetCard({
             portfolio
           </span>
         )}
-        {isLive && (
-          <span
-            className="bg-ok size-1.5 shrink-0 rounded-full"
-            title={`Live — ${describeCollected(collectedAt(base.src, live))}`}
-          />
-        )}
-
         {editing && (
           <div className="ml-auto flex gap-px">
             <button aria-label={`Move ${def.name} earlier`} className="p-1" onClick={() => onMove?.(-1)}>←</button>
@@ -233,7 +249,7 @@ export function WidgetCard({
         {!empty && def.kind === "metric" && (
           <>
             <div className="text-[28px] leading-tight font-normal tracking-[-0.03em] tabular-nums">
-              {def.value}
+              <Figure text={def.value ?? ""} />
             </div>
             {/*
               THE JUDGEMENT ON ITS OWN LINE, THE SENTENCE UNDER IT. "watch" and
@@ -340,6 +356,20 @@ export function WidgetCard({
             </p>
           ))}
 
+        {!empty && def.kind === "donut" &&
+          (def.slices?.length ? (
+            <Donut slices={def.slices} center={def.center} caption={def.caption} />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing measured yet.</p>
+          ))}
+
+        {!empty && def.kind === "ranked" &&
+          (def.ranked?.length ? (
+            <Ranked rows={def.ranked} caption={def.caption} />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing measured yet.</p>
+          ))}
+
         {!empty && def.kind === "runway" &&
           (def.runway?.length ? (
             <Runway
@@ -385,6 +415,26 @@ export function WidgetCard({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * A tile's headline, with the cents a size down when it is money.
+ *
+ * The cost pages this board is modelled on set the dollars at full size and
+ * the cents at about half, in the softer ink: the dollars are the message and
+ * the cents are the audit trail, and at one size "US$1,015.36" reads as a
+ * bigger number than it is. Anything `splitMoney` does not recognise — a
+ * count, a duration, a percentage, a dash — is drawn exactly as it came.
+ */
+function Figure({ text }: { text: string }) {
+  const parts = splitMoney(text);
+  if (!parts) return <>{text}</>;
+  return (
+    <>
+      {parts.whole}
+      <span className="text-muted-foreground text-[0.55em] font-medium">{parts.cents}</span>
+    </>
   );
 }
 

@@ -369,3 +369,26 @@ export function compact(n: Maybe, opts: Absent = {}): string {
   if (abs >= 10_000) return `${sign}${Math.round(abs / 1000)}k`;
   return count(n);
 }
+
+/* ------------------------------------------------------------------ money, split */
+
+/**
+ * A MONEY STRING IN TWO PARTS, so a tile can set the cents a size down.
+ *
+ * The dollars are the message and the cents are the audit trail: "US$95" is
+ * what a reader takes from a spend tile, and ".93" is what lets them check it
+ * against the invoice. Set at one size the cents make a four-figure bill read
+ * as a six-figure one at a glance. So the card draws the whole at full size
+ * and the fraction at about half, in the softer ink — and this is the split
+ * it draws from, kept beside `money` so the two can only ever agree about
+ * what a currency string looks like.
+ *
+ * Null for anything that is not one figure with a fractional part — a
+ * percentage, a count, "8h 35m", a dash, a whole-dollar "$212" — and the
+ * caller then draws the text exactly as it is. The optional "≈" and sign
+ * stay with the whole; nothing is reformatted.
+ */
+export function splitMoney(text: string): { whole: string; cents: string } | null {
+  const m = /^(≈?[−-]?(?:[A-Z]{1,3}\s?)?[$€£][\d,]+)(\.\d{1,2})$/.exec(text.trim());
+  return m ? { whole: m[1]!, cents: m[2]! } : null;
+}
