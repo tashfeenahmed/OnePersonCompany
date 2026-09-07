@@ -257,7 +257,7 @@ function Schedule({ doc }: { doc: AutopilotDoc }) {
   ];
 
   return (
-    <div className="bg-card grid gap-2.5 rounded-[14px] border p-4.5">
+    <div className="bg-card grid gap-2.5 rounded-[14px] p-4.5">
       {rows.map((r) => (
         <div key={r.key} className="flex gap-2.5">
           {r.ready ? (

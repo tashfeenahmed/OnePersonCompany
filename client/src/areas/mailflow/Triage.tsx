@@ -263,7 +263,7 @@ export function Triage() {
                     {items.length} · {g.hint}
                   </span>
                 </div>
-                <div className="bg-card border-line-soft rounded-xl border">
+                <div className="bg-card border-line-soft rounded-xl">
                   {items.map((t) => (
                     <Row
                       key={t.id}

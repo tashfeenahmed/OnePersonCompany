@@ -444,8 +444,11 @@ export function Subagent() {
         <div className="w-full max-w-[760px]">
           <div
             className={cn(
-              "bg-card rounded-[18px] border px-4 pt-3 pb-2 transition-colors",
-              canSend ? "focus-within:border-foreground" : "opacity-70",
+              "bg-card rounded-[18px] px-4 pt-3 pb-2 transition-colors",
+              /* No opacity on the box itself: the disabled textarea already
+                 fades, and two stacked opacity layers paint a visible seam
+                 across the lower row. */
+              canSend && "hover:bg-card-hover focus-within:bg-card-hover",
             )}
           >
             <Textarea
@@ -461,7 +464,7 @@ export function Subagent() {
                 }
               }}
               placeholder={placeholder}
-              className="max-h-[200px] min-h-[46px] resize-none border-0 bg-transparent p-0 px-1.5 shadow-none focus-visible:ring-0 disabled:cursor-not-allowed dark:bg-transparent"
+              className="max-h-[200px] min-h-[46px] resize-none border-0 bg-transparent p-0 px-1.5 shadow-none hover:bg-transparent focus-visible:ring-0 disabled:cursor-not-allowed dark:bg-transparent"
             />
             {problem && (
               <p role="alert" className="text-destructive p-1 text-xs">
@@ -560,7 +563,7 @@ function ExchangeView({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col items-end">
-        <div className="bg-card max-w-[85%] rounded-[16px] border px-4.5 py-3 text-[14.5px] whitespace-pre-wrap">
+        <div className="bg-card max-w-[85%] rounded-[16px] px-4.5 py-3 text-[14.5px] whitespace-pre-wrap">
           {x.brief || (
             <span className="text-muted-foreground italic">
               No brief — the run was started with the field left empty.
@@ -679,7 +682,7 @@ function SettingsPanel({
   onSwitch: (on: boolean) => void;
 }) {
   return (
-    <section className="bg-card mb-6 rounded-[14px] border p-4.5">
+    <section className="bg-card mb-6 rounded-[14px] p-4.5">
       <div className="mb-3 flex items-center gap-2">
         <Settings2 className="text-muted-foreground size-3.5" strokeWidth={1.6} />
         <h2 className="text-[14px] font-medium">Who this is</h2>

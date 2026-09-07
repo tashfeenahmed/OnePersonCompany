@@ -97,7 +97,7 @@ function Editor({
   const changed = text.trim() !== doc.text.trim();
 
   return (
-    <div className="border-line-soft bg-card rounded-[14px] border p-5">
+    <div className="border-line-soft bg-card rounded-[14px] p-5">
       <div className="mb-1.5 flex items-baseline gap-2">
         <span className="text-[14.5px] font-medium">{label}</span>
         <span className="text-muted-foreground ml-auto text-[12.5px]">

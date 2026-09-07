@@ -381,7 +381,7 @@ function Working({ run }: { run: RunSummary }) {
   return (
     <Link
       to={runAddress(run)}
-      className="bg-card hover:border-line-strong flex items-start gap-2.5 rounded-[14px] border px-4.5 py-3.5 transition-colors"
+      className="bg-card hover:bg-card-hover flex items-start gap-2.5 rounded-[14px] px-4.5 py-3.5 transition-colors"
     >
       <span className="bg-ok mt-[7px] size-1.5 shrink-0 animate-pulse rounded-full" />
       <span className="min-w-0 flex-1">

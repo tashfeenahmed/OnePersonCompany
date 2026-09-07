@@ -146,7 +146,7 @@ function OutcomeCard({
   const nextDue = outcome.due.find((d) => !d.overdue) ?? null;
 
   return (
-    <div className="border-line-soft bg-card rounded-[14px] border p-5">
+    <div className="border-line-soft bg-card rounded-[14px] p-5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span className="text-[14.5px] font-medium">{outcome.title}</span>
         {outcome.ventureName && (
@@ -350,7 +350,7 @@ function TrackForm({
   const chosen = skills.find((s) => s.id === form.skill) ?? null;
 
   return (
-    <div className="border-line-soft bg-card rounded-[14px] border p-5">
+    <div className="border-line-soft bg-card rounded-[14px] p-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <Row label="What you did" hint="The line you will read in a month.">
           <Input value={form.title} onChange={(e) => set("title", e.target.value)} />

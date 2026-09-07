@@ -128,7 +128,7 @@ export function Ventures() {
               <Link
                 key={v.id}
                 to={`/ventures/${v.slug}`}
-                className="bg-card hover:border-line-strong flex min-h-[148px] flex-col rounded-[14px] border p-4.5 transition-colors"
+                className="bg-card hover:bg-card-hover flex min-h-[148px] flex-col rounded-[14px] p-4.5 transition-colors"
               >
                 {/* The top of the page at 1280x800, not the whole page — so it
                     is anchored to the top rather than centred, which is where

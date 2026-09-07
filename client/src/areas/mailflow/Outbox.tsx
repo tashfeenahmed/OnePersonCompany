@@ -191,7 +191,7 @@ function Card({
   const live = item.status === "draft" || item.status === "approved" || item.status === "failed";
 
   return (
-    <div className="bg-card border-line-soft mb-3 rounded-xl border p-4.5">
+    <div className="bg-card border-line-soft mb-3 rounded-xl p-4.5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -381,7 +381,7 @@ function Composer({ accounts, onCreated }: { accounts: OutboxDoc["accounts"]; on
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   useEffect(() => { if (reply) setOpen(true); }, [key]);
   if (!open) return <Button size="sm" variant="outline" onClick={() => setOpen(true)}><Pencil />Write a draft</Button>;
-  return <section className="bg-card border rounded-xl p-5 space-y-3 mb-4">
+  return <section className="bg-card rounded-xl p-5 space-y-3 mb-4">
     <h2 className="font-medium">{reply?.thread ? "Draft a reply" : "New draft"}</h2>
     {reply?.back && <Link className="text-sm underline" to={reply.back}>Back to conversation</Link>}
     <label className="block text-sm">From<select aria-label="From account" value={account} disabled={!!reply?.thread} onChange={e => setAccount(e.target.value)} className="block border rounded p-2 w-full">

@@ -91,7 +91,7 @@ export function CaptureSettings() {
       )}
 
       {d && (
-        <div className="bg-card grid gap-1 rounded-[14px] border px-4.5 py-3.5">
+        <div className="bg-card grid gap-1 rounded-[14px] px-4.5 py-3.5">
           <div className="text-[14px]">
             {d.browser.found
               ? d.browser.source === "configured"
@@ -148,7 +148,7 @@ export function CaptureSettings() {
             </p>
           )}
 
-          <div className="overflow-hidden rounded-[14px] border">
+          <div className="overflow-hidden rounded-[14px] bg-card">
             {d.ventures.map((v, i) => (
               <div
                 key={v.id}

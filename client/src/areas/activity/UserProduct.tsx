@@ -79,7 +79,7 @@ export function UserProduct({ product }: { product: string }) {
       </div>
 
       {bars.length > 1 && (
-        <div className="bg-card mb-4 rounded-[14px] border px-4.5 py-3.5">
+        <div className="bg-card mb-4 rounded-[14px] px-4.5 py-3.5">
           <Bars
             values={bars.map((x) => x.signups ?? 0)}
             barLabels={bars.map((x) => `${x.day} — ${x.signups} signup${x.signups === 1 ? "" : "s"}`)}
@@ -117,7 +117,7 @@ export function UserProduct({ product }: { product: string }) {
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-[14px] border">
+      <div className="overflow-x-auto rounded-[14px] bg-card">
         <table className="w-full min-w-[560px] text-[13.5px]">
           <thead>
             <tr className="text-muted-foreground border-line-soft border-b text-left text-[12px] tracking-[0.04em] uppercase">

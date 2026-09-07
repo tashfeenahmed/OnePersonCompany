@@ -25,7 +25,7 @@ import { activityApi, type LeakageBucket } from "@/lib/api/activity";
 
 function Bucket({ b, currency }: { b: LeakageBucket; currency: string }) {
   return (
-    <div className="bg-card rounded-[14px] border px-4.5 py-3.5">
+    <div className="bg-card rounded-[14px] px-4.5 py-3.5">
       <div className="flex flex-wrap items-baseline gap-2">
         <span
           className={cn(

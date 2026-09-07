@@ -154,7 +154,7 @@ export function WidgetCard({
 
       className={cn(
         placed.w === 4 ? "col-span-2 xl:col-span-4" : placed.w === 2 ? "col-span-2" : "col-span-1",
-        "bg-card relative flex min-h-[116px] flex-col rounded-[14px] border p-4.5 transition-colors",
+        "bg-card relative flex min-h-[116px] flex-col rounded-[14px] p-4.5 transition-colors",
         editing && "hover:border-line-strong cursor-grab touch-none select-none",
         dragging && "cursor-grabbing opacity-35",
         dropSide === "before" &&

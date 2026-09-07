@@ -84,7 +84,7 @@ export function RunCards({
   }
 
   return (
-    <div className="bg-card mt-5 rounded-[14px] border p-4.5">
+    <div className="bg-card mt-5 rounded-[14px] p-4.5">
       <div className="mb-2.5 flex flex-wrap items-baseline gap-2">
         <span className="text-[14px] font-medium tracking-tight">
           File these on the board

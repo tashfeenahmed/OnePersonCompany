@@ -200,7 +200,7 @@ export function RuleEditor({
   const ventures = useMemo(() => state.ventures, [state.ventures]);
 
   return (
-    <div className="bg-card border-line-soft mt-1 mb-2 rounded-[14px] border p-4.5">
+    <div className="bg-card border-line-soft mt-1 mb-2 rounded-[14px] p-4.5">
       <div className="grid gap-2.5 sm:grid-cols-2">
         <Field label="Name" hint="One line. It is what every event this raises is called.">
           <Input

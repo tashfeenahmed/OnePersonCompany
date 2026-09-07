@@ -101,7 +101,7 @@ export function Tiles({ items, className }: { items: Tile[]; className?: string 
         <div
           key={t.k}
           title={t.title}
-          className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5"
+          className="bg-card min-w-[132px] flex-1 rounded-[14px] px-4.5 py-3.5"
         >
           <div
             className={cn(
@@ -122,7 +122,7 @@ export function Tiles({ items, className }: { items: Tile[]; className?: string 
 
 /** The bordered list every panel puts its per-thing rows in. */
 export function Rows({ children }: { children: ReactNode }) {
-  return <div className="overflow-hidden rounded-[14px] border">{children}</div>;
+  return <div className="overflow-hidden rounded-[14px] bg-card">{children}</div>;
 }
 
 export function Row({
@@ -327,7 +327,7 @@ export function Suggest({
       </div>
 
       {!!items?.length && (
-        <div className="mt-2 rounded-[14px] border p-3.5">
+        <div className="mt-2 rounded-[14px] bg-card p-3.5">
           <div className="mb-1.5 text-[13.5px] font-medium">
             {items.length} {noun}
             {items.length === 1 ? "" : "s"} not on the list yet

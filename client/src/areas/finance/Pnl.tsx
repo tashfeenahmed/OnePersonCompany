@@ -64,7 +64,7 @@ export function Pnl() {
         <select
           value={month}
           onChange={(e) => setMonth(e.target.value)}
-          className="bg-card rounded-md border px-3 py-1.5 text-[13.5px]"
+          className="bg-card rounded-md px-3 py-1.5 text-[13.5px]"
         >
           {months.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
@@ -121,7 +121,7 @@ export function Pnl() {
       {open && <VentureDetail slug={open} month={month} />}
 
       <section className="mt-6 grid gap-3 sm:grid-cols-2">
-        <div className="bg-card rounded-[14px] border px-4.5 py-3.5">
+        <div className="bg-card rounded-[14px] px-4.5 py-3.5">
           <div className="text-[13.5px] font-medium">Stripe, settled — the portfolio</div>
           {d.stripeSettled.length === 0 ? (
             <p className="text-muted-foreground mt-1 text-[13px]">Nothing settled in {d.month}, or Stripe is not connected.</p>
@@ -140,7 +140,7 @@ export function Pnl() {
           </p>
         </div>
 
-        <div className="bg-card rounded-[14px] border px-4.5 py-3.5">
+        <div className="bg-card rounded-[14px] px-4.5 py-3.5">
           <div className="text-[13.5px] font-medium">Nobody's margin is carrying</div>
           <div className="mt-1 text-[20px] tabular-nums">{currencies(d.ledger.unallocatedShared)}</div>
           <ul className="text-muted-foreground mt-1.5 space-y-0.5 text-[12.5px]">
@@ -187,7 +187,7 @@ export function Pnl() {
           <div className="text-[13.5px] font-medium">Electricity</div>
           <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
             {d.power.map((p) => (
-              <div key={p.machineId} className="bg-card rounded-[14px] border px-4.5 py-3">
+              <div key={p.machineId} className="bg-card rounded-[14px] px-4.5 py-3">
                 <div className="flex items-baseline gap-2">
                   <span className="text-[17px] tabular-nums">{amount(p.amount, p.currency)}</span>
                   <span className="text-[13px] font-medium">{p.label}</span>
@@ -216,7 +216,7 @@ function VentureDetail({ slug, month }: { slug: string; month: string }) {
   const d = doc.data;
 
   return (
-    <section className="bg-card mt-3 rounded-[14px] border px-5 py-4">
+    <section className="bg-card mt-3 rounded-[14px] px-5 py-4">
       <div className="flex flex-wrap items-baseline gap-2">
         <h2 className="text-[16px]">{d.venture.name} · {d.month}</h2>
         <Badge actual={d.actual} />

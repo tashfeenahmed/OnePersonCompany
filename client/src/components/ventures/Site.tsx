@@ -252,7 +252,7 @@ export function Site({ venture }: { venture: Venture }) {
               {/* WHICH ONE IS IN USE. Two palettes on a page with no statement
                   about which one the app draws is a screen that measured
                   something and answered nothing. */}
-              <div className="mt-3 rounded-[14px] border px-3 py-2.5">
+              <div className="mt-3 rounded-[14px] bg-card px-3 py-2.5">
                 <div className="flex items-center gap-2 text-[13.5px]">
                   <span
                     className="size-[14px] rounded-[5px] border"
@@ -317,7 +317,7 @@ function Reading({
   extra: string | null;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-[14px] border p-3">
+    <div className="flex flex-col gap-1.5 rounded-[14px] bg-card p-3">
       <div className="text-[13.5px] font-medium">{title}</div>
       <div className="text-muted-foreground text-[12.5px]">
         {when ? new Date(when).toLocaleString() : "never"}

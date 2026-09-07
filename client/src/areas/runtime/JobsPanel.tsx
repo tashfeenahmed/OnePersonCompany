@@ -123,7 +123,7 @@ export function RuntimeJobsPanel({ id }: { id: "hermes" | "openclaw" }) {
       )}
 
       {reading && !reading.readable && (
-        <div className="bg-card border-line-soft mt-3 rounded-[14px] border p-4.5">
+        <div className="bg-card border-line-soft mt-3 rounded-[14px] p-4.5">
           <p className="text-[13.5px]">Not readable for this runtime.</p>
           <p className="text-muted-foreground mt-1 text-[12.5px]">{reading.note}</p>
         </div>

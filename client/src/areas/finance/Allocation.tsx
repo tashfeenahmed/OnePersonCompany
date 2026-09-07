@@ -85,7 +85,7 @@ export function Allocation() {
         {d.shared.map((e) => {
           const isOpen = open === e.id;
           return (
-            <div key={e.id} className="bg-card rounded-[14px] border px-4.5 py-3">
+            <div key={e.id} className="bg-card rounded-[14px] px-4.5 py-3">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <span className="text-[14px] font-medium">{e.label}</span>
                 <span className="text-muted-foreground text-[13px] tabular-nums">{amount(e.monthly, e.currency)} / month</span>

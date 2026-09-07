@@ -66,7 +66,7 @@ export function MemoryTab() {
       </p>
 
       {/* ------------------------------------------------------------ write */}
-      <div className="border-line-soft bg-card rounded-[14px] border p-5">
+      <div className="border-line-soft bg-card rounded-[14px] p-5">
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -93,7 +93,7 @@ export function MemoryTab() {
       </div>
 
       {/* -------------------------------------------------------- the passes */}
-      <div className="border-line-soft bg-card flex flex-wrap items-center gap-2 rounded-[14px] border p-4">
+      <div className="border-line-soft bg-card flex flex-wrap items-center gap-2 rounded-[14px] p-4">
         <Button
           size="sm"
           variant="outline"
@@ -166,7 +166,7 @@ function NoteRow({
   const [text, setText] = useState(note.text);
 
   return (
-    <div className="border-line-soft bg-card rounded-[14px] border px-4 py-3">
+    <div className="border-line-soft bg-card rounded-[14px] px-4 py-3">
       {editing ? (
         <>
           <Textarea

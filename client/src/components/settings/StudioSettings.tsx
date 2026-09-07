@@ -47,7 +47,7 @@ export function StudioSettings() {
       )}
 
       {r && (
-        <div className="bg-card grid gap-1 rounded-[14px] border px-4.5 py-3.5">
+        <div className="bg-card grid gap-1 rounded-[14px] px-4.5 py-3.5">
           <div className="text-[14px]">
             {r.image.ready
               ? `Pictures will be asked of ${r.image.model}`

@@ -46,7 +46,7 @@ export function PaletteSettings() {
             onClick={() => setPalette(p.id)}
             aria-pressed={chosen === p.id}
             className={cn(
-              "bg-card rounded-[14px] border p-4 text-left transition-colors",
+              "bg-card rounded-[14px] p-4 text-left transition-colors",
               chosen === p.id ? "border-foreground" : "hover:border-line-strong",
             )}
           >

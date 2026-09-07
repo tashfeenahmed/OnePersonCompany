@@ -167,7 +167,7 @@ export function SeoFollowUpsTab() {
 
       <div className="mb-5 flex flex-wrap gap-2">
         <input
-          className="border-line-soft bg-card min-w-[260px] flex-1 rounded-[11px] border px-3 py-2 text-[13.5px]"
+          className="border-line-soft bg-card min-w-[260px] flex-1 rounded-[11px] px-3 py-2 text-[13.5px]"
           placeholder={`Track a URL by hand — for work that never went through a card tagged ${d.schedule.tag}`}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -202,7 +202,7 @@ export function SeoFollowUpsTab() {
           Sweep — or paste a URL above.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[14px] border">
+        <div className="overflow-hidden rounded-[14px] bg-card">
           {d.baselines.map((b: SeoBaseline, i) => {
             const latest = b.diagnoses.at(-1) ?? null;
             const overdue = b.due.filter((x) => x.overdue).length;

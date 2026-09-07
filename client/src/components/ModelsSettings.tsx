@@ -145,7 +145,7 @@ export function ModelsSettings() {
               onClick={() => void choose(p.id)}
               aria-pressed={p.default}
               className={cn(
-                "bg-card rounded-[14px] border p-4.5 text-left transition-colors",
+                "bg-card rounded-[14px] p-4.5 text-left transition-colors",
                 p.default ? "border-foreground" : "hover:border-line-strong",
                 !p.connected && "opacity-60",
               )}
@@ -286,7 +286,7 @@ function TestCompletion({ live, label }: { live: ProviderId | null; label: strin
       {problem && <p className="text-destructive mt-2 max-w-[560px] text-[13px]">{problem}</p>}
 
       {reply && (
-        <div className="bg-card mt-2 max-w-[560px] rounded-[14px] border p-4.5">
+        <div className="bg-card mt-2 max-w-[560px] rounded-[14px] p-4.5">
           <p className="text-[14px] whitespace-pre-wrap">{reply.text.trim()}</p>
           <p className="text-muted-foreground mt-2 text-[12.5px]">
             {reply.provider} · {reply.endpoint}

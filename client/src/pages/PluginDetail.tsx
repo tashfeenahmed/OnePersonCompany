@@ -574,7 +574,7 @@ export function PluginDetail() {
               <Link
                 key={p.id}
                 to={`/plugins/${p.id}`}
-                className="bg-card hover:border-line-strong flex items-center gap-2 rounded-[12px] border px-3 py-2 text-[13.5px] transition-colors"
+                className="bg-card hover:bg-card-hover flex items-center gap-2 rounded-[12px] px-3 py-2 text-[13.5px] transition-colors"
               >
                 <BrandTile
                   icon={p.icon}
@@ -841,7 +841,7 @@ function Accounts({
       </div>
 
       {open === "new" ? (
-        <div className="mt-2 rounded-[14px] border p-3.5">
+        <div className="mt-2 rounded-[14px] bg-card p-3.5">
           <div className="mb-3 text-[14px] font-medium">
             Add another account
           </div>
@@ -936,7 +936,7 @@ function AccountRow({
   const failing = account.connected && !!account.lastError;
 
   return (
-    <div className="rounded-[14px] border p-3.5">
+    <div className="rounded-[14px] bg-card p-3.5">
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(

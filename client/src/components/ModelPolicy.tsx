@@ -137,7 +137,7 @@ export function PolicyControls({
               onClick={() => void save({ mode: m.id })}
               aria-pressed={p.mode === m.id}
               className={cn(
-                "bg-card rounded-[14px] border p-4 text-left transition-colors",
+                "bg-card rounded-[14px] p-4 text-left transition-colors",
                 p.mode === m.id ? "border-foreground" : "hover:border-line-strong",
               )}
             >
@@ -210,7 +210,7 @@ export function PolicyControls({
               onClick={() => void save({ balance: b.id })}
               aria-pressed={p.balance === b.id}
               className={cn(
-                "bg-card rounded-[14px] border p-4 text-left transition-colors",
+                "bg-card rounded-[14px] p-4 text-left transition-colors",
                 p.balance === b.id ? "border-foreground" : "hover:border-line-strong",
                 provider.endpoints < 2 && "opacity-55",
               )}

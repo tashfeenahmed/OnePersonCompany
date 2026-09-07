@@ -206,7 +206,7 @@ function Tile({
   tone?: "warn" | "bad";
 }) {
   return (
-    <div className="bg-card rounded-[14px] border p-4.5">
+    <div className="bg-card rounded-[14px] p-4.5">
       <div className="text-muted-foreground text-[12.5px]">{label}</div>
       <div
         className={cn(
@@ -350,7 +350,7 @@ function MailboxCard({
   box: Mailbox | undefined;
 }) {
   return (
-    <div className="bg-card flex flex-col rounded-[14px] border p-4.5">
+    <div className="bg-card flex flex-col rounded-[14px] p-4.5">
       <BoxHead icon="gmail" name="Gmail" account={account} kind="mailbox" />
 
       {box ? (
@@ -417,7 +417,7 @@ function DomainCard({
   const verified = domain?.status === "verified";
 
   return (
-    <div className="bg-card flex flex-col rounded-[14px] border p-4.5">
+    <div className="bg-card flex flex-col rounded-[14px] p-4.5">
       <BoxHead icon="resend" name="Resend" account={account} kind="sending domain" />
 
       {domain ? (

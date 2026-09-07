@@ -107,7 +107,7 @@ export function GeoAnswers({
                 {rows.map((a, i) => (
                   <div
                     key={`${a.runId}:${i}`}
-                    className="bg-card rounded-[14px] border p-4"
+                    className="bg-card rounded-[14px] p-4"
                   >
                     <div className="mb-1 flex flex-wrap items-baseline gap-2">
                       <span className="text-[13.5px] font-medium tracking-tight">

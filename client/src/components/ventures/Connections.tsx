@@ -265,7 +265,7 @@ export function Connections({
               return (
                 <div
                   key={key}
-                  className="flex items-start gap-2.5 rounded-[14px] border px-3 py-2.5"
+                  className="flex items-start gap-2.5 rounded-[14px] bg-card px-3 py-2.5"
                 >
                   <BrandTile
                     icon={look.icon}
@@ -411,7 +411,7 @@ function AddLink({
   }, [map, plugin, q]);
 
   return (
-    <div className="mb-3 rounded-[14px] border p-3">
+    <div className="mb-3 rounded-[14px] bg-card p-3">
       {error && <p className="text-destructive text-[13.5px]">{error}</p>}
       {!map && !error && (
         <p className="text-muted-foreground text-[13.5px]">

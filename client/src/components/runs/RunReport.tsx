@@ -67,7 +67,7 @@ export function RunReport({
   const took = duration(run.ms, { nullText: "" }) || (run.status === "running" ? since(run.startedAt) : null);
 
   return (
-    <div className="bg-card rounded-[14px] border p-4.5">
+    <div className="bg-card rounded-[14px] p-4.5">
       <div className="mb-3 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <span
           className={cn("size-1.5 shrink-0 rounded-full", statusTone(run.status))}

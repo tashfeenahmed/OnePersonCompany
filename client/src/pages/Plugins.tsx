@@ -151,7 +151,7 @@ export function Plugins() {
                 <Link
                   key={p.id}
                   to={`/integrations/${p.id}`}
-                  className="bg-card hover:border-line-strong flex items-start gap-3 rounded-[14px] border p-4.5 text-left transition-colors active:translate-y-px"
+                  className="bg-card hover:bg-card-hover flex items-start gap-3 rounded-[14px] p-4.5 text-left transition-colors active:translate-y-px"
                 >
                   <BrandTile
                     icon={p.icon}

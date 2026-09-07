@@ -301,7 +301,7 @@ export function RunApp({
 
         {/* ------------------------------------------------------ the brief */}
         {info && (
-          <div className="bg-card grid gap-3.5 rounded-[14px] border p-4.5">
+          <div className="bg-card grid gap-3.5 rounded-[14px] p-4.5">
             <div className="grid gap-1.5">
               <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
                 {needsVenture ? "For which venture" : "About which venture"}

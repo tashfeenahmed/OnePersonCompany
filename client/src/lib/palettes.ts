@@ -180,7 +180,7 @@ export const PALETTES: Palette[] = [
     label: "Moss",
     hint: "Deep green on a cool off-white; a forest floor in the dark.",
     light: tokens({
-      bg: "#f8faf8", card: "#ffffff", sidebar: "#eff3ee", surface: "#e3eae2",
+      bg: "#f8faf8", card: "#f0f3ef", sidebar: "#eff3ee", surface: "#e3eae2",
       ink: "#0f1610", mutedInk: "#3f4e3e", faint: "#5b6a58",
       line: "#d2dbcf", lineSoft: "#e3e9e1", lineStrong: "#a7b5a3",
       brand: "#1c6b41", brandInk: "#ffffff",
@@ -201,7 +201,7 @@ export const PALETTES: Palette[] = [
     label: "Azure",
     hint: "A clear blue on cool white; a deep navy-grey after dark.",
     light: tokens({
-      bg: "#f8fafc", card: "#ffffff", sidebar: "#eef2f8", surface: "#e3e9f2",
+      bg: "#f8fafc", card: "#eff2f6", sidebar: "#eef2f8", surface: "#e3e9f2",
       ink: "#0e131c", mutedInk: "#3d4657", faint: "#5a6474",
       line: "#d1d8e4", lineSoft: "#e3e7ef", lineStrong: "#a5aec1",
       brand: "#1c58bb", brandInk: "#ffffff",
@@ -222,7 +222,7 @@ export const PALETTES: Palette[] = [
     label: "Coral",
     hint: "A warm red on a blush white; the same red brighter on near-black.",
     light: tokens({
-      bg: "#fffbfa", card: "#ffffff", sidebar: "#f8f0ee", surface: "#f1e4e1",
+      bg: "#fffbfa", card: "#f9f1ef", sidebar: "#f8f0ee", surface: "#f1e4e1",
       ink: "#1a1211", mutedInk: "#50403d", faint: "#6d5b57",
       line: "#e2d2ce", lineSoft: "#efe3e0", lineStrong: "#bba6a1",
       brand: "#b8304b", brandInk: "#ffffff",
@@ -243,7 +243,7 @@ export const PALETTES: Palette[] = [
     label: "Linen",
     hint: "Warm greys and a quiet blue; the closest to the default, one shade warmer.",
     light: tokens({
-      bg: "#fbfaf7", card: "#ffffff", sidebar: "#f4f2ec", surface: "#e9e6dd",
+      bg: "#fbfaf7", card: "#f3f1ea", sidebar: "#f4f2ec", surface: "#e9e6dd",
       ink: "#1a1814", mutedInk: "#4a453b", faint: "#68624f",
       line: "#dcd7ca", lineSoft: "#ece8de", lineStrong: "#b3ac9a",
       brand: "#295a95", brandInk: "#ffffff",
@@ -264,7 +264,7 @@ export const PALETTES: Palette[] = [
     label: "Slate",
     hint: "Neutral cool greys with a bright blue; the darkest of the dark modes.",
     light: tokens({
-      bg: "#f7f8f9", card: "#ffffff", sidebar: "#edeff2", surface: "#e4e7ea",
+      bg: "#f7f8f9", card: "#eef0f2", sidebar: "#edeff2", surface: "#e4e7ea",
       ink: "#0f1113", mutedInk: "#41474d", faint: "#5e666d",
       line: "#d4d8dd", lineSoft: "#e6e9ec", lineStrong: "#a7aeb6",
       brand: "#0a56be", brandInk: "#ffffff",
@@ -285,7 +285,7 @@ export const PALETTES: Palette[] = [
     label: "Violet",
     hint: "A deep purple on cool white; a plum-black at night.",
     light: tokens({
-      bg: "#fbfaff", card: "#ffffff", sidebar: "#f2effa", surface: "#e8e3f4",
+      bg: "#fbfaff", card: "#f3f0fa", sidebar: "#f2effa", surface: "#e8e3f4",
       ink: "#14101c", mutedInk: "#443d55", faint: "#615a72",
       line: "#d8d1e7", lineSoft: "#e8e3f2", lineStrong: "#ada3c1",
       brand: "#5334b5", brandInk: "#ffffff",
@@ -306,7 +306,7 @@ export const PALETTES: Palette[] = [
     label: "Mono",
     hint: "Black, white and the hairlines. Colour only where a state needs one.",
     light: tokens({
-      bg: "#ffffff", card: "#ffffff", sidebar: "#f4f4f4", surface: "#ebebeb",
+      bg: "#ffffff", card: "#f4f4f4", sidebar: "#f4f4f4", surface: "#ebebeb",
       ink: "#0b0b0b", mutedInk: "#454545", faint: "#616161",
       line: "#d4d4d4", lineSoft: "#e6e6e6", lineStrong: "#a3a3a3",
       brand: "#0b0b0b", brandInk: "#ffffff",
@@ -350,7 +350,7 @@ export function swatch(id: PaletteId, mode: "light" | "dark"): string[] {
   const t = mode === "light" ? p.light : p.dark;
   if (!t)
     return mode === "light"
-      ? ["#fbfbfa", "#ffffff", "#100f0e", "#1f6b3f"]
+      ? ["#fbfbfa", "#f4f3f0", "#100f0e", "#1f6b3f"]
       : ["#0e0e0d", "#1a1a18", "#f4f2ed", "#78cc97"];
   return [t.background, t.card, t.foreground, t.primary];
 }

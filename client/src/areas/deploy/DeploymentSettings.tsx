@@ -342,12 +342,12 @@ export function DeploymentSettings() {
         {note && <pre className="text-muted-foreground max-h-48 overflow-auto text-[12.5px] whitespace-pre-wrap">{note}</pre>}
         {problem && <p className="text-destructive text-[13.5px]">{problem}</p>}
         {unit && (
-          <pre className="bg-card border-line-soft max-h-72 overflow-auto rounded border p-3 text-[12.5px] whitespace-pre">
+          <pre className="bg-card border-line-soft max-h-72 overflow-auto rounded p-3 text-[12.5px] whitespace-pre">
             {unit}
           </pre>
         )}
         {log && (
-          <pre className="bg-card border-line-soft max-h-64 overflow-auto rounded border p-3 text-[12.5px] whitespace-pre-wrap">
+          <pre className="bg-card border-line-soft max-h-64 overflow-auto rounded p-3 text-[12.5px] whitespace-pre-wrap">
             {log.lines.length ? log.lines.join("\n") : log.note}
           </pre>
         )}

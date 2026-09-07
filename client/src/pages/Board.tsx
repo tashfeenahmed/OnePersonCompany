@@ -511,7 +511,7 @@ function Column({
 
   return (
     <section
-      className="bg-secondary/50 dark:bg-card/40 flex h-full min-h-0 w-[276px] shrink-0 flex-col rounded-[14px] border"
+      className="bg-secondary/50 dark:bg-card/40 flex h-full min-h-0 w-[276px] shrink-0 flex-col rounded-[14px]"
       /* THE LANE IS THE DROP TARGET OF LAST RESORT. Without a
          `preventDefault` somewhere the browser refuses the drop outright, and
          this is also what makes the empty space under the last card mean "the
@@ -803,7 +803,7 @@ function CardTile({
         onDrop(e.clientY > r.top + r.height / 2);
       }}
       className={cn(
-        "bg-card hover:border-line-strong my-1 cursor-grab rounded-[12px] border px-3 py-2.5 transition-colors",
+        "bg-card hover:bg-card-hover my-1 cursor-grab rounded-[12px] px-3 py-2.5 transition-colors",
         dragging && "opacity-35",
       )}
     >

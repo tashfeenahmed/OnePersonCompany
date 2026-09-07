@@ -82,7 +82,7 @@ function SequenceCard({ seq, onChanged }: { seq: Sequence; onChanged: () => void
   }
 
   return (
-    <div className="bg-card border-line-soft mb-3 rounded-xl border p-4.5">
+    <div className="bg-card border-line-soft mb-3 rounded-xl p-4.5">
       <div className="flex flex-wrap items-baseline gap-x-2">
         <span className="text-[14.5px] font-medium">{seq.name}</span>
         {seq.enabled ? <Tag tone="ok">enabled</Tag> : <Tag tone="muted">off</Tag>}
@@ -174,7 +174,7 @@ function NewSequence({ doc, onCreated }: { doc: NurtureDoc; onCreated: () => voi
     );
 
   return (
-    <section className="bg-card border-line-soft mb-4 space-y-3 rounded-xl border p-5">
+    <section className="bg-card border-line-soft mb-4 space-y-3 rounded-xl p-5">
       <h2 className="text-[14.5px] font-medium">A new sequence</h2>
       <label className="block text-[13.5px]">
         Name
@@ -296,7 +296,7 @@ function Enrollments() {
             <p className="text-muted-foreground text-[14px]">Nobody is in a sequence in this view.</p>
           )}
           {doc.data?.items.map((e: Enrollment) => (
-            <div key={e.id} className="bg-card border-line-soft mb-2 rounded-xl border p-4">
+            <div key={e.id} className="bg-card border-line-soft mb-2 rounded-xl p-4">
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <span className="text-[14px]">{e.name ? `${e.name} · ${e.address}` : e.address}</span>
                 {e.status === "active" && !e.blocked && <Tag tone="ok">active</Tag>}
@@ -393,7 +393,7 @@ function Identities({ doc, onChanged }: { doc: NurtureDoc; onChanged: () => void
   return (
     <>
       {doc.identities.map((i) => (
-        <div key={i.id} className="bg-card border-line-soft mb-2 rounded-xl border p-4">
+        <div key={i.id} className="bg-card border-line-soft mb-2 rounded-xl p-4">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-[14px]">{i.fromName ? `${i.fromName} <${i.fromAddress}>` : i.fromAddress}</span>
             <Tag tone="muted">{i.kind}</Tag>
@@ -450,7 +450,7 @@ function Identities({ doc, onChanged }: { doc: NurtureDoc; onChanged: () => void
         </div>
       ))}
 
-      <section className="bg-card border-line-soft mt-4 space-y-3 rounded-xl border p-5">
+      <section className="bg-card border-line-soft mt-4 space-y-3 rounded-xl p-5">
         <h2 className="text-[14.5px] font-medium">A new sending identity</h2>
         <div className="flex gap-1">
           {(["resend", "gmail"] as const).map((k) => (
@@ -581,7 +581,7 @@ function Style() {
             <p className="text-muted-foreground text-[14px]">No rules yet.</p>
           )}
           {d.rules.map((r) => (
-            <div key={r.id} className="bg-card border-line-soft mb-2 flex items-center gap-2 rounded-xl border p-4">
+            <div key={r.id} className="bg-card border-line-soft mb-2 flex items-center gap-2 rounded-xl p-4">
               <span className="flex-1 text-[14px]">{r.rule}</span>
               {r.byOwner ? <Tag tone="ok">yours</Tag> : <Tag tone="muted">read from {r.evidence.length} edits</Tag>}
               <Button size="sm" variant="ghost" onClick={async () => { await nurtureApi.removeRule(r.id); doc.reload(); }}>

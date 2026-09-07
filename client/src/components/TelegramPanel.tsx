@@ -103,7 +103,7 @@ function BotRow({
   const quiet = p.state === "backoff" || (p.state === "conflict" && !worrying);
 
   return (
-    <div className="bg-card rounded-[14px] border p-4.5">
+    <div className="bg-card rounded-[14px] p-4.5">
       <div className="flex items-center gap-2 text-[14px]">
         <span className="font-medium">{bot.label}</span>
         <span

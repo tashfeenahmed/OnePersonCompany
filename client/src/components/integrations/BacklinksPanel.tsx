@@ -118,7 +118,7 @@ export function BacklinksPanel({ onCollected }: { onCollected?: () => void }) {
 
       <div className="flex flex-col gap-2">
         {d.hosts.map((h) => (
-          <div key={h.host} className="rounded-[14px] border p-3.5">
+          <div key={h.host} className="rounded-[14px] bg-card p-3.5">
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="text-[14px] font-medium">{h.host}</span>
               {!h.collected && (

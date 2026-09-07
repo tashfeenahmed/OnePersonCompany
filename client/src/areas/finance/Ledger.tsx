@@ -209,7 +209,7 @@ export function Ledger() {
       </div>
 
       {adding && (
-        <div className="bg-card mb-4 rounded-[14px] border p-4">
+        <div className="bg-card mb-4 rounded-[14px] p-4">
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">What the bill is for</div>
@@ -217,7 +217,7 @@ export function Ledger() {
             </label>
             <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">Category</div>
-              <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="bg-card h-8 rounded-md border px-3 text-[13.5px]">
+              <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="bg-card h-8 rounded-md px-3 text-[13.5px]">
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </label>
@@ -231,7 +231,7 @@ export function Ledger() {
             </label>
             <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">Period</div>
-              <select value={draft.period} onChange={(e) => setDraft({ ...draft, period: e.target.value })} className="bg-card h-8 rounded-md border px-3 text-[13.5px]">
+              <select value={draft.period} onChange={(e) => setDraft({ ...draft, period: e.target.value })} className="bg-card h-8 rounded-md px-3 text-[13.5px]">
                 {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
             </label>

@@ -113,7 +113,7 @@ export function SearxngPanel({
         {/* ---------------------------------------------------- the remote node */}
         <div
           className={cn(
-            "bg-card rounded-[14px] border p-4.5",
+            "bg-card rounded-[14px] p-4.5",
             remote && !inst.inUse && "border-line-strong",
           )}
         >
@@ -142,7 +142,7 @@ export function SearxngPanel({
         {/* --------------------------------------------------- the local one */}
         <div
           className={cn(
-            "bg-card rounded-[14px] border p-4.5",
+            "bg-card rounded-[14px] p-4.5",
             inst.inUse && "border-line-strong",
           )}
         >

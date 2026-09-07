@@ -31,7 +31,7 @@ function Card({ p }: { p: UserProduct }) {
   const bars = p.days.filter((d) => d.signups !== null);
 
   return (
-    <div className="bg-card rounded-[14px] border px-4.5 py-3.5">
+    <div className="bg-card rounded-[14px] px-4.5 py-3.5">
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
@@ -168,7 +168,7 @@ export function Users() {
   return (
     <>
       <div className="mb-4 flex flex-wrap gap-2">
-        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] px-4.5 py-3.5">
           <div className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">
             {count(s.totalUsers)}
           </div>
@@ -179,7 +179,7 @@ export function Users() {
             <div className="text-muted-foreground text-[12px]">a floor — not every one answered</div>
           )}
         </div>
-        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] px-4.5 py-3.5">
           <div className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">{count(s.new7d)}</div>
           <div className="text-muted-foreground mt-0.5 text-[12.5px]">new in 7 days</div>
           {s.windowsMissing > 0 && (
@@ -188,12 +188,12 @@ export function Users() {
             </div>
           )}
         </div>
-        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] px-4.5 py-3.5">
           <div className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">{count(s.new30d)}</div>
           <div className="text-muted-foreground mt-0.5 text-[12.5px]">new in 30 days</div>
           <div className="text-muted-foreground text-[12px]">contains the 7d — never added to it</div>
         </div>
-        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+        <div className="bg-card min-w-[132px] flex-1 rounded-[14px] px-4.5 py-3.5">
           <div className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">
             {s.answering}/{s.configured}
           </div>

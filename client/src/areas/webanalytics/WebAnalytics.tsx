@@ -125,7 +125,7 @@ function SitePicker({
         aria-label="Website"
         value={current}
         onChange={(e) => onSite(e.target.value)}
-        className="border-line-soft bg-card rounded border px-3 py-1.5 text-[13.5px]"
+        className="border-line-soft bg-card rounded px-3 py-1.5 text-[13.5px]"
       >
         {rows.map((r) => (
           <option key={r.websiteId} value={r.websiteId}>

@@ -2110,7 +2110,7 @@ export function Chat() {
                       setText(prompt);
                       inputRef.current?.focus();
                     }}
-                    className="bg-card hover:border-line-strong flex items-start gap-2.5 rounded-[14px] border px-4.5 py-3.5 text-left transition-colors active:translate-y-px"
+                    className="bg-card hover:bg-card-hover flex items-start gap-2.5 rounded-[14px] px-4.5 py-3.5 text-left transition-colors active:translate-y-px"
                   >
                     <Icon
                       className="text-muted-foreground mt-0.5 size-4 shrink-0"
@@ -2142,7 +2142,7 @@ export function Chat() {
                     Whitespace is preserved for the same reason.
                   */
                   <div key={m.id} className="flex justify-end">
-                    <div className="bg-card max-w-[85%] rounded-[16px] border px-4.5 py-3 text-[14.5px] whitespace-pre-wrap">
+                    <div className="bg-card max-w-[85%] rounded-[16px] px-4.5 py-3 text-[14.5px] whitespace-pre-wrap">
                       {m.content}
                     </div>
                   </div>
@@ -2278,7 +2278,7 @@ export function Chat() {
 
       <div className="flex shrink-0 justify-center px-6 pt-5 pb-5.5">
         <div className="w-full max-w-[760px]">
-          <div className="bg-card focus-within:border-foreground rounded-[18px] border px-4 pt-3 pb-2 transition-colors">
+          <div className="bg-card hover:bg-card-hover focus-within:bg-card-hover rounded-[18px] px-4 pt-3 pb-2 transition-colors">
             <Textarea
               ref={inputRef}
               aria-label="Message"
@@ -2296,7 +2296,7 @@ export function Chat() {
                   ? "Connect an agent under Integrations to start talking…"
                   : "Ask anything, or describe what you want to build…"
               }
-              className="max-h-[200px] min-h-[46px] resize-none border-0 bg-transparent p-0 px-1.5 shadow-none focus-visible:ring-0 dark:bg-transparent"
+              className="max-h-[200px] min-h-[46px] resize-none border-0 bg-transparent p-0 px-1.5 shadow-none hover:bg-transparent focus-visible:ring-0 dark:bg-transparent"
             />
             {(draftError || attachmentError) && <p role="alert" className="text-destructive text-xs p-1">{draftError || attachmentError}</p>}
             <input ref={attachmentRef} hidden type="file" accept="text/*,.md,.json,.csv,.ts,.tsx,.js,.py,.html,.css,.yaml,.yml,.log" onChange={async e => {

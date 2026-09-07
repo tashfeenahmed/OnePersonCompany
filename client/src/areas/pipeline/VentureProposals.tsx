@@ -82,7 +82,7 @@ export function VentureProposals({ ventureId }: { ventureId: string }) {
           {proposals.map((p) => (
             <div
               key={p.id}
-              className="border-line-soft bg-card flex flex-col gap-1 rounded-[14px] border px-4 py-2.5 text-[13.5px]"
+              className="border-line-soft bg-card flex flex-col gap-1 rounded-[14px] px-4 py-2.5 text-[13.5px]"
             >
               <div className="flex flex-wrap items-baseline gap-2">
                 <span

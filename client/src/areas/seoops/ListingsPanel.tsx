@@ -186,7 +186,7 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                       )}
 
                       <select
-                        className="border-line-soft bg-card ml-auto rounded-[8px] border px-1.5 py-0.5 text-[12.5px]"
+                        className="border-line-soft bg-card ml-auto rounded-[8px] px-1.5 py-0.5 text-[12.5px]"
                         value={cell.state}
                         disabled={busy === key}
                         onChange={(e) => void set(v.ventureId, cell, { state: e.target.value as ListingState })}
@@ -218,7 +218,7 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                         </p>
                         <div className="flex flex-wrap gap-2">
                           <input
-                            className="border-line-soft bg-card min-w-[220px] flex-1 rounded-[8px] border px-3 py-1.5 text-[13px]"
+                            className="border-line-soft bg-card min-w-[220px] flex-1 rounded-[8px] px-3 py-1.5 text-[13px]"
                             placeholder="Listing url (https only)"
                             defaultValue={cell.url ?? ""}
                             onBlur={(e) => {
@@ -227,7 +227,7 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                             }}
                           />
                           <input
-                            className="border-line-soft bg-card min-w-[220px] flex-1 rounded-[8px] border px-3 py-1.5 text-[13px]"
+                            className="border-line-soft bg-card min-w-[220px] flex-1 rounded-[8px] px-3 py-1.5 text-[13px]"
                             placeholder="Your note — why skipped, what you sent, what to chase"
                             defaultValue={cell.ownerNote ?? ""}
                             onBlur={(e) => {

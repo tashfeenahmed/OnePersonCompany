@@ -60,7 +60,7 @@ export function Renewals() {
       ) : (
         <div className="space-y-1.5">
           {d.renewals.map((r) => (
-            <div key={r.id} className="bg-card flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-[14px] border px-4.5 py-3">
+            <div key={r.id} className="bg-card flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-[14px] px-4.5 py-3">
               <span className={cn("w-16 shrink-0 text-[13.5px] tabular-nums", r.inDays < 0 && "text-destructive")}>
                 {inDays(r.inDays)}
               </span>

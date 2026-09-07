@@ -37,6 +37,7 @@
     --color-popover: var(--popover);
     --color-card-foreground: var(--card-foreground);
     --color-card: var(--card);
+    --color-card-hover: var(--card-hover);
     --color-foreground: var(--foreground);
     --color-faint: var(--faint);
     --color-line-soft: var(--line-soft);
@@ -70,8 +71,15 @@
        never the radius, the type scale or the fonts. */
     --background: #fbfbfa;
     --foreground: #100f0e;
-    --card: #ffffff;
+    /* A CARD IS A TINT, NOT A BORDER. Cards used to be white on an off-white
+       page with a hairline round each — the tint was invisible and the line
+       did all the work. Now the surface itself is the card: a shade darker
+       than the page in light mode, a shade lighter in dark, and no border.
+       `--card-hover` is the same surface nudged towards the ink, and it is
+       derived rather than written per palette so every palette gets it. */
+    --card: #f4f3f0;
     --card-foreground: #100f0e;
+    --card-hover: color-mix(in oklch, var(--card), var(--foreground) 5%);
     --popover: #fbfbfa;
     --popover-foreground: #100f0e;
     --primary: #100f0e;

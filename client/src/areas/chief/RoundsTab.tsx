@@ -117,7 +117,7 @@ export function RoundsTab() {
             {rounds.slice(1, 8).map((r) => (
               <div
                 key={r.id}
-                className="border-line-soft bg-card flex items-center gap-3 rounded-[14px] border px-4 py-2.5 text-[13.5px]"
+                className="border-line-soft bg-card flex items-center gap-3 rounded-[14px] px-4 py-2.5 text-[13.5px]"
               >
                 <span className="text-muted-foreground">{ago(r.startedAt)}</span>
                 <span>{r.trigger === "manual" ? "by hand" : "scheduled"}</span>
@@ -158,7 +158,7 @@ export function RoundsTab() {
 
 function RoundCard({ round }: { round: Round }) {
   return (
-    <div className="border-line-soft bg-card rounded-[14px] border p-5">
+    <div className="border-line-soft bg-card rounded-[14px] p-5">
       <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13.5px]">
         <span className="font-medium">
           {round.dispatched} run{round.dispatched === 1 ? "" : "s"} dispatched
@@ -245,7 +245,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <div className="border-line-soft bg-card rounded-[14px] border p-5">
+    <div className="border-line-soft bg-card rounded-[14px] p-5">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button
           size="sm"

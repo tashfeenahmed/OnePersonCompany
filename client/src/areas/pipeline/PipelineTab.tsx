@@ -197,7 +197,7 @@ export function PipelineTab() {
               <div key={r.id} className="flex flex-col">
                 <button
                   onClick={() => setOpen(open === r.id ? null : r.id)}
-                  className="border-line-soft bg-card hover:bg-accent/40 flex items-center gap-3 rounded-[14px] border px-4 py-2.5 text-left text-[13.5px]"
+                  className="border-line-soft bg-card hover:bg-accent/40 flex items-center gap-3 rounded-[14px] px-4 py-2.5 text-left text-[13.5px]"
                 >
                   <ChevronRight
                     className={cn("size-3.5 shrink-0 transition-transform", open === r.id && "rotate-90")}
@@ -253,7 +253,7 @@ function StageRow({
   const self = stage.scheduledBy === "self";
   return (
     <div
-      className="border-line-soft bg-card flex flex-wrap items-center gap-3 rounded-[14px] border px-4 py-2.5 text-[13.5px]"
+      className="border-line-soft bg-card flex flex-wrap items-center gap-3 rounded-[14px] px-4 py-2.5 text-[13.5px]"
       style={{ marginLeft: `${Math.min(stage.depth, 4) * 18}px` }}
     >
       <span className="font-medium">{stage.title}</span>
@@ -315,7 +315,7 @@ function StageRow({
 
 function RunCard({ run, expanded, onToggle }: { run: Run; expanded: boolean; onToggle: () => void }) {
   return (
-    <div className="border-line-soft bg-card rounded-[14px] border px-4 py-3">
+    <div className="border-line-soft bg-card rounded-[14px] px-4 py-3">
       <div className="flex flex-wrap items-baseline gap-3 text-[13.5px]">
         <span className="font-medium">
           {run.dry ? "Planned" : run.trigger === "schedule" ? "On the schedule" : "By hand"}
@@ -389,7 +389,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
   const set = (k: string, v: string) => setValues((old) => ({ ...old, [k]: v }));
 
   return (
-    <div className="border-line-soft bg-card flex flex-col gap-3 rounded-[14px] border px-4 py-3.5">
+    <div className="border-line-soft bg-card flex flex-col gap-3 rounded-[14px] px-4 py-3.5">
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex items-center gap-2 text-[13.5px]">
           <input
@@ -532,7 +532,7 @@ function Proposals() {
           {shown.map((p) => (
             <div
               key={p.id}
-              className="border-line-soft bg-card flex flex-col gap-1 rounded-[14px] border px-4 py-2.5 text-[13.5px]"
+              className="border-line-soft bg-card flex flex-col gap-1 rounded-[14px] px-4 py-2.5 text-[13.5px]"
             >
               <div className="flex flex-wrap items-baseline gap-2">
                 <span className={cn("shrink-0 text-[12px]", p.verdict === "filed" ? "text-ok-foreground" : "text-muted-foreground")}>
@@ -589,7 +589,7 @@ function SynthesisForm({
   const set = (k: string, v: string) => setValues((old) => ({ ...old, [k]: v }));
 
   return (
-    <div className="border-line-soft bg-card mb-2 flex flex-wrap items-end gap-3 rounded-[14px] border px-4 py-3.5">
+    <div className="border-line-soft bg-card mb-2 flex flex-wrap items-end gap-3 rounded-[14px] px-4 py-3.5">
       <Field label="Ventures a night" width="w-24">
         <Input value={values["ventures-per-night"]} onChange={(e) => set("ventures-per-night", e.target.value)} />
       </Field>

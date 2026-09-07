@@ -207,7 +207,7 @@ export function Settings() {
                     onClick={() => setTheme(id)}
                     aria-pressed={theme === id}
                     className={cn(
-                      "bg-card rounded-[14px] border p-4.5 text-left transition-colors",
+                      "bg-card rounded-[14px] p-4.5 text-left transition-colors",
                       theme === id
                         ? "border-foreground"
                         : "hover:border-line-strong",

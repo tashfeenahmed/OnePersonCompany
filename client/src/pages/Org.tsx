@@ -307,7 +307,7 @@ export function Org() {
                       width: OWNER_W,
                       height: OWNER_H,
                     }}
-                    className="bg-card absolute flex items-center justify-center gap-2 rounded-[14px] border"
+                    className="bg-card absolute flex items-center justify-center gap-2 rounded-[14px]"
                   >
                     <div className="bg-muted text-foreground grid size-[22px] shrink-0 place-items-center rounded-full text-[11.5px] font-semibold">
                       {doc.data.owner.name.trim()[0]?.toUpperCase() ?? "?"}
@@ -336,7 +336,7 @@ export function Org() {
                       width: CHIEF_W,
                       height: CHIEF_H,
                     }}
-                    className="bg-card hover:border-line-strong absolute flex items-center gap-2.5 rounded-[14px] border px-4 transition-colors"
+                    className="bg-card hover:bg-card-hover absolute flex items-center gap-2.5 rounded-[14px] px-4 transition-colors"
                   >
                     <span
                       className={cn(
@@ -367,7 +367,7 @@ export function Org() {
                         width: CARD_W,
                         height: CARD_H,
                       }}
-                      className="bg-card absolute flex flex-col overflow-hidden rounded-[14px] border"
+                      className="bg-card absolute flex flex-col overflow-hidden rounded-[14px]"
                     >
                       <Link
                         to={`/ventures/${v.slug}`}

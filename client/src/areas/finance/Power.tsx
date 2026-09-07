@@ -55,7 +55,7 @@ export function Power() {
             alwaysOn: p?.alwaysOn ?? false,
           };
           return (
-            <div key={key} className="bg-card rounded-[14px] border px-4.5 py-3.5">
+            <div key={key} className="bg-card rounded-[14px] px-4.5 py-3.5">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <span className="text-[14px] font-medium">{m.label}</span>
                 {line && (

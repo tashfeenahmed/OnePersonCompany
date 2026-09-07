@@ -131,7 +131,7 @@ export function Feed({ days }: { days: number }) {
         </Button>
       </div>
 
-      <div className="bg-card mb-4 rounded-[14px] border px-4.5 py-3.5">
+      <div className="bg-card mb-4 rounded-[14px] px-4.5 py-3.5">
         <div className="flex items-baseline gap-2">
           <span className="text-[20px] font-normal tracking-[-0.03em] tabular-nums">
             {count(d.counts.matching)}
@@ -168,7 +168,7 @@ export function Feed({ days }: { days: number }) {
       )}
 
       {!!d.events.length && (
-        <div className="overflow-hidden rounded-[14px] border">
+        <div className="overflow-hidden rounded-[14px] bg-card">
           {d.events.map((e, i) => (
             <div
               key={e.key}

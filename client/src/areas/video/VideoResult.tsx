@@ -56,7 +56,7 @@ const CHOSEN_BY: Record<string, string> = {
 export function VideoPanel({ job }: { job: VideoJob }) {
   const faceless = job.format === "faceless";
   return (
-    <div className="bg-card mb-4 rounded-[14px] border p-4.5">
+    <div className="bg-card mb-4 rounded-[14px] p-4.5">
       <div className="mb-3 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <Film className="size-[15px] shrink-0" strokeWidth={1.8} />
         <span className="text-[14.5px] font-medium tracking-tight">

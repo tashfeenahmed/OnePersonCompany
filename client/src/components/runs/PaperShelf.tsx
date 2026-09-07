@@ -92,7 +92,7 @@ export function PaperShelf({
           {written.map((p) => {
             const open = reading === p.runId;
             return (
-              <div key={p.runId} className="bg-card rounded-[14px] border p-4">
+              <div key={p.runId} className="bg-card rounded-[14px] p-4">
                 <div className="flex flex-wrap items-baseline gap-2">
                   <Link
                     to={appPage("papers", p.runId)}

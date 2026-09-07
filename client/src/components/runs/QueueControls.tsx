@@ -14,7 +14,7 @@ export function QueueControls() {
     catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
-  return <section className="border rounded-xl p-3 mb-4 space-y-2">
+  return <section className="bg-card rounded-xl p-3 mb-4 space-y-2">
     <div className="flex flex-wrap gap-3 items-center"><h2 className="font-medium text-sm">Queue controls</h2><button className="rounded-lg px-3 py-1.5 text-sm bg-muted hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] transition-colors disabled:opacity-50" disabled={!doc.data || busy} onClick={() => void change("/runs/controls", { paused: !doc.data?.paused })}>{doc.data?.paused ? "Resume queue" : "Pause queue"}</button><Link className="underline text-sm" to="/settings?tab=budgets">Usage limits</Link></div>
     <p className="text-xs text-muted-foreground">Pausing holds waiting jobs; the current job can finish.</p>
     {(error || doc.error) && <p role="alert" className="text-sm text-destructive">{error || doc.error}</p>}

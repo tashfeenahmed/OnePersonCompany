@@ -150,7 +150,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
       </p>
 
       {/* ------------------------------------------------------ the repository */}
-      <div className="border-line-soft bg-card flex flex-wrap items-center gap-2 rounded-[14px] border p-4">
+      <div className="border-line-soft bg-card flex flex-wrap items-center gap-2 rounded-[14px] p-4">
         {repoDraft === null ? (
           <>
             <span className="text-[14px]">
@@ -303,7 +303,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
       ) : (
         <ul className="flex flex-col gap-2">
           {facts.map((f) => (
-            <li key={f.id} className="border-line-soft bg-card rounded-[14px] border p-4">
+            <li key={f.id} className="border-line-soft bg-card rounded-[14px] p-4">
               {editing === f.id ? (
                 <div className="flex flex-col gap-2">
                   <Textarea
@@ -423,7 +423,7 @@ export function KnowledgeTab({ slug }: { slug: string }) {
       )}
 
       {/* ------------------------------------------------------ the owner's own */}
-      <div className="border-line-soft bg-card rounded-[14px] border p-5">
+      <div className="border-line-soft bg-card rounded-[14px] p-5">
         <p className="mb-2 text-[14px] font-medium">Write one yourself</p>
         <div className="flex flex-wrap items-center gap-1.5 pb-2">
           {kinds.map((k) => (

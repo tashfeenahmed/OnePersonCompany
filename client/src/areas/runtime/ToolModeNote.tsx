@@ -62,7 +62,7 @@ export function ToolModeNote() {
   }
 
   return (
-    <div className="bg-card border-line-soft mt-3 rounded-[14px] border p-4.5">
+    <div className="bg-card border-line-soft mt-3 rounded-[14px] p-4.5">
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn("size-[7px] rounded-[3px]", mode ? TONE[mode] : "bg-muted-foreground")}

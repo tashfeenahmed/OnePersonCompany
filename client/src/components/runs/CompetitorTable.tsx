@@ -137,7 +137,7 @@ export function CompetitorTable({
             : `No rivals have been recorded for ${venture.name}. A sweep builds this list and the next one deepens it.`}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-[14px] border">
+        <div className="overflow-x-auto rounded-[14px] bg-card">
           <table className="w-full text-[13.5px]">
             <thead className="text-muted-foreground border-line-soft border-b text-[12px] tracking-[0.06em] uppercase">
               <tr>

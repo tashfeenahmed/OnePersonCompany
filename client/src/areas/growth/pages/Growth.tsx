@@ -114,7 +114,7 @@ function AuthorityTab() {
 
 function AuthorityCard({ a }: { a: Authority }) {
   return (
-    <div className="bg-card rounded-[14px] border px-5 py-4">
+    <div className="bg-card rounded-[14px] px-5 py-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-[15px]">{a.host}</span>
         <span className="text-[24px] leading-none tracking-[-0.02em]">{a.estimate === null ? "—" : a.estimate}</span>
@@ -199,7 +199,7 @@ function CroTab() {
         <select
           value={stage ?? ""}
           onChange={(e) => setStage(e.target.value || null)}
-          className="bg-card h-9 rounded-[12px] border px-3 text-[13.5px]"
+          className="bg-card h-9 rounded-[12px] px-3 text-[13.5px]"
         >
           <option value="">Stage: whatever the funnel says</option>
           {(doc.data?.stages ?? []).map((s) => (
@@ -246,7 +246,7 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-card rounded-[14px] border px-5 py-4">
+      <div className="bg-card rounded-[14px] px-5 py-4">
         <div className="flex flex-wrap items-baseline gap-x-3">
           <span className="text-[14.5px]">
             {doc.funnel.stage ? (
@@ -292,7 +292,7 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
           <h2 className="mb-2 text-[14.5px]">Experiments on this venture</h2>
           <div className="space-y-2">
             {doc.experiments.map((e) => (
-              <div key={e.experiment} className="bg-card rounded-[14px] border px-4.5 py-3.5">
+              <div key={e.experiment} className="bg-card rounded-[14px] px-4.5 py-3.5">
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <span className="text-[13.5px]">{e.detail?.hypothesis ?? e.experiment}</span>
                   <span
@@ -340,7 +340,7 @@ function CroBody({ doc, onChange }: { doc: Cro; onChange: () => void }) {
           {(doc.shortlist.length ? doc.shortlist : doc.library).map((x) => {
             const row = running.get(x.id);
             return (
-              <div key={x.id} className="bg-card rounded-[14px] border px-4.5 py-3.5">
+              <div key={x.id} className="bg-card rounded-[14px] px-4.5 py-3.5">
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <span className="text-muted-foreground text-[12px]">
                     {x.stage} · {x.dimension} · rank {x.rank} · {x.effort}
@@ -419,7 +419,7 @@ function IndexingTab() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <select value={host} onChange={(e) => setHost(e.target.value)} className="bg-card h-9 rounded-[12px] border px-3 text-[13.5px]">
+        <select value={host} onChange={(e) => setHost(e.target.value)} className="bg-card h-9 rounded-[12px] px-3 text-[13.5px]">
           {hosts.map((h) => (
             <option key={h} value={h}>
               {h}
@@ -438,7 +438,7 @@ function IndexingTab() {
       {doc.error && <Failed error={doc.error} />}
       {doc.data && (
         <>
-          <div className="bg-card rounded-[14px] border px-5 py-4">
+          <div className="bg-card rounded-[14px] px-5 py-4">
             <p className="text-[14px]">
               Key <code className="bg-background rounded-[8px] border px-1.5 py-0.5 text-[13px]">{doc.data.key}</code>
             </p>
@@ -454,7 +454,7 @@ function IndexingTab() {
             <p className="text-muted-foreground mt-1 text-[12.5px] leading-[1.6]">{doc.data.google}</p>
           </div>
 
-          <div className="bg-card rounded-[14px] border px-5 py-4">
+          <div className="bg-card rounded-[14px] px-5 py-4">
             <p className="text-[14px]">What the last two audits found</p>
             <p className="text-muted-foreground mt-1 text-[13px] leading-[1.6]">{doc.data.audit.why}</p>
             <p className="text-muted-foreground mt-2 text-[12.5px]">
@@ -485,7 +485,7 @@ function IndexingTab() {
             {doc.data.submissions.length === 0 ? (
               <p className="text-muted-foreground text-[13px]">Nothing has been submitted for {doc.data.host}.</p>
             ) : (
-              <div className="bg-card overflow-x-auto rounded-[14px] border">
+              <div className="bg-card overflow-x-auto rounded-[14px]">
                 <table className="w-full text-[13px]">
                   <thead className="text-muted-foreground text-[12.5px]">
                     <tr className="border-line-soft border-b">
@@ -542,7 +542,7 @@ function AdsTab() {
 
 function AdsCard({ a }: { a: AdsHealth }) {
   return (
-    <div className="bg-card rounded-[14px] border px-5 py-4">
+    <div className="bg-card rounded-[14px] px-5 py-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-[15px]">{a.account.name ?? a.account.id}</span>
         <span className="text-[24px] leading-none tracking-[-0.02em]">{a.score === null ? "—" : a.score}</span>

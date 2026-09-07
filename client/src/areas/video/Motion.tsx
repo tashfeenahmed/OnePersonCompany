@@ -90,7 +90,7 @@ export function Motion() {
     >
       {/* ------------------------------------------------------ readiness */}
       {d && (
-        <div className="bg-card border-line-soft mb-4 grid gap-1.5 rounded-[14px] border p-4.5 text-[13.5px]">
+        <div className="bg-card border-line-soft mb-4 grid gap-1.5 rounded-[14px] p-4.5 text-[13.5px]">
           <Capability label="Renderer" ready={d.readiness.renderer.ready} note={d.readiness.renderer.note} />
           <Capability label="Encoder" ready={d.readiness.encoder.ready} note={d.readiness.encoder.note} />
           <Capability label="Scene writer" ready={d.readiness.writer.ready} note={d.readiness.writer.note} />
@@ -191,7 +191,7 @@ function Draft({ ventureId, onDone }: { ventureId: string | null; onDone: (id: s
   const [said, setSaid] = useState<string | null>(null);
 
   return (
-    <div className="bg-card border-line-soft mb-4 rounded-[14px] border p-4.5">
+    <div className="bg-card border-line-soft mb-4 rounded-[14px] p-4.5">
       <div className="mb-2 text-[13.5px] font-medium">Draft a scene list from a brief</div>
       <div className="flex flex-wrap gap-2">
         <input
@@ -246,7 +246,7 @@ function SpecRow({
   onChanged: () => void;
 }) {
   return (
-    <div className="bg-card border-line-soft rounded-[14px] border">
+    <div className="bg-card border-line-soft rounded-[14px]">
       <button onClick={onToggle} className="hover:bg-accent/40 flex w-full flex-wrap items-baseline gap-x-2.5 gap-y-1 rounded-[14px] px-3.5 py-2.5 text-left">
         <Film className="size-[14px] shrink-0 self-center" strokeWidth={1.8} />
         <span className="text-[14.5px] font-medium">{summary.name}</span>

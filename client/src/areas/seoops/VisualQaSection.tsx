@@ -119,7 +119,7 @@ export function VisualQaSection() {
           Integrations → SEO Ops.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[14px] border">
+        <div className="overflow-hidden rounded-[14px] bg-card">
           {opted.map((v, i) => (
             <div
               key={v.ventureId}

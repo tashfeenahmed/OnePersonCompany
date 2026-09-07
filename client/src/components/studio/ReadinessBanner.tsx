@@ -52,7 +52,7 @@ export function ReadinessBanner({ readiness }: { readiness: StudioReadiness }) {
   ];
 
   return (
-    <div className="overflow-hidden rounded-[14px] border">
+    <div className="overflow-hidden rounded-[14px] bg-card">
       {rows.map((r, i) => (
         <div
           key={r.key}

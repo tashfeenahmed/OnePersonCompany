@@ -381,7 +381,7 @@ function FindingRow({ finding }: { finding: AuditFinding }) {
   const [open, setOpen] = useState(false);
   const shown = open ? finding.pages : finding.pages.slice(0, 4);
   return (
-    <div className="rounded-[14px] border px-3 py-2.5">
+    <div className="rounded-[14px] bg-card px-3 py-2.5">
       <div className="flex items-baseline gap-2">
         <span className="text-[13.5px]">{finding.what}</span>
         <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
@@ -468,7 +468,7 @@ function Stat({
   tone?: "bad" | "warn";
 }) {
   return (
-    <div className="rounded-[14px] border px-3 py-2.5">
+    <div className="rounded-[14px] bg-card px-3 py-2.5">
       <div
         className={cn(
           "text-[20px] leading-tight tracking-tight",
@@ -497,7 +497,7 @@ function Check({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-[14px] border p-3">
+    <div className="rounded-[14px] bg-card p-3">
       <div className="flex items-center gap-2">
         <span
           className={cn(

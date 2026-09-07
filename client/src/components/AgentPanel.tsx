@@ -101,7 +101,7 @@ export function AgentPanel({ id }: { id: AgentId }) {
         it is stopped when this server stops.
       </p>
 
-      <div className="bg-card rounded-[14px] border p-4.5">
+      <div className="bg-card rounded-[14px] p-4.5">
         <Head agent={agent} live={doc.data.live} />
 
         {/* What it is pointed at, which is the whole reason the model provider

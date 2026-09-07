@@ -164,7 +164,7 @@ export function PostCard({
   }
 
   return (
-    <div className="bg-card overflow-hidden rounded-[14px] border">
+    <div className="bg-card overflow-hidden rounded-[14px]">
       {/* The picture, on the muted ground rather than the card's own, so a
           PNG with a white background does not bleed into the card edge. */}
       {post.image ? (

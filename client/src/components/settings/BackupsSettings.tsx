@@ -116,7 +116,7 @@ export function BackupsSettings() {
       {d && (
         <>
           {/* The verdict, first. */}
-          <div className="bg-card grid gap-1 rounded-[14px] border px-4.5 py-3.5">
+          <div className="bg-card grid gap-1 rounded-[14px] px-4.5 py-3.5">
             <div className="text-[14px]">{d.summary.state}</div>
             <p className="text-muted-foreground text-[12.5px]">
               {d.archives.length} in {d.settings.dir}
@@ -224,7 +224,7 @@ export function BackupsSettings() {
 
       {/* ------------------------------------------------------- archives */}
       {d && d.archives.length > 0 && (
-        <div className="overflow-hidden rounded-[14px] border">
+        <div className="overflow-hidden rounded-[14px] bg-card">
           {d.archives.map((a, i) => (
             <div key={a.name} className={cn(i > 0 && "border-line-soft border-t")}>
               <div className="flex flex-wrap items-center gap-2 px-3.5 py-2.5">

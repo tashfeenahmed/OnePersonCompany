@@ -404,7 +404,7 @@ function AccountRow({
   return (
     <div
       className={cn(
-        "bg-card rounded-[14px] border p-4",
+        "bg-card rounded-[14px] p-4",
         account.inUse && "border-ok/50",
       )}
     >

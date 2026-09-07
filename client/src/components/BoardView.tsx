@@ -309,7 +309,7 @@ export function BoardView({
         {ghost && (
           <div
             aria-hidden
-            className="bg-card text-foreground pointer-events-none fixed z-50 rounded-[11px] border px-3 py-2 text-[13px] shadow-md"
+            className="bg-card text-foreground pointer-events-none fixed z-50 rounded-[11px] px-3 py-2 text-[13px] shadow-md"
             style={{ left: ghost.x + 12, top: ghost.y + 12 }}
           >
             {ghost.label}

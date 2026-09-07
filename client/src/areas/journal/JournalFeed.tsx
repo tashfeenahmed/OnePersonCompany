@@ -264,7 +264,7 @@ function Composer({
   };
 
   return (
-    <div className="border-line-soft bg-card grid gap-2 rounded-[14px] border p-4">
+    <div className="border-line-soft bg-card grid gap-2 rounded-[14px] p-4">
       <div className="flex flex-wrap items-center gap-1">
         {KIND_ORDER.map((k) => (
           <button
@@ -405,7 +405,7 @@ function Entry({
   const [tracking, setTracking] = useState(false);
 
   return (
-    <div className="border-line-soft bg-card grid gap-1 rounded-[14px] border p-4">
+    <div className="border-line-soft bg-card grid gap-1 rounded-[14px] p-4">
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="border-line-soft rounded-full border px-1.5 py-0.5 text-[11.5px]">
           {KIND_LABEL[entry.kind] ?? entry.kind}

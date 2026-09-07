@@ -303,7 +303,7 @@ function Form({ venture }: { venture?: Venture }) {
             what could not be measured says why instead of being left blank.
           */}
           {venture && brand && (
-            <div className="rounded-[14px] border p-4">
+            <div className="rounded-[14px] bg-card p-4">
               <div className="flex items-center gap-2">
                 <VentureMark venture={venture} size={20} />
                 <span className="text-[14px] font-medium">Read from the site</span>

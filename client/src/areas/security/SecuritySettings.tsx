@@ -176,7 +176,7 @@ export function SecuritySettings() {
         ) : !d?.sessions?.length ? (
           <p className="text-muted-foreground text-[13.5px]">No browser has signed in yet.</p>
         ) : (
-          <div className="overflow-hidden rounded-[14px] border">
+          <div className="overflow-hidden rounded-[14px] bg-card">
             {d.sessions.map((s, i) => (
               <div
                 key={s.id}

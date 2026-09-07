@@ -176,7 +176,7 @@ function CaseRow({
   };
 
   return (
-    <div className={cn("bg-card rounded-[14px] border px-4.5 py-3.5", closed && "opacity-60")}>
+    <div className={cn("bg-card rounded-[14px] px-4.5 py-3.5", closed &&"opacity-60")}>
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <span className="text-muted-foreground text-[12.5px]">{KIND_LABEL[c.kind]}</span>
         {/* THE NOUN A PERSON WOULD RECOGNISE, in the order they would: what

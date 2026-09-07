@@ -102,7 +102,7 @@ function Snapshots() {
           accounts — connect one there and it appears here with nothing else to set up.
         </p>
       ) : (
-        <div className="mb-6 overflow-hidden rounded-[14px] border">
+        <div className="mb-6 overflow-hidden rounded-[14px] bg-card">
           {d.hosts.map((h, i) => (
             <div
               key={h.id}
@@ -145,7 +145,7 @@ function Snapshots() {
           to start failing.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[14px] border">
+        <div className="overflow-hidden rounded-[14px] bg-card">
           {d.snapshots.map((s, i) => (
             <button
               key={s.id}
@@ -187,7 +187,7 @@ function Lines({ title, lines, note }: { title: string; lines: string[]; note: s
     <div className="mt-4">
       <div className="text-muted-foreground mb-1.5 text-[12px] tracking-[0.06em] uppercase">{title}</div>
       {lines.length ? (
-        <pre className="bg-card overflow-x-auto rounded-[14px] border px-4.5 py-3.5 font-mono text-[12.5px] leading-relaxed">
+        <pre className="bg-card overflow-x-auto rounded-[14px] px-4.5 py-3.5 font-mono text-[12.5px] leading-relaxed">
           {lines.join("\n")}
         </pre>
       ) : (
@@ -200,7 +200,7 @@ function Lines({ title, lines, note }: { title: string; lines: string[]; note: s
 
 function SnapshotView({ snap }: { snap: Snapshot }) {
   return (
-    <div className="rounded-[14px] border p-4">
+    <div className="rounded-[14px] bg-card p-4">
       <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-[16px]">{snap.host}</span>
         <span className="text-muted-foreground font-mono text-[12.5px]">{snap.target}</span>
@@ -227,7 +227,7 @@ function SnapshotView({ snap }: { snap: Snapshot }) {
             v: snap.connections.established === null ? "not counted" : count(snap.connections.established),
           },
         ].map((t) => (
-          <div key={t.k} className="bg-card min-w-[150px] flex-1 rounded-[14px] border px-4.5 py-3.5">
+          <div key={t.k} className="bg-card min-w-[150px] flex-1 rounded-[14px] px-4.5 py-3.5">
             <div className="truncate text-[16px] tracking-[-0.02em]" title={t.v}>
               {t.v}
             </div>
@@ -241,7 +241,7 @@ function SnapshotView({ snap }: { snap: Snapshot }) {
           <div className="text-muted-foreground mb-1.5 text-[12px] tracking-[0.06em] uppercase">
             {which === "byCpu" ? "Heaviest by CPU" : "Heaviest by memory"}
           </div>
-          <div className="overflow-hidden rounded-[14px] border">
+          <div className="overflow-hidden rounded-[14px] bg-card">
             {snap.processes[which].length ? (
               snap.processes[which].map((p, i) => (
                 <div
@@ -355,7 +355,7 @@ function ShotsQa() {
           Nothing has been examined yet. Press Run now — it asks no model and costs nothing.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[14px] border">
+        <div className="overflow-hidden rounded-[14px] bg-card">
           {d.ventures.map((v, i) => (
             <div key={v.ventureId} className={cn(i > 0 && "border-line-soft border-t")}>
               <button
@@ -424,7 +424,7 @@ function ShotsQa() {
           <div className="text-muted-foreground mt-6 mb-2 text-[12px] tracking-[0.06em] uppercase">
             Earlier passes
           </div>
-          <div className="overflow-hidden rounded-[14px] border">
+          <div className="overflow-hidden rounded-[14px] bg-card">
             {d.passes.map((p, i) => (
               <div
                 key={p.runId}

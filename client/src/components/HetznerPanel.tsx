@@ -83,7 +83,7 @@ export function HetznerPanel({ onCollected }: { onCollected?: () => void }) {
         ]}
       />
 
-      <div className="overflow-hidden rounded-[14px] border">
+      <div className="overflow-hidden rounded-[14px] bg-card">
         {(fleet.data?.servers ?? []).map((srv, i) => (
           <div
             key={srv.id}

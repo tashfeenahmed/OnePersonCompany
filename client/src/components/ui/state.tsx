@@ -109,7 +109,7 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={cn("border-line-soft bg-card mb-5 rounded-2xl border p-5", className)}>
+    <section className={cn("border-line-soft bg-card mb-5 rounded-2xl p-5", className)}>
       <div className="mb-4 flex flex-wrap items-baseline gap-2.5">
         <h2 className="text-[15px] font-medium">{title}</h2>
         {meta && <span className="text-muted-foreground text-[12.5px]">{meta}</span>}

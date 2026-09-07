@@ -116,7 +116,7 @@ export function LocalModelsPanel() {
           const inFlight =
             local.gate.byEndpoint.find((g) => g.baseUrl === e.baseUrl)?.inFlight ?? 0;
           return (
-            <div key={e.accountId} className="bg-card rounded-[14px] border p-4.5">
+            <div key={e.accountId} className="bg-card rounded-[14px] p-4.5">
               <div className="flex flex-wrap items-center gap-2">
                 <i
                   className={cn(

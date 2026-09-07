@@ -195,7 +195,7 @@ function AccountLine({ account: a }: { account: SocialAccount }) {
 function PostCard({ post: p }: { post: SocialPost }) {
   const metrics = Object.entries(p.metrics);
   return (
-    <div className="bg-card border-line-soft rounded-xl border p-4">
+    <div className="bg-card border-line-soft rounded-xl p-4">
       <div className="flex gap-3">
         {p.imageUrl && (
           /* The platform's own render. It is not proxied: these are public CDN

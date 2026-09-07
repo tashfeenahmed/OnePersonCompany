@@ -148,7 +148,7 @@ export function BrandMeasuredSection({ venture }: { venture: string }) {
             {OVERRIDABLE.map((key) => (
               <input
                 key={key}
-                className="border-line-soft bg-card w-[150px] rounded-[8px] border px-3 py-1.5 font-mono text-[13px]"
+                className="border-line-soft bg-card w-[150px] rounded-[8px] px-3 py-1.5 font-mono text-[13px]"
                 placeholder={key}
                 defaultValue={(d.override?.[key] as string | undefined) ?? ""}
                 onBlur={(e) => {

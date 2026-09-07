@@ -55,7 +55,7 @@ export function DisputesTab() {
       {d && d.coverage.stored === 0 && <Empty>{d.coverage.note}</Empty>}
 
       {d?.currencies.map((c) => (
-        <div key={c.currency} className="bg-card mb-3 rounded-[14px] border px-4.5 py-3.5">
+        <div key={c.currency} className="bg-card mb-3 rounded-[14px] px-4.5 py-3.5">
           <div className="mb-2 text-[14.5px]">
             {c.currency.toUpperCase()} · {c.window}
           </div>
@@ -137,7 +137,7 @@ function Row({ k, v }: { k: string; v: string }) {
 
 function CaseLine({ c }: { c: DisputeCase }) {
   return (
-    <div className="bg-card rounded-[14px] border px-4.5 py-3">
+    <div className="bg-card rounded-[14px] px-4.5 py-3">
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <span className="text-[14px] tabular-nums">{money(c.amount, c.currency)}</span>
         <span className="text-muted-foreground text-[13px]">{c.reason ?? "no reason given"}</span>

@@ -969,7 +969,7 @@ function MessageBlock({
     );
 
   return (
-    <article className="mb-3 rounded-lg border p-3">
+    <article className="bg-card mb-3 rounded-lg p-3">
       <header className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b pb-2">
         <span className="text-[13.5px] font-medium" title={m.from}>
           {m.fromName || m.from || "(no sender)"}

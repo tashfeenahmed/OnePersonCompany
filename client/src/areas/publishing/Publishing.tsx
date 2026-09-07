@@ -144,7 +144,7 @@ export function Publishing() {
 
 function ReadinessStrip({ ready }: { ready: Readiness }) {
   return (
-    <div className="bg-card border-line-soft mb-4 grid gap-2 rounded-[14px] border p-4.5">
+    <div className="bg-card border-line-soft mb-4 grid gap-2 rounded-[14px] p-4.5">
       <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-[13.5px]">
         <Fact label="Destinations" value={`${ready.destinations.canPublish} of ${ready.destinations.total} can publish`} />
         <Fact label="Waiting" value={`${ready.counts.draft} draft · ${ready.counts.approved} approved · ${ready.counts.scheduled} scheduled`} />
@@ -276,7 +276,7 @@ function ItemCard({
     !item.externalId;
 
   return (
-    <div className="bg-card border-line-soft grid gap-2.5 rounded-[14px] border p-4.5">
+    <div className="bg-card border-line-soft grid gap-2.5 rounded-[14px] p-4.5">
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <span className={cn("font-medium", STATUS_TONE[item.status])}>{item.status}</span>
         <span className="text-muted-foreground">·</span>
@@ -641,7 +641,7 @@ function DestinationCard({
     ["video", d.capabilities.video],
   ] as const;
   return (
-    <div className="bg-card border-line-soft grid gap-2 rounded-[14px] border p-4.5">
+    <div className="bg-card border-line-soft grid gap-2 rounded-[14px] p-4.5">
       <div className="flex flex-wrap items-center gap-2 text-[14px]">
         <span className="font-medium">{d.handle ?? d.externalId}</span>
         <span className="text-muted-foreground">{d.label}</span>
@@ -700,7 +700,7 @@ function CampaignsTab({ ventureId }: { ventureId: string | null }) {
 
   return (
     <div className="grid gap-4">
-      <div className="bg-card border-line-soft grid gap-3 rounded-[14px] border p-4.5">
+      <div className="bg-card border-line-soft grid gap-3 rounded-[14px] p-4.5">
         <div className="grid gap-1.5">
           <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
             What the campaign is for
@@ -799,7 +799,7 @@ function CampaignsTab({ ventureId }: { ventureId: string | null }) {
 
 function CampaignCard({ campaign: c, onChanged }: { campaign: Campaign; onChanged: () => void }) {
   return (
-    <div className="bg-card border-line-soft grid gap-2 rounded-[14px] border p-4.5">
+    <div className="bg-card border-line-soft grid gap-2 rounded-[14px] p-4.5">
       <div className="flex flex-wrap items-center gap-2 text-[14px]">
         <span className="font-medium">{c.goal}</span>
         <span className={cn("text-[13px]", c.status === "failed" ? "text-destructive" : "text-muted-foreground")}>
@@ -895,7 +895,7 @@ function AssetsTab({ ventureId }: { ventureId: string | null }) {
         </div>
       )}
 
-      <div className="bg-card border-line-soft grid gap-2.5 rounded-[14px] border p-4.5">
+      <div className="bg-card border-line-soft grid gap-2.5 rounded-[14px] p-4.5">
         <div className="flex flex-wrap items-center gap-1.5">
           {(doc.data?.kinds ?? ["logo", "reference", "screenshot", "other"]).map((k) => (
             <button
@@ -970,7 +970,7 @@ function AssetsTab({ ventureId }: { ventureId: string | null }) {
 
 function AssetCard({ asset: a, onChanged }: { asset: Asset; onChanged: () => void }) {
   return (
-    <div className="bg-card border-line-soft flex gap-3 rounded-[14px] border p-4">
+    <div className="bg-card border-line-soft flex gap-3 rounded-[14px] p-4">
       {a.onDisk ? (
         <img src={a.url} alt="" className="border-line-soft h-20 w-20 shrink-0 rounded-[11px] border object-cover" />
       ) : (
