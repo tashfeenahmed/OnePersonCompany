@@ -1,5 +1,7 @@
 import { call } from "@/lib/api";
-import { qs } from "@/lib/qs";
+import { qs, seg } from "@/lib/qs";
+import type { RunStatus } from "@/lib/api/runs";
+import type { Dispatched } from "@/lib/api/subagents";
 
 /**
  * PEOPLE AND COMMITMENTS, FROM THIS SIDE.
@@ -198,6 +200,81 @@ export type ScanResult = {
   note: string | null;
 };
 
+
+/* ------------------------------------------------------------- watchlist */
+
+/**
+ * SOMEBODY THE OWNER IS WATCHING, WHICH IS NOT SOMEBODY WHO HAS EMAILED.
+ *
+ * `Person` above is MAIL METADATA — a row that exists because a message
+ * passed, with a rhythm measured from it. A `WatchPerson` is the opposite kind
+ * of fact: a name the owner typed because they want to know about that human,
+ * whether or not there has ever been a message. A founder they have never
+ * spoken to belongs on this list; a mailing list that writes weekly does not.
+ * Two documents, two tables, and deliberately no join between them — merging
+ * them on an address would put people the owner never chose to watch onto a
+ * page that says "these are the people you are watching".
+ *
+ * EVERY TEXT FIELD MAY BE NULL AND THIS TYPE SAYS SO. The server stores what
+ * was typed and nothing else; a person with no company has no company, not an
+ * empty string that renders as a stray separator. Callers use `said()` rather
+ * than trusting a `.trim()` to be safe.
+ */
+export type WatchLinks = {
+  website?: string | null;
+  github?: string | null;
+  x?: string | null;
+  linkedin?: string | null;
+  bluesky?: string | null;
+};
+
+export type WatchPerson = {
+  id: string;
+  name: string;
+  company: string | null;
+  role: string | null;
+  email: string | null;
+  note: string | null;
+  links: WatchLinks;
+  createdAt: string;
+  updatedAt: string;
+  /**
+   * THE DOSSIERS ON THIS PERSON, COUNTED BY THE SERVER.
+   *
+   * Counted there rather than here because the join is a string comparison
+   * over every dossier run this box has ever done, and a page that had to read
+   * the whole ledger to draw a list of names would be reading it once per
+   * name. `last` is null for somebody nobody has written about yet — which is
+   * a state the cards say out loud rather than drawing as a zero.
+   */
+  dossiers: {
+    count: number;
+    running: boolean;
+    queued: number;
+    last: {
+      id: string;
+      status: RunStatus;
+      finishedAt: string | null;
+      queuedAt: string;
+    } | null;
+  };
+};
+
+/** What can be typed about a person. Everything but the name is optional, and
+ *  the name is the only thing the server refuses to invent. */
+export type WatchInput = {
+  name?: string;
+  company?: string;
+  role?: string;
+  email?: string;
+  note?: string;
+  links?: WatchLinks;
+};
+
+/** A field the owner may not have filled in, as a string to draw or "". The
+ *  one place null becomes "" on this side, so nothing else has to guess. */
+export const said = (value: string | null | undefined): string => (value ?? "").trim();
+
 export const peopleApi = {
   list: (params: {
     stale?: string;
@@ -233,5 +310,40 @@ export const peopleApi = {
     call<ScanResult>("/commitments/scan", {
       method: "POST",
       body: JSON.stringify({ days }),
+    }),
+
+  /* ------------------------------------------------------- the watchlist */
+
+  /** Everyone on the list, sorted by name on the server. */
+  watch: () => call<{ people: WatchPerson[] }>("/people/watch"),
+
+  addWatch: (body: WatchInput) =>
+    call<WatchPerson>("/people/watch", { method: "POST", body: JSON.stringify(body) }),
+
+  updateWatch: (id: string, patch: WatchInput) =>
+    call<WatchPerson>(`/people/watch/${seg(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  /** Off the list. THE RUNS STAY — a dossier is a report that was written, and
+   *  deleting the person it names would delete work rather than a bookmark.
+   *  They reappear as unfiled, which is honest: nobody is watching them now. */
+  removeWatch: (id: string) =>
+    call<{ id: string; deleted: true }>(`/people/watch/${seg(id)}`, { method: "DELETE" }),
+
+  /**
+   * Write one now.
+   *
+   * THE SAME ANSWER A DISPATCH GIVES, because it is the same dispatch: the
+   * server composes the brief so the run's title is exactly `Dossier — <name>`
+   * and hands back the run and the worker. 409 when the People analyst is
+   * switched off, which the page draws as the error it is rather than as a
+   * button that did nothing.
+   */
+  dossierFor: (id: string, focus?: string) =>
+    call<Dispatched>(`/people/watch/${seg(id)}/dossier`, {
+      method: "POST",
+      body: JSON.stringify(focus ? { focus } : {}),
     }),
 };

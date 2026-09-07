@@ -8,10 +8,16 @@
  * one. Folding them into one skill would put an entry on this box whose rules
  * contradict each other paragraph by paragraph.
  *
- * `people` HAS NO ACTIONS. There is nothing to change: the contacts are a fold
- * of headers and the brief is a weekly record. `commitments` has three, and
- * none is destructive — done, dismiss and scan are all reversible, and marking
- * them destructive to be safe would train a client to ignore the field.
+ * `people` HAS TWO ACTIONS AND THEY ARE BOTH ABOUT THE WATCHLIST. Nothing
+ * else in the entry can be written to: the contacts are a fold of headers and
+ * the brief is a weekly record, so there is nothing there to change. The
+ * watchlist is the opposite — it is typed, and adding to it is the only way a
+ * row ever appears. `watch_add` is not destructive (a row the owner will find
+ * and can edit or delete); `dossier` is, because it takes the run slot and
+ * pays for a long completion, and cancelling the run does not refund it.
+ * `commitments` has three actions and none is destructive — done, dismiss and
+ * scan are all reversible, and marking them destructive to be safe would train
+ * a client to ignore the field.
  *
  * Types only from skills/registry.ts: a value-level import would cycle.
  */
@@ -43,7 +49,9 @@ export const SKILLS: Skill[] = [
       "temperature — warm, cooling, cold — measured against THAT PAIR'S OWN " +
       "rhythm rather than against a fixed number of days. Also a weekly " +
       "relations brief: who he has stopped writing to, who went quiet, who is " +
-      "new.",
+      "new. And, separately, the WATCHLIST: people he keeps an eye on, typed " +
+      "by hand rather than collected, each with the dossiers written about " +
+      "them.",
     rules: [
       "THIS IS METADATA. No subject line, snippet or message body is anywhere " +
         "in these tables — the collector asks Gmail for headers only. So this " +
@@ -87,6 +95,16 @@ export const SKILLS: Skill[] = [
       "The same person seen through two connected mailboxes is two rows and " +
         "two relationships. They are shown side by side and are never added " +
         "together.",
+      "THE WATCHLIST IS A DIFFERENT KIND OF THING FROM THE CONTACTS. It is " +
+        "typed by hand, nothing collects or refreshes it, and most people on " +
+        "it have never written to him \u2014 so an empty contacts record for " +
+        "somebody on the watchlist means the mailbox has not seen them, never " +
+        "that the entry is wrong. Its fields are his notes, not measurements, " +
+        "and a blank one means he did not write it down.",
+      "A person\u2019s `dossiers.count` is FINISHED dossiers. A failed or " +
+        "running one is in `dossiers.last` with its status, and reporting " +
+        "`last` as a written dossier without reading its status is reporting " +
+        "a report that does not exist.",
     ],
     views: [
       {
@@ -190,11 +208,57 @@ export const SKILLS: Skill[] = [
           },
         ],
       },
+      {
+        key: "watch",
+        path: "/api/people/watch",
+        about:
+          "The owner’s hand-kept list of people of interest — name, company, role, email, links and his own note — each with its dossier record: how many have been written, whether one is running or queued, and how the last one ended. TYPED, not collected: most of these people are not in the contacts document at all.",
+        params: [],
+      },
+    ],
+    actions: [
+      {
+        key: "watch_add",
+        method: "POST",
+        path: "/api/people/watch",
+        about:
+          "Put somebody on the watchlist. Adds a row he will find there later; nothing is collected, sent or spent, and the entry can be edited or removed from the page. A name already on the list is refused rather than duplicated.",
+        params: [
+          { name: "name", type: "string", required: true, about: "Who. The only required field, and what any dossier on them is titled after \u2014 so spell it the way he would." },
+          { name: "company", type: "string", required: false, about: "Where they work, as he would write it. At most 120 characters." },
+          { name: "role", type: "string", required: false, about: "What they do. At most 120 characters." },
+          { name: "email", type: "string", required: false, about: "An address, if there is one. Trimmed and never format-checked \u2014 nothing here sends mail." },
+          { name: "note", type: "string", required: false, about: "Why they are on the list, in his words. At most 4,000 characters." },
+        ],
+      },
+      {
+        key: "dossier",
+        method: "POST",
+        path: "/api/people/watch/:id/dossier",
+        about:
+          "Ask the People Analyst for a dossier on somebody already on the watchlist. The brief is composed from their row \u2014 name first, then only the identity lines that were typed \u2014 so the run joins the earlier dossiers on that person rather than starting a new pile. Answers 409 when the analyst is switched off.",
+        params: [
+          { name: "id", type: "string", required: true, in: "path", about: "The watch entry\u2019s id, from the watch view." },
+          { name: "focus", type: "string", required: false, about: "What to look into this time, a line or two. Goes last in the brief, after the identity lines, and never into the title." },
+          {
+            name: "parentSessionId",
+            type: "string",
+            required: false,
+            exampled: true,
+            about: "The conversation this was asked in, so the run is filed under it. Send it whenever you have it.",
+          },
+        ],
+        /* IT SPENDS. A dispatch takes the run slot and pays for a long
+           completion on the owner\u2019s account, and cancelling the run does not
+           refund it \u2014 see the four in skills/registry.ts. */
+        destructive: true,
+      },
     ],
     asks: [
       "Who have I stopped writing to?",
       "Which correspondences have gone quiet against their own rhythm?",
       "Who at this venture's domain do I actually talk to?",
+      "Who am I watching, and when was the last dossier on them written?",
     ],
   },
 

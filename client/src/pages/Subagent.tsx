@@ -1,7 +1,7 @@
 import { appPage } from "../../../shared/navigation";
 import { appForKind } from "../../../shared/runRoutes";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowUp,
   ArrowUpRight,
@@ -9,6 +9,7 @@ import {
   Settings2,
   Square,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
@@ -25,12 +26,22 @@ import {
 } from "@/components/runs/format";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { runAddress, standing } from "@/components/org/roleLook";
+import { attaches } from "@/components/org/dossiers";
+import { RunRail } from "@/components/org/RunRail";
+import {
+  PersonForm,
+  PersonGrid,
+  PersonHeader,
+  UNFILED,
+  WatchRail,
+} from "@/components/org/Watchlist";
 import { useApi } from "@/hooks/useApi";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { ago, duration } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { readCards, runsApi } from "@/lib/api/runs";
+import { readCards, runsApi, type RunSummary } from "@/lib/api/runs";
+import { peopleApi, type WatchInput, type WatchPerson } from "@/lib/api/people";
 import {
   findSubagent,
   subagentApi,
@@ -67,10 +78,24 @@ import {
  * appear a paragraph at a time. Nothing is stored twice: the full report,
  * its board suggestions and its files are on the run's own page, one link away.
  *
- * WHO THIS IS LIVES BEHIND A TOGGLE. Name, title, standing instructions and
- * the switch are settings about the worker, and settings do not belong in the
- * middle of a conversation with it. The gear in the header opens them above
- * the transcript; they open on their own when there is nothing to read yet.
+ * ---------------------------------------------------------------------------
+ * THREE COLUMNS, AND THE LEFT ONE IS THE REST OF THE HISTORY.
+ *
+ * The transcript is twenty runs because twenty reports is what a page can
+ * carry; a worker that has been going for a month has hundreds. That gap used
+ * to be one grey sentence — "the last 20 of 63, the rest are on the Dossiers
+ * page" — which told the owner their history existed and then sent them off
+ * the page to look at it. The rail is that history, in the place the eye
+ * already goes for a list, and clicking a row either moves this page to the
+ * exchange or opens the run that is too old to be on it. See `RunRail`.
+ *
+ * SETTINGS ARE A DRAWER NOW, AND IT STARTS SHUT — always, including on a
+ * worker with nothing to read. The old rule opened it "when there is nothing
+ * else to look at", which meant the first thing a new worker's page ever
+ * showed was a form about its NAME rather than the box that gives it work.
+ * The drawer is kept mounted and slid off the right edge so that opening it is
+ * a movement rather than a repaint, and so that a screen reader is not offered
+ * a form that is not there: `inert` and `aria-hidden` go on with the transform.
  *
  * THE ADDRESS IS THE VENTURE AND THE ROLE, not the worker's id.
  * /ventures/<slug>/team/seo is a sentence; /subagents/sa-v-3f21-seo is a
@@ -83,10 +108,31 @@ import {
  * after the title, the chief-of-staff link's `?venture=` — is left off rather
  * than filled with a placeholder. A page that said "for this venture" over a
  * worker that has none would be the one lie this file exists to avoid.
+ *
+ * ---------------------------------------------------------------------------
+ * THE PEOPLE ANALYST'S RAIL LISTS PEOPLE, NOT RUNS, and that is the one place
+ * this page changes shape rather than content.
+ *
+ * Every other worker is addressed by SUBJECT — a page, a rival, a keyword —
+ * and its runs are a log because the second sweep of a moving thing is a
+ * second reading. This one is addressed by PERSON, and three dossiers on Jane
+ * are one file rather than three jobs. So its rail is the watchlist, picking a
+ * name narrows the transcript to that person's runs, and the empty state is a
+ * grid of the people rather than an empty conversation — because there IS
+ * something to show before any run exists.
+ *
+ * WHICH PERSON IS OPEN LIVES IN THE URL (`?person=<id>`), not in state. It
+ * survives a reload, it is a link somebody can send, and the polling that runs
+ * underneath it does not silently reset it.
+ *
+ * THE ATTACHMENT RULE IS THE SERVER'S, MIRRORED — see `components/org/dossiers`
+ * for the whole argument. There is no person id on a run; the only join is the
+ * name in the title, and both ends compare it the same way.
  */
 export function Subagent() {
   const { slug, role = "" } = useParams();
   const { state } = useStore();
+  const navigate = useNavigate();
 
   /*
     THE STORE IS A SHORTCUT HERE, NOT THE SOURCE. Its venture list is a cache
@@ -130,6 +176,36 @@ export function Subagent() {
   const kinds = useApi(() => runsApi.list({ limit: 1 }), []);
   const kind = kinds.data?.kinds.find((k) => k.kind === sa?.kind) ?? null;
 
+  /* ----------------------------------------------------------- watchlist */
+
+  /**
+   * ONLY THE PEOPLE ANALYST HAS A WATCHLIST, and it is asked for by the
+   * worker's own role rather than by the address. /team/people is where it
+   * lives today; the fact that makes the watchlist the right rail is that this
+   * worker reports on PEOPLE, which is what `role === "people"` says.
+   */
+  const watchlisted = sa?.role === "people" && sa.portfolio;
+  const watch = useApi(
+    () => (watchlisted ? peopleApi.watch() : Promise.resolve(null)),
+    [watchlisted],
+  );
+  const watchReload = watch.reload;
+  const people = useMemo(() => watch.data?.people ?? [], [watch.data]);
+
+  /* WHICH PERSON IS OPEN, FROM THE URL. `?person=` absent is "everyone", and
+     the reserved `unfiled` is the pile of runs that name nobody on the list. */
+  const [params, setParams] = useSearchParams();
+  const chosen = watchlisted ? params.get("person") : null;
+  const person = people.find((p) => p.id === chosen) ?? null;
+  const onUnfiled = chosen === UNFILED;
+
+  function choose(id: string | null) {
+    const next = new URLSearchParams(params);
+    if (id) next.set("person", id);
+    else next.delete("person");
+    setParams(next);
+  }
+
   /*
     POLLED, LIKE THE RUN PAGES, and for their reason: the report is flushed to
     the row as it grows, so asking every second and a half while something is
@@ -149,6 +225,21 @@ export function Subagent() {
     };
   }, [live, reload]);
 
+  /* THE WATCHLIST IS ON THE SAME CLOCK, because a card's "Writing…" and the
+     report growing under it are two views of one run, and two clocks would
+     have them disagree for eight and a half seconds at a time. */
+  const watchLive = people.some((p) => p.dossiers.running || p.dossiers.queued > 0);
+  useEffect(() => {
+    if (!watchlisted) return;
+    const t = setInterval(watchReload, watchLive || live ? 1500 : 10_000);
+    const now = () => watchReload();
+    window.addEventListener(WORK_CHANGED, now);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(WORK_CHANGED, now);
+    };
+  }, [watchlisted, watchLive, live, watchReload]);
+
   /* ------------------------------------------------------------ settings */
 
   /**
@@ -165,9 +256,18 @@ export function Subagent() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  /* Open by choice, or by default when there is nothing else to look at. */
-  const [settings, setSettings] = useState<boolean | null>(null);
-  const settingsOpen = settings ?? (!!sa && sa.transcript.length === 0);
+  /* SHUT UNTIL IT IS ASKED FOR. No "open when there is nothing to read" rule:
+     a page whose first screen is a form about the worker's NAME buries the box
+     that gives the worker work. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSettingsOpen(false);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [settingsOpen]);
 
   /* ------------------------------------------------------------ composer */
 
@@ -175,6 +275,18 @@ export function Subagent() {
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  /* --------------------------------------------------- the person's form */
+
+  /** Null is closed; `{ editing: null }` is adding; `{ editing: p }` is
+   *  editing p. One piece of state, because the form is one form. */
+  const [editor, setEditor] = useState<{ editing: WatchPerson | null } | null>(null);
+  const [personSaving, setPersonSaving] = useState(false);
+  const [personProblem, setPersonProblem] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  /** Which cards have had their button pressed and not yet heard back. Not the
+   *  same as the server's `running`: this covers the second in between. */
+  const [asking, setAsking] = useState<Set<string>>(new Set());
 
   /* ---------------------------------------------------------- the scroll */
 
@@ -184,12 +296,65 @@ export function Subagent() {
      reader who has scrolled up must not drag them along with it. */
   const stuck = useRef(true);
   const transcript = sa?.transcript ?? [];
-  const last = transcript[transcript.length - 1];
-  const growth = `${transcript.length}:${last?.output.length ?? 0}:${last?.run.status ?? ""}`;
+  const runs = sa?.runs ?? [];
+
+  /**
+   * WHOSE EXCHANGES ARE ON SCREEN. Everything, one person's, or the ones that
+   * name nobody being watched — and "nobody" is only sayable once the list has
+   * arrived, so before it does nothing is unfiled rather than everything.
+   */
+  const listed = !!watch.data;
+  /** The watchlist's default view is the CARDS, not a conversation — so on it
+   *  the only transcript that has anywhere else to be is the unfiled one. */
+  const everyone = watchlisted && !person && !onUnfiled;
+  const unattached = (title: string) => !people.some((p) => attaches(title, p.name));
+  const shown = person
+    ? transcript.filter((x) => attaches(x.run.title, person.name))
+    : watchlisted
+      ? /* NOTHING IS UNFILED UNTIL THE LIST HAS ARRIVED. Filtering against an
+           empty watchlist would put every dossier under "naming nobody on the
+           list" for the half second before the read lands, which is a
+           statement about the owner's list rather than a loading state. */
+        listed
+        ? transcript.filter((x) => unattached(x.run.title))
+        : []
+      : transcript;
+  const unfiledRuns = watchlisted && listed ? runs.filter((r) => unattached(r.title)) : [];
+  /** Watched by nobody, and the read has come back to prove it. */
+  const emptyList = everyone && listed && people.length === 0;
+  /** The form as drawn: whatever was opened, or the new-person one standing
+   *  open under the explanation when there is nobody on the list at all. */
+  const opened = editor ?? (emptyList ? { editing: null } : null);
+
+  const last = shown[shown.length - 1];
+  const growth = `${chosen ?? ""}:${shown.length}:${last?.output.length ?? 0}:${last?.run.status ?? ""}`;
   useEffect(() => {
     const el = scroller.current;
     if (el && stuck.current) el.scrollTop = el.scrollHeight;
-  }, [growth, settingsOpen]);
+  }, [growth]);
+
+  /* THE RAIL'S CLICK, WHEN THE RUN IS ON THIS PAGE. A ring for a second and a
+     half, because a page that silently jumped 4000px leaves the reader
+     hunting for what moved. The timer is held so a second click restarts it
+     rather than being cut short by the first one's cleanup. */
+  const [flash, setFlash] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+  }, []);
+
+  function pick(run: RunSummary) {
+    const here = transcript.some((x) => x.run.id === run.id);
+    if (!here) {
+      navigate(runAddress(run));
+      return;
+    }
+    stuck.current = false;
+    document.getElementById(`exchange-${run.id}`)?.scrollIntoView({ block: "center" });
+    setFlash(run.id);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 1500);
+  }
 
   /* Only once the answer is in: "there is nobody here" is a claim about the
      whole org, and until the read has finished this page does not know it.
@@ -257,6 +422,13 @@ export function Subagent() {
     to the run's report; this one is where the report is read, so the brief
     goes into the transcript on the right and the reply grows under it. The
     rail's badge is told the same way the chat tells it.
+
+    WITH A PERSON OPEN, THE NAME GOES ON THE FIRST LINE, and that is what makes
+    the run come back to this page rather than to the unfiled pile. The server
+    titles a dossier from the brief's first line; the typed text is the focus,
+    on its own paragraph underneath. The owner does not have to know that — the
+    placeholder asks what the dossier should look INTO, not who it is about,
+    because the who is already on screen.
   */
   async function send() {
     if (!sa || !canSend) return;
@@ -265,15 +437,76 @@ export function Subagent() {
     setSending(true);
     setProblem(null);
     try {
-      await subagentApi.dispatch(sa.id, { brief: text });
+      await subagentApi.dispatch(sa.id, {
+        brief: person ? `${person.name}\n\n${text}` : text,
+      });
       setBrief("");
       stuck.current = true;
       reload();
+      if (watchlisted) watchReload();
       window.dispatchEvent(new Event(WORK_CHANGED));
     } catch (e) {
       setProblem(e instanceof Error ? e.message : String(e));
     } finally {
       setSending(false);
+    }
+  }
+
+  /** The standard profile, asked for by the server so the title is exactly
+   *  what the attachment rule expects. Nothing is typed and nothing needs to
+   *  be: "write a dossier on this person" is the whole brief. */
+  async function writeDossier(p: WatchPerson, focus?: string) {
+    setAsking((was) => new Set(was).add(p.id));
+    setProblem(null);
+    try {
+      await peopleApi.dossierFor(p.id, focus);
+      stuck.current = true;
+      reload();
+      watchReload();
+      window.dispatchEvent(new Event(WORK_CHANGED));
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAsking((was) => {
+        const next = new Set(was);
+        next.delete(p.id);
+        return next;
+      });
+    }
+  }
+
+  async function savePerson(input: WatchInput) {
+    if (!editor) return;
+    setPersonSaving(true);
+    setPersonProblem(null);
+    try {
+      const target = editor.editing;
+      const kept = target
+        ? await peopleApi.updateWatch(target.id, input)
+        : await peopleApi.addWatch(input);
+      setEditor(null);
+      watchReload();
+      choose(kept.id);
+    } catch (e) {
+      setPersonProblem(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPersonSaving(false);
+    }
+  }
+
+  /** Off the list, not out of the record: the dossiers already written stay
+   *  and reappear as unfiled. */
+  async function removePerson(p: WatchPerson) {
+    setRemoving(true);
+    setPersonProblem(null);
+    try {
+      await peopleApi.removeWatch(p.id);
+      choose(null);
+      watchReload();
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -287,6 +520,7 @@ export function Subagent() {
     try {
       await runsApi.cancel(held.run.id);
       reload();
+      if (watchlisted) watchReload();
       window.dispatchEvent(new Event(WORK_CHANGED));
     } catch (e) {
       setProblem(e instanceof Error ? e.message : String(e));
@@ -296,14 +530,22 @@ export function Subagent() {
   }
 
   const canSend = !!sa && sa.enabled && !live && !sending;
+  /** THE EMPTY BOX IS AN OFFER, not a dead button. With a person open and
+   *  nothing typed, the one thing to do is the standard profile — so the send
+   *  arrow becomes the sentence that says so. */
+  const offerDossier = !!person && !brief.trim();
   const placeholder = !sa
     ? ""
     : !sa.enabled
       ? "Switched off. Turn it on in settings to give it work."
       : live
         ? `${sa.name} is on the last brief. The box opens again when the report is in.`
-        : briefHint(sa.role, venture?.name ?? "this venture");
+        : briefHint(sa.role, venture?.name ?? "this venture", person?.name ?? null);
 
+  const openForm = () => {
+    setPersonProblem(null);
+    setEditor({ editing: null });
+  };
 
   return (
     <>
@@ -348,6 +590,22 @@ export function Subagent() {
               <RoleIcon role={role} className="text-muted-foreground size-3.5" />
               {sa?.name ?? "…"}
             </span>
+            {/* WHO IS OPEN, IN THE BAR, because the transcript below is
+                narrowed and a filter nobody can see is a page that looks
+                broken. It is a crumb rather than a chip: pressing it is how
+                you get back to everyone. */}
+            {person && (
+              <>
+                <span className="text-muted-foreground text-[13.5px]">/</span>
+                <button
+                  onClick={() => choose(null)}
+                  title="Back to everyone"
+                  className="text-muted-foreground hover:text-foreground px-2 py-1 text-[13.5px]"
+                >
+                  {person.name}
+                </button>
+              </>
+            )}
           </>
         )}
         <div className="ml-auto flex items-center gap-0.5">
@@ -361,9 +619,10 @@ export function Subagent() {
               Nothing stands in for it. */}
           {!portfolio && venture && <StagePill stage={venture.stage} />}
           <button
-            onClick={() => setSettings(!settingsOpen)}
+            onClick={() => setSettingsOpen(!settingsOpen)}
             title={settingsOpen ? "Hide settings" : "Who this is, and its standing instructions"}
             aria-pressed={settingsOpen}
+            aria-expanded={settingsOpen}
             className={cn(
               "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg p-2",
               settingsOpen && "bg-accent text-foreground",
@@ -380,233 +639,406 @@ export function Subagent() {
         </div>
       </header>
 
-      {/* --------------------------------------------------- transcript */}
-      <section
-        ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-        }}
-        className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-6"
-      >
-        <div className="w-full max-w-[760px]">
-          {detail.error && (
-            <div className="border-line-strong bg-card mb-5 rounded-[14px] border px-4.5 py-3.5 text-[13.5px]">
-              <span className="font-medium">This worker could not be read.</span>{" "}
-              <span className="text-muted-foreground">{detail.error}</span>
-            </div>
-          )}
-          {!sa && !detail.error && (
-            <p className="text-muted-foreground text-[13.5px]">
-              {detail.loading ? "Looking them up…" : "Nothing came back."}
-            </p>
-          )}
+      {/*
+        THE FRAME. `relative` because the settings drawer is positioned inside
+        it rather than over the whole window — it belongs to this page, not to
+        the app — and `overflow-hidden` because a panel parked at
+        `translate-x-full` is 340px of content sitting off the right edge, and
+        without this the page would scroll sideways to reach it.
+      */}
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        {/* --------------------------------------------------- the rail */}
+        {sa &&
+          (venture || portfolio) &&
+          (watchlisted ? (
+            <WatchRail
+              people={people}
+              current={chosen}
+              unfiled={unfiledRuns.length}
+              loading={watch.loading && !watch.data}
+              onPick={choose}
+              onAdd={openForm}
+            />
+          ) : (
+            <RunRail
+              name={sa.name}
+              runs={runs}
+              /* The brief's first line names the run better than a title that
+                 is only "<Kind> — <venture>" — the rail would otherwise read
+                 the venture's name on every row. */
+              label={(run) => {
+                const brief = transcript.find((x) => x.run.id === run.id)?.brief.trim();
+                const first = brief?.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
+                return first ? (first.length > 64 ? `${first.slice(0, 63).trimEnd()}…` : first) : null;
+              }}
+              inTranscript={(id) => transcript.some((x) => x.run.id === id)}
+              onPick={pick}
+            />
+          ))}
 
-          {sa && (venture || portfolio) && (
-            <>
-              {/*
-                WHO IS ANSWERING, SAID FIRST. The page borrows the chat's
-                shape, and the one thing that shape would otherwise imply is
-                that the Chief of Staff is on the other end. It is not.
-              */}
-              <h1 className="mb-1.5 text-[27px] font-normal tracking-[-0.025em]">
-                {sa.name}.{" "}
-                <span className="text-muted-foreground">
-                  {portfolio
-                    ? `${sa.title}, for no venture in particular.`
-                    : `${sa.title} for ${venture!.name}.`}
-                </span>
-              </h1>
-              <p className="text-muted-foreground mb-6 text-[14.5px]">
-                {portfolio ? (
-                  <>
-                    This is {sa.name}, not the chief of staff. It belongs to no
-                    venture. Every message you send here is a brief naming a
-                    person, and every reply is one whole{" "}
-                    {kind?.name ?? sa.kind} run. {kind?.what ?? ""}
-                  </>
-                ) : (
-                  <>
-                    This is {sa.name}, not the chief of staff. Every message you
-                    send here is a brief, and every reply is one whole{" "}
-                    {kind?.name ?? sa.kind} run. {kind?.what ?? ""}
-                  </>
-                )}
-              </p>
-
-              {settingsOpen && form && (
-                <SettingsPanel
-                  sa={sa}
-                  /* WHAT THE NAME BOX WOULD SAY IF IT WERE EMPTY — the
-                     server's own default name. A venture's worker is
-                     "<Venture> SEO Analyst"; a portfolio worker is its title
-                     and nothing else, because there is no venture to put in
-                     front of it. */
-                  namePlaceholder={
-                    portfolio ? sa.title : `${venture!.name} ${sa.title}`
-                  }
-                  /* Same reason: "always know about the venture" is an
-                     instruction to a worker that has one. */
-                  instructionsPlaceholder={
-                    portfolio
-                      ? "Anything this worker should always know about who you watch, what counts as a signal, or the house style."
-                      : "Anything this worker should always know about the venture, the audience or the house style."
-                  }
-                  form={form}
-                  dirty={dirty}
-                  saving={saving}
-                  saved={saved}
-                  onChange={setEdit}
-                  onSave={() =>
-                    void save({
-                      name: form.name.trim(),
-                      title: form.title.trim(),
-                      instructions: form.instructions,
-                    })
-                  }
-                  onSwitch={(on) => void save({ enabled: on })}
-                />
+        {/* ------------------------------------------------ the middle */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <section
+            ref={scroller}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+            }}
+            className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pt-6"
+          >
+            <div className="w-full max-w-[760px]">
+              {detail.error && (
+                <div className="border-line-strong bg-card mb-5 rounded-[14px] border px-4.5 py-3.5 text-[13.5px]">
+                  <span className="font-medium">This worker could not be read.</span>{" "}
+                  <span className="text-muted-foreground">{detail.error}</span>
+                </div>
+              )}
+              {!sa && !detail.error && (
+                <p className="text-muted-foreground text-[13.5px]">
+                  {detail.loading ? "Looking them up…" : "Nothing came back."}
+                </p>
               )}
 
-              {transcript.length === 0 ? (
-                <p className="text-muted-foreground mb-6 text-[13.5px]">
-                  {portfolio ? (
+              {sa && (venture || portfolio) && (
+                <>
+                  {person ? (
+                    <PersonHeader
+                      /* KEYED, so an armed "Really remove" does not survive a
+                         switch to somebody else. A confirm that crosses people
+                         is the one way this button deletes the wrong one. */
+                      key={person.id}
+                      person={person}
+                      removing={removing}
+                      onEdit={() => {
+                        setPersonProblem(null);
+                        setEditor({ editing: person });
+                      }}
+                      onRemove={() => void removePerson(person)}
+                    />
+                  ) : onUnfiled ? (
                     <>
-                      Nothing yet. Nobody has given {sa.name} a brief and no{" "}
-                      {kind?.name ?? sa.kind} run has been started from the
-                      app. The box below is where that changes.
+                      <h1 className="mb-1.5 text-[20px] font-normal tracking-[-0.02em]">
+                        Unfiled dossiers
+                      </h1>
+                      <p className="text-muted-foreground mb-6 text-[14px]">
+                        {unfiledRuns.length} {unfiledRuns.length === 1 ? "run" : "runs"}{" "}
+                        naming somebody who is not on the watchlist — written
+                        before the list existed, or about somebody since taken
+                        off it. Adding that person puts their file back together.
+                      </p>
                     </>
                   ) : (
                     <>
-                      Nothing yet. Nobody has given {sa.name} a brief and no{" "}
-                      {kind?.name ?? sa.kind} run has been started from the app
-                      with {venture!.name} chosen. The box below is where that
-                      changes.
+                      {/*
+                        WHO IS ANSWERING, SAID FIRST. The page borrows the
+                        chat's shape, and the one thing that shape would
+                        otherwise imply is that the Chief of Staff is on the
+                        other end. It is not.
+                      */}
+                      <h1 className="mb-1.5 text-[27px] font-normal tracking-[-0.025em]">
+                        {sa.name}.{" "}
+                        <span className="text-muted-foreground">
+                          {portfolio
+                            ? `${sa.title}, for no venture in particular.`
+                            : `${sa.title} for ${venture!.name}.`}
+                        </span>
+                      </h1>
+                      <p className="text-muted-foreground mb-6 text-[14.5px]">
+                        {watchlisted ? (
+                          <>
+                            This is {sa.name}, not the chief of staff. It belongs
+                            to no venture. Everyone below is somebody you are
+                            watching, and every dossier is one whole{" "}
+                            {kind?.name ?? sa.kind} run. {kind?.what ?? ""}
+                          </>
+                        ) : portfolio ? (
+                          <>
+                            This is {sa.name}, not the chief of staff. It belongs
+                            to no venture. Every message you send here is a brief
+                            naming a person, and every reply is one whole{" "}
+                            {kind?.name ?? sa.kind} run. {kind?.what ?? ""}
+                          </>
+                        ) : (
+                          <>
+                            This is {sa.name}, not the chief of staff. Every
+                            message you send here is a brief, and every reply is
+                            one whole {kind?.name ?? sa.kind} run.{" "}
+                            {kind?.what ?? ""}
+                          </>
+                        )}
+                      </p>
                     </>
                   )}
-                </p>
-              ) : (
-                <div className="flex flex-col gap-5 pb-2">
-                  {sa.runs.length > transcript.length && (
-                    <p className="text-muted-foreground text-center text-[12.5px]">
-                      The last {transcript.length} of {sa.runs.length} runs.
-                      The rest are on{" "}
-                      <Link
-                        to={appPage(appForKind(sa.kind))}
-                        className="hover:text-foreground underline"
-                      >
-                        the {kind?.name ?? sa.kind} page
-                      </Link>
-                      .
-                    </p>
-                  )}
-                  {transcript.map((x) => (
-                    <ExchangeView
-                      key={x.run.id}
-                      x={x}
-                      sa={sa}
-                      busy={stopping}
-                      onStop={() => void stop()}
-                    />
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </section>
 
-      {/* ----------------------------------------------------- composer */}
-      <div className="flex shrink-0 justify-center px-6 pt-5 pb-5.5">
-        <div className="w-full max-w-[760px]">
-          <div
-            className={cn(
-              "bg-card rounded-[18px] px-4 pt-3 pb-2 transition-colors",
-              /* No opacity on the box itself: the disabled textarea already
-                 fades, and two stacked opacity layers paint a visible seam
-                 across the lower row. */
-              canSend && "hover:bg-card-hover focus-within:bg-card-hover",
-            )}
-          >
-            <Textarea
-              ref={inputRef}
-              aria-label="Brief"
-              value={brief}
-              disabled={!canSend}
-              onChange={(e) => setBrief(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              placeholder={placeholder}
-              className="max-h-[200px] min-h-[46px] resize-none border-0 bg-transparent p-0 px-1.5 shadow-none hover:bg-transparent focus-visible:ring-0 disabled:cursor-not-allowed dark:bg-transparent"
-            />
-            {problem && (
-              <p role="alert" className="text-destructive p-1 text-xs">
-                {problem}
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-0.5 pt-1">
-              {/* THE OTHER WAY TO ASK, and it is not a lesser one. The chief
-                  of staff can dispatch this same worker mid-conversation and
-                  file the run under the chat that asked for it. */}
-              {sa && (venture || portfolio) && (
-                <Link
-                  /* `?venture=` scopes the chat to the business this worker
-                     belongs to. A portfolio worker belongs to none, so the
-                     parameter is left OFF rather than sent empty — an empty
-                     one would read as "no venture chosen" on a page that
-                     otherwise falls back to the workspace default. */
-                  to={
-                    portfolio
-                      ? `/?q=${encodeURIComponent(`Ask ${sa.name} to `)}`
-                      : `/?venture=${encodeURIComponent(venture!.id)}&q=${encodeURIComponent(`Ask ${sa.name} to `)}`
-                  }
-                  className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
-                >
-                  <MessageSquare className="size-[15px]" strokeWidth={1.6} />
-                  Ask the chief of staff instead
-                </Link>
-              )}
-              {/*
-                SEND BECOMES STOP, IN THE SAME PLACE — the chat's own swap.
-                While a run holds the composer the only thing to do with it
-                is stop it, and stopping keeps whatever it had written.
-              */}
-              {live ? (
-                <button
-                  onClick={() => void stop()}
-                  disabled={stopping}
-                  title="Stop the run in flight"
-                  className="bg-primary text-primary-foreground ml-auto grid size-7 place-items-center rounded-lg disabled:opacity-50"
-                >
-                  <Square className="size-3 fill-current" strokeWidth={2} />
-                </button>
-              ) : (
-                <button
-                  onClick={() => void send()}
-                  disabled={!canSend || !brief.trim()}
-                  title="Send the brief"
-                  className={cn(
-                    "bg-primary text-primary-foreground ml-auto grid size-7 place-items-center rounded-lg transition-opacity",
-                    canSend && brief.trim() ? "opacity-100" : "pointer-events-none opacity-25",
+                  {/* ----------------------------- the watchlist's own view */}
+                  {everyone && (
+                    <div className="mb-6">
+                      {emptyList ? (
+                        /* NOT "no runs yet". The list is the thing that is
+                           empty, and what to do about it is a sentence rather
+                           than a shrug — so the form is directly under it
+                           instead of behind a button that opens one. */
+                        <div className="bg-card mb-5 rounded-[14px] p-4.5">
+                          <p className="text-[14px]">Nobody is on the list yet.</p>
+                          <p className="text-muted-foreground mt-1.5 text-[13.5px]">
+                            Add a person of interest — a founder, a customer, a
+                            correspondent — and the People Analyst writes a
+                            sourced dossier on them; re-runs open with what
+                            changed.
+                          </p>
+                        </div>
+                      ) : (
+                        <PersonGrid
+                          people={people}
+                          busy={asking}
+                          onOpen={choose}
+                          onWrite={(p) => void writeDossier(p)}
+                          onAdd={openForm}
+                        />
+                      )}
+                    </div>
                   )}
-                >
-                  <ArrowUp className="size-4" strokeWidth={2} />
-                </button>
+
+                  {/* THE FORM, WHEREVER IT WAS OPENED FROM. Keyed on who is
+                      being edited so re-opening it on somebody else starts
+                      from their fields rather than the last person's. On an
+                      empty list it is open with no way to shut it, because
+                      there is nothing behind it to go back to. */}
+                  {opened && (
+                    <PersonForm
+                      key={opened.editing?.id ?? "new"}
+                      person={opened.editing}
+                      saving={personSaving}
+                      problem={personProblem}
+                      onCancel={emptyList ? null : () => setEditor(null)}
+                      onSave={(input) => void savePerson(input)}
+                    />
+                  )}
+
+                  {/* THE PILE THAT BELONGS TO NOBODY, under the cards and said
+                      out loud rather than dropped. Only the ones whose reports
+                      are actually on this page get a heading — a count of runs
+                      with nothing under it would be a promise this page cannot
+                      keep. */}
+                  {everyone && shown.length > 0 && (
+                    <div className="mb-2 flex items-baseline gap-2">
+                      <h2 className="text-[14px] font-medium">Unfiled dossiers</h2>
+                      <span className="text-muted-foreground text-[12.5px]">
+                        {unfiledRuns.length === shown.length
+                          ? `${unfiledRuns.length} naming nobody on the list`
+                          : `the ${shown.length} most recent of ${unfiledRuns.length} naming nobody on the list`}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* ---------------------------------------- the transcript */}
+                  {everyone && shown.length === 0 ? null : shown.length === 0 ? (
+                    <EmptyTranscript
+                      sa={sa}
+                      kindName={kind?.name ?? sa?.kind ?? "run"}
+                      portfolio={portfolio}
+                      ventureName={venture?.name ?? null}
+                      person={person}
+                      onUnfiled={onUnfiled}
+                    />
+                  ) : (
+                    <div className="flex flex-col gap-5 pb-2">
+                      {!watchlisted && runs.length > transcript.length && (
+                        <p className="text-muted-foreground text-center text-[12.5px]">
+                          The last {transcript.length} of {runs.length} runs. The
+                          rail has all of them; the reports for the rest are on{" "}
+                          <Link
+                            to={appPage(appForKind(sa.kind))}
+                            className="hover:text-foreground underline"
+                          >
+                            the {kind?.name ?? sa.kind} page
+                          </Link>
+                          .
+                        </p>
+                      )}
+                      {shown.map((x) => (
+                        <ExchangeView
+                          key={x.run.id}
+                          x={x}
+                          sa={sa}
+                          busy={stopping}
+                          flash={flash === x.run.id}
+                          onStop={() => void stop()}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
+          </section>
+
+          {/* ------------------------------------------------- composer */}
+          <div className="flex shrink-0 justify-center px-6 pt-5 pb-5.5">
+            <div className="w-full max-w-[760px]">
+              <div
+                className={cn(
+                  "bg-card rounded-[18px] px-4 pt-3 pb-2 transition-colors",
+                  /* No opacity on the box itself: the disabled textarea already
+                     fades, and two stacked opacity layers paint a visible seam
+                     across the lower row. */
+                  canSend && "hover:bg-card-hover focus-within:bg-card-hover",
+                )}
+              >
+                <Textarea
+                  ref={inputRef}
+                  aria-label="Brief"
+                  value={brief}
+                  disabled={!canSend}
+                  onChange={(e) => setBrief(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  placeholder={placeholder}
+                  className="max-h-[200px] min-h-[46px] resize-none border-0 bg-transparent p-0 px-1.5 shadow-none hover:bg-transparent focus-visible:ring-0 disabled:cursor-not-allowed dark:bg-transparent"
+                />
+                {problem && (
+                  <p role="alert" className="text-destructive p-1 text-xs">
+                    {problem}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-0.5 pt-1">
+                  {/* THE OTHER WAY TO ASK, and it is not a lesser one. The chief
+                      of staff can dispatch this same worker mid-conversation and
+                      file the run under the chat that asked for it. */}
+                  {sa && (venture || portfolio) && (
+                    <Link
+                      /* `?venture=` scopes the chat to the business this worker
+                         belongs to. A portfolio worker belongs to none, so the
+                         parameter is left OFF rather than sent empty — an empty
+                         one would read as "no venture chosen" on a page that
+                         otherwise falls back to the workspace default. */
+                      to={
+                        portfolio
+                          ? `/?q=${encodeURIComponent(`Ask ${sa.name} to `)}`
+                          : `/?venture=${encodeURIComponent(venture!.id)}&q=${encodeURIComponent(`Ask ${sa.name} to `)}`
+                      }
+                      className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
+                    >
+                      <MessageSquare className="size-[15px]" strokeWidth={1.6} />
+                      Ask the chief of staff instead
+                    </Link>
+                  )}
+                  {/*
+                    SEND BECOMES STOP, IN THE SAME PLACE — the chat's own swap.
+                    While a run holds the composer the only thing to do with it
+                    is stop it, and stopping keeps whatever it had written.
+                  */}
+                  {live ? (
+                    <button
+                      onClick={() => void stop()}
+                      disabled={stopping}
+                      title="Stop the run in flight"
+                      className="bg-primary text-primary-foreground ml-auto grid size-7 place-items-center rounded-lg disabled:opacity-50"
+                    >
+                      <Square className="size-3 fill-current" strokeWidth={2} />
+                    </button>
+                  ) : offerDossier ? (
+                    <Button
+                      size="sm"
+                      className="ml-auto"
+                      disabled={!canSend || asking.has(person!.id)}
+                      onClick={() => void writeDossier(person!)}
+                    >
+                      {asking.has(person!.id) ? "Asking…" : "Write a dossier"}
+                    </Button>
+                  ) : (
+                    <button
+                      onClick={() => void send()}
+                      disabled={!canSend || !brief.trim()}
+                      title="Send the brief"
+                      className={cn(
+                        "bg-primary text-primary-foreground ml-auto grid size-7 place-items-center rounded-lg transition-opacity",
+                        canSend && brief.trim() ? "opacity-100" : "pointer-events-none opacity-25",
+                      )}
+                    >
+                      <ArrowUp className="size-4" strokeWidth={2} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="text-muted-foreground mt-2.5 text-center text-[12.5px]">
+                {sa
+                  ? live
+                    ? `${sa.name} is busy. One run at a time on this box, and a second brief for the same worker would only queue behind it.`
+                    : person
+                      ? `Filed under ${person.name}: the name goes on the first line of the brief, which is what puts the dossier in their file.`
+                      : `${sa.name} answers with a report, not a turn. It takes minutes, queues like everything else, and carries on with this tab shut.`
+                  : " "}
+              </p>
+            </div>
           </div>
-          <p className="text-muted-foreground mt-2.5 text-center text-[12.5px]">
-            {sa
-              ? live
-                ? `${sa.name} is busy. One run at a time on this box, and a second brief for the same worker would only queue behind it.`
-                : `${sa.name} answers with a report, not a turn. It takes minutes, queues like everything else, and carries on with this tab shut.`
-              : " "}
-          </p>
         </div>
+
+        {/* -------------------------------------------- settings drawer */}
+        <aside
+          aria-hidden={!settingsOpen}
+          inert={!settingsOpen || undefined}
+          aria-label="Worker settings"
+          className={cn(
+            "bg-sidebar border-line-soft absolute inset-y-0 right-0 z-20 flex w-[340px] max-w-full flex-col border-l shadow-lg transition-transform duration-300 ease-out",
+            settingsOpen ? "translate-x-0" : "translate-x-full",
+          )}
+        >
+          <div className="border-line-soft flex shrink-0 items-center gap-2 border-b px-4 py-3">
+            <Settings2 className="text-muted-foreground size-3.5" strokeWidth={1.6} />
+            <h2 className="text-[14px] font-medium">Who this is</h2>
+            <button
+              onClick={() => setSettingsOpen(false)}
+              aria-label="Close settings"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto rounded-lg p-1.5"
+            >
+              <X className="size-3.5" strokeWidth={1.6} />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            {sa && form ? (
+              <SettingsPanel
+                sa={sa}
+                /* WHAT THE NAME BOX WOULD SAY IF IT WERE EMPTY — the
+                   server's own default name. A venture's worker is
+                   "<Venture> SEO Analyst"; a portfolio worker is its title
+                   and nothing else, because there is no venture to put in
+                   front of it. */
+                namePlaceholder={
+                  portfolio ? sa.title : `${venture?.name ?? ""} ${sa.title}`.trim()
+                }
+                /* Same reason: "always know about the venture" is an
+                   instruction to a worker that has one. */
+                instructionsPlaceholder={
+                  portfolio
+                    ? "Anything this worker should always know about who you watch, what counts as a signal, or the house style."
+                    : "Anything this worker should always know about the venture, the audience or the house style."
+                }
+                form={form}
+                dirty={dirty}
+                saving={saving}
+                saved={saved}
+                onChange={setEdit}
+                onSave={() =>
+                  void save({
+                    name: form.name.trim(),
+                    title: form.title.trim(),
+                    instructions: form.instructions,
+                  })
+                }
+                onSwitch={(on) => void save({ enabled: on })}
+              />
+            ) : (
+              <p className="text-muted-foreground text-[13.5px]">
+                Nothing to configure until the worker has been read.
+              </p>
+            )}
+          </div>
+        </aside>
       </div>
     </>
   );
@@ -615,21 +1047,111 @@ export function Subagent() {
 /* ------------------------------------------------------------- pieces */
 
 /**
+ * NOTHING TO READ, AND THE REASON WHY.
+ *
+ * Five different emptinesses used to be one sentence. A worker nobody has
+ * briefed, a person nobody has written about, a person whose dossiers are
+ * older than the last twenty runs, an unfiled view with nothing in it and a
+ * filter that matched none of them are five different situations, and the
+ * middle one — "there are three, they are just not on this page" — is the one
+ * that reads as data loss if it is drawn as "nothing yet".
+ */
+function EmptyTranscript({
+  sa,
+  kindName,
+  portfolio,
+  ventureName,
+  person,
+  onUnfiled,
+}: {
+  sa: SubagentDetail;
+  kindName: string;
+  portfolio: boolean;
+  ventureName: string | null;
+  person: WatchPerson | null;
+  onUnfiled: boolean;
+}) {
+  if (person)
+    return (
+      <p className="text-muted-foreground mb-6 text-[13.5px]">
+        {person.dossiers.count > 0 ? (
+          <>
+            {person.dossiers.count === 1
+              ? "The one dossier on"
+              : `All ${person.dossiers.count} dossiers on`}{" "}
+            {person.name} are older than {sa.name}'s last twenty runs, so the
+            reports are not on this page. They are on{" "}
+            <Link
+              to={appPage(appForKind(sa.kind))}
+              className="hover:text-foreground underline"
+            >
+              the {kindName} page
+            </Link>
+            . The box below writes a new one.
+          </>
+        ) : (
+          <>
+            No dossier on {person.name} yet. The box below writes the first one —
+            leave it empty for the standard profile, or say what it should look
+            into.
+          </>
+        )}
+      </p>
+    );
+
+  if (onUnfiled)
+    return (
+      <p className="text-muted-foreground mb-6 text-[13.5px]">
+        None of those runs are among {sa.name}'s last twenty, so their reports
+        are not on this page. They are on{" "}
+        <Link to={appPage(appForKind(sa.kind))} className="hover:text-foreground underline">
+          the {kindName} page
+        </Link>
+        .
+      </p>
+    );
+
+  return (
+    <p className="text-muted-foreground mb-6 text-[13.5px]">
+      {portfolio ? (
+        <>
+          Nothing yet. Nobody has given {sa.name} a brief and no {kindName} run
+          has been started from the app. The box below is where that changes.
+        </>
+      ) : (
+        <>
+          Nothing yet. Nobody has given {sa.name} a brief and no {kindName} run
+          has been started from the app with {ventureName} chosen. The box below
+          is where that changes.
+        </>
+      )}
+    </p>
+  );
+}
+
+/**
  * ONE BRIEF AND ITS REPORT. The owner's words on the right, exactly as typed —
  * plain text, not markdown, for the chat's reason: a person who types `*`
  * means an asterisk. The worker's report on the left, rendered, with the
  * board-suggestions fence taken off the end because those are filed from the
  * run's own page and a raw JSON block at the foot of a reply is noise.
+ *
+ * IT CARRIES ITS RUN'S ID AS A DOM ID, which is what lets the rail scroll to
+ * it. A ref map would be the tidier React and would have to be threaded
+ * through two components to reach a click handler that already knows the id.
  */
 function ExchangeView({
   x,
   sa,
   busy,
+  flash,
   onStop,
 }: {
   x: Exchange;
   sa: SubagentDetail;
   busy: boolean;
+  /** Just arrived here from the rail. A ring for a moment, then nothing. */
+  flash: boolean;
   onStop: () => void;
 }) {
   const { run } = x;
@@ -647,7 +1169,13 @@ function ExchangeView({
         : null;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div
+      id={`exchange-${run.id}`}
+      className={cn(
+        "flex scroll-my-6 flex-col gap-3 rounded-[18px] transition-shadow duration-700",
+        flash && "ring-line-strong ring-2",
+      )}
+    >
       <div className="flex flex-col items-end">
         <div className="bg-card max-w-[85%] rounded-[16px] px-4.5 py-3 text-[14.5px] whitespace-pre-wrap">
           {x.brief || (
@@ -745,6 +1273,10 @@ function ExchangeView({
  * STANDING INSTRUCTIONS ARE PREPENDED TO EVERY BRIEF, on the server, as a
  * line that says so. They are the difference between a worker and a form:
  * "we sell to planners, not to builders" is a thing you say once.
+ *
+ * ONE COLUMN, because it lives in a 340px drawer now. The name and title used
+ * to sit side by side across a 760px card; at this width that is two boxes
+ * eleven characters wide.
  */
 function SettingsPanel({
   sa,
@@ -775,66 +1307,65 @@ function SettingsPanel({
   onSwitch: (on: boolean) => void;
 }) {
   return (
-    <section className="bg-card mb-6 rounded-[14px] p-4.5">
-      <div className="mb-3 flex items-center gap-2">
-        <Settings2 className="text-muted-foreground size-3.5" strokeWidth={1.6} />
-        <h2 className="text-[14px] font-medium">Who this is</h2>
-        {/* The switch saves ITSELF, because a switch that needs a second
-            press to mean anything is a checkbox pretending to be one. */}
-        <label className="ml-auto flex items-center gap-2">
-          <span className="text-muted-foreground text-[12.5px]">
-            {sa.enabled ? "On — will accept work" : "Off — briefs are refused"}
-          </span>
-          <Switch checked={sa.enabled} disabled={saving} onCheckedChange={onSwitch} />
-        </label>
-      </div>
+    <div>
+      {/* The switch saves ITSELF, because a switch that needs a second
+          press to mean anything is a checkbox pretending to be one. */}
+      <label className="bg-card mb-4 flex items-center gap-2 rounded-[14px] px-3.5 py-3">
+        <span className="text-muted-foreground text-[12.5px]">
+          {sa.enabled ? "On — will accept work" : "Off — briefs are refused"}
+        </span>
+        <Switch
+          className="ml-auto"
+          checked={sa.enabled}
+          disabled={saving}
+          onCheckedChange={onSwitch}
+        />
+      </label>
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-muted-foreground text-[12.5px]">Name</span>
-          <Input
-            value={form.name}
-            onChange={(e) => onChange({ ...form, name: e.target.value })}
-            placeholder={namePlaceholder}
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-muted-foreground text-[12.5px]">Title</span>
-          <Input
-            value={form.title}
-            onChange={(e) => onChange({ ...form, title: e.target.value })}
-          />
-        </label>
-      </div>
+      <label className="mb-2 flex flex-col gap-1">
+        <span className="text-muted-foreground text-[12.5px]">Name</span>
+        <Input
+          value={form.name}
+          onChange={(e) => onChange({ ...form, name: e.target.value })}
+          placeholder={namePlaceholder}
+        />
+      </label>
+      <label className="mb-2 flex flex-col gap-1">
+        <span className="text-muted-foreground text-[12.5px]">Title</span>
+        <Input
+          value={form.title}
+          onChange={(e) => onChange({ ...form, title: e.target.value })}
+        />
+      </label>
 
-      <label className="mt-2 flex flex-col gap-1">
+      <label className="flex flex-col gap-1">
         <span className="text-muted-foreground text-[12.5px]">
           Standing instructions — put in front of every brief this worker is
           given. Empty means nothing has been said, which is not the same as
           told to do nothing.
         </span>
         <Textarea
-          rows={4}
+          rows={7}
           value={form.instructions}
           onChange={(e) => onChange({ ...form, instructions: e.target.value })}
           placeholder={instructionsPlaceholder}
         />
       </label>
 
-      <div className="mt-2 flex flex-wrap items-center gap-3">
+      <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button onClick={onSave} disabled={!dirty || saving}>
           {saving ? "Saving…" : "Save"}
         </Button>
         {saved && <span className="text-muted-foreground text-[12.5px]">Saved.</span>}
       </div>
-    </section>
+    </div>
   );
 }
 
 /** A placeholder that shows the SHAPE of a brief rather than a slogan — the
  *  thing somebody stares at an empty box wondering. Per role, because what you
  *  would say to a paper writer is not what you would say to an SEO analyst. */
-function briefHint(role: string, venture: string): string {
+function briefHint(role: string, venture: string, person: string | null): string {
   switch (role) {
     case "researcher":
       return `What should ${venture}'s researcher look into? e.g. "Who is actually buying this, and what do they search for first?"`;
@@ -850,9 +1381,16 @@ function briefHint(role: string, venture: string): string {
       return `The subject of the literature search, in three to ten words — e.g. "AI coding agents with persistent project memory".`;
     /* The one role whose brief is a PERSON rather than a subject, and the
        hint says so in the first three words — the venture is not mentioned
-       because this worker has none. */
+       because this worker has none.
+
+       UNLESS SOMEBODY IS ALREADY OPEN, in which case the who is answered and
+       the only question left is the what. Asking "who is it?" over a page
+       with Jane Doe's name at the top of it would be the box ignoring the
+       page it is on. */
     case "people":
-      return `Who is it? e.g. "Jane Doe, founder of Acme — what is she building now, and has anything changed since we last spoke?"`;
+      return person
+        ? `What should the dossier look into? Leave it empty to write the standard profile.`
+        : `Who is it? e.g. "Jane Doe, founder of Acme — what is she building now, and has anything changed since we last spoke?"`;
     default:
       return `What should ${venture} have this worker do?`;
   }

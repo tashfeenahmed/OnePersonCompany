@@ -45,6 +45,22 @@ import {
   type Person,
 } from "./contacts.ts";
 import { briefRow, briefWeeks, isoWeek, writeBrief, type Figures } from "./brief.ts";
+import {
+  LINK_KEYS,
+  MAX_EMAIL,
+  MAX_LINK,
+  MAX_NAME,
+  MAX_NOTE,
+  deleteWatch,
+  dispatchDossier,
+  insertWatch,
+  updateWatch,
+  watchByName,
+  watchList,
+  watchPerson,
+  watchRow,
+  type Links,
+} from "./watch.ts";
 
 export const peopleRoutes = new Hono();
 
@@ -285,6 +301,215 @@ peopleRoutes.post("/brief", async (c) => {
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
   }
+});
+
+/* ------------------------------------------------------------ the watchlist */
+
+/**
+ * THE HAND-TYPED HALF OF THIS AREA, and it is declared HERE — above
+ * `/:address` — because "watch" would otherwise be read as an email address
+ * and answered with a 404 about a contact nobody asked for. Hono matches in
+ * declaration order, so the literal segment has to be written first; the
+ * comment above `/brief` makes the same point and this is the second case of
+ * it.
+ *
+ * Everything about the list itself is in watch.ts. What lives here is the
+ * validation, which is a decision about what the OWNER is allowed to type and
+ * therefore belongs at the door.
+ */
+
+type Bad = { error: string };
+const isBad = (v: unknown): v is Bad =>
+  typeof v === "object" && v !== null && "error" in (v as Record<string, unknown>);
+
+/** The five text columns and their caps. `note` is the only one with room for
+ *  a sentence; the rest are a line each, because a card that wraps four times
+ *  is a dossier somebody typed into the wrong box. */
+const TEXT_FIELDS = [
+  { key: "name", column: "name", max: MAX_NAME, label: "A name" },
+  { key: "company", column: "company", max: MAX_NAME, label: "The company" },
+  { key: "role", column: "role", max: MAX_NAME, label: "The role" },
+  { key: "email", column: "email", max: MAX_EMAIL, label: "The email address" },
+  { key: "note", column: "note", max: MAX_NOTE, label: "The note" },
+] as const;
+
+/**
+ * READ THE BODY, AND SAY WHICH FIELD WAS WRONG.
+ *
+ * Absent stays absent, which is what makes one reader serve both doors: a POST
+ * fills the gaps with empty strings afterwards, a PATCH writes only the
+ * columns that came. Sending a field EMPTY is a real edit — clearing a company
+ * — and is not the same as leaving it out, so "" is kept rather than skipped.
+ *
+ * THE EMAIL IS TRIMMED AND NOT VALIDATED. There is no format check because
+ * there is nothing here that sends mail: this address is a line in a brief and
+ * a thing to search on, and refusing "jane (at) acme.io" would be this box
+ * arguing with the owner about his own notes.
+ */
+function readWatchBody(body: Record<string, unknown>): Bad | { values: Record<string, string>; links?: Links } {
+  const values: Record<string, string> = {};
+  for (const f of TEXT_FIELDS) {
+    if (!(f.key in body)) continue;
+    const raw = body[f.key];
+    if (typeof raw !== "string") return { error: `${f.label} is text.` };
+    const t = raw.trim();
+    if (t.length > f.max)
+      return { error: `${f.label} is longer than ${f.max.toLocaleString()} characters.` };
+    values[f.column] = t;
+  }
+
+  if (!("links" in body) || body.links === undefined) return { values };
+  const raw = body.links;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    return { error: "links is an object of where to find them — website, github, x, linkedin, bluesky." };
+  const links: Links = {};
+  for (const key of LINK_KEYS) {
+    const v = (raw as Record<string, unknown>)[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== "string") return { error: `links.${key} is text.` };
+    const t = v.trim();
+    if (t.length > MAX_LINK) return { error: `links.${key} is longer than ${MAX_LINK} characters.` };
+    /* Empty clears it: the object stored is only the places there is
+       something to go and look at, so an empty string simply never arrives. */
+    if (t) links[key] = t;
+  }
+  /* Anything not in LINK_KEYS is dropped in silence — see watch.ts for why a
+     400 would be the worse answer during a half-deployed change. */
+  return { values, links };
+}
+
+const WATCH_DEFINITIONS = {
+  source:
+    "TYPED BY THE OWNER. Nothing collects this list and nothing refreshes it: " +
+    "a name is here because he put it here, and most of these people have " +
+    "never written to him — they will not appear in the contacts document.",
+  dossiers:
+    "Counted on the read out of the run ledger, by TITLE: a dossier run is " +
+    "titled “Dossier — <name>”, so a run attaches to a person when the name " +
+    "in the title is theirs, either exactly or followed by a comma and a " +
+    "qualifying clause. `count` is FINISHED dossiers only; a failed one is in " +
+    "`last` and is counted nowhere else.",
+  deletion:
+    "Removing somebody from the list deletes no run. The dossiers stay in the " +
+    "ledger, where they are the box's work rather than this list's property.",
+  identity:
+    "Every field but the name is optional and is exactly what he typed. An " +
+    "empty field means it was not written down — it does not mean nobody " +
+    "knows it, and a dossier brief omits the line rather than saying “unknown”.",
+};
+
+peopleRoutes.get("/watch", (c) =>
+  c.json({
+    people: watchList(),
+    definitions: WATCH_DEFINITIONS,
+  }),
+);
+
+peopleRoutes.post("/watch", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    return c.json({ error: "Send a JSON object with at least a name." }, 400);
+
+  const read = readWatchBody(body);
+  if (isBad(read)) return c.json(read, 400);
+
+  const name = read.values.name ?? "";
+  if (!name) return c.json({ error: "A name is the one thing a watch entry needs." }, 400);
+
+  /* CASE-INSENSITIVE, because the join onto the dossiers is the name: a
+     second row under a different casing would not be a duplicate on the page,
+     it would be two cards splitting one person's dossier record between
+     them. Refused rather than merged — merging would be this box deciding two
+     names are one person. */
+  const clash = watchByName(name);
+  if (clash)
+    return c.json(
+      {
+        error: `${clash.name} is already on the list.`,
+        id: clash.id,
+      },
+      409,
+    );
+
+  const row = insertWatch({
+    name,
+    company: read.values.company ?? "",
+    role: read.values.role ?? "",
+    email: read.values.email ?? "",
+    note: read.values.note ?? "",
+    links: read.links ?? {},
+  });
+  return c.json(watchPerson(row.id)!, 201);
+});
+
+peopleRoutes.patch("/watch/:id", async (c) => {
+  const id = c.req.param("id");
+  const existing = watchRow(id);
+  if (!existing) return c.json({ error: `Nobody on the watchlist has the id ${id}.` }, 404);
+
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    return c.json({ error: "Send a JSON object of the fields to change." }, 400);
+
+  const read = readWatchBody(body);
+  if (isBad(read)) return c.json(read, 400);
+
+  const changes: Record<string, string> = { ...read.values };
+  if ("name" in changes) {
+    if (!changes.name) return c.json({ error: "A watch entry cannot lose its name." }, 400);
+    const clash = watchByName(changes.name, id);
+    if (clash) return c.json({ error: `${clash.name} is already on the list.`, id: clash.id }, 409);
+  }
+  /*
+    A RENAME MOVES THE DOSSIERS, and it does so by doing nothing at all: the
+    record is computed from the title on every read, so the runs that attach
+    are whatever attaches to the NEW name. That is the honest behaviour —
+    correcting a misspelt name should find the reports written under the
+    correct one — and it is worth knowing that the old name's dossiers, if any
+    were written, stop appearing here. They are still in the ledger.
+  */
+  if (read.links !== undefined) changes.links = JSON.stringify(read.links);
+  if (!Object.keys(changes).length)
+    return c.json({ error: "Nothing to change. Send name, company, role, email, note or links." }, 400);
+
+  updateWatch(id, changes);
+  return c.json(watchPerson(id)!);
+});
+
+/** Off the list. NOT off the ledger — see `definitions.deletion`. */
+peopleRoutes.delete("/watch/:id", (c) => {
+  const id = c.req.param("id");
+  if (!watchRow(id)) return c.json({ error: `Nobody on the watchlist has the id ${id}.` }, 404);
+  deleteWatch(id);
+  return c.json({ id, deleted: true });
+});
+
+/**
+ * Ask the People Analyst for a dossier on this person.
+ *
+ * A THIN DOOR ONTO ONE DISPATCH. Everything it does is compose the brief out
+ * of the row and hand it to the sub-agents area, whose answer goes back
+ * unchanged — the 201 with the run, the 409 when the worker is switched off,
+ * the 413 when the note is a document. There is no INSERT here: a run this
+ * file created itself would skip the switched-off check and the standing
+ * instructions, and would be a report nobody was asked to write.
+ */
+peopleRoutes.post("/watch/:id/dossier", async (c) => {
+  const id = c.req.param("id");
+  const row = watchRow(id);
+  if (!row) return c.json({ error: `Nobody on the watchlist has the id ${id}.` }, 404);
+
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  const focus = typeof body?.focus === "string" ? body.focus.trim() : "";
+  if (body?.focus !== undefined && typeof body.focus !== "string")
+    return c.json({ error: "focus is a line or two of text, or absent." }, 400);
+  const parent =
+    typeof body?.parentSessionId === "string" && body.parentSessionId.trim()
+      ? body.parentSessionId.trim()
+      : undefined;
+
+  const out = dispatchDossier(row, { focus, parentSessionId: parent });
+  return c.json(out.json, out.status);
 });
 
 peopleRoutes.get("/:address", (c) => {

@@ -195,4 +195,65 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS people_commitments_status ON people_commitments(status, sent_at);
     `,
   },
+
+  {
+    name: "113_people_watch",
+    sql: `
+      -- THE PEOPLE THE OWNER IS WATCHING, TYPED BY HAND.
+      --
+      -- EVERY OTHER TABLE IN THIS AREA IS A FOLD OF SOMETHING ELSE. Contacts
+      -- come out of Gmail headers, commitments out of the owner's own sent
+      -- mail, briefs out of the arithmetic over both. This one is the
+      -- opposite: nothing collects it, nothing refreshes it, and no scan can
+      -- ever add a row. It is a list somebody decided to keep — an investor
+      -- worth reading up on, a founder in the same market, the person on the
+      -- other side of a deal — and half the people on it will never appear in
+      -- the mailbox at all. That is the point: "who do I correspond with" and
+      -- "who am I keeping an eye on" are different questions, and folding the
+      -- second into people_contacts would put rows in a table whose every
+      -- column is a measurement, with every measurement empty.
+      --
+      -- IT IS NOT KEYED ON AN EMAIL ADDRESS, and that is the design decision
+      -- worth defending. people_contacts is keyed on (mailbox, address)
+      -- because an address is what a header carries. A person of interest is
+      -- often somebody the owner has no address for, and sometimes somebody
+      -- whose address changes twice a year. So the key is a minted id, the
+      -- name is the only required field, and \`email\` is one more optional
+      -- identity line rather than the identity.
+      --
+      -- NOTHING DERIVED IS STORED HERE EITHER. The dossiers a person has —
+      -- how many, whether one is running, when the last one finished — are
+      -- counted out of agent_runs on every read, for the same reason this
+      -- area computes temperature on the read: a stored count is wrong the
+      -- moment a run finishes, and it would survive a run that was deleted.
+      -- The join is by TITLE, because \`dossierTitle\` derives the title from
+      -- the person's name and that is the tie between this month's dossier
+      -- and last month's. See watch.ts's \`attaches\`.
+      --
+      -- DELETING A ROW DELETES NOTHING ELSE. The dossiers stay in the run
+      -- ledger, where they were the box's work rather than this list's
+      -- property. Taking somebody off a watchlist is losing interest in them;
+      -- it is not a statement that the reports were never written.
+      CREATE TABLE IF NOT EXISTS people_watch (
+        -- "pw-" and six characters of base 36, minted like a run id.
+        id          TEXT PRIMARY KEY,
+        -- The only thing required, and the thing a dossier is titled after.
+        name        TEXT NOT NULL,
+        -- Identity lines, all optional, all as the owner typed them. Empty
+        -- string is "not written down" — there is nothing to distinguish from
+        -- "asked and not told" on a field nobody asks anything about.
+        company     TEXT NOT NULL DEFAULT '',
+        role        TEXT NOT NULL DEFAULT '',
+        email       TEXT NOT NULL DEFAULT '',
+        note        TEXT NOT NULL DEFAULT '',
+        -- A JSON object of at most five known keys — website, github, x,
+        -- linkedin, bluesky. JSON rather than five columns because they are
+        -- one thing, "where to find them", and a sixth place to look would
+        -- otherwise be a migration.
+        links       TEXT NOT NULL DEFAULT '{}',
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      ) WITHOUT ROWID;
+    `,
+  },
 ];

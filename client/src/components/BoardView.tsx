@@ -327,8 +327,32 @@ export function BoardView({
             {ghost.label}
           </div>
         )}
-        {editing && (
-          <aside className="bg-sidebar fixed inset-x-0 bottom-0 z-30 flex max-h-[42vh] flex-col border-t md:static md:max-h-none md:w-[300px] md:shrink-0 md:border-l">
+        {/*
+          THE CATALOG SLIDES RATHER THAN APPEARING.
+
+          It used to be mounted on `editing` and unmounted off it, which meant
+          300px of panel arrived in one frame and the canvas beside it jumped a
+          column narrower with no motion to connect the two — the same abrupt
+          swap the worker page's settings had. It is kept mounted now and moved:
+          off the bottom on a phone, out to nought width on a desktop, with the
+          transform and the size on the same transition so the canvas reflows
+          alongside it instead of after it.
+
+          `inert` AND `aria-hidden` GO WITH THE TRANSFORM, because a panel that
+          is merely off-screen is still in the tab order and still read out. The
+          borders go with it too: a zero-width column with a border-left is a
+          stray hairline down the middle of a board nobody is editing.
+        */}
+        <aside
+          aria-hidden={!editing}
+          inert={!editing || undefined}
+          className={cn(
+            "bg-sidebar fixed inset-x-0 bottom-0 z-30 flex flex-col overflow-hidden transition-all duration-300 ease-out md:static md:max-h-none md:shrink-0",
+            editing
+              ? "max-h-[42vh] translate-y-0 border-t md:w-[300px] md:translate-x-0 md:border-t-0 md:border-l"
+              : "max-h-0 translate-y-full md:w-0 md:translate-x-full",
+          )}
+        >
             <div className="border-line-soft border-b px-4 pt-3.5 pb-2.5">
               <div className="text-[14px] font-medium">Add a widget</div>
               <p className="text-muted-foreground mt-0.5 text-[12.5px]">
@@ -527,8 +551,7 @@ export function BoardView({
                 </button>
               )}
             </div>
-          </aside>
-        )}
+        </aside>
       </div>
 
       {/* Renaming is now only renaming. Deleting moved into edit mode, where
