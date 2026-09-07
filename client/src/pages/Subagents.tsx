@@ -1,13 +1,14 @@
 import { appPage } from "../../../shared/navigation";
 import { useEffect, useState } from "react";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { Tiles } from "@/components/integrations/Panel";
 import { QueueControls } from "@/components/runs/QueueControls";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { SubTabs } from "@/components/TabStrip";
 import { OrgChart } from "@/components/org/OrgChart";
+import { OutputsTab } from "@/pages/Outputs";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { runAddress } from "@/components/org/roleLook";
 import {
@@ -40,13 +41,18 @@ import { subagentApi, type Org } from "@/lib/api/subagents";
  * `queued` is a count of runs waiting, a worker's last run is a report with an
  * address. Nothing on this page is a sample.
  *
- * TWO TABS, BECAUSE THE TWO QUESTIONS ARE ASKED AT DIFFERENT MOMENTS. "Who
+ * THREE TABS, BECAUSE THREE QUESTIONS ARE ASKED AT DIFFERENT MOMENTS. "Who
  * works for whom" is asked when you are thinking about the business and wants
  * a picture; "what is happening" is asked when you are waiting for a report
- * and wants the live queue, the counts and the history. Stacking them made a
- * page where the chart pushed the queue off the bottom and the queue pushed
- * the chart off the top. The URL carries the choice (`?tab=runs`), so a link
- * to the queue is a link to the queue.
+ * and wants the live queue, the counts and the history; "what did they make"
+ * is asked when you want the report itself. Stacking the first two made a
+ * page where the chart pushed the queue off the bottom, and the third was a
+ * page of its own with its own sidebar entry. The URL carries the choice —
+ * `?tab=runs` for the queue, and the outputs keep the `/outputs/...`
+ * addresses they always had, so a link to a report is still a link to it.
+ * The tab strip therefore lives in the top bar, which every tab has, rather
+ * than in the page header, which the outputs' own report pages draw for
+ * themselves.
  *
  * ONE AT A TIME, STILL, and it is still the most important sentence here. The
  * server runs the oldest queued run when nothing else is running. A hundred
@@ -56,13 +62,20 @@ import { subagentApi, type Org } from "@/lib/api/subagents";
  */
 
 const TABS = [
-  { key: "roster", label: "Roster", title: "The org chart: the owner, the chief of staff and every venture's workers." },
-  { key: "runs", label: "Runs", title: "What is running, what is waiting, and everything that has run." },
+  { key: "roster", label: "Roster", to: "/subagents", title: "The org chart: the owner, the chief of staff and every venture's workers." },
+  { key: "runs", label: "Runs", to: "/subagents?tab=runs", title: "What is running, what is waiting, and everything that has run." },
+  { key: "outputs", label: "Outputs", to: "/outputs", title: "The reports: research, competitors, demand, AI visibility and papers." },
 ] as const;
 
 export function Subagents() {
-  const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "runs" ? "runs" : "roster";
+  const [params] = useSearchParams();
+  const { pathname } = useLocation();
+  const tab =
+    pathname === "/outputs" || pathname.startsWith("/outputs/")
+      ? "outputs"
+      : params.get("tab") === "runs"
+        ? "runs"
+        : "roster";
 
   const [tick, setTick] = useState(0);
   const doc = useApi(() => runsApi.list({ limit: 50 }), [tick]);
@@ -116,52 +129,53 @@ export function Subagents() {
   return (
     <>
       <TopBar label="Sub-agents">
-        <button
-          onClick={() => {
-            setTick((n) => n + 1);
-            setOrgTick((n) => n + 1);
-          }}
-          className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
-        >
-          <RefreshCw
-            className={cn("size-3.5", doc.loading && !doc.data && "animate-spin")}
-            strokeWidth={1.6}
-          />
-          Refresh
-        </button>
+        <SubTabs tabs={TABS} activeKey={tab} className="mb-0" />
+        {/* The report pages poll for themselves, so the button is for the two
+            tabs this page reads on its own. */}
+        {tab !== "outputs" && (
+          <button
+            onClick={() => {
+              setTick((n) => n + 1);
+              setOrgTick((n) => n + 1);
+            }}
+            className="text-muted-foreground hover:bg-accent hover:text-foreground ml-2 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
+          >
+            <RefreshCw
+              className={cn("size-3.5", doc.loading && !doc.data && "animate-spin")}
+              strokeWidth={1.6}
+            />
+            Refresh
+          </button>
+        )}
       </TopBar>
 
-      <PageShell
-        wide
-        title="Sub-agents"
-        sub={
-          tab === "roster"
-            ? team
-              ? `${team.subagents} workers across ${org.data?.ventures.length ?? 0} ventures, one per app, provisioned rather than created. ${team.enabled} switched on, ${team.running} working, ${team.queued} waiting.`
-              : "Every venture's workers, who they report to, and what each of them is doing."
-            : "The shared job queue. Reorder or hold waiting jobs; work continues while the server is running."
-        }
-        action={
-          <SubTabs
-            tabs={TABS}
-            activeKey={tab}
-            onSelect={(k) => setParams(k === "roster" ? {} : { tab: k })}
-            className="mb-0"
-          />
-        }
-      >
-        {tab === "roster" ? (
-          <Roster org={org} />
-        ) : (
-          <Runs
-            doc={doc}
-            runs={runs}
-            running={running}
-            queued={queued}
-            stats={stats}
-          />
-        )}
-      </PageShell>
+      {tab === "outputs" ? (
+        <OutputsTab />
+      ) : (
+        <PageShell
+          wide
+          title="Sub-agents"
+          sub={
+            tab === "roster"
+              ? team
+                ? `${team.subagents} workers across ${org.data?.ventures.length ?? 0} ventures, one per app, provisioned rather than created. ${team.enabled} switched on, ${team.running} working, ${team.queued} waiting.`
+                : "Every venture's workers, who they report to, and what each of them is doing."
+              : "The shared job queue. Reorder or hold waiting jobs; work continues while the server is running."
+          }
+        >
+          {tab === "roster" ? (
+            <Roster org={org} />
+          ) : (
+            <Runs
+              doc={doc}
+              runs={runs}
+              running={running}
+              queued={queued}
+              stats={stats}
+            />
+          )}
+        </PageShell>
+      )}
     </>
   );
 }

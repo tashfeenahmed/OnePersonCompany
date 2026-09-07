@@ -7,7 +7,6 @@ const icons: Record<string, string> = {
   "/action-inbox": "action-inbox",
   "/board": "board",
   "/journal": "journal",
-  "/outputs": "outputs",
   "/ventures": "ventures",
   "/people": "people",
   "/workflows": "workflows",

@@ -9,7 +9,14 @@ import { Papers } from "@/pages/runs/Papers";
 import { Research } from "@/pages/runs/Research";
 import { Visibility } from "@/pages/runs/Visibility";
 
-// Report tools grouped by the sub-agent that produces the work.
+/**
+ * THE OUTPUTS: five report apps, each the work of one kind of sub-agent, under
+ * one strip. This was a page of its own at /outputs with its own sidebar
+ * entry; it is the third tab of the Sub-agents page now — the workers, what
+ * they are doing, and what they made — and the Sub-agents page renders this
+ * for every /outputs address. The addresses did not move: a report is still
+ * /outputs/<app>/<run id>, so every link ever made to one still lands.
+ */
 const OUTPUTS: { slug: string; name: string; icon: LucideIcon; page: () => React.JSX.Element }[] = [
   { slug: "research", name: "Research", icon: Telescope, page: Research },
   { slug: "competitors", name: "Competitors", icon: Swords, page: Competitors },
@@ -18,7 +25,7 @@ const OUTPUTS: { slug: string; name: string; icon: LucideIcon; page: () => React
   { slug: "papers", name: "Papers", icon: FileText, page: Papers },
 ];
 
-export function SubagentOutputs() {
+export function OutputsTab() {
   const { output: app, runId } = useParams();
   const location = useLocation();
   const { state, setAppOrder } = useStore();
@@ -48,8 +55,7 @@ export function SubagentOutputs() {
     <>
       {/* The strip: links, not buttons, because each tab IS the app's address
           and can be middle-clicked or copied out of the bar. */}
-      <header className="shrink-0 border-b px-4.5 py-2">
-        <p className="px-1 pb-1.5 text-xs text-muted-foreground">Sub-agent outputs</p>
+      <header className="border-line-soft shrink-0 border-b px-4.5 py-2">
         <TabStrip
           tabs={ordered.map((a) => ({
             key: a.slug,

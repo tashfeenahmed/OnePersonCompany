@@ -24,7 +24,6 @@ const VentureForm = lazy(() => import("@/pages/VentureForm").then(m => ({ defaul
 const VentureMap = lazy(() => import("@/pages/VentureMap").then(m => ({ default: m.VentureMap })));
 const Subagent = lazy(() => import("@/pages/Subagent").then(m => ({ default: m.Subagent })));
 const Settings = lazy(() => import("@/pages/Settings").then(m => ({ default: m.Settings })));
-const SubagentOutputs = lazy(() => import("@/pages/Outputs").then(m => ({ default: m.SubagentOutputs })));
 const Ops = lazy(() => import("@/areas/security/Ops").then(m => ({ default: m.Ops })));
 const GrowthSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.GrowthSection })));
 const Board = lazy(() => import("@/pages/Board").then(m => ({ default: m.Board })));
@@ -232,9 +231,11 @@ export default function App() {
                         password it says so instead of drawing a form — see
                         areas/security/Login.tsx. */}
                     <Route path="/login" element={<Login />} />
-                    <Route path="/outputs" element={<SubagentOutputs />} />
-                    <Route path="/outputs/:output" element={<SubagentOutputs />} />
-                    <Route path="/outputs/:output/:runId" element={<SubagentOutputs />} />
+                    {/* The outputs are the Sub-agents page's third tab; the
+                        addresses stay, so links to a report keep landing. */}
+                    <Route path="/outputs" element={<Subagents />} />
+                    <Route path="/outputs/:output" element={<Subagents />} />
+                    <Route path="/outputs/:output/:runId" element={<Subagents />} />
                     {/* Existing bookmarks and generated reports retain their destinations. */}
                     <Route path="/apps" element={<LegacyApp />} />
                     <Route path="/apps/:app" element={<LegacyApp />} />

@@ -41,12 +41,13 @@ const NAV = [
   { to: "/action-inbox", label: "Action inbox" },
   { to: "/board", label: "Board" },
   { to: "/journal", label: "Journal" },
-  { to: "/outputs", label: "Sub-agent outputs" },
   /* The rail's order: the business (ventures, its workers, the org), what
      is happening (activity, alerts, people), what runs on its own (workflows),
      then the machinery (integrations, dashboards, apps). */
   { to: "/ventures", label: "Ventures" },
-  { to: "/subagents", label: "Sub-agents" },
+  /* `also`: addresses that are this page under another name — the outputs
+     tab lives at /outputs so a report keeps its address. */
+  { to: "/subagents", label: "Sub-agents", also: ["/outputs"] },
   { to: "/activity", label: "Activity" },
   { to: "/customers", label: "Customers" },
   { to: "/alerts", label: "Alerts" },
@@ -63,9 +64,9 @@ const NAV = [
 /* Manage and Insights first — the pages about the business as a whole — then
    Work, then the three areas of doing. The order is the owner's. */
 const NAV_GROUPS = [
-  { name: "Manage", paths: ["/subagents", "/integrations", "/ops"], expanded: false },
+  { name: "Manage", paths: ["/subagents", "/outputs", "/integrations", "/ops"], expanded: false },
   { name: "Insights", paths: ["/activity", "/customers", "/alerts", "/dashboards"], expanded: false },
-  { name: "Work", paths: ["/action-inbox", "/board", "/journal", "/outputs", "/ventures", "/people", "/workflows"], expanded: true },
+  { name: "Work", paths: ["/action-inbox", "/board", "/journal", "/ventures", "/people", "/workflows"], expanded: true },
   { name: "Mail", paths: MAIL_PAGES.map(page => page.to), expanded: true },
   { name: "Social media", paths: SOCIAL_PAGES.map(page => page.to), expanded: true },
   { name: "SEO & growth", paths: GROWTH_PAGES.map(page => page.to), expanded: true },
@@ -194,7 +195,8 @@ export function AppSidebar() {
     const item = NAV.find(item => item.to === path);
     if (!item) return null;
     const { label } = item;
-    const active = pathname === path || pathname.startsWith(`${path}/`);
+    const here = (p: string) => pathname === p || pathname.startsWith(`${p}/`);
+    const active = here(path) || ("also" in item && (item.also ?? []).some(here));
     const pin: SidebarPin = { type: "page", path };
     return <div className={cn("sidebar-row flex min-w-0 items-center gap-0.5 rounded-lg pr-1 transition-colors focus-within:bg-accent", active ? "bg-accent font-medium" : "hover:bg-accent")}>
       {handle}
