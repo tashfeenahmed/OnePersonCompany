@@ -61,13 +61,15 @@ const NAV = [
   ...GROWTH_PAGES,
 ];
 
+/* Manage and Insights first — the pages about the business as a whole — then
+   Work, then the three areas of doing. The order is the owner's. */
 const NAV_GROUPS = [
+  { name: "Manage", paths: ["/subagents", "/org", "/integrations", "/ops"], expanded: false },
+  { name: "Insights", paths: ["/activity", "/customers", "/alerts", "/dashboards"], expanded: false },
   { name: "Work", paths: ["/action-inbox", "/board", "/journal", "/outputs", "/ventures", "/people", "/workflows"], expanded: true },
   { name: "Mail", paths: MAIL_PAGES.map(page => page.to), expanded: true },
   { name: "Social media", paths: SOCIAL_PAGES.map(page => page.to), expanded: true },
   { name: "SEO & growth", paths: GROWTH_PAGES.map(page => page.to), expanded: true },
-  { name: "Insights", paths: ["/activity", "/customers", "/alerts", "/dashboards"], expanded: false },
-  { name: "Manage", paths: ["/subagents", "/org", "/integrations", "/ops"], expanded: false },
 ];
 
 export function AppSidebar() {
