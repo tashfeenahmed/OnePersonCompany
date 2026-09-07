@@ -786,7 +786,8 @@ export type CostsReport = {
       promptTokens: number;
       completionTokens: number;
       dayCount: number;
-      days: (CostDay & { requests: number })[];
+      /* Per day: the bill, the calls, and the tokens behind them. */
+      days: (CostDay & { requests: number; promptTokens: number; completionTokens: number })[];
       models: {
         model: string;
         usd: number;

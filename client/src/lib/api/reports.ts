@@ -834,7 +834,42 @@ export type CompetitorsReport = {
 
 /* ------------------------------------------------------------------ calls */
 
+/* ------------------------------------------------------------------ llm */
+
+/**
+ * THIS BOX'S OWN LLM USE, from its own ledgers — see server routes/llm.ts.
+ * Tokens the backend reported, cut by day, model, kind of work and venture;
+ * dollars only in the budget ledger, and only when the owner set a price.
+ */
+export type LlmReport = {
+  generatedAt: string;
+  window: { days: number; from: string; to: string };
+  total: { calls: number; promptTokens: number; completionTokens: number; tokens: number };
+  /** Turns that reported no usage at all — counted as turns, absent from tokens. */
+  unreported: { chatTurns: number; runs: number };
+  today: { chatTokens: number; runTokens: number; tokens: number; calls: number };
+  days: { day: string; chatTokens: number; runTokens: number; calls: number }[];
+  models: { model: string; backend: string | null; tokens: number; calls: number }[];
+  work: { key: string; label: string; tokens: number; calls: number }[];
+  ventures: { ventureId: string; name: string; tokens: number; calls: number }[];
+  budget: {
+    limits: {
+      runSeconds: number; runCalls: number; dailyCalls: number; automationDailyCalls: number;
+      runTokens: number; dailyTokens: number; ventureDailyTokens: number;
+      runUsd: number; dailyUsd: number; ventureDailyUsd: number;
+      usdPerMillion: number; maxOutputTokens: number;
+    };
+    priced: boolean;
+    today: {
+      calls: number; tokens: number; usd: number; automation: number;
+      byStatus: { status: string; calls: number; tokens: number; usd: number }[];
+    };
+  };
+};
+
 export const reports = {
+  /** This box's own LLM use over the last thirty days. */
+  llm: () => call<LlmReport>("/llm"),
   /** The last 30 complete days per website, plus up to `days` of daily line. */
   umami: (days = 90) => call<UmamiReport>(`/umami?days=${days}`),
   /** Today and the next `days`. The collector holds 7 back and 21 ahead. */

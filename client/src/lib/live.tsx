@@ -40,6 +40,7 @@ import {
   type CompetitorsReport,
   type PypiReport,
   type RunsReport,
+  type LlmReport,
   type UmamiReport,
   type UptimeReport,
 } from "@/lib/api/reports";
@@ -179,6 +180,8 @@ export type LiveData = {
   audit: AuditOverview | null;
   /** The run ledger: what is executing, what is queued, what finished. */
   runs: RunsReport | null;
+  /** This box's own LLM use: tokens by day, model, work and venture. */
+  llm: LlmReport | null;
   /** The rivals the sweeps accumulated, each with the date it was last
    *  VERIFIED rather than last written. */
   competitors: CompetitorsReport | null;
@@ -223,6 +226,7 @@ const LiveContext = createContext<LiveData>({
   presence: null,
   audit: null,
   runs: null,
+  llm: null,
   competitors: null,
   sourceStates: {}, sourceErrors: {},
   loading: true,
@@ -273,6 +277,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [presence, setPresence] = useState<PresenceReport | null>(null);
   const [audit, setAudit] = useState<AuditOverview | null>(null);
   const [runs, setRuns] = useState<RunsReport | null>(null);
+  const [llm, setLlm] = useState<LlmReport | null>(null);
   const [competitors, setCompetitors] = useState<CompetitorsReport | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
@@ -318,6 +323,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsPresence = false;
     let needsAudit = false;
     let needsRuns = false;
+    let needsLlm = false;
     let needsCompetitors = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
@@ -350,6 +356,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.presence) needsPresence = true;
       if (w.live?.audit) needsAudit = true;
       if (w.live?.runs) needsRuns = true;
+      if (w.live?.llm) needsLlm = true;
       if (w.live?.competitors) needsCompetitors = true;
     }
     return {
@@ -383,6 +390,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsPresence,
       needsAudit,
       needsRuns,
+      needsLlm,
       needsCompetitors,
     };
   }, []);
@@ -422,6 +430,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setPresence(null);
       setAudit(null);
       setRuns(null);
+      setLlm(null);
       setCompetitors(null);
     void (async () => {
       /*
@@ -686,6 +695,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       */
       tryFetch(wanted.needsAudit, () => reports.audit(), setAudit, "audit");
       tryFetch(wanted.needsRuns, () => reports.runs(), setRuns, "runs");
+      /* No plugin gates this one: the ledgers are this box's own. */
+      tryFetch(wanted.needsLlm, () => reports.llm(), setLlm, "llm");
       tryFetch(
         wanted.needsCompetitors,
         () => reports.competitors(),
@@ -758,6 +769,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         presence,
         audit,
         runs,
+        llm,
         competitors,
       });
       if (patch) liveTypes.add(type);
@@ -794,6 +806,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       presence,
       audit,
       runs,
+      llm,
       competitors,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
@@ -831,6 +844,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     presence,
     audit,
     runs,
+    llm,
     competitors,
   ]);
 
@@ -1101,6 +1115,8 @@ export function collectedAt(src: string, live: LiveData): string | null {
           .sort()
           .at(-1) ?? null
       );
+    case "llm":
+      return live.llm?.generatedAt ?? null;
     case "runs":
       /* A run's own newest event, not the ledger's: a queued run is news, and
          quoting the last FINISHED run would date the card to before the thing

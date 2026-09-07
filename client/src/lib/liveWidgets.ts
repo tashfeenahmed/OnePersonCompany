@@ -43,6 +43,7 @@ import type {
   ProductsReport,
   PypiReport,
   RunsReport,
+  LlmReport,
   UmamiReport,
   UmamiWebsite,
   UptimeReport,
@@ -212,6 +213,8 @@ export type LiveInputs = {
   */
   audit?: AuditOverview | null;
   runs?: RunsReport | null;
+  /** This box's own LLM use. */
+  llm?: LlmReport | null;
   competitors?: CompetitorsReport | null;
 };
 
@@ -6311,6 +6314,267 @@ Object.assign(LIVE_BUILDERS, {
     rows.push([
       "A sweep that did not name a rival",
       "left its date alone — silence is not verification",
+    ]);
+    return { rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ---------------------------------------------------------------- llm usage
+   THE LLM USAGE BOARD. The OpenRouter half reads the costs report the Costs
+   board already reads — nothing is fetched twice — and the other half reads
+   this box's own report of what its chat and runs consumed. Two rules hold
+   every card: a figure is what a ledger recorded, and a division with a zero
+   under it is written as a sentence rather than as infinity or nought. */
+
+/** Days of balance left before the tile turns amber, then red — the same
+ *  two lines the page this board replaces drew. */
+const RUNWAY_WARN = 21;
+const RUNWAY_CRIT = 7;
+
+/** An OBSERVED rate — dollars charged over tokens processed — and null when
+ *  nothing was processed. Never a price list: OpenRouter's bill is the only
+ *  price this box has, and this is that bill divided by what it bought. */
+const perMillion = (spend: number, tokens: number): string | null =>
+  tokens > 0 ? `${usd((spend / tokens) * 1_000_000)}/M` : null;
+
+const tokensOf = (r: { promptTokens: number; completionTokens: number }) =>
+  r.promptTokens + r.completionTokens;
+
+/** What a budget ledger status means, in the owner's words. */
+const LEDGER_STATUS: Record<string, string> = {
+  reported: "Reported by the provider",
+  estimated: "Estimated from the request size",
+  reserved: "Reserved, still in flight",
+  uncertain: "Uncertain — the call timed out",
+  "unmetered-agent": "Agent turns, unmetered",
+};
+
+Object.assign(LIVE_BUILDERS, {
+  "openrouter.runway": ({ costs: COSTS }: LiveInputs) => {
+    const or = COSTS?.openrouter;
+    const c = or?.credits;
+    const a = or?.activity;
+    if (!c || !a || a.usd === null) return null;
+    if (!a.dayCount || a.usd <= 0)
+      return {
+        value: "—",
+        sub: `${usd(c.balance)} left · nothing spent in ${COSTS!.window.days} days, so no rate to project`,
+      };
+    /* The window's own average, and the sentence says so: a runway is a
+       forecast, and a forecast without its assumption is a guess. */
+    const perDay = a.usd / a.dayCount;
+    const days = c.balance / perDay;
+    return {
+      value: `${Math.round(days)} day${Math.round(days) === 1 ? "" : "s"}`,
+      tone: days < RUNWAY_CRIT ? "bad" : days < RUNWAY_WARN ? "warn" : "ok",
+      sub: `${usd(c.balance)} left at ${usd(perDay)}/day, the mean over ${a.dayCount} charged days`,
+    };
+  },
+
+  "openrouter.tokens": ({ costs: COSTS }: LiveInputs) => {
+    const a = COSTS?.openrouter.activity;
+    if (!a || a.usd === null) return null;
+    const tokens = a.promptTokens + a.completionTokens;
+    const rate = perMillion(a.usd, tokens);
+    return {
+      value: compact(tokens),
+      sub: tokens
+        ? `${compact(a.promptTokens)} in, ${compact(a.completionTokens)} out · ${count(a.requests)} requests · ${rate} blended`
+        : "nothing processed in the window",
+    };
+  },
+
+  "openrouter.daily": ({ costs: COSTS }: LiveInputs) => {
+    const a = COSTS?.openrouter.activity;
+    if (!a?.days.length) return null;
+    const total = a.days.reduce((n, d) => n + d.usd, 0);
+    return {
+      chart: [
+        {
+          label: "Spend, USD",
+          points: a.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.usd })),
+        },
+      ],
+      unit: "usd" as const,
+      caption:
+        `${usd(total)} over ${a.days.length} charged days · mean ${usd(total / a.days.length)}/day · ` +
+        `the newest day is still filling`,
+    };
+  },
+
+  "openrouter.tokensDaily": ({ costs: COSTS }: LiveInputs) => {
+    const a = COSTS?.openrouter.activity;
+    if (!a?.days.length) return null;
+    const total = a.days.reduce((n, d) => n + tokensOf(d), 0);
+    const spend = a.days.reduce((n, d) => n + d.usd, 0);
+    return {
+      chart: [
+        { label: "Prompt", points: a.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.promptTokens })) },
+        { label: "Completion", points: a.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.completionTokens })) },
+      ],
+      unit: "count" as const,
+      caption: also(
+        `${compact(total)} tokens over ${a.days.length} charged days`,
+        perMillion(spend, total) ? `${perMillion(spend, total)} blended across the window` : "",
+      ),
+    };
+  },
+
+  "openrouter.modelTable": ({ costs: COSTS }: LiveInputs) => {
+    const a = COSTS?.openrouter.activity;
+    if (!a?.models.length) return null;
+    /* Share is of the TOP spender, not of the total — a bar scaled to the
+       total would make every model but the first look like a rounding error
+       on a board where one model does most of the work. */
+    const top = a.models[0]!.usd;
+    return {
+      headers: ["Model", "Spend", "Share", "Requests", "Tokens", "$/M"],
+      table: a.models.map((m) => {
+        const tokens = tokensOf(m);
+        return [
+          m.model,
+          usd(m.usd),
+          top > 0 ? percent((m.usd / top) * 100, 0) : "—",
+          count(m.requests),
+          compact(tokens),
+          perMillion(m.usd, tokens) ?? "no tokens",
+        ];
+      }),
+    };
+  },
+
+  "openrouter.keyTable": ({ costs: COSTS }: LiveInputs) => {
+    const k = COSTS?.openrouter.keys;
+    if (!k?.list.length) return null;
+    return {
+      headers: ["Key", "Lifetime", "This month", "7d", "Today", "Cap"],
+      table: k.list.map((key) => [
+        key.name + (key.disabled ? " · disabled" : ""),
+        usd(key.usd),
+        usd(key.usdMonth),
+        usd(key.usdWeek),
+        usd(key.usdDay),
+        /* Null is "no cap at all", which is a different fact from a cap of
+           nothing, and the guard OpenRouter offers is worth naming as absent. */
+        key.spendLimit === null
+          ? "none"
+          : `${usd(key.spendLimit)}${key.limitRemaining !== null ? ` · ${usd(key.limitRemaining)} left` : ""}`,
+      ]),
+    };
+  },
+
+  /* ------------------------------------------------ this box's own use */
+
+  "llm.today": ({ llm: L }: LiveInputs) => {
+    if (!L) return null;
+    const t = L.today;
+    if (!t.calls) return { value: "0", sub: "no chat turn or run has reported usage today" };
+    return {
+      value: compact(t.tokens),
+      sub: `${count(t.calls)} ${t.calls === 1 ? "call" : "calls"} · chat ${compact(t.chatTokens)} · runs ${compact(t.runTokens)}`,
+    };
+  },
+
+  "llm.window": ({ llm: L }: LiveInputs) => {
+    if (!L) return null;
+    const unreported = L.unreported.chatTurns + L.unreported.runs;
+    if (!L.total.calls) return { value: "0", sub: `nothing reported in ${L.window.days} days` };
+    return {
+      value: compact(L.total.tokens),
+      sub: also(
+        `${count(L.total.calls)} calls over ${L.window.days} days · ${compact(L.total.promptTokens)} in, ${compact(L.total.completionTokens)} out`,
+        /* Named beside the total rather than folded into it as zero: a turn
+           that reported nothing cost something, and this figure is short by
+           exactly that much. */
+        unreported ? `${count(unreported)} reported no usage and are not in this figure` : "",
+      ),
+    };
+  },
+
+  "llm.daily": ({ llm: L }: LiveInputs) => {
+    if (!L?.days.length) return null;
+    const total = L.days.reduce((n, d) => n + d.chatTokens + d.runTokens, 0);
+    if (!total) return null;
+    return {
+      chart: [
+        { label: "Chat", points: L.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.chatTokens })) },
+        { label: "Runs", points: L.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.runTokens })) },
+      ],
+      unit: "count" as const,
+      caption: `${compact(total)} tokens the backends reported over ${L.window.days} days · a day with nothing is drawn as nothing`,
+    };
+  },
+
+  "llm.byModel": ({ llm: L }: LiveInputs) => {
+    const models = (L?.models ?? []).filter((m) => m.tokens > 0).slice(0, 8);
+    if (!models.length) return null;
+    return {
+      bars: models.map((m) => m.tokens),
+      labels: models
+        .slice(0, 4)
+        .map((m) => `${shortModel(m.model)} ${compact(m.tokens)}`)
+        .join(" · "),
+      barLabels: models.map(
+        (m) => `${m.model} · ${compact(m.tokens)} tokens · ${count(m.calls)} calls${m.backend ? ` · ${m.backend}` : ""}`,
+      ),
+    };
+  },
+
+  "llm.byWork": ({ llm: L }: LiveInputs) => {
+    const work = (L?.work ?? []).filter((w) => w.calls > 0);
+    if (!work.length) return null;
+    return {
+      rows: work.slice(0, 9).map((w) => [
+        w.label,
+        `${compact(w.tokens)} · ${count(w.calls)} ${w.calls === 1 ? "call" : "calls"}`,
+      ] as [string, string]),
+    };
+  },
+
+  "llm.byVenture": ({ llm: L }: LiveInputs) => {
+    const ventures = L?.ventures ?? [];
+    if (!ventures.length) return null;
+    return {
+      rows: ventures.slice(0, 9).map((v) => [
+        v.name,
+        `${compact(v.tokens)} · ${count(v.calls)} ${v.calls === 1 ? "run" : "runs"}`,
+      ] as [string, string]),
+    };
+  },
+
+  "llm.budget": ({ llm: L }: LiveInputs) => {
+    if (!L) return null;
+    const b = L.budget;
+    const meter = (label: string, used: number, limit: number, fmt: (n: number) => string): Meter => ({
+      label,
+      value: Math.min(100, (used / limit) * 100),
+      warn: 80,
+      crit: 100,
+      note: `${fmt(used)} of ${fmt(limit)}`,
+    });
+    const meters: Meter[] = [meter("Calls today", b.today.calls, b.limits.dailyCalls, count)];
+    if (b.limits.automationDailyCalls)
+      meters.push(meter("Automation calls", b.today.automation, b.limits.automationDailyCalls, count));
+    if (b.limits.dailyTokens) meters.push(meter("Tokens today", b.today.tokens, b.limits.dailyTokens, compact));
+    /* A dollar meter only when the owner set a price: without one every usd
+       in the ledger is zero, and a meter at zero would read as thrift. */
+    if (b.limits.dailyUsd && b.priced) meters.push(meter("Spend today", b.today.usd, b.limits.dailyUsd, (n) => usd(n)));
+    return { meters };
+  },
+
+  "llm.ledger": ({ llm: L }: LiveInputs) => {
+    if (!L) return null;
+    const b = L.budget;
+    const rows: [string, string][] = b.today.byStatus.map((r) => [
+      LEDGER_STATUS[r.status] ?? r.status,
+      also(`${count(r.calls)} calls · ${compact(r.tokens)}`, b.priced ? usd(r.usd) : ""),
+    ]);
+    if (!rows.length) rows.push(["Nothing metered today", "the ledger only counts runs"]);
+    rows.push([
+      "The price behind every dollar here",
+      b.priced
+        ? `${usd(b.limits.usdPerMillion)} per million tokens, set under Usage limits`
+        : "none set — dollars are not measured, only tokens",
     ]);
     return { rows };
   },

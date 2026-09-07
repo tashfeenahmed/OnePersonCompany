@@ -107,6 +107,7 @@ export function WidgetCard({
         presence: live.presence,
         audit: live.audit,
         runs: live.runs,
+        llm: live.llm,
         competitors: live.competitors,
       })
     : null;

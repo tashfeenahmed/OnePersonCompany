@@ -201,6 +201,9 @@ export type Widget = {
     audit?: boolean;
     /** The run ledger — what is executing, what is queued, what finished. */
     runs?: boolean;
+    /** This box's own LLM use — tokens by day, model, kind of work and
+     *  venture, from the chat and run ledgers it writes itself. */
+    llm?: boolean;
     /** The competitor profiles the sweeps have accumulated, with the date each
      *  one was last VERIFIED rather than last written. */
     competitors?: boolean;
@@ -514,6 +517,17 @@ export const SOURCES: Record<string, WidgetSource> = {
     icon: null,
     mono: "Cp",
     tint: "#6b7d4a",
+    connected: true,
+  },
+  /* THIS BOX'S OWN LLM USE. Not a plugin: the chat and run ledgers are
+     written here, so the source is always connected and never asks for a
+     credential. Tokens, because no provider reports a per-call price this box
+     can read back; the only dollars are the budget ledger's own. */
+  llm: {
+    name: "LLM usage",
+    icon: null,
+    mono: "Tk",
+    tint: "#7a5c9e",
     connected: true,
   },
 };
@@ -1743,6 +1757,53 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { costs: true },
   },
+  /*
+    THE LLM USAGE BOARD'S CARDS, shaped after the page they replace: balance
+    and runway, the window's spend and tokens, spend and tokens per day, the
+    model table with an observed rate, and the key table with its four
+    rolling buckets. Every figure is what OpenRouter reported; the only
+    arithmetic is division, and where a divisor is zero the card says so.
+  */
+  "openrouter.runway": {
+    src: "openrouter",
+    name: "Runway",
+    kind: "metric",
+    live: { costs: true },
+  },
+  "openrouter.tokens": {
+    src: "openrouter",
+    name: "Tokens · 30d",
+    kind: "metric",
+    live: { costs: true },
+  },
+  "openrouter.daily": {
+    src: "openrouter",
+    name: "Spend per day",
+    kind: "chart",
+    live: { costs: true },
+    unit: "usd",
+  },
+  "openrouter.tokensDaily": {
+    src: "openrouter",
+    name: "Tokens per day",
+    kind: "chart",
+    live: { costs: true },
+    unit: "count",
+  },
+  "openrouter.modelTable": {
+    src: "openrouter",
+    name: "Every model · 30d",
+    kind: "table",
+    live: { costs: true },
+    headers: ["Model", "Spend", "Share", "Requests", "Tokens", "$/M"],
+  },
+  "openrouter.keyTable": {
+    src: "openrouter",
+    name: "Every key",
+    kind: "table",
+    live: { costs: true },
+    headers: ["Key", "Lifetime", "This month", "7d", "Today", "Cap"],
+  },
   "openrouter.totals": {
     src: "openrouter",
     name: "Three totals, three meanings",
@@ -1833,6 +1894,64 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { costs: true, summary: true },
   },
+  /* ---------------------------------------------------------------- llm
+     THIS BOX'S OWN USE, which no provider's bill can be cut into: what the
+     chief of staff and the sub-agents spent, by day, by model, by the kind of
+     work and by venture. Tokens the backend reported; a turn that reported
+     nothing is counted as a turn and named as unreported rather than drawn as
+     free. The budget meters are the one place dollars appear, and only when
+     the owner has set a price under Usage limits.
+  */
+  "llm.today": {
+    src: "llm",
+    name: "Tokens today",
+    kind: "metric",
+    live: { llm: true },
+  },
+  "llm.window": {
+    src: "llm",
+    name: "Tokens · 30d",
+    kind: "metric",
+    live: { llm: true },
+  },
+  "llm.daily": {
+    src: "llm",
+    name: "Tokens per day · chat and runs",
+    kind: "chart",
+    live: { llm: true },
+    unit: "count",
+  },
+  "llm.byModel": {
+    src: "llm",
+    name: "Tokens by model · 30d",
+    kind: "bars",
+    live: { llm: true },
+  },
+  "llm.byWork": {
+    src: "llm",
+    name: "Tokens by kind of work · 30d",
+    kind: "rows",
+    live: { llm: true },
+  },
+  "llm.byVenture": {
+    src: "llm",
+    name: "Tokens by venture · 30d",
+    kind: "rows",
+    live: { llm: true },
+  },
+  "llm.budget": {
+    src: "llm",
+    name: "Today against the limits",
+    kind: "meters",
+    live: { llm: true },
+  },
+  "llm.ledger": {
+    src: "llm",
+    name: "The budget ledger · today",
+    kind: "rows",
+    live: { llm: true },
+  },
+
   /*
     THE MAIL CARDS. Two sources reading ONE document (`/api/mail`), which is the
     App-stores shape rather than the Google/Bing one — and it passes the same
@@ -2623,6 +2742,40 @@ export const DASHBOARD_PRESETS: {
       "replicate.outputs",
       "replicate.noCost",
       "hetzner.spendSplit",
+      "costs.limits",
+    ],
+  },
+  /*
+    LLM USAGE. Shaped after the page Workdash draws for it: the balance and
+    what it buys, then the window's bill and volume, then the two daily lines,
+    then where it went by model and by key — and, below OpenRouter's account
+    of the money, this box's own account of the work: which chat, which run,
+    which venture, and how today stands against the limits.
+  */
+  {
+    id: "llm",
+    label: "LLM usage",
+    note: "OpenRouter's bill, and what this box's own chat and runs consumed",
+    widgets: [
+      "openrouter.credits",
+      "openrouter.runway",
+      "openrouter.spend",
+      "openrouter.tokens",
+      "openrouter.daily",
+      "openrouter.tokensDaily",
+      "openrouter.models",
+      "openrouter.modelTable",
+      "openrouter.keyTable",
+      "openrouter.free",
+      "llm.today",
+      "llm.window",
+      "llm.daily",
+      "llm.byModel",
+      "llm.byWork",
+      "llm.byVenture",
+      "llm.budget",
+      "llm.ledger",
+      "costs.llm",
       "costs.limits",
     ],
   },

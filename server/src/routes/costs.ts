@@ -151,7 +151,7 @@ function openrouterSection(from: string) {
   const credits = openRouterCredits();
   const collected = everCollected("openrouter");
 
-  const byDay = new Map<string, { usd: number; requests: number }>();
+  const byDay = new Map<string, { usd: number; requests: number; prompt: number; completion: number }>();
   const byModel = new Map<
     string,
     { usd: number; byokUsd: number; requests: number; prompt: number; completion: number }
@@ -169,9 +169,11 @@ function openrouterSection(from: string) {
     prompt += r.prompt_tokens;
     completion += r.completion_tokens;
 
-    const d = byDay.get(r.day) ?? { usd: 0, requests: 0 };
+    const d = byDay.get(r.day) ?? { usd: 0, requests: 0, prompt: 0, completion: 0 };
     d.usd += r.usd;
     d.requests += r.requests;
+    d.prompt += r.prompt_tokens;
+    d.completion += r.completion_tokens;
     byDay.set(r.day, d);
 
     const m = byModel.get(r.model) ?? {
@@ -228,7 +230,15 @@ function openrouterSection(from: string) {
       dayCount: byDay.size,
       days: [...byDay.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([day, d]) => ({ day, usd: money(d.usd), requests: d.requests })),
+        .map(([day, d]) => ({
+          day,
+          usd: money(d.usd),
+          requests: d.requests,
+          /* Tokens per day, so a card can draw the volume beside the bill and
+             quote a blended rate for the day rather than for the month. */
+          promptTokens: d.prompt,
+          completionTokens: d.completion,
+        })),
       models: [...byModel.entries()]
         .map(([model, m]) => ({
           model,

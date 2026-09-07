@@ -44,6 +44,7 @@ import { pluginConfig } from "./routes/pluginConfig.ts";
 import { githubRoutes } from "./routes/github.ts";
 import { npmRoutes } from "./routes/npm.ts";
 import { costs } from "./routes/costs.ts";
+import { llm } from "./routes/llm.ts";
 import { stripeRoutes } from "./routes/stripe.ts";
 import { adsenseRoutes } from "./routes/adsense.ts";
 import { mobile } from "./routes/mobile.ts";
@@ -188,6 +189,9 @@ app.route("/api/npm", npmRoutes);
 /* One route for the whole costs board — the three providers that report spend
    and compute, each in its own units, with no total across currencies. */
 app.route("/api/costs", costs);
+/* This box's own LLM use — tokens by day, model, kind of work and venture,
+   from the ledgers it writes itself. See routes/llm.ts. */
+app.route("/api/llm", llm);
 /* The two revenue providers, on two routes rather than one. Stripe measures
    settled money and AdSense an ad network's own estimate of what a day earned;
    they are not the same kind of number, and a single /api/revenue would be an
