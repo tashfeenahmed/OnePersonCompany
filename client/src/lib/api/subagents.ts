@@ -25,16 +25,15 @@ import type { RunSummary } from "@/lib/api/runs";
  * is added to it.
  */
 
-/** The six roles, in the order the org draws them. A string on the wire — a
- *  role the server has invented since this build still renders, without an
- *  icon and without a crash. */
-export type SubagentRole =
-  | "researcher"
-  | "competitors"
-  | "seo"
-  | "demand"
-  | "visibility"
-  | "writer";
+/*
+ * THERE IS NO UNION OF ROLES HERE ANY MORE, and its deletion is the point.
+ * It listed six — researcher, competitors, seo, demand, visibility, writer —
+ * on an org that had grown to ten and then eleven, nothing imported it, and a
+ * type nobody reads is a type that is wrong in silence. A role is a STRING on
+ * the wire; a role this build has never heard of draws with the fallback icon
+ * rather than failing to compile, which is the behaviour every page here
+ * already has (see `ROLE_ICONS`).
+ */
 
 /**
  * What a role IS, as the server describes it: the kind of run it starts, the
@@ -52,6 +51,9 @@ export type RoleInfo = {
   what: string;
   /** The app slug a run of this kind is read at — `/apps/<app>/<runId>`. */
   app: string;
+  /** True for a role provisioned once for the whole box rather than once per
+   *  venture — the People analyst. */
+  portfolio?: boolean;
 };
 
 /**
@@ -67,7 +69,8 @@ export type RoleInfo = {
  */
 export type Subagent = {
   id: string;
-  ventureId: string;
+  /** Null for a worker that belongs to no venture — see `portfolio`. */
+  ventureId: string | null;
   role: string;
   kind: string;
   name: string;
@@ -76,6 +79,16 @@ export type Subagent = {
   enabled: boolean;
   running: boolean;
   queued: number;
+  /**
+   * THIS WORKER BELONGS TO NO VENTURE.
+   *
+   * A flag rather than `ventureId === null` read at each call site, because
+   * the two facts are not the same one: a venture worker whose venture has
+   * just been deleted would also have no id, and drawing it in the "across
+   * every venture" card would be the org chart inventing a portfolio. The
+   * server says which this is; nothing here infers it.
+   */
+  portfolio: boolean;
   /** The newest run of this kind for this venture, dispatched or not. Null
    *  means this worker has never done anything — not that it failed. */
   lastRun: RunSummary | null;
@@ -119,6 +132,13 @@ export type Org = {
   chiefOfStaff: ChiefOfStaff;
   roles: RoleInfo[];
   ventures: OrgVentureTeam[];
+  /**
+   * THE WORKERS WITH NO VENTURE ABOVE THEM, in the order the chart draws
+   * them. Empty on a server that has none — which is not the same as absent,
+   * and is why the chart's card is drawn only when there is something in it
+   * rather than as a permanently empty box.
+   */
+  portfolio: Subagent[];
   summary: { subagents: number; enabled: number; running: number; queued: number };
 };
 
@@ -153,7 +173,10 @@ export type Exchange = {
  *  and the newest twenty of those as a transcript, oldest first, with their
  *  reports in full. */
 export type SubagentDetail = Subagent & {
-  venture: OrgVenture;
+  /** Null for a portfolio worker. The pages that draw a venture name have to
+   *  cope with that rather than with a placeholder venture, because there is
+   *  no venture — see `pages/Subagent.tsx`. */
+  venture: OrgVenture | null;
   runs: RunSummary[];
   transcript: Exchange[];
 };
@@ -177,6 +200,16 @@ const seg = (s: string) => encodeURIComponent(s);
  */
 export const subagentId = (ventureId: string, role: string) =>
   `sa-${ventureId}-${role}`;
+
+/**
+ * The same derivation for a worker with no venture: `sa-portfolio-<role>`.
+ *
+ * "portfolio" IS THE VENTURE ID'S PLACE, which is what keeps one key shape on
+ * the server rather than two. It is written here beside the other one so the
+ * day the key changes there is still exactly one file to edit, and the
+ * fallback below still answers if it changes without this being edited.
+ */
+export const portfolioSubagentId = (role: string) => `sa-portfolio-${role}`;
 
 export const subagentApi = {
   /** The whole org: the owner, the chief of staff, the roles and every
@@ -239,6 +272,12 @@ export const subagentApi = {
  * said "no venture at this address" because a *different* fetch was slow would
  * be reporting the wrong failure. The org document knows both.
  *
+ * AND NO VENTURE AT ALL IS A THIRD CASE, not a missing argument. The People
+ * analyst belongs to nobody's business: its address is /team/people, it has
+ * neither a slug nor an id to hand, and it is looked up in the org's
+ * `portfolio` list. The fast path is the same trick — `sa-portfolio-people` —
+ * with the same fallback behind it.
+ *
  * Null means there is no such worker — a role nobody has heard of, a venture
  * that has been deleted. A server that cannot be reached throws instead, so
  * the two are never confused.
@@ -248,13 +287,28 @@ export async function findSubagent(opts: {
   ventureId?: string | null;
   slug?: string | null;
 }): Promise<SubagentDetail | null> {
-  if (opts.ventureId) {
-    const guess = await subagentApi
-      .one(subagentId(opts.ventureId, opts.role))
-      .catch(() => null);
+  /* NEITHER A SLUG NOR AN ID MEANS THE PORTFOLIO, and it means it positively
+     rather than by accident. /team/people carries no venture because the
+     worker at it HAS none; the venture pages always carry one of the two. So
+     the absence is the question being asked, not a caller that forgot. */
+  const noVenture = !opts.ventureId && !opts.slug;
+  const guessId = noVenture
+    ? portfolioSubagentId(opts.role)
+    : opts.ventureId
+      ? subagentId(opts.ventureId, opts.role)
+      : null;
+  if (guessId) {
+    const guess = await subagentApi.one(guessId).catch(() => null);
     if (guess) return guess;
   }
   const org = await subagentApi.org();
+  if (noVenture) {
+    /* `?? []` because a server built before the portfolio existed sends no
+       such field, and "this build asked an older server" must read as "no
+       such worker" rather than as a crash on the page. */
+    const found = (org.portfolio ?? []).find((s) => s.role === opts.role);
+    return found ? await subagentApi.one(found.id) : null;
+  }
   const venture = org.ventures.find((v) =>
     opts.ventureId ? v.id === opts.ventureId : v.slug === opts.slug,
   );

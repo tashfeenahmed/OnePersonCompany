@@ -8,11 +8,18 @@
  * this shape of report — and six files would let those variations drift into
  * six different definitions of what a report is.
  *
- * THE REPORT SHAPE IS FIXED AND IT IS THE SAME FOR ALL SIX. `## Findings`,
- * `## Evidence`, `## Recommendations`, and a fenced json block named `cards`.
- * That is not tidiness: the page renders the markdown and offers the cards as
- * board suggestions, and a report that invented its own headings would be a
- * report the page could only show as a wall of text.
+ * THE REPORT SHAPE IS FIXED, AND IT IS THE SAME FOR EVERY KIND THAT REPORTS ON
+ * A BUSINESS. `## Findings`, `## Evidence`, `## Recommendations`, and a fenced
+ * json block named `cards`. That is not tidiness: the page renders the markdown
+ * and offers the cards as board suggestions, and a report that invented its own
+ * headings would be a report the page could only show as a wall of text.
+ *
+ * THE ONE KIND THAT IS NOT A REPORT ON A BUSINESS PASSES ITS OWN SHAPE IN.
+ * A `dossier` is a profile of a PERSON — snapshot, what changed, what they are
+ * building, sources — and it proposes no board cards, because "read about Jane
+ * Doe" is not a task anybody ticks off. It says so through `systemBrief`'s
+ * `shape` option rather than through a second briefing function, so the tools
+ * fork and the honesty rules below stay the only copy of themselves.
  *
  * THE CARDS ARE SUGGESTIONS AND THE RUN NEVER FILES THEM. Nothing in this area
  * writes to the board. A run that quietly created eleven cards would be an
@@ -391,10 +398,72 @@ export const KINDS: KindDef[] = [
     ],
   },
 
+  /* THE FIRST KIND THAT IS ABOUT A PERSON RATHER THAN A BUSINESS, owned by
+     integrations/people/. Everything above is venture × role; this one
+     belongs to NO venture, because a founder the owner is watching is not
+     filed under one of his own companies and pretending otherwise would put
+     the same person in eight places. See integrations/people/dossier.ts for
+     the run and integrations/subagents/store.ts for the worker that has no
+     business attached to it. */
+  {
+    kind: "dossier",
+    name: "Dossier",
+    what:
+      "A sourced, dated profile of one person of interest — a founder, a customer, a correspondent — from a bounded web sweep and what this box already holds about them: who they are, what they are building, what changed since the last dossier, their recent public activity, the signals, the open questions, and the sources actually used.",
+    needsVenture: false,
+    inputs: [
+      {
+        /* EXACTLY ONE INPUT, and it is a textarea, because the dispatch door
+           puts a brief into the first textarea a kind declares — see
+           `briefField` in integrations/subagents/routes.ts. So for this kind
+           the brief IS the person, and there is no second field for a worker
+           or an agent to leave empty by mistake. */
+        key: "person",
+        label: "Who",
+        hint: "A name, plus a company, a handle or a link so the right person is found — and anything in particular to look into.",
+        kind: "textarea",
+        required: true,
+        default: "",
+      },
+    ],
+  },
+
 ];
 
 export function kindDef(kind: string): KindDef | null {
   return KINDS.find((k) => k.kind === kind) ?? null;
+}
+
+/**
+ * WHAT A DOSSIER RUN IS CALLED, and why it is one function rather than two
+ * string templates.
+ *
+ * A dossier is written about the SAME PERSON again and again — that is the
+ * whole of "What changed" — and the only thing tying this month's to last
+ * month's is the title. Two doors start these runs, the run app's form and a
+ * dispatch to the People Analyst, and if they titled the same brief two
+ * different ways the second dossier would never find the first and would
+ * quietly report a first meeting every time. So the title is derived here,
+ * once, by both.
+ *
+ * The FIRST LINE only, AND ONLY THE PART OF IT THAT NAMES THEM: a brief's
+ * second paragraph is what to look into, not who, and so is the clause after
+ * a dash, a colon or a question mark on the first line — "Jane Doe, founder
+ * of Acme — what is she building now?" is one person, and a title carrying
+ * the question would be a title no two runs ever share. The comma is kept:
+ * "Jane Doe, founder of Acme" is how a person is told apart from another Jane
+ * Doe, and it is what the shelf groups by.
+ */
+export const DOSSIER_TITLE_CAP = 80;
+
+export function dossierTitle(person: string): string {
+  const first = person.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? "";
+  const named = (first.split(/\s+[—–-]\s+|[:;?]/)[0] ?? "").trim() || first;
+  const who =
+    named.length > DOSSIER_TITLE_CAP ? `${named.slice(0, DOSSIER_TITLE_CAP - 1).trimEnd()}…` : named;
+  /* Never an empty tail. A run with no name in it is a run the ledger cannot
+     be read for, and "someone unnamed" says which mistake was made. */
+  return `Dossier — ${who || "someone unnamed"}`;
 }
 
 /* ------------------------------------------------------------ the briefing */
@@ -452,6 +521,20 @@ export function systemBrief(opts: {
    * the SHAPE belongs beside the shape, in the order it is to be written.
    */
   shapeExtra?: string;
+  /**
+   * A REPLACEMENT for the report shape, not an addition to it.
+   *
+   * Added for the dossier, which is the first document on this box that is not
+   * findings-evidence-recommendations: it is a profile of a person, its
+   * sections are different ones, and it proposes no board cards at all because
+   * "read about Jane Doe" is not a task somebody ticks off. Everything ELSE in
+   * this brief — the tools fork, the honesty rules, the labelled blocks — is
+   * exactly what a dossier needs, so the alternative was a second `systemBrief`
+   * that would have drifted from this one on the first rule added to either.
+   *
+   * Optional and defaulted, so every existing caller keeps the shape it has.
+   */
+  shape?: string;
 }): string {
   const { def, ventureName, hasTools, data } = opts;
   const head = [
@@ -482,7 +565,7 @@ export function systemBrief(opts: {
     ``,
     `---`,
     ``,
-    REPORT_SHAPE,
+    opts.shape ?? REPORT_SHAPE,
     ...(opts.shapeExtra ? [``, opts.shapeExtra] : []),
   ].join("\n");
 }

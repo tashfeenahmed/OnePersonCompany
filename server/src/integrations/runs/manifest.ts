@@ -176,8 +176,10 @@ const skills: Skill[] = [
             type: "string",
             required: false,
             about:
-              "The venture's id or slug. Required for every kind except papers, " +
-              "where it is optional if a topic is given instead.",
+              "The venture's id or slug. Required by every kind whose " +
+              "`needsVenture` is true on the default view, and by no other: " +
+              "papers takes it or a topic instead, and shotsqa, video and dossier " +
+              "are not about one business at all — a dossier is about a PERSON.",
           },
           {
             name: "focus",

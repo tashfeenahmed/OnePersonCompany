@@ -209,6 +209,9 @@ function Roster({ org }: { org: { data: Org | null; error: string | null; loadin
         owner={org.data.owner}
         chiefOfStaff={org.data.chiefOfStaff}
         ventures={org.data.ventures}
+        /* `?? []` for a server built before the portfolio existed: no card,
+           rather than a crash on a page whose whole job is drawing everybody. */
+        portfolio={org.data.portfolio ?? []}
       />
       {!org.data.ventures.length && (
         <p className="text-muted-foreground text-[13.5px]">
@@ -225,7 +228,13 @@ function Roster({ org }: { org: { data: Org | null; error: string | null; loadin
               What each worker does
             </div>
             <span className="text-muted-foreground ml-auto text-[12.5px]">
-              {org.data.roles.length} roles, the same on every venture
+              {(() => {
+                const portfolio = org.data.roles.filter((r) => r.portfolio).length;
+                const perVenture = org.data.roles.length - portfolio;
+                return portfolio
+                  ? `${perVenture} roles on every venture, and ${portfolio} that belong${portfolio === 1 ? "s" : ""} to none`
+                  : `${org.data.roles.length} roles, the same on every venture`;
+              })()}
             </span>
           </div>
           {/*

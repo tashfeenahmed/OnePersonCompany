@@ -134,6 +134,20 @@ export default function App() {
                       element={<Subagent />}
                     />
                     {/*
+                      THE WORKER WITH NO VENTURE ABOVE IT. Same element, one
+                      segment shorter, and the shortness is the whole meaning:
+                      the People analyst answers to nobody's business, so
+                      there is no venture to put in front of it. The page
+                      reads the absence of `:slug` as "this is a portfolio
+                      worker" — see pages/Subagent.tsx — rather than as a
+                      route that forgot something.
+
+                      Declared after the venture form of the same page so the
+                      two sit together; they cannot collide, because
+                      /ventures/... is a longer literal prefix.
+                    */}
+                    <Route path="/team/:role" element={<Subagent />} />
+                    {/*
                       THE VENTURE'S OTHER TABS. Real addresses rather than
                       state, the same rule the boards follow: "what is
                       a venture is connected to" is a place somebody sends a link

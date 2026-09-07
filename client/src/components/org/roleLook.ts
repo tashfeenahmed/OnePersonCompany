@@ -6,6 +6,7 @@ import {
   SearchCheck,
   Swords,
   Telescope,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import { statusTone, statusWord } from "@/components/runs/format";
@@ -44,6 +45,11 @@ export const ROLE_ICONS: Record<string, LucideIcon> = {
   demand: MessageSquareText,
   visibility: Bot,
   writer: FileText,
+  /* The People analyst, whose app is Dossiers. A person, because that is what
+     it reports on — and the only mark here that is a subject rather than an
+     activity, which is right: it is the only worker that is not attached to a
+     business. */
+  people: UserRound,
 };
 
 /** What a role this build has never heard of is drawn as. Not nothing: a row
@@ -86,6 +92,18 @@ export function shortName(name: string, venture: string): string {
  *  because /ventures/<slug>/team/seo is an address somebody can read. */
 export const teamAddress = (ventureSlug: string, role: string) =>
   `/ventures/${encodeURIComponent(ventureSlug)}/team/${encodeURIComponent(role)}`;
+
+/**
+ * A worker with no venture above it: /team/people.
+ *
+ * THE MISSING SEGMENT IS THE FACT. The venture's workers live under the
+ * venture because that is who they answer to; this one lives at the root
+ * because it answers to nobody's business, and an address that invented a
+ * venture to hang it off — /ventures/all/team/people — would be a place that
+ * does not exist. Same page, one segment shorter.
+ */
+export const portfolioAddress = (role: string) =>
+  `/team/${encodeURIComponent(role)}`;
 
 /**
  * WHAT THIS WORKER IS DOING, IN ONE WORD AND ONE COLOUR.

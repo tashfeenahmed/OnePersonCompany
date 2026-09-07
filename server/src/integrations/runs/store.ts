@@ -20,7 +20,24 @@ import { forgetVideo } from "../video/execute.ts";
 
 /* ------------------------------------------------------------------- rows */
 
-export type RunKind = "research" | "competitors" | "seo" | "demand" | "geo" | "papers" | "shotsqa" | "video" | "serp" | "aso" | "campaign";
+export type RunKind =
+  | "research"
+  | "competitors"
+  | "seo"
+  | "demand"
+  | "geo"
+  | "papers"
+  | "shotsqa"
+  | "video"
+  | "serp"
+  | "aso"
+  | "campaign"
+  /* THE FIRST KIND THAT IS ABOUT A PERSON RATHER THAN A BUSINESS, and the
+     first whose worker belongs to no venture at all. Its `venture_id` is NULL
+     on every row by construction — see integrations/subagents/store.ts on the
+     portfolio roster — which is why `lastRuns` there had to stop filtering
+     NULL ventures out. */
+  | "dossier";
 /* The five states, declared once for the whole box in `shared/runStatus.ts`
    and re-exported here so this area's own callers keep one import for
    everything about a run. It was declared five times — twice on the server,

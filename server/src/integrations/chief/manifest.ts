@@ -125,8 +125,10 @@ export const manifest: IntegrationManifest = {
         roles: {
           label: "Roles each round dispatches",
           hint:
-            `Which of the six sub-agents get a job on a venture that is due, ` +
-            `comma separated: ${ROLE_LIST}. Default ${DEFAULT_ROLES.join(", ")}. ` +
+            `Which of the per-venture sub-agents get a job on a venture that is ` +
+            `due, comma separated: ${ROLE_LIST}. Default ${DEFAULT_ROLES.join(", ")}. ` +
+            `A round walks ventures, so the workers that belong to no venture — ` +
+            `the People Analyst — cannot be scheduled here and are not listed. ` +
             `Each role named here is a whole run — minutes of the one slot and ` +
             `real tokens — per venture worked, so two roles is twice the bill.`,
           ph: DEFAULT_ROLES.join(", "),
@@ -138,7 +140,12 @@ export const manifest: IntegrationManifest = {
               .map((s) => s.trim().toLowerCase())
               .filter(Boolean)
               .filter((r) => !ROLES.some((x) => x.role === r));
-            return bad.length ? `Not a role: ${bad.join(", ")}. The six are ${ROLE_LIST}.` : null;
+            /* Checked against `ROLES`, the VENTURE roles, and not against
+               `roleDef` — which now resolves the portfolio roles too, and
+               would accept a setting this walk could never act on. */
+            return bad.length
+              ? `Not a role a round can dispatch: ${bad.join(", ")}. The venture roles are ${ROLE_LIST}.`
+              : null;
           },
         },
         max: {

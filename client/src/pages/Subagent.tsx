@@ -75,6 +75,14 @@ import {
  * THE ADDRESS IS THE VENTURE AND THE ROLE, not the worker's id.
  * /ventures/<slug>/team/seo is a sentence; /subagents/sa-v-3f21-seo is a
  * primary key. See `findSubagent` for how one is turned into the other.
+ *
+ * AND SOMETIMES THERE IS NO VENTURE, which is a fact about the worker rather
+ * than a hole in the address. The People analyst belongs to no business: it
+ * lives at /team/people, `venture` comes back null, and every venture-shaped
+ * piece of this page — the breadcrumb, the stage pill, the "for <venture>"
+ * after the title, the chief-of-staff link's `?venture=` — is left off rather
+ * than filled with a placeholder. A page that said "for this venture" over a
+ * worker that has none would be the one lie this file exists to avoid.
  */
 export function Subagent() {
   const { slug, role = "" } = useParams();
@@ -86,16 +94,25 @@ export function Subagent() {
     address" because a different fetch was slow would be reporting the wrong
     failure. Knowing the id lets `findSubagent` skip a document.
   */
-  const stored = state.ventures.find((v) => v.slug === slug);
+  const stored = slug ? state.ventures.find((v) => v.slug === slug) : undefined;
   const detail = useApi(
     () =>
-      slug && role
-        ? findSubagent({ role, slug, ventureId: stored?.id ?? null })
+      role
+        ? findSubagent({ role, slug: slug ?? null, ventureId: stored?.id ?? null })
         : Promise.resolve(null),
     [slug, stored?.id, role],
   );
   const sa = detail.data;
   const reload = detail.reload;
+  /*
+    WHOSE WORKER THIS IS — the server's answer first, the store's cache second,
+    and nobody's third. `portfolio` is the third case said out loud: the
+    ADDRESS decides it before anything has loaded (no slug, no venture), and
+    the worker's own flag decides it once the document is in. Deriving it from
+    `!venture` alone would draw a venture worker whose fetch failed as though
+    it belonged to nobody.
+  */
+  const portfolio = sa?.portfolio ?? !slug;
   const venture =
     sa?.venture ??
     (stored
@@ -175,8 +192,14 @@ export function Subagent() {
   }, [growth, settingsOpen]);
 
   /* Only once the answer is in: "there is nobody here" is a claim about the
-     whole org, and until the read has finished this page does not know it. */
-  if (!venture && !detail.loading)
+     whole org, and until the read has finished this page does not know it.
+
+     WHAT COUNTS AS "NOBODY" DEPENDS ON THE ADDRESS. A venture worker is
+     missing when the venture is — the slug in the bar names nothing, so
+     nothing under it can exist. A portfolio worker has no venture to be
+     missing, so the only evidence is the worker itself coming back null. */
+  const nobody = slug ? !venture : !sa;
+  if (nobody && !detail.loading)
     return (
       <>
         <TopBar label="Sub-agents" />
@@ -184,8 +207,12 @@ export function Subagent() {
           title="Nobody at this address"
           sub={
             detail.error
-              ? `The org could not be read, so whether “${slug}” has a ${role} is not known. ${detail.error}`
-              : `Nothing here is called “${slug}”, or it has no ${role}.`
+              ? slug
+                ? `The org could not be read, so whether “${slug}” has a ${role} is not known. ${detail.error}`
+                : `The org could not be read, so whether there is a ${role} worker is not known. ${detail.error}`
+              : slug
+                ? `Nothing here is called “${slug}”, or it has no ${role}.`
+                : `Nobody works here under the name ${role}, for any venture or for none.`
           }
         >
           <Link to="/subagents" className="text-[13.5px] underline">
@@ -277,6 +304,7 @@ export function Subagent() {
         ? `${sa.name} is on the last brief. The box opens again when the report is in.`
         : briefHint(sa.role, venture?.name ?? "this venture");
 
+
   return (
     <>
       {/* ------------------------------------------------------- header */}
@@ -287,23 +315,34 @@ export function Subagent() {
         >
           Sub-agents
         </Link>
-        {venture && (
+        {(venture || portfolio) && (
           <>
             <span className="text-muted-foreground text-[13.5px]">/</span>
-            <Link
-              to={`/ventures/${venture.slug}`}
-              className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 px-2 py-1 text-[13.5px]"
-            >
-              <VentureMark
-                venture={{
-                  name: venture.name,
-                  color: venture.color,
-                  brand: { favicon: venture.favicon },
-                }}
-                size={14}
-              />
-              {venture.name}
-            </Link>
+            {/* THE MIDDLE CRUMB IS WHO THIS WORKER ANSWERS TO, and for the
+                People analyst that is nobody — so it is a phrase rather than
+                a link. There is no page for "across every venture" to lead
+                to; the org chart's card of that name is where it is drawn,
+                and the crumb before this one already goes there. */}
+            {portfolio ? (
+              <span className="text-muted-foreground px-2 py-1 text-[13.5px]">
+                Across every venture
+              </span>
+            ) : (
+              <Link
+                to={`/ventures/${venture!.slug}`}
+                className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 px-2 py-1 text-[13.5px]"
+              >
+                <VentureMark
+                  venture={{
+                    name: venture!.name,
+                    color: venture!.color,
+                    brand: { favicon: venture!.favicon },
+                  }}
+                  size={14}
+                />
+                {venture!.name}
+              </Link>
+            )}
             <span className="text-muted-foreground text-[13.5px]">/</span>
             <span className="flex items-center gap-1.5 px-2 py-1 text-[13.5px]">
               <RoleIcon role={role} className="text-muted-foreground size-3.5" />
@@ -318,7 +357,9 @@ export function Subagent() {
               {mood.word}
             </span>
           )}
-          {venture && <StagePill stage={venture.stage} />}
+          {/* A stage is a venture's, and a worker with no venture has none.
+              Nothing stands in for it. */}
+          {!portfolio && venture && <StagePill stage={venture.stage} />}
           <button
             onClick={() => setSettings(!settingsOpen)}
             title={settingsOpen ? "Hide settings" : "Who this is, and its standing instructions"}
@@ -361,7 +402,7 @@ export function Subagent() {
             </p>
           )}
 
-          {sa && venture && (
+          {sa && (venture || portfolio) && (
             <>
               {/*
                 WHO IS ANSWERING, SAID FIRST. The page borrows the chat's
@@ -371,20 +412,46 @@ export function Subagent() {
               <h1 className="mb-1.5 text-[27px] font-normal tracking-[-0.025em]">
                 {sa.name}.{" "}
                 <span className="text-muted-foreground">
-                  {sa.title} for {venture.name}.
+                  {portfolio
+                    ? `${sa.title}, for no venture in particular.`
+                    : `${sa.title} for ${venture!.name}.`}
                 </span>
               </h1>
               <p className="text-muted-foreground mb-6 text-[14.5px]">
-                This is {sa.name}, not the chief of staff. Every message you send
-                here is a brief, and every reply is one whole{" "}
-                {kind?.name ?? sa.kind} run.{" "}
-                {kind?.what ?? ""}
+                {portfolio ? (
+                  <>
+                    This is {sa.name}, not the chief of staff. It belongs to no
+                    venture. Every message you send here is a brief naming a
+                    person, and every reply is one whole{" "}
+                    {kind?.name ?? sa.kind} run. {kind?.what ?? ""}
+                  </>
+                ) : (
+                  <>
+                    This is {sa.name}, not the chief of staff. Every message you
+                    send here is a brief, and every reply is one whole{" "}
+                    {kind?.name ?? sa.kind} run. {kind?.what ?? ""}
+                  </>
+                )}
               </p>
 
               {settingsOpen && form && (
                 <SettingsPanel
                   sa={sa}
-                  ventureName={venture.name}
+                  /* WHAT THE NAME BOX WOULD SAY IF IT WERE EMPTY — the
+                     server's own default name. A venture's worker is
+                     "<Venture> SEO Analyst"; a portfolio worker is its title
+                     and nothing else, because there is no venture to put in
+                     front of it. */
+                  namePlaceholder={
+                    portfolio ? sa.title : `${venture!.name} ${sa.title}`
+                  }
+                  /* Same reason: "always know about the venture" is an
+                     instruction to a worker that has one. */
+                  instructionsPlaceholder={
+                    portfolio
+                      ? "Anything this worker should always know about who you watch, what counts as a signal, or the house style."
+                      : "Anything this worker should always know about the venture, the audience or the house style."
+                  }
                   form={form}
                   dirty={dirty}
                   saving={saving}
@@ -403,10 +470,20 @@ export function Subagent() {
 
               {transcript.length === 0 ? (
                 <p className="text-muted-foreground mb-6 text-[13.5px]">
-                  Nothing yet. Nobody has given {sa.name} a brief and no{" "}
-                  {kind?.name ?? sa.kind} run has been started from the app
-                  with {venture.name} chosen. The box below is where that
-                  changes.
+                  {portfolio ? (
+                    <>
+                      Nothing yet. Nobody has given {sa.name} a brief and no{" "}
+                      {kind?.name ?? sa.kind} run has been started from the
+                      app. The box below is where that changes.
+                    </>
+                  ) : (
+                    <>
+                      Nothing yet. Nobody has given {sa.name} a brief and no{" "}
+                      {kind?.name ?? sa.kind} run has been started from the app
+                      with {venture!.name} chosen. The box below is where that
+                      changes.
+                    </>
+                  )}
                 </p>
               ) : (
                 <div className="flex flex-col gap-5 pb-2">
@@ -475,9 +552,18 @@ export function Subagent() {
               {/* THE OTHER WAY TO ASK, and it is not a lesser one. The chief
                   of staff can dispatch this same worker mid-conversation and
                   file the run under the chat that asked for it. */}
-              {venture && sa && (
+              {sa && (venture || portfolio) && (
                 <Link
-                  to={`/?venture=${encodeURIComponent(venture.id)}&q=${encodeURIComponent(`Ask ${sa.name} to `)}`}
+                  /* `?venture=` scopes the chat to the business this worker
+                     belongs to. A portfolio worker belongs to none, so the
+                     parameter is left OFF rather than sent empty — an empty
+                     one would read as "no venture chosen" on a page that
+                     otherwise falls back to the workspace default. */
+                  to={
+                    portfolio
+                      ? `/?q=${encodeURIComponent(`Ask ${sa.name} to `)}`
+                      : `/?venture=${encodeURIComponent(venture!.id)}&q=${encodeURIComponent(`Ask ${sa.name} to `)}`
+                  }
                   className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
                 >
                   <MessageSquare className="size-[15px]" strokeWidth={1.6} />
@@ -662,7 +748,8 @@ function ExchangeView({
  */
 function SettingsPanel({
   sa,
-  ventureName,
+  namePlaceholder,
+  instructionsPlaceholder,
   form,
   dirty,
   saving,
@@ -672,7 +759,13 @@ function SettingsPanel({
   onSwitch,
 }: {
   sa: SubagentDetail;
-  ventureName: string;
+  /** What the name box says while it is empty — the server's own default
+   *  name for this worker. A string rather than a venture, because one of
+   *  these workers has no venture. */
+  namePlaceholder: string;
+  /** And what the standing-instructions box says while it is empty. A worker
+   *  with no venture cannot be told anything about one. */
+  instructionsPlaceholder: string;
   form: { name: string; title: string; instructions: string };
   dirty: boolean;
   saving: boolean;
@@ -702,7 +795,7 @@ function SettingsPanel({
           <Input
             value={form.name}
             onChange={(e) => onChange({ ...form, name: e.target.value })}
-            placeholder={`${ventureName} ${sa.title}`}
+            placeholder={namePlaceholder}
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -724,7 +817,7 @@ function SettingsPanel({
           rows={4}
           value={form.instructions}
           onChange={(e) => onChange({ ...form, instructions: e.target.value })}
-          placeholder="Anything this worker should always know about the venture, the audience or the house style."
+          placeholder={instructionsPlaceholder}
         />
       </label>
 
@@ -755,6 +848,11 @@ function briefHint(role: string, venture: string): string {
       return `e.g. "Ask the models what they say about ${venture} and who they name instead."`;
     case "writer":
       return `The subject of the literature search, in three to ten words — e.g. "AI coding agents with persistent project memory".`;
+    /* The one role whose brief is a PERSON rather than a subject, and the
+       hint says so in the first three words — the venture is not mentioned
+       because this worker has none. */
+    case "people":
+      return `Who is it? e.g. "Jane Doe, founder of Acme — what is she building now, and has anything changed since we last spoke?"`;
     default:
       return `What should ${venture} have this worker do?`;
   }

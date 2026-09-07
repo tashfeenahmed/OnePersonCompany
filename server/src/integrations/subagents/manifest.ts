@@ -6,10 +6,11 @@
  * APPS: six kinds of long work, each started from a page by a person who chose
  * a venture off a dropdown. That is a tool rack. It is not an org: nothing had
  * a name, nothing was anybody's job, and the only way to get work done was to
- * go and do it. This area names the workers — one per venture per role, six
- * roles, provisioned automatically — and gives the chat agent a way to send one
- * of them off, which is the difference between a dashboard with tools on it and
- * a business with staff.
+ * go and do it. This area names the workers — one per venture per role,
+ * provisioned automatically, plus the roles that belong to no venture at all
+ * and are provisioned once for the box — and gives the chat agent a way to send
+ * one of them off, which is the difference between a dashboard with tools on it
+ * and a business with staff.
  *
  * THERE IS NO NEW ENGINE UNDER IT, and that is the point rather than a
  * shortcut. A dispatched worker executes exactly the run the app would have
@@ -25,11 +26,13 @@
  * `papers` are: the owner's own name, which is the top of the org chart and is
  * a decision rather than a secret.
  *
- * ONE SKILL AND NOT SEVEN. The roles are DATA on `/api/subagents` — each with
- * its kind, its app and the sentence the kind publishes about itself — so an
- * agent that reads the org can address any of them through one action, and a
- * seventh role added later needs no edit here. That is the same argument the
- * runs manifest makes about kinds, applied one layer up.
+ * ONE SKILL AND NOT ONE PER ROLE. The roles are DATA on `/api/subagents` —
+ * each with its kind, its app, whether it needs a venture, and the sentence the
+ * kind publishes about itself — so an agent that reads the org can address any
+ * of them through one action, and a role added later needs no edit here. That
+ * is the same argument the runs manifest makes about kinds, applied one layer
+ * up. It is also why the People Analyst arriving as a whole new SORT of worker
+ * cost this file some prose and no new action.
  *
  * `configure` IS NOT DESTRUCTIVE: every field it writes is a field it can write
  * back. `dispatch` IS — it spends the one run slot and real tokens — see the
@@ -37,15 +40,16 @@
  */
 import type { IntegrationManifest } from "../manifest.ts";
 import type { Skill } from "../../skills/registry.ts";
-import { ROLES } from "./store.ts";
+import { PORTFOLIO_ROLES, ROLES } from "./store.ts";
 import { DEFAULT_OWNER, WORKSPACE_PLUGIN, subagentRoutes } from "./routes.ts";
 
 const ROLE_LIST = ROLES.map((r) => r.role).join(", ");
+const PORTFOLIO_LIST = PORTFOLIO_ROLES.map((r) => r.role).join(", ");
 
 const skills: Skill[] = [
   {
     id: "subagents",
-    title: "Sub-agents — the six workers on each venture, and how to dispatch one",
+    title: "Sub-agents — the workers on each venture, the ones on none, and how to dispatch them",
     /* No credential. The roster is derived from the ventures table and is there
        whether or not anything is connected; whether a dispatched worker will
        be ANSWERED depends on an agent or a provider being live, which the run's
@@ -53,13 +57,14 @@ const skills: Skill[] = [
     plugins: [],
     about:
       "The whole organisation, top to bottom: the owner, the Chief of Staff " +
-      "(that is you — the live chat backend), every venture, and the six " +
-      "sub-agents on each of them. A sub-agent is a named worker with one job " +
-      "and one kind of run: a Researcher, a Competitor Analyst, an SEO Analyst, " +
-      "a Demand Analyst, an AI Visibility Analyst and a Paper Writer per " +
-      "venture. Each carries what it is running, what it has queued, its last " +
-      "run and its record. You can send one off with `dispatch`, and read what " +
-      "it wrote later through the `runs` skill.",
+      "(that is you — the live chat backend), every venture with its own team " +
+      "of workers, and — under `portfolio` — the workers that belong to no " +
+      "venture at all. A sub-agent is a named worker with one job and one kind " +
+      "of run. Each carries what it is running, what it has queued, its last " +
+      "run and its record. `roles` lists every role there is, each with what it " +
+      "does and whether it is a venture role or a portfolio one. You can send " +
+      "one off with `dispatch`, and read what it wrote later through the `runs` " +
+      "skill.",
     rules: [
       "THE PAPER WRITER'S BRIEF IS A SEARCH SUBJECT, NOT A TASK. It goes to " +
         "OpenAlex and arXiv as typed, so it is three to ten words naming the " +
@@ -88,10 +93,19 @@ const skills: Skill[] = [
       "A WORKER'S RUNS ARE EVERY RUN OF ITS KIND FOR ITS VENTURE, however they " +
         "were started. An SEO review the owner started from the app page is the " +
         "SEO Analyst's work too; `counts` and `lastRun` include it.",
-      "THE ROSTER IS DERIVED AND CANNOT BE ADDED TO. Six roles per venture, " +
-        "provisioned automatically. There is no way to create a seventh worker " +
-        "or delete one, and a request for either is a request to change the " +
-        "shape of this dashboard.",
+      "THE PEOPLE ANALYST BELONGS TO NO VENTURE AND IS DISPATCHED WITH `role` " +
+        "ALONE. Its brief NAMES A PERSON — `Jane Doe, founder of Acme, what is " +
+        "she building now` — and it writes a dossier: a sourced, dated profile " +
+        "from a web sweep plus what this box already holds about them. Send " +
+        "`role: \"people\"` and a brief and NO venture; sending a venture is " +
+        "refused, because there is no business for it to be about. It is under " +
+        "`portfolio` on the default view rather than under any venture, and its " +
+        "runs carry no venture in the ledger.",
+      "THE ROSTER IS DERIVED AND CANNOT BE ADDED TO. The venture roles " +
+        `(${ROLE_LIST}) are provisioned once per venture; the roles that belong ` +
+        `to no venture (${PORTFOLIO_LIST}) are provisioned once for the whole ` +
+        "box. There is no way to create a worker or delete one, and a request " +
+        "for either is a request to change the shape of this dashboard.",
     ],
     views: [
       {
@@ -99,10 +113,12 @@ const skills: Skill[] = [
         path: "/api/subagents",
         about:
           "The org: the owner's name, the Chief of Staff and what is answering " +
-          "as it, the six roles with what each one does and which app it runs " +
-          "in, and every venture with its six workers — each carrying its " +
-          "standing instructions, whether it is on, what it is running, what it " +
-          "has queued, its last run and its done/failed record.",
+          "as it, every role with what it does and which app it runs in, every " +
+          "venture with its own team, and `portfolio` — the workers that belong " +
+          "to no venture. Each worker carries its standing instructions, whether " +
+          "it is on, what it is running, what it has queued, its last run, its " +
+          "done/failed record, and `portfolio: true` when it has no venture (in " +
+          "which case its `ventureId` is null).",
         params: [],
       },
       {
@@ -118,7 +134,10 @@ const skills: Skill[] = [
             type: "string",
             required: true,
             in: "path",
-            about: "The sub-agent id, which is sa-<venture id>-<role>, like sa-v-acme-seo.",
+            about:
+              "The sub-agent id: sa-<venture id>-<role> for a venture worker, " +
+              "like sa-v-acme-seo, and sa-portfolio-<role> for one that belongs " +
+              "to no venture, like sa-portfolio-people.",
           },
         ],
       },
@@ -143,14 +162,22 @@ const skills: Skill[] = [
           {
             name: "venture",
             type: "string",
-            required: true,
-            about: "The venture's id or slug — v-acme or acme.",
+            required: false,
+            about:
+              `The venture's id or slug — v-acme or acme. REQUIRED for every ` +
+              `venture role (${ROLE_LIST}), and it must be OMITTED for the roles ` +
+              `that belong to no venture (${PORTFOLIO_LIST}) — sending one there ` +
+              `is refused rather than ignored, because there is no business for ` +
+              `those workers to be about.`,
           },
           {
             name: "role",
             type: "string",
             required: true,
-            about: `Which of the six: ${ROLE_LIST}. The default view says what each one does.`,
+            about:
+              `Which worker. The venture roles are ${ROLE_LIST}; the roles that ` +
+              `belong to no venture are ${PORTFOLIO_LIST}. The default view says ` +
+              `what each one does and which is which.`,
           },
           {
             name: "brief",
@@ -164,7 +191,12 @@ const skills: Skill[] = [
               "WRITER IT IS THE SUBJECT OF THE LITERATURE SEARCH — a topic of " +
               "three to ten words, `LLM-based code generation with persistent " +
               "project memory`, never instructions: it is sent to OpenAlex and " +
-              "arXiv as typed, and a paragraph returns nothing and fails the run.",
+              "arXiv as typed, and a paragraph returns nothing and fails the run. " +
+              "FOR THE PEOPLE ANALYST IT NAMES A PERSON — a name plus a company, " +
+              "a handle or a link so the right one is found, and anything in " +
+              "particular to look into. The run is titled after the first line of " +
+              "it, and the previous dossier on the same person is found by that " +
+              "title, so keep the name written the same way each time.",
           },
           {
             name: "parentSessionId",
@@ -213,6 +245,7 @@ const skills: Skill[] = [
     asks: [
       "Who works on Acme, and is any of them busy?",
       "Ask Acme's SEO Analyst to look at why the pricing page is not ranking.",
+      "Write me a dossier on Jane Doe, the founder of Acme.",
     ],
   },
 ];

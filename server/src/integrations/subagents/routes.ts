@@ -34,16 +34,19 @@ import * as inflight from "../../chat/inflight.ts";
 import { configValue, db, now } from "../../db.ts";
 import { activeBackend } from "../../chat/backend.ts";
 import { activeProvider } from "../../models/provider.ts";
-import { kindDef, type InputSpec, type KindDef } from "../runs/kinds.ts";
+import { dossierTitle, kindDef, type InputSpec, type KindDef } from "../runs/kinds.ts";
 import { pump } from "../runs/executor.ts";
 import { goalBriefLine } from "../chief/goals.ts";
 import { workspaceOwnerName } from "../../routes/workspace.ts";
 import { fencedJson } from "../runs/kinds.ts";
 import { insertRun, mintRunId, queuePosition, readInput, runRow, shapeRun, type RunRow } from "../runs/store.ts";
 import {
+  PORTFOLIO_ROLES,
+  PORTFOLIO_VENTURE,
   ROLES,
   ensureTeam,
-  orgVentures,
+  isPortfolioRole,
+  orgChart,
   roleDef,
   roleInfos,
   runChild,
@@ -143,12 +146,18 @@ async function chiefOfStaff() {
  *  and everything it has ever been asked to do. */
 function subagentDoc(row: SubagentRow) {
   const shaped = shapeSubagent(row);
-  const v = venture(row.venture_id);
+  /* A PORTFOLIO WORKER IS NOT ASKED FOR ITS VENTURE AT ALL, rather than asked
+     and answered null. `venture('')` would be a lookup that can only miss, and
+     a null arrived at by a failed lookup is indistinguishable in the answer
+     from a null that means "this worker never had one" — which is precisely
+     the distinction `portfolio` on the shaped worker exists to keep. */
+  const v = shaped.portfolio ? undefined : venture(row.venture_id);
   const runs = subagentRuns(row.venture_id, shaped.kind);
   return {
     ...shaped,
-    /* Null only for the instant between a venture's deletion and the prune on
-       the next read of the org — see store.ts's `ensureTeam`. */
+    /* Null for a portfolio worker, and — for a venture one — null only for the
+       instant between a venture's deletion and the prune on the next read of
+       the org, see store.ts's `ensureTeam`. */
     venture: v ? shapeVentureCard(v) : null,
     runs: runs.map(shapeRun),
     transcript: transcript(row, runs),
@@ -217,8 +226,12 @@ function transcript(row: SubagentRow, runs: RunRow[]) {
 /* ------------------------------------------------------------- the reads */
 
 subagentRoutes.get("/", async (c) => {
-  const ventures = orgVentures();
-  const all = ventures.flatMap((v) => v.subagents);
+  const { ventures, portfolio } = orgChart();
+  /* THE SUMMARY COUNTS BOTH, because it answers "how many of my team are
+     busy" and a worker with no venture is still the owner's team. A summary
+     that counted only the venture workers would say nothing is running while
+     the one run slot was being spent on a dossier. */
+  const all = [...ventures.flatMap((v) => v.subagents), ...portfolio];
   return c.json({
     /* The org's own setting first, then the name the rail already shows —
        the workspace's owner field — and "You" only when neither is set. The
@@ -228,6 +241,11 @@ subagentRoutes.get("/", async (c) => {
     chiefOfStaff: await chiefOfStaff(),
     roles: roleInfos(),
     ventures,
+    /* THE WORKERS THAT BELONG TO NO VENTURE, top level rather than under a
+       pretend venture. There is no eighth business called "Portfolio" and
+       inventing one on the wire would have every reader of this document
+       carrying a fake row it has to remember to exclude. */
+    portfolio,
     summary: {
       subagents: all.length,
       enabled: all.filter((s) => s.enabled).length,
@@ -421,15 +439,24 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
     nothing is prepended: a heading with no body under it is worse than
     silence. See integrations/chief/goals.ts.
   */
-  const goals = goalBriefLine(row.venture_id);
+  /* NO GOALS FOR A PORTFOLIO WORKER, and the reason is the argument above read
+     backwards: goals are the owner's statement of what "good" means FOR THIS
+     BUSINESS, and `goalBriefLine` takes a venture because there is no such
+     statement without one. Prefacing a dossier on a stranger with Acme's
+     revenue targets would not be context, it would be a steer towards reading
+     one person's public record as an opportunity for one of the owner's
+     companies. The standing instructions still apply: those are orders to this
+     worker, and this worker exists. */
+  const portfolio = row.venture_id === PORTFOLIO_VENTURE;
+  const goals = portfolio ? null : goalBriefLine(row.venture_id);
   const preface = [
     goals ? `Context — ${goals}` : null,
     standing ? `Standing instructions from the owner: ${standing}` : null,
   ].filter(Boolean);
   input[field.key] = preface.length ? `${preface.join("\n\n")}\n\n${brief}` : brief;
 
-  const v = venture(row.venture_id);
-  if (!v)
+  const v = portfolio ? null : venture(row.venture_id);
+  if (!portfolio && !v)
     return {
       status: 404 as const,
       json: { error: `${row.name}'s venture no longer exists, so there is nothing for it to work on.` },
@@ -437,11 +464,23 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
 
   /* The runs area's own title, byte for byte, so a dispatched run and one the
      owner started from the app page are indistinguishable in the ledger —
-     which is correct, because they are the same worker's work. */
-  const title = def.kind === "papers" ? `Paper — ${input.topic ?? v.name}` : `${def.name} — ${v.name}`;
+     which is correct, because they are the same worker's work.
+
+     A DOSSIER IS TITLED AFTER THE PERSON, from `brief` rather than from the
+     joined field: the joined field may have the owner's standing instructions
+     in front of it, and a title reading "Dossier — Always check LinkedIn
+     first" would be a title no second dossier on that person ever matches.
+     Matching is not cosmetic here — the previous dossier is found BY TITLE,
+     and it is the whole of "What changed". */
+  const title =
+    def.kind === "papers"
+      ? `Paper — ${input.topic ?? v?.name ?? "untitled"}`
+      : def.kind === "dossier"
+        ? dossierTitle(brief)
+        : `${def.name} — ${v!.name}`;
 
   const id = mintRunId();
-  insertRun({ id, kind: def.kind, ventureId: v.id, title, input });
+  insertRun({ id, kind: def.kind, ventureId: v?.id ?? null, title, input });
 
   const stated =
     typeof body.parentSessionId === "string" && body.parentSessionId.trim()
@@ -515,19 +554,52 @@ subagentRoutes.post("/dispatch", async (c) => {
     (typeof body.ventureKey === "string" && body.ventureKey.trim()) ||
     (typeof body.venture === "string" && body.venture.trim()) ||
     "";
-  if (!key) return c.json({ error: "Which venture? Send its id or slug as ventureId." }, 400);
-  const v = venture(key);
-  if (!v) return c.json({ error: `No venture by the id or slug "${key}".` }, 404);
 
+  /*
+    THE ROLE IS READ BEFORE THE VENTURE NOW, and the order is the rule rather
+    than a tidy-up. Whether a venture is required is a property OF THE ROLE:
+    every venture role needs one and the portfolio roles must not be given one.
+    Asking "which venture?" first would refuse `role: "people"` with a question
+    that has no correct answer, and would do it before anything had looked at
+    what was actually asked for.
+  */
   const role = typeof body.role === "string" ? body.role.trim() : "";
   if (!roleDef(role))
     return c.json(
       {
-        error: `"${role || "(nothing)"}" is not a role. The six are ${ROLES.map((r) => r.role).join(", ")}.`,
+        error:
+          `"${role || "(nothing)"}" is not a role. The venture roles are ` +
+          `${ROLES.map((r) => r.role).join(", ")}; the roles that belong to no venture are ` +
+          `${PORTFOLIO_ROLES.map((r) => r.role).join(", ")}.`,
         roles: roleInfos(),
       },
       400,
     );
+
+  if (isPortfolioRole(role)) {
+    /* A VENTURE SENT ANYWAY IS REFUSED RATHER THAN IGNORED. A caller that named
+       one believed this worker would work on it, and quietly dropping the word
+       would answer a question nobody asked with a dossier filed nowhere near
+       where they expected it. */
+    if (key)
+      return c.json(
+        {
+          error:
+            `The ${roleDef(role)!.title} belongs to no venture, so "${key}" has nowhere to go. ` +
+            `Dispatch it with role and brief alone.`,
+        },
+        400,
+      );
+    ensureTeam();
+    const row = subagentRow(subagentId(PORTFOLIO_VENTURE, role));
+    if (!row) return c.json({ error: `There is no ${role} on this box.` }, 404);
+    const out = dispatch(row, body);
+    return c.json(out.json, out.status);
+  }
+
+  if (!key) return c.json({ error: "Which venture? Send its id or slug as ventureId." }, 400);
+  const v = venture(key);
+  if (!v) return c.json({ error: `No venture by the id or slug "${key}".` }, 404);
 
   /* Provisioning is part of the read: a venture created a second ago has a
      team by the time anything asks it to do something. */

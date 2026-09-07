@@ -1,10 +1,11 @@
 import { Link, Navigate, useLocation, useParams } from "react-router-dom";
-import { Bot, FileText, ListChecks, MessageSquareText, SearchCheck, Smartphone, Swords, Telescope, type LucideIcon } from "lucide-react";
+import { Bot, FileText, ListChecks, MessageSquareText, SearchCheck, Smartphone, Swords, Telescope, UserRound, type LucideIcon } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import { useStore } from "@/lib/store";
 import { MOVED_APPS, appPage } from "../../../shared/navigation";
 import { Competitors } from "@/pages/runs/Competitors";
 import { Demand } from "@/pages/runs/Demand";
+import { Dossiers } from "@/pages/runs/Dossiers";
 import { Papers } from "@/pages/runs/Papers";
 import { Research } from "@/pages/runs/Research";
 import { Visibility } from "@/pages/runs/Visibility";
@@ -13,7 +14,7 @@ import { Serp } from "@/areas/growth/pages/Serp";
 import { Aso } from "@/areas/growth/pages/Aso";
 
 /**
- * THE OUTPUTS: eight report apps, each the work of one kind of sub-agent, under
+ * THE OUTPUTS: nine report apps, each the work of one kind of sub-agent, under
  * one strip. This was a page of its own at /outputs with its own sidebar
  * entry; it is the third tab of the Sub-agents page now — the workers, what
  * they are doing, and what they made — and the Sub-agents page renders this
@@ -26,6 +27,9 @@ const OUTPUTS: { slug: string; name: string; icon: LucideIcon; page: () => React
   { slug: "demand", name: "Demand", icon: MessageSquareText, page: Demand },
   { slug: "visibility", name: "AI visibility", icon: Bot, page: Visibility },
   { slug: "papers", name: "Papers", icon: FileText, page: Papers },
+  /* The People analyst's work, and the one app here whose runs belong to no
+     venture — see pages/runs/Dossiers.tsx. */
+  { slug: "dossier", name: "People", icon: UserRound, page: Dossiers },
   /* The three that lived under "SEO & growth" in the sidebar. They are the
      SEO Analyst's, the SERP Analyst's and the ASO Auditor's work, so they
      are read here with the other sub-agents' outputs. */

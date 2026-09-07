@@ -140,7 +140,7 @@ import { ventureContext } from "./ventures.ts";
   line above keeps: the prose about a team, and the address of the page a run
   is read at, have exactly one author, and it is the file that owns them.
 */
-import { childrenBySession, ventureTeamLines } from "../integrations/subagents/store.ts";
+import { childrenBySession, portfolioTeamLines, ventureTeamLines } from "../integrations/subagents/store.ts";
 import { goalLines } from "../integrations/chief/goals.ts";
 import { ROUNDS_SESSION } from "../integrations/chief/rounds.ts";
 import { memoryLines } from "../integrations/chief/memory.ts";
@@ -477,6 +477,39 @@ function withOrg(
       `Each is a worker you can give a job to by venture and role. Dispatching ` +
         `one queues minutes of real work and answers with no report — say that ` +
         `it has been dispatched, and read what it wrote later.`,
+    );
+  }
+
+  /*
+    THE WORKERS THAT BELONG TO NO VENTURE, NAMED IN EVERY CONVERSATION.
+
+    NOT GATED ON `ventureId`, which is the whole difference between this and
+    the block above, and the reason it is a separate block rather than an extra
+    line in that one. A venture's team can only be dispatched once the owner is
+    talking about that venture; a portfolio worker is dispatchable from
+    anywhere, and the conversation where the owner actually asks "who is this
+    person who has been emailing me" is precisely a conversation with no
+    venture chosen. Told only inside a venture chat, the People Analyst would
+    be a worker the Chief of Staff had never heard of in every session where it
+    was the right answer.
+
+    GATED ON `live` because it is an instruction about a TOOL: a raw provider
+    answering the chat cannot call anything, and telling it about a worker it
+    has no way to dispatch would be an invitation to claim it had.
+  */
+  const portfolio = live ? portfolioTeamLines() : null;
+  if (portfolio) {
+    lines.push(
+      ``,
+      `Workers that belong to no venture, dispatched with role alone (no venture):`,
+      ...portfolio,
+    );
+    lines.push(
+      ``,
+      `Dispatch one of these with its \`role\` and a brief and NO venture — sending ` +
+        `a venture is refused, because there is no business for it to be about. ` +
+        `Like every dispatch it queues minutes of real work and answers with no ` +
+        `report.`,
     );
   }
 

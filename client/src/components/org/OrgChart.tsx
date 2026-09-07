@@ -2,8 +2,8 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
 import { SubagentRow } from "@/components/org/SubagentRow";
-import { shortName, teamAddress } from "@/components/org/roleLook";
-import type { Org as OrgDoc, OrgVentureTeam } from "@/lib/api/subagents";
+import { portfolioAddress, shortName, teamAddress } from "@/components/org/roleLook";
+import type { Org as OrgDoc, OrgVentureTeam, Subagent } from "@/lib/api/subagents";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,6 +45,22 @@ import { cn } from "@/lib/utils";
  * bus above each row of cards, one short stem into the top of each card — the
  * shape every org chart on paper has. Curves would have to cross the cards
  * themselves to reach the third row.
+ *
+ * ---------------------------------------------------------------------------
+ * AND ONE CARD HANGS OFF THE SIDE. The portfolio workers — today the People
+ * analyst, tomorrow whatever else turns out to belong to the whole business
+ * rather than to one part of it — report to the chief of staff and to no
+ * venture. So they are drawn BESIDE the chief on its own row, joined by a
+ * short horizontal line, rather than pushed into the grid below: the grid is
+ * the ventures, and a nineteenth card in it that was not a venture would be
+ * the picture saying something that is not true.
+ *
+ * IT MOVES UNDER THE CHIEF WHEN IT WILL NOT FIT. On a narrow window there is
+ * no room to the right of a 320px box, and a card drawn off the edge is a
+ * worker nobody can press. So the geometry checks, drops it below the chief
+ * with a vertical stem, and pushes the venture grid down to make room — one
+ * branch, in the one function that already owns every coordinate on this
+ * picture.
  */
 
 /* ------------------------------------------------------------- the geometry */
@@ -68,6 +84,20 @@ const cardHeight = (rows: number) => CARD_HEAD + Math.max(1, rows) * ROW_H + CAR
 /** The vertical gutter between rows of cards, which is where a row's bus line
  *  and its stems live. */
 const ROW_GAP = 40;
+/**
+ * The portfolio card is the same width as a venture's, and its head is one
+ * line taller: it carries a subtitle ("belongs to no venture") where a
+ * venture card carries a favicon and a stage pill on one line. That line is
+ * added to `cardHeight` rather than folded into it, because every OTHER card
+ * on this chart is measured by the shared function and a taller CARD_HEAD
+ * would silently add slack to all nineteen.
+ */
+const SUBTITLE_H = 16;
+const portfolioHeight = (rows: number) => cardHeight(rows) + SUBTITLE_H;
+/** Between the chief of staff's right edge and the portfolio card. Wider than
+ *  GAP_X because the line that crosses it has to read as a relationship
+ *  rather than as a gap in a row. */
+const PORTFOLIO_GAP = 48;
 const OWNER_W = 210;
 const OWNER_H = 44;
 const CHIEF_W = 320;
@@ -82,12 +112,17 @@ export function OrgChart({
   owner,
   chiefOfStaff,
   ventures,
+  portfolio,
 }: {
   owner: OrgDoc["owner"];
   chiefOfStaff: OrgDoc["chiefOfStaff"];
   /** The ventures to draw, in order — already filtered if the caller has a
    *  filter. The chart draws exactly these. */
   ventures: OrgVentureTeam[];
+  /** The workers that belong to no venture. Empty draws no card at all —
+   *  an empty box labelled "across every venture" would be a claim that
+   *  somebody works there. */
+  portfolio: Subagent[];
 }) {
   /**
    * The measured width of the space the chart has. Zero until the first
@@ -117,9 +152,13 @@ export function OrgChart({
   }, []);
 
   const rows = ventures.reduce((n, v) => Math.max(n, v.subagents.length), 0);
+  const asideH = portfolio.length ? portfolioHeight(portfolio.length) : 0;
   const layout = useMemo(
-    () => (width > 0 ? geometry(width, ventures.length, cardHeight(rows)) : null),
-    [width, ventures.length, rows],
+    () =>
+      width > 0
+        ? geometry(width, ventures.length, cardHeight(rows), asideH)
+        : null,
+    [width, ventures.length, rows, asideH],
   );
 
   return (
@@ -138,7 +177,24 @@ export function OrgChart({
             />
             {layout.rows > 0 && (
               <path
-                d={`M ${layout.centerX} ${layout.chiefBottom} L ${layout.centerX} ${layout.busY(0)}`}
+                d={`M ${layout.centerX} ${layout.trunkTop} L ${layout.centerX} ${layout.busY(0)}`}
+                className="stroke-border"
+                strokeWidth={1.25}
+                fill="none"
+              />
+            )}
+
+            {/* THE PORTFOLIO CARD'S OWN JOIN — sideways off the chief's row
+                when it sits beside it, straight down off the chief when it
+                has been dropped underneath. The same stroke as every other
+                connector: it is the same kind of relationship. */}
+            {layout.aside && (
+              <path
+                d={
+                  layout.aside.stacked
+                    ? `M ${layout.centerX} ${layout.chiefBottom} L ${layout.centerX} ${layout.aside.y}`
+                    : `M ${layout.centerX + CHIEF_W / 2} ${layout.chiefTop + CHIEF_H / 2} L ${layout.aside.x} ${layout.chiefTop + CHIEF_H / 2}`
+                }
                 className="stroke-border"
                 strokeWidth={1.25}
                 fill="none"
@@ -225,6 +281,46 @@ export function OrgChart({
             <span className="text-muted-foreground shrink-0 text-[12.5px]">Open chat</span>
           </Link>
 
+          {/* --------------------------------------- the portfolio workers */}
+          {layout.aside && (
+            <div
+              style={{
+                left: layout.aside.x,
+                top: layout.aside.y,
+                width: CARD_W,
+                height: layout.asideH,
+              }}
+              className="bg-card absolute flex flex-col overflow-hidden rounded-[14px]"
+            >
+              {/* NOT A LINK, because there is nowhere for it to go. "Across
+                  every venture" is not a place — it is the absence of one —
+                  and a header that looked pressable and did nothing would be
+                  worse than a header that plainly is not. The rows under it
+                  are the links. */}
+              <div className="border-line-soft flex flex-col border-b px-2.5 py-1.5">
+                <span className="truncate text-[13.5px] font-medium">
+                  Across every venture
+                </span>
+                <span className="text-muted-foreground truncate text-[12px]">
+                  belongs to no venture
+                </span>
+              </div>
+              <div className="flex flex-col gap-px p-1">
+                {portfolio.map((sa) => (
+                  <SubagentRow
+                    key={sa.id}
+                    sa={sa}
+                    dense
+                    /* The full name, unlike a venture's rows: there is no
+                       venture name in the header above to strip off it. */
+                    label={sa.name}
+                    to={portfolioAddress(sa.role)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* ------------------------------------------------- the ventures */}
           {ventures.map((v, i) => (
             <div
@@ -295,15 +391,38 @@ function chiefLine(c: OrgDoc["chiefOfStaff"]): string {
  * rather than left-aligned so the owner and the chief — which are centred on
  * the whole block — sit over the middle of it at every width.
  */
-function geometry(width: number, count: number, cardH: number) {
+function geometry(width: number, count: number, cardH: number, asideH: number) {
   const usable = Math.max(width - PAD_L * 2, CARD_W);
   const cols = Math.max(1, Math.floor((usable + GAP_X) / (CARD_W + GAP_X)));
   const rows = Math.ceil(count / cols) || 0;
   const gridW = cols * CARD_W + (cols - 1) * GAP_X;
   const gridLeft = Math.max(PAD_L, Math.round((width - gridW) / 2));
   const centerX = gridLeft + gridW / 2;
-  const chiefBottom = OWNER_H + DROP + CHIEF_H;
-  const gridTop = chiefBottom + DROP + ROW_GAP / 2;
+  const chiefTop = OWNER_H + DROP;
+  const chiefBottom = chiefTop + CHIEF_H;
+
+  /*
+    THE PORTFOLIO CARD GOES BESIDE THE CHIEF IF THERE IS ROOM, AND UNDER IT IF
+    THERE IS NOT. "Room" is measured against the actual page width including
+    the padding the rest of the chart keeps — an aside that fitted by one
+    pixel and touched the edge would be worse than one that moved.
+  */
+  const asideX = centerX + CHIEF_W / 2 + PORTFOLIO_GAP;
+  const stacked = asideH > 0 && asideX + CARD_W > width - PAD_L;
+  const aside = !asideH
+    ? null
+    : stacked
+      ? { x: Math.max(PAD_L, centerX - CARD_W / 2), y: chiefBottom + DROP, stacked }
+      : { x: asideX, y: chiefTop, stacked };
+  const asideBottom = aside ? aside.y + asideH : 0;
+
+  /* Where the line down to the first bus of ventures starts. Below the
+     portfolio card when that card is in the way, and straight off the chief
+     when it is beside it. */
+  const trunkTop = aside?.stacked ? asideBottom : chiefBottom;
+  /* And how far down everything below has to start: a side-placed card taller
+     than the chief still must not be crossed by the first row of ventures. */
+  const gridTop = Math.max(chiefBottom, asideBottom) + DROP + ROW_GAP / 2;
 
   const rowTop = (r: number) => gridTop + r * (cardH + ROW_GAP);
   return {
@@ -311,13 +430,20 @@ function geometry(width: number, count: number, cardH: number) {
     rows,
     cardH,
     centerX,
+    chiefTop,
     chiefBottom,
+    /** Where the portfolio card sits, or null when there is nobody in it. */
+    aside,
+    asideH,
+    trunkTop,
     /** The left gutter, where the spine between one row's bus and the next
      *  runs. Outside the cards, inside the page. */
     spineX: Math.max(6, gridLeft - GAP_X),
     rowTop,
     busY: (r: number) => rowTop(r) - ROW_GAP / 2,
     cardX: (i: number) => gridLeft + (i % cols) * (CARD_W + GAP_X),
-    height: rows ? rowTop(rows - 1) + cardH + PAD_B : chiefBottom + PAD_B,
+    height: rows
+      ? rowTop(rows - 1) + cardH + PAD_B
+      : Math.max(chiefBottom, asideBottom) + PAD_B,
   };
 }

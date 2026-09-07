@@ -16,7 +16,7 @@
  */
 import { Hono } from "hono";
 import { nextRunAt } from "../../shared/time.ts";
-import { ROLES, roleInfos } from "../subagents/store.ts";
+import { ROLES, ventureRoleInfos } from "../subagents/store.ts";
 import {
   DEFAULT_DAYS,
   DEFAULT_HOUR,
@@ -50,10 +50,12 @@ function schedule() {
     nextRunAt: nextRunAt(s),
     session: ROUNDS_SESSION,
     defaults: { hour: DEFAULT_HOUR, maxRuns: DEFAULT_MAX, daysBetween: DEFAULT_DAYS },
-    /* The roles that exist, so a client can offer them without a second
-       request and a reader can see that a setting naming something else was
-       dropped. */
-    availableRoles: roleInfos(),
+    /* The roles a ROUND can dispatch, so a client can offer them without a
+       second request and a reader can see that a setting naming something else
+       was dropped. The venture roles only: a round walks ventures, and
+       offering the People Analyst here would be offering a setting that is
+       filtered back out one line later in `settings()`. */
+    availableRoles: ventureRoleInfos(),
     settingsAt: "/api/plugins/rounds/config",
   };
 }

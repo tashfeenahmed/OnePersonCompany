@@ -103,11 +103,21 @@ export function settings(): RoundSettings {
     hour: daily.hour,
     timezone: daily.timezone,
     zoneWasSet: daily.zoneWasSet,
-    /* Only roles this box actually has. A setting naming a role that was
-       removed in a release would otherwise skip silently on every venture,
-       every night, and the round would report itself as having considered
-       work it never could have dispatched. */
-    roles: list(configValue(ROUNDS_PLUGIN, "roles"), DEFAULT_ROLES).filter((r) => roleDef(r) !== null),
+    /* Only roles this box actually has, AND ONLY THE VENTURE ONES. A setting
+       naming a role that was removed in a release would otherwise skip
+       silently on every venture, every night, and the round would report
+       itself as having considered work it never could have dispatched.
+
+       The portfolio roles are excluded for the same reason spelled the other
+       way round: this walk is `ventures × roles` by construction — the
+       cadence, the quiet stages and the joblog are all per venture — so a
+       People Analyst named here could only ever be attempted once per venture
+       for a worker that has none, which is either eight duplicate dossiers a
+       night or eight silent skips. `ROLES` is the venture table by definition
+       (see subagents/store.ts), so membership of it IS the question. */
+    roles: list(configValue(ROUNDS_PLUGIN, "roles"), DEFAULT_ROLES).filter((r) =>
+      ROLES.some((x) => x.role === r),
+    ),
     maxRuns: whole(configValue(ROUNDS_PLUGIN, "max"), DEFAULT_MAX, 1, 20),
     daysBetween: whole(configValue(ROUNDS_PLUGIN, "days"), DEFAULT_DAYS, 0, 365),
     quietStages: list(configValue(ROUNDS_PLUGIN, "quiet"), DEFAULT_QUIET),
@@ -358,7 +368,8 @@ export async function runRound(trigger: "schedule" | "manual"): Promise<RoundRes
       ran: false,
       why:
         "No roles are configured for a round, so there is nothing to dispatch. " +
-        `Set them on the rounds settings — the six are ${ROLES.map((r) => r.role).join(", ")}.`,
+        `Set them on the rounds settings — the venture roles are ${ROLES.map((r) => r.role).join(", ")}. ` +
+        `A round walks ventures, so the roles that belong to no venture cannot be dispatched from one.`,
       round: null,
       jobs: [],
     };

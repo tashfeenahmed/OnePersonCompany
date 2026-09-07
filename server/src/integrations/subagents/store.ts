@@ -2,9 +2,10 @@ import { appForKind, runPage } from "../../../../shared/runRoutes.ts";
 /**
  * THE ROSTER, AND WHAT IT IS DERIVED FROM.
  *
- * There is one sub-agent per venture per role and there are exactly six roles,
- * so the roster is a cross product of a table this area does not own with a
- * constant this file does. `ensureTeam` is the whole of the provisioning: it
+ * There is one sub-agent per venture per role, so most of the roster is a cross
+ * product of a table this area does not own with a constant this file does —
+ * plus a short tail of workers that belong to no venture and exist once each.
+ * `ensureTeam` is the whole of the provisioning: it
  * inserts what is missing and prunes what has been orphaned, it is called on
  * every read of the org and on every dispatch, and it is idempotent — which is
  * what lets there be no create route, no delete route, and no state in which a
@@ -27,6 +28,22 @@ import { appForKind, runPage } from "../../../../shared/runRoutes.ts";
  * of Staff for it, and a roster that only counted the second would show six
  * idle workers beside a ledger full of their output.
  *
+ * MOST WORKERS BELONG TO A VENTURE. ONE DOES NOT, and that is the seam this
+ * file grew for. A People Analyst writes a dossier on a person of interest —
+ * a founder, a customer, a correspondent — and that person is not filed under
+ * one of the owner's own companies. Provisioning one per venture would have
+ * put the same worker in eight places and made "which Acme wrote this dossier
+ * on Jane Doe" a question with no answer. So there are two role tables:
+ * `ROLES`, the venture roles, which every `ventures × ROLES` loop on this box
+ * still walks unchanged, and `PORTFOLIO_ROLES`, provisioned ONCE. A portfolio
+ * worker's row carries `venture_id = ''` — the sentinel, not NULL, because the
+ * column is NOT NULL and UNIQUE(venture_id, role) already gives exactly the
+ * one-row-per-role guarantee wanted — and its runs are the ones whose
+ * `agent_runs.venture_id` IS NULL. Those two spellings of "no venture" meet in
+ * exactly one place, `tallies`/`lastRuns`, where SQLite renders a NULL group
+ * key as the empty string and the two agree by arithmetic rather than by
+ * coincidence; the comment there says so.
+ *
  * THE MAPPING IS `role -> kind` AND IT IS NOT AN IDENTITY. Five of the six
  * roles are named after their kind; `visibility` runs `geo` and `writer` runs
  * `papers`, because "geo" is what the measurement is called in the trade and
@@ -43,15 +60,42 @@ import { readBrand } from "../../ventures/enrich.ts";
 
 /* -------------------------------------------------------------- the roles */
 
-export type Role = "researcher" | "competitors" | "seo" | "demand" | "visibility" | "writer" | "producer" | "serp" | "aso" | "campaigns";
+export type Role =
+  | "researcher"
+  | "competitors"
+  | "seo"
+  | "demand"
+  | "visibility"
+  | "writer"
+  | "producer"
+  | "serp"
+  | "aso"
+  | "campaigns"
+  /* The first role with no venture behind it. See `PORTFOLIO_ROLES`. */
+  | "people";
 
 export type RoleDef = {
   role: Role;
   kind: RunKind;
   /** What the worker is, in the words a person would use on an org chart. */
   title: string;
-  /** Appended to the venture's name to make the default name. */
+  /** Appended to the venture's name to make the default name — for a
+   *  PORTFOLIO role there is no venture name to append it to, and the title
+   *  is the whole of the name. It is still declared so the two tables have one
+   *  type and `roleDef` can answer for both. */
   suffix: string;
+  /**
+   * ONE CLAUSE saying what the worker does, for a system turn — and only the
+   * portfolio roles carry it.
+   *
+   * A venture worker is introduced to the Chief of Staff beside its venture,
+   * where the role's title is enough: "Acme SEO Analyst — SEO analyst" needs
+   * no gloss. A portfolio worker arrives with no business attached, in a list
+   * of one, and "People Analyst — People analyst" says nothing at all. The
+   * kind's own `what` is the honest sentence but it is a paragraph, and a
+   * paragraph per worker in every chat turn is a paragraph nobody reads.
+   */
+  does?: string;
 };
 
 export const ROLES: RoleDef[] = [
@@ -69,8 +113,43 @@ export const ROLES: RoleDef[] = [
   { role: "campaigns", kind: "campaign", title: "Campaign planner", suffix: "Campaign Planner" },
 ];
 
+/**
+ * THE ROLES THAT BELONG TO NO VENTURE, provisioned ONCE for the whole box.
+ *
+ * Kept OUT of `ROLES` rather than flagged inside it, and that is the whole
+ * design decision. Every `ventures × ROLES` loop on this box — the nightly
+ * rounds, the org chart's provisioning, the rounds settings validator — is
+ * correct as written only while `ROLES` means "the roles a venture has". A
+ * boolean on the role would have made each of those loops responsible for
+ * remembering to skip one, which is the kind of rule that is remembered in
+ * four places and forgotten in the fifth.
+ */
+export const PORTFOLIO_ROLES: RoleDef[] = [
+  {
+    role: "people",
+    kind: "dossier",
+    title: "People analyst",
+    suffix: "People Analyst",
+    does: "writes a dossier on a named person of interest",
+  },
+];
+
+/** The sentinel `venture_id` a portfolio worker's ROW carries. '' and not
+ *  NULL: the column is NOT NULL, and UNIQUE(venture_id, role) already makes
+ *  one row per portfolio role without any change to the schema. Its RUNS are
+ *  a different story — `agent_runs.venture_id` is nullable and they carry
+ *  NULL, because a run genuinely has no venture. */
+export const PORTFOLIO_VENTURE = "";
+
+export function isPortfolioRole(role: string): boolean {
+  return PORTFOLIO_ROLES.some((r) => r.role === role);
+}
+
+/** Both tables, because a caller that has a role string does not know and
+ *  should not have to know which of the two it came out of. The loops that DO
+ *  care read `ROLES` or `PORTFOLIO_ROLES` by name. */
 export function roleDef(role: string): RoleDef | null {
-  return ROLES.find((r) => r.role === role) ?? null;
+  return ROLES.find((r) => r.role === role) ?? PORTFOLIO_ROLES.find((r) => r.role === role) ?? null;
 }
 
 /* `appForKind` is NOT declared here any more. It was a third table of
@@ -83,8 +162,8 @@ export { appForKind };
 /** The roles, each with the sentence the kind already publishes about itself.
  *  Quoted from `kinds.ts` rather than restated here: two descriptions of one
  *  job drift, and the run's own is the one the agent doing it will read. */
-export function roleInfos() {
-  return ROLES.map((r) => ({
+function roleInfo(r: RoleDef) {
+  return {
     role: r.role,
     kind: r.kind,
     title: r.title,
@@ -93,7 +172,25 @@ export function roleInfos() {
        two roles running one kind must land on one page — and keeping a column
        here was what let this roster drift from the router. */
     app: appForKind(r.kind),
-  }));
+    /* WHICH TABLE IT CAME OUT OF, on the wire, because a caller offering the
+       roles in a picker has to know that one of them takes no venture and the
+       rest require one. Deriving it from `kind`'s `needsVenture` would be
+       close but not the same question, and one day not the same answer. */
+    portfolio: isPortfolioRole(r.role),
+  };
+}
+
+/** EVERY role, venture and portfolio, which is what a client drawing the org
+ *  or an agent choosing who to dispatch needs to see. */
+export function roleInfos() {
+  return [...ROLES, ...PORTFOLIO_ROLES].map(roleInfo);
+}
+
+/** The VENTURE roles alone. For the nightly rounds, which walk ventures and
+ *  can therefore only ever dispatch one of these — offering the portfolio
+ *  roles there would be offering a setting that silently skips every night. */
+export function ventureRoleInfos() {
+  return ROLES.map(roleInfo);
 }
 
 /* ---------------------------------------------------------------- the rows */
@@ -110,8 +207,14 @@ export type SubagentRow = {
   updated_at: string;
 };
 
+/** `sa-<venture id>-<role>`, and `sa-portfolio-<role>` for the worker that has
+ *  no venture. Answered off EITHER fact — the role being a portfolio one, or
+ *  the caller holding the '' sentinel — because both callers exist: the
+ *  dispatch door knows only the role, and `ensureTeam` knows only the row. */
 export function subagentId(ventureId: string, role: string): string {
-  return `sa-${ventureId}-${role}`;
+  return isPortfolioRole(role) || ventureId === PORTFOLIO_VENTURE
+    ? `sa-portfolio-${role}`
+    : `sa-${ventureId}-${role}`;
 }
 
 export function subagentRow(id: string): SubagentRow | undefined {
@@ -119,12 +222,13 @@ export function subagentRow(id: string): SubagentRow | undefined {
 }
 
 /**
- * PROVISION THE SIX, AND FORGET THE ORPHANS.
+ * PROVISION THE TEAM, AND FORGET THE ORPHANS.
  *
  * Called on every read of the org and on every dispatch, so a venture created
  * in another tab has a team by the time anything asks about it and a venture
- * deleted in another tab has none. Both halves are cheap — six selects against
- * a unique index, and one delete that matches nothing on almost every call —
+ * deleted in another tab has none. Both halves are cheap — a handful of
+ * conflicting inserts against a unique index, and one delete that matches
+ * nothing on almost every call —
  * and doing them here rather than on a hook into the ventures area keeps this
  * feature out of a directory that another agent owns.
  *
@@ -146,11 +250,33 @@ export function ensureTeam(ventureId?: string): void {
     for (const r of ROLES)
       insert.run(subagentId(v.id, r.role), v.id, r.role, `${v.name} ${r.suffix}`, r.title, ts, ts);
 
+  /* THE PORTFOLIO WORKERS, PROVISIONED WHATEVER `ventureId` SAID.
+     `ventureId` narrows the loop above to one business; it cannot narrow this
+     one, because these workers belong to no business and the caller that
+     passed an id was not saying "and not those". One row per portfolio role
+     for the whole box, and its NAME is the suffix — which for a venture worker
+     is the tail of "Acme SEO Analyst" and here is the whole of it. There is no
+     venture name to put in front of it, and "People Analyst" is what somebody
+     writes on an org chart where "People analyst" is what they write in the
+     column next to it. The two really are different strings: the name is what
+     the worker is CALLED and the owner may change it, the title is what the
+     job IS. */
+  for (const r of PORTFOLIO_ROLES)
+    insert.run(subagentId(PORTFOLIO_VENTURE, r.role), PORTFOLIO_VENTURE, r.role, r.suffix, r.title, ts, ts);
+
   /* The orphans. No foreign key does this — see 080_subagents on why a table
      in another area's directory is not something to hang a constraint off —
      so it is done here, on every read, and the roster is right one request
-     after a venture is deleted. */
-  db.prepare("DELETE FROM subagents WHERE venture_id NOT IN (SELECT id FROM ventures)").run();
+     after a venture is deleted.
+
+     THE SENTINEL IS EXEMPT, and it has to be spelled out rather than relied
+     on: '' is not the id of any venture and never will be, so a prune written
+     as "whose venture is not in the table" deletes the portfolio workers on
+     the very next read — provisioned one line above, gone one line below,
+     with the owner's standing instructions for them going too. */
+  db.prepare("DELETE FROM subagents WHERE venture_id <> ? AND venture_id NOT IN (SELECT id FROM ventures)").run(
+    PORTFOLIO_VENTURE,
+  );
 }
 
 function ventureRowsAll(): VentureRow[] {
@@ -161,37 +287,79 @@ function ventureRowsAll(): VentureRow[] {
 
 /** Every (venture, kind) pair's tallies. The fold itself is `runTallies` in
  *  runs/store.ts — this names the grouping, which is the only part that is
- *  the roster's own. The key order is the column order: `venture:kind`. */
+ *  the roster's own. The key order is the column order: `venture:kind`.
+ *
+ *  A NULL VENTURE GROUPS UNDER `:kind`, because the fold joins the group
+ *  columns and a NULL renders as the empty string. That is the same key the
+ *  portfolio rows produce from their '' sentinel, which is why the People
+ *  Analyst's counts land on it without a special case — see the file header,
+ *  and do not "fix" the sentinel to NULL without reading `lastRuns` first. */
 function tallies(): Map<string, RunTally> {
   return runTallies({ groupBy: ["venture_id", "kind"] });
 }
 
-/** The newest run of each (kind, venture) pair, which is every worker's last
- *  run in one statement. Ordered by `queued_at` then `rowid`, the same total
- *  order the runs list uses, so "last" means the same thing in both places. */
+/**
+ * The newest run of each (kind, venture) pair, which is every worker's last
+ * run in one statement. Ordered by `queued_at` then `rowid`, the same total
+ * order the runs list uses, so "last" means the same thing in both places.
+ *
+ * THE `venture_id IS NOT NULL` FILTER IS GONE, and its removal is the whole
+ * reason the portfolio worker shows a last run at all. It was there because
+ * every worker had a venture, so a portfolio-wide run could never be any of
+ * their last runs; the People Analyst's runs are ALL portfolio-wide, and under
+ * that filter its card said "never run" for ever while the ledger filled up.
+ * The correlated subquery has to spell the NULL case out too — `b.venture_id =
+ * a.venture_id` is NULL, not true, when both sides are NULL, so without the
+ * second limb no NULL-venture row is ever its own newest.
+ *
+ * THE KEY MAPS NULL ONTO '' DELIBERATELY, so it agrees with `runTallies`,
+ * which groups in SQL and gets the empty string for a NULL group key, and with
+ * the roster rows, which carry the '' sentinel. Three spellings of "no
+ * venture" meeting on one key is worth saying out loud once here rather than
+ * being rediscovered at each of the three.
+ */
 function lastRuns(): Map<string, RunRow> {
   const rows = db
     .prepare(
       `SELECT a.* FROM agent_runs a
-        WHERE a.venture_id IS NOT NULL
-          AND a.rowid = (SELECT b.rowid FROM agent_runs b
-                          WHERE b.kind = a.kind AND b.venture_id = a.venture_id
+        WHERE a.rowid = (SELECT b.rowid FROM agent_runs b
+                          WHERE b.kind = a.kind
+                            AND (b.venture_id = a.venture_id
+                                 OR (b.venture_id IS NULL AND a.venture_id IS NULL))
                           ORDER BY b.queued_at DESC, b.rowid DESC LIMIT 1)`,
     )
     .all() as unknown as RunRow[];
-  return new Map(rows.map((r) => [`${r.venture_id}:${r.kind}`, r]));
+  return new Map(rows.map((r) => [`${r.venture_id ?? PORTFOLIO_VENTURE}:${r.kind}`, r]));
 }
 
-/** One worker's runs, newest first — its whole history, which is every run of
- *  its kind for its venture however it was started. */
+/**
+ * One worker's runs, newest first — its whole history, which is every run of
+ * its kind for its venture however it was started.
+ *
+ * FOR A PORTFOLIO WORKER "its venture" IS `NULL`, and that is a different
+ * statement rather than a different parameter: `venture_id = ''` matches no
+ * run on this box, because a run's missing venture is spelled NULL and SQL
+ * equality against NULL is never true. Handing the sentinel to the venture
+ * branch would have returned an empty history and looked like a worker that
+ * had never done anything.
+ */
 export function subagentRuns(ventureId: string, kind: string, limit = 50): RunRow[] {
+  const cap = Math.max(1, Math.min(200, Math.floor(limit)));
+  if (ventureId === PORTFOLIO_VENTURE)
+    return db
+      .prepare(
+        `SELECT * FROM agent_runs
+          WHERE kind = ? AND venture_id IS NULL
+          ORDER BY queued_at DESC, rowid DESC LIMIT ?`,
+      )
+      .all(kind, cap) as unknown as RunRow[];
   return db
     .prepare(
       `SELECT * FROM agent_runs
         WHERE kind = ? AND venture_id = ?
         ORDER BY queued_at DESC, rowid DESC LIMIT ?`,
     )
-    .all(kind, ventureId, Math.max(1, Math.min(200, Math.floor(limit)))) as unknown as RunRow[];
+    .all(kind, ventureId, cap) as unknown as RunRow[];
 }
 
 /* --------------------------------------------------------------- the shape */
@@ -213,7 +381,7 @@ export function shapeVentureCard(v: VentureRow) {
 
 export function shapeSubagent(row: SubagentRow, ctx?: { tallies: Map<string, RunTally>; last: Map<string, RunRow> }) {
   const def = roleDef(row.role);
-  /* A row whose role is no longer one of the six can only come from a database
+  /* A row whose role is no longer one of the roster's can only come from a database
      edited by hand or from a role removed in a release. It is shaped rather
      than hidden — the owner's instructions are still in it — and its kind is
      the role's own name, which resolves to no runs and therefore to an empty
@@ -222,9 +390,20 @@ export function shapeSubagent(row: SubagentRow, ctx?: { tallies: Map<string, Run
   const key = `${row.venture_id}:${kind}`;
   const t = (ctx?.tallies ?? tallies()).get(key) ?? { done: 0, failed: 0, running: 0, queued: 0 };
   const last = (ctx?.last ?? lastRuns()).get(key) ?? null;
+  const portfolio = row.venture_id === PORTFOLIO_VENTURE;
   return {
     id: row.id,
-    ventureId: row.venture_id,
+    /* NULL ON THE WIRE FOR A PORTFOLIO WORKER, never the '' sentinel. The
+       sentinel is a storage decision — see the file header — and a client that
+       was handed it would have to know that, and would sooner or later render
+       an empty venture name or ask `/api/ventures/` for it. Null is what "this
+       worker has no venture" means everywhere else on this box. */
+    ventureId: portfolio ? null : row.venture_id,
+    /* SAID OUT LOUD rather than left to be inferred from a null venture. A
+       venture worker whose business was deleted a second ago also has no
+       venture for one request — see `ensureTeam` — and the two are not the
+       same worker at all. */
+    portfolio,
     role: row.role,
     kind,
     name: row.name,
@@ -241,13 +420,18 @@ export function shapeSubagent(row: SubagentRow, ctx?: { tallies: Map<string, Run
 }
 
 /**
- * THE WHOLE ORG, top to bottom.
+ * THE WHOLE ORG, top to bottom: every venture with its team, and beside them
+ * the workers that belong to none.
  *
  * Provisioning happens first, so this is also the call that makes a new
  * venture's team exist. The tallies and the last runs are read once and handed
- * to every worker, rather than each worker asking for its own.
+ * to every worker, rather than each worker asking for its own — which is why
+ * the two halves come back from ONE function rather than from two exported
+ * ones a route would call in turn: two calls would be two provisionings, two
+ * folds of `agent_runs` and two chances for the ventures and the portfolio to
+ * be counted against different states of the ledger.
  */
-export function orgVentures() {
+export function orgChart() {
   ensureTeam();
   const ctx = { tallies: tallies(), last: lastRuns() };
   const rows = db
@@ -260,15 +444,25 @@ export function orgVentures() {
     else byVenture.set(r.venture_id, [r]);
   }
   /* Ordered by the ROLE TABLE and not by the id, so every venture's card lists
-     its six in the same order — an org chart whose rows shuffle between cards
-     is one nobody can read across. */
+     its workers in the same order — an org chart whose rows shuffle between
+     cards is one nobody can read across. */
   const order = new Map(ROLES.map((r, i) => [r.role as string, i]));
-  return ventureRowsAll().map((v) => ({
-    ...shapeVentureCard(v),
-    subagents: (byVenture.get(v.id) ?? [])
-      .sort((a, b) => (order.get(a.role) ?? 99) - (order.get(b.role) ?? 99))
+  const portfolioOrder = new Map(PORTFOLIO_ROLES.map((r, i) => [r.role as string, i]));
+  return {
+    ventures: ventureRowsAll().map((v) => ({
+      ...shapeVentureCard(v),
+      subagents: (byVenture.get(v.id) ?? [])
+        .sort((a, b) => (order.get(a.role) ?? 99) - (order.get(b.role) ?? 99))
+        .map((r) => shapeSubagent(r, ctx)),
+    })),
+    /* THE SAME SHAPE AS A VENTURE'S WORKERS and not a reduced one. A client
+       that had to draw two kinds of card would draw them differently, and the
+       difference between these workers is one boolean and a null venture —
+       not a different sort of thing. */
+    portfolio: (byVenture.get(PORTFOLIO_VENTURE) ?? [])
+      .sort((a, b) => (portfolioOrder.get(a.role) ?? 99) - (portfolioOrder.get(b.role) ?? 99))
       .map((r) => shapeSubagent(r, ctx)),
-  }));
+  };
 }
 
 /* --------------------------------------------------- what routes/chat.ts asks */
@@ -298,6 +492,43 @@ export function ventureTeamLines(ventureId: string): string[] | null {
   return rows
     .sort((a, b) => (order.get(a.role) ?? 99) - (order.get(b.role) ?? 99))
     .map((r) => `- ${r.name} — ${r.title} (role \`${r.role}\`)${r.enabled === 1 ? "" : " — SWITCHED OFF by the owner"}`);
+}
+
+/**
+ * THE WORKERS THAT BELONG TO NO VENTURE, as lines for a system turn.
+ *
+ * SAID IN EVERY CONVERSATION, where `ventureTeamLines` is said only in one
+ * about a venture — and that asymmetry is the point rather than an oversight.
+ * A venture's team is only dispatchable once the owner is talking about that
+ * venture; a portfolio worker is dispatchable from anywhere, including the
+ * conversations where no venture has been chosen at all, which are most of
+ * them. A Chief of Staff that only learned about the People Analyst inside an
+ * Acme conversation would never be told about it in the conversation where the
+ * owner actually says "who is this person emailing me".
+ *
+ * EACH LINE CARRIES THE `does` CLAUSE, because these arrive with no business
+ * beside them to explain what they are for — see `RoleDef.does`.
+ *
+ * Null when there are none. A heading with nothing under it reads as a list
+ * that was cut off.
+ */
+export function portfolioTeamLines(): string[] | null {
+  ensureTeam();
+  const rows = db
+    .prepare("SELECT * FROM subagents WHERE venture_id = ?")
+    .all(PORTFOLIO_VENTURE) as unknown as SubagentRow[];
+  if (!rows.length) return null;
+  const order = new Map(PORTFOLIO_ROLES.map((r, i) => [r.role as string, i]));
+  return rows
+    .sort((a, b) => (order.get(a.role) ?? 99) - (order.get(b.role) ?? 99))
+    .map((r) => {
+      const does = roleDef(r.role)?.does;
+      return (
+        `- ${r.name} — ${r.title} (role \`${r.role}\`)` +
+        `${does ? ` — ${does}` : ""}` +
+        `${r.enabled === 1 ? "" : " — SWITCHED OFF by the owner"}`
+      );
+    });
 }
 
 /**

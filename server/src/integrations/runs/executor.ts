@@ -98,6 +98,7 @@ import {
 } from "./context.ts";
 import { fencedJson, kindDef, systemBrief, type KindDef } from "./kinds.ts";
 import { growthRun } from "../growth/runs.ts";
+import { dossierRun } from "../people/dossier.ts";
 import { knowledgeBlock } from "../knowledge/store.ts";
 import { videoRun } from "../video/execute.ts";
 import { campaignRun } from "../publishing/campaigns.ts";
@@ -677,6 +678,23 @@ async function execute(row: RunRow, s: Session) {
       endStep: (step, label) => s.endStep(step, label),
       turn: (turns, opts) => turn(s, turns, opts),
       hasTools: activeBackend() !== null,
+    });
+  /* THE ONE KIND THAT IS ABOUT A PERSON RATHER THAN A BUSINESS, owned by
+     integrations/people/. It is the first branch here with no `venture!` in
+     it: a dossier has no venture by construction, and this branch has to come
+     BEFORE the fall-through below, whose whole signature assumes one and whose
+     `venture!` would be a null dereference for every dossier ever run. */
+  if (row.kind === "dossier")
+    return dossierRun({
+      runId: row.id,
+      input,
+      tools: {
+        say: (text) => s.say(text),
+        startStep: (tool, label) => s.startStep(tool, label),
+        endStep: (step, label) => s.endStep(step, label),
+        turn: (turns, opts) => turn(s, turns, opts),
+        hasTools: activeBackend() !== null,
+      },
     });
   return reportRun(row, s, def, venture!, input);
 }
