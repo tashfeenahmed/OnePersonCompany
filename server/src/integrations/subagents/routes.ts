@@ -370,7 +370,13 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
     };
 
   const brief = typeof body.brief === "string" ? body.brief.trim() : "";
-  if (!brief)
+  /* AN EMPTY BRIEF IS A RUN WITH NOTHING SINGLED OUT, and it is allowed when
+     the kind's brief field is optional — a competitor sweep or an SEO review
+     with no focus covers what matters most, which is what the app page's
+     empty box has always meant. A kind whose brief IS the subject (a dossier
+     is about a person) still refuses: there is nothing to run about. */
+  const field0 = briefField(def);
+  if (!brief && (!field0 || field0.required))
     return {
       status: 400 as const,
       json: { error: `A dispatch is a brief: say what ${row.name} is to look into.` },
@@ -453,7 +459,13 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
     goals ? `Context — ${goals}` : null,
     standing ? `Standing instructions from the owner: ${standing}` : null,
   ].filter(Boolean);
-  input[field.key] = preface.length ? `${preface.join("\n\n")}\n\n${brief}` : brief;
+  /* With no brief the field carries the preface and the sentence the app
+     page's empty box has always stood for, so a worker given only standing
+     instructions still knows the task is the whole job and not the orders. */
+  const asked =
+    brief || `Nothing in particular has been singled out for this ${def.name.toLowerCase()} — cover what matters most.`;
+  input[field.key] = preface.length ? `${preface.join("\n\n")}\n\n${asked}` : brief ? brief : "";
+  if (!input[field.key]) delete input[field.key];
 
   const v = portfolio ? null : venture(row.venture_id);
   if (!portfolio && !v)

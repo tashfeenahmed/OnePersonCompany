@@ -3,7 +3,9 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import {
   ArrowUp,
   MessageSquare,
+  Play,
   RefreshCw,
+  ScrollText,
   Settings2,
   Square,
   X,
@@ -210,6 +212,12 @@ export function Subagent() {
   /* The kind's own sentence, from the runs area rather than restated here. */
   const kinds = useApi(() => runsApi.list({ limit: 1 }), []);
   const kind = kinds.data?.kinds.find((k) => k.kind === sa?.kind) ?? null;
+  /* WHETHER THIS WORKER CAN BE RUN WITH NOTHING TYPED. The kind's brief field
+     is the first textarea it declares — the same rule the dispatch route uses
+     — and a worker whose field is optional (a sweep, a review) has a whole job
+     to do without one. A dossier's brief is the person, so it has not. */
+  const briefField = kind ? (kind.inputs.find((i) => i.kind === "textarea") ?? kind.inputs[0] ?? null) : null;
+  const briefOptional = !!briefField && !briefField.required;
 
   /* ----------------------------------------------------------- watchlist */
 
@@ -373,6 +381,10 @@ export function Subagent() {
 
   const [brief, setBrief] = useState("");
   const [sending, setSending] = useState(false);
+  /* THE SYSTEM PROMPT, OPENED FROM THE COMPOSER. It is the same standing
+     instructions the settings drawer edits — one field, two doors — because a
+     rule that lives in a drawer nobody opens is a rule nobody writes. */
+  const [promptOpen, setPromptOpen] = useState(false);
   const [stopping, setStopping] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -596,6 +608,27 @@ export function Subagent() {
       openRun(run.id);
       reload();
       if (watchlisted) watchReload();
+      window.dispatchEvent(new Event(WORK_CHANGED));
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  /** THE RUN WITH NOTHING SINGLED OUT. The empty box on the app page has
+   *  always meant "cover what matters most"; this is that press from here.
+   *  The server writes the sentence into the field, so the worker is told the
+   *  job is the whole job rather than handed its standing orders alone. */
+  async function runNow() {
+    if (!sa || !canSend || !briefOptional) return;
+    setSending(true);
+    setProblem(null);
+    try {
+      const out = await subagentApi.dispatch(sa.id, { brief: "" });
+      stuck.current = true;
+      openRun(out.run.id);
+      reload();
       window.dispatchEvent(new Event(WORK_CHANGED));
     } catch (e) {
       setProblem(e instanceof Error ? e.message : String(e));
@@ -1084,6 +1117,49 @@ export function Subagent() {
                     </Link>
                   </div>
                 )}
+                {/* THE SYSTEM PROMPT, IN THE BOX WHEN IT IS OPEN. Workdash's
+                    run notes: a fold that saves, above the brief, so what
+                    steers every run is edited where runs are started. */}
+                {promptOpen && sa && form && (
+                  <div className="border-line-soft mb-3 border-b pb-3">
+                    <label className="flex flex-col gap-1.5 px-1.5">
+                      <span className="text-muted-foreground flex items-center gap-1.5 text-[12.5px]">
+                        <ScrollText className="size-3.5" strokeWidth={1.6} />
+                        System prompt — put in front of every brief {sa.name} is given, including runs with nothing typed.
+                      </span>
+                      <Textarea
+                        rows={4}
+                        value={form.instructions}
+                        onChange={(e) => setEdit({ ...form, instructions: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                            e.preventDefault();
+                            void save({ instructions: form.instructions });
+                          }
+                        }}
+                        placeholder={
+                          portfolio
+                            ? "Anything this worker should always know about who you watch, what counts as a signal, or the house style."
+                            : "Anything this worker should always know about the venture, the audience or the house style."
+                        }
+                        className="text-[14px]"
+                      />
+                    </label>
+                    <div className="mt-2 flex items-center gap-2 px-1.5">
+                      <Button
+                        size="sm"
+                        disabled={saving || form.instructions === sa.instructions}
+                        onClick={() => void save({ instructions: form.instructions })}
+                      >
+                        {saving ? "Saving…" : "Save"}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setPromptOpen(false)}>
+                        Close
+                      </Button>
+                      {saved && <span className="text-muted-foreground text-[12.5px]">Saved.</span>}
+                    </div>
+                  </div>
+                )}
                 <Textarea
                   ref={inputRef}
                   aria-label="Brief"
@@ -1126,6 +1202,26 @@ export function Subagent() {
                       Ask the chief of staff instead
                     </Link>
                   )}
+                  {/* THE SYSTEM PROMPT'S DOOR. Shut, it shows the first words
+                      of the saved prompt so a rule steering every run is never
+                      hidden behind a closed fold. */}
+                  {sa && (
+                    <button
+                      onClick={() => setPromptOpen((v) => !v)}
+                      aria-pressed={promptOpen}
+                      title="The standing instructions put in front of every brief"
+                      className={cn(
+                        "text-muted-foreground hover:bg-accent hover:text-foreground flex min-w-0 max-w-[320px] items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]",
+                        promptOpen && "bg-accent text-foreground",
+                      )}
+                    >
+                      <ScrollText className="size-[15px] shrink-0" strokeWidth={1.6} />
+                      <span className="shrink-0">System prompt</span>
+                      {!promptOpen && sa.instructions.trim() && (
+                        <span className="truncate opacity-70">· {sa.instructions.trim()}</span>
+                      )}
+                    </button>
+                  )}
                   {/*
                     SEND BECOMES STOP, IN THE SAME PLACE — the chat's own swap.
                     While a run holds the composer the only thing to do with it
@@ -1148,6 +1244,20 @@ export function Subagent() {
                       onClick={() => void writeDossier(chip!)}
                     >
                       {asking.has(chip!.id) ? "Asking…" : "Write a dossier"}
+                    </Button>
+                  ) : briefOptional && !chip && !brief.trim() ? (
+                    /* NOTHING TYPED AND NOTHING NEEDED: the run with nothing
+                       singled out, in the arrow's place — the app page's
+                       "Start the run" from here. */
+                    <Button
+                      size="sm"
+                      className="ml-auto"
+                      disabled={!canSend}
+                      onClick={() => void runNow()}
+                      title="Run with nothing singled out — the worker covers what matters most"
+                    >
+                      <Play className="size-3.5" strokeWidth={1.8} />
+                      {sending ? "Starting…" : "Run now"}
                     </Button>
                   ) : (
                     <button
