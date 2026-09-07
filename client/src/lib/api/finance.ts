@@ -246,8 +246,33 @@ export type PowerDoc = {
   note: string;
 };
 
+/**
+ * THE LEDGER AS ONE DOCUMENT, for the dashboard cards.
+ *
+ * Four reads the Finance page makes one tab at a time, gathered once so a
+ * board of eight cost cards is one round of requests rather than eight — and
+ * so every card on it is drawn from the same moment: a servers card summed
+ * from one read and a "where it goes" donut from another, thirty seconds
+ * apart across a provider refresh, would disagree about the bill.
+ */
+export type FinanceReport = {
+  summary: FinanceSummary;
+  expenses: Expense[];
+  renewals: RenewalsDoc;
+  power: PowerDoc;
+};
+
 export const finance = {
   summary: () => call<FinanceSummary>("/finance"),
+  report: async (): Promise<FinanceReport> => {
+    const [summary, expenses, renewals, power] = await Promise.all([
+      call<FinanceSummary>("/finance"),
+      call<ExpensesDoc>("/finance/expenses"),
+      call<RenewalsDoc>("/finance/renewals?days=90"),
+      call<PowerDoc>("/finance/power"),
+    ]);
+    return { summary, expenses: expenses.expenses, renewals, power };
+  },
   expenses: (params: { venture?: string; category?: string; archived?: boolean } = {}) => {
     const q = new URLSearchParams();
     if (params.venture) q.set("venture", params.venture);

@@ -45,6 +45,7 @@ import {
   type UptimeReport,
 } from "@/lib/api/reports";
 import { WIDGETS } from "@/data/widgets";
+import { finance as financeApi, type FinanceReport } from "@/lib/api/finance";
 import {
   LIVE_BUILDERS,
 } from "@/lib/liveWidgets";
@@ -185,6 +186,9 @@ export type LiveData = {
   /** The rivals the sweeps accumulated, each with the date it was last
    *  VERIFIED rather than last written. */
   competitors: CompetitorsReport | null;
+  /** The cost ledger, the renewals ahead and the electricity model — this
+   *  box's own rate card, fetched unconditionally like the three above it. */
+  finance: FinanceReport | null;
   /** Which widget types are showing real data right now. */
   sourceStates: Record<string, "loading" | "disconnected" | "ready" | "error">;
   sourceErrors: Record<string, string>;
@@ -228,6 +232,7 @@ const LiveContext = createContext<LiveData>({
   runs: null,
   llm: null,
   competitors: null,
+  finance: null,
   sourceStates: {}, sourceErrors: {},
   loading: true,
   error: null,
@@ -279,6 +284,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [runs, setRuns] = useState<RunsReport | null>(null);
   const [llm, setLlm] = useState<LlmReport | null>(null);
   const [competitors, setCompetitors] = useState<CompetitorsReport | null>(null);
+  const [finance, setFinance] = useState<FinanceReport | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
@@ -325,6 +331,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsRuns = false;
     let needsLlm = false;
     let needsCompetitors = false;
+    let needsFinance = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -358,6 +365,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.runs) needsRuns = true;
       if (w.live?.llm) needsLlm = true;
       if (w.live?.competitors) needsCompetitors = true;
+      if (w.live?.finance) needsFinance = true;
     }
     return {
       series: [...series],
@@ -392,6 +400,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsRuns,
       needsLlm,
       needsCompetitors,
+      needsFinance,
     };
   }, []);
 
@@ -432,6 +441,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setRuns(null);
       setLlm(null);
       setCompetitors(null);
+      setFinance(null);
     void (async () => {
       /*
         WHICH PROVIDERS ARE ACTUALLY CONNECTED, asked once for the page.
@@ -701,6 +711,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         wanted.needsCompetitors,
         () => reports.competitors(),
         setCompetitors, "competitors");
+      /* The ledger is this box's own too: seeded from Hetzner and the
+         registrars, typed into on the Finance page, and never behind a
+         credential of its own. */
+      tryFetch(wanted.needsFinance, () => financeApi.report(), setFinance, "finance");
 
       await Promise.all(tasks);
       const pairs = await Promise.all(
@@ -771,6 +785,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         runs,
         llm,
         competitors,
+        finance,
       });
       if (patch) liveTypes.add(type);
     }
@@ -808,6 +823,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       runs,
       llm,
       competitors,
+      finance,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
     };
@@ -846,6 +862,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     runs,
     llm,
     competitors,
+    finance,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
@@ -1138,6 +1155,8 @@ export function collectedAt(src: string, live: LiveData): string | null {
     case "openrouter":
     case "replicate":
       return live.costs?.generatedAt ?? null;
+    case "finance":
+      return live.finance?.summary.generatedAt ?? null;
     default:
       return null;
   }

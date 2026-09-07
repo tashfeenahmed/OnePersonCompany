@@ -241,7 +241,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 13;
+export const SEED_VERSION = 14;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -427,6 +427,22 @@ const SEED: StoreState = {
       slug: "costs",
       name: "Costs",
       widgets: [
+        /*
+          THE RATE CARD FIRST — what the portfolio owes, where it goes, then
+          the bill line by line — and the metered providers after it, the way
+          the money pages order the same subject. A board that opened on the
+          LLM bill and never showed the servers, the services or the
+          electricity was reading the variable half of the cost and calling it
+          the cost.
+        */
+        { id: "cs22", type: "finance.monthly", w: 1 },
+        { id: "cs23", type: "finance.renewals", w: 1 },
+        { id: "cs24", type: "finance.unpriced", w: 1 },
+        { id: "cs25", type: "finance.groups", w: 2 },
+        { id: "cs26", type: "finance.servers", w: 2 },
+        { id: "cs27", type: "finance.services", w: 2 },
+        { id: "cs28", type: "finance.power", w: 2 },
+        { id: "cs29", type: "finance.domains", w: 2 },
         { id: "cs1", type: "costs.llm", w: 1 },
         { id: "cs2", type: "hetzner.spend", w: 1 },
         { id: "cs3", type: "openrouter.credits", w: 1 },
@@ -1191,12 +1207,15 @@ function migrate(state: StoreState): StoreState {
     const have = new Set(d.widgets.map((w) => w.type));
     const missing = wanted.filter((type) => !have.has(type));
     if (!missing.length) return d;
+    const arriving = missing.map((type) => ({ id: uid("w"), type, w: defaultWidth(type) }));
+    /* In front on the boards that say so, at the end everywhere else. A
+       top-up is usually more of the same subject and reads fine after what
+       is there; the Costs one is the HEADLINE of its board — the bill
+       itself, ahead of the metered providers — and a headline appended under
+       twenty-one cards is a headline nobody scrolls to. */
     return {
       ...d,
-      widgets: [
-        ...d.widgets,
-        ...missing.map((type) => ({ id: uid("w"), type, w: defaultWidth(type) })),
-      ],
+      widgets: TOP_UP_LEADS.has(d.id) ? [...arriving, ...d.widgets] : [...d.widgets, ...arriving],
     };
   });
 
@@ -1303,7 +1322,26 @@ const TOP_UPS: Record<string, string[]> = {
     Just the one figure: the SEO board is where the rest of the crawl lives.
   */
   "d-search": ["audit.issues"],
+  /*
+    Costs shipped as the metered providers alone — LLM, media, Hetzner's
+    projection — with the ledger behind the Finance page nowhere on it. The
+    rate card's eight cards arrive: the monthly bill, its groups, and the
+    servers, services, electricity and domains line by line.
+  */
+  "d-costs": [
+    "finance.monthly",
+    "finance.renewals",
+    "finance.unpriced",
+    "finance.groups",
+    "finance.servers",
+    "finance.services",
+    "finance.power",
+    "finance.domains",
+  ],
 };
+
+/** The boards whose top-up leads rather than trails — see `migrate()`. */
+const TOP_UP_LEADS = new Set(["d-costs"]);
 
 /** The addresses already taken inside one scope — a venture's boards, or the
  *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is

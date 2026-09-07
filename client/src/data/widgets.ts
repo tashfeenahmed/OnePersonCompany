@@ -242,6 +242,10 @@ export type Widget = {
     /** The competitor profiles the sweeps have accumulated, with the date each
      *  one was last VERIFIED rather than last written. */
     competitors?: boolean;
+    /** This box's own cost ledger — every recurring bill, per currency, with
+     *  the renewals ahead and the electricity model. The rate card behind the
+     *  Finance page, drawn as cards. */
+    finance?: boolean;
   };
   /**
    * A WORD ABOUT WHAT KIND OF NUMBER THIS IS, worn as a small mono pill after
@@ -588,6 +592,17 @@ export const SOURCES: Record<string, WidgetSource> = {
     icon: null,
     mono: "Tk",
     tint: "#7a5c9e",
+    connected: true,
+  },
+  /* THE LEDGER. Not a plugin either: the rows are seeded from Hetzner and the
+     registrars and typed in by the owner, and the Finance page is where they
+     are edited. Always connected; a card of its showing nothing means the
+     ledger has nothing under that heading yet, and the card says so. */
+  finance: {
+    name: "Finance",
+    icon: null,
+    mono: "Fi",
+    tint: "#5f6b3f",
     connected: true,
   },
 };
@@ -2743,6 +2758,64 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { competitors: true },
   },
+
+  /* ------------------------------------------------------------ finance
+     THE RATE CARD, DRAWN THE WAY THE MONEY PAGES DRAW IT: what the portfolio
+     owes a month, where it goes by group, then the bill line by line —
+     servers, services, electricity, domains — and the two counts that keep
+     the total honest: what renews soon, and what has no price. Every figure
+     is per currency and nothing here adds euro to dollars; a card whose
+     lines are in two currencies says which one it is drawing.
+  */
+  "finance.monthly": {
+    src: "finance",
+    name: "Monthly cost",
+    kind: "metric",
+    live: { finance: true },
+    invert: true,
+  },
+  "finance.groups": {
+    src: "finance",
+    name: "Where it goes",
+    kind: "donut",
+    live: { finance: true },
+  },
+  "finance.servers": {
+    src: "finance",
+    name: "Servers",
+    kind: "ranked",
+    live: { finance: true },
+  },
+  "finance.services": {
+    src: "finance",
+    name: "Services",
+    kind: "rows",
+    live: { finance: true },
+  },
+  "finance.power": {
+    src: "finance",
+    name: "Electricity",
+    kind: "rows",
+    live: { finance: true },
+  },
+  "finance.domains": {
+    src: "finance",
+    name: "Domains",
+    kind: "rows",
+    live: { finance: true },
+  },
+  "finance.renewals": {
+    src: "finance",
+    name: "Renewals · 90d",
+    kind: "metric",
+    live: { finance: true },
+  },
+  "finance.unpriced": {
+    src: "finance",
+    name: "Unpriced lines",
+    kind: "metric",
+    live: { finance: true },
+  },
 };
 
 /** The presets offered when a new dashboard is created. */
@@ -2783,6 +2856,14 @@ export const DASHBOARD_PRESETS: {
     label: "Costs",
     note: "LLM, media and infrastructure — each in its own currency",
     widgets: [
+      "finance.monthly",
+      "finance.renewals",
+      "finance.unpriced",
+      "finance.groups",
+      "finance.servers",
+      "finance.services",
+      "finance.power",
+      "finance.domains",
       "costs.llm",
       "hetzner.spend",
       "openrouter.credits",

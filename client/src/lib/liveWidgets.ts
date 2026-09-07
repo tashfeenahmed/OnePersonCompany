@@ -49,6 +49,7 @@ import type {
   UptimeReport,
 } from "@/lib/api/reports";
 import type { Meter, RunwayRow, StatusTone, Widget } from "@/data/widgets";
+import type { Expense, FinanceReport } from "@/lib/api/finance";
 /* EVERY FIGURE ON THESE CARDS IS DRAWN BY `@/lib/format`. A private formatter
    here drifts from the panel showing the same number — 1.5M on this card, 1.5m
    on that one, 1,500,000 on a third — and nothing catches it. The adapters
@@ -216,6 +217,9 @@ export type LiveInputs = {
   /** This box's own LLM use. */
   llm?: LlmReport | null;
   competitors?: CompetitorsReport | null;
+  /** The cost ledger, renewals and electricity model — this box's own rate
+   *  card. Optional the way the second-wave reports are. */
+  finance?: FinanceReport | null;
 };
 
 /**
@@ -6644,5 +6648,278 @@ Object.assign(LIVE_BUILDERS, {
         : "none set — dollars are not measured, only tokens",
     ]);
     return { rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================== finance ==
+   THE RATE CARD BEHIND THE FINANCE PAGE, DRAWN AS CARDS.
+
+   Every figure here is per currency and nothing adds across them — that is the
+   ledger's own rule and these cards keep it. Where a card can only draw ONE
+   figure (a total, a ring) it draws the currency most of the bill is in, says
+   so, and names what the other currencies hold beside it. A line with no
+   price is counted and named, never folded in as zero: "23 domains, none
+   priced" is a fact about the bill and a €0.00 slice is not.
+   ======================================================================== */
+
+/**
+ * The currency that carries most of the monthly bill, with its amount.
+ *
+ * Null when nothing is priced, which keeps the card a sample rather than
+ * printing a "€0.00" that reads as a free portfolio.
+ */
+function leadCurrency(finance: FinanceReport): { currency: string; amount: number } | null {
+  const amounts = finance.summary.monthly.amounts;
+  if (!amounts.length) return null;
+  return amounts.slice().sort((a, b) => b.amount - a.amount)[0] ?? null;
+}
+
+/** Where a ledger row's figure came from, as the row's small print. */
+function sourceWord(e: Expense): string {
+  if (e.source === "manual") return "typed";
+  return e.ownerFields.includes("amount") ? `${e.source} · price typed` : e.source;
+}
+
+/** /mo, /yr, once — the bill at the cadence it is actually charged at. */
+const cadence = (period: Expense["period"]) =>
+  period === "once" ? " once" : period === "yearly" ? "/yr" : "/mo";
+
+Object.assign(LIVE_BUILDERS, {
+  "finance.monthly": ({ finance }: LiveInputs) => {
+    if (!finance) return null;
+    const lead = leadCurrency(finance);
+    if (!lead) return null;
+    const annual =
+      finance.summary.annual.amounts.find((a) => a.currency === lead.currency)?.amount ?? lead.amount * 12;
+    const rest = finance.summary.monthly.amounts.filter((a) => a.currency !== lead.currency);
+    const unpriced = finance.summary.counts.unpriced;
+    return {
+      value: money(lead.amount, lead.currency),
+      tag: "rate card",
+      sub: also(
+        `${money(annual, lead.currency, { digits: 0 })}/yr, each bill at its real cadence`,
+        [
+          ...rest.map((a) => `+ ${money(a.amount, a.currency)} in ${a.currency}`),
+          unpriced ? `${count(unpriced)} line${unpriced === 1 ? "" : "s"} unpriced and left out` : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    };
+  },
+
+  "finance.groups": ({ finance }: LiveInputs) => {
+    if (!finance) return null;
+    const lead = leadCurrency(finance);
+    if (!lead) return null;
+    /*
+      THE BILL BY GROUP, IN ONE CURRENCY. A donut is a whole and the ledger
+      adds nothing across currencies, so the ring is the currency that
+      carries most of the bill and the caption names the rest. A group with
+      lines and no prices stays in the legend at zero with its count.
+    */
+    const live = finance.expenses.filter((e) => !e.archived);
+    const group = (currency: string, label: string, cats: string[], unit: string) => {
+      const rows = live.filter((e) => e.currency === currency && cats.includes(e.category));
+      const priced = rows.filter((e) => e.monthly !== null);
+      const unpriced = rows.length - priced.length;
+      return {
+        label,
+        currency,
+        value: priced.reduce((n, e) => n + (e.monthly ?? 0), 0),
+        rows: rows.length,
+        sub:
+          `${count(rows.length)} ${unit}${rows.length === 1 ? "" : "s"}` +
+          (unpriced
+            ? unpriced === rows.length
+              ? " · none priced"
+              : ` · ${count(unpriced)} unpriced`
+            : ""),
+      };
+    };
+    const GROUPS: [string, string[], string][] = [
+      ["Servers", ["server"], "box"],
+      ["Domains", ["domain"], "name"],
+      ["Services", ["service", "subscription"], "subscription"],
+      ["Other", ["salary", "other"], "line"],
+    ];
+    /* The ring's currency first, then every other currency the ledger holds,
+       so a group billed in euro on a dollar board is a row with its figure
+       and no share rather than a line that vanished. */
+    const currencies = [
+      lead.currency,
+      ...[...new Set(live.map((e) => e.currency))].filter((c) => c !== lead.currency).sort(),
+    ];
+    const groups = currencies.flatMap((c) =>
+      GROUPS.map(([label, cats, unit]) => group(c, label, cats, unit)).filter((g) => g.rows > 0),
+    );
+    const power = finance.power.lines.filter((l) => l.amount !== null);
+    for (const c of currencies) {
+      const lines = power.filter((l) => l.currency === c);
+      if (lines.length)
+        groups.push({
+          label: "Electricity",
+          currency: c,
+          value: lines.reduce((n, l) => n + (l.amount ?? 0), 0),
+          rows: lines.length,
+          sub: `${count(lines.length)} machine${lines.length === 1 ? "" : "s"} · watts estimated`,
+        });
+    }
+    if (!groups.length) return null;
+    const ring = groups.filter((g) => g.currency === lead.currency);
+    const total = ring.reduce((n, g) => n + g.value, 0);
+    const foreign = groups.filter((g) => g.currency !== lead.currency);
+    return {
+      slices: groups.map((g) => ({
+        label: g.label,
+        // A foreign-currency group has no length on this ring — see the
+        // caption — but its figure and its count are on the row.
+        value: g.currency === lead.currency ? g.value : 0,
+        text: money(g.value, g.currency),
+        sub: g.currency === lead.currency ? g.sub : `${g.sub} · in ${g.currency}, not in the ring`,
+      })),
+      center: {
+        value: money(total, lead.currency, { digits: total >= 100 ? 0 : 2 }),
+        note: "per month",
+      },
+      caption: foreign.length
+        ? `The ring is the ${lead.currency} bill. ${[...new Set(foreign.map((g) => g.currency))].join(", ")} lines are listed with no share — nothing here converts one currency into another.`
+        : `Every line in ${lead.currency}.`,
+    };
+  },
+
+  "finance.servers": ({ finance }: LiveInputs) => {
+    if (!finance) return null;
+    const rows = finance.expenses.filter((e) => !e.archived && e.category === "server");
+    if (!rows.length) return null;
+    const priced = rows
+      .filter((e) => e.monthly !== null)
+      .sort((a, b) => (b.monthly ?? 0) - (a.monthly ?? 0));
+    const currency = priced[0]?.currency ?? rows[0]!.currency;
+    const total = priced
+      .filter((e) => e.currency === currency)
+      .reduce((n, e) => n + (e.monthly ?? 0), 0);
+    return {
+      ranked: priced.slice(0, 10).map((e) => ({
+        label: e.label,
+        // A box billed in another currency has no length on this axis; its
+        // figure still says what it is.
+        value: e.currency === currency ? (e.monthly ?? 0) : 0,
+        text: `${money(e.monthly, e.currency)}/mo`,
+        sub: sourceWord(e),
+      })),
+      caption:
+        `${count(rows.length)} box${rows.length === 1 ? "" : "es"} · ${money(total, currency)}/mo` +
+        (rows.length > priced.length ? ` · ${count(rows.length - priced.length)} unpriced` : "") +
+        (priced.length > 10 ? " · top 10 drawn" : ""),
+    };
+  },
+
+  "finance.services": ({ finance }: LiveInputs) => {
+    if (!finance) return null;
+    /*
+      THE BILLS THAT BUY THE RIGHT TO SHIP RATHER THAN COMPUTE — developer
+      programs, AI plans. Each at the cadence it is billed at: a yearly bill
+      says /yr and is not spread, a one-off says once and is in neither total.
+      Nothing under the heading is a sentence saying where to type one.
+    */
+    const rows = finance.expenses.filter(
+      (e) => !e.archived && (e.category === "service" || e.category === "subscription"),
+    );
+    if (!rows.length)
+      return { rows: [["No services in the ledger yet", "add one under Finance → Ledger"]] };
+    const sorted = rows.slice().sort((a, b) => (b.monthly ?? -1) - (a.monthly ?? -1));
+    return {
+      rows: sorted.slice(0, 8).map((e) => [
+        `${e.label}${e.period === "once" ? " · one-time" : e.period === "yearly" ? " · billed yearly" : ""}${
+          e.confidence ? ` · ${e.confidence}` : ""
+        }`,
+        e.amount === null ? "no price yet" : `${money(e.amount, e.currency)}${cadence(e.period)}`,
+      ]),
+    };
+  },
+
+  "finance.power": ({ finance }: LiveInputs) => {
+    if (!finance) return null;
+    const lines = finance.power.lines;
+    if (!lines.length) {
+      const rows: [string, string][] = [
+        finance.power.machines.length
+          ? ["No wattage profile yet", "type idle and busy watts under Finance → Power"]
+          : ["No workstation connected", "connect one under Integrations → Workstation"],
+      ];
+      if (finance.summary.tariff.perKwh === null)
+        rows.push(["No price per kWh set", "set the tariff on the Finance integration"]);
+      return { rows };
+    }
+    return {
+      // The hours may be metered; the watts never are — see Finance → Power.
+      tag: "est.",
+      rows: lines.map((l) => [
+        `${l.label}${l.confidence ? ` · ${l.confidence} hours` : " · no hours observed"}`,
+        l.amount === null
+          ? "unpriced — no tariff"
+          : `${money(l.amount, l.currency)}/mo${l.kwh !== null ? ` · ${l.kwh} kWh` : ""}`,
+      ]),
+    };
+  },
+
+  "finance.domains": ({ finance }: LiveInputs) => {
+    if (!finance) return null;
+    const rows = finance.expenses.filter((e) => !e.archived && e.category === "domain");
+    if (!rows.length) return null;
+    /*
+      SOONEST DECISION FIRST. A domain is the one line on this board with a
+      date on it, and the date is the half that makes the price something to
+      act on. Names with no date go to the back — unknown is not urgent — and
+      what was not drawn is counted in the last row.
+    */
+    const byDate = (e: Expense) => (e.renewalOn ? Date.parse(e.renewalOn) : Number.POSITIVE_INFINITY);
+    const sorted = rows.slice().sort((a, b) => byDate(a) - byDate(b) || a.label.localeCompare(b.label));
+    const shown = sorted.slice(0, 9);
+    const priced = rows.filter((e) => e.monthly !== null).length;
+    const out: [string, string][] = shown.map((e) => {
+      const renewal = finance.renewals.renewals.find((r) => r.id === e.id);
+      const when = renewal
+        ? renewal.inDays < 0
+          ? `${count(-renewal.inDays)}d past`
+          : `renews in ${count(renewal.inDays)}d`
+        : e.renewalOn
+          ? `renews ${e.renewalOn}`
+          : "";
+      const price = e.amount === null ? "no price" : `${money(e.amount, e.currency)}${cadence(e.period)}`;
+      return [e.label, also(price, when)];
+    });
+    if (rows.length > shown.length)
+      out.push([
+        `${count(rows.length - shown.length)} more`,
+        priced ? `${count(priced)} of ${count(rows.length)} priced` : "none priced yet",
+      ]);
+    return { rows: out };
+  },
+
+  "finance.renewals": ({ finance }: LiveInputs) => {
+    if (!finance) return null;
+    const r = finance.summary.renewals;
+    return {
+      value: count(r.within90Days),
+      tone: r.overdue > 0 ? ("bad" as StatusTone) : r.undecided > 0 ? ("warn" as StatusTone) : undefined,
+      sub: [
+        r.within90Days ? `${count(r.undecided)} undecided` : "nothing renews in 90 days",
+        r.overdue ? `${count(r.overdue)} date${r.overdue === 1 ? " has" : "s have"} already passed` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    };
+  },
+
+  "finance.unpriced": ({ finance }: LiveInputs) => {
+    if (!finance) return null;
+    const n = finance.summary.counts.unpriced;
+    return {
+      value: count(n),
+      tone: n > 0 ? ("warn" as StatusTone) : undefined,
+      sub: n ? "left out of every total — the bill above is a floor" : "every line in the ledger has a price",
+    };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

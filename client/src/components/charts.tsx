@@ -1130,11 +1130,14 @@ export function Donut({
 }) {
   const [active, setActive] = useState<number | null>(null);
   const sum = slices.reduce((n, s) => n + Math.max(s.value, 0), 0);
-  const SIZE = 132;
+  /* 176px, not the 132 it started at: the ring is the card's picture and a
+     small one reads as an icon. The hole is 62% of the radius, wide enough
+     for a five-figure total at 22px. */
+  const SIZE = 176;
   const cx = SIZE / 2;
   const cy = SIZE / 2;
   const R = SIZE / 2 - 2;
-  const rIn = R * 0.64;
+  const rIn = R * 0.62;
   const gap = 2 / R;
 
   const arcs = donutArcs(slices, sum, { cx, cy, R, rIn, gap });
@@ -1181,14 +1184,14 @@ export function Donut({
                 y={cy - 1}
                 textAnchor="middle"
                 fill="var(--foreground)"
-                fontSize={17}
-                fontWeight={500}
-                letterSpacing="-0.02em"
+                fontSize={22}
+                fontWeight={650}
+                letterSpacing="-0.025em"
                 className="tabular-nums"
               >
                 {center.value}
               </text>
-              <text x={cx} y={cy + 14} textAnchor="middle" fill="var(--muted-foreground)" fontSize={10}>
+              <text x={cx} y={cy + 16} textAnchor="middle" fill="var(--muted-foreground)" fontSize={10.5}>
                 {center.note}
               </text>
             </>
@@ -1200,21 +1203,23 @@ export function Donut({
               key={s.label}
               onPointerEnter={() => setActive(i)}
               className={cn(
-                "grid grid-cols-[10px_1fr_auto] items-baseline gap-x-2.5 gap-y-0.5 rounded-[8px] px-2 py-1 transition-colors",
+                "grid grid-cols-[12px_1fr_auto] items-baseline gap-x-2.5 gap-y-0.5 rounded-[8px] px-2 py-1.5 transition-colors",
                 active === i && "bg-muted",
               )}
             >
               <span
                 aria-hidden="true"
-                className="size-2.5 self-center rounded-sm"
+                className="size-3 self-center rounded-sm"
                 style={{ background: seriesColour(i) }}
               />
-              <span className="truncate text-[13px]">{s.label}</span>
-              <span className="text-[13px] tabular-nums">{s.text}</span>
+              <span className="truncate text-[13.5px] font-medium">{s.label}</span>
+              <span className="text-[13.5px] font-semibold tabular-nums">{s.text}</span>
               <span className="text-muted-foreground col-span-2 col-start-2 flex justify-between gap-2 text-[12px] leading-snug">
                 <span className="truncate">{s.sub}</span>
+                {/* A row with no length has no share — a dash, not "0%",
+                    which would claim it was measured at nothing. */}
                 <span className="shrink-0 tabular-nums">
-                  {sum > 0 ? pct(Math.max(s.value, 0) / sum, { digits: 0 }) : ""}
+                  {sum > 0 && s.value > 0 ? pct(s.value / sum, { digits: 0 }) : "—"}
                 </span>
               </span>
             </div>

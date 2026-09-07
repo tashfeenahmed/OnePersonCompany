@@ -112,6 +112,7 @@ export function WidgetCard({
         runs: live.runs,
         llm: live.llm,
         competitors: live.competitors,
+        finance: live.finance,
       })
     : null;
   // Presentation metadata is reusable; sample data never enters a live card.
@@ -248,7 +249,19 @@ export function WidgetCard({
 
         {!empty && def.kind === "metric" && (
           <>
-            <div className="text-[28px] leading-tight font-normal tracking-[-0.03em] tabular-nums">
+            {/* MONEY IS SET LARGER AND HEAVIER than any other figure — 36px
+                semibold against 28px regular — the way the money pages
+                headline a bill: a dollar amount on a cost board is the thing
+                the card exists for, and it is read from across the room. A
+                count, a duration or a percentage keeps the quieter size. */}
+            <div
+              className={cn(
+                "leading-tight tracking-[-0.03em] tabular-nums",
+                splitMoney(def.value ?? "")
+                  ? "text-[36px] font-semibold tracking-[-0.035em]"
+                  : "text-[28px] font-normal",
+              )}
+            >
               <Figure text={def.value ?? ""} />
             </div>
             {/*
@@ -433,7 +446,7 @@ function Figure({ text }: { text: string }) {
   return (
     <>
       {parts.whole}
-      <span className="text-muted-foreground text-[0.55em] font-medium">{parts.cents}</span>
+      <span className="text-muted-foreground text-[0.5em] font-medium">{parts.cents}</span>
     </>
   );
 }
