@@ -1,6 +1,5 @@
 import { lazy } from "react";
 import { Link, Navigate, useLocation, useParams } from "react-router-dom";
-import { SubTabs } from "@/components/TabStrip";
 import { TopBar } from "@/components/PageShell";
 import { GROWTH_PAGES, MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
 
@@ -36,24 +35,12 @@ function SectionPages({ section, selectedPage }: { section: keyof typeof SECTION
   if (!page) return <Navigate to={`${items[0]!.to}${location.search}${location.hash}`} state={location.state} replace />;
   const Page = current ? PAGES[current.slug as keyof typeof PAGES] : null;
   return <>
-    {/* THE SEO & GROWTH PAGES STAND ALONE. Their six tabs were the same six
-        rows the sidebar already lists under "SEO & growth", drawn a second
-        time an inch to the right; each page gets the plain top bar every
-        other page has instead. Mail and Social keep the strip. */}
-    {section === "growth" ? (
-      <TopBar label={current?.label ?? label} />
-    ) : (
-      <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 px-4.5 py-1">
-        <span className="mr-2 text-xs text-muted-foreground">{label}</span>
-        <nav aria-label={label}>
-          <SubTabs
-            tabs={items.map(item => ({ key: item.slug, to: item.to, label: item.label }))}
-            activeKey={current?.slug ?? null}
-            className="mb-0"
-          />
-        </nav>
-      </header>
-    )}
+    {/* EVERY SECTION PAGE STANDS ALONE. The strip of tabs that used to sit
+        here was the same rows the sidebar already lists under the section's
+        heading, drawn a second time an inch to the right; each page gets the
+        plain top bar every other page has instead, and the sidebar is the
+        one way between them. */}
+    <TopBar label={current?.label ?? label} />
     {Page ? <Page /> : <div className="p-6"><h1 className="text-xl">Page not found</h1><Link to={items[0]!.to} className="underline">Go to {label.toLowerCase()}</Link></div>}
   </>;
 }
