@@ -38,7 +38,7 @@ import {
   MIN_QUIET_DAYS,
 } from "./contacts.ts";
 import { DEFAULT_DAYS, MAX_MESSAGES } from "./commitments.ts";
-import { MAX_EVENTS, NEW_FOR_DAYS } from "./watch.ts";
+import { DELTA_DAYS, MAX_EVENTS, MAX_HISTORY, NEW_FOR_DAYS } from "./watch.ts";
 
 export const SKILLS: Skill[] = [
   {
@@ -133,6 +133,26 @@ export const SKILLS: Skill[] = [
         "pulled for the first time has a whole timeline that is new to this " +
         "box, so the number reads high on the day they are added and must " +
         "never be reported as “they published that many things this week”.",
+      "SIGNALS ARE WHAT THIS BOX NOTICED, NOT WHAT ANYBODY PUBLISHED. On the " +
+        "timeline they carry source `watch` and kind `change`, and each one " +
+        "is the result of comparing this pull with the last: a bio rewritten, " +
+        "a follower count or karma score that moved by at least ten AND at " +
+        "least one per cent, a new public repository. Nobody posted them. " +
+        "Reporting a signal as something the person said or did is the one " +
+        "way to misread this timeline, and `signals` on a list row counts " +
+        `only the ones first seen in the last ${NEW_FOR_DAYS} days.`,
+      `\`metrics.deltas\` is the ${DELTA_DAYS}-day movement of each figure, ` +
+        "and A MISSING KEY IS NOT ZERO. It means there is no reading from a " +
+        "week ago to subtract \u2014 somebody added on Tuesday, a link typed " +
+        "yesterday \u2014 and saying “no change” about it would be a " +
+        "measurement of somebody nothing is known about. `history` is the " +
+        "series the deltas come from: one row per day the box LOOKED, oldest " +
+        `first, at most ${MAX_HISTORY}. A short history is a short watch, ` +
+        "never a quiet person.",
+      "`sweep` on the watch view is about the LIST, not a row. `lastAt` is " +
+        "the OLDEST pull stamp on it \u2014 the moment by which everybody had " +
+        "been read \u2014 and is null unless `everyonePulled`; `nextDueAt` is " +
+        "null when somebody is due already rather than a stamp in the past.",
       "The activity timeline is PUBLIC POSTS AND PUSHES, cached from sources " +
         "that need no credential. It is not everything they did, it is not " +
         "everything they published, and a quiet timeline is evidence about " +
@@ -250,7 +270,8 @@ export const SKILLS: Skill[] = [
         key: "watch",
         path: "/api/people/watch",
         about:
-          "The owner’s hand-kept list of people of interest — name, company, role, email, links, tags and his own note — each with its tracked numbers, when its public sources were last read, how many events are new to this box, and its dossier record: how many have been written, whether one is running or queued, and how the last one ended. The IDENTITY half is TYPED, not collected: most of these people are not in the contacts document at all.",
+          "The owner’s hand-kept list of people of interest — name, company, role, email, links, tags and his own note — each with its tracked numbers and their " +
+          `${DELTA_DAYS}-day movement in \`metrics.deltas\` (a MISSING key is “no reading a week old”, never 0), when its public sources were last read, how many events are new to this box, how many of those were \`signals\` (profile changes this box noticed rather than anything the person published), and its dossier record: how many have been written, whether one is running or queued, and how the last one ended. The document also carries \`sweep\` \u2014 \`lastAt\` (the OLDEST pull stamp, so it is the moment by which EVERYBODY had been read, and null unless \`everyonePulled\`), \`nextDueAt\` (null when somebody is due already) and \`everyMs\`. The IDENTITY half is TYPED, not collected: most of these people are not in the contacts document at all.`,
         params: [],
       },
       {
@@ -258,7 +279,7 @@ export const SKILLS: Skill[] = [
         path: "/api/people/watch/:id",
         about:
           "The file on one watched person, in four separately-sourced parts: `person` (what he typed, plus the tracked numbers), `contact` (the mailbox’s side of the relationship, or null — usually null), `events` (their public activity, newest first, at most " +
-          `${MAX_EVENTS} kept per person: GitHub pushes, releases and new repositories, Bluesky posts, Hacker News stories and comments, RSS items), and \`dossiers\` (every dossier run attaching to their name, newest first). \`warnings\` is what the LAST pull could not read. \`person.avatar\` is a RELATIVE URL ON THIS BOX \u2014 /api/people/watch/<id>/avatar \u2014 and never the address the picture came from: the bytes are fetched once by the pull and served from here, so that opening somebody\u2019s file tells no third party who was looked at. null means no picture was found \u2014 no GitHub or Bluesky avatar, no imported URL, or nobody has pulled them yet \u2014 and it is never a claim that they have no photograph.`,
+          `${MAX_EVENTS} kept per person: GitHub pushes, releases and new repositories, Bluesky posts, Hacker News stories and comments, RSS items), and \`dossiers\` (every dossier run attaching to their name, newest first). \`history\` is the daily metric series, OLDEST FIRST \u2014 one row per day the box LOOKED, at most ${MAX_HISTORY} of them, and a row of nulls is a pull that reached nobody rather than figures that went to zero. \`warnings\` is what the LAST pull could not read. \`person.avatar\` is a RELATIVE URL ON THIS BOX \u2014 /api/people/watch/<id>/avatar \u2014 and never the address the picture came from: the bytes are fetched once by the pull and served from here, so that opening somebody\u2019s file tells no third party who was looked at. null means no picture was found \u2014 no GitHub or Bluesky avatar, no imported URL, or nobody has pulled them yet \u2014 and it is never a claim that they have no photograph.`,
         params: [
           {
             name: "id",

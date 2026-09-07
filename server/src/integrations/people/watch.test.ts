@@ -21,6 +21,17 @@
  * and in bulk, the notes this whole table exists to hold. None of them touch
  * the database, so all of them can be checked exactly.
  *
+ * THE LAST GROUP — the series, the deltas and the signals — is there for the
+ * reason the avatar ones are, one step sharper. Every rule in it decides
+ * whether a SENTENCE IS SAID ABOUT SOMEBODY, and each fails as a plausible
+ * wrong answer rather than as a crash: a delta computed against the wrong base
+ * row is a number nobody can check by looking; a spike threshold that fires
+ * too easily fills the timeline until nobody reads it, and one that never
+ * fires makes the feature look broken while working perfectly; a bio rule that
+ * treats a first sighting as a rewrite announces "Bio changed" about every
+ * person on the day they are added. None of them touch the database, so all of
+ * them can be checked exactly.
+ *
  * THE THREE ABOUT THE AVATAR ARE THERE FOR A DIFFERENT REASON: they are the
  * rules that decide whether this box makes a request to somebody else's server
  * and what it agrees to store when it does. A preference order that fell
@@ -33,17 +44,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DELTA_DAYS,
   MAX_AVATAR_BYTES,
+  MAX_HISTORY,
   attaches,
   avatarDue,
   avatarGate,
+  bioSignal,
+  changeKey,
   composeBrief,
+  dayOf,
+  deltasFrom,
+  eventKey,
   handle,
   mergeWatchFields,
   nameKey,
   pickAvatar,
+  repoSignal,
+  rowAgo,
+  spikeSignal,
+  type MetricHistoryRow,
+  type Metrics,
+  type WatchRow,
 } from "./watch.ts";
-import { parseFeed } from "./activity.ts";
+import { SWEEP_AFTER_MS, due, parseFeed, sweepState } from "./activity.ts";
 import { dossierTitle } from "../runs/kinds.ts";
 
 /* --------------------------------------------------------------- attaches */
@@ -429,4 +453,190 @@ test("only an image of a sane size is stored, and the reason is a sentence", () 
   });
   /* Exactly at the cap is inside it. */
   assert.deepEqual(avatarGate("image/png", MAX_AVATAR_BYTES), { mime: "image/png" });
+});
+
+/* ------------------------------------------------- the series and the deltas */
+
+const metrics = (m: Partial<Metrics>): Metrics => ({
+  ghFollowers: null,
+  ghRepos: null,
+  bskyFollowers: null,
+  bskyPosts: null,
+  hnKarma: null,
+  at: null,
+  ...m,
+});
+
+const point = (at: string, m: Partial<MetricHistoryRow> = {}): MetricHistoryRow => ({
+  day: at.slice(0, 10),
+  at,
+  ghFollowers: null,
+  ghRepos: null,
+  bskyFollowers: null,
+  bskyPosts: null,
+  hnKarma: null,
+  ...m,
+});
+
+test("the day is the UTC day, so a box that moves timezone cannot write two", () => {
+  assert.equal(dayOf("2026-09-07T23:59:59.000Z"), "2026-09-07");
+  assert.equal(dayOf("2026-09-08T00:00:01.000Z"), "2026-09-08");
+  /* A stamp nobody can parse is not a day. It must not become "1970-01-01",
+     which would key every unreadable pull onto one row at the far end of the
+     series and put a spike in every chart. */
+  assert.equal(dayOf("not a date"), "");
+});
+
+test("ISO days sort lexicographically, which is what the prune rests on", () => {
+  /* `writeHistory` keeps the newest MAX_HISTORY rows with ORDER BY day DESC
+     over a TEXT column. That is only the newest rows if string order is date
+     order — true for zero-padded ISO days and for nothing else. */
+  const days = ["2026-01-09", "2025-12-31", "2026-10-02", "2026-01-10"];
+  assert.deepEqual([...days].sort(), ["2025-12-31", "2026-01-09", "2026-01-10", "2026-10-02"]);
+  assert.ok(MAX_HISTORY > 366, "a cap under a year could not draw a year");
+});
+
+test("the base row is the newest one old enough, not the oldest on file", () => {
+  const at = Date.parse("2026-09-07T12:00:00.000Z");
+  const rows = [
+    point("2026-06-01T12:00:00.000Z", { ghFollowers: 10 }),
+    point("2026-08-28T12:00:00.000Z", { ghFollowers: 90 }),
+    point("2026-08-31T12:00:00.000Z", { ghFollowers: 100 }),
+    point("2026-09-07T12:00:00.000Z", { ghFollowers: 140 }),
+  ];
+  /* Seven days back is the 31st. The 28th is also old enough and is the wrong
+     answer: quoting a ten-day movement as a week's is a confident lie. */
+  assert.equal(rowAgo(rows, DELTA_DAYS, at)?.ghFollowers, 100);
+});
+
+test("a person watched for four days has no seven-day base at all", () => {
+  const at = Date.parse("2026-09-07T12:00:00.000Z");
+  const rows = [point("2026-09-04T12:00:00.000Z"), point("2026-09-07T12:00:00.000Z")];
+  /* Falling back to the oldest available row would report four days of
+     movement as a week's, which is the quietest wrong answer here. */
+  assert.equal(rowAgo(rows, DELTA_DAYS, at), null);
+});
+
+test("a delta exists only where BOTH readings are numbers, and 0 is a reading", () => {
+  const base = point("2026-08-31T12:00:00.000Z", { ghFollowers: 100, ghRepos: 12, hnKarma: null });
+  const d = deltasFrom(base, metrics({ ghFollowers: 140, ghRepos: 12, hnKarma: 400 }));
+  assert.equal(d.ghFollowers, 40);
+  /* Present and zero: they gained nobody this week, which is a measurement. */
+  assert.ok("ghRepos" in d);
+  /* Absent: there is no karma reading from a week ago to subtract. Writing it
+     as 0 would put "no change" under a figure nobody has ever measured. */
+  assert.ok(!("hnKarma" in d));
+  assert.ok(!("bskyFollowers" in d));
+});
+
+test("no base row at all is an empty object, never a set of zeroes", () => {
+  assert.deepEqual(deltasFrom(null, metrics({ ghFollowers: 140 })), {});
+  assert.deepEqual(deltasFrom(undefined, metrics({ ghFollowers: 140 })), {});
+});
+
+/* ------------------------------------------------------------- the signals */
+
+test("a follower move must clear ten AND one per cent, in either direction", () => {
+  /* A small account: ten is the binding half. Nine is noise. */
+  assert.equal(spikeSignal("GitHub followers", 49, 40), null);
+  assert.ok(spikeSignal("GitHub followers", 50, 40)?.startsWith("GitHub followers +10"));
+  /* A large one: one per cent is the binding half, and without it this row
+     would be filed every single day about a count that wobbles by hundreds. */
+  assert.equal(spikeSignal("GitHub followers", 200_100, 200_000), null);
+  assert.ok(spikeSignal("GitHub followers", 203_000, 200_000));
+  /* Downwards is the more interesting direction and must not be dropped. */
+  const lost = spikeSignal("Bluesky followers", 8_000, 12_000);
+  assert.ok(lost?.includes("-4,000"), lost ?? "nothing was said");
+  assert.ok(lost?.includes("now 8,000"));
+});
+
+test("a spike needs both readings, and a first pull has only one", () => {
+  assert.equal(spikeSignal("HN karma", 4_000, null), null);
+  assert.equal(spikeSignal("HN karma", null, 4_000), null);
+  assert.equal(spikeSignal("HN karma", null, null), null);
+});
+
+test("new public repos are announced going up and never going down", () => {
+  assert.equal(repoSignal(13, 12), "A new public repo on GitHub");
+  assert.equal(repoSignal(15, 12), "3 new public repos on GitHub");
+  assert.equal(repoSignal(12, 12), null);
+  /* A repository made private or renamed is housekeeping, not news. */
+  assert.equal(repoSignal(11, 12), null);
+  assert.equal(repoSignal(13, null), null);
+});
+
+test("a bio seen for the first time has not changed, it has become known", () => {
+  assert.equal(bioSignal("Building things", null), null);
+  assert.equal(bioSignal("Building things", ""), null);
+  /* And a bio that vanished is a source that did not answer, not a rewrite. */
+  assert.equal(bioSignal(null, "Building things"), null);
+});
+
+test("a line break moved is not a rewrite, and a rewrite is quoted", () => {
+  assert.equal(bioSignal("Building  things\n", "Building things"), null);
+  const said = bioSignal("Building other things", "Building things");
+  assert.ok(said?.startsWith("Bio changed — now: "));
+  assert.ok(said?.includes("Building other things"));
+  /* Long ones are cut rather than pasted whole onto a timeline row. */
+  const long = bioSignal("x".repeat(400), "something else");
+  assert.ok((long ?? "").length < 200 && long?.endsWith("…"));
+});
+
+test("a signal is keyed by its sentence AND its day", () => {
+  /* Twice in one afternoon is one row: the sweep and the refresh button must
+     not both file it. */
+  assert.equal(changeKey("Bio changed", "2026-09-07"), changeKey("Bio changed", "2026-09-07"));
+  /* Next month is a new row: a bio can be rewritten more than once, and under
+     `eventKey` the second rewrite would silently overwrite the first. */
+  assert.notEqual(changeKey("Bio changed", "2026-09-07"), changeKey("Bio changed", "2026-10-07"));
+  assert.notEqual(changeKey("Bio changed", "2026-09-07"), eventKey("watch", null, "Bio changed"));
+});
+
+/* --------------------------------------------------------------- the sweep */
+
+const watched = (activity_at: string | null): WatchRow => ({ activity_at }) as WatchRow;
+
+test("a row nobody can date is due, rather than never due again", () => {
+  const at = Date.parse("2026-09-07T12:00:00.000Z");
+  /* `Date.parse(junk) < cutoff` is false, so before `pulledAt` a single row
+     with a hand-written stamp fell out of every sweep from then on, silently,
+     for as long as the box ran. */
+  assert.equal(due([watched("yesterday-ish")], at).length, 1);
+  assert.equal(due([watched(null)], at).length, 1);
+  assert.equal(due([watched(new Date(at - 3_600_000).toISOString())], at).length, 0);
+  assert.equal(due([watched(new Date(at - SWEEP_AFTER_MS - 1).toISOString())], at).length, 1);
+});
+
+test("the list-level stamp is the OLDEST pull, because that is when everyone had been read", () => {
+  const at = Date.parse("2026-09-07T12:00:00.000Z");
+  const state = sweepState(
+    [
+      watched(new Date(at - 3_600_000).toISOString()),
+      watched(new Date(at - 3 * 3_600_000).toISOString()),
+      watched(new Date(at - 2 * 3_600_000).toISOString()),
+    ],
+    at,
+  );
+  assert.equal(state.everyonePulled, true);
+  /* Not "a second ago" because one person was just refreshed. */
+  assert.equal(state.lastAt, new Date(at - 3 * 3_600_000).toISOString());
+  assert.equal(state.nextDueAt, new Date(at - 3 * 3_600_000 + SWEEP_AFTER_MS).toISOString());
+});
+
+test("one never-pulled person means there was no moment the list was complete", () => {
+  const at = Date.parse("2026-09-07T12:00:00.000Z");
+  const state = sweepState([watched(new Date(at - 3_600_000).toISOString()), watched(null)], at);
+  assert.deepEqual(state, { lastAt: null, nextDueAt: null, everyonePulled: false });
+});
+
+test("somebody due already is a null next, not a stamp in the past", () => {
+  const at = Date.parse("2026-09-07T12:00:00.000Z");
+  const state = sweepState([watched(new Date(at - SWEEP_AFTER_MS - 60_000).toISOString())], at);
+  assert.equal(state.everyonePulled, true);
+  assert.equal(state.nextDueAt, null);
+});
+
+test("an empty watchlist has not been pulled for everyone", () => {
+  /* Vacuously true and a lie on a page: "pulled for everyone" about nobody. */
+  assert.deepEqual(sweepState([]), { lastAt: null, nextDueAt: null, everyonePulled: false });
 });

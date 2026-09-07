@@ -61,14 +61,17 @@ import {
   importPeople,
   insertWatch,
   updateWatch,
+  DELTA_DAYS,
+  MAX_HISTORY,
   watchByName,
   watchFile,
   watchList,
   watchPerson,
   watchRow,
+  watchRows,
   type Links,
 } from "./watch.ts";
-import { pullPerson } from "./activity.ts";
+import { SWEEP_AFTER_MS, pullPerson, sweepState } from "./activity.ts";
 
 export const peopleRoutes = new Hono();
 
@@ -460,6 +463,39 @@ const WATCH_DEFINITIONS = {
   tags:
     "His own shelf labels, at most " + MAX_TAGS + " of " + MAX_TAG + " " +
     "characters. Nothing derives them and there is no taxonomy behind them.",
+  history:
+    `\`history\` on a person's file is ONE ROW PER DAY THE BOX LOOKED, oldest ` +
+    `first, at most ${MAX_HISTORY} of them (about fourteen months). It is a ` +
+    "record of readings taken and not a reconstruction: a person added last " +
+    "week has a week of it, a person never pulled has none, and a row of " +
+    "nulls is a pull that reached nobody rather than a person whose figures " +
+    "went to zero. Two pulls in one day are ONE row, stamped with the later.",
+  deltas:
+    `\`metrics.deltas\` is how far each figure has moved in ${DELTA_DAYS} ` +
+    "days, measured against the newest history row at least that old. A KEY " +
+    "THAT IS ABSENT IS NOT ZERO: it means there is no reading from a week " +
+    "ago to subtract — somebody added on Tuesday, a link typed yesterday, a " +
+    "source that has never answered — and reporting it as “no change” would " +
+    "put a measurement under somebody nothing is known about. `{ ghFollowers: " +
+    "0 }` is the measurement; a missing `ghFollowers` is the silence.",
+  signals:
+    "SIGNALS ARE WHAT THIS BOX NOTICED, NOT WHAT ANYBODY PUBLISHED. They sit " +
+    `on the same timeline as the posts and pushes, under source \`watch\` and ` +
+    `kind \`change\`, and each is a sentence produced by comparing this pull ` +
+    "with the last one: a bio rewritten, a follower count or a karma score " +
+    "that moved by at least ten AND at least one per cent in either " +
+    "direction, a new public repository. Nobody posted any of them — they " +
+    "exist because two readings were held and subtracted, so they must never " +
+    "be reported as something the person said or did. Each is recorded at " +
+    "most once per day, and the `signals` count on a list row is how many " +
+    `were first seen in the last ${NEW_FOR_DAYS} days.`,
+  sweep:
+    "`sweep` is where the twenty-hourly refresh has got to, for the LIST as a " +
+    "whole. `lastAt` is the OLDEST pull stamp on it — the moment by which " +
+    "EVERYBODY had been read, which is the only thing a list-level stamp can " +
+    "honestly claim — and it is null unless `everyonePulled`, because with " +
+    "one never-pulled person there was no such moment. `nextDueAt` is null " +
+    "when somebody is due already, rather than a stamp in the past.",
   avatar:
     "`avatar` is a RELATIVE URL ON THIS BOX — /api/people/watch/<id>/avatar — " +
     "and never the address the picture came from. The bytes are downloaded " +
@@ -471,9 +507,20 @@ const WATCH_DEFINITIONS = {
     "person yet — and it is never a claim that they have no photograph.",
 };
 
+/**
+ * THE LIST, PLUS WHERE THE SWEEP HAS GOT TO.
+ *
+ * `sweep` IS ABOUT THE LIST AND NOT ABOUT ANY ROW ON IT. Every person already
+ * carries their own `activityAt`; what a page cannot work out from thirty of
+ * those without knowing `SWEEP_AFTER_MS` is the sentence a reader actually
+ * wants — "pulled for everyone 3h ago, next in 17h". The rule lives on the
+ * server because the twenty hours is the server's, and a client that hardcoded
+ * it would go quietly wrong the day it changed here.
+ */
 peopleRoutes.get("/watch", (c) =>
   c.json({
     people: watchList(),
+    sweep: { ...sweepState(watchRows()), everyMs: SWEEP_AFTER_MS },
     definitions: WATCH_DEFINITIONS,
   }),
 );

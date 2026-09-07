@@ -170,6 +170,10 @@ export type WatchRow = {
   /** When those bytes were read. NULL alongside a non-null `avatar_source` is
    *  an import that recorded a URL and a pull that has not run yet. */
   avatar_at: string | null;
+  /** THE SENTENCE THEY DESCRIBE THEMSELVES WITH, as of the last pull. Held
+   *  only so the next pull can notice it is different — nothing draws it.
+   *  NULL is "never read", and a first reading is never a change. */
+  public_bio: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -227,6 +231,56 @@ export const NO_METRICS: Metrics = {
   at: null,
 };
 
+/** The five tracked figures, named once. `at` is not one of them: it is when
+ *  they were read, and there is no such thing as a delta of a timestamp. */
+export const METRIC_KEYS = [
+  "ghFollowers",
+  "ghRepos",
+  "bskyFollowers",
+  "bskyPosts",
+  "hnKarma",
+] as const;
+
+export type MetricKey = (typeof METRIC_KEYS)[number];
+
+/**
+ * HOW FAR EACH FIGURE HAS MOVED IN SEVEN DAYS, AND THE KEY IS ABSENT WHEN
+ * NOBODY KNOWS.
+ *
+ * PARTIAL RATHER THAN NULLABLE, and the difference is the whole honesty of
+ * this type. `{ ghFollowers: 0 }` says "they gained nobody this week", which
+ * is a measurement. A missing `ghFollowers` says "there is no reading from a
+ * week ago to subtract" — a person added on Tuesday, a source that was down,
+ * a link typed yesterday — and writing that as 0 would put "no change" under
+ * somebody nothing is known about. A delta needs BOTH readings or it does not
+ * exist.
+ */
+export type MetricDeltas = Partial<Record<MetricKey, number>>;
+
+/** The metrics as they go out on the wire: what was measured, plus how far it
+ *  has moved. `deltas` is computed on the READ, from `people_watch_history`,
+ *  and is deliberately not stored beside `metrics` — a stored delta is a
+ *  subtraction that keeps its answer after both its operands have moved. */
+export type ShapedMetrics = Metrics & { deltas: MetricDeltas };
+
+/**
+ * ONE DAY'S READING OF ONE PERSON'S NUMBERS — a row of `people_watch_history`,
+ * shaped.
+ *
+ * `day` IS THE IDENTITY AND `at` IS THE EVIDENCE. Two pulls on one day are one
+ * point on every chart drawn from this, stamped with the later of the two;
+ * see the 116 migration for why the day rather than the instant is the unit.
+ */
+export type MetricHistoryRow = {
+  day: string;
+  at: string;
+  ghFollowers: number | null;
+  ghRepos: number | null;
+  bskyFollowers: number | null;
+  bskyPosts: number | null;
+  hnKarma: number | null;
+};
+
 export type DossierRecord = {
   /** DONE runs only. A dossier that failed is not a dossier. */
   count: number;
@@ -247,7 +301,9 @@ export type WatchPerson = {
   links: Links;
   /** His own shelf labels. Not a taxonomy and not derived from anything. */
   tags: string[];
-  metrics: Metrics;
+  /** The five figures plus `deltas` — see `ShapedMetrics`. A key missing from
+   *  `deltas` is "no reading from a week ago", never "no change". */
+  metrics: ShapedMetrics;
   /** When the public sources were last read. NULL means never. */
   activityAt: string | null;
   /**
@@ -260,6 +316,22 @@ export type WatchPerson = {
    * things this week".
    */
   newEvents: number;
+  /**
+   * HOW MANY PROFILE CHANGES THIS BOX NOTICED IN THE LAST SEVEN DAYS — the
+   * subset of `newEvents` that this box OBSERVED rather than fetched.
+   *
+   * Every other event on a timeline is something the person published; a
+   * signal is something nobody published at all. Nobody posts "I gained 400
+   * followers" or "I rewrote my bio" — the fact only exists because this box
+   * held last week's reading and compared. That is why they are counted
+   * separately from `newEvents` even though they are inside it: a list sorted
+   * by `newEvents` finds the people who are busy, and one sorted by `signals`
+   * finds the people something is HAPPENING to, which is not the same list.
+   *
+   * Counted by `first_seen_at` like `newEvents`, so a signal recorded a
+   * fortnight ago has stopped counting even though the row is still there.
+   */
+  signals: number;
   /**
    * A RELATIVE URL ON THIS BOX, or null.
    *
@@ -658,6 +730,288 @@ export function writeAvatar(
   );
 }
 
+/* ----------------------------------------------- the series and the signals
+
+   THE NUMBERS OVER TIME, AND THE SENTENCES THAT FALL OUT OF COMPARING THEM.
+
+   Everything down to `signalCounts` is a rule rather than a query, and every
+   rule here fails as a WRONG ANSWER rather than as a crash — which is exactly
+   why they are pure functions in their own section with their own tests. A
+   spike threshold that fires too easily fills a timeline with noise until
+   nobody reads it; one that never fires makes the whole feature look broken
+   while working perfectly. A delta computed against the wrong base row is a
+   number nobody can check by looking. None of that can be caught by a type.
+
+   THE ONE PRINCIPLE UNDER ALL OF IT: a signal needs BOTH readings. A person
+   pulled for the first time has no yesterday, and inventing one — treating a
+   missing figure as 0, or a first sighting of a bio as a rewrite — would
+   announce a week of dramatic growth for everybody on the day they were added
+   to the list. Every function below returns null in that case, on purpose.
+*/
+
+/** Daily rows kept per person. Fourteen months: long enough that a chart can
+ *  show a year, short enough that thirty people is a table this box never
+ *  notices. See the 116 migration. */
+export const MAX_HISTORY = 420;
+
+/** How far back a delta is measured. Seven days, because that is the window a
+ *  person reads a follower count in — "up 40 this week" — and because the
+ *  sweep runs every twenty hours, so a week is always at least six real
+ *  readings apart rather than a rounding of two. */
+export const DELTA_DAYS = 7;
+
+/**
+ * WHAT A SIGNAL IS FILED UNDER, and it is not one of the four SOURCES.
+ *
+ * GitHub, Bluesky, Hacker News and RSS each said something; `watch` said
+ * nothing — the row exists because THIS BOX compared two readings and noticed.
+ * Giving it a source of its own is how a reader can tell "they posted this"
+ * from "we worked this out", which are different kinds of claim and must not
+ * share a chip on a timeline.
+ */
+export const CHANGE_SOURCE = "watch";
+export const CHANGE_KIND = "change";
+
+/** The UTC day an instant falls in. UTC rather than local because the day is
+ *  a KEY: a box that moved timezone must not be able to write two rows for
+ *  one afternoon, or skip a day by crossing a boundary. */
+export function dayOf(at: string | number | Date): string {
+  const d = at instanceof Date ? at : new Date(at);
+  const t = d.getTime();
+  return Number.isFinite(t) ? d.toISOString().slice(0, 10) : "";
+}
+
+/**
+ * THE IDENTITY OF A SIGNAL IS ITS SENTENCE AND ITS DAY.
+ *
+ * `eventKey` hashes source, URL and title, which is right for a published
+ * thing: the same post fetched twice is one row forever. A signal has no URL
+ * and its title recurs — "Bio changed" is a sentence that must be recordable
+ * again next month and must NOT be recorded twice in one afternoon by somebody
+ * pressing the refresh button. So the day goes in the key, and the twenty-hour
+ * sweep plus a hand-pressed pull can only ever produce one of each per day.
+ */
+export function changeKey(title: string, day: string): string {
+  return createHash("sha256")
+    .update(`${CHANGE_SOURCE}|${CHANGE_KIND}|${day}|${title}`)
+    .digest("hex")
+    .slice(0, 24);
+}
+
+/**
+ * THE NEWEST ROW AT LEAST `days` OLD, or null when there is not one.
+ *
+ * `rows` is oldest first, so this walks BACKWARDS and stops at the first row
+ * old enough — the nearest reading to the far edge of the window rather than
+ * the oldest one on file. The difference matters for somebody watched for a
+ * year: comparing against a fourteen-month-old row and calling it a week would
+ * be a wrong answer stated confidently.
+ *
+ * NULL RATHER THAN THE OLDEST AVAILABLE ROW. A person added four days ago has
+ * no seven-day base, and quoting their four-day movement as a week's would be
+ * the most quietly wrong thing this file could do.
+ */
+export function rowAgo(
+  rows: MetricHistoryRow[],
+  days = DELTA_DAYS,
+  at = Date.now(),
+): MetricHistoryRow | null {
+  const cutoff = at - days * 86_400_000;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const when = Date.parse(rows[i]!.at);
+    if (Number.isFinite(when) && when <= cutoff) return rows[i]!;
+  }
+  return null;
+}
+
+/** Subtract a base row from the current figures, key by key, keeping only the
+ *  keys where BOTH sides are a number. See `MetricDeltas` for why an absent
+ *  key is the only honest way to say "no reading to compare". */
+export function deltasFrom(
+  base: MetricHistoryRow | null | undefined,
+  metrics: Metrics,
+): MetricDeltas {
+  const out: MetricDeltas = {};
+  if (!base) return out;
+  for (const key of METRIC_KEYS) {
+    const nowValue = metrics[key];
+    const then = base[key];
+    if (typeof nowValue === "number" && typeof then === "number") out[key] = nowValue - then;
+  }
+  return out;
+}
+
+/**
+ * IS THIS MOVEMENT WORTH A ROW ON A TIMELINE?
+ *
+ * TWO THRESHOLDS AND IT MUST PASS BOTH: at least ten, and at least one per
+ * cent of where it was. Ten alone would file a row every single day for
+ * somebody with two hundred thousand followers, whose count wobbles by
+ * hundreds between breakfast and lunch. One per cent alone would file a row
+ * for somebody with forty followers gaining one, which is noise about a number
+ * nobody is watching. Together they mean "enough to notice, and enough to be
+ * about them rather than about the size of their audience" — and they are
+ * symmetrical, because losing four thousand followers is the more interesting
+ * of the two directions and a rule that only looked up would miss it.
+ *
+ * MEASURED AGAINST THE PREVIOUS PULL, not against the history table. The
+ * history is a daily series and a same-day replacement would hide exactly the
+ * jump this is looking for.
+ */
+export function spikeSignal(
+  label: string,
+  current: number | null | undefined,
+  before: number | null | undefined,
+): string | null {
+  if (typeof current !== "number" || typeof before !== "number") return null;
+  const moved = current - before;
+  if (Math.abs(moved) < Math.max(10, Math.abs(before) * 0.01)) return null;
+  return `${label} ${moved > 0 ? "+" : ""}${moved.toLocaleString("en-GB")} (now ${current.toLocaleString("en-GB")})`;
+}
+
+/**
+ * NEW PUBLIC REPOSITORIES, AND ONLY UPWARDS.
+ *
+ * There is no threshold here and there does not need to be one: a public
+ * repository is a deliberate act and one of them is news, which is not true of
+ * one follower. The count going DOWN is deliberately silent — a repository
+ * made private, renamed or deleted is a fact about their housekeeping, and
+ * "Jane has one fewer public repo" is a sentence nobody wanted.
+ */
+export function repoSignal(
+  current: number | null | undefined,
+  before: number | null | undefined,
+): string | null {
+  if (typeof current !== "number" || typeof before !== "number") return null;
+  const added = current - before;
+  if (added <= 0) return null;
+  return added === 1 ? "A new public repo on GitHub" : `${added} new public repos on GitHub`;
+}
+
+/**
+ * THE SENTENCE THEY DESCRIBE THEMSELVES WITH, CHANGED.
+ *
+ * BOTH READINGS OR NOTHING, which is the whole rule: a bio seen for the first
+ * time has not changed, it has become known, and announcing it would give
+ * every person added to the list a "Bio changed" on their first day. Whitespace
+ * is collapsed before comparing because a line break moved is not a rewrite.
+ */
+export function bioSignal(
+  current: string | null | undefined,
+  before: string | null | undefined,
+): string | null {
+  const tidy = (v: string | null | undefined) => (v ?? "").replace(/\s+/g, " ").trim();
+  const bio = tidy(current);
+  const held = tidy(before);
+  if (!bio || !held || bio === held) return null;
+  const shown = bio.length > 120 ? `${bio.slice(0, 119).trimEnd()}…` : bio;
+  return `Bio changed — now: ${shown}`;
+}
+
+const shapeHistory = (r: {
+  day: string;
+  at: string;
+  gh_followers: number | null;
+  gh_repos: number | null;
+  bsky_followers: number | null;
+  bsky_posts: number | null;
+  hn_karma: number | null;
+}): MetricHistoryRow => ({
+  day: r.day,
+  at: r.at,
+  ghFollowers: r.gh_followers,
+  ghRepos: r.gh_repos,
+  bskyFollowers: r.bsky_followers,
+  bskyPosts: r.bsky_posts,
+  hnKarma: r.hn_karma,
+});
+
+/** One person's series, OLDEST FIRST — the order a chart draws in and the
+ *  order `rowAgo` walks backwards through. Capped, so a caller cannot ask for
+ *  more rows than the writer keeps. */
+export function historyRows(personId: string, limit = MAX_HISTORY): MetricHistoryRow[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM people_watch_history
+        WHERE person_id = ?
+        ORDER BY day DESC
+        LIMIT ?`,
+    )
+    .all(personId, Math.max(1, Math.min(MAX_HISTORY, limit))) as unknown as Parameters<
+    typeof shapeHistory
+  >[0][];
+  return rows.map(shapeHistory).reverse();
+}
+
+/**
+ * TODAY'S POINT, WRITTEN OVER TODAY'S POINT IF THERE IS ONE, AND THE TAIL CUT.
+ *
+ * REPLACE RATHER THAN INSERT-IF-ABSENT, because the LATER reading of a day is
+ * the better one: the refresh button pressed at six in the evening knows more
+ * than the sweep that ran at four in the morning. The row it replaces is not
+ * information lost — it is the same day measured twice.
+ *
+ * THE PRUNE RUNS ON EVERY WRITE and deletes by day, so what falls off the back
+ * is always the oldest reading rather than whatever a scan happened to reach
+ * first. It costs one indexed delete against a table of at most 420 rows per
+ * person; doing it here rather than in a nightly job is what makes the cap a
+ * property of the table instead of a promise about a timer.
+ */
+export function writeHistory(personId: string, row: MetricHistoryRow): void {
+  db.prepare(
+    `INSERT INTO people_watch_history
+       (person_id, day, at, gh_followers, gh_repos, bsky_followers, bsky_posts, hn_karma)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(person_id, day) DO UPDATE SET
+       at = excluded.at,
+       gh_followers = excluded.gh_followers,
+       gh_repos = excluded.gh_repos,
+       bsky_followers = excluded.bsky_followers,
+       bsky_posts = excluded.bsky_posts,
+       hn_karma = excluded.hn_karma`,
+  ).run(
+    personId,
+    row.day,
+    row.at,
+    row.ghFollowers,
+    row.ghRepos,
+    row.bskyFollowers,
+    row.bskyPosts,
+    row.hnKarma,
+  );
+  db.prepare(
+    `DELETE FROM people_watch_history
+      WHERE person_id = ?
+        AND day NOT IN (
+          SELECT day FROM people_watch_history WHERE person_id = ? ORDER BY day DESC LIMIT ?
+        )`,
+  ).run(personId, personId, MAX_HISTORY);
+}
+
+/**
+ * THE BASE ROW FOR EVERY PERSON AT ONCE — one query for the whole list, for
+ * the reason `newEventCounts` is one query: the list is tens of rows and the
+ * history is thousands, and a per-card lookup would make drawing one page N
+ * index scans. Nobody who has no reading old enough appears in the map, and
+ * `deltasFrom(undefined, …)` is an empty object, which is the right answer.
+ */
+export function historyBases(days = DELTA_DAYS, at = Date.now()): Map<string, MetricHistoryRow> {
+  const cutoff = new Date(at - days * 86_400_000).toISOString();
+  const rows = db
+    .prepare(
+      `SELECT h.* FROM people_watch_history h
+        WHERE h.at <= ?
+          AND h.day = (
+            SELECT MAX(x.day) FROM people_watch_history x
+             WHERE x.person_id = h.person_id AND x.at <= ?
+          )`,
+    )
+    .all(cutoff, cutoff) as unknown as (Parameters<typeof shapeHistory>[0] & {
+    person_id: string;
+  })[];
+  return new Map(rows.map((r) => [r.person_id, shapeHistory(r)]));
+}
+
 /** How long an event stays "new". A week rather than a day because the sweep
  *  runs every twenty hours and a badge that emptied overnight would only ever
  *  be seen by somebody who happened to look the same morning. */
@@ -687,19 +1041,51 @@ export function newEventCounts(at = Date.now()): Map<string, number> {
 }
 
 /**
+ * How many of those were SIGNALS — the same window, the same `first_seen_at`
+ * reading, narrowed to the rows this box wrote about itself noticing.
+ *
+ * A SECOND GROUPED QUERY RATHER THAN A SECOND PASS OVER THE FIRST ONE'S ROWS,
+ * because the first one does not return rows: it returns counts. Folding both
+ * into one `GROUP BY person_id, kind` would hand every caller a nested map to
+ * unpack for the sake of one index scan over a table of thousands, on a page
+ * drawn a few times an hour.
+ */
+export function signalCounts(at = Date.now()): Map<string, number> {
+  const since = new Date(at - NEW_FOR_DAYS * 86_400_000).toISOString();
+  const rows = db
+    .prepare(
+      `SELECT person_id, COUNT(*) AS n
+         FROM people_watch_events
+        WHERE first_seen_at >= ? AND kind = ?
+        GROUP BY person_id`,
+    )
+    .all(since, CHANGE_KIND) as unknown as { person_id: string; n: number }[];
+  return new Map(rows.map((r) => [r.person_id, Number(r.n)]));
+}
+
+/**
  * `faces` IS PASSED IN FOR THE REASON `fresh` IS — one query for the whole
  * list rather than one per card. It is optional so that a caller shaping a
  * single person need not build a set of one, and the fallback is a lookup
  * rather than `false`: a missing set must not quietly become "this person has
  * no picture", which is a WRONG ANSWER rather than a slow one.
  */
-export function shape(
-  row: WatchRow,
-  runs: DossierRunRow[],
-  fresh?: Map<string, number>,
-  faces?: Set<string>,
-): WatchPerson {
+export type ShapeAside = {
+  /** Events first seen inside the window, per person — `newEventCounts()`. */
+  fresh?: Map<string, number>;
+  /** Who has a stored face — `avatarIds()`. */
+  faces?: Set<string>;
+  /** Change events first seen inside the window — `signalCounts()`. */
+  signals?: Map<string, number>;
+  /** The seven-day base row per person — `historyBases()`. Absent from the map
+   *  is "no reading old enough", and the deltas come back empty. */
+  bases?: Map<string, MetricHistoryRow>;
+};
+
+export function shape(row: WatchRow, runs: DossierRunRow[], aside: ShapeAside = {}): WatchPerson {
+  const { fresh, faces, signals, bases } = aside;
   const stored = faces ? faces.has(row.id) : hasAvatar(row.id);
+  const metrics = parseMetrics(row.metrics);
   return {
     id: row.id,
     name: row.name,
@@ -709,9 +1095,10 @@ export function shape(
     note: row.note,
     links: parseLinks(row.links),
     tags: parseTags(row.tags),
-    metrics: parseMetrics(row.metrics),
+    metrics: { ...metrics, deltas: deltasFrom(bases?.get(row.id), metrics) },
     activityAt: row.activity_at,
     newEvents: fresh?.get(row.id) ?? 0,
+    signals: signals?.get(row.id) ?? 0,
     /* The relative path only where there is something to serve. A URL that
        404s is worse than a null: a null is a card that draws initials, a 404
        is a broken image on every row of the list. */
@@ -726,16 +1113,32 @@ export function shape(
  *  so "adam" does not sort after "Zoe" the way a byte comparison would. */
 export function watchList(): WatchPerson[] {
   const runs = dossierRuns();
-  const fresh = newEventCounts();
-  const faces = avatarIds();
+  const aside: ShapeAside = {
+    fresh: newEventCounts(),
+    faces: avatarIds(),
+    signals: signalCounts(),
+    bases: historyBases(),
+  };
   return watchRows()
-    .map((r) => shape(r, runs, fresh, faces))
+    .map((r) => shape(r, runs, aside))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id));
+}
+
+/** One person, shaped the way the list shapes them. The four asides are built
+ *  for a single row here, which is four small queries rather than four scans —
+ *  the cost the list pays once, paid once again for one card. */
+function shapeOne(row: WatchRow): WatchPerson {
+  return shape(row, dossierRuns(), {
+    fresh: newEventCounts(),
+    faces: avatarIds(),
+    signals: signalCounts(),
+    bases: historyBases(),
+  });
 }
 
 export function watchPerson(id: string): WatchPerson | null {
   const row = watchRow(id);
-  return row ? shape(row, dossierRuns(), newEventCounts(), avatarIds()) : null;
+  return row ? shapeOne(row) : null;
 }
 
 export function insertWatch(fields: {
@@ -803,6 +1206,9 @@ export function deleteWatch(id: string): void {
      off the list there is no card, and no reason for this box to be holding
      their photograph. */
   db.prepare("DELETE FROM people_watch_avatars WHERE person_id = ?").run(id);
+  /* And the series, for the same reason: it is fourteen months of somebody
+     else's follower count, kept only to draw a card that no longer exists. */
+  db.prepare("DELETE FROM people_watch_history WHERE person_id = ?").run(id);
   db.prepare("DELETE FROM people_watch WHERE id = ?").run(id);
 }
 
@@ -910,6 +1316,19 @@ export type PulledEvent = {
   title: string;
   url: string | null;
   at: string;
+  /**
+   * AN IDENTITY THE CALLER ALREADY KNOWS, for the one kind of row `eventKey`
+   * cannot key correctly.
+   *
+   * A published thing is the same thing forever, so hashing its source, URL
+   * and title is right. A SIGNAL is not: "Bio changed" has no URL and is a
+   * sentence that recurs, so under `eventKey` a rewrite next month would
+   * silently update this month's row instead of filing a new one — and the
+   * timeline would show one bio change ever. `changeKey` puts the day in, and
+   * this field is how it gets used without `saveEvents` growing a special case
+   * about kinds.
+   */
+  key?: string;
 };
 
 /**
@@ -969,7 +1388,7 @@ export function saveEvents(personId: string, events: PulledEvent[], at = now()):
   let fresh = 0;
   const seen = new Set<string>();
   for (const e of events) {
-    const key = eventKey(e.source, e.url, e.title);
+    const key = e.key ?? eventKey(e.source, e.url, e.title);
     /* Two identical items inside ONE pull are one event, and counting the
        second as new would inflate the badge without inserting a row. */
     if (seen.has(key)) continue;
@@ -1100,6 +1519,11 @@ export type WatchFile = {
   person: WatchPerson;
   contact: ContactLine | null;
   events: WatchEvent[];
+  /** The daily series, OLDEST FIRST — one row per day the box looked, at most
+   *  `MAX_HISTORY` of them. Empty for somebody never pulled, and short for
+   *  somebody added last week: it is a record of readings taken, not a
+   *  reconstruction of a past nobody measured. */
+  history: MetricHistoryRow[];
   dossiers: ReturnType<typeof shapeRun>[];
   warnings: string[];
 };
@@ -1123,11 +1547,11 @@ export type WatchFile = {
 export function watchFile(id: string): WatchFile | null {
   const row = watchRow(id);
   if (!row) return null;
-  const person = shape(row, dossierRuns(), newEventCounts(), avatarIds());
   return {
-    person,
+    person: shapeOne(row),
     contact: contactFor({ name: row.name, email: row.email }),
     events: eventList(id),
+    history: historyRows(id),
     dossiers: dossierRunRows()
       .filter((r) => attaches(r.title, row.name))
       .map(shapeRun),
@@ -1337,12 +1761,22 @@ export function importPeople(rows: unknown[]): ImportResult {
   }
 
   const runs = dossierRuns();
-  const fresh = newEventCounts();
-  const faces = avatarIds();
+  /* The same four asides the list builds. An import mostly touches rows
+     nothing has ever pulled, where they are all empty — but it also UPDATES
+     people who have been watched for months, and shaping those without their
+     deltas would report "no reading to compare" about somebody with a year of
+     them. Four queries once, at the end of a door that has just done a few
+     hundred writes, is not the place to save anything. */
+  const aside: ShapeAside = {
+    fresh: newEventCounts(),
+    faces: avatarIds(),
+    signals: signalCounts(),
+    bases: historyBases(),
+  };
   const shaped = touched
     .map((id) => watchRow(id))
     .filter((r): r is WatchRow => !!r)
-    .map((r) => shape(r, runs, fresh, faces))
+    .map((r) => shape(r, runs, aside))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   return { added, updated, people: shaped };
 }
@@ -1355,8 +1789,24 @@ export function importPeople(rows: unknown[]): ImportResult {
  * make every row on the list look freshly edited and would destroy the only
  * signal that column carries. `activity_at` is the pull's own clock.
  */
-export function writePull(id: string, pull: { metrics: Metrics; warnings: string[]; at: string }): void {
+export function writePull(
+  id: string,
+  pull: { metrics: Metrics; warnings: string[]; at: string; bio?: string | null },
+): void {
   db.prepare(
     "UPDATE people_watch SET metrics = ?, pull_warnings = ?, activity_at = ? WHERE id = ?",
   ).run(JSON.stringify(pull.metrics), JSON.stringify(pull.warnings.slice(0, 20)), pull.at, id);
+  /*
+    THE BIO IS ONLY EVER WRITTEN WHEN ONE WAS READ, and never blanked.
+
+    A profile call that failed, or a person whose GitHub link was just removed,
+    hands back nothing — and clearing the held sentence over that would arm the
+    NEXT pull to announce "Bio changed" the moment the source came back, about
+    a bio that has not moved since March. An empty bio is indistinguishable
+    from an unread one at this door, so both leave the column alone; the cost
+    is that somebody who DELETES their bio produces no signal, which is the
+    quieter of the two wrong answers.
+  */
+  const bio = (pull.bio ?? "").trim();
+  if (bio) db.prepare("UPDATE people_watch SET public_bio = ? WHERE id = ?").run(bio.slice(0, 1000), id);
 }

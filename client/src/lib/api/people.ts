@@ -282,6 +282,29 @@ export type WatchPerson = {
     bskyPosts: number | null;
     hnKarma: number | null;
     at: string | null;
+    /**
+     * HOW FAR EACH FIGURE HAS MOVED IN SEVEN DAYS, AND A MISSING KEY IS NOT A
+     * ZERO.
+     *
+     * PARTIAL RATHER THAN NULLABLE, and the difference is the whole reason
+     * this shape is worth reading carefully. `{ ghFollowers: 0 }` is a
+     * measurement — they gained nobody this week. A missing `ghFollowers` is
+     * the server saying there is no reading from a week ago to subtract:
+     * somebody added on Tuesday, a link typed yesterday, a source that has
+     * never answered. Drawing the second as "0" or as a flat arrow would put
+     * a result under somebody nothing has been measured about, which is the
+     * one thing this page must not do.
+     *
+     * Measured against the newest history row at least seven days old, so it
+     * is a real week rather than "the oldest point we happen to hold".
+     */
+    deltas: {
+      ghFollowers?: number;
+      ghRepos?: number;
+      bskyFollowers?: number;
+      bskyPosts?: number;
+      hnKarma?: number;
+    };
   };
   /** The newest public event on record for them, or null for somebody with
    *  none. NOT the same as `metrics.at` — that is when we last looked, this is
@@ -290,6 +313,19 @@ export type WatchPerson = {
   /** Events first seen in the last week. A count the server keeps because it
    *  is the only thing that knows what this box had already seen. */
   newEvents: number;
+  /**
+   * HOW MANY OF THOSE WERE THINGS THE BOX NOTICED RATHER THAN THINGS THE
+   * PERSON PUBLISHED — a bio rewritten, a follower count that jumped, a new
+   * public repository.
+   *
+   * A SUBSET OF `newEvents`, counted separately because the two answer
+   * different questions. Sorted by `newEvents` the list finds the people who
+   * are BUSY; sorted by `signals` it finds the people something is HAPPENING
+   * to, and those are not the same list. On the timeline they arrive with
+   * `source: "watch"` and `kind: "change"`, and they must never be drawn as
+   * something the person said.
+   */
+  signals: number;
   updatedAt: string;
   /**
    * THE DOSSIERS ON THIS PERSON, COUNTED BY THE SERVER.
@@ -374,6 +410,14 @@ export type PersonContact = {
  * world, and the timeline says so by showing the date it happened next to a
  * pill that means "you have not seen this".
  */
+/**
+ * THE SOURCE ON AN EVENT NOBODY PUBLISHED — a bio rewritten, a follower count
+ * that jumped, a repository that appeared. The server's own spelling, named
+ * here so the surfaces that draw these differently from a post are all
+ * comparing against one string rather than four copies of a literal.
+ */
+export const SIGNAL_SOURCE = "watch";
+
 export type PersonEvent = {
   key: string;
   /** github | bluesky | hn | rss — a chip, and a string rather than a union
@@ -396,14 +440,70 @@ export type PersonEvent = {
  * document away because one of four sources timed out would be showing less
  * than it has.
  */
+/**
+ * ONE DAY'S READING OF THE TRACKED NUMBERS — a point on the sparklines.
+ *
+ * ONE ROW PER DAY THE BOX LOOKED, NOT PER DAY THAT PASSED. A gap in `history`
+ * is a day nothing was pulled (a laptop that was shut, a sweep that has not
+ * come round), and a chart that joined two points across it is drawing a
+ * straight line through days nobody measured — true of the readings at either
+ * end and of nothing in between. `day` is UTC.
+ *
+ * EVERY FIGURE IS NULLABLE FOR THE REASON `metrics` ARE. A row of five nulls
+ * is a pull that reached nobody — evidence that the box looked — and never a
+ * person whose numbers went to zero.
+ */
+export type PersonHistoryPoint = {
+  day: string;
+  at: string;
+  ghFollowers: number | null;
+  ghRepos: number | null;
+  bskyFollowers: number | null;
+  bskyPosts: number | null;
+  hnKarma: number | null;
+};
+
 export type PersonFile = {
   person: WatchPerson;
   contact: PersonContact | null;
   /** Newest first. */
   events: PersonEvent[];
+  /** OLDEST FIRST — the order a chart draws in, and the opposite of `events`.
+   *  At most fourteen months of it, and short for somebody recently added:
+   *  a short series is a short watch, never a quiet person. */
+  history: PersonHistoryPoint[];
   /** Every dossier run naming this person, newest first. */
   dossiers: RunSummary[];
   warnings: string[];
+};
+
+/**
+ * WHERE THE TWENTY-HOURLY REFRESH HAS GOT TO, FOR THE LIST AS A WHOLE.
+ *
+ * `lastAt` IS THE OLDEST PULL STAMP ON THE LIST, NOT THE NEWEST, and that is
+ * the only reading under which the sentence "pulled for everyone" is true. The
+ * newest becomes "a few seconds ago" the moment any single person is
+ * refreshed, which would let this page claim the whole list was current while
+ * nine of ten rows had not been read since Tuesday.
+ *
+ * NULL UNLESS `everyonePulled`, for the same reason: with one never-pulled
+ * person there was no instant at which the list was ever complete. An empty
+ * watchlist reports `everyonePulled: false` rather than a vacuous true.
+ *
+ * `nextDueAt` IS NULL WHEN SOMEBODY IS DUE ALREADY — draw "due now", never
+ * "next in −4h". `everyMs` is the server's own interval, sent so that nothing
+ * here has to hardcode twenty hours and go quietly wrong the day it changes.
+ */
+export type WatchSweep = {
+  lastAt: string | null;
+  nextDueAt: string | null;
+  everyonePulled: boolean;
+  everyMs: number;
+};
+
+export type WatchDoc = {
+  people: WatchPerson[];
+  sweep: WatchSweep;
 };
 
 export const peopleApi = {
@@ -446,7 +546,7 @@ export const peopleApi = {
   /* ------------------------------------------------------- the watchlist */
 
   /** Everyone on the list, sorted by name on the server. */
-  watch: () => call<{ people: WatchPerson[] }>("/people/watch"),
+  watch: () => call<WatchDoc>("/people/watch"),
 
   addWatch: (body: WatchInput) =>
     call<WatchPerson>("/people/watch", { method: "POST", body: JSON.stringify(body) }),

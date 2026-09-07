@@ -398,4 +398,81 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ) WITHOUT ROWID;
     `,
   },
+  {
+    name: "116_people_watch_history",
+    sql: `
+      -- THE NUMBERS AS A SERIES RATHER THAN AS A SNAPSHOT, AND THE CHANGES
+      -- WORTH SAYING OUT LOUD.
+      --
+      -- 114 gave the watchlist one \`metrics\` blob per person: the figures as
+      -- of the last pull, overwritten by the next one. That answers "how many
+      -- followers do they have" and cannot answer the only question anybody
+      -- actually asks a watchlist — "is anything happening with them?" A
+      -- number on its own is a fact about a stranger; the same number beside
+      -- what it was last week is a fact about a trajectory, which is the thing
+      -- worth keeping a list of people for.
+      --
+      -- ONE ROW PER PERSON PER DAY, AND THE DAY IS HALF THE KEY. A pull is due
+      -- every twenty hours and the refresh button may be pressed at any time,
+      -- so a table keyed by instant would have some days with one point and
+      -- some with five — and a chart drawn from it would put a kink in every
+      -- line at the hour somebody happened to press a button. The day is the
+      -- unit the series is ABOUT, so it is the unit the table is keyed by, and
+      -- a second pull on the same day REPLACES that day's row rather than
+      -- adding to it. The cost is that intra-day movement is not recorded,
+      -- which is the correct thing to lose: nobody watches a follower count by
+      -- the hour, and the ±10 signals below are computed against the previous
+      -- PULL and not against this table, so nothing that moved goes unnoticed.
+      --
+      -- EVERY FIGURE IS NULLABLE FOR THE REASON EVERY FIGURE IN \`metrics\` IS.
+      -- NULL is "not known" — no link of that kind on the card, or the source
+      -- did not answer — and it is never 0. A row of five NULLs is a pull that
+      -- reached nobody, and it is still worth keeping: it is the evidence that
+      -- the box looked.
+      --
+      -- CAPPED AT 420 ROWS PER PERSON, which is about fourteen months. The cap
+      -- is enforced by the writer rather than by a trigger, in the same
+      -- transaction as the insert, the way \`people_watch_events\` is trimmed
+      -- to 300. A watchlist of thirty people at the cap is thirteen thousand
+      -- rows of six small integers — a table this box will never notice — and
+      -- without a cap it is a table that grows for as long as the box runs.
+      CREATE TABLE IF NOT EXISTS people_watch_history (
+        -- Dies with the person, like the events and the face: this is a cache
+        -- of what somebody else's public API said, and it means nothing once
+        -- the row it describes is off the list.
+        person_id      TEXT NOT NULL,
+        -- "YYYY-MM-DD", UTC, cut from the pull's own stamp. A string rather
+        -- than a date type because node:sqlite has none, and because the only
+        -- two things done with it are ORDER BY and equality — both of which
+        -- an ISO day answers correctly as text.
+        day            TEXT NOT NULL,
+        -- The instant the pull that produced this row ran. Kept beside the day
+        -- because "how old is this point" is a question about the instant, and
+        -- because a same-day replacement should move it.
+        at             TEXT NOT NULL,
+        gh_followers   INTEGER,
+        gh_repos       INTEGER,
+        bsky_followers INTEGER,
+        bsky_posts     INTEGER,
+        hn_karma       INTEGER,
+        PRIMARY KEY (person_id, day)
+      ) WITHOUT ROWID;
+
+      -- THE PROFILE TEXT, KEPT ONLY SO THE NEXT PULL CAN TELL IT CHANGED.
+      --
+      -- This is not a field anybody displays and it is not part of the typed
+      -- half: it is one string held from the last pull so that the next one
+      -- can compare and say "Bio changed". GitHub's \`bio\` if there is a
+      -- GitHub link, otherwise Bluesky's \`description\` — one column rather
+      -- than two, because the signal is "the sentence they describe
+      -- themselves with is different" and it does not become two facts
+      -- because there are two places to read it from.
+      --
+      -- NULL IS "NEVER READ", and the FIRST pull of somebody deliberately
+      -- records no signal: a bio that has just been seen for the first time
+      -- has not changed, it has merely become known. Every signal in this
+      -- feature needs BOTH readings, and one reading is not a difference.
+      ALTER TABLE people_watch ADD COLUMN public_bio TEXT;
+    `,
+  },
 ];

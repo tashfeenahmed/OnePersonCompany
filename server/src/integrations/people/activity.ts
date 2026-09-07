@@ -29,8 +29,20 @@
  *
  * NOTHING HERE MAY WRITE THE TYPED HALF. `name`, `company`, `role`, `email`
  * and `note` belong to the owner. This file writes `metrics`, events,
- * `activity_at` and `pull_warnings`, and if a public profile disagrees with
- * what he typed, what he typed stands.
+ * `activity_at`, `pull_warnings`, `public_bio` and one row of
+ * `people_watch_history` a day, and if a public profile disagrees with what he
+ * typed, what he typed stands.
+ *
+ * AND IT WRITES ONE KIND OF EVENT NOBODY PUBLISHED. Beside the posts and the
+ * pushes, a pull files SIGNALS — "Bio changed", "GitHub followers +2,300",
+ * "3 new public repos" — under the source `watch` and the kind `change`.
+ * These are not things the person did; they are things this box NOTICED, by
+ * holding the last pull's figures and subtracting. The distinction is carried
+ * in the source rather than left to a reader, because a timeline that blurred
+ * "they posted this" into "we worked this out" would be inventing quotes. The
+ * thresholds are in watch.ts and every one of them needs BOTH readings: a
+ * person pulled for the first time gets no signals at all, because a first
+ * sighting is not a change.
  *
  * THE ONE THING THIS FILE DOWNLOADS RATHER THAN READS IS A FACE, and it does
  * so precisely so that nobody else has to be asked for it later. GitHub and
@@ -49,18 +61,26 @@
  */
 import { now } from "../../db.ts";
 import {
+  CHANGE_KIND,
+  CHANGE_SOURCE,
   MAX_AVATAR_BYTES,
   avatarDue,
   avatarGate,
+  bioSignal,
+  changeKey,
+  dayOf,
   handle,
   hasAvatar,
   parseLinks,
   parseMetrics,
   pickAvatar,
+  repoSignal,
   saveEvents,
+  spikeSignal,
   watchRow,
   watchRows,
   writeAvatar,
+  writeHistory,
   writePull,
   type AvatarPick,
   type Metrics,
@@ -151,7 +171,7 @@ const iso = (raw: unknown): string | null => {
 
 /* --------------------------------------------------------------- the sources */
 
-type GhUser = { followers?: unknown; public_repos?: unknown; avatar_url?: unknown };
+type GhUser = { followers?: unknown; public_repos?: unknown; avatar_url?: unknown; bio?: unknown };
 type GhEvent = {
   type?: string;
   created_at?: string;
@@ -186,12 +206,17 @@ async function github(user: string, warnings: string[]) {
      worth fetching, because the choice is between GitHub's and Bluesky's and
      neither source can make it alone. */
   let avatar: string | null = null;
+  /* The sentence under their name. Read off the profile call that is already
+     happening, kept only so the NEXT pull can notice it is different — see
+     `bioSignal`. Nothing draws it. */
+  let bio: string | null = null;
 
   const profile = await readJson<GhUser>(`https://api.github.com/users/${encodeURIComponent(user)}`, what, warnings);
   if (profile) {
     metrics.ghFollowers = int(profile.followers);
     metrics.ghRepos = int(profile.public_repos);
     avatar = typeof profile.avatar_url === "string" ? profile.avatar_url : null;
+    bio = typeof profile.bio === "string" ? profile.bio : null;
   }
 
   const feed = await readJson<GhEvent[]>(
@@ -237,10 +262,15 @@ async function github(user: string, warnings: string[]) {
     } else continue;
     if (title.trim()) events.push({ source: SOURCES.github, kind, title: line(title), url, at });
   }
-  return { events, metrics, avatar };
+  return { events, metrics, avatar, bio };
 }
 
-type BskyProfile = { followersCount?: unknown; postsCount?: unknown; avatar?: unknown };
+type BskyProfile = {
+  followersCount?: unknown;
+  postsCount?: unknown;
+  avatar?: unknown;
+  description?: unknown;
+};
 type BskyFeed = { feed?: { post?: { uri?: string; record?: { text?: string; createdAt?: string } } }[] };
 
 /** Bluesky, replies excluded. A reply is half a conversation and reads as a
@@ -251,6 +281,9 @@ async function bluesky(who: string, warnings: string[]) {
   const metrics: Partial<Metrics> = {};
   const actor = encodeURIComponent(who);
   let avatar: string | null = null;
+  /* Bluesky calls it `description`; it is the same sentence, and it is the
+     fallback when there is no GitHub link to read one from. */
+  let bio: string | null = null;
 
   const profile = await readJson<BskyProfile>(
     `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${actor}`,
@@ -263,6 +296,7 @@ async function bluesky(who: string, warnings: string[]) {
     /* Absent on an account that never set one, which is a real answer and not
        a failure — it simply loses to GitHub, or leaves the card with initials. */
     avatar = typeof profile.avatar === "string" ? profile.avatar : null;
+    bio = typeof profile.description === "string" ? profile.description : null;
   }
 
   const feed = await readJson<BskyFeed>(
@@ -286,7 +320,7 @@ async function bluesky(who: string, warnings: string[]) {
       at,
     });
   }
-  return { events, metrics, avatar };
+  return { events, metrics, avatar, bio };
 }
 
 type HnUser = { karma?: unknown };
@@ -539,15 +573,22 @@ export async function pullPerson(row: WatchRow): Promise<PullOutcome> {
 
   let ghFace: string | null = null;
   let bskyFace: string | null = null;
+  /* GitHub's wins where there is one, Bluesky's is the fallback — one held
+     sentence per person, because "how they describe themselves changed" does
+     not become two facts because there are two places to read it. */
+  let ghBio: string | null = null;
+  let bskyBio: string | null = null;
   if (gh) {
     const r = await github(gh, warnings);
     take(r);
     ghFace = r.avatar;
+    ghBio = r.bio;
   }
   if (bsky) {
     const r = await bluesky(bsky, warnings);
     take(r);
     bskyFace = r.avatar;
+    bskyBio = r.bio;
   }
   if (hn) take(await hackernews(hn, warnings));
   if (feedUrl) take(await rss(feedUrl, warnings));
@@ -568,8 +609,73 @@ export async function pullPerson(row: WatchRow): Promise<PullOutcome> {
   )
     await fetchAvatar(row.id, face, warnings, at);
 
+  /*
+    TODAY'S POINT ON THE SERIES, written before the signals are worked out and
+    regardless of what any of it says. A pull that reached nobody still writes
+    a row of nulls: the row is the record that the box LOOKED, and a series
+    with a gap in it cannot be told apart from a series where nothing happened.
+    One row per day, replaced if today already has one — see the 116 migration.
+  */
+  const day = dayOf(at);
+  writeHistory(row.id, {
+    day,
+    at,
+    ghFollowers: metrics.ghFollowers,
+    ghRepos: metrics.ghRepos,
+    bskyFollowers: metrics.bskyFollowers,
+    bskyPosts: metrics.bskyPosts,
+    hnKarma: metrics.hnKarma,
+  });
+
+  /*
+    THE SIGNALS — what MOVED, said as a sentence and filed on the timeline
+    beside the things this person actually published.
+
+    MEASURED AGAINST THE PREVIOUS PULL (`held`) AND NOT AGAINST THE SERIES.
+    The series is one row a day and today's row has already been overwritten by
+    the numbers above; comparing against it would be comparing today with
+    today. `held` is what the row said before this function touched it, which
+    is the last reading whatever hour it was taken at.
+
+    A CARRIED-FORWARD FIGURE CANNOT PRODUCE ONE, and that falls out for free:
+    a source that failed leaves `metrics.x` equal to `held.x`, so the
+    difference is zero and every rule below stays quiet. An outage costs
+    freshness and never invents an event.
+
+    THE SOURCE IS `watch` AND THE KIND IS `change`. Nobody published any of
+    these — they exist because this box held last week's reading and compared,
+    and a reader must be able to tell that from a post. The key carries the DAY
+    (see `changeKey`), so the refresh button pressed four times in an afternoon
+    files each sentence once.
+  */
+  const signal = (raw: string) => {
+    const title = line(raw, 200);
+    events.push({
+      source: CHANGE_SOURCE,
+      kind: CHANGE_KIND,
+      title,
+      url: null,
+      at,
+      key: changeKey(title, day),
+    });
+  };
+
+  const bio = (ghBio ?? "").trim() || (bskyBio ?? "").trim() || null;
+  const changed = bioSignal(bio, row.public_bio);
+  if (changed) signal(changed);
+  for (const [label, current, before] of [
+    ["GitHub followers", metrics.ghFollowers, held.ghFollowers],
+    ["Bluesky followers", metrics.bskyFollowers, held.bskyFollowers],
+    ["HN karma", metrics.hnKarma, held.hnKarma],
+  ] as const) {
+    const moved = spikeSignal(label, current, before);
+    if (moved) signal(moved);
+  }
+  const repos = repoSignal(metrics.ghRepos, held.ghRepos);
+  if (repos) signal(repos);
+
   const fresh = saveEvents(row.id, events, at);
-  writePull(row.id, { metrics, warnings, at });
+  writePull(row.id, { metrics, warnings, at, bio });
   return { warnings, fresh, events: events.length, at };
 }
 
@@ -595,8 +701,78 @@ const GAP_MS = 2_000;
  *  no way to notice. */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * WHEN A ROW WAS LAST PULLED, as a number, or null for "never".
+ *
+ * NULL FOR AN UNPARSEABLE STAMP AS WELL AS FOR A MISSING ONE, and that is not
+ * pedantry — it is the bug this function exists to make impossible. Comparing
+ * a NaN against anything is false, so `Date.parse(junk) < cutoff` answers
+ * "not due", and a single row whose `activity_at` was written by hand or by a
+ * half-finished import would drop out of every sweep from then on, silently,
+ * for as long as the box ran. A stamp nobody can read is exactly as good as no
+ * stamp at all: pull them.
+ */
+const pulledAt = (row: { activity_at: string | null }): number | null => {
+  if (!row.activity_at) return null;
+  const t = Date.parse(row.activity_at);
+  return Number.isFinite(t) ? t : null;
+};
+
 export function due(rows: WatchRow[], at = Date.now()): WatchRow[] {
-  return rows.filter((r) => !r.activity_at || Date.parse(r.activity_at) < at - SWEEP_AFTER_MS);
+  return rows.filter((r) => {
+    const when = pulledAt(r);
+    return when === null || when < at - SWEEP_AFTER_MS;
+  });
+}
+
+/**
+ * WHERE THE SWEEP HAS GOT TO, FOR THE WHOLE LIST AT ONCE — the answer to
+ * "pulled for everyone 3h ago · next in 17h".
+ *
+ * `lastAt` IS THE OLDEST STAMP ON THE LIST AND NOT THE NEWEST, and this is the
+ * one decision in here worth arguing about. The newest is trivially "a few
+ * seconds ago" the instant any single person is refreshed, which would let a
+ * page say "pulled 10 seconds ago" while nine of ten people had not been read
+ * since Tuesday. The oldest is the moment by which EVERYBODY had been read,
+ * which is the only thing a list-level stamp can honestly claim.
+ *
+ * IT IS NULL UNLESS EVERYBODY HAS BEEN PULLED, for the same reason: with one
+ * never-pulled row there is no instant at which the list was ever complete,
+ * and quoting the oldest of the rest would be a claim about people the
+ * sentence was not counting.
+ *
+ * `nextDueAt` IS NULL WHEN SOMEBODY IS DUE ALREADY rather than a stamp in the
+ * past. "Next in −4h" is not a sentence; "somebody is due now" is, and it is
+ * also true for the ordinary case of a box that has just booted and has not
+ * reached its first sweep yet.
+ *
+ * AN EMPTY WATCHLIST IS NOT "everyone has been pulled". It is vacuously true
+ * and reads as a lie on a page, so it answers false with two nulls: nothing
+ * has been pulled, because there is nobody.
+ */
+export type SweepState = {
+  lastAt: string | null;
+  nextDueAt: string | null;
+  everyonePulled: boolean;
+};
+
+export function sweepState(rows: { activity_at: string | null }[], at = Date.now()): SweepState {
+  if (!rows.length) return { lastAt: null, nextDueAt: null, everyonePulled: false };
+  let oldest = Infinity;
+  let everyonePulled = true;
+  for (const row of rows) {
+    const when = pulledAt(row);
+    if (when === null) everyonePulled = false;
+    else if (when < oldest) oldest = when;
+  }
+  if (!everyonePulled || !Number.isFinite(oldest))
+    return { lastAt: null, nextDueAt: null, everyonePulled: false };
+  const next = oldest + SWEEP_AFTER_MS;
+  return {
+    lastAt: new Date(oldest).toISOString(),
+    nextDueAt: next > at ? new Date(next).toISOString() : null,
+    everyonePulled: true,
+  };
 }
 
 /**
@@ -629,8 +805,23 @@ export async function sweep(): Promise<{ pulled: number; warned: number }> {
   return { pulled, warned };
 }
 
+/**
+ * ONE SWEEP AT A TIME.
+ *
+ * The hourly timer does not know how long the last tick took, and a long list
+ * of slow sources can take the better part of an hour: six requests a person
+ * at a twelve-second timeout, two seconds apart. A second sweep starting on
+ * top of the first would re-read people the first one has already reached —
+ * `due()` is evaluated once, at the start — spending somebody else's rate
+ * limit twice to write the same row. The flag is cleared in a `finally` so a
+ * sweep that throws does not switch the timer off for the life of the process.
+ */
+let sweeping = false;
+
 export function startWatchSweep() {
   const tick = () => {
+    if (sweeping) return;
+    sweeping = true;
     void (async () => {
       try {
         const r = await sweep();
@@ -642,6 +833,8 @@ export function startWatchSweep() {
       } catch (e) {
         /* onStart must not throw, and neither may a timer it started. */
         console.error("[people] watch sweep:", say(e));
+      } finally {
+        sweeping = false;
       }
     })();
   };
