@@ -21,6 +21,7 @@ import {
   type BoardDoc,
 } from "@/lib/api";
 import { VentureMark } from "@/components/VentureChrome";
+import { VentureSelect } from "@/components/VentureSelect";
 import { useStore, type Venture } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { day } from "@/lib/format";
@@ -341,7 +342,9 @@ export function Board() {
       </div>
 
       <Dialog open={openedCard !== null} onOpenChange={(o) => !o && setOpened(null)}>
-        <DialogContent className="sm:max-w-[480px]">
+        {/* Wide enough for the notes to be read as a paragraph rather than a
+            column: the notes box is the reason a card is opened at all. */}
+        <DialogContent className="sm:max-w-[760px]">
           {/* Mounted only while it is open, and keyed on the card, so the form
               initialises from the card once. An effect that reset the fields on
               every open would also reset them under the owner's hands the
@@ -948,6 +951,10 @@ function CardForm({
           <Textarea
             id="card-body"
             value={body}
+            /* Room for a paragraph before it has to scroll — the notes are the
+               reason the card is opened, and the dialog is wide enough now to
+               read them as one. It still grows with what is typed. */
+            className="min-h-32"
             placeholder="What it actually involves, links, whatever the title cannot hold."
             onChange={(e) => setBody(e.target.value)}
           />
@@ -994,41 +1001,17 @@ function CardForm({
 
         <div className="grid gap-1.5">
           <Label>Venture</Label>
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              aria-pressed={ventureId === null}
-              onClick={() => setVentureId(null)}
-              className={cn(
-                "rounded-lg border px-2 py-1 text-[12.5px]",
-                ventureId === null
-                  ? "border-foreground/40 font-medium"
-                  : "text-muted-foreground border-transparent",
-              )}
-            >
-              None
-            </button>
-            {ventures.map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                aria-pressed={ventureId === v.id}
-                onClick={() => setVentureId(v.id)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[12.5px]",
-                  ventureId === v.id
-                    ? "border-foreground/40 font-medium"
-                    : "text-muted-foreground border-transparent",
-                )}
-              >
-                <span
-                  className="size-[7px] shrink-0 rounded-[3px]"
-                  style={{ background: v.color }}
-                />
-                {v.name}
-              </button>
-            ))}
-          </div>
+          {/* THE SAME DROPDOWN THE RUN PAGES USE. A row of chips was the
+              right control at four ventures and a wall at nineteen; the
+              dropdown is one line whatever the count, and carries the mark
+              and the stage the chips could not fit. */}
+          <VentureSelect
+            ventures={ventures}
+            value={ventureId}
+            onChange={setVentureId}
+            none="No venture"
+            className="w-fit"
+          />
           {/* A card can carry a venture id the store no longer has — the
               ventures live in this browser and the card lives on the server.
               Saying so beats drawing nothing and letting it look unfiled. */}
