@@ -94,4 +94,24 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX agent_runs_parent_session ON agent_runs(parent_session_id);
     `,
   },
+  {
+    name: "082_agent_runs_brief",
+    sql: `
+      -- THE BRIEF AS IT WAS TYPED, before anything was put in front of it.
+      --
+      -- A dispatch hands the executor ONE field — goals, then the owner's
+      -- standing instructions, then the brief, joined into the kind's
+      -- free-text input — because the worker reads one document and must see
+      -- all three. But the worker's own page draws a conversation: the owner's
+      -- words on the right, the report on the left. Drawing the joined field
+      -- there would put the owner's standing instructions into every message
+      -- they ever sent, and stripping the preface back off at read time would
+      -- be guessing, because the instructions may have changed since.
+      --
+      -- NULL on every run that was not dispatched: a run started from an app
+      -- page had a form, not a brief, and the page draws the form's own field
+      -- for those and says so.
+      ALTER TABLE agent_runs ADD COLUMN brief TEXT;
+    `,
+  },
 ];

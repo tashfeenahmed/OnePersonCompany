@@ -37,7 +37,8 @@ import { activeProvider } from "../../models/provider.ts";
 import { kindDef, type InputSpec, type KindDef } from "../runs/kinds.ts";
 import { pump } from "../runs/executor.ts";
 import { goalBriefLine } from "../chief/goals.ts";
-import { insertRun, mintRunId, runRow, shapeRun } from "../runs/store.ts";
+import { fencedJson } from "../runs/kinds.ts";
+import { insertRun, mintRunId, queuePosition, readInput, runRow, shapeRun, type RunRow } from "../runs/store.ts";
 import {
   ROLES,
   ensureTeam,
@@ -142,13 +143,74 @@ async function chiefOfStaff() {
 function subagentDoc(row: SubagentRow) {
   const shaped = shapeSubagent(row);
   const v = venture(row.venture_id);
+  const runs = subagentRuns(row.venture_id, shaped.kind);
   return {
     ...shaped,
     /* Null only for the instant between a venture's deletion and the prune on
        the next read of the org — see store.ts's `ensureTeam`. */
     venture: v ? shapeVentureCard(v) : null,
-    runs: subagentRuns(row.venture_id, shaped.kind).map(shapeRun),
+    runs: runs.map(shapeRun),
+    transcript: transcript(row, runs),
   };
+}
+
+/** How many exchanges the worker's page draws with their reports in full.
+ *  Everything older is still in `runs`, as a row without its text. */
+const TRANSCRIPT = 20;
+
+/** The stored `brief` column, which `RunRow` does not declare because the
+ *  column is this area's and the type is the runs area's — see the header on
+ *  why the dispatch stamps its columns in a separate statement. */
+type BriefedRow = RunRow & { brief?: string | null; subagent_id?: string | null; parent_session_id?: string | null };
+
+/**
+ * THE WORKER'S PAGE IS A CONVERSATION, and this is what it is made of.
+ *
+ * ONE EXCHANGE PER RUN: what was asked, on the right, and what came back, on
+ * the left. It is drawn in the chat's shape because that is what it is — the
+ * owner said something to a named worker and the worker answered — but it is
+ * NOT a chat and the shape must not promise one. The composer on that page is
+ * shut while a run is in flight, and every reply is a whole report rather than
+ * a turn, which is why this carries the report and not a message.
+ *
+ * WHAT WAS ASKED IS THE `brief` COLUMN WHEN THERE IS ONE, and the kind's own
+ * free-text field when there is not. A dispatched run stores the owner's words
+ * before the preface was put in front of them; a run started from an app page
+ * has no brief, only a form, and the form's field is what the owner typed
+ * there. `asked` says which, so the page can label the second kind rather than
+ * draw a form field as if somebody had said it.
+ *
+ * OLDEST FIRST, because a conversation reads down. `subagentRuns` answers
+ * newest first for the history list, so the newest twenty are taken and then
+ * turned round.
+ */
+function transcript(row: SubagentRow, runs: RunRow[]) {
+  const def = kindDef(roleDef(row.role)?.kind ?? "");
+  const field = def ? briefField(def) : null;
+  return runs
+    .slice(0, TRANSCRIPT)
+    .reverse()
+    .map((raw) => {
+      const r = raw as BriefedRow;
+      const input = readInput(r.input);
+      const typed = typeof r.brief === "string" && r.brief.trim() ? r.brief : null;
+      const cards = fencedJson(r.output, "cards");
+      return {
+        run: shapeRun(r),
+        brief: typed ?? (field ? (input[field.key] ?? "") : ""),
+        /* `dispatched` is the narrow fact the column records — a named worker
+           was addressed — and `parentSessionId` is which conversation did it,
+           or null for a brief typed on the worker's own page. See the 081
+           migration on why neither is how a run is attributed. */
+        asked: typed ? ("brief" as const) : ("form" as const),
+        dispatched: !!r.subagent_id,
+        parentSessionId: r.parent_session_id ?? null,
+        output: r.output,
+        partial: r.status === "running",
+        queuePosition: r.status === "queued" ? queuePosition(r.id) : null,
+        cards: Array.isArray(cards) ? cards.length : 0,
+      };
+    });
 }
 
 /* ------------------------------------------------------------- the reads */
@@ -385,11 +447,14 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
      the agent to pass it. Several in flight is ambiguous and stays unfiled. */
   const inferred = stated ? null : inflight.only();
   const parentSessionId = stated ?? inferred;
-  /* The two columns only a dispatch knows. Written here rather than through
+  /* The three columns only a dispatch knows. Written here rather than through
      `insertRun`, whose signature belongs to another area — see the header. */
-  db.prepare("UPDATE agent_runs SET parent_session_id = ?, subagent_id = ? WHERE id = ?").run(
+  db.prepare("UPDATE agent_runs SET parent_session_id = ?, subagent_id = ?, brief = ? WHERE id = ?").run(
     parentSessionId,
     row.id,
+    /* The owner's words alone — see the 082 migration. The joined field the
+       executor reads is in `input` and stays there. */
+    brief,
     id,
   );
 

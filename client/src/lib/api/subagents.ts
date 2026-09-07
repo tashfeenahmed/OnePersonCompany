@@ -122,10 +122,40 @@ export type Org = {
   summary: { subagents: number; enabled: number; running: number; queued: number };
 };
 
-/** One worker with its venture and everything it has ever run, newest first. */
+/**
+ * ONE EXCHANGE ON THE WORKER'S PAGE: what was asked, and what came back.
+ *
+ * A run, drawn as a conversation. `brief` is the owner's words on the right —
+ * the stored brief for a dispatched run, or the kind's own free-text field for
+ * one started from an app page, and `asked` says which so the page can label
+ * the second. `output` is the report on the left, whole or `partial` while it
+ * is still being written, and `queuePosition` is where it waits when it has
+ * not started. `cards` is how many board suggestions the report ends with;
+ * they are filed from the run's own page, not from here.
+ */
+export type Exchange = {
+  run: RunSummary;
+  brief: string;
+  asked: "brief" | "form";
+  /** A named worker was addressed, rather than the owner starting this kind
+   *  of run by hand. Narrower than "whose work it is" — see the org types. */
+  dispatched: boolean;
+  /** The chat the brief was typed in, or null for one typed on the worker's
+   *  page or started from an app. */
+  parentSessionId: string | null;
+  output: string;
+  partial: boolean;
+  queuePosition: number | null;
+  cards: number;
+};
+
+/** One worker with its venture and everything it has ever run, newest first —
+ *  and the newest twenty of those as a transcript, oldest first, with their
+ *  reports in full. */
 export type SubagentDetail = Subagent & {
   venture: OrgVenture;
   runs: RunSummary[];
+  transcript: Exchange[];
 };
 
 /** What a dispatch answers with: the run as it now is — queued, or running
@@ -173,9 +203,9 @@ export const subagentApi = {
    * Queue this worker's kind of run against its venture.
    *
    * `parentSessionId` is what files the run UNDER a chat in the rail. It is
-   * optional here and always absent from the sub-agent page — a dispatch typed
-   * on a worker's own page belongs to nobody's conversation, and inventing a
-   * parent for it would nest work under a chat that never asked for it.
+   * optional here and always absent from the sub-agent page — a brief typed
+   * on a worker's own page belongs to nobody's conversation; it belongs to the
+   * worker's own transcript, which is where that page draws it.
    */
   dispatch: (
     id: string,
