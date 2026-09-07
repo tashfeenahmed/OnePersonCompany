@@ -26,7 +26,6 @@ const VentureMap = lazy(() => import("@/pages/VentureMap").then(m => ({ default:
 const Subagent = lazy(() => import("@/pages/Subagent").then(m => ({ default: m.Subagent })));
 const Settings = lazy(() => import("@/pages/Settings").then(m => ({ default: m.Settings })));
 const Ops = lazy(() => import("@/areas/security/Ops").then(m => ({ default: m.Ops })));
-const GrowthSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.GrowthSection })));
 const Board = lazy(() => import("@/pages/Board").then(m => ({ default: m.Board })));
 const MailSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.MailSection })));
 const SocialSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.SocialSection })));
@@ -203,7 +202,7 @@ export default function App() {
                         is in the bar is always something worth bookmarking. */}
                     <Route path="/dashboards" element={<Dashboards />} />
                     <Route path="/dashboards/new" element={<NewDashboard />} />
-                    <Route path="/dashboards/reports/email-stats" element={<Dashboards report="email-stats" />} />
+                    <Route path="/dashboards/reports/:report" element={<Dashboards />} />
                     <Route path="/dashboards/:slug" element={<Dashboards />} />
                     <Route path="/board" element={<Board />} />
                     <Route path="/mail" element={<MailSection />} />
@@ -214,9 +213,13 @@ export default function App() {
                     {/* A campaign run is read on the Publishing page, the way a
                         video run is read on the Video page. */}
                     <Route path="/social/publishing/:runId" element={<SocialSection page="publishing" />} />
-                    <Route path="/growth" element={<GrowthSection />} />
-                    <Route path="/growth/:page" element={<GrowthSection />} />
-                    <Route path="/growth/:page/:runId" element={<GrowthSection />} />
+                    {/* The SEO & growth section is gone: its three run apps
+                        are sub-agents' work at /outputs, and its three
+                        readings are reports on the Dashboards page. The old
+                        addresses land on the new ones, run id and all. */}
+                    <Route path="/growth" element={<Navigate to="/dashboards/reports/growth" replace />} />
+                    <Route path="/growth/:page" element={<LegacyGrowth />} />
+                    <Route path="/growth/:page/:runId" element={<LegacyGrowth />} />
                     <Route path="/ops" element={<Ops />} />
                     <Route path="/ops/:runId" element={<Ops />} />
                     {/* ALERTS AND THE BRIEFING, one element and two
@@ -273,6 +276,15 @@ export default function App() {
 function LegacyIntegration() {
   const { id } = useParams();
   return <Navigate to={`/integrations/${id}`} replace />;
+}
+
+/** The old /growth/<page>, carried to where the page lives now: a run app
+ *  to /outputs, a reading to the Dashboards page's reports. */
+function LegacyGrowth() {
+  const { page, runId } = useParams();
+  const location = useLocation();
+  const slug = page === "overview" ? "growth" : (page ?? "growth");
+  return <Navigate to={`${appPage(slug, runId)}${location.search}${location.hash}`} state={location.state} replace />;
 }
 
 function LegacyApp() {

@@ -1,4 +1,4 @@
-import { Activity, Clapperboard, Shapes, Globe, Inbox, ListChecks, Mail, MessageSquare, SearchCheck, Send, SendHorizontal, Smartphone, Sparkles, Sprout, Timer, TrendingUp } from "lucide-react";
+import { Clapperboard, Shapes, Inbox, Mail, MessageSquare, Send, SendHorizontal, Sparkles, Sprout, Timer } from "lucide-react";
 import { appPage } from "../../../shared/navigation";
 
 export const MAIL_PAGES = [
@@ -18,12 +18,3 @@ export const SOCIAL_PAGES = [
      queue going out to it. Added by the socialfeed area. */
   { slug: "posts", label: "Posts", icon: MessageSquare },
 ].map(page => ({ ...page, to: appPage(page.slug) }));
-
-export const GROWTH_PAGES = [
-  { slug: "seo", label: "SEO", icon: SearchCheck },
-  { slug: "serp", label: "SERP", icon: ListChecks },
-  { slug: "aso", label: "ASO", icon: Smartphone },
-  { slug: "mobilehealth", label: "Mobile health", icon: Activity },
-  { slug: "webanalytics", label: "Web", icon: Globe },
-  { slug: "overview", label: "Growth", icon: TrendingUp },
-].map(page => ({ ...page, to: appPage(page.slug === "overview" ? "growth" : page.slug) }));

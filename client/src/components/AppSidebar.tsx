@@ -28,7 +28,7 @@ import { useTheme, type Theme } from "@/lib/theme";
 import { useRunQueue } from "@/hooks/useRunQueue";
 import { useOpenAlerts } from "@/hooks/useOpenAlerts";
 import { api } from "@/lib/api";
-import { GROWTH_PAGES, MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
+import { MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
 
 import { SidebarSection } from "@/components/SidebarSection";
 import { PinnedSection } from "@/components/PinnedSection";
@@ -57,7 +57,6 @@ const NAV = [
   { to: "/ops", label: "Ops" },
   ...MAIL_PAGES,
   ...SOCIAL_PAGES,
-  ...GROWTH_PAGES,
 ];
 
 /* Manage and Insights first — the pages about the business as a whole — then
@@ -68,7 +67,6 @@ const NAV_GROUPS = [
   { name: "Work", paths: ["/action-inbox", "/board", "/ventures", "/people", "/workflows"], expanded: true },
   { name: "Mail", paths: MAIL_PAGES.map(page => page.to), expanded: true },
   { name: "Social media", paths: SOCIAL_PAGES.map(page => page.to), expanded: true },
-  { name: "SEO & growth", paths: GROWTH_PAGES.map(page => page.to), expanded: true },
 ];
 
 export function AppSidebar() {

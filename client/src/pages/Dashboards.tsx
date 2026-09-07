@@ -1,11 +1,28 @@
 import { lazy } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { BarChart3, Plus, Wallet } from "lucide-react";
+import { Activity, BarChart3, Globe, Plus, TrendingUp, Wallet } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NoBoard } from "@/components/BoardView";
 import { useStore } from "@/lib/store";
 import { appPage } from "../../../shared/navigation";
 const EmailStats = lazy(() => import("@/pages/EmailStats").then(m => ({ default: m.EmailStats })));
+const MobileHealth = lazy(() => import("@/areas/mobilehealth/MobileHealth").then(m => ({ default: m.MobileHealth })));
+const WebAnalytics = lazy(() => import("@/areas/webanalytics/WebAnalytics").then(m => ({ default: m.WebAnalytics })));
+const Growth = lazy(() => import("@/areas/growth/pages/Growth").then(m => ({ default: m.Growth })));
+
+/**
+ * THE REPORTS: pages that read collected figures back and are not boards.
+ * Each is a fixed tab at /dashboards/reports/<key>, beside the boards, because
+ * a reading somebody cannot rearrange still belongs where the readings are.
+ * The three growth ones came from a sidebar section of their own; the sidebar
+ * lists areas, and a report is not an area.
+ */
+const REPORTS = [
+  { key: "email-stats", label: "Email stats", icon: BarChart3, page: EmailStats },
+  { key: "mobile-health", label: "Mobile health", icon: Activity, page: MobileHealth },
+  { key: "web-analytics", label: "Web analytics", icon: Globe, page: WebAnalytics },
+  { key: "growth", label: "Growth", icon: TrendingUp, page: Growth },
+] as const;
 
 /**
  * THE GLOBAL DASHBOARDS — every board that is about the whole operation.
@@ -28,9 +45,10 @@ const EmailStats = lazy(() => import("@/pages/EmailStats").then(m => ({ default:
  * `ventureId` at all, which is why the test is falsiness rather than a null
  * check: a board from before the distinction existed is a global board.
  */
-export function Dashboards({ report }: { report?: "email-stats" }) {
+export function Dashboards() {
   const { state, reorderDashboards } = useStore();
-  const { slug } = useParams();
+  const { slug, report: reportParam } = useParams();
+  const report = REPORTS.find((r) => r.key === reportParam) ?? null;
 
   const boards = state.dashboards.filter((d) => !d.ventureId);
   const board = boards.find((d) => d.slug === slug);
@@ -49,7 +67,7 @@ export function Dashboards({ report }: { report?: "email-stats" }) {
     return (
       <NoBoard
         title="No dashboard at this address"
-        body={`Nothing here is called “${slug}”. It may have been deleted, filed under a venture, or the link may be from another workspace.`}
+        body={`Nothing here is called “${slug ?? reportParam}”. It may have been deleted, filed under a venture, or the link may be from another workspace.`}
         boards={boards}
         basePath="/dashboards"
       />
@@ -66,13 +84,13 @@ export function Dashboards({ report }: { report?: "email-stats" }) {
              per-venture P&L are a page, and this strip is the place somebody
              already comes to ask what things cost. It leaves /dashboards on
              purpose — see areas/finance/Finance.tsx. */
-          tabs={[{ key: "report:email-stats", to: appPage("email-stats"), label: "Email stats", icon: BarChart3, fixed: true }, { key: "page:finance", to: "/finance", label: "Finance", icon: Wallet, fixed: true }, ...boards.map((d) => ({
+          tabs={[...REPORTS.map((r) => ({ key: `report:${r.key}`, to: `/dashboards/reports/${r.key}`, label: r.label, icon: r.icon, fixed: true })), { key: "page:finance", to: "/finance", label: "Finance", icon: Wallet, fixed: true }, ...boards.map((d) => ({
             key: d.id,
             to: `/dashboards/${d.slug}`,
             label: d.name,
             count: d.widgets.length,
           }))]}
-          activeKey={report ? "report:email-stats" : board?.id ?? null}
+          activeKey={report ? `report:${report.key}` : board?.id ?? null}
           onReorder={reorderDashboards}
         />
         <Link
@@ -86,7 +104,7 @@ export function Dashboards({ report }: { report?: "email-stats" }) {
 
       {/* Keyed by board: switching dashboards ends an edit session rather than
           carrying a half-open widget panel across to a different board. */}
-      {report ? <EmailStats /> : board && <BoardView
+      {report ? <report.page /> : board && <BoardView
         key={board.id}
         board={board}
         basePath="/dashboards"

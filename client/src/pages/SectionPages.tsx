@@ -1,7 +1,7 @@
 import { lazy } from "react";
 import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { TopBar } from "@/components/PageShell";
-import { GROWTH_PAGES, MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
+import { MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
 
 const Mailbox = lazy(() => import("@/pages/Mailbox").then(m => ({ default: m.Mailbox })));
 const Triage = lazy(() => import("@/areas/mailflow/Triage").then(m => ({ default: m.Triage })));
@@ -13,17 +13,10 @@ const Video = lazy(() => import("@/areas/video/Video").then(m => ({ default: m.V
 const Motion = lazy(() => import("@/areas/video/Motion").then(m => ({ default: m.Motion })));
 const Publishing = lazy(() => import("@/areas/publishing/Publishing").then(m => ({ default: m.Publishing })));
 const Posts = lazy(() => import("@/areas/socialfeed/Posts").then(m => ({ default: m.Posts })));
-const Seo = lazy(() => import("@/pages/runs/Seo").then(m => ({ default: m.Seo })));
-const Serp = lazy(() => import("@/areas/growth/pages/Serp").then(m => ({ default: m.Serp })));
-const Aso = lazy(() => import("@/areas/growth/pages/Aso").then(m => ({ default: m.Aso })));
-const WebAnalytics = lazy(() => import("@/areas/webanalytics/WebAnalytics").then(m => ({ default: m.WebAnalytics })));
-const Growth = lazy(() => import("@/areas/growth/pages/Growth").then(m => ({ default: m.Growth })));
-const MobileHealth = lazy(() => import("@/areas/mobilehealth/MobileHealth").then(m => ({ default: m.MobileHealth })));
-const PAGES = { email: Mailbox, triage: Triage, outbox: Outbox, nurture: Nurture, studio: Studio, autopilot: Autopilot, video: Video, motion: Motion, publishing: Publishing, posts: Posts, seo: Seo, serp: Serp, aso: Aso, mobilehealth: MobileHealth, webanalytics: WebAnalytics, overview: Growth };
+const PAGES = { email: Mailbox, triage: Triage, outbox: Outbox, nurture: Nurture, studio: Studio, autopilot: Autopilot, video: Video, motion: Motion, publishing: Publishing, posts: Posts };
 const SECTIONS = {
   mail: { pages: MAIL_PAGES, label: "Mail" },
   social: { pages: SOCIAL_PAGES, label: "Social media" },
-  growth: { pages: GROWTH_PAGES, label: "SEO & growth" },
 };
 
 function SectionPages({ section, selectedPage }: { section: keyof typeof SECTIONS; selectedPage?: string }) {
@@ -47,4 +40,3 @@ function SectionPages({ section, selectedPage }: { section: keyof typeof SECTION
 
 export function MailSection() { return <SectionPages section="mail" />; }
 export function SocialSection({ page }: { page?: string }) { return <SectionPages section="social" selectedPage={page} />; }
-export function GrowthSection() { return <SectionPages section="growth" />; }

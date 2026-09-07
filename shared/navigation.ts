@@ -15,12 +15,12 @@ export const MOVED_APPS: Readonly<Record<string, string>> = {
   /* A campaign run is read on the Publishing page's Campaigns tab, so the run
      kind resolves to the same address as the page. */
   campaign: "/social/publishing",
-  seo: "/growth/seo",
-  serp: "/growth/serp",
-  aso: "/growth/aso",
-  mobilehealth: "/growth/mobilehealth",
-  webanalytics: "/growth/webanalytics",
-  growth: "/growth/overview",
+  /* The three growth readings are reports on the Dashboards page, beside
+     Email stats. The SEO, SERP and ASO run apps are not listed: they are
+     sub-agents' work and read at /outputs/<slug> with the other five. */
+  mobilehealth: "/dashboards/reports/mobile-health",
+  webanalytics: "/dashboards/reports/web-analytics",
+  growth: "/dashboards/reports/growth",
   ops: "/ops",
 };
 
