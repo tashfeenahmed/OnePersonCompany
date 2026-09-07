@@ -15,6 +15,7 @@ import { LiveProvider } from "@/lib/live";
 import { StoreProvider } from "@/lib/store";
 import { PaletteTokens, ThemeProvider } from "@/lib/theme";
 const Chat = lazy(() => import("@/pages/Chat").then(m => ({ default: m.Chat })));
+const NewDashboard = lazy(() => import("@/pages/NewDashboard").then(m => ({ default: m.NewDashboard })));
 const Dashboards = lazy(() => import("@/pages/Dashboards").then(m => ({ default: m.Dashboards })));
 const PluginDetail = lazy(() => import("@/pages/PluginDetail").then(m => ({ default: m.PluginDetail })));
 const Plugins = lazy(() => import("@/pages/Plugins").then(m => ({ default: m.Plugins })));
@@ -152,6 +153,8 @@ export default function App() {
                     {/* A venture's own dashboards. The same board component
                         the global page renders, narrowed to this venture's
                         host — see components/BoardView and lib/scope. */}
+                    {/* Making a board is a page of its own — see pages/NewDashboard. */}
+                    <Route path="/ventures/:slug/dashboards/new" element={<NewDashboard />} />
                     <Route
                       path="/ventures/:slug/dashboards/:board"
                       element={<Venture />}
@@ -199,6 +202,7 @@ export default function App() {
                         and rewrites itself to that board's own URL, so what
                         is in the bar is always something worth bookmarking. */}
                     <Route path="/dashboards" element={<Dashboards />} />
+                    <Route path="/dashboards/new" element={<NewDashboard />} />
                     <Route path="/dashboards/reports/email-stats" element={<Dashboards report="email-stats" />} />
                     <Route path="/dashboards/:slug" element={<Dashboards />} />
                     <Route path="/board" element={<Board />} />

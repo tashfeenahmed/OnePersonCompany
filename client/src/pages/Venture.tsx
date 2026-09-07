@@ -1,7 +1,7 @@
 import { appPage } from "../../../shared/navigation";
 import { VentureProposals } from "@/areas/pipeline/VentureProposals";
 import { useState } from "react";
-import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { when } from "@/lib/format";
 import {
   ExternalLink,
@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { TabStrip } from "@/components/TabStrip";
-import { BoardView, NewDashboardDialog, NoBoard } from "@/components/BoardView";
+import { BoardView, NoBoard } from "@/components/BoardView";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
 import { SubagentRow } from "@/components/org/SubagentRow";
 import { teamAddress } from "@/components/org/roleLook";
@@ -90,10 +90,7 @@ export function Venture() {
   */
   const tab = useLocation().pathname.split("/")[3] ?? "";
   const bare = tab === "dashboards" && !boardSlug;
-  const { state, dashboardsIn, addDashboard, copyDashboard, reorderDashboards } =
-    useStore();
-  const navigate = useNavigate();
-  const [creating, setCreating] = useState(false);
+  const { state, dashboardsIn, reorderDashboards } = useStore();
 
   const venture = state.ventures.find((v) => v.slug === slug);
   const boards = venture ? dashboardsIn(venture.id) : [];
@@ -156,13 +153,6 @@ export function Venture() {
         replace
       />
     );
-
-  function create(name: string, presetId: string | null, copyFromId: string | null) {
-    const made = copyFromId
-      ? copyDashboard(copyFromId, { name, ventureId: venture!.id })
-      : addDashboard(name, presetId ?? "blank", venture!.id);
-    if (made) navigate(`${basePath}/${made.slug}`, { state: { editing: true } });
-  }
 
   const palette = (
     [
@@ -251,13 +241,13 @@ export function Venture() {
             reorderDashboards(keys.filter((k) => !FIXED_TABS.has(k)))
           }
         />
-        <button
-          onClick={() => setCreating(true)}
+        <Link
+          to={`${basePath}/new`}
           className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
         >
           <Plus className="size-3.5" strokeWidth={1.6} />
           New dashboard
-        </button>
+        </Link>
       </div>
 
       {boardSlug && !board && (
@@ -266,7 +256,6 @@ export function Venture() {
           body={`${venture.name} has nothing called “${boardSlug}”.`}
           boards={boards}
           basePath={basePath}
-          onCreate={create}
         />
       )}
 
@@ -287,7 +276,7 @@ export function Venture() {
       )}
 
       {!boardSlug && !tab && (
-        <Overview venture={venture} onNewDashboard={() => setCreating(true)} />
+        <Overview venture={venture} newDashboardPath={`${basePath}/new`} />
       )}
 
       {tab === "connections" && slug && (
@@ -311,11 +300,6 @@ export function Venture() {
 
       {tab === "knowledge" && slug && <KnowledgeTab slug={slug} />}
 
-      <NewDashboardDialog
-        open={creating}
-        onOpenChange={setCreating}
-        onCreate={create}
-      />
     </>
   );
 }
@@ -354,10 +338,11 @@ function openersFor(stage: VentureDoc["stage"], name: string): string[] {
 
 function Overview({
   venture,
-  onNewDashboard,
+  newDashboardPath,
 }: {
   venture: VentureDoc;
-  onNewDashboard: () => void;
+  /** Where "New dashboard" goes — the creation page, in this venture. */
+  newDashboardPath: string;
 }) {
   const { sessionsFor, dashboardsIn, enrichVenture } = useStore();
   const { data: board } = useApi(() => api.board(), []);
@@ -625,13 +610,13 @@ function Overview({
                 </div>
               </Link>
             ))}
-            <button
-              onClick={onNewDashboard}
+            <Link
+              to={newDashboardPath}
               className="text-muted-foreground hover:border-line-strong hover:text-foreground flex min-h-[62px] items-center justify-center gap-2 rounded-[14px] border border-dashed text-[13.5px] transition-colors"
             >
               <Plus className="size-3.5" strokeWidth={1.6} />
               New dashboard
-            </button>
+            </Link>
           </div>
         </Section>
 

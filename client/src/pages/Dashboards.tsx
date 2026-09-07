@@ -1,12 +1,8 @@
-import { lazy, useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { lazy } from "react";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { BarChart3, Plus, Wallet } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
-import {
-  BoardView,
-  NewDashboardDialog,
-  NoBoard,
-} from "@/components/BoardView";
+import { BoardView, NoBoard } from "@/components/BoardView";
 import { useStore } from "@/lib/store";
 import { appPage } from "../../../shared/navigation";
 const EmailStats = lazy(() => import("@/pages/EmailStats").then(m => ({ default: m.EmailStats })));
@@ -33,23 +29,12 @@ const EmailStats = lazy(() => import("@/pages/EmailStats").then(m => ({ default:
  * check: a board from before the distinction existed is a global board.
  */
 export function Dashboards({ report }: { report?: "email-stats" }) {
-  const { state, addDashboard, copyDashboard, reorderDashboards } = useStore();
+  const { state, reorderDashboards } = useStore();
   const { slug } = useParams();
-  const navigate = useNavigate();
-  const [creating, setCreating] = useState(false);
 
   const boards = state.dashboards.filter((d) => !d.ventureId);
   const board = boards.find((d) => d.slug === slug);
   const first = boards[0];
-
-  /** One place for "make a board here", used by the header and by the empty
-   *  state — either from a preset or as a copy of any board that exists. */
-  function create(name: string, presetId: string | null, copyFromId: string | null) {
-    const made = copyFromId
-      ? copyDashboard(copyFromId, { name, ventureId: null })
-      : addDashboard(name, presetId ?? "blank", null);
-    if (made) navigate(`/dashboards/${made.slug}`, { state: { editing: true } });
-  }
 
   // The bare /dashboards: land on the first board and put its own address in
   // the bar, replacing rather than pushing so Back still leaves the page.
@@ -67,7 +52,6 @@ export function Dashboards({ report }: { report?: "email-stats" }) {
         body={`Nothing here is called “${slug}”. It may have been deleted, filed under a venture, or the link may be from another workspace.`}
         boards={boards}
         basePath="/dashboards"
-        onCreate={create}
       />
     );
 
@@ -91,13 +75,13 @@ export function Dashboards({ report }: { report?: "email-stats" }) {
           activeKey={report ? "report:email-stats" : board?.id ?? null}
           onReorder={reorderDashboards}
         />
-        <button
-          onClick={() => setCreating(true)}
+        <Link
+          to="/dashboards/new"
           className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
         >
           <Plus className="size-3.5" strokeWidth={1.6} />
           <span className="hidden sm:inline">New dashboard</span><span className="sr-only sm:hidden">New dashboard</span>
-        </button>
+        </Link>
       </header>
 
       {/* Keyed by board: switching dashboards ends an edit session rather than
@@ -109,12 +93,6 @@ export function Dashboards({ report }: { report?: "email-stats" }) {
         homePath="/dashboards"
         ventureId={null}
       />}
-
-      <NewDashboardDialog
-        open={creating}
-        onOpenChange={setCreating}
-        onCreate={create}
-      />
     </>
   );
 }

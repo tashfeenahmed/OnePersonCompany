@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -25,7 +24,7 @@ import {
   type PlacedWidget,
 } from "@/lib/store";
 import { collectedAt, useLive } from "@/lib/live";
-import { DASHBOARD_PRESETS, SOURCES, WIDGETS } from "@/data/widgets";
+import { SOURCES, WIDGETS } from "@/data/widgets";
 
 /**
  * ONE DASHBOARD, WHEREVER IT LIVES.
@@ -551,16 +550,12 @@ export function NoBoard({
   body,
   boards = [],
   basePath,
-  onCreate,
 }: {
   title: string;
   body: string;
   boards?: Dashboard[];
   basePath: string;
-  onCreate: (name: string, presetId: string | null, copyFromId: string | null) => void;
 }) {
-  const [creating, setCreating] = useState(false);
-
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6">
       <div className="max-w-[380px] text-center">
@@ -570,17 +565,13 @@ export function NoBoard({
         </p>
 
         <div className="mt-4 flex justify-center">
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="size-3.5" strokeWidth={1.8} />
-            New dashboard
+          <Button asChild>
+            <Link to={`${basePath}/new`}>
+              <Plus className="size-3.5" strokeWidth={1.8} />
+              New dashboard
+            </Link>
           </Button>
         </div>
-
-        <NewDashboardDialog
-          open={creating}
-          onOpenChange={setCreating}
-          onCreate={onCreate}
-        />
 
         {boards.length > 0 && (
           <div className="mt-4 flex flex-wrap justify-center gap-1.5">
@@ -597,170 +588,6 @@ export function NoBoard({
         )}
       </div>
     </div>
-  );
-}
-
-export function NewDashboardDialog({
-  open,
-  onOpenChange,
-  onCreate,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  /** Exactly one of `presetId` and `copyFromId` is given. */
-  onCreate: (name: string, presetId: string | null, copyFromId: string | null) => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[420px]">
-        {open && (
-          <NewDashboardForm
-            onCreate={onCreate}
-            onDone={() => onOpenChange(false)}
-          />
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function NewDashboardForm({
-  onCreate,
-  onDone,
-}: {
-  onCreate: (name: string, presetId: string | null, copyFromId: string | null) => void;
-  onDone: () => void;
-}) {
-  const { state } = useStore();
-  const [name, setName] = useState("");
-  /* One selection, two kinds of thing: a preset id, or "copy:<board id>". A
-     single piece of state because they are one choice — "start from" — and two
-     would let both be set at once. */
-  const [from, setFrom] = useState("blank");
-
-  const copyId = from.startsWith("copy:") ? from.slice(5) : null;
-
-  /*
-    EVERY BOARD THAT EXISTS, GROUPED BY WHERE IT LIVES. The global set first
-    because it is the one everybody has, then a group per venture in the
-    owner's own order. A venture with no boards is not drawn: an empty heading
-    is a row that says nothing.
-  */
-  const groups = [
-    { key: "global", name: "Global", boards: state.dashboards.filter((d) => !d.ventureId) },
-    ...state.ventures.map((v) => ({
-      key: v.id,
-      name: v.name,
-      boards: state.dashboards.filter((d) => d.ventureId === v.id),
-    })),
-  ].filter((g) => g.boards.length);
-
-  function create() {
-    if (!name.trim()) return;
-    onCreate(name.trim(), copyId ? null : from, copyId);
-    onDone();
-  }
-
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>New dashboard</DialogTitle>
-        <DialogDescription>
-          Widgets come from whatever plugins are connected.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="grid gap-4">
-        <div className="grid gap-1.5">
-          <Label htmlFor="board-name">Name</Label>
-          <Input
-            id="board-name"
-            value={name}
-            autoFocus
-            autoComplete="off"
-            placeholder="Morning check"
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && create()}
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label>Start from</Label>
-          <div className="flex max-h-[260px] flex-col gap-px overflow-y-auto">
-            {DASHBOARD_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setFrom(p.id)}
-                className="hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-2 py-1.5 text-left text-[13.5px]"
-              >
-                {p.label}
-                <span
-                  className={cn(
-                    "text-muted-foreground ml-auto text-[11.5px]",
-                    p.id === from && "text-ok",
-                  )}
-                >
-                  {p.id === from ? "✓" : p.note}
-                </span>
-              </button>
-            ))}
-
-            {/*
-              COPY AN EXISTING DASHBOARD — the cross-pollination, from this end.
-
-              A board is an arrangement, and an arrangement that took ten
-              minutes to get right is worth more than the widgets in it. Being
-              able to say "the same as that venture's Search board, but for
-              this one" is the difference between a venture getting a proper
-              board and getting whatever somebody had the patience to rebuild.
-            */}
-            {groups.map((g) => (
-              <div key={g.key}>
-                <div className="text-muted-foreground px-2 pt-2.5 pb-1 text-[11.5px]">
-                  {g.name}
-                </div>
-                {g.boards.map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => {
-                      setFrom(`copy:${d.id}`);
-                      // A copy with no name of its own takes the source's,
-                      // which is what somebody copying a board nearly always
-                      // wants and can still type over.
-                      if (!name.trim()) setName(d.name);
-                    }}
-                    className="hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-2 py-1.5 text-left text-[13.5px]"
-                  >
-                    {d.name}
-                    <span
-                      className={cn(
-                        "text-muted-foreground ml-auto text-[11.5px]",
-                        copyId === d.id && "text-ok",
-                      )}
-                    >
-                      {copyId === d.id
-                        ? "✓"
-                        : `${d.widgets.length} widget${d.widgets.length === 1 ? "" : "s"}`}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <DialogFooter className="sm:justify-start">
-        <Button onClick={create} disabled={!name.trim()}>
-          Create
-        </Button>
-        <Button variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
-      </DialogFooter>
-    </>
   );
 }
 
