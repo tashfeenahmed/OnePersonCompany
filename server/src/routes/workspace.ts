@@ -7,6 +7,16 @@ function read() {
   return { revision: r?.revision ?? 0, data: r ? JSON.parse(r.data) : null };
 }
 workspaceRoutes.get("/", c => c.json(read()));
+
+/** The owner's name as the rail shows it — the `owner` field of the
+ *  workspace preferences — or null when nothing has been saved yet. Read by
+ *  the org chart, whose top box is the same person. */
+export function workspaceOwnerName(): string | null {
+  const data = read().data as { workspace?: { owner?: unknown } } | null;
+  const owner = data?.workspace?.owner;
+  const name = typeof owner === "string" ? owner.trim() : "";
+  return name || null;
+}
 workspaceRoutes.put("/", async c => {
   const raw = await c.req.text();
   if (raw.length > 2_000_000) return c.json({ error: "Workspace preferences exceed 2 MB." }, 413);

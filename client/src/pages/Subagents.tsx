@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
-import { Link } from "react-router-dom";
-import { ChevronRight, RefreshCw } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { RefreshCw } from "lucide-react";
 import { Tiles } from "@/components/integrations/Panel";
 import { QueueControls } from "@/components/runs/QueueControls";
 import { PageShell, TopBar } from "@/components/PageShell";
-import { StagePill, VentureMark } from "@/components/VentureChrome";
-import { SubagentRow } from "@/components/org/SubagentRow";
+import { SubTabs } from "@/components/TabStrip";
+import { OrgChart } from "@/components/org/OrgChart";
 import { RoleIcon } from "@/components/org/RoleIcon";
-import { runAddress, teamAddress } from "@/components/org/roleLook";
+import { runAddress } from "@/components/org/roleLook";
 import {
   backendPhrase,
   since,
@@ -19,11 +19,10 @@ import { useApi } from "@/hooks/useApi";
 import { ago, count, duration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { isLive, runsApi, type RunSummary } from "@/lib/api/runs";
-import { subagentApi, type OrgVentureTeam } from "@/lib/api/subagents";
+import { subagentApi, type Org } from "@/lib/api/subagents";
 
 /**
- * THE ROSTER: everybody who works here, what they are doing, and the one queue
- * they all wait in.
+ * THE SUB-AGENTS: who works here, and what they are doing — as two tabs.
  *
  * ---------------------------------------------------------------------------
  * THIS PAGE HAS BEEN A ROSTER BEFORE AND IT WAS A LIE. It shipped with
@@ -33,26 +32,37 @@ import { subagentApi, type OrgVentureTeam } from "@/lib/api/subagents";
  * and replaced with the queue alone, on the rule that a screen showing a
  * plausible number is worse than one showing nothing.
  *
- * THE ROSTER IS BACK BECAUSE THE WORKERS ARE NOW REAL. There are six per
- * venture, they exist as rows, they are provisioned rather than invented, and
- * every status below is a fact about the queue: `running` is a run executing
- * right now, `queued` is a count of runs waiting, `lastRun` is a report with an
+ * THE ROSTER IS BACK BECAUSE THE WORKERS ARE NOW REAL, and it is drawn as the
+ * org chart rather than as a list: the owner at the top, the chief of staff
+ * under them, and every venture with its workers under that. Every status on
+ * it is a fact about the queue — `running` is a run executing right now,
+ * `queued` is a count of runs waiting, a worker's last run is a report with an
  * address. Nothing on this page is a sample.
+ *
+ * TWO TABS, BECAUSE THE TWO QUESTIONS ARE ASKED AT DIFFERENT MOMENTS. "Who
+ * works for whom" is asked when you are thinking about the business and wants
+ * a picture; "what is happening" is asked when you are waiting for a report
+ * and wants the live queue, the counts and the history. Stacking them made a
+ * page where the chart pushed the queue off the bottom and the queue pushed
+ * the chart off the top. The URL carries the choice (`?tab=runs`), so a link
+ * to the queue is a link to the queue.
  *
  * ONE AT A TIME, STILL, and it is still the most important sentence here. The
  * server runs the oldest queued run when nothing else is running. A hundred
  * and fourteen workers do not mean a hundred and fourteen things at once —
  * they mean a hundred and fourteen names for the work, and one worker at the
  * front of one queue.
- *
- * WHY BOTH THIS AND THE CHART. The chart answers "who works for whom" and is a
- * picture; this answers "what is happening" and is a list, with the live queue
- * at the top of it. Neither is a tab of the other because they are read at
- * different moments — one when you are thinking about the business, one when
- * you are waiting for a report.
  */
 
+const TABS = [
+  { key: "roster", label: "Roster", title: "The org chart: the owner, the chief of staff and every venture's workers." },
+  { key: "runs", label: "Runs", title: "What is running, what is waiting, and everything that has run." },
+] as const;
+
 export function Subagents() {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "runs" ? "runs" : "roster";
+
   const [tick, setTick] = useState(0);
   const doc = useApi(() => runsApi.list({ limit: 50 }), [tick]);
   /* THE ROSTER IS ASKED FOR ON ITS OWN, SLOWER CLOCK. The queue document is
@@ -121,257 +131,200 @@ export function Subagents() {
       </TopBar>
 
       <PageShell
+        wide
         title="Sub-agents"
-        sub="Manage each venture's workers and their shared job queue. Reorder or hold waiting jobs below; work continues while the server is running."
+        sub={
+          tab === "roster"
+            ? team
+              ? `${team.subagents} workers across ${org.data?.ventures.length ?? 0} ventures, one per app, provisioned rather than created. ${team.enabled} switched on, ${team.running} working, ${team.queued} waiting.`
+              : "Every venture's workers, who they report to, and what each of them is doing."
+            : "The shared job queue. Reorder or hold waiting jobs; work continues while the server is running."
+        }
+        action={
+          <SubTabs
+            tabs={TABS}
+            activeKey={tab}
+            onSelect={(k) => setParams(k === "roster" ? {} : { tab: k })}
+            className="mb-0"
+          />
+        }
       >
-        <QueueControls />
-        {doc.error ? (
-          <p className="text-muted-foreground text-[14px]">
-            The queue could not be read, so there is nothing to show — not even
-            a zero, which would be a claim that nothing is running.{" "}
-            <span className="text-destructive">{doc.error}</span>
-          </p>
+        {tab === "roster" ? (
+          <Roster org={org} />
         ) : (
-          <>
-            {/* A FIGURE NOBODY HAS READ YET IS A DASH, not the last one still
-                on screen and not a zero. */}
-            <Tiles
-              items={stats.map(([v, k]) => ({ v: doc.loading && !doc.data ? "—" : v, k }))}
-            />
-
-            {/* --------------------------------------------------- right now */}
-            <div className="text-muted-foreground mb-2 text-[12px] tracking-[0.06em] uppercase">
-              Right now
-            </div>
-            {running ? (
-              <Working run={running} />
-            ) : (
-              <p className="text-muted-foreground mb-3 text-[14px]">
-                {doc.loading && !doc.data
-                  ? "Reading the queue…"
-                  : "Nothing is running. The tick that starts the next waiting run comes round every few seconds."}
-              </p>
-            )}
-
-            {queued.length > 0 && (
-              <div className="mt-2 mb-3 flex flex-col gap-px">
-                {queued.map((r, i) => (
-                  <div
-                    key={r.id}
-                    className="border-line-soft flex items-center gap-2.5 border-b py-1.5 last:border-b-0"
-                  >
-                    <span className="text-muted-foreground w-4 shrink-0 text-[12.5px] tabular-nums">
-                      {i + 1}
-                    </span>
-                    <span className="bg-warn size-1.5 shrink-0 rounded-full" />
-                    <RunTitle run={r} />
-                    <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
-                      queued {ago(r.queuedAt)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* ----------------------------------------------- the roster */}
-            <div className="mt-7 mb-2 flex items-baseline gap-2">
-              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-                The roster
-              </div>
-              {team && (
-                <span className="text-muted-foreground ml-auto text-[12.5px]">
-                  {team.subagents} across {org.data?.ventures.length ?? 0}{" "}
-                  ventures · {team.enabled} on
-                </span>
-              )}
-            </div>
-            <Roster
-              ventures={org.data?.ventures ?? []}
-              loading={org.loading && !org.data}
-              error={org.error}
-            />
-
-            {org.data?.roles.length ? (
-              <details className="mt-4">
-                <summary className="cursor-pointer text-sm">What each worker does</summary>
-                <div className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
-                {org.data.roles.map((r) => (
-                  <div
-                    key={r.role}
-                    className="text-muted-foreground flex items-start gap-2 text-[12.5px]"
-                  >
-                    <RoleIcon role={r.role} className="mt-0.5 size-3.5 shrink-0" />
-                    <span>
-                      <span className="text-foreground">{r.title}</span> ·{" "}
-                      {r.what}
-                    </span>
-                  </div>
-                ))}
-                </div>
-              </details>
-            ) : null}
-
-            {/* ---------------------------------------------------- history */}
-            <div className="mt-7 mb-2 flex items-baseline gap-2">
-              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-                Everything, newest first
-              </div>
-              <span className="text-muted-foreground ml-auto text-[12.5px]">
-                {runs.length === 0
-                  ? ""
-                  : `last ${runs.length} ${runs.length === 1 ? "run" : "runs"}`}
-              </span>
-            </div>
-            {runs.length === 0 ? (
-              <p className="text-muted-foreground text-[14px]">
-                No jobs yet. Start a job from an app to track it here.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-px">
-                {runs.map((r) => (
-                  <HistoryRow key={r.id} run={r} />
-                ))}
-              </div>
-            )}
-
-            <p className="text-muted-foreground pt-5 text-[14px]">
-              Reports stay until you delete them. Interrupted jobs are marked
-              failed and can be retried from their report. AI visibility jobs
-              can also resume saved model steps.
-            </p>
-          </>
+          <Runs
+            doc={doc}
+            runs={runs}
+            running={running}
+            queued={queued}
+            stats={stats}
+          />
         )}
       </PageShell>
     </>
   );
 }
 
-/**
- * EVERY WORKER, UNDER THE VENTURE THEY WORK FOR.
- *
- * COLLAPSED BY DEFAULT, EXCEPT WHERE SOMETHING IS HAPPENING. Nineteen ventures
- * times six is a hundred and fourteen rows, which as a flat list is a wall
- * nobody reads; as nineteen closed rows it is a page you can see the shape of.
- * The exception is the whole trick: a venture with a run in flight or waiting
- * opens itself, so "what is happening" never requires a press.
- *
- * The group header carries the counts, so a closed venture still says whether
- * anything under it is alive.
- */
-function Roster({
-  ventures,
-  loading,
-  error,
-}: {
-  ventures: OrgVentureTeam[];
-  loading: boolean;
-  error: string | null;
-}) {
-  const busy = useMemo(
-    () =>
-      new Set(
-        ventures
-          .filter((v) => v.subagents.some((s) => s.running || s.queued > 0))
-          .map((v) => v.id),
-      ),
-    [ventures],
-  );
-  /* Null means "nobody has pressed anything yet", so the busy set decides. A
-     press puts an explicit set in here and from then on it is the owner's. */
-  const [open, setOpen] = useState<Set<string> | null>(null);
-  const isOpen = (id: string) => (open ? open.has(id) : busy.has(id));
-  const toggle = (id: string) =>
-    setOpen(() => {
-      const next = new Set(open ?? busy);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+/* ------------------------------------------------------------- the roster */
 
-  if (error)
+/**
+ * THE ORG CHART, WHOLE. No filter box here — that is the Org page's — because
+ * a roster is the whole staff and a chart that had been quietly narrowed is
+ * the one that says the SEO analyst does not exist.
+ */
+function Roster({ org }: { org: { data: Org | null; error: string | null; loading: boolean } }) {
+  if (org.error)
     return (
       <p className="text-muted-foreground text-[14px]">
-        The roster could not be read, so nobody is listed — an empty list would
-        say this box employs nobody.{" "}
-        <span className="text-destructive">{error}</span>
+        The org could not be read, so none of it is drawn — an empty chart
+        would be a claim that nobody works here.{" "}
+        <span className="text-destructive">{org.error}</span>
       </p>
     );
-  if (!ventures.length)
+  if (!org.data)
     return (
-      <p className="text-muted-foreground text-[14px]">
-        {loading
-          ? "Counting everyone in…"
-          : "No ventures, so no workers. Every venture gets its six the moment it exists."}
+      <p className="text-muted-foreground text-[13.5px]">
+        {org.loading ? "Counting everyone in…" : "Nothing came back."}
       </p>
     );
 
   return (
-    <div className="flex flex-col gap-px">
-      {ventures.map((v) => {
-        const on = isOpen(v.id);
-        const working = v.subagents.filter((s) => s.running).length;
-        const waiting = v.subagents.reduce((n, s) => n + s.queued, 0);
-        const off = v.subagents.filter((s) => !s.enabled).length;
-        const last = v.subagents
-          .map((s) => s.lastRun)
-          .filter((r): r is RunSummary => !!r)
-          .sort((a, b) =>
-            (b.finishedAt ?? b.queuedAt).localeCompare(a.finishedAt ?? a.queuedAt),
-          )[0];
-        return (
-          <div key={v.id} className="border-line-soft border-b last:border-b-0">
-            <button
-              onClick={() => toggle(v.id)}
-              aria-expanded={on}
-              className="hover:bg-accent -mx-1.5 flex w-[calc(100%+12px)] items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors"
-            >
-              <ChevronRight
-                className={cn(
-                  "text-muted-foreground size-3.5 shrink-0 transition-transform",
-                  on && "rotate-90",
-                )}
-                strokeWidth={1.8}
-              />
-              <VentureMark
-                venture={{
-                  name: v.name,
-                  color: v.color,
-                  brand: { favicon: v.favicon },
-                }}
-                size={16}
-              />
-              <span className="truncate text-[13.5px] font-medium">{v.name}</span>
-              <StagePill stage={v.stage} />
-              <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
-                {working > 0 && (
-                  <span className="text-foreground">
-                    {working} working ·{" "}
-                  </span>
-                )}
-                {waiting > 0 && `${waiting} waiting · `}
-                {off > 0 && `${off} off · `}
-                {v.subagents.length} workers
-              </span>
-              <span className="text-muted-foreground hidden w-[92px] shrink-0 text-right text-[12.5px] sm:block">
-                {last ? ago(last.finishedAt ?? last.queuedAt) : "never run"}
-              </span>
-            </button>
+    <>
+      <OrgChart
+        owner={org.data.owner}
+        chiefOfStaff={org.data.chiefOfStaff}
+        ventures={org.data.ventures}
+      />
+      {!org.data.ventures.length && (
+        <p className="text-muted-foreground text-[13.5px]">
+          There are no ventures, so there is nobody to staff. Make one and its
+          workers appear with it.
+        </p>
+      )}
 
-            {on && (
-              <div className="border-line-soft mb-1.5 ml-[9px] flex flex-col gap-px border-l pl-3">
-                {v.subagents.map((sa) => (
-                  <SubagentRow
-                    key={sa.id}
-                    sa={sa}
-                    to={teamAddress(v.slug, sa.role)}
-                  />
-                ))}
+      {org.data.roles.length > 0 && (
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm">What each worker does</summary>
+          <div className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+            {org.data.roles.map((r) => (
+              <div
+                key={r.role}
+                className="text-muted-foreground flex items-start gap-2 text-[12.5px]"
+              >
+                <RoleIcon role={r.role} className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  <span className="text-foreground">{r.title}</span> · {r.what}
+                </span>
               </div>
-            )}
+            ))}
           </div>
-        );
-      })}
-    </div>
+        </details>
+      )}
+      <p className="text-muted-foreground mt-4 text-[12.5px] leading-relaxed">
+        Nobody here was created by hand. Every venture gets the same workers —
+        one per app — the moment it exists, and a venture that is deleted
+        takes them with it. Press a worker to give it a brief, change its
+        standing instructions or read what it has already done.
+      </p>
+    </>
+  );
+}
+
+/* --------------------------------------------------------------- the runs */
+
+function Runs({
+  doc,
+  runs,
+  running,
+  queued,
+  stats,
+}: {
+  doc: { loading: boolean; error: string | null; data: unknown };
+  runs: RunSummary[];
+  running: RunSummary | null;
+  queued: RunSummary[];
+  stats: [string, string][];
+}) {
+  if (doc.error)
+    return (
+      <p className="text-muted-foreground text-[14px]">
+        The queue could not be read, so there is nothing to show — not even a
+        zero, which would be a claim that nothing is running.{" "}
+        <span className="text-destructive">{doc.error}</span>
+      </p>
+    );
+  const pending = doc.loading && !doc.data;
+  return (
+    <>
+      <QueueControls />
+
+      {/* A FIGURE NOBODY HAS READ YET IS A DASH, not the last one still on
+          screen and not a zero. */}
+      <Tiles items={stats.map(([v, k]) => ({ v: pending ? "—" : v, k }))} />
+
+      {/* ----------------------------------------------------- right now */}
+      <div className="text-muted-foreground mb-2 text-[12px] tracking-[0.06em] uppercase">
+        Right now
+      </div>
+      {running ? (
+        <Working run={running} />
+      ) : (
+        <p className="text-muted-foreground mb-3 text-[14px]">
+          {pending
+            ? "Reading the queue…"
+            : "Nothing is running. The tick that starts the next waiting run comes round every few seconds."}
+        </p>
+      )}
+
+      {queued.length > 0 && (
+        <div className="mt-2 mb-3 flex flex-col gap-px">
+          {queued.map((r, i) => (
+            <div
+              key={r.id}
+              className="border-line-soft flex items-center gap-2.5 border-b py-1.5 last:border-b-0"
+            >
+              <span className="text-muted-foreground w-4 shrink-0 text-[12.5px] tabular-nums">
+                {i + 1}
+              </span>
+              <span className="bg-warn size-1.5 shrink-0 rounded-full" />
+              <RunTitle run={r} />
+              <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px]">
+                queued {ago(r.queuedAt)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------ history */}
+      <div className="mt-7 mb-2 flex items-baseline gap-2">
+        <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
+          Everything, newest first
+        </div>
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
+          {runs.length === 0
+            ? ""
+            : `last ${runs.length} ${runs.length === 1 ? "run" : "runs"}`}
+        </span>
+      </div>
+      {runs.length === 0 ? (
+        <p className="text-muted-foreground text-[14px]">
+          No jobs yet. Start a job from an app to track it here.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-px">
+          {runs.map((r) => (
+            <HistoryRow key={r.id} run={r} />
+          ))}
+        </div>
+      )}
+
+      <p className="text-muted-foreground pt-5 text-[14px]">
+        Reports stay until you delete them. Interrupted jobs are marked failed
+        and can be retried from their report. AI visibility jobs can also
+        resume saved model steps.
+      </p>
+    </>
   );
 }
 

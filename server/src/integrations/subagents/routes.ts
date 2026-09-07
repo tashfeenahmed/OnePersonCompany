@@ -37,6 +37,7 @@ import { activeProvider } from "../../models/provider.ts";
 import { kindDef, type InputSpec, type KindDef } from "../runs/kinds.ts";
 import { pump } from "../runs/executor.ts";
 import { goalBriefLine } from "../chief/goals.ts";
+import { workspaceOwnerName } from "../../routes/workspace.ts";
 import { fencedJson } from "../runs/kinds.ts";
 import { insertRun, mintRunId, queuePosition, readInput, runRow, shapeRun, type RunRow } from "../runs/store.ts";
 import {
@@ -219,7 +220,11 @@ subagentRoutes.get("/", async (c) => {
   const ventures = orgVentures();
   const all = ventures.flatMap((v) => v.subagents);
   return c.json({
-    owner: { name: configValue(WORKSPACE_PLUGIN, "owner")?.trim() || DEFAULT_OWNER },
+    /* The org's own setting first, then the name the rail already shows —
+       the workspace's owner field — and "You" only when neither is set. The
+       person at the top of the chart is the person whose name is on the
+       workspace; asking for it twice was the bug. */
+    owner: { name: configValue(WORKSPACE_PLUGIN, "owner")?.trim() || workspaceOwnerName() || DEFAULT_OWNER },
     chiefOfStaff: await chiefOfStaff(),
     roles: roleInfos(),
     ventures,
