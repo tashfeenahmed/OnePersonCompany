@@ -494,7 +494,7 @@ function Overview({
           note="Six sub-agents, one per app, provisioned with the venture. A run of their kind filed under this venture is their work, whoever started it."
           action={
             <Link
-              to="/ventures/org"
+              to="/subagents"
               className="text-muted-foreground hover:text-foreground text-[12.5px]"
             >
               The org chart

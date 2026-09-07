@@ -97,7 +97,7 @@ export function Ventures() {
                 Neither is a tab of the other because a venture's staff has
                 nothing to do with its integrations. */}
             <Button asChild variant="outline">
-              <Link to="/ventures/org">
+              <Link to="/subagents">
                 <Network className="size-[15px]" strokeWidth={1.8} />
                 Org chart
               </Link>

@@ -22,7 +22,6 @@ const Ventures = lazy(() => import("@/pages/Ventures").then(m => ({ default: m.V
 const Venture = lazy(() => import("@/pages/Venture").then(m => ({ default: m.Venture })));
 const VentureForm = lazy(() => import("@/pages/VentureForm").then(m => ({ default: m.VentureForm })));
 const VentureMap = lazy(() => import("@/pages/VentureMap").then(m => ({ default: m.VentureMap })));
-const Org = lazy(() => import("@/pages/Org").then(m => ({ default: m.Org })));
 const Subagent = lazy(() => import("@/pages/Subagent").then(m => ({ default: m.Subagent })));
 const Settings = lazy(() => import("@/pages/Settings").then(m => ({ default: m.Settings })));
 const SubagentOutputs = lazy(() => import("@/pages/Outputs").then(m => ({ default: m.SubagentOutputs })));
@@ -111,9 +110,10 @@ export default function App() {
                     {/* The org chart, before `:slug` for the third time and
                         the third identical reason: a literal segment that a
                         venture could one day be slugged with. */}
-                    <Route path="/org" element={<Org />} />
-                    {/* The old address, kept for links already made. */}
-                    <Route path="/ventures/org" element={<Navigate to="/org" replace />} />
+                    {/* The org chart is the Sub-agents page's roster now. Both
+                        of its old addresses land there, for links already made. */}
+                    <Route path="/org" element={<Navigate to="/subagents" replace />} />
+                    <Route path="/ventures/org" element={<Navigate to="/subagents" replace />} />
                     <Route path="/ventures/:slug" element={<Venture />} />
                     <Route path="/ventures/:slug/edit" element={<VentureForm />} />
                     {/*

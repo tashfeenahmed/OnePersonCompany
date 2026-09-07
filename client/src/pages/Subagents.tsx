@@ -1,3 +1,4 @@
+import { appPage } from "../../../shared/navigation";
 import { useEffect, useState } from "react";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { Link, useSearchParams } from "react-router-dom";
@@ -202,25 +203,52 @@ function Roster({ org }: { org: { data: Org | null; error: string | null; loadin
         </p>
       )}
 
+      {/* ------------------------------------------------ the roles */}
       {org.data.roles.length > 0 && (
-        <details className="mt-4">
-          <summary className="cursor-pointer text-sm">What each worker does</summary>
-          <div className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+        <>
+          <div className="mt-8 mb-2 flex items-baseline gap-2">
+            <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
+              What each worker does
+            </div>
+            <span className="text-muted-foreground ml-auto text-[12.5px]">
+              {org.data.roles.length} roles, the same on every venture
+            </span>
+          </div>
+          {/*
+            ONE CARD PER ROLE, ALWAYS OPEN. This was a native accordion with a
+            triangle nobody else on the page draws, folded shut over the one
+            paragraph a new reader needs. Ten roles fit in a grid; a card
+            carries the icon the chart uses for the same worker, the kind's
+            own sentence, and a link to the app whose runs are its work.
+          */}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {org.data.roles.map((r) => (
-              <div
+              <Link
                 key={r.role}
-                className="text-muted-foreground flex items-start gap-2 text-[12.5px]"
+                to={appPage(r.app)}
+                title={`Every ${r.title.toLowerCase()}'s runs are read on the ${r.title} app page.`}
+                className="bg-card hover:bg-card-hover flex flex-col gap-1.5 rounded-[14px] px-4 py-3.5 transition-colors"
               >
-                <RoleIcon role={r.role} className="mt-0.5 size-3.5 shrink-0" />
-                <span>
-                  <span className="text-foreground">{r.title}</span> · {r.what}
+                <span className="flex items-center gap-2">
+                  <span className="bg-muted text-foreground grid size-7 shrink-0 place-items-center rounded-lg">
+                    <RoleIcon role={r.role} className="size-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium">
+                    {r.title}
+                  </span>
+                  <span className="text-muted-foreground shrink-0 font-mono text-[11.5px]">
+                    {r.kind}
+                  </span>
                 </span>
-              </div>
+                <span className="text-muted-foreground text-[12.5px] leading-relaxed">
+                  {r.what}
+                </span>
+              </Link>
             ))}
           </div>
-        </details>
+        </>
       )}
-      <p className="text-muted-foreground mt-4 text-[12.5px] leading-relaxed">
+      <p className="text-muted-foreground mt-5 text-[12.5px] leading-relaxed">
         Nobody here was created by hand. Every venture gets the same workers —
         one per app — the moment it exists, and a venture that is deleted
         takes them with it. Press a worker to give it a brief, change its

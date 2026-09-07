@@ -31,8 +31,8 @@ const icons: Record<string, string> = {
   "/customers": "customers",
   "/alerts": "alerts",
   "/dashboards": "dashboards",
-  "/subagents": "subagents",
-  "/org": "org",
+  /* The org-tree artwork: the Sub-agents page IS the org chart. */
+  "/subagents": "org",
   "/integrations": "integrations",
   "/ops": "ops",
   "/settings": "settings",

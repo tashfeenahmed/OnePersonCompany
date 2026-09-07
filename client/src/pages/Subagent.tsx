@@ -188,7 +188,7 @@ export function Subagent() {
               : `Nothing here is called “${slug}”, or it has no ${role}.`
           }
         >
-          <Link to="/org" className="text-[13.5px] underline">
+          <Link to="/subagents" className="text-[13.5px] underline">
             The org chart
           </Link>
         </PageShell>
@@ -331,7 +331,7 @@ export function Subagent() {
             <Settings2 className="size-3.5" strokeWidth={1.6} />
           </button>
           <Link
-            to="/org"
+            to="/subagents"
             className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2 py-1 text-[13.5px]"
           >
             The org
