@@ -78,7 +78,10 @@ export type FinanceSummary = {
   monthly: Amounts;
   annual: Amounts;
   converted: { currency: string; amount: number; approximate: true; rates: Rate[]; note: string } | { error: string } | null;
-  fx: { displayCurrency: string | null; rates: Rate[]; errors: string[] };
+  fx: { displayCurrency: string | null; rates: Rate[]; errors: string[]; reference: ReferenceRates | null };
+  /** Whether, and when, Dynadot's own renewal list priced the domain rows.
+   *  Null before the first read — "unpriced" then means nobody has looked. */
+  registrarPrices: { tlds: number; priceLevel: string | null; currency: string; fetchedAt: string } | null;
   /** `within90Days` counts only renewals still ahead; a date that has
    *  already passed is counted apart, in `overdue`. */
   renewals: { within90Days: number; undecided: number; overdue: number };
@@ -87,7 +90,27 @@ export type FinanceSummary = {
   note: string;
 };
 
-export type Rate = { from: string; to: string; rate: number; asOf: string | null };
+export type Rate = {
+  from: string;
+  to: string;
+  rate: number;
+  asOf: string | null;
+  /** Who said so — the owner on the Finance page, or the ECB's daily file. */
+  source?: "typed" | "ecb";
+};
+
+/**
+ * The ECB's daily reference rates as the server cached them: how many of
+ * each currency one euro buys, and the business day the file is for. Here so
+ * a card can put two currencies on one axis and NAME the rate — never a
+ * total, and it makes none. See lib/fx for the cross rate.
+ */
+export type ReferenceRates = {
+  base: string;
+  asOf: string;
+  fetchedAt: string;
+  rates: Record<string, number>;
+};
 
 export type ExpensesDoc = {
   count: number;

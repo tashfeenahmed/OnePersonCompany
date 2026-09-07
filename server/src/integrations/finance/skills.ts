@@ -39,11 +39,13 @@ export const SKILLS: Skill[] = [
     rules: [
       "MONEY IS NEVER ADDED ACROSS CURRENCIES. Every total is a list keyed by currency code — Hetzner is EUR net " +
         "of VAT, most else is USD — and `combined` is null on all of them. A converted figure exists only at " +
-        "/api/finance/converted, only when the owner has typed a display currency AND a rate for every currency " +
-        "present, and it is `approximate: true` with the rate and its date attached. Never compute one yourself.",
-      "`amount: null` IS A COST WITH NO KNOWN PRICE, never a free one. Twenty-three domain renewals seed this way " +
-        "because neither registrar's API publishes a renewal price. Those rows are excluded from every total and " +
-        "counted in `unpriced`; a total with `unpriced > 0` is a FLOOR on what the operation costs.",
+        "/api/finance/converted, only when the owner has set a display currency; each pair uses the rate the " +
+        "owner typed if there is one and the ECB's daily reference rate otherwise, and the figure is " +
+        "`approximate: true` with every rate, its source and its date attached. Never compute one yourself.",
+      "`amount: null` IS A COST WITH NO KNOWN PRICE, never a free one. A domain held at Dynadot is priced from " +
+        "Dynadot's own renewal list (this account's price level, read daily); one held at Spaceship seeds unpriced " +
+        "because Spaceship publishes no renewal price. Unpriced rows are excluded from every total and counted in " +
+        "`unpriced`; a total with `unpriced > 0` is a FLOOR on what the operation costs.",
       "A yearly bill contributes a twelfth to `monthly` and its exact price to `annual`. A ONE-OFF contributes " +
         "NOTHING to either — it is listed with its amount and never amortised, because a fee paid once is not a " +
         "run rate.",

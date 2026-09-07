@@ -52,7 +52,9 @@ import {
   parseRates,
   shapeTotals,
   type Basis,
+  type Rate,
 } from "./money.ts";
+import { crossRate, priceListMeta, referenceRates, refreshReferenceRates, refreshTldPrices } from "./prices.ts";
 import { findVenture, portfolioPnl, venturePnl } from "./profit.ts";
 import { deleteProfile, machinesAvailable, powerLines, profiles, saveProfile, tariff } from "./power.ts";
 import { seedPower } from "./power.ts";
@@ -65,8 +67,25 @@ export const financeRoutes = new Hono();
    correct. */
 function fx() {
   const display = (configValue(PLUGIN, "display_currency") ?? "").trim() || null;
-  const { rates, errors } = parseRates(configValue(PLUGIN, "fx"), display ?? "USD");
-  return { display: display ? currencyCode(display) : null, rates, errors };
+  const { rates: typed, errors } = parseRates(configValue(PLUGIN, "fx"), display ?? "USD");
+  /*
+    TYPED RATES FIRST, THE ECB'S FOR THE REST. A rate the owner wrote on the
+    page is the last word for its pair; every currency the ledger holds that
+    has no typed rate gets the ECB reference cross rate, dated, so a converted
+    figure exists without the owner transcribing a number the bank already
+    publishes. Each rate says which it is.
+  */
+  const reference = referenceRates();
+  const rates: Rate[] = typed.map((r) => ({ ...r, source: "typed" as const }));
+  if (display && reference) {
+    const to = currencyCode(display);
+    for (const code of Object.keys(monthlyTotals(allExpenses()).byCurrency)) {
+      if (code === to || rates.some((r) => r.from === code)) continue;
+      const rate = crossRate(reference, code, to);
+      if (rate !== null) rates.push({ from: code, to, rate, asOf: reference.asOf, source: "ecb" });
+    }
+  }
+  return { display: display ? currencyCode(display) : null, rates, errors, reference };
 }
 
 /** Every refusal in this file, in one shape: a sentence a person can act on
@@ -80,7 +99,7 @@ financeRoutes.get("/", (c) => {
   const rows = allExpenses();
   const monthly = monthlyTotals(rows);
   const annual = annualTotals(rows);
-  const { display, rates, errors } = fx();
+  const { display, rates, errors, reference } = fx();
   const shared = rows.filter((r) => r.venture_id === null);
   const withRule = shared.filter((r) => allocationsOf(r.id).length > 0);
   const soon = renewalsAhead(90);
@@ -104,7 +123,14 @@ financeRoutes.get("/", (c) => {
        have been typed in — a partial conversion is refused, not silently
        short. */
     converted: display ? convert(monthly, display, rates) : null,
-    fx: { displayCurrency: display, rates, errors },
+    /* `reference` is the ECB's daily file as cached: units per euro, dated.
+       It is here so a card can put two currencies on one axis and NAME the
+       rate; it is not a total and it makes none. */
+    fx: { displayCurrency: display, rates, errors, reference },
+    /* Whether, and when, the registrar's own price list priced the domain
+       rows — the difference between "unpriced" meaning "nobody looked" and
+       meaning "the list does not carry this TLD". */
+    registrarPrices: priceListMeta("dynadot"),
     renewals: {
       within90Days: soon.length,
       undecided: soon.filter((r) => r.renewalDecision === "undecided").length,
@@ -503,13 +529,18 @@ financeRoutes.delete("/power/:machineId", (c) => {
  * collection. Not destructive: it adds, refreshes and archives seeded rows and
  * cannot touch a manual one or a column the owner has edited.
  */
-financeRoutes.post("/refresh", (c) => {
+financeRoutes.post("/refresh", async (c) => {
+  /* The two published documents first, so the domain seed below prices
+     against today's list rather than yesterday's. Both are cached for a day
+     and never throw — see ./prices. */
+  const prices = await refreshTldPrices();
+  const rates = await refreshReferenceRates();
   const hetzner = seedHetzner();
   const registrar = seedDomains();
   const power = seedPower();
   const relinked = relinkDomains();
   return c.json({
-    hetzner, registrar, power, domainsRelinked: relinked,
+    hetzner, registrar, power, domainsRelinked: relinked, prices, rates,
     monthly: shapeTotals(monthlyTotals(allExpenses())),
     note:
       "Seeded rows are rewritten from the provider; columns listed in an expense's `ownerFields` are left exactly " +

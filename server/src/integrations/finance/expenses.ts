@@ -26,6 +26,7 @@
  */
 import { db, allDomains, now, ventureRowById } from "../../db.ts";
 import { ventureOfEntity } from "../ventures/links.ts";
+import { tldPrice } from "./prices.ts";
 import {
   CATEGORIES,
   DECISIONS,
@@ -535,15 +536,20 @@ export function hetznerMonthlyCost(): {
 }
 
 /**
- * THE REGISTRARS: one row per domain, with the renewal date and — usually —
- * no price.
+ * THE REGISTRARS: one row per domain, with the renewal date and — where the
+ * registrar publishes one — the renewal price.
  *
- * NEITHER REGISTRAR PUBLISHES A RENEWAL PRICE through the endpoints this box
- * reads, so `amount` seeds null and the row's whole value is its DATE and its
- * auto-renew flag. That is still the most actionable line in the ledger: a
- * name that renews itself in 40 days and a name that lapses in 40 days are
- * opposite decisions, and both are invisible without this row. Type the price
- * in once and it survives every refresh.
+ * DYNADOT NAMES ARE PRICED FROM DYNADOT'S OWN LIST. `get_tld_price` answers
+ * with this account's renewal price per TLD at its own price level, which is
+ * the figure the invoice will carry — see ./prices. A name whose TLD the list
+ * does not carry, or a run where the list has never been read, seeds
+ * unpriced exactly as before. Spaceship publishes no price through any
+ * endpoint this box reads, so its rows stay unpriced until typed.
+ *
+ * Either way the row's DATE and auto-renew flag are its first value: a name
+ * that renews itself in 40 days and a name that lapses in 40 days are opposite
+ * decisions, and both are invisible without this row. A price the owner typed
+ * survives every refresh, priced list or not.
  *
  * The venture comes from the venture link when there is one — thirteen of
  * these are already linked — and null otherwise, which files the domain as a
@@ -555,19 +561,24 @@ export function seedDomains(): SeedCounts {
   for (const d of allDomains()) {
     const ref = `${d.source}:${d.name}`;
     keep.add(ref);
+    const priced = d.source === "dynadot" ? tldPrice(d.name, "dynadot") : null;
     bump(t, upsertSeed("registrar", {
       sourceRef: ref,
       label: d.name,
       category: "domain",
-      amount: null,
-      currency: "USD",
+      amount: priced ? priced.annual : null,
+      currency: priced ? priced.currency : "USD",
       period: "yearly",
       renewalOn: d.expires_at,
       ventureId: ventureOfEntity(d.source, d.name),
       notes:
         `${d.registrar} renewal${d.expires_at ? ` on ${d.expires_at}` : " — no expiry date reported"}. ` +
         `${d.auto_renew === 1 ? "Auto-renew is on." : d.auto_renew === 0 ? "Auto-renew is OFF: doing nothing loses the name." : "The registrar published no auto-renew flag; null is not “no”."} ` +
-        `No renewal price is published through this registrar's API, so the amount is unpriced until you type it.`,
+        (priced
+          ? `Priced from Dynadot's own renewal list for .${priced.tld}${priced.price_level ? ` at the ${priced.price_level} price level` : ""}, read ${priced.fetched_at.slice(0, 10)} — what the registrar will charge, not an estimate.`
+          : d.source === "dynadot"
+            ? `Dynadot's price list has not been read yet, or does not carry this TLD, so the amount is unpriced until it is or until you type it.`
+            : `No renewal price is published through this registrar's API, so the amount is unpriced until you type it.`),
     }));
   }
   t.archived = archiveMissing("registrar", keep);

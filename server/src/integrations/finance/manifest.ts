@@ -17,15 +17,21 @@
  * in step with the servers that exist and the domains that renew. A finance
  * area that had to be switched on would silently hold a stale rate card.
  *
- * THE COLLECTOR TOUCHES NO NETWORK. It reads hetzner_servers, hetzner_volumes,
- * domains, venture_links and workstation_state and writes finance_expenses. It
- * costs a handful of indexed queries and cannot fail for a reason outside this
- * box, which is why it is safe to have it always on.
+ * THE COLLECTOR TOUCHES THE NETWORK TWICE A DAY AND NEVER DEPENDS ON IT. The
+ * seed itself reads hetzner_servers, hetzner_volumes, domains, venture_links
+ * and workstation_state and writes finance_expenses — a handful of indexed
+ * queries that cannot fail for a reason outside this box. Ahead of it, two
+ * published documents are refreshed when their cached copy is a day old:
+ * Dynadot's renewal price list, which is what prices the domain rows, and the
+ * ECB's daily reference rates, which is what lets a card name the rate it
+ * drew euro beside dollars at. Both keep yesterday's rows on a failed read and
+ * report it; neither can stop the seed. See ./prices.
  */
 import type { IntegrationManifest } from "../manifest.ts";
 import { finishRun, startRun, syncPlugin, upsertPlugin } from "../../db.ts";
 import { PLUGIN, relinkDomains, seedDomains, seedHetzner } from "./expenses.ts";
 import { seedPower } from "./power.ts";
+import { refreshReferenceRates, refreshTldPrices } from "./prices.ts";
 import { financeRoutes } from "./routes.ts";
 import { parseRates } from "./money.ts";
 import { SKILLS, PACKS } from "./skills.ts";
@@ -36,6 +42,16 @@ async function collectFinance() {
   const runId = startRun(PLUGIN);
   const notes: string[] = [];
   const problems: string[] = [];
+  /* The published documents first, so the seed prices against today's list.
+     A failed read is a problem on the run and nothing more. */
+  for (const [name, refresh] of [
+    ["dynadot prices", refreshTldPrices],
+    ["ECB rates", refreshReferenceRates],
+  ] as const) {
+    const r = await refresh();
+    if (r.error) problems.push(r.error);
+    else notes.push(`${name}: ${r.skipped ? `${r.rows} cached` : `${r.rows} read`}`);
+  }
   for (const [name, fn] of [
     ["hetzner", seedHetzner],
     ["registrar", seedDomains],
@@ -84,9 +100,9 @@ export const manifest: IntegrationManifest = {
           label: "Exchange rates",
           hint:
             "One per line: “EUR = 1.08 on 2026-09-01”, meaning one euro buys 1.08 of the display currency on that " +
-            "date. THIS BOX FETCHES NO RATES — a converted figure is only ever as good as what you typed, and it " +
-            "is always labelled approximate. A currency present in the ledger with no rate here means there is no " +
-            "converted total at all, rather than one quietly missing a currency.",
+            "date. Optional: a pair with no line here uses the ECB's daily reference rate, read once a day and " +
+            "dated on every figure it touches. A rate typed here is the last word for its pair. Every converted " +
+            "figure is labelled approximate whichever rate it used.",
           ph: "EUR = 1.08 on 2026-09-01",
           check(value) {
             const { errors } = parseRates(value, "USD");

@@ -139,4 +139,40 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       );
     `,
   },
+  /*
+    THE TWO THINGS A LEDGER CAN LOOK UP RATHER THAN BE TOLD. A registrar's own
+    renewal price list, so a domain row seeds with the price it will actually
+    be charged at; and the ECB's daily reference rates, so a card that has to
+    draw euro and dollars on one axis can say what rate it used and when.
+    Both are caches of a document somebody else publishes — refreshed daily,
+    never authoritative over a figure the owner typed, and dated on every row
+    so nothing drawn from them can pretend to be current.
+  */
+  {
+    name: "243_finance_tld_prices",
+    sql: `
+      CREATE TABLE IF NOT EXISTS finance_tld_prices (
+        registrar    TEXT NOT NULL,
+        tld          TEXT NOT NULL,
+        annual       REAL NOT NULL,
+        currency     TEXT NOT NULL,
+        price_level  TEXT,
+        fetched_at   TEXT NOT NULL,
+        PRIMARY KEY (registrar, tld)
+      );
+    `,
+  },
+  {
+    name: "244_finance_fx_rates",
+    sql: `
+      CREATE TABLE IF NOT EXISTS finance_fx_rates (
+        base        TEXT NOT NULL,
+        currency    TEXT NOT NULL,
+        rate        REAL NOT NULL,
+        as_of       TEXT NOT NULL,
+        fetched_at  TEXT NOT NULL,
+        PRIMARY KEY (base, currency)
+      );
+    `,
+  },
 ];

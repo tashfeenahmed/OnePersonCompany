@@ -50,6 +50,7 @@ import type {
 } from "@/lib/api/reports";
 import type { Meter, RunwayRow, StatusTone, Widget } from "@/data/widgets";
 import type { Expense, FinanceReport } from "@/lib/api/finance";
+import { rateBetween } from "./fx.ts";
 /* EVERY FIGURE ON THESE CARDS IS DRAWN BY `@/lib/format`. A private formatter
    here drifts from the panel showing the same number — 1.5M on this card, 1.5m
    on that one, 1,500,000 on a third — and nothing catches it. The adapters
@@ -6680,6 +6681,32 @@ function sourceWord(e: Expense): string {
   return e.ownerFields.includes("amount") ? `${e.source} · price typed` : e.source;
 }
 
+/**
+ * The currency a one-figure card draws in, and the converter into it.
+ *
+ * The display currency when the owner set one; otherwise the currency most of
+ * the bill is in. `into` answers with the converted amount and the rate it
+ * used — a typed one first, the ECB's cross rate otherwise — or null when
+ * neither can price the pair, in which case the caller draws the figure in
+ * its own currency with no share rather than guessing.
+ */
+function ringCurrency(finance: FinanceReport): string | null {
+  return finance.summary.fx.displayCurrency ?? leadCurrency(finance)?.currency ?? null;
+}
+function converter(finance: FinanceReport, to: string) {
+  const { rates, reference } = finance.summary.fx;
+  return (amount: number, from: string) => {
+    const r = rateBetween(from, to, rates, reference);
+    return r ? { amount: amount * r.rate, ...r } : null;
+  };
+}
+/** "at the ECB reference rate of 5 Sept" / "at the rate you typed". */
+function rateWords(r: { source: "typed" | "ecb"; asOf: string | null }): string {
+  return r.source === "typed"
+    ? `at the rate typed on the Finance page${r.asOf ? ` (${r.asOf})` : ""}`
+    : `at the ECB reference rate of ${r.asOf ?? "its last file"}`;
+}
+
 /** /mo, /yr, once — the bill at the cadence it is actually charged at. */
 const cadence = (period: Expense["period"]) =>
   period === "once" ? " once" : period === "yearly" ? "/yr" : "/mo";
@@ -6693,6 +6720,19 @@ Object.assign(LIVE_BUILDERS, {
       finance.summary.annual.amounts.find((a) => a.currency === lead.currency)?.amount ?? lead.amount * 12;
     const rest = finance.summary.monthly.amounts.filter((a) => a.currency !== lead.currency);
     const unpriced = finance.summary.counts.unpriced;
+    /*
+      THE HEADLINE IS ONE CURRENCY'S BILL, and the others are named beside it
+      with what they come to all together — converted, marked ≈, the rate
+      named — when a rate can be had. When it cannot, the other currencies are
+      listed and nothing is added.
+    */
+    const ring = ringCurrency(finance) ?? lead.currency;
+    const into = converter(finance, ring);
+    const parts = finance.summary.monthly.amounts.map((a) => ({ ...a, conv: into(a.amount, a.currency) }));
+    const allIn = parts.every((p) => p.conv !== null)
+      ? parts.reduce((n, p) => n + p.conv!.amount, 0)
+      : null;
+    const rateUsed = parts.map((p) => p.conv).find((c) => c && c.source && c.rate !== 1) ?? null;
     return {
       value: money(lead.amount, lead.currency),
       tag: "rate card",
@@ -6700,6 +6740,9 @@ Object.assign(LIVE_BUILDERS, {
         `${money(annual, lead.currency, { digits: 0 })}/yr, each bill at its real cadence`,
         [
           ...rest.map((a) => `+ ${money(a.amount, a.currency)} in ${a.currency}`),
+          allIn !== null && rest.length && rateUsed
+            ? `≈ ${money(allIn, ring)} all in, ${rateWords(rateUsed)}`
+            : "",
           unpriced ? `${count(unpriced)} line${unpriced === 1 ? "" : "s"} unpriced and left out` : "",
         ]
           .filter(Boolean)
@@ -6766,25 +6809,53 @@ Object.assign(LIVE_BUILDERS, {
         });
     }
     if (!groups.length) return null;
-    const ring = groups.filter((g) => g.currency === lead.currency);
-    const total = ring.reduce((n, g) => n + g.value, 0);
-    const foreign = groups.filter((g) => g.currency !== lead.currency);
+    /*
+      ONE RING, ONE CURRENCY, EVERY GROUP ON IT WHEN A RATE CAN BE HAD. A
+      euro server bill beside dollar subscriptions is the ordinary case for
+      this ledger, and a ring that dropped the servers because they were in
+      euro was drawing the bill with its biggest fixed line missing — which is
+      what the owner saw. So each foreign group is converted into the ring's
+      currency with a typed rate first and the ECB's cross rate otherwise,
+      drawn with a ≈ and its native figure on the row, and the caption names
+      the rate and its date. A group nobody can price into the ring — no
+      typed rate, no ECB leg — stays a row with no share, as before.
+    */
+    const ringCode = ringCurrency(finance) ?? lead.currency;
+    const into = converter(finance, ringCode);
+    const drawn = groups.map((g) => {
+      const conv = g.currency === ringCode ? { amount: g.value, rate: 1, source: "typed" as const, asOf: null } : into(g.value, g.currency);
+      return { ...g, conv };
+    });
+    const total = drawn.reduce((n, g) => n + (g.conv?.amount ?? 0), 0);
+    const converted = drawn.filter((g) => g.currency !== ringCode && g.conv);
+    const unconverted = drawn.filter((g) => !g.conv);
+    const rateUsed = converted[0]?.conv ?? null;
     return {
-      slices: groups.map((g) => ({
+      slices: drawn.map((g) => ({
         label: g.label,
-        // A foreign-currency group has no length on this ring — see the
-        // caption — but its figure and its count are on the row.
-        value: g.currency === lead.currency ? g.value : 0,
-        text: money(g.value, g.currency),
-        sub: g.currency === lead.currency ? g.sub : `${g.sub} · in ${g.currency}, not in the ring`,
+        value: g.conv?.amount ?? 0,
+        text: g.conv
+          ? g.currency === ringCode
+            ? money(g.value, ringCode)
+            : `≈${money(g.conv.amount, ringCode)}`
+          : money(g.value, g.currency),
+        sub: g.conv
+          ? g.currency === ringCode
+            ? g.sub
+            : `${money(g.value, g.currency)} · ${g.sub}`
+          : `${g.sub} · in ${g.currency}, no rate to draw it at`,
       })),
       center: {
-        value: money(total, lead.currency, { digits: total >= 100 ? 0 : 2 }),
+        value: `${converted.length ? "≈" : ""}${money(total, ringCode, { digits: total >= 100 ? 0 : 2 })}`,
         note: "per month",
       },
-      caption: foreign.length
-        ? `The ring is the ${lead.currency} bill. ${[...new Set(foreign.map((g) => g.currency))].join(", ")} lines are listed with no share — nothing here converts one currency into another.`
-        : `Every line in ${lead.currency}.`,
+      caption:
+        (converted.length && rateUsed
+          ? `${[...new Set(converted.map((g) => g.currency))].join(", ")} lines converted into ${ringCode} ${rateWords(rateUsed)} — approximate, and the native figure is on each row.`
+          : `Every line in ${ringCode}.`) +
+        (unconverted.length
+          ? ` ${[...new Set(unconverted.map((g) => g.currency))].join(", ")} lines have no rate and are listed with no share.`
+          : ""),
     };
   },
 

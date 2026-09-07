@@ -6,7 +6,8 @@
  * fields and why the two are told apart when one is missing.
  *
  * WHAT IT READS, and nothing else:
- *   GET /restful/v2/domains   the domains this account holds
+ *   GET /restful/v2/domains                 the domains this account holds
+ *   GET /restful/v2/domains/get_tld_price   this account's renewal price list
  *
  * THE SIGNATURE. Every v2 request carries the key as a bearer token and an
  * X-Signature over
@@ -43,6 +44,10 @@ import {
 
 const API = "https://api.dynadot.com";
 const PATH = "/restful/v2/domains";
+/* USD asked for by name. The list answers at this ACCOUNT's price level —
+   "Regular Account", "Bulk Account" — which is the figure the renewal will
+   actually be charged at, and not the one on the public price page. */
+const PRICE_PATH = "/restful/v2/domains/get_tld_price?currency=USD";
 const TIMEOUT_MS = 45_000;
 const PAGE_SIZE = 100;
 const MAX_PAGES = 10;
@@ -259,4 +264,72 @@ export async function domainsFor(creds: Credentials): Promise<DomainRow[]> {
   }
 
   return [...byName.values()];
+}
+
+/* -------------------------------------------------------------- prices */
+
+export type PriceList = {
+  /** tld (no leading dot) → annual renewal price, in `currency`. */
+  prices: Record<string, number>;
+  /** The account's price tier, as Dynadot names it. Null when it did not say. */
+  priceLevel: string | null;
+  currency: string;
+};
+
+/**
+ * A usable annual price out of whatever the feed put in the field.
+ *
+ * Dynadot sends prices as STRINGS inside a list, one entry per registration
+ * length, and a TLD it does not currently sell can carry an empty list, an
+ * empty string or a null. None of those is a price, and none of them is zero
+ * either: anything unreadable is null, the TLD stays out of the map, and a
+ * domain on it stays unpriced rather than free.
+ */
+function feedPrice(value: unknown): number | null {
+  const v = Array.isArray(value) ? value[0] : value;
+  if (v === null || v === undefined || typeof v === "boolean") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0 || n >= 100_000) return null;
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * The price list out of a `get_tld_price` body. Pure, so it can be tested
+ * against a captured payload; throws in words when the body is not one.
+ *
+ * ASKED FOR USD. If it answered in something else the honest result is NO
+ * prices: a list in an unknown currency multiplied by a euro rate would be a
+ * number the registrar never quoted.
+ */
+export function parsePriceList(doc: unknown): PriceList {
+  const root = doc && typeof doc === "object" ? (doc as Raw) : null;
+  if (!root) throw new Error("price list answered something that is not an object");
+  const data = root.data && typeof root.data === "object" ? (root.data as Raw) : root;
+  const rows = data.tld_price_list ?? data.tldPriceList;
+  if (!Array.isArray(rows)) throw new Error("price list carried no tld_price_list");
+  const currency = String(data.currency ?? "USD").trim().toUpperCase() || "USD";
+  if (currency !== "USD") throw new Error(`price list answered in ${currency}, not USD`);
+  const prices: Record<string, number> = {};
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Raw;
+    const tld = String(r.tld ?? "").trim().toLowerCase().replace(/^\./, "");
+    const price = tld ? feedPrice(r.all_years_renew_price ?? r.allYearsRenewPrice) : null;
+    if (price !== null) prices[tld] = price;
+  }
+  if (!Object.keys(prices).length) throw new Error("price list carried no readable prices");
+  const level = String(data.price_level ?? data.priceLevel ?? "").trim();
+  return { prices, priceLevel: level || null, currency };
+}
+
+/**
+ * This account's renewal price list — 800-odd TLDs in one call.
+ *
+ * The other half of what a registrar can tell a ledger. The domain list says
+ * WHEN a name renews; this says for HOW MUCH, at the tier this account is
+ * actually charged. Throws with a scrubbed message, like `domainsFor`, because
+ * a list that could not be read has not said the names are free.
+ */
+export async function renewalPrices(creds: Credentials): Promise<PriceList> {
+  return parsePriceList(await get(creds, PRICE_PATH));
 }

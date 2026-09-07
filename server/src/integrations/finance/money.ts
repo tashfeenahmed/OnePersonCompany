@@ -102,7 +102,15 @@ export function shapeTotals(totals: CurrencyTotals): {
 
 /* ------------------------------------------------------------------- FX */
 
-export type Rate = { from: string; to: string; rate: number; asOf: string | null };
+export type Rate = {
+  from: string;
+  to: string;
+  rate: number;
+  asOf: string | null;
+  /** Who said so: the owner, on the Finance page, or the ECB's daily file.
+   *  Absent on a rate parsed before the distinction existed — read as typed. */
+  source?: "typed" | "ecb";
+};
 
 /**
  * The `fx` setting, parsed.
@@ -190,7 +198,11 @@ export function convert(
     approximate: true,
     rates: used,
     note:
-      "Converted with the rates typed on the Finance integration's page, not a rate fetched from a market. " +
+      (used.some((r) => r.source === "ecb")
+        ? used.every((r) => r.source === "ecb")
+          ? `Converted at the ECB's daily reference rate${used[0]?.asOf ? ` of ${used[0].asOf}` : ""} — a reference, not the rate any invoice settles at. `
+          : "Converted with the rates typed on the Finance integration's page where there is one and the ECB's daily reference rate for the rest. "
+        : "Converted with the rates typed on the Finance integration's page, not a rate fetched from a market. ") +
       "It is approximate by construction; the per-currency amounts beside it are the measured figures.",
   };
 }
