@@ -695,6 +695,58 @@ export function Subagent() {
     inputRef.current?.focus();
   };
 
+  /* The venture label and the worker's name, drawn once per page — above the
+     open run and above the empty state alike. */
+  const headingBlock = sa ? (
+    <div className="mb-5">
+      {/*
+        THE VENTURE IS A LABEL ABOVE THE NAME, NOT A CLAUSE
+        AFTER IT. The heading used to read "Example Video
+        Competitor Analyst. Competitor Analyst for Example Video."
+        — the default name is "<Venture> <Title>", so the same
+        four words came round twice in one line. Now the venture
+        sits above as a mark and a name, the way its own pages
+        carry it, and the heading is the worker's SHORT name:
+        the title when the owner has not renamed it, their own
+        words when they have — with the title after, muted, only
+        when it adds something.
+      */}
+      {!portfolio && venture && (
+        <Link
+          to={`/ventures/${venture.slug}`}
+          className="bg-card hover:bg-card-hover mb-3 inline-flex items-center gap-1.5 rounded-full py-1 pr-3 pl-1.5 text-[12.5px] font-medium transition-colors"
+        >
+          <VentureMark
+            venture={{
+              name: venture.name,
+              color: venture.color,
+              brand: { favicon: venture.favicon },
+            }}
+            size={16}
+          />
+          {venture.name}
+        </Link>
+      )}
+      <h1 className="mb-1.5 text-[27px] font-normal tracking-[-0.025em]">
+        {portfolio ? (
+          <>
+            {sa.name}.{" "}
+            <span className="text-muted-foreground">
+              {sa.title}, for no venture in particular.
+            </span>
+          </>
+        ) : (
+          <>
+            {workerName}.
+            {workerName!.toLowerCase() !== sa.title.trim().toLowerCase() && (
+              <span className="text-muted-foreground"> {sa.title}.</span>
+            )}
+          </>
+        )}
+      </h1>
+    </div>
+  ) : null;
+
   return (
     <>
       {/* ------------------------------------------------------- header */}
@@ -865,7 +917,13 @@ export function Subagent() {
               )}
 
               {sa && (venture || portfolio) && view.run ? (
-                <RunChat
+                <>
+                  {/* THE SAME HEADING OVER AN OPEN RUN. The venture's label and
+                      the worker's name are what the owner asked to see at the
+                      top of every worker's page; a run opening must not take
+                      them away. */}
+                  {headingBlock}
+                  <RunChat
                   key={view.run}
                   runId={view.run}
                   worker={{ name: workerName ?? sa.name, title: sa.title }}
@@ -875,7 +933,8 @@ export function Subagent() {
                   stopping={stopping}
                   pollKey={workTick}
                   onGrew={grew}
-                />
+                  />
+                </>
               ) : sa && (venture || portfolio) && (
                 <>
                   {onUnfiled ? (
@@ -902,51 +961,7 @@ export function Subagent() {
                         otherwise imply is that the Chief of Staff is on the
                         other end. It is not.
                       */}
-                      {/*
-                        THE VENTURE IS A LABEL ABOVE THE NAME, NOT A CLAUSE
-                        AFTER IT. The heading used to read "Example Video
-                        Competitor Analyst. Competitor Analyst for Example Video."
-                        — the default name is "<Venture> <Title>", so the same
-                        four words came round twice in one line. Now the venture
-                        sits above as a mark and a name, the way its own pages
-                        carry it, and the heading is the worker's SHORT name:
-                        the title when the owner has not renamed it, their own
-                        words when they have — with the title after, muted, only
-                        when it adds something.
-                      */}
-                      {!portfolio && venture && (
-                        <Link
-                          to={`/ventures/${venture.slug}`}
-                          className="bg-card hover:bg-card-hover mb-3 inline-flex items-center gap-1.5 rounded-full py-1 pr-3 pl-1.5 text-[12.5px] font-medium transition-colors"
-                        >
-                          <VentureMark
-                            venture={{
-                              name: venture.name,
-                              color: venture.color,
-                              brand: { favicon: venture.favicon },
-                            }}
-                            size={16}
-                          />
-                          {venture.name}
-                        </Link>
-                      )}
-                      <h1 className="mb-1.5 text-[27px] font-normal tracking-[-0.025em]">
-                        {portfolio ? (
-                          <>
-                            {sa.name}.{" "}
-                            <span className="text-muted-foreground">
-                              {sa.title}, for no venture in particular.
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            {workerName}.
-                            {workerName!.toLowerCase() !== sa.title.trim().toLowerCase() && (
-                              <span className="text-muted-foreground"> {sa.title}.</span>
-                            )}
-                          </>
-                        )}
-                      </h1>
+                      {headingBlock}
                       <p
                         className={cn(
                           "text-muted-foreground text-[14.5px]",
