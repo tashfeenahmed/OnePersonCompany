@@ -512,16 +512,6 @@ export function systemBrief(opts: {
   data: string;
   extra?: string[];
   /**
-   * An EXTRA SECTION OF THE REPORT SHAPE, and it goes here rather than into
-   * `extra` for a reason a competitor sweep taught: a rule saying "also emit a
-   * `json competitors` block AFTER the cards block" sat in a list of honesty
-   * rules three thousand characters above a shape instruction that called the
-   * cards block the last thing in the document. The model followed the shape
-   * and dropped the block, and the sweep upserted nothing. An instruction about
-   * the SHAPE belongs beside the shape, in the order it is to be written.
-   */
-  shapeExtra?: string;
-  /**
    * A REPLACEMENT for the report shape, not an addition to it.
    *
    * Added for the dossier, which is the first document on this box that is not
@@ -568,7 +558,6 @@ export function systemBrief(opts: {
     `---`,
     ``,
     opts.shape ?? REPORT_SHAPE,
-    ...(opts.shapeExtra ? [``, opts.shapeExtra] : []),
   ].join("\n");
 }
 
@@ -587,11 +576,16 @@ export function systemBrief(opts: {
  * written after a real failure. A plan turn answered with a perfect ```` ```json ````
  * block and no name, and the fall-through only accepted arrays, so a whole
  * paper run failed on a label. Accepting any single unnamed block fixes that —
- * but a competitor sweep's report legitimately carries TWO blocks, `cards` and
+ * but a competitor sweep's report used to carry TWO blocks, `cards` and
  * `competitors`, and a fall-through that picked "the first one that parses"
  * would file a list of rivals as board cards. So the fall-through fires only
  * when exactly one block in the whole document parses as JSON: one candidate is
  * an unambiguous answer, two candidates is a guess, and this does not guess.
+ *
+ * THE SWEEP NO LONGER WRITES THAT SECOND BLOCK — it is two turns now, and the
+ * rivals come back in a turn nobody reads; see integrations/runs/competitors.ts
+ * — but every sweep run before that is still on disk and still read back
+ * through here, so the rule stays.
  */
 export function fencedJson(markdown: string, name: string): unknown | null {
   const fences = [...markdown.matchAll(/```([^\n]*)\n([\s\S]*?)```/g)].map((m) => ({

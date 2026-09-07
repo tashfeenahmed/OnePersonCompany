@@ -41,6 +41,8 @@ import { activeProvider } from "../../models/provider.ts";
 import { KINDS, dossierTitle, fencedJson, kindDef } from "./kinds.ts";
 import { cancelRun, pump } from "./executor.ts";
 import { libraryRows } from "./scout.ts";
+import { lastFocus, openFocus, readChanges, type FocusRow } from "./competitors.ts";
+import { daysSince, hostOf } from "./competitorsMerge.ts";
 import {
   deleteRun,
   insertRun,
@@ -478,32 +480,76 @@ runRoutes.get("/:id/typ", (c) => {
 type ProfileRow = {
   venture_id: string;
   name: string;
+  domain: string | null;
   url: string | null;
   positioning: string | null;
   pricing: string | null;
   strengths: string;
   weaknesses: string;
+  sources: string;
+  changes: string;
   last_verified: string;
   first_seen: string;
   run_id: string | null;
 };
 
+/**
+ * One rival on the wire.
+ *
+ * `verifiedAgo` IS COMPUTED HERE RATHER THAN ON THE CLIENT, and it is the one
+ * derived field on this document. Every reader of this route has to decide the
+ * same thing — is this row still worth believing — and a browser with a clock
+ * eleven minutes off, or one in a timezone that has just crossed midnight,
+ * would answer it differently from the box that recorded the date. It is whole
+ * days, it is never negative, and it is null only where the date cannot be
+ * read at all.
+ *
+ * `domain` FALLS BACK TO THE URL for rows recorded before that column existed.
+ * The migration deliberately back-filled nothing — SQLite has no URL parser
+ * and a hand-rolled one in SQL would be a second, worse copy of `hostOf` — so
+ * the derivation lives in the one place that owns it and every reader gets the
+ * same answer.
+ */
 function shapeProfile(r: ProfileRow) {
   const v = ventureRowById(r.venture_id);
   return {
     ventureId: r.venture_id,
     ventureName: v?.name ?? null,
     name: r.name,
+    domain: r.domain ?? hostOf(r.url),
     url: r.url,
     positioning: r.positioning,
     pricing: r.pricing,
     strengths: readList(r.strengths),
     weaknesses: readList(r.weaknesses),
+    sources: readList(r.sources),
+    /* WHAT MOVED, AND WHEN, with the sentence the badge prints. Written by the
+       merge at sweep time rather than derived here, because the note compares
+       against a value only the merge could see. */
+    changes: readChanges(r.changes),
     /* WHEN A SWEEP LAST NAMED IT, which is not when it was last written to:
        an owner's edit does not verify anything. See the migration. */
     lastVerified: r.last_verified,
+    verifiedAgo: daysSince(r.last_verified),
     firstSeen: r.first_seen,
     runId: r.run_id,
+  };
+}
+
+/** One "look at this next time" item on the wire, with whatever became of it.
+ *  `done` is null-checked rather than sent as a string, because "open" and
+ *  "looked at and could not be established" are different answers and a
+ *  boolean with a note says both. */
+function shapeFocus(f: FocusRow) {
+  return {
+    id: f.id,
+    runId: f.run_id,
+    title: f.title,
+    detail: f.detail,
+    createdAt: f.created_at,
+    done: f.done_at !== null,
+    doneAt: f.done_at,
+    note: f.done_note,
   };
 }
 
@@ -529,15 +575,31 @@ competitorRoutes.get("/", (c) => {
     )
     .get(...(v ? [v.id] : [])) as { n: number; last: string | null } | undefined;
 
+  /*
+    THE FOCUS LIST, AND IT IS ONLY ON THE PER-VENTURE READ. `open` is what
+    every sweep so far has left unanswered; `resolved` is the MOST RECENT
+    sweep's list with what became of each item. Across the whole portfolio
+    neither means anything — six ventures' open questions in one array is a
+    list nobody can act on — so the field is an empty pair there rather than a
+    mixture, and the shape stays the same either way so no reader has to fork.
+  */
+  const focus =
+    v
+      ? { open: openFocus(v.id).map(shapeFocus), resolved: lastFocus(v.id).map(shapeFocus) }
+      : { open: [], resolved: [] };
+
   return c.json({
     venture: v ? { id: v.id, slug: v.slug, name: v.name } : null,
     profiles,
+    focus,
     runs: runsRow?.n ?? 0,
     lastRun: runsRow?.last ?? null,
     note:
       "`lastVerified` moves only when a sweep NAMED the profile. A rival the " +
       "newest sweep did not mention keeps its old date — silence is not " +
-      "verification, and a stale date is the honest record of one.",
+      "verification, and a stale date is the honest record of one. The same " +
+      "rule holds for `focus.open`: an item the newest sweep did not answer " +
+      "stays open rather than being closed quietly.",
   });
 });
 

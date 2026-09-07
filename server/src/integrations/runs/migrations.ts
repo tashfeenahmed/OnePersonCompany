@@ -259,4 +259,97 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE papers ADD COLUMN typ_path TEXT;
     `,
   },
+
+  {
+    name: "076_competitor_memory",
+    sql: `
+      -- WHAT A SWEEP REMEMBERS BETWEEN SWEEPS, beyond the four fields it has
+      -- always kept.
+      --
+      -- The competitors run became a two-turn run here: an investigation that
+      -- returns JSON, and a tools-off turn that writes the landscape as one
+      -- HTML document. The second turn can only say WHAT CHANGED if something
+      -- wrote down what things used to be, and it can only report on what the
+      -- last run asked for if the asking was stored. These three columns and
+      -- the table below are that memory.
+      --
+      -- \`domain\` IS THE MERGE KEY AND \`name\` IS STILL THE PRIMARY KEY, and
+      -- that is not a contradiction — it is the two questions being different.
+      -- "Is this the same company as the one on file" is answered by the host,
+      -- because a company renames its product far more often than it moves
+      -- house, and matching on the name files "Uptime Kuma" and "Kuma" as two
+      -- rivals with half a history each. "Which row do I write, and which one
+      -- does the delete button address" is answered by the name, which is what
+      -- the table, the routes and the owner's edits have always used. So the
+      -- merge decides by domain and then writes the row it decided about,
+      -- renaming it where the rival renamed itself. See runs/competitorsMerge.ts.
+      --
+      -- IT IS NULLABLE AND IT IS NOT BACK-FILLED HERE. SQLite has no URL
+      -- parser and a hand-rolled one in SQL would be a second, worse copy of
+      -- \`hostOf\` — so every existing row keeps a NULL and the code derives
+      -- the host from \`url\` wherever it needs one. The first sweep after this
+      -- migration writes the real value. A NULL therefore means "recorded
+      -- before this column existed", which is exactly what it is.
+      --
+      -- \`changes\` IS AN ARRAY OF {at, field, from, to, note} AND IT IS
+      -- CAPPED AT TWELVE. The note is the sentence a badge prints — "price
+      -- moved, $9 → $12" — written when the row is merged rather than when it
+      -- is read, because the reader cannot see the old value. The cap is there
+      -- because the row is rewritten whole on every sweep and an unbounded
+      -- array grows for as long as the business does.
+      --
+      -- A CHANGE IS RECORDED ONLY WHEN THE CLAIM MOVED, never when the wording
+      -- did. Positioning and pricing are free prose a model rewrites from
+      -- scratch every time, so comparing the strings compares its word choice:
+      -- measured over a week of real sweeps, three fifths of the "changes" a
+      -- string comparison found had an identical set of numbers on both sides.
+      -- competitorsMerge.ts compares the money for pricing and the content
+      -- words for positioning, which is what makes a badge worth reading.
+      --
+      -- \`sources\` IS THE EVIDENCE, and it is what the honesty rule rests on:
+      -- a rival the investigation turn cannot put ONE https URL against is a
+      -- rival it did not read a page about, and it never reaches this table.
+      ALTER TABLE competitor_profiles ADD COLUMN domain  TEXT;
+      ALTER TABLE competitor_profiles ADD COLUMN changes TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE competitor_profiles ADD COLUMN sources TEXT NOT NULL DEFAULT '[]';
+
+      CREATE INDEX competitor_profiles_domain ON competitor_profiles(venture_id, domain);
+
+      -- WHAT THE LAST RUN SAID TO LOOK AT NEXT TIME, AND WHAT BECAME OF IT.
+      --
+      -- This is the half of the memory that makes a sweep a series rather than
+      -- a set of unrelated afternoons. Each run ends by naming a few things it
+      -- could not settle; the next run is handed that list in its brief, is
+      -- required to say what it found for each item, and writes the answers
+      -- back here as \`done_at\` and \`done_note\`. The report then opens with
+      -- what got done and what did not, which is the one thing a standing
+      -- research task can say that a fresh one cannot.
+      --
+      -- \`done_at\` NULL IS OPEN AND IT IS THE HONEST DEFAULT. An item the next
+      -- run did not mention stays open — the same rule \`last_verified\`
+      -- follows on the profiles, for the same reason: silence is not an
+      -- answer. An item that WAS looked at and could not be established is
+      -- CLOSED with a note saying so, because "we tried and could not find out"
+      -- is a finding and leaving it open would ask the next three runs to try
+      -- again.
+      --
+      -- \`run_id\` IS THE RUN THAT RAISED THE ITEM, not the one that closed it.
+      -- The report needs "what the LAST run said to focus on", which is a
+      -- question about who asked; who answered is already in \`done_at\`.
+      --
+      -- NO FOREIGN KEY ON \`run_id\`, on agent_runs' own argument: a deleted
+      -- run does not un-ask the question it raised.
+      CREATE TABLE competitor_focus (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        venture_id TEXT NOT NULL REFERENCES ventures(id) ON DELETE CASCADE,
+        run_id     TEXT NOT NULL,
+        title      TEXT NOT NULL,
+        detail     TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        done_at    TEXT,
+        done_note  TEXT
+      );
+      CREATE INDEX competitor_focus_venture ON competitor_focus(venture_id, created_at DESC);
+    `,
+  },
 ];

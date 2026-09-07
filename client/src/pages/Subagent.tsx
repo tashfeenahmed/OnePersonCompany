@@ -806,7 +806,7 @@ export function Subagent() {
                 <RunView
                   key={openRunId}
                   runId={openRunId}
-                  worker={{ name: sa.name, title: sa.title }}
+                  worker={{ name: workerName ?? sa.name, title: sa.title }}
                   ventureName={venture?.name ?? null}
                   brief={transcript.find((x) => x.run.id === openRunId)?.brief ?? null}
                   onBack={() => openRun(null)}

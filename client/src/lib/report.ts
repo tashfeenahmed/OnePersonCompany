@@ -148,3 +148,21 @@ export function textOfHtml(html: string): string {
 export function reportText(body: string): string {
   return isHtmlReport(body) ? textOfHtml(unfenceHtml(body)) : body;
 }
+
+/**
+ * WHAT AN HTML REPORT CALLS ITSELF: its <title>, else its first <h1>, as text.
+ *
+ * Workdash's generators title a report by its biggest finding — "CapCut now
+ * offers the core feature for free" — and that is a better heading for a run
+ * than the venture's name, which is all a run started from an app without a
+ * typed brief has. Null when the document names nothing, so the caller keeps
+ * its own fallback rather than drawing an empty heading.
+ */
+export function titleOfHtml(html: string): string | null {
+  const m =
+    /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html) ??
+    /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
+  if (!m) return null;
+  const text = textOfHtml(m[1] ?? "").replace(/\s+/g, " ").trim();
+  return text || null;
+}

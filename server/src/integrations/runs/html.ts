@@ -58,6 +58,45 @@ export function unfence(text: string): string {
   return t.replace(FENCE_OPEN, "").replace(FENCE_CLOSE, "").trim();
 }
 
+/* ------------------------------------------------------- the fence AFTER it */
+
+/**
+ * A DOCUMENT WITH A MARKDOWN FENCE SITTING AFTER ITS CLOSING </html>, SPLIT
+ * IN TWO.
+ *
+ * ---------------------------------------------------------------------------
+ * THE COMPETITOR SWEEP PUTS ONE THERE ON PURPOSE. Its report is an HTML
+ * landscape document, and the board-card suggestions that every reporting kind
+ * emits still have to travel in the ```` ```json cards ```` fence that
+ * `GET /runs/:id` parses and the client strips — so the run appends the fence
+ * after the document rather than asking the writing turn to embed it, which
+ * would have put JSON inside a page. See integrations/runs/competitors.ts.
+ *
+ * SO THE SANITISER HAS TO KNOW WHERE THE MARKUP STOPS. Everything before the
+ * closing `</html>` is a document and is scanned tag by tag; everything after
+ * it is markdown, is not markup, and must survive BYTE FOR BYTE. Without this
+ * split a card whose title contains a `<` — "ship <10s clips", which is the
+ * kind of thing a competitor sweep proposes — would be read as an unterminated
+ * tag and the rest of the JSON eaten with it, and the cards would silently
+ * stop appearing.
+ *
+ * IT SPLITS ONLY ON A REAL CLOSING TAG AT THE END. A document that never
+ * closed — one still streaming — has no tail, which is the correct answer: the
+ * whole of it is markup so far.
+ */
+const HTML_CLOSE = /<\/html\s*>/gi;
+
+export function splitTrailingFence(text: string): { doc: string; tail: string } {
+  let last = -1;
+  let end = -1;
+  for (const m of text.matchAll(HTML_CLOSE)) {
+    last = m.index;
+    end = m.index + m[0].length;
+  }
+  if (last < 0) return { doc: text, tail: "" };
+  return { doc: text.slice(0, end), tail: text.slice(end) };
+}
+
 /* ----------------------------------------------------------- is it a report */
 
 /** The tags a written document has in it. */

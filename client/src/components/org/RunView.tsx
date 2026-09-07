@@ -11,7 +11,7 @@ import { runAddress } from "@/components/org/roleLook";
 import { runLabel } from "@/components/org/dossiers";
 import { useApi } from "@/hooks/useApi";
 import { count, duration, when } from "@/lib/format";
-import { isHtmlReport, reportText } from "@/lib/report";
+import { isHtmlReport, reportText, titleOfHtml } from "@/lib/report";
 import { wordCount, type ReportFact } from "@/lib/reportDocument";
 import { cn } from "@/lib/utils";
 import { isLive, readCards, runsApi } from "@/lib/api/runs";
@@ -106,7 +106,10 @@ export function RunView({
   /* The heading: the brief's first line, or the title with its kind off the
      front — the same name the rail's row uses, so the two agree. */
   const first = typedBrief?.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
-  const heading = run ? (first ?? runLabel(run.title)) : "…";
+  /* An HTML report names itself by its finding, and that beats the title's
+     venture name for a run nobody typed a brief for. */
+  const named = html ? titleOfHtml(text) : null;
+  const heading = run ? (first ?? named ?? runLabel(run.title)) : "…";
 
   const took = run
     ? duration(run.ms, { nullText: "" }) ||

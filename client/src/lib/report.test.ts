@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isHtmlReport, reportText, textOfHtml, unfenceHtml } from "./report.ts";
+import { isHtmlReport, reportText, textOfHtml, titleOfHtml, unfenceHtml } from "./report.ts";
 
 const DOC =
   `<!doctype html><html><head><style>body{font:14px system-ui}</style></head>` +
@@ -62,4 +62,11 @@ test("reportText counts the words of either shape, and only the words", () => {
   const words = reportText(DOC).split(/\s+/).length;
   assert.ok(words > 5 && words < 30, `a short dossier is a short word count, got ${words}`);
   assert.equal(reportText("```html\n" + DOC + "\n```").includes("```"), false, "the fence is not words");
+});
+
+test("titleOfHtml prefers the title, falls back to the first h1, and says null for neither", () => {
+  assert.equal(titleOfHtml("<html><head><title> The &amp; finding </title></head><body><h1>Other</h1></body></html>"), "The & finding");
+  assert.equal(titleOfHtml("<html><body><h1>Only <em>an</em> h1</h1></body></html>"), "Only an h1");
+  assert.equal(titleOfHtml("<html><body><p>nothing named</p></body></html>"), null);
+  assert.equal(titleOfHtml("<title>   </title>"), null);
 });

@@ -1,5 +1,10 @@
 import { call } from "@/lib/api";
 import { qs, seg } from "@/lib/qs";
+/* The old sweep's `json competitors` block, cut out of a report the same way
+   the cards are — see `stripCompetitorsFence` for why it is history that is
+   still on disk. It lives in a leaf so it can be tested under node, which this
+   file cannot be: it resolves the `@/` alias. */
+import { stripCompetitorsFence } from "@/lib/competitors";
 
 /**
  * THE RUNS ENGINE, FROM THIS SIDE — six apps, one route family.
@@ -193,26 +198,83 @@ export type RunList = {
  * two months old is a profile nobody has confirmed in two months, which is a
  * different claim from a profile that is wrong.
  */
+/** One recorded movement in a rival's story. `note` is the sentence the badge
+ *  prints — "price moved, $14 → $19" — and it is written by the SERVER at
+ *  merge time, because it compares against a value only the merge could see. */
+export type CompetitorChange = {
+  at: string;
+  field: string;
+  from: string | null;
+  to: string;
+  note: string;
+};
+
 export type CompetitorProfile = {
   ventureId: string;
   /** Resolved on the server, so a profile draws with its business's name even
    *  on the portfolio-wide read. */
   ventureName: string | null;
   name: string;
+  /** The normalised host, which is what the sweep MERGES on — a company
+   *  renames its product far more often than it moves house. Null on a row
+   *  recorded before that column existed whose URL cannot be read. */
+  domain: string | null;
   url: string | null;
   positioning: string | null;
   pricing: string | null;
   strengths: string[];
   weaknesses: string[];
+  /** The pages the register rests on. A rival the sweep could not put one
+   *  https URL against never reaches this table at all. */
+  sources: string[];
+  /** Oldest first, capped at twelve by the server. */
+  changes: CompetitorChange[];
   lastVerified: string;
+  /** Whole days since `lastVerified`, COUNTED ON THE SERVER. A browser with a
+   *  skewed clock, or one that has just crossed midnight into another day,
+   *  would answer this differently from the box that recorded the date — and
+   *  the whole point of the column is that both agree about how stale a row
+   *  is. Null only where the date cannot be read at all. */
+  verifiedAgo: number | null;
   firstSeen: string;
   /** The run that last touched it. Null on a row the owner typed over. */
   runId: string | null;
 };
 
+/**
+ * One "look at this next time" item, with whatever became of it.
+ *
+ * `done` IS FALSE FOR TWO DIFFERENT THINGS AND `note` TELLS THEM APART: an
+ * item nothing has got to yet, and — no, only the first. An item that WAS
+ * looked at and could not be established is CLOSED, with a note saying so,
+ * because "we tried and could not find out" is a finding and leaving it open
+ * asks the next three sweeps to try again. So `done` with a note is an answer,
+ * and not-`done` means nobody has reached it.
+ */
+export type CompetitorFocus = {
+  id: number;
+  runId: string;
+  title: string;
+  detail: string;
+  createdAt: string;
+  done: boolean;
+  doneAt: string | null;
+  note: string | null;
+};
+
 export type CompetitorDoc = {
   venture: VentureRef | null;
   profiles: CompetitorProfile[];
+  /**
+   * The memory that makes a sweep a series rather than a set of unrelated
+   * afternoons. `open` is everything still unanswered; `resolved` is the MOST
+   * RECENT sweep's list with what became of each item.
+   *
+   * BOTH ARE EMPTY ON THE PORTFOLIO-WIDE READ, and that is the server's
+   * decision rather than a missing feature: six ventures' open questions in
+   * one array is a list nobody can act on.
+   */
+  focus: { open: CompetitorFocus[]; resolved: CompetitorFocus[] };
   /** How many sweeps this venture has had. A profile list of eight off one run
    *  and off six runs are worth different amounts of trust. */
   runs: number;
@@ -533,7 +595,8 @@ export function readCards(md: string): { cards: RunCard[]; body: string } {
       best = { fence, cards };
   }
 
-  if (!best) return { cards: [], body: md };
+  if (!best) return { cards: [], body: stripCompetitorsFence(md) };
   const body = (md.slice(0, best.fence.start) + md.slice(best.fence.end)).trimEnd();
-  return { cards: best.cards, body };
+  return { cards: best.cards, body: stripCompetitorsFence(body) };
 }
+

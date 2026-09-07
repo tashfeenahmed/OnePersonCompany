@@ -98,7 +98,8 @@ import {
 } from "./context.ts";
 import { fencedJson, kindDef, systemBrief, type KindDef } from "./kinds.ts";
 import { readFiled } from "./filed.ts";
-import { looksLikeHtmlReport, sanitizeReportHtml, unfence } from "./html.ts";
+import { looksLikeHtmlReport, sanitizeReportHtml, splitTrailingFence, unfence } from "./html.ts";
+import { competitorsRun } from "./competitors.ts";
 import { growthRun } from "../growth/runs.ts";
 import { dossierRun } from "../people/dossier.ts";
 import { knowledgeBlock } from "../knowledge/store.ts";
@@ -618,7 +619,13 @@ async function unfiled(s: Session, text: string, toOutput: boolean): Promise<str
  */
 function cleanedHtml(s: Session, text: string, toOutput: boolean): string {
   if (!looksLikeHtmlReport(text)) return text;
-  const html = sanitizeReportHtml(unfence(text));
+  /* THE TAIL AFTER `</html>` IS NOT MARKUP AND IS NOT SCANNED. A competitor
+     sweep's report carries a ```json cards``` fence there — see
+     runs/html.ts's `splitTrailingFence` — and a card title containing a `<`
+     would otherwise be read as an unterminated tag and eat the rest of the
+     block. Split, sanitise the document, put the tail back byte for byte. */
+  const { doc, tail } = splitTrailingFence(text);
+  const html = sanitizeReportHtml(unfence(doc)) + tail;
   if (!html || html === text) return text;
   if (toOutput) {
     s.output = s.output.endsWith(text) ? s.output.slice(0, s.output.length - text.length) + html : html;
@@ -780,7 +787,34 @@ async function execute(row: RunRow, s: Session) {
         hasTools: activeBackend() !== null,
       },
     });
-  return reportRun(row, s, def, venture!, input);
+  /* THE ONE KIND THAT ACCUMULATES, owned by integrations/runs/competitors.ts.
+     It is two turns and a merge rather than one turn and an upsert — an
+     investigation that answers in JSON, this server's own arithmetic over what
+     moved, and a tools-off turn that writes the landscape as an HTML document
+     from the merged register. It borrows the same capabilities the growth
+     kinds do, plus `rewind`, which the writing turn's one corrective retry
+     needs: a refused draft was already streamed into the report and must not
+     be left standing above the document that replaced it. */
+  if (row.kind === "competitors")
+    return competitorsRun({
+      runId: row.id,
+      venture: venture!,
+      input,
+      tools: {
+        say: (text) => s.say(text),
+        startStep: (tool, label) => s.startStep(tool, label),
+        endStep: (step, label) => s.endStep(step, label),
+        turn: (turns, opts) => turn(s, turns, opts),
+        outputLength: () => s.output.length,
+        rewind: (to) => {
+          if (to >= s.output.length) return;
+          s.output = s.output.slice(0, to);
+          s.flush();
+        },
+        hasTools: activeBackend() !== null,
+      },
+    });
+  return reportRun(s, def, venture!, input);
 }
 
 /**
@@ -825,8 +859,6 @@ async function blocksFor(def: KindDef, v: VentureRow, ventureId: string | null):
         competitorBlock(v),
         historyBlock(def.kind, ventureId),
       ];
-    case "competitors":
-      return [...base, competitorBlock(v), await presenceBlock(v), historyBlock(def.kind, ventureId)];
     case "seo":
       return [
         ...base,
@@ -844,34 +876,22 @@ async function blocksFor(def: KindDef, v: VentureRow, ventureId: string | null):
   }
 }
 
-/** The four kinds that are one turn: assemble, ask, write. `competitors` adds
- *  the upsert afterwards; everything else stops when the words stop. */
-async function reportRun(row: RunRow, s: Session, def: KindDef, v: VentureRow, input: Record<string, string>) {
+/** The kinds that are one turn: assemble, ask, write. Everything else stops
+ *  when the words stop — the competitor sweep, which used to be here with an
+ *  upsert bolted onto the end, is two turns and a merge in
+ *  integrations/runs/competitors.ts. */
+async function reportRun(s: Session, def: KindDef, v: VentureRow, input: Record<string, string>) {
   const gather = s.startStep("context", "reading what this box already knows");
   const blocks = await blocksFor(def, v, v.id);
   s.endStep(gather, `${blocks.length} sources read`);
 
   const hasTools = activeBackend() !== null;
 
-  /* The sweep's second block, written into the SHAPE rather than into the
-     rules — see `systemBrief`'s `shapeExtra` for the failure that moved it —
-     and placed BEFORE the cards block, because the shape above calls the cards
-     block the end of the document and two instructions cannot both be last. */
-  const shapeExtra =
-    def.kind === "competitors"
-      ? "IMMEDIATELY BEFORE the `json cards` block, write a SECOND fenced block whose info string is exactly `json competitors`, holding an array of " +
-        '`{"name", "url", "positioning", "pricing", "strengths": [], "weaknesses": []}` — one entry for EVERY rival you can describe, both the ones already ' +
-        "on file that you verified and the ones you found. This block is not decoration: it is the only thing that updates the profile table, and a report " +
-        "without it changes nothing. A rival you leave out keeps its old verified date, so omitting one does not say it is gone — it says you did not check it. " +
-        "Both blocks must be present, competitors first, cards last."
-      : undefined;
-
   const system = systemBrief({
     def,
     ventureName: v.name,
     hasTools,
     data: renderBlocks(blocks),
-    shapeExtra,
   });
   const focus = (input.focus ?? "").trim();
   const user =
@@ -881,91 +901,6 @@ async function reportRun(row: RunRow, s: Session, def: KindDef, v: VentureRow, i
   const t = s.startStep("write", `${def.name} — ${v.name}`);
   const res = await turn(s, [{ role: "system", content: system }, { role: "user", content: user }], { toOutput: true });
   s.endStep(t, `${res.text.length} characters`);
-
-  if (def.kind === "competitors") upsertCompetitors(row.id, v.id, res.text, s);
-}
-
-/* --------------------------------------------------------- competitors */
-
-type ParsedCompetitor = {
-  name: string;
-  url: string | null;
-  positioning: string | null;
-  pricing: string | null;
-  strengths: string[];
-  weaknesses: string[];
-};
-
-function readCompetitors(markdown: string): ParsedCompetitor[] {
-  const raw = fencedJson(markdown, "competitors");
-  if (!Array.isArray(raw)) return [];
-  const out: ParsedCompetitor[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const o = item as Record<string, unknown>;
-    const name = typeof o.name === "string" ? o.name.trim() : "";
-    if (!name || name.length > 120) continue;
-    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 2_000) : null);
-    const list = (v: unknown) =>
-      Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((x) => x.trim().slice(0, 400)).slice(0, 12) : [];
-    out.push({
-      name,
-      url: str(o.url),
-      positioning: str(o.positioning),
-      pricing: str(o.pricing),
-      strengths: list(o.strengths),
-      weaknesses: list(o.weaknesses),
-    });
-  }
-  return out;
-}
-
-/**
- * Upsert, and the rule that makes the table worth keeping: `last_verified`
- * moves ONLY for the profiles this run named. A sweep that forgot about a
- * rival has not re-verified it.
- *
- * `first_seen` is preserved by COALESCE against the existing row rather than
- * by reading it first, so two of these cannot race into disagreeing about when
- * a competitor was first heard of.
- */
-function upsertCompetitors(runId: string, ventureId: string, markdown: string, s: Session) {
-  const found = readCompetitors(markdown);
-  if (!found.length) {
-    s.say(
-      `\n\n<!-- No \`json competitors\` block was found in this report, so no profile was created or re-verified. The report above stands; the table did not change. -->\n`,
-    );
-    return;
-  }
-  const step = s.startStep("profiles", `${found.length} competitor profiles`);
-  const ts = now();
-  const stmt = db.prepare(
-    `INSERT INTO competitor_profiles
-       (venture_id, name, url, positioning, pricing, strengths, weaknesses, last_verified, first_seen, run_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(venture_id, name) DO UPDATE SET
-       url = COALESCE(excluded.url, competitor_profiles.url),
-       positioning = COALESCE(excluded.positioning, competitor_profiles.positioning),
-       pricing = COALESCE(excluded.pricing, competitor_profiles.pricing),
-       strengths = excluded.strengths,
-       weaknesses = excluded.weaknesses,
-       last_verified = excluded.last_verified,
-       run_id = excluded.run_id`,
-  );
-  for (const c of found)
-    stmt.run(
-      ventureId,
-      c.name,
-      c.url,
-      c.positioning,
-      c.pricing,
-      JSON.stringify(c.strengths),
-      JSON.stringify(c.weaknesses),
-      ts,
-      ts,
-      runId,
-    );
-  s.endStep(step, `${found.length} upserted`);
 }
 
 /* ----------------------------------------------------------------- geo */

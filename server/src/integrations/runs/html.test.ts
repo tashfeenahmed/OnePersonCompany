@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isScriptUrl, looksLikeHtmlReport, sanitizeReportHtml, textOfHtml, unfence } from "./html.ts";
+import {
+  isScriptUrl,
+  looksLikeHtmlReport,
+  sanitizeReportHtml,
+  splitTrailingFence,
+  textOfHtml,
+  unfence,
+} from "./html.ts";
 
 const DOC =
   `<!doctype html><html><head><style>body{font:14px system-ui}</style></head>` +
@@ -126,4 +133,44 @@ test("textOfHtml gives back the words, and not the stylesheet", () => {
     "one decoding pass, so an escaped entity stays escaped",
   );
   assert.equal(textOfHtml(""), "");
+});
+
+/* --------------------------------------------------- the fence AFTER the doc */
+
+/**
+ * A COMPETITOR SWEEP'S REPORT IS A DOCUMENT WITH A MARKDOWN FENCE AFTER IT.
+ * The board cards travel in the same ```` ```json cards ```` block every other
+ * kind emits, appended after the closing </html> rather than embedded in the
+ * page — see integrations/runs/competitors.ts. Both ends of the pipe have to
+ * cope: the report is still recognised as a document, and the fence survives
+ * the sanitiser byte for byte, INCLUDING a card title with a `<` in it, which
+ * a tag scanner would otherwise read as an unterminated tag and eat the rest
+ * of the JSON with.
+ */
+const CARDS = '\n\n```json cards\n[{"title": "Ship <10s clips", "body": "b", "urgency": 2}]\n```\n';
+
+test("a report with a cards fence after it is still a document", () => {
+  assert.equal(looksLikeHtmlReport(DOC + CARDS), true);
+});
+
+test("splitTrailingFence cuts at the LAST closing html tag, and only at a real one", () => {
+  const { doc, tail } = splitTrailingFence(DOC + CARDS);
+  assert.ok(doc.endsWith("</html>"));
+  assert.equal(tail, CARDS);
+
+  /* A document still streaming has not closed, so all of it is markup. */
+  const half = splitTrailingFence("<!doctype html><html><head><style>body{margin:0");
+  assert.equal(half.tail, "");
+  assert.equal(half.doc, "<!doctype html><html><head><style>body{margin:0");
+
+  /* Markdown with no document in it is left whole. */
+  assert.equal(splitTrailingFence("## Findings\nSomething.").tail, "");
+});
+
+test("the cards fence survives the sanitiser, angle bracket and all", () => {
+  const { doc, tail } = splitTrailingFence(DOC + CARDS);
+  const cleaned = sanitizeReportHtml(unfence(doc)) + tail;
+  assert.ok(cleaned.includes('"title": "Ship <10s clips"'), "the card title is not markup and is not scanned");
+  assert.ok(cleaned.includes("```json cards"));
+  assert.ok(cleaned.includes("<h1>Jane Doe</h1>"), "and the document is still sanitised");
 });
