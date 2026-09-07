@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { SquarePen } from "lucide-react";
 import { statusTone, statusWord } from "@/components/runs/format";
 import { dayLabel, runLabel } from "@/components/org/dossiers";
 import { clock, day } from "@/lib/format";
@@ -6,25 +7,25 @@ import { cn } from "@/lib/utils";
 import type { RunSummary } from "@/lib/api/runs";
 
 /**
- * EVERYTHING THIS WORKER HAS EVER DONE, DOWN THE SIDE.
+ * THE LIST OF CONVERSATIONS WITH THIS WORKER — which is to say, its runs.
  *
  * ---------------------------------------------------------------------------
- * THE TRANSCRIPT IS THE LAST TWENTY AND THIS IS ALL OF THEM. The middle of the
- * page is a conversation, and a conversation that went back three hundred
- * turns would be unreadable and slow to fetch — so the server sends twenty
- * with their reports in full and the whole ledger as bare summaries. That
- * split used to show up as a single grey sentence above the transcript ("the
- * last 20 of 63 runs, the rest are on the Dossiers page"), which told the
- * owner their history existed and then sent them somewhere else to see it.
- * This is the rest of it, in the place the eye already goes for a list.
+ * A RUN IS A CHAT AND THIS RAIL IS THE CHAT LIST. The middle of the page draws
+ * ONE run at a time as an exchange — the brief, the tool calls, the report —
+ * exactly as the app's own sidebar lists sessions and the middle draws the
+ * open one. Every row is here, not the newest twenty: the server sends the
+ * whole ledger as summaries, and a row that could not be opened would be a
+ * history the owner can see and not read.
  *
- * A ROW OPENS THE RUN ON THIS PAGE. Every row, whether or not the run is in
- * the transcript. It used to be two verbs — scroll to the exchange, or leave
- * for the Outputs tab — and on the People Analyst, whose transcript is only
- * the unfiled pile, a filed dossier was neither: the click did nothing. One
- * verb now, and the page draws the run in place of the conversation — see
- * `RunView`. The open row is marked, the way the chat rail marks the open
- * session.
+ * A ROW OPENS THE RUN ON THIS PAGE, at `?run=<id>`. It used to be two verbs —
+ * scroll to an exchange in a transcript, or leave for the Outputs tab — and on
+ * the People Analyst, whose transcript was only the unfiled pile, a filed
+ * dossier was neither: the click did nothing. One verb now. The open row is
+ * marked, the way the chat rail marks the open session.
+ *
+ * NEW BRIEF IS AT THE TOP, because that is where New chat is. It clears the
+ * selection rather than sending anything: the empty page with the composer
+ * focused, at `?run=new`, which is an address the back button understands.
  *
  * GROUPED BY DAY BECAUSE THAT IS HOW WORK IS REMEMBERED. "Today" and
  * "Yesterday" are the two the owner actually reasons in — the rest are dates,
@@ -38,22 +39,34 @@ import type { RunSummary } from "@/lib/api/runs";
  * still going, over the whole ledger rather than a 48-hour window, because
  * this ledger is kept rather than expired.
  *
- * HIDDEN BELOW `lg`, AND THE PAGE STILL WORKS. It is a second view of runs the
- * page already reaches — the transcript is here, the rest are one link away —
- * so on a narrow screen it is the thing that goes rather than the thing that
- * gets a hamburger of its own.
+ * A NOTE UNDER THE TALLY WHEN THE LIST IS NARROWED. The caller can hand this
+ * rail a subset — the People Analyst's unfiled pile is the one that does — and
+ * a column showing eleven of sixty rows with nothing saying so is a rail that
+ * looks like it has lost the rest.
+ *
+ * HIDDEN BELOW `lg`, and below it the page is the open run and the composer.
+ * That used to be defensible because the middle carried a transcript of the
+ * last twenty as well; it no longer does, so what a narrow screen loses is the
+ * history — which is still whole on the kind's own Outputs page, one link from
+ * every reply. A drawer for it is the honest fix and is not built yet; a rail
+ * squeezed into 320px beside a report is not.
  */
 export function RunRail({
   name,
   runs,
+  note,
   label,
   activeId,
   onPick,
+  onNew,
 }: {
   /** The worker's name, as the rail's own heading. */
   name: string;
-  /** ALL of them, newest first — the ledger, not the transcript. */
+  /** ALL of them, newest first — the ledger, not the transcript. Or the
+   *  subset the caller is showing, in which case `note` says which. */
   runs: RunSummary[];
+  /** What narrows this list, when something does. Null is the whole ledger. */
+  note?: string | null;
   /** A better name for a run than its title, when the caller has one — the
    *  brief's first line, for a run whose title is only the venture's name.
    *  Null falls back to the title with its kind prefix stripped. */
@@ -61,6 +74,9 @@ export function RunRail({
   /** The run open on the page, if one is. */
   activeId: string | null;
   onPick: (run: RunSummary) => void;
+  /** Clear the selection and start a new brief. Absent on a rail that has
+   *  nowhere to send one. */
+  onNew?: () => void;
 }) {
   /* Grouped in the order they arrive rather than re-sorted. The server's order
      is the claim that the top row is the newest, and a second sort here would
@@ -94,9 +110,31 @@ export function RunRail({
               (failed > 0 ? ` · ${failed} failed` : "") +
               (going > 0 ? ` · ${going} going` : "")}
         </div>
+        {note && (
+          <div className="text-muted-foreground text-[12px]">{note}</div>
+        )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-6">
+      {/* NEW BRIEF, WHERE NEW CHAT IS. Marked when it is what the page is
+          showing, for the same reason a row is: the blank composer is a state
+          of this rail, not a gesture that leaves it. */}
+      {onNew && (
+        <div className="shrink-0 px-2 pt-2">
+          <button
+            onClick={onNew}
+            aria-current={activeId === null ? "true" : undefined}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-[9px] px-1.5 py-1.5 text-left text-[13px] transition-colors",
+              activeId === null ? "bg-accent text-foreground" : "hover:bg-accent",
+            )}
+          >
+            <SquarePen className="size-3.5 shrink-0" strokeWidth={1.7} />
+            New brief
+          </button>
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-6">
         {runs.length === 0 ? (
           <p className="text-muted-foreground px-1.5 py-1 text-[12.5px]">
             No runs yet.

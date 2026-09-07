@@ -1,37 +1,25 @@
-import { appPage } from "../../../shared/navigation";
-import { appForKind } from "../../../shared/runRoutes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowUp,
-  ArrowUpRight,
   MessageSquare,
   RefreshCw,
   Settings2,
   Square,
-  TriangleAlert,
   X,
 } from "lucide-react";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
-import { Markdown } from "@/components/Markdown";
-import { ReportFrame } from "@/components/runs/ReportFrame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  backendPhrase,
-  ordinal,
-  since,
-  statusTone,
-} from "@/components/runs/format";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { PersonAvatar } from "@/components/org/PersonAvatar";
 import { personAddress, shortName, standing } from "@/components/org/roleLook";
 import { attaches } from "@/components/org/dossiers";
 import { RunRail } from "@/components/org/RunRail";
-import { RunView } from "@/components/org/RunView";
+import { RunChat } from "@/components/org/RunChat";
 import {
   PersonDialog,
   PersonGrid,
@@ -41,32 +29,39 @@ import {
 } from "@/components/org/Watchlist";
 import { useApi } from "@/hooks/useApi";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
-import { ago, duration } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { sweepLine } from "@/lib/watchDeltas";
-import { isHtmlReport } from "@/lib/report";
-import { readCards, runsApi, type RunSummary } from "@/lib/api/runs";
+import { chatView, NEW_BRIEF } from "@/lib/runChat";
+import { isLive, runsApi, type RunSummary } from "@/lib/api/runs";
 import { peopleApi, type WatchInput, type WatchPerson } from "@/lib/api/people";
-import {
-  findSubagent,
-  subagentApi,
-  type Exchange,
-  type SubagentDetail,
-} from "@/lib/api/subagents";
+import { findSubagent, subagentApi, type SubagentDetail } from "@/lib/api/subagents";
 
 /**
  * ONE WORKER, DRAWN AS A CONVERSATION WITH IT.
  *
  * ---------------------------------------------------------------------------
  * THIS PAGE HAS THE CHAT'S SHAPE AND IT IS NOT A CHAT. The owner's briefs are
- * on the right, the worker's reports are on the left, and there is a composer
+ * on the right, the worker's replies are on the left, and there is a composer
  * at the bottom — because that IS what happens here: a person says something
  * to a named worker and the worker answers. But the thing answering is not the
  * Chief of Staff and the page says so, in the header, in the empty state and
  * under every reply. Every message is a brief, every reply is a whole run of
  * one kind, and there is no turn-taking in between: a follow-up is a new brief
  * and a new run.
+ *
+ * A RUN IS A CHAT, AND THERE IS ONLY ONE LAYOUT NOW. This page used to draw
+ * two: a transcript of the newest twenty exchanges, each report under its
+ * brief with a bare COUNT of the tool calls in its signature — and, when a row
+ * in the rail was pressed, a document instead, with a stat strip, a folded
+ * "how this run was made" and a Back link. So the tool calls a run was
+ * visibly making existed on one of those views and not on the one that looked
+ * like the conversation. The owner's words: "it does not show tool calls
+ * although tool calls are being made — they appear on the run view I get to
+ * from the sidebar. Consolidate: from the sidebar it should take me back to
+ * the conversation." So: the middle is ONE run, drawn as the exchange it is,
+ * tool calls and all — see `RunChat` — and `RunView` is deleted rather than
+ * kept beside it.
  *
  * THE COMPOSER SHUTS WHILE THE WORKER IS BUSY, which is the one place this
  * page deliberately behaves unlike the chat. There is a single run slot on
@@ -77,33 +72,39 @@ import {
  * becomes the stop button for the run that is holding it — the same swap the
  * chat makes for a turn in flight.
  *
- * WHAT IT DRAWS IS THE RUNS LEDGER, not a message table. The server hands
- * back the worker's newest twenty runs as `transcript`, each with the brief
- * that started it and the report it produced — see subagents/routes.ts — and
- * the page polls that while anything is moving, which is what makes a report
- * appear a paragraph at a time. Nothing is stored twice: the full report,
- * its board suggestions and its files are on the run's own page, one link away.
- *
  * ---------------------------------------------------------------------------
- * THREE COLUMNS, AND THE LEFT ONE IS THE REST OF THE HISTORY.
+ * WHAT THE MIDDLE SHOWS, AND WHAT DECIDES IT. `?run=<id>` is the address of an
+ * open conversation; `?run=new` is the blank page, which the back button can
+ * return to; no parameter at all opens the NEWEST run, the way opening the app
+ * lands on the last chat. The People Analyst is the exception and it is a
+ * standing one: its landing page is the grid of watched people, because that
+ * worker is addressed by PERSON and the grid IS its new-brief state. The
+ * arithmetic is in `lib/runChat`'s `chatView`, where it can be tested.
  *
- * The transcript is twenty runs because twenty reports is what a page can
- * carry; a worker that has been going for a month has hundreds. That gap used
- * to be one grey sentence — "the last 20 of 63, the rest are on the Dossiers
- * page" — which told the owner their history existed and then sent them off
- * the page to look at it. The rail is that history, in the place the eye
- * already goes for a list. See `RunRail`.
+ * THE RAIL IS THE LIST OF CHATS. Every run, newest first, grouped by day, with
+ * New brief at the top where New chat is. See `RunRail`.
  *
- * A ROW OPENS THE RUN HERE, AT `?run=<id>`. It used to scroll to the exchange
- * when the run was among the twenty and leave for the Outputs tab when it was
- * not — and on the People Analyst, whose transcript is only the unfiled pile,
- * a filed dossier was in the twenty by the server's count and not on the page,
- * so the click did nothing. Now the run is drawn in place of the conversation,
- * Workdash's way: the facts in a strip at the top, the brief, the report, and
- * Export beside the title. The address is a query parameter rather than a
- * route so the back button returns to the conversation, and the composer
- * stays under it because the next brief still goes to this worker. See
- * `RunView`.
+ * A BRIEF OPENS ITS OWN RUN. `dispatch` answers with the run it queued, so the
+ * address moves to it the moment the send returns and the owner watches the
+ * tool calls and the report arrive in place — rather than reading "queued"
+ * somewhere and going to look for it. The watchlist's "write a dossier" is the
+ * same dispatch and does the same thing.
+ *
+ * THE TRANSCRIPT IS AN INDEX NOW, NOT A VIEW. The server still sends the
+ * newest twenty exchanges (`sa.transcript`) and this page still reads two
+ * things out of it — the brief AS TYPED, and where it was typed — because
+ * neither is on a run's own document: `GET /api/runs/:id` has the stored input
+ * with the standing instructions in front of it, and nothing about the chat
+ * that asked. Nothing is DRAWN from it. The field stays on the wire because
+ * other readers may want it; this page just stopped painting twenty reports it
+ * could only show one of at a time.
+ *
+ * POLLED, LIKE THE RUN PAGES. The open run polls its own document every second
+ * and a half while it is moving (that read is the only one that carries the
+ * STEPS); this page reloads the worker on the same cadence for the rail, ten
+ * seconds when nothing is going, and on `WORK_CHANGED` — because a run the
+ * Chief of Staff dispatches in another tab should turn up here without a
+ * refresh.
  *
  * SETTINGS ARE A DRAWER NOW, AND IT STARTS SHUT — always, including on a
  * worker with nothing to read. The old rule opened it "when there is nothing
@@ -126,25 +127,30 @@ import {
  * worker that has none would be the one lie this file exists to avoid.
  *
  * ---------------------------------------------------------------------------
- * THE PEOPLE ANALYST'S RAIL LISTS PEOPLE, NOT RUNS, and that is the one place
- * this page changes shape rather than content.
+ * THE PEOPLE ANALYST IS THE SAME PAGE WITH A DIFFERENT FRONT DOOR.
  *
  * Every other worker is addressed by SUBJECT — a page, a rival, a keyword —
- * and its runs are a log because the second sweep of a moving thing is a
+ * and its runs are a log, because the second sweep of a moving thing is a
  * second reading. This one is addressed by PERSON, and three dossiers on Jane
- * are one file rather than three jobs. So its rail is the watchlist, and its
- * middle is a GRID OF THE PEOPLE rather than an empty conversation — because
- * there IS something to show before any run exists.
+ * are one file rather than three jobs. So its landing page is a GRID OF THE
+ * PEOPLE rather than its newest dossier: there IS something to show before any
+ * run is opened, and picking somebody is how a brief starts here.
  *
- * A PERSON IS A PAGE NOW, AND NOT A FILTER ON THIS ONE. `?person=<id>` used to
- * narrow the transcript in place; a file with pulled metrics, a timeline and a
- * shelf of dossiers on it stopped being a view of this conversation, so it
- * moved to /team/people/<id> — see pages/Person.tsx. The rail's rows and the
- * cards' "Open" both go there.
+ * A PERSON IS A PAGE, NOT A FILTER ON THIS ONE. `?person=<id>` used to narrow
+ * the middle in place; a file with pulled metrics, a timeline and a shelf of
+ * dossiers on it stopped being a view of this conversation, so it moved to
+ * /team/people/<id> — see pages/Person.tsx. The rail's rows and the cards'
+ * "Open" both go there.
  *
- * ONE QUERY PARAMETER SURVIVES, AND IT IS NOT A PERSON. `?person=unfiled` is
- * the pile of dossiers naming somebody nobody is watching, which really is a
- * filter over this transcript and has nowhere else to be drawn.
+ * ONE QUERY PARAMETER SURVIVES, AND IT NARROWS THE RAIL. `?person=unfiled` is
+ * the pile of dossiers naming somebody nobody is watching. It used to be a
+ * filter over the transcript in the middle; the middle now holds one run, so
+ * the pile is a filter over the LIST — the rail is narrowed to those runs and
+ * says so under its tally. That is the simpler of the two honest options: the
+ * other was to draw the same rows a second time in the middle, in the rail's
+ * own style, which is one list of runs kept in two places on one screen for a
+ * view that exists to say "these ones". Opening one is the same click it is
+ * anywhere else on this page.
  *
  * "ADD TO CHAT" IS THE OTHER HALF OF A CARD. Opening a file is one thing to
  * want; saying something about somebody without leaving the eleven others is
@@ -221,21 +227,23 @@ export function Subagent() {
   const watchReload = watch.reload;
   const people = useMemo(() => watch.data?.people ?? [], [watch.data]);
 
-  /* THE ONE VIEW THAT IS STILL A QUERY PARAMETER. `?person=unfiled` is the
-     pile of runs naming nobody on the list — a filter over THIS transcript,
-     which is why it stayed here when the people themselves became pages. Any
-     other value is an address that has moved, and the effect below sends it
-     on rather than drawing an empty page. */
+  /* THE ONE PERSON-SHAPED PARAMETER THAT IS STILL A VIEW. `?person=unfiled` is
+     the pile of runs naming nobody on the list — a filter over the RAIL now
+     that the middle holds one run. Any other value is an address that has
+     moved, and the effect below sends it on rather than drawing an empty
+     page. */
   const [params, setParams] = useSearchParams();
   const chosen = watchlisted ? params.get("person") : null;
   const onUnfiled = chosen === UNFILED;
-  /** The run drawn in place of the conversation, or null for the conversation. */
+  /** The address of the open conversation: a run id, `new` for the blank page,
+   *  or nothing at all — which `chatView` reads as the newest run. */
   const openRunId = params.get("run");
+  /** Open a run, or `NEW_BRIEF` for the blank page. Pushed rather than
+   *  replaced: which conversation is open is a place the owner went to. */
   const openRun = useCallback(
-    (id: string | null) => {
+    (id: string) => {
       const next = new URLSearchParams(params);
-      if (id) next.set("run", id);
-      else next.delete("run");
+      next.set("run", id);
       setParams(next);
     },
     [params, setParams],
@@ -395,6 +403,47 @@ export function Subagent() {
      person who is no longer watched. */
   const chip = attached ? (people.find((p) => p.id === attached.id) ?? null) : null;
 
+  /* --------------------------------------------------------- what is open */
+
+  const runs = useMemo(() => sa?.runs ?? [], [sa]);
+  /* THE TRANSCRIPT IS AN INDEX, NOT A VIEW — the brief as the owner typed it
+     and the conversation it was typed in, neither of which is on a run's own
+     document. Nothing below draws it. */
+  const transcript = sa?.transcript ?? [];
+
+  /**
+   * WHOSE RUNS ARE IN THE RAIL. Everything, or — on the analyst under
+   * `?person=unfiled` — the ones naming nobody being watched. "Nobody" is only
+   * sayable once the list has arrived, so before it does nothing is unfiled
+   * rather than everything.
+   */
+  const listed = !!watch.data;
+  /** The analyst's landing view is the CARDS. */
+  const everyone = watchlisted && !onUnfiled;
+  const unfiledRuns = useMemo(
+    () =>
+      /* NOTHING IS UNFILED UNTIL THE LIST HAS ARRIVED. Filtering against an
+         empty watchlist would put every dossier under "naming nobody on the
+         list" for the half second before the read lands, which is a statement
+         about the owner's list rather than a loading state. */
+      watchlisted && listed
+        ? runs.filter((r) => !people.some((p) => attaches(r.title, p.name)))
+        : [],
+    [watchlisted, listed, runs, people],
+  );
+  /** Watched by nobody, and the read has come back to prove it. */
+  const emptyList = everyone && listed && people.length === 0;
+
+  /** The rail's rows: the whole ledger, or the unfiled pile when that is the
+   *  view. Same rows, same click. */
+  const railRuns = onUnfiled ? unfiledRuns : runs;
+  /** A run, the blank page, or this worker's own list. See `lib/runChat`. */
+  const view = chatView(openRunId, railRuns, watchlisted);
+  /** How the open run's brief got here, when it is among the newest twenty. */
+  const sent = view.run
+    ? (transcript.find((x) => x.run.id === view.run) ?? null)
+    : null;
+
   /* ---------------------------------------------------------- the scroll */
 
   const scroller = useRef<HTMLElement>(null);
@@ -402,55 +451,55 @@ export function Subagent() {
      stuck again the moment they come back down. A report growing under a
      reader who has scrolled up must not drag them along with it. */
   const stuck = useRef(true);
-  const transcript = sa?.transcript ?? [];
-  const runs = sa?.runs ?? [];
-
-  /**
-   * WHOSE EXCHANGES ARE ON SCREEN. Everything, or — on the analyst — the ones
-   * that name nobody being watched. "Nobody" is only sayable once the list has
-   * arrived, so before it does nothing is unfiled rather than everything.
-   */
-  const listed = !!watch.data;
-  /** The watchlist's default view is the CARDS, not a conversation — so on it
-   *  the only transcript that has anywhere else to be is the unfiled one. */
-  const everyone = watchlisted && !onUnfiled;
-  const unattached = (title: string) => !people.some((p) => attaches(title, p.name));
-  const shown = watchlisted
-    ? /* NOTHING IS UNFILED UNTIL THE LIST HAS ARRIVED. Filtering against an
-         empty watchlist would put every dossier under "naming nobody on the
-         list" for the half second before the read lands, which is a statement
-         about the owner's list rather than a loading state. */
-      listed
-      ? transcript.filter((x) => unattached(x.run.title))
-      : []
-    : transcript;
-  const unfiledRuns = watchlisted && listed ? runs.filter((r) => unattached(r.title)) : [];
-  /** Watched by nobody, and the read has come back to prove it. */
-  const emptyList = everyone && listed && people.length === 0;
-
-  const last = shown[shown.length - 1];
-  const growth = `${chosen ?? ""}:${shown.length}:${last?.output.length ?? 0}:${last?.run.status ?? ""}`;
-  useEffect(() => {
-    if (openRunId) return;
+  /* THE OPEN RUN TELLS THE PAGE IT GREW, because the run's document lives
+     inside `RunChat` and the scroller lives here. Stable, because it is a
+     dependency of the effect over there that calls it. */
+  const grew = useCallback(() => {
     const el = scroller.current;
     if (el && stuck.current) el.scrollTop = el.scrollHeight;
-  }, [growth, openRunId]);
+  }, []);
 
-  /* A RUN OPENS AT THE TOP, and a report growing under the reader does not
-     drag them: the stuck-to-bottom rule is the conversation's, not a
-     document's. Coming back to the conversation lands at its foot again. */
+  /* THE LEDGER AS THE SCROLL EFFECT SEES IT. A ref rather than a dependency,
+     and the difference is the whole behaviour: a run FINISHING changes its
+     status in this list, and an effect that depended on the status would then
+     re-run and yank a reader who has scrolled up back to the top of a report
+     at the moment it was finished. What is open is the only thing that should
+     move the scroll. */
+  const runsRef = useRef(runs);
+  useEffect(() => {
+    runsRef.current = runs;
+  }, [runs]);
+
+  /* A FINISHED RUN OPENS AT ITS TOP AND A LIVE ONE IS FOLLOWED. Both are the
+     same rule said twice: a document is read from the beginning, and a run in
+     flight is watched at its foot, where the next tool call appears. A run
+     this page has no status for is one just dispatched — the most live thing
+     there is — so it is followed. */
+  const ledgerIn = !!sa;
   useEffect(() => {
     const el = scroller.current;
-    if (!el) return;
-    if (openRunId) el.scrollTop = 0;
-    else {
-      stuck.current = true;
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [openRunId]);
+    /* NOT UNTIL THE LEDGER IS IN. Before it lands nothing is known about the
+       run in the address — and "no status" is the answer for a run just
+       dispatched, which is followed. Deciding on an empty list would follow
+       every run, including a finished report opened from the rail. */
+    if (!el || !ledgerIn) return;
+    const status = view.run
+      ? runsRef.current.find((r) => r.id === view.run)?.status
+      : null;
+    const follow = !view.run || !status || isLive(status);
+    stuck.current = follow;
+    el.scrollTop = follow ? el.scrollHeight : 0;
+  }, [view.run, ledgerIn]);
 
   function pick(run: RunSummary) {
     openRun(run.id);
+  }
+
+  /** New brief: nothing open, the composer focused, and an address the back
+   *  button can return to. */
+  function newBrief() {
+    openRun(NEW_BRIEF);
+    setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   /* Only once the answer is in: "there is nobody here" is a claim about the
@@ -520,10 +569,11 @@ export function Subagent() {
   }
 
   /*
-    A SEND IS A DISPATCH, and it stays on this page. The old page navigated
-    to the run's report; this one is where the report is read, so the brief
-    goes into the transcript on the right and the reply grows under it. The
-    rail's badge is told the same way the chat tells it.
+    A SEND IS A DISPATCH, AND THE NEW RUN IS WHAT THE PAGE THEN SHOWS. The
+    dispatch answers with the run it queued, so the address moves to it and the
+    owner watches the tool calls and the report arrive in place — rather than
+    reading "queued" somewhere and going to look for it. The rail's badge is
+    told the same way the chat tells it.
 
     WITH A PERSON IN THE CHIP, THE NAME GOES ON THE FIRST LINE, and that is
     what files the dossier under them rather than in the unfiled pile. The
@@ -539,11 +589,11 @@ export function Subagent() {
     setSending(true);
     setProblem(null);
     try {
-      await subagentApi.dispatch(sa.id, {
+      const { run } = await subagentApi.dispatch(sa.id, {
         brief: chip ? `${chip.name}\n\n${text}` : text,
       });
       setBrief("");
-      stuck.current = true;
+      openRun(run.id);
       reload();
       if (watchlisted) watchReload();
       window.dispatchEvent(new Event(WORK_CHANGED));
@@ -556,13 +606,15 @@ export function Subagent() {
 
   /** The standard profile, asked for by the server so the title is exactly
    *  what the attachment rule expects. Nothing is typed and nothing needs to
-   *  be: "write a dossier on this person" is the whole brief. */
+   *  be: "write a dossier on this person" is the whole brief. It is the same
+   *  dispatch as a send and it opens the same way — the grid gives way to the
+   *  dossier being written. */
   async function writeDossier(p: WatchPerson, focus?: string) {
     setAsking((was) => new Set(was).add(p.id));
     setProblem(null);
     try {
-      await peopleApi.dossierFor(p.id, focus);
-      stuck.current = true;
+      const { run } = await peopleApi.dossierFor(p.id, focus);
+      openRun(run.id);
       reload();
       watchReload();
       window.dispatchEvent(new Event(WORK_CHANGED));
@@ -599,11 +651,10 @@ export function Subagent() {
   }
 
   /* Stop the run that is holding the composer. A queued one is cancelled
-     outright; a running one is asked to stop and keeps what it had written. */
+     outright; a running one is asked to stop and keeps what it had written.
+     The ledger is newest first, so the first live row IS the one in flight. */
   async function stop(id?: string) {
-    const held =
-      id ??
-      [...transcript].reverse().find((x) => x.run.status === "running" || x.run.status === "queued")?.run.id;
+    const held = id ?? runs.find((r) => isLive(r.status))?.id;
     if (!held) return;
     setStopping(true);
     setProblem(null);
@@ -756,16 +807,23 @@ export function Subagent() {
       */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* --------------------------------------------------- the rail */}
-        {/* THE RAIL IS RUNS ON EVERY WORKER, THE PEOPLE ANALYST INCLUDED. Its
-            people are the cards in the middle; the rail's job is to reach a
-            previous run — or the one working now — in one press, and for a
-            dossier the brief's first line IS the person's name. */}
+        {/* THE RAIL IS RUNS ON EVERY WORKER, THE PEOPLE ANALYST INCLUDED — the
+            list of conversations with this worker, with New brief at the top
+            where New chat is. Its people are the cards in the middle; the
+            rail's job is to reach a previous run — or the one working now — in
+            one press, and for a dossier the brief's first line IS the person's
+            name. */}
         {sa &&
           (venture || portfolio) &&
           (
             <RunRail
               name={workerName ?? sa.name}
-              runs={runs}
+              runs={railRuns}
+              note={
+                onUnfiled
+                  ? `unfiled only — naming nobody on the list`
+                  : null
+              }
               /* The brief's first line names the run better than a title that
                  is only "<Kind> — <venture>" — the rail would otherwise read
                  the venture's name on every row. */
@@ -774,8 +832,12 @@ export function Subagent() {
                 const first = brief?.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
                 return first ? (first.length > 64 ? `${first.slice(0, 63).trimEnd()}…` : first) : null;
               }}
-              activeId={openRunId}
+              /* The RESOLVED run, not the raw parameter: with no `?run` at all
+                 the newest is what is open, and the rail has to mark the row
+                 the reader is looking at. */
+              activeId={view.run}
               onPick={pick}
+              onNew={newBrief}
             />
           )}
 
@@ -802,17 +864,17 @@ export function Subagent() {
                 </p>
               )}
 
-              {sa && (venture || portfolio) && openRunId ? (
-                <RunView
-                  key={openRunId}
-                  runId={openRunId}
+              {sa && (venture || portfolio) && view.run ? (
+                <RunChat
+                  key={view.run}
+                  runId={view.run}
                   worker={{ name: workerName ?? sa.name, title: sa.title }}
                   ventureName={venture?.name ?? null}
-                  brief={transcript.find((x) => x.run.id === openRunId)?.brief ?? null}
-                  onBack={() => openRun(null)}
+                  sent={sent}
                   onStop={(id) => void stop(id)}
                   stopping={stopping}
                   pollKey={workTick}
+                  onGrew={grew}
                 />
               ) : sa && (venture || portfolio) && (
                 <>
@@ -822,11 +884,15 @@ export function Subagent() {
                         Unfiled dossiers
                       </h1>
                       <p className="text-muted-foreground mb-6 text-[14px]">
-                        {unfiledRuns.length} {unfiledRuns.length === 1 ? "run" : "runs"}{" "}
-                        naming somebody who is not on the watchlist — written
-                        before the list existed, or about somebody since taken
-                        off it. Adding that person puts their file back together.
+                        {unfiledRuns.length === 0
+                          ? "Every dossier on this box names somebody on the watchlist. Nothing is unfiled."
+                          : `${unfiledRuns.length} ${unfiledRuns.length === 1 ? "run names" : "runs name"} somebody who is not on the watchlist — written before the list existed, or about somebody since taken off it. Adding that person puts their file back together.`}
                       </p>
+                      {unfiledRuns.length > 0 && (
+                        <p className="text-muted-foreground mb-6 text-[13.5px]">
+                          The rail is narrowed to them — open one to read it.
+                        </p>
+                      )}
                     </>
                   ) : (
                     <>
@@ -946,57 +1012,20 @@ export function Subagent() {
                     </div>
                   )}
 
-                  {/* THE PILE THAT BELONGS TO NOBODY, under the cards and said
-                      out loud rather than dropped. Only the ones whose reports
-                      are actually on this page get a heading — a count of runs
-                      with nothing under it would be a promise this page cannot
-                      keep. */}
-                  {everyone && shown.length > 0 && (
-                    <div className="mb-2 flex items-baseline gap-2">
-                      <h2 className="text-[14px] font-medium">Unfiled dossiers</h2>
-                      <span className="text-muted-foreground text-[12.5px]">
-                        {unfiledRuns.length === shown.length
-                          ? `${unfiledRuns.length} naming nobody on the list`
-                          : `the ${shown.length} most recent of ${unfiledRuns.length} naming nobody on the list`}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* ---------------------------------------- the transcript */}
-                  {everyone && shown.length === 0 ? null : shown.length === 0 ? (
-                    <EmptyTranscript
+                  {/* ------------------------------------- nothing open */}
+                  {/* THE BLANK PAGE: a worker nobody has briefed, or New brief
+                      pressed on one with a history. Two different emptinesses
+                      and they get two different sentences — "nothing yet" over
+                      a worker with sixty runs in the rail beside it would read
+                      as data loss. */}
+                  {view.blank && (
+                    <NothingYet
                       sa={sa}
-                      kindName={kind?.name ?? sa?.kind ?? "run"}
+                      kindName={kind?.name ?? sa.kind}
                       portfolio={portfolio}
                       ventureName={venture?.name ?? null}
-                      onUnfiled={onUnfiled}
+                      runs={runs.length}
                     />
-                  ) : (
-                    <div className="flex flex-col gap-5 pb-2">
-                      {!watchlisted && runs.length > transcript.length && (
-                        <p className="text-muted-foreground text-center text-[12.5px]">
-                          The last {transcript.length} of {runs.length} runs. The
-                          rail has all of them; the reports for the rest are on{" "}
-                          <Link
-                            to={appPage(appForKind(sa.kind))}
-                            className="hover:text-foreground underline"
-                          >
-                            the {kind?.name ?? sa.kind} page
-                          </Link>
-                          .
-                        </p>
-                      )}
-                      {shown.map((x) => (
-                        <ExchangeView
-                          key={x.run.id}
-                          x={x}
-                          sa={sa}
-                          busy={stopping}
-                          onOpen={() => openRun(x.run.id)}
-                          onStop={() => void stop()}
-                        />
-                      ))}
-                    </div>
                   )}
                 </>
               )}
@@ -1240,38 +1269,37 @@ export function Subagent() {
 /* ------------------------------------------------------------- pieces */
 
 /**
- * NOTHING TO READ, AND THE REASON WHY.
+ * NOTHING OPEN, AND THE REASON WHY.
  *
- * Three different emptinesses used to be one sentence. A worker nobody has
- * briefed, an unfiled view with nothing in it, and a venture worker whose runs
- * were all started with a different venture chosen are three different
- * situations, and the last two read as data loss if they are drawn as
- * "nothing yet". (The fourth and fifth — a person with no dossiers, and a
- * person whose dossiers are older than the last twenty runs — moved to that
- * person's own page along with everything else about them.)
+ * TWO EMPTINESSES, TWO SENTENCES. A worker nobody has ever briefed is a page
+ * with nothing behind it; New brief on a worker with sixty runs in the rail is
+ * a blank sheet in front of a full drawer. Drawn with the same words, the
+ * second reads as data loss.
+ *
+ * AND THE FIRST ONE SAYS WHY IT IS EMPTY IN THE WORKER'S OWN TERMS. A venture
+ * worker's runs are the runs of its kind STARTED WITH THAT VENTURE CHOSEN, so
+ * "nothing yet" has to name the venture or it is a claim about the whole box.
  */
-function EmptyTranscript({
+function NothingYet({
   sa,
   kindName,
   portfolio,
   ventureName,
-  onUnfiled,
+  runs,
 }: {
   sa: SubagentDetail;
   kindName: string;
   portfolio: boolean;
   ventureName: string | null;
-  onUnfiled: boolean;
+  /** How many runs are in the rail. Zero is a worker that has never worked. */
+  runs: number;
 }) {
-  if (onUnfiled)
+  if (runs > 0)
     return (
       <p className="text-muted-foreground mb-6 text-[13.5px]">
-        None of those runs are among {sa.name}'s last twenty, so their reports
-        are not on this page. They are on{" "}
-        <Link to={appPage(appForKind(sa.kind))} className="hover:text-foreground underline">
-          the {kindName} page
-        </Link>
-        .
+        A new brief starts a new {kindName} run, and the reply is that whole
+        run — the tool calls as they happen, then the report. The{" "}
+        {runs === 1 ? "one before it is" : `${runs} before it are`} in the rail.
       </p>
     );
 
@@ -1290,147 +1318,6 @@ function EmptyTranscript({
         </>
       )}
     </p>
-  );
-}
-
-/**
- * ONE BRIEF AND ITS REPORT. The owner's words on the right, exactly as typed —
- * plain text, not markdown, for the chat's reason: a person who types `*`
- * means an asterisk. The worker's report on the left, rendered, with the
- * board-suggestions fence taken off the end because those are filed from the
- * run's own page and a raw JSON block at the foot of a reply is noise.
- *
- * "OPEN THE RUN" UNDER EVERY REPLY goes to the same place the rail goes — the
- * run drawn on this page with its facts and its export — rather than off to
- * the Outputs tab. The Outputs tab is one link further, from there.
- */
-function ExchangeView({
-  x,
-  sa,
-  busy,
-  onOpen,
-  onStop,
-}: {
-  x: Exchange;
-  sa: SubagentDetail;
-  busy: boolean;
-  onOpen: () => void;
-  onStop: () => void;
-}) {
-  const { run } = x;
-  const body = useMemo(() => readCards(x.output).body.trim(), [x.output]);
-  /* A dossier is a designed HTML document and goes in the sandboxed frame;
-     every other kind of reply is markdown and goes where it always went. The
-     question is asked of the text rather than of the run's kind — see
-     `lib/report.ts` — so a half-written document draws too. */
-  const bodyIsHtml = useMemo(() => isHtmlReport(body), [body]);
-  const inFlight = run.status === "running" || run.status === "queued";
-  const took = duration(run.ms, { nullText: "" });
-
-  /* Where the brief came from, when it was not typed on this page. */
-  const origin = !x.dispatched
-    ? "started from the app"
-    : x.parentSessionId === "rounds"
-      ? "asked by the scheduled round"
-      : x.parentSessionId
-        ? "asked by the chief of staff"
-        : null;
-
-  return (
-    <div className="flex flex-col gap-3 rounded-[18px]">
-      <div className="flex flex-col items-end">
-        <div className="bg-card max-w-[85%] rounded-[16px] px-4.5 py-3 text-[14.5px] whitespace-pre-wrap">
-          {x.brief || (
-            <span className="text-muted-foreground italic">
-              No brief — the run was started with the field left empty.
-            </span>
-          )}
-        </div>
-        <p className="text-muted-foreground mt-1 text-[12.5px]">
-          {ago(run.queuedAt)}
-          {origin && ` · ${origin}`}
-          {origin && x.parentSessionId && x.parentSessionId !== "rounds" && (
-            <>
-              {" "}
-              <Link to={`/chat/${encodeURIComponent(x.parentSessionId)}`} className="hover:text-foreground underline">
-                in this chat
-              </Link>
-            </>
-          )}
-        </p>
-      </div>
-
-      <div>
-        {run.status === "queued" && (
-          <p className="text-muted-foreground text-[14px]">
-            {sa.name} is waiting its turn
-            {x.queuePosition ? `, ${ordinal(x.queuePosition)} in the queue` : ""}. One
-            run at a time on this box.
-          </p>
-        )}
-
-        {run.error && (
-          <p className="text-destructive mb-2 text-[13.5px] leading-relaxed">{run.error}</p>
-        )}
-
-        {body &&
-          (bodyIsHtml ? (
-            <ReportFrame html={body} title={run.title} fileName={run.title} />
-          ) : (
-            <Markdown text={body} />
-          ))}
-
-        {run.status === "running" && (
-          <p className="text-muted-foreground mt-2 text-[13.5px]">
-            {sa.name} is working
-            {since(run.startedAt) ? ` — ${since(run.startedAt)} so far` : ""}
-            {run.steps ? ` · ${run.steps} tool call${run.steps === 1 ? "" : "s"}` : ""}…
-          </p>
-        )}
-
-        {!inFlight && !body && !run.error && (
-          <p className="text-muted-foreground text-[13.5px]">Nothing was written.</p>
-        )}
-
-        {/*
-          SIGNED BY THE WORKER, under every reply, the way the chat signs
-          every answer with its backend — and for the same reason. Which
-          agent or provider actually wrote it comes after the name, because
-          a report from a raw provider with no tools is not the same piece
-          of work as one from a live agent.
-        */}
-        {!inFlight && (
-          <p className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-1 text-[12.5px]">
-            <span className={cn("mr-1 size-1.5 shrink-0 rounded-full", statusTone(run.status))} />
-            {sa.name}
-            {` · ${backendPhrase(run)}`}
-            {took && ` · ${took}`}
-            {x.cards > 0 && ` · ${x.cards} board suggestion${x.cards === 1 ? "" : "s"}`}
-            <span>·</span>
-            <button onClick={onOpen} className="hover:text-foreground flex items-center gap-0.5 underline">
-              Open the run
-              <ArrowUpRight className="size-3" strokeWidth={1.8} />
-            </button>
-          </p>
-        )}
-        {run.status === "failed" && body && (
-          <p className="text-muted-foreground mt-1 text-[12.5px]">
-            <TriangleAlert className="mr-1 inline size-3 align-[-1px]" strokeWidth={1.8} />
-            Stopped before it finished — this is what it had written.
-          </p>
-        )}
-        {inFlight && (
-          <button
-            onClick={onStop}
-            disabled={busy}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground mt-2 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] disabled:opacity-50"
-          >
-            <Square className="size-3.5" strokeWidth={1.6} />
-            Stop
-          </button>
-        )}
-      </div>
-    </div>
   );
 }
 

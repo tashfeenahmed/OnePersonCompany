@@ -15,6 +15,12 @@ import { duration } from "@/lib/format";
  * type would mean either a shim on every render or a shared union that exists
  * only because two pages happen to draw the same rectangle.
  *
+ * THE TRANSCRIPT'S OWN SIZE, 14.5px, and not the report pane's 14. These
+ * lines are drawn inside a reply on the worker's page now — see `RunChat` —
+ * where they sit between the owner's brief and the report the run wrote. A
+ * line half a pixel smaller than the words around it reads as a caption about
+ * the answer rather than as part of it.
+ *
  * WHY THE STEPS ARE ABOVE THE REPORT AND NOT INSIDE IT. In a chat the tool
  * lines are interleaved with the prose because that is when they happened. A
  * run's report is one document written at the end of the work: the tools all
@@ -52,7 +58,7 @@ function StepLine({ step }: { step: RunStep }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className={cn(
-          "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[9px] px-1.5 py-0.5 text-left text-[14px] leading-[1.6] transition-colors",
+          "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[9px] px-1.5 py-0.5 text-left text-[14.5px] leading-[1.6] transition-colors",
           running
             ? "tool-shimmer focus-visible:ring-ring focus-visible:ring-1"
             : "hover:bg-accent hover:text-foreground focus-visible:bg-accent",
@@ -62,14 +68,16 @@ function StepLine({ step }: { step: RunStep }) {
           {step.tool}
           {step.label && ` · ${step.label}`}
         </span>
-        <span className="shrink-0">
+        {/* `whitespace-pre` because a flex item drops the space at its start,
+            and without it the line reads "13 rivals on file· completed". */}
+        <span className="shrink-0 whitespace-pre">
           {" · "}
           {running ? "running…" : took_ ? `completed in ${took_}` : "completed"}
         </span>
       </button>
 
       {open && (
-        <div className="text-muted-foreground border-line-soft mt-1 mb-1 ml-1.5 flex flex-col gap-0.5 border-l pl-3 text-[14px] leading-[1.6]">
+        <div className="text-muted-foreground border-line-soft mt-1 mb-1 ml-1.5 flex flex-col gap-0.5 border-l pl-3 text-[14.5px] leading-[1.6]">
           {step.label && (
             <p className="break-words whitespace-pre-wrap">{step.label}</p>
           )}
