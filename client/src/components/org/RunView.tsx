@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowUpRight, ChevronRight, Loader2, Square, TriangleAlert } from "lucide-react";
 import { Markdown } from "@/components/Markdown";
 import { ExportPdf } from "@/components/runs/ExportPdf";
+import { ReportFrame } from "@/components/runs/ReportFrame";
 import { RunCards } from "@/components/runs/RunCards";
 import { RunSteps } from "@/components/runs/RunSteps";
 import { backendPhrase, ordinal, since, statusTone, statusWord } from "@/components/runs/format";
@@ -10,6 +11,7 @@ import { runAddress } from "@/components/org/roleLook";
 import { runLabel } from "@/components/org/dossiers";
 import { useApi } from "@/hooks/useApi";
 import { count, duration, when } from "@/lib/format";
+import { isHtmlReport, reportText } from "@/lib/report";
 import { wordCount, type ReportFact } from "@/lib/reportDocument";
 import { cn } from "@/lib/utils";
 import { isLive, readCards, runsApi } from "@/lib/api/runs";
@@ -85,7 +87,13 @@ export function RunView({
     [run],
   );
   const text = body.trim();
-  const words = useMemo(() => wordCount(text), [text]);
+  /* WHICH RENDERER, decided on the text rather than on the kind — see
+     `lib/report.ts`. A dossier is a designed HTML document and goes in the
+     frame; everything else on this box is markdown and goes where it always
+     went. The word count is the document's WORDS either way, which is why it
+     goes through `reportText` rather than counting the markup. */
+  const html = useMemo(() => isHtmlReport(text), [text]);
+  const words = useMemo(() => wordCount(reportText(text)), [text]);
   const reportRef = useRef<HTMLDivElement>(null);
   const [howOpen, setHowOpen] = useState(false);
 
@@ -168,15 +176,22 @@ export function RunView({
                   Stop
                 </button>
               )}
-              <ExportPdf
-                title={heading}
-                subtitle={subtitle}
-                facts={facts}
-                brief={brief}
-                footer={`${worker.name} · ${backendPhrase(run)} · ${run.id}`}
-                body={reportRef}
-                disabled={live || !text}
-              />
+              {/* THE HTML REPORT CARRIES ITS OWN EXPORT, above the frame:
+                   the print call needs the frame's window, so it can only
+                   live where the frame does. This one builds a document out
+                   of the rendered markdown, which an HTML report does not
+                   need — it already is one. */}
+              {!html && (
+                <ExportPdf
+                  title={heading}
+                  subtitle={subtitle}
+                  facts={facts}
+                  brief={brief}
+                  footer={`${worker.name} · ${backendPhrase(run)} · ${run.id}`}
+                  body={reportRef}
+                  disabled={live || !text}
+                />
+              )}
               <Link
                 to={runAddress(run)}
                 title="The same run on the Outputs page, where it can be retried or deleted"
@@ -261,9 +276,13 @@ export function RunView({
                     Still being written — this is the report so far.
                   </div>
                 )}
-                <div ref={reportRef}>
-                  <Markdown text={text} />
-                </div>
+                {html ? (
+                  <ReportFrame html={text} title={heading} fileName={heading} />
+                ) : (
+                  <div ref={reportRef}>
+                    <Markdown text={text} />
+                  </div>
+                )}
               </>
             ) : run.status === "running" ? (
               <p className="text-muted-foreground flex items-center gap-2 text-[14px]">

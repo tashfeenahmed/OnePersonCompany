@@ -18,6 +18,18 @@ test("filedPath finds the one .md path in a note about a saved file", () => {
   assert.equal(filedPath('I wrote it to "/a/b/c.md".'), "/a/b/c.md");
 });
 
+test("filedPath finds an .html path too, because the dossier is an HTML document", () => {
+  assert.equal(
+    filedPath("Dossier for Jane Doe written to `/srv/opc/server/data/hermes/home/jane.html`."),
+    `${HOME}/jane.html`,
+  );
+  assert.equal(filedPath("Saved the report at /tmp/out/report.htm and that's all."), "/tmp/out/report.htm");
+  assert.equal(filedPath("I wrote it to /a/b/DOSSIER.HTML."), "/a/b/DOSSIER.HTML");
+  assert.equal(filedPath("Written to /a/one.md and /a/one.html."), null, "two files is still a guess");
+  assert.equal(filedPath("Saved to /a/b/notes.txt"), null, "only a report extension is read back");
+  assert.equal(filedPath("Saved to /a/b/report.htmlx"), null, "a longer extension is a different file");
+});
+
 test("filedPath says null for a real report, a note with no path, and a note naming two files", () => {
   const long = `${NOTE}\n${"x".repeat(2_100)}`;
   assert.equal(filedPath(long), null, "a long answer is a report, not a note");

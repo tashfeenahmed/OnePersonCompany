@@ -3,6 +3,7 @@ import { Loader2, Square, Trash2 } from "lucide-react";
 import { Markdown } from "@/components/Markdown";
 import { PaperFacts, PaperFrame, PaperLinks } from "@/components/runs/PaperView";
 import { ExportPdf } from "@/components/runs/ExportPdf";
+import { ReportFrame } from "@/components/runs/ReportFrame";
 import { RunCards } from "@/components/runs/RunCards";
 import { RunSteps } from "@/components/runs/RunSteps";
 import {
@@ -14,6 +15,7 @@ import {
 import { readCards, type RunDetail } from "@/lib/api/runs";
 import { cn } from "@/lib/utils";
 import { count, duration, when } from "@/lib/format";
+import { isHtmlReport, reportText } from "@/lib/report";
 import { wordCount } from "@/lib/reportDocument";
 
 /**
@@ -77,6 +79,11 @@ export function RunReport({
   const took = duration(run.ms, { nullText: "" }) || (run.status === "running" ? since(run.startedAt) : null);
   const reportRef = useRef<HTMLDivElement>(null);
   const text = body.trim();
+  /* WHICH RENDERER, decided on the text rather than on the kind — see
+     `lib/report.ts`. The dossier writes a designed HTML document and goes in
+     the sandboxed frame; every other kind writes markdown and goes where it
+     always went. */
+  const html = useMemo(() => isHtmlReport(text), [text]);
 
   return (
     <div className="bg-card rounded-[14px] p-4.5">
@@ -110,7 +117,12 @@ export function RunReport({
               paper — for a paper the PDF is the document, and a second
               "PDF" button beside `PaperLinks` would be a page arguing with
               itself about which file that is. */}
-          {!live && !run.paper && text && (
+          {/* An HTML report carries its own Export above the frame: the print
+              call needs the frame's own window, so it can only live where the
+              frame does. This one builds a document out of the page's rendered
+              markdown, which an HTML report does not need — it already is
+              one. */}
+          {!live && !run.paper && text && !html && (
             <ExportPdf
               title={run.title}
               subtitle={`${run.ventureName ? `for ${run.ventureName} · ` : ""}${statusWord(run.status)}`}
@@ -118,7 +130,7 @@ export function RunReport({
                 { label: "Finished", value: when(run.finishedAt ?? run.startedAt ?? run.queuedAt, { year: true }) },
                 { label: "Took", value: took ?? "" },
                 { label: "Tool calls", value: run.steps.length ? count(run.steps.length) : "" },
-                { label: "Words", value: count(wordCount(text)) },
+                { label: "Words", value: count(wordCount(reportText(text))) },
                 { label: "Model", value: backendPhrase(run) },
               ]}
               brief={Object.values(run.input).find((v) => v && v.trim()) ?? null}
@@ -191,9 +203,13 @@ export function RunReport({
               one.
             </div>
           )}
-          <div ref={reportRef}>
-            <Markdown text={body} />
-          </div>
+          {html ? (
+            <ReportFrame html={text} title={run.title} fileName={run.title} />
+          ) : (
+            <div ref={reportRef}>
+              <Markdown text={body} />
+            </div>
+          )}
         </>
       ) : run.status === "running" ? (
         <p className="text-muted-foreground flex items-center gap-2 text-[14px]">

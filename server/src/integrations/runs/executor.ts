@@ -98,6 +98,7 @@ import {
 } from "./context.ts";
 import { fencedJson, kindDef, systemBrief, type KindDef } from "./kinds.ts";
 import { readFiled } from "./filed.ts";
+import { looksLikeHtmlReport, sanitizeReportHtml, unfence } from "./html.ts";
 import { growthRun } from "../growth/runs.ts";
 import { dossierRun } from "../people/dossier.ts";
 import { knowledgeBlock } from "../knowledge/store.ts";
@@ -586,6 +587,46 @@ async function unfiled(s: Session, text: string, toOutput: boolean): Promise<str
   return found.text;
 }
 
+/**
+ * A REPORT THAT IS AN HTML DOCUMENT, CLEANED ON THE WAY INTO THE ROW.
+ *
+ * ---------------------------------------------------------------------------
+ * THE DOSSIER IS WRITTEN IN HTML — see `people/dossier.ts` for why a profile of
+ * a person is a designed document rather than nine headings of markdown — and
+ * this is the one seam every answer passes through on its way to
+ * `agent_runs.output`. It runs for EVERY kind rather than only the dossier,
+ * and that is deliberate: the test is what the model actually wrote, not what
+ * it was asked for, so a research report that comes back as a document is
+ * treated the same way, and no future kind has to remember to opt in.
+ *
+ * IT IS A NO-OP ON MARKDOWN, which is what nearly every run produces.
+ * `looksLikeHtmlReport` wants a whole document, starting with a tag; anything
+ * else is left byte for byte as it was and drawn by the markdown renderer, the
+ * way it has always been.
+ *
+ * WHY IT REWRITES `s.output` RATHER THAN LEAVING IT. The deltas were already
+ * streamed into the document as they arrived — fence, script tags and all —
+ * and the row is what the page reads. So the tail is unwritten and the clean
+ * document put in its place, exactly as `unfiled` does above it, and for the
+ * same reason: the row must end up holding the report, not the transcript of
+ * how it arrived.
+ *
+ * NO STEP. `unfiled` logs one because it changes WHERE the report came from,
+ * which the owner should know; this changes nothing but the characters, and a
+ * "sanitised the HTML" line under every dossier would be provenance about
+ * plumbing. What was removed is visible in the document itself.
+ */
+function cleanedHtml(s: Session, text: string, toOutput: boolean): string {
+  if (!looksLikeHtmlReport(text)) return text;
+  const html = sanitizeReportHtml(unfence(text));
+  if (!html || html === text) return text;
+  if (toOutput) {
+    s.output = s.output.endsWith(text) ? s.output.slice(0, s.output.length - text.length) + html : html;
+    s.flush();
+  }
+  return html;
+}
+
 async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean }): Promise<TurnResult & { usage?: {prompt: number; completion: number} | null }> {
   const before = { ...s.usage };
   const signal = live?.id === s.id ? live.abort.signal : undefined;
@@ -625,7 +666,7 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolea
     }
     s.model = turn.model ?? s.model;
     s.flush();
-    const text = await unfiled(s, turn.text, opts.toOutput);
+    const text = cleanedHtml(s, await unfiled(s, turn.text, opts.toOutput), opts.toOutput);
     return { text, backend: backend.id, model: turn.model, usage: s.sawUsage ? { prompt: s.usage.prompt - before.prompt, completion: s.usage.completion - before.completion } : null };
   }
 
@@ -639,7 +680,7 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolea
       s.sawUsage = true;
     }
     if (opts.toOutput) s.say(reply.text);
-    const text = await unfiled(s, reply.text, opts.toOutput);
+    const text = cleanedHtml(s, await unfiled(s, reply.text, opts.toOutput), opts.toOutput);
     return { text, backend: backend.id, model: reply.model, usage: reply.usage };
   }
 
@@ -658,7 +699,10 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolea
     s.sawUsage = true;
   }
   if (opts.toOutput) s.say(r.text);
-  return { text: r.text, backend: `provider:${r.provider}`, model: r.model };
+  /* NO `unfiled` HERE — a raw provider has no file tool and nothing to save
+     with — but the cleaning still applies: a provider answering a dossier
+     brief writes the same HTML document an agent does. */
+  return { text: cleanedHtml(s, r.text, opts.toOutput), backend: `provider:${r.provider}`, model: r.model };
 }
 
 /* ------------------------------------------------------------ the six kinds */

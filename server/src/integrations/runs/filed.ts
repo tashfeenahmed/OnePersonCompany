@@ -5,7 +5,7 @@ import { resolve, sep } from "node:path";
  *
  * ---------------------------------------------------------------------------
  * A live agent has a file tool, and a model with a file tool and a brief that
- * says "write one markdown document" will, some of the time, do exactly that:
+ * says "write one document" will, some of the time, do exactly that:
  * write it — to disk, under its own home — and answer with a note saying where
  * it put it. The first dossier on this box came back as seven lines:
  * "Dossier for Jane Doe written to `/…/hermes/home/dossier_jane_doe.md`. The
@@ -17,9 +17,9 @@ import { resolve, sep } from "node:path";
  * reply IS the document — and this is the net under that sentence, because a
  * rule a model follows most of the time is a rule that fails some of the time.
  * When an answer is short, talks about writing or saving, and names an
- * absolute `.md` path that exists inside the agent's own home, the file is the
- * report and the note is not, so the file is read back and takes the note's
- * place in the row. A step records that this happened.
+ * absolute `.md`, `.html` or `.htm` path that exists inside the agent's own
+ * home, the file is the report and the note is not, so the file is read back
+ * and takes the note's place in the row. A step records that this happened.
  *
  * THREE CONDITIONS, ALL REQUIRED, because reading a file off a path a model
  * typed is a thing to be careful about:
@@ -44,16 +44,27 @@ const NOTE_MAX = 2_000;
 /** The words a note about a saved file uses. Any one of them, near a path. */
 const SAVED = /\b(written|wrote|saved|created|stored|exported|placed|put)\b/i;
 
-/** An absolute path ending `.md`, as a model prints one — bare, or wrapped in
- *  backticks or quotes, which are excluded from the match. */
-const MD_PATH = /(?:^|[\s`'"(])(\/[^\s`'"()<>]+\.md)(?=$|[\s`'"().,;:])/gm;
+/**
+ * An absolute path ending in a report extension, as a model prints one — bare,
+ * or wrapped in backticks or quotes, which are excluded from the match.
+ *
+ * `.html` AND `.htm` ARE HERE BECAUSE THE DOSSIER IS AN HTML DOCUMENT. The
+ * note this file exists to catch is written by whatever the brief asked for:
+ * an agent told to write one markdown document saves a `.md`, and an agent
+ * told to write one HTML document saves a `.html` — same model, same habit,
+ * same failure, and a filter that only knew about markdown would have started
+ * missing it the day the dossier changed shape. Nothing else is accepted: the
+ * extension is the only thing standing between this and reading back an
+ * arbitrary file a model named.
+ */
+const REPORT_PATH = /(?:^|[\s`'"(])(\/[^\s`'"()<>]+\.(?:md|html|htm))(?=$|[\s`'"().,;:])/gim;
 
 /** The path the note names, or null when the answer is not that kind of note. */
 export function filedPath(text: string): string | null {
   const t = text.trim();
   if (!t || t.length > NOTE_MAX) return null;
   if (!SAVED.test(t)) return null;
-  const found = [...t.matchAll(MD_PATH)].map((m) => m[1]!);
+  const found = [...t.matchAll(REPORT_PATH)].map((m) => m[1]!);
   /* One path, or one path named more than once. Two different files is a
      note this cannot choose between, and it does not guess. */
   const distinct = [...new Set(found)];
