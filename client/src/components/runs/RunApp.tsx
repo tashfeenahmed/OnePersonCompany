@@ -132,13 +132,20 @@ export function RunApp({
   const [busyRun, setBusyRun] = useState(false);
   const [scope, setScope] = useState<"venture" | "all">("venture");
   const [reload, setReload] = useState(0);
-  const [tick, setTick] = useState(0);
 
   /* The kind's own runs and, on the same document, every kind's description —
      so one fetch configures the page and fills its history. */
+  /*
+    POLLED BY RELOADING, NOT BY CHANGING A DEPENDENCY. `useApi` empties its
+    document the moment a dependency changes, so a tick in the list made the
+    report and the history vanish for a frame every second and a half — the
+    page collapsed, the browser reset the scroll to the top, and the reader
+    lost their place on every tool call. `reload()` keeps the last document
+    on screen until the next one lands, which is what a poll is.
+  */
   const list = useApi(
     () => runsApi.list({ kind, limit: 40 }),
-    [kind, reload, tick],
+    [kind, reload],
   );
   const info: KindInfo | null =
     list.data?.kinds.find((k) => k.kind === kind) ?? null;
@@ -146,7 +153,7 @@ export function RunApp({
 
   const open = useApi(
     () => (runId ? runsApi.get(runId) : Promise.resolve(null)),
-    [runId, tick],
+    [runId],
   );
   const detail = open.data;
 
@@ -167,11 +174,16 @@ export function RunApp({
     (list.data?.running ? true : false) ||
     (list.data?.queued ?? 0) > 0;
 
+  const reloadList = list.reload;
+  const reloadOpen = open.reload;
   useEffect(() => {
     if (!anyLive) return;
-    const t = setInterval(() => setTick((n) => n + 1), 1500);
+    const t = setInterval(() => {
+      reloadList();
+      reloadOpen();
+    }, 1500);
     return () => clearInterval(t);
-  }, [anyLive]);
+  }, [anyLive, reloadList, reloadOpen]);
 
   /* When the open run stops moving, the accumulations under it have something
      new to read. Derived rather than counted — see `extras.settled`. */
@@ -226,7 +238,7 @@ export function RunApp({
     if (!detail) return;
     if (!confirm(resume ? "Resume this job using completed model checkpoints?" : "Start a new job with the same inputs? This may repeat paid work.")) return;
     setBusyRun(true);
-    try { const result = await (resume ? runsApi.resume(detail.id) : runsApi.retry(detail.id)); setReload(n => n + 1); setTick(n => n + 1); navigate(appPage(slug, result.id)); }
+    try { const result = await (resume ? runsApi.resume(detail.id) : runsApi.retry(detail.id)); setReload(n => n + 1); navigate(appPage(slug, result.id)); }
     catch (error) { setRefused(error instanceof Error ? error.message : String(error)); }
     finally { setBusyRun(false); }
   }
@@ -236,7 +248,7 @@ export function RunApp({
     setBusyRun(true);
     try {
       await runsApi.cancel(detail.id);
-      setTick((n) => n + 1);
+      reloadOpen();
       setReload((n) => n + 1);
     } catch (err) {
       setRefused(err instanceof Error ? err.message : String(err));

@@ -29,7 +29,7 @@ import { PersonAvatar } from "@/components/org/PersonAvatar";
 import { personAddress, runAddress, standing } from "@/components/org/roleLook";
 import { attaches } from "@/components/org/dossiers";
 import { RunRail } from "@/components/org/RunRail";
-import { PersonDialog, PersonGrid, UNFILED, WatchRail } from "@/components/org/Watchlist";
+import { PersonDialog, PersonGrid, UNFILED } from "@/components/org/Watchlist";
 import { useApi } from "@/hooks/useApi";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { ago, duration } from "@/lib/format";
@@ -682,18 +682,13 @@ export function Subagent() {
       */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* --------------------------------------------------- the rail */}
+        {/* THE RAIL IS RUNS ON EVERY WORKER, THE PEOPLE ANALYST INCLUDED. Its
+            people are the cards in the middle; the rail's job is to reach a
+            previous run — or the one working now — in one press, and for a
+            dossier the brief's first line IS the person's name. */}
         {sa &&
           (venture || portfolio) &&
-          (watchlisted ? (
-            <WatchRail
-              people={people}
-              current={chosen}
-              unfiled={unfiledRuns.length}
-              loading={watch.loading && !watch.data}
-              onPick={goTo}
-              onAdd={openForm}
-            />
-          ) : (
+          (
             <RunRail
               name={sa.name}
               runs={runs}
@@ -708,7 +703,7 @@ export function Subagent() {
               inTranscript={(id) => transcript.some((x) => x.run.id === id)}
               onPick={pick}
             />
-          ))}
+          )}
 
         {/* ------------------------------------------------ the middle */}
         <div className="flex min-w-0 flex-1 flex-col">
