@@ -242,6 +242,13 @@ export type Widget = {
    * with no phrase hovers as its own value and nothing else.
    */
   barLabels?: string[];
+  /**
+   * A MODEL OR PROVIDER NAME PER ROW OR BAR, same order, for the small mark
+   * drawn beside it — `google/gemini-3.7-flash`, `gpt-5.6-luna`. Null for a
+   * row that is not a model. See components/ModelMark: the name stays in
+   * text; the mark reinforces it and never replaces it.
+   */
+  marks?: (string | null)[];
   /** rows */
   rows?: [string, string][];
   /** statuses */

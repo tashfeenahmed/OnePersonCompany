@@ -15,6 +15,7 @@ import {
    part of the number. */
 import { bytes, count, money, pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { ModelMark } from "@/components/ModelMark";
 import type {
   ChartSeries,
   Meter,
@@ -324,6 +325,19 @@ function nearestIndex(stamps: number[], ms: number): number {
   return best;
 }
 
+/** The unit of time a mean is quoted per, from the sampling grain — daily
+ *  lines say "/day", hourly ones "/hour", and anything else says nothing
+ *  rather than the wrong thing. */
+function perWord(ms: number): string {
+  const hour = 3_600_000;
+  const day = 24 * hour;
+  if (Math.abs(ms - day) < day * 0.2) return "/day";
+  if (Math.abs(ms - 7 * day) < day) return "/week";
+  if (Math.abs(ms - hour) < hour * 0.2) return "/hour";
+  if (ms < hour) return "/sample";
+  return "";
+}
+
 /** The typical spacing between samples, as a median rather than a mean: one
  *  gap left by a collector that was down for an hour must not widen the idea
  *  of "a grain" for the whole series. */
@@ -430,6 +444,20 @@ export function Chart({
     0,
   );
   const last = prim.points.length - 1;
+
+  /*
+    THE THREE FIGURES EVERY LINE IS READ FOR — where it spiked, where it
+    bottomed, and what a typical sample was — said in words under the plot and
+    drawn as a dashed line across it, on every chart rather than on the ones
+    whose builder thought of it. The mean is per SAMPLE, and the word after it
+    is the sampling grain the series actually has ("/day" for a daily line,
+    "/hour" for an hourly one), because "mean 19k" with no unit of time is a
+    number that invites the wrong denominator.
+  */
+  const primValues = prim.points.map((p) => p.value);
+  const low = primValues.reduce((best, v, i) => (v < primValues[best]! ? i : best), 0);
+  const mean = primValues.reduce((n, v) => n + v, 0) / primValues.length;
+  const per = perWord(grain(primStamps));
 
   /** The top of the hover's own marks — the y the tooltip hangs off. Falls to
    *  the baseline when nothing on the crosshair has a reading to show. */
@@ -587,6 +615,21 @@ export function Chart({
               );
             })}
 
+            {/* The mean, as a dashed rule the eye can hold the line against.
+                Drawn under the series so a flat run along it stays legible. */}
+            {mean > 0 && (
+              <line
+                x1={PLOT.l}
+                x2={PLOT.l + iw}
+                y1={Y(mean)}
+                y2={Y(mean)}
+                stroke="currentColor"
+                strokeWidth={1}
+                strokeDasharray="3 3"
+                opacity={0.3}
+              />
+            )}
+
             {/* Two direct labels rather than a number on every point: when it
                 was worst, and where it is now. The card-coloured ring is the
                 spacer that keeps a dot legible on top of its own line. */}
@@ -677,6 +720,20 @@ export function Chart({
       <div className="text-muted-foreground mt-1 flex justify-between text-[11.5px] tabular-nums">
         <span>{endLabel(t0, domain)}</span>
         <span>{endLabel(t1, domain)}</span>
+      </div>
+
+      <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px] tabular-nums">
+        <span>
+          <span className="text-foreground/80">peak</span> {reading(prim.points[peak]!.value, unit)}
+          <span className="opacity-70"> · {stampFor(prim.points[peak]!.ts, domain)}</span>
+        </span>
+        <span>
+          <span className="text-foreground/80">low</span> {reading(prim.points[low]!.value, unit)}
+          <span className="opacity-70"> · {stampFor(prim.points[low]!.ts, domain)}</span>
+        </span>
+        <span>
+          <span className="text-foreground/80">mean</span> {reading(mean, unit)}{per}
+        </span>
       </div>
 
       {caption && (
@@ -830,9 +887,12 @@ export function Bars({
   values,
   barLabels,
   labels,
+  marks,
   tint,
 }: {
   values: number[];
+  /** A model name per bar, for the mark drawn under it. See ModelMark. */
+  marks?: (string | null)[];
   /** One phrase per bar, same order — "nbg1 · 4 servers". Absent for the
    *  catalog's sample widgets, whose bars are shapes rather than readings; the
    *  hover then says the value and nothing it cannot stand behind. */
@@ -902,6 +962,17 @@ export function Bars({
           />
         ))}
       </div>
+      {/* One mark under each bar, in the same flex arithmetic as the bars
+          so the two rows cannot disagree about where a column is. */}
+      {marks?.some(Boolean) && (
+        <div className="mt-1 flex gap-1">
+          {values.map((_, i) => (
+            <div key={i} className="flex max-w-[30px] flex-1 justify-center">
+              {marks[i] && <ModelMark name={marks[i]!} size={11} />}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="text-muted-foreground mt-1 text-[12.5px]">{labels}</div>
       <ChartTip tip={tip} width={w} />
     </div>
@@ -992,9 +1063,12 @@ export function MeterRow({ meter }: { meter: Meter }) {
 export function Figures({
   headers,
   rows,
+  marks,
 }: {
   headers: string[];
   rows: string[][];
+  /** A model name per row, for the mark before the first cell. */
+  marks?: (string | null)[];
 }) {
   return (
     <div className="-mx-1 mt-1 overflow-x-auto px-1">
@@ -1016,7 +1090,7 @@ export function Figures({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {rows.map((r, ri) => (
             <tr key={r[0]} className="hover:bg-muted/40 transition-colors">
               {r.map((cell, i) => (
                 <td
@@ -1026,7 +1100,14 @@ export function Figures({
                     i === 0 ? "pr-3 text-left" : "pl-3 text-right tabular-nums",
                   )}
                 >
-                  {cell}
+                  {i === 0 && marks?.[ri] ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <ModelMark name={marks[ri]!} size={13} />
+                      {cell}
+                    </span>
+                  ) : (
+                    cell
+                  )}
                 </td>
               ))}
             </tr>

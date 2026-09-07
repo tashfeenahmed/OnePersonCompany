@@ -1525,6 +1525,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!top.length) return null;
     return {
       bars: top.map((m) => m.usd),
+      marks: top.map((m) => m.model),
       labels: top
         .slice(0, 4)
         .map((m) => `${shortModel(m.model)} ${usd(m.usd, 2)}`)
@@ -6429,6 +6430,7 @@ Object.assign(LIVE_BUILDERS, {
     const top = a.models[0]!.usd;
     return {
       headers: ["Model", "Spend", "Share", "Requests", "Tokens", "$/M"],
+      marks: a.models.map((m) => m.model),
       table: a.models.map((m) => {
         const tokens = tokensOf(m);
         return [
@@ -6510,6 +6512,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!models.length) return null;
     return {
       bars: models.map((m) => m.tokens),
+      marks: models.map((m) => m.model),
       labels: models
         .slice(0, 4)
         .map((m) => `${shortModel(m.model)} ${compact(m.tokens)}`)

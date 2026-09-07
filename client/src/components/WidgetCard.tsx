@@ -12,6 +12,7 @@ import {
 import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BRAND_ICONS } from "@/data/brandIcons";
+import { ModelMark } from "@/components/ModelMark";
 import { SOURCES, WIDGETS, type Widget } from "@/data/widgets";
 import type { PlacedWidget } from "@/lib/store";
 import { collectedAt, deltaOver, useLive } from "@/lib/live";
@@ -234,6 +235,15 @@ export function WidgetCard({
             <div className="text-[28px] leading-tight font-normal tracking-[-0.03em] tabular-nums">
               {def.value}
             </div>
+            {/*
+              THE JUDGEMENT ON ITS OWN LINE, THE SENTENCE UNDER IT. "watch" and
+              the subtitle used to share one flex row, and a long subtitle
+              beside a tone word wrapped mid-phrase in the width a single tile
+              has. The word is a verdict and the sentence is its reason; they
+              read better as two lines than as one that breaks wherever it
+              happens to run out of room.
+            */}
+            {(trend !== null || (def.tone && def.tone !== "ok")) && (
             <div className="text-muted-foreground mt-1 flex items-center gap-1.5 text-[12.5px]">
               {trend !== null && trend !== 0 && (
                 <span
@@ -265,8 +275,13 @@ export function WidgetCard({
                   {def.tone === "bad" ? "act" : "watch"}
                 </span>
               )}
-              <span>{def.sub}</span>
             </div>
+            )}
+            {def.sub && (
+              <div className="text-muted-foreground mt-0.5 text-[12.5px] leading-snug">
+                {def.sub}
+              </div>
+            )}
             {def.series && (
               <Sparkline
                 series={def.series}
@@ -282,14 +297,16 @@ export function WidgetCard({
             values={def.bars}
             barLabels={def.barLabels}
             labels={def.labels}
+            marks={def.marks}
             tint={brand}
           />
         )}
 
         {!empty && def.kind === "rows" && def.rows && (
           <div className="mt-2 flex flex-col gap-1.5">
-            {def.rows.map(([k, v]) => (
+            {def.rows.map(([k, v], i) => (
               <div key={k} className="flex items-baseline gap-2 text-[13px]">
+                {def.marks?.[i] && <ModelMark name={def.marks[i]!} size={14} className="self-center" />}
                 <span className="truncate">{k}</span>
                 <span className="text-muted-foreground ml-auto text-[12.5px] whitespace-nowrap tabular-nums">
                   {v}
@@ -339,7 +356,7 @@ export function WidgetCard({
 
         {!empty && def.kind === "table" &&
           (def.table?.length ? (
-            <Figures headers={def.headers ?? []} rows={def.table} />
+            <Figures headers={def.headers ?? []} rows={def.table} marks={def.marks} />
           ) : (
             <p className="text-muted-foreground mt-2 text-[12.5px]">
               Nothing measured yet.
