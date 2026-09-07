@@ -1,8 +1,10 @@
 # Clay module icons
 
-25 custom icons generated with the built-in `image_gen` tool for the sidebar: 23 modules, Settings, and pinned sessions.
+33 custom icons generated with the built-in `image_gen` tool for the sidebar: 31 modules, Settings, and pinned sessions.
 
-The set uses rounded clay forms, a multicolored pastel palette, soft highlights, and transparent backgrounds. Icons display at 20 px (16 px for Settings), with 112 × 112 WebP exports for sharp rendering on high-density screens. The complete set is about 100 KB.
+The set uses rounded clay forms, a multicolored pastel palette, soft highlights, and transparent backgrounds. Icons display at 20 px (16 px for Settings), with 112 × 112 WebP exports for sharp rendering on high-density screens.
+
+The expanded set includes Journal, Customers, Nurture, Motion, Publishing, Posts, Mobile health, and Web. The shared renderer displays the same artwork when a page is pinned.
 
 - Artwork: [`client/src/assets/modules`](../../client/src/assets/modules)
 - Exact generation prompts and Triage refinements: [`prompts.json`](./prompts.json)
