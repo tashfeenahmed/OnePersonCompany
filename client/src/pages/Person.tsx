@@ -1,22 +1,46 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowUpRight, RefreshCw, TriangleAlert } from "lucide-react";
+import {
+  ArrowUpRight,
+  Cloud,
+  Flame,
+  FolderGit2,
+  GitBranch,
+  MessageSquare,
+  Radio,
+  RefreshCw,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { Markdown } from "@/components/Markdown";
+import { ReportFrame } from "@/components/runs/ReportFrame";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { statusTone, statusWord } from "@/components/runs/format";
 import { runAddress } from "@/components/org/roleLook";
-import { PersonDialog, PersonHeader, UNFILED, WatchRail } from "@/components/org/Watchlist";
+import {
+  Movement,
+  PersonDialog,
+  PersonHeader,
+  UNFILED,
+  WatchlistButton,
+  WatchlistDrawer,
+  WatchRail,
+} from "@/components/org/Watchlist";
 import { useApi } from "@/hooks/useApi";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { ago, count, day, when } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { DeltaKey } from "@/lib/watchDeltas";
+import { isHtmlReport } from "@/lib/report";
 import { readCards, runsApi } from "@/lib/api/runs";
 import {
   peopleApi,
+  SIGNAL_SOURCE,
   type PersonContact,
   type PersonEvent,
   type PersonFile,
+  type PersonHistoryPoint,
   type WatchInput,
 } from "@/lib/api/people";
 
@@ -99,6 +123,11 @@ export function Person() {
     () => (report.data ? readCards(report.data.output).body.trim() : ""),
     [report.data],
   );
+  /* A DOSSIER IS A DESIGNED HTML DOCUMENT and goes in the sandboxed frame; an
+     older one, written before that was true, is markdown and still renders.
+     The question is asked of the text rather than of the run's kind — see
+     `lib/report.ts` — so both shapes draw on the same shelf. */
+  const bodyIsHtml = useMemo(() => isHtmlReport(body), [body]);
 
   /* -------------------------------------------------------------- the poll */
 
@@ -133,6 +162,11 @@ export function Person() {
   const [removing, setRemoving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [editing, setEditing] = useState<"this" | "new" | null>(null);
+  /** THE WHOLE LIST, FROM THIS PAGE TOO. The rail down the left is the same
+   *  names, and it is the first thing a narrow window drops — so the drawer is
+   *  what makes the list reachable rather than a second way to the same place
+   *  on the one width that already had one. */
+  const [watchOpen, setWatchOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formProblem, setFormProblem] = useState<string | null>(null);
 
@@ -228,6 +262,11 @@ export function Person() {
         <span className="text-muted-foreground text-[13.5px]">/</span>
         <span className="px-2 py-1 text-[13.5px]">{person?.name ?? "…"}</span>
         <div className="ml-auto flex items-center gap-0.5">
+          <WatchlistButton
+            open={watchOpen}
+            total={people.length}
+            onClick={() => setWatchOpen((was) => !was)}
+          />
           <Link
             to="/team/people"
             className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2 py-1 text-[13.5px]"
@@ -316,7 +355,11 @@ export function Person() {
 
                 <Relationship contact={doc.contact} />
 
-                <Numbers person={person} events={doc.events.length} />
+                <Numbers
+                  person={person}
+                  events={doc.events.length}
+                  history={doc.history}
+                />
 
                 <Activity
                   events={doc.events}
@@ -365,7 +408,16 @@ export function Person() {
                             {report.data.error}
                           </p>
                         )}
-                        {body && <Markdown text={body} />}
+                        {body &&
+                          (bodyIsHtml ? (
+                            <ReportFrame
+                              html={body}
+                              title={report.data.title}
+                              fileName={report.data.title}
+                            />
+                          ) : (
+                            <Markdown text={body} />
+                          ))}
                         {report.data.status === "running" && (
                           <p className="text-muted-foreground mt-2 text-[13.5px]">
                             writing…
@@ -417,6 +469,22 @@ export function Person() {
             )}
           </div>
         </section>
+
+        {/* THE LIST, OVER THE FILE. No "Add to chat" here: this page has no
+            composer to add anybody to, so the button is not drawn rather than
+            drawn dead. */}
+        <WatchlistDrawer
+          open={watchOpen}
+          people={people}
+          sweep={watch.data?.sweep ?? null}
+          loading={watch.loading && !watch.data}
+          onClose={() => setWatchOpen(false)}
+          onAdd={() => {
+            setWatchOpen(false);
+            setFormProblem(null);
+            setEditing("new");
+          }}
+        />
       </div>
 
       <PersonDialog
@@ -502,6 +570,92 @@ function Relationship({ contact }: { contact: PersonContact | null }) {
 
 /* ------------------------------------------------------------ the numbers */
 
+/** The size the shape is drawn at, beside the figure rather than under it. */
+const SPARK_W = 120;
+const SPARK_H = 28;
+
+/**
+ * THE SHAPE OF THE WEEKS BEHIND THE NUMBER.
+ *
+ * ITS OWN SMALL SVG RATHER THAN `Sparkline` FROM components/charts. That one
+ * measures its container, stands 34px tall and carries a hover crosshair with
+ * a tooltip — everything a card whose whole subject is one series should have,
+ * and too much for a mark sitting in the corner of a tile beside the figure it
+ * describes. The palette is the same: `--chart-line-1`, the app's first series
+ * green, so this reads as the same family as every other line in the product.
+ *
+ * X IS TIME AND NOT POSITION IN THE ARRAY, which is the same rule the charts
+ * keep and it matters more here than anywhere. `history` is one row per day the
+ * box LOOKED, so a laptop shut for a week is a gap — and spreading the points
+ * evenly would draw that week as one ordinary step and quietly restate a
+ * fortnight as a fortnight of readings.
+ *
+ * SCALED FROM ITS OWN LOW TO ITS OWN HIGH, with no axis and no zero. At 28
+ * pixels the honest thing a line can carry is the SHAPE; the magnitude is the
+ * figure three centimetres to the left, in full, with separators.
+ *
+ * FEWER THAN TWO POINTS DRAWS NOTHING. One reading has no shape, and a flat
+ * stub across a card would say "steady" about a person watched since Tuesday.
+ */
+function Spark({ points, label }: { points: { at: number; v: number }[]; label: string }) {
+  if (points.length < 2) return null;
+
+  const first = points[0]!;
+  const last = points[points.length - 1]!;
+  const span = last.at - first.at || 1;
+  const values = points.map((p) => p.v);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const range = hi - lo || 1;
+  const x = (at: number) => 1 + ((at - first.at) / span) * (SPARK_W - 2);
+  const y = (v: number) => 2 + (1 - (v - lo) / range) * (SPARK_H - 4);
+
+  return (
+    <svg
+      width={SPARK_W}
+      height={SPARK_H}
+      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+      role="img"
+      aria-label={`${label}: ${points.length} readings, low ${count(lo)}, high ${count(hi)}`}
+      className="ml-auto shrink-0"
+      style={{ color: "var(--chart-line-1)" }}
+    >
+      <title>{`${points.length} readings · low ${count(lo)} · high ${count(hi)}`}</title>
+      <polyline
+        points={points.map((p) => `${x(p.at).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ")}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={0.55}
+      />
+      {/* WHERE IT ENDS, because the eye should be able to find today's reading
+          on a line that may have started above it. */}
+      <circle cx={x(last.at)} cy={y(last.v)} r={2} fill="currentColor" />
+    </svg>
+  );
+}
+
+/** One metric's series, oldest first, with the days that read nothing dropped.
+ *  A NULL IS A DAY THAT SOURCE DID NOT ANSWER and is skipped rather than
+ *  plotted at zero — the same rule the tiles keep, and the reason a GitHub
+ *  outage bends nobody's line down to the floor. */
+function seriesOf(
+  history: PersonHistoryPoint[],
+  key: DeltaKey,
+): { at: number; v: number }[] {
+  const out: { at: number; v: number }[] = [];
+  for (const row of history) {
+    const v = row[key];
+    if (v === null || !Number.isFinite(v)) continue;
+    const at = Date.parse(row.at);
+    if (!Number.isFinite(at)) continue;
+    out.push({ at, v });
+  }
+  return out;
+}
+
 /**
  * THE FIVE FIGURES THE PUBLIC INTERNET WILL GIVE UP ABOUT SOMEBODY.
  *
@@ -510,25 +664,49 @@ function Relationship({ contact }: { contact: PersonContact | null }) {
  * a reading nobody took — the one thing every figure on this app is arranged
  * around not doing. Five nulls and no events is the state before anybody has
  * pressed Refresh, and it says exactly that instead of drawing five noughts.
+ *
+ * THREE THINGS PER CARD NOW, AND THE OTHER TWO CAN BOTH BE ABSENT. The figure
+ * is what was measured; the movement is what a week did to it, and it is not
+ * drawn at all for somebody with no week on record; the line is the shape of
+ * however long this box has been watching, and it is not drawn under two
+ * readings. Each of the three disappears on its own, so a person added
+ * yesterday gets an honest tile rather than a tile with two apologies in it.
+ *
+ * AN ICON PER CARD, and it is a label rather than decoration — the tiles were
+ * a wall of grey words and a number, and the mark is what lets somebody find
+ * "the GitHub one" without reading five headings. The set has no brand marks,
+ * so these are the nearest generic ones and the words stay beside them.
  */
 function Numbers({
   person,
   events,
+  history,
 }: {
   person: { metrics: PersonFile["person"]["metrics"] };
   /** How many public events are on record — because five nulls with a
    *  timeline under them is "these sites had nothing", and five nulls with
    *  nothing under them is "nobody has looked yet". */
   events: number;
+  /** Every reading this box has kept, oldest first, for the lines. */
+  history: PersonHistoryPoint[];
 }) {
   const m = person.metrics;
-  const cards: { label: string; value: number }[] = [];
-  if (m.ghFollowers !== null) cards.push({ label: "GitHub followers", value: m.ghFollowers });
-  if (m.ghRepos !== null) cards.push({ label: "GitHub repos", value: m.ghRepos });
+  const cards: {
+    key: DeltaKey;
+    label: string;
+    icon: LucideIcon;
+    value: number;
+  }[] = [];
+  if (m.ghFollowers !== null)
+    cards.push({ key: "ghFollowers", label: "GitHub followers", icon: GitBranch, value: m.ghFollowers });
+  if (m.ghRepos !== null)
+    cards.push({ key: "ghRepos", label: "GitHub repos", icon: FolderGit2, value: m.ghRepos });
   if (m.bskyFollowers !== null)
-    cards.push({ label: "Bluesky followers", value: m.bskyFollowers });
-  if (m.bskyPosts !== null) cards.push({ label: "Bluesky posts", value: m.bskyPosts });
-  if (m.hnKarma !== null) cards.push({ label: "HN karma", value: m.hnKarma });
+    cards.push({ key: "bskyFollowers", label: "Bluesky followers", icon: Cloud, value: m.bskyFollowers });
+  if (m.bskyPosts !== null)
+    cards.push({ key: "bskyPosts", label: "Bluesky posts", icon: MessageSquare, value: m.bskyPosts });
+  if (m.hnKarma !== null)
+    cards.push({ key: "hnKarma", label: "HN karma", icon: Flame, value: m.hnKarma });
 
   if (cards.length === 0 && events === 0)
     return (
@@ -550,9 +728,16 @@ function Numbers({
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         {cards.map((c) => (
-          <div key={c.label} className="bg-card rounded-[14px] px-4 py-3.5">
-            <div className="text-muted-foreground text-[12px]">{c.label}</div>
-            <div className="text-[22px] tabular-nums">{count(c.value)}</div>
+          <div key={c.key} className="bg-card rounded-[14px] px-4 py-3.5">
+            <div className="text-muted-foreground flex items-center gap-1.5 text-[12px]">
+              <c.icon className="size-3.5 shrink-0" strokeWidth={1.6} />
+              {c.label}
+            </div>
+            <div className="mt-1 flex items-end gap-2">
+              <div className="text-[22px] leading-none tabular-nums">{count(c.value)}</div>
+              <Movement n={m.deltas[c.key]} />
+              <Spark points={seriesOf(history, c.key)} label={c.label} />
+            </div>
           </div>
         ))}
       </div>
@@ -587,9 +772,32 @@ function isNew(e: PersonEvent): boolean {
   return Number.isFinite(seen) && Date.now() - seen < WEEK_MS;
 }
 
-/** github, bluesky, hn, rss — as themselves. No icon set, because a source the
- *  server adds tomorrow would have no icon and would draw as a hole. */
+/** A row this box wrote rather than a thing the person published — a bio
+ *  rewritten, a follower count that jumped, a repository that appeared. */
+const isSignal = (e: PersonEvent): boolean => e.source === SIGNAL_SOURCE;
+
+/**
+ * GitHub, Bluesky, Hacker News, RSS — as themselves. No icon set for those,
+ * because a source the server adds tomorrow would have no icon and would draw
+ * as a hole.
+ *
+ * A SIGNAL IS THE ONE EXCEPTION AND IT IS NOT A SOURCE. "watch" is this box's
+ * own name for itself, and printing it in the chip would put the word next to
+ * four sites as though a fifth had published something. It reads "signal",
+ * carries the mark for one, and is coloured — because the whole reason these
+ * rows are on the timeline is that they are the ones nobody announced.
+ */
 function SourceChip({ source }: { source: string }) {
+  if (source === SIGNAL_SOURCE)
+    return (
+      <span
+        title="Something this box noticed — nobody published it"
+        className="bg-ok-bg text-ok flex shrink-0 items-center gap-1 rounded-md px-1.5 py-px text-[11px]"
+      >
+        <Radio className="size-3 shrink-0" strokeWidth={1.8} />
+        signal
+      </span>
+    );
   return (
     <span className="bg-muted text-muted-foreground shrink-0 rounded-md px-1.5 py-px text-[11px]">
       {source}
@@ -685,7 +893,16 @@ function Activity({
                         {e.title}
                       </a>
                     ) : (
-                      <span className="min-w-0 flex-1 truncate text-[13.5px]">
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 truncate text-[13.5px]",
+                          /* A LITTLE HEAVIER, NOT A DIFFERENT COLOUR. These
+                             rows sit among posts and commits and are the ones
+                             worth stopping on; weight says that without
+                             turning the timeline into two lists. */
+                          isSignal(e) && "font-medium",
+                        )}
+                      >
                         {e.title}
                       </span>
                     )}

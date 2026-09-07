@@ -1,6 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, Plus, Users } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpRight,
+  Cloud,
+  FileText,
+  Flame,
+  GitBranch,
+  Minus,
+  Plus,
+  Radio,
+  Search,
+  Sparkles,
+  Users,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,8 +31,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { statusWord } from "@/components/runs/format";
 import { PersonAvatar } from "@/components/org/PersonAvatar";
 import { personAddress } from "@/components/org/roleLook";
-import { ago } from "@/lib/format";
+import { ago, count } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { deltaLabel, deltaTone, sweepLine } from "@/lib/watchDeltas";
 import {
   hrefFor,
   LINK_SITES,
@@ -24,6 +41,7 @@ import {
   type WatchInput,
   type WatchLinks,
   type WatchPerson,
+  type WatchSweep,
 } from "@/lib/api/people";
 
 /**
@@ -120,6 +138,189 @@ function fileLine(p: WatchPerson): string {
   const newest = p.dossiers.last;
   const at = newest ? (newest.finishedAt ?? newest.queuedAt) : null;
   return `${n} ${n === 1 ? "dossier" : "dossiers"}${at ? ` · newest ${ago(at)}` : ""}`;
+}
+
+/* ----------------------------------------------------------- the figures */
+
+/**
+ * WHICH WAY A SEVEN-DAY MOVEMENT IS PAINTED.
+ *
+ * AMBER IS NOT "BAD". `deltaTone` deliberately refuses to score anybody — on a
+ * watchlist four thousand followers lost is the more interesting week, not the
+ * worse one — so these two colours mean "climbing" and "the other way", and
+ * what that is worth is left to the person reading. Flat is a measured nought
+ * and is grey. A null tone never reaches here: `deltaLabel` answered null
+ * first and nothing was drawn at all.
+ */
+function deltaClass(tone: "up" | "down" | "flat" | null): string {
+  return tone === "up"
+    ? "text-ok"
+    : tone === "down"
+      ? "text-warn"
+      : "text-muted-foreground";
+}
+
+/**
+ * HOW FAR A FIGURE HAS MOVED IN SEVEN DAYS, with the arrow that says which way.
+ *
+ * NOTHING AT ALL WHEN THERE IS NO WEEK TO SUBTRACT. `deltaLabel` answers null
+ * for a figure with no reading seven days old, and this draws no chip — a flat
+ * arrow beside somebody added on Tuesday would be a measurement nobody took.
+ *
+ * IT LIVES HERE RATHER THAN ON THE FILE PAGE because the cards and the tiles
+ * are two sizes of one claim, and a second copy of it would be the place the
+ * colours drift apart.
+ */
+export function Movement({ n, className }: { n?: number; className?: string }) {
+  const label = deltaLabel(n);
+  if (!label) return null;
+  const tone = deltaTone(n);
+  const Arrow = tone === "up" ? ArrowUp : tone === "down" ? ArrowDown : Minus;
+  return (
+    <span
+      title="Movement over the last seven days"
+      className={cn(
+        "flex items-baseline gap-0.5 text-[12.5px] tabular-nums",
+        deltaClass(tone),
+        className,
+      )}
+    >
+      <Arrow className="size-3 shrink-0 translate-y-[2px]" strokeWidth={2} />
+      {label}
+      <span className="text-muted-foreground">7d</span>
+    </span>
+  );
+}
+
+/**
+ * ONE READING, AS AN ICON AND A NUMBER.
+ *
+ * THE ICON IS NEVER THE ONLY LABEL. Every stat carries a `title` spelling out
+ * in words what the mark stands for and over what window — an icon row is a
+ * dense summary for somebody who already knows this page and a puzzle for
+ * everybody else, and the tooltip is the whole of what stops it being the
+ * second thing.
+ *
+ * TABULAR FIGURES, so a grid of cards keeps its numbers in a column instead of
+ * jittering by the width of a 1.
+ */
+function Stat({
+  icon: Icon,
+  title,
+  value,
+  delta,
+}: {
+  icon: LucideIcon;
+  title: string;
+  value: number;
+  /** The seven-day movement, or undefined for a figure with no week behind it
+   *  — an absent key is never drawn as a nought. See lib/watchDeltas. */
+  delta?: number;
+}) {
+  const moved = deltaLabel(delta);
+  return (
+    <span title={title} className="flex shrink-0 items-center gap-1">
+      <Icon className="size-3.5 shrink-0" strokeWidth={1.6} />
+      <span className="tabular-nums">{count(value)}</span>
+      {moved && (
+        <span className={cn("tabular-nums", deltaClass(deltaTone(delta)))}>{moved}</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * THE ROW OF FIGURES UNDER A NAME, WHICH USED TO BE A SENTENCE.
+ *
+ * "1 dossier · newest 40m ago · 3 new" said three things in one grey line and
+ * had nowhere to put a fourth. The icons are what make room for the numbers
+ * that matter on a watchlist — how much has turned up, how much of it this box
+ * noticed rather than the person publishing it, and which way their public
+ * figures moved this week — in the same strip of a card.
+ *
+ * A STAT IS DRAWN ONLY WHERE THERE IS A READING. Somebody with no Bluesky has
+ * no Bluesky cell rather than a nought, which is the house rule everywhere on
+ * this app, and the reason this is a list built up by pushes rather than six
+ * cells with fallbacks in them.
+ *
+ * THE DOSSIER COUNT LOOKS LIKE THE EXCEPTION AND IS NOT ONE. This box knows
+ * exactly how many it has written, so nought of them is a measurement. Its
+ * tooltip carries the sentence the cards used to print — "1 dossier · newest
+ * 40m ago" — so the swap to icons spread that line between the glance and the
+ * hover rather than throwing half of it away.
+ *
+ * NO BRAND MARKS, because the icon set has none: GitHub's readings get the git
+ * branch, Bluesky's the cloud and Hacker News's the flame. Near enough at
+ * fourteen pixels, and the titles say the rest.
+ */
+export function PersonStats({
+  person,
+  /** The public figures. Off in the drawer, where the rows are narrow and the
+   *  question is who has something new rather than how big they are. */
+  figures = true,
+  className,
+}: {
+  person: WatchPerson;
+  figures?: boolean;
+  className?: string;
+}) {
+  const m = person.metrics;
+  const d = m.deltas;
+  const flight = person.dossiers.running
+    ? "Writing…"
+    : person.dossiers.queued > 0
+      ? "Queued…"
+      : null;
+
+  return (
+    <div
+      className={cn(
+        "text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]",
+        className,
+      )}
+    >
+      <Stat icon={FileText} title={fileLine(person)} value={person.dossiers.count} />
+      {person.newEvents > 0 && (
+        <Stat
+          icon={Sparkles}
+          title={`${person.newEvents} thing${person.newEvents === 1 ? "" : "s"} new to this box in the last week`}
+          value={person.newEvents}
+        />
+      )}
+      {person.signals > 0 && (
+        <Stat
+          icon={Radio}
+          title={`${person.signals} signal${person.signals === 1 ? "" : "s"} in the last week — changes this box noticed rather than anything they published`}
+          value={person.signals}
+        />
+      )}
+      {figures && m.ghFollowers !== null && (
+        <Stat
+          icon={GitBranch}
+          title="GitHub followers"
+          value={m.ghFollowers}
+          delta={d.ghFollowers}
+        />
+      )}
+      {figures && m.bskyFollowers !== null && (
+        <Stat
+          icon={Cloud}
+          title="Bluesky followers"
+          value={m.bskyFollowers}
+          delta={d.bskyFollowers}
+        />
+      )}
+      {figures && m.hnKarma !== null && (
+        <Stat
+          icon={Flame}
+          title="Hacker News karma"
+          value={m.hnKarma}
+          delta={d.hnKarma}
+        />
+      )}
+      {flight && <span className="text-warn shrink-0">{flight}</span>}
+    </div>
+  );
 }
 
 /** THE OWNER'S OWN WORDS, drawn as themselves. No colour per tag and no
@@ -461,10 +662,10 @@ export function PersonGrid({
 
           <Tags tags={p.tags} className="mt-2.5" />
 
-          <p className="text-muted-foreground mt-2.5 text-[12.5px]">
-            {fileLine(p)}
-            {p.newEvents > 0 && ` · ${p.newEvents} new`}
-          </p>
+          {/* THE FIGURES, NOT A SENTENCE ABOUT THEM. See `PersonStats`: the
+              dossier count keeps its old line as a tooltip, and everything
+              beside it is a reading that would not have fitted in prose. */}
+          <PersonStats person={p} className="mt-2.5" />
 
           <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
             <Button
@@ -494,6 +695,274 @@ export function PersonGrid({
         <span className="text-[14px]">Add one</span>
       </button>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------- the drawer */
+
+/**
+ * THE WAY IN, IN THE TOP RIGHT, WHEREVER YOU ARE.
+ *
+ * A count rather than an icon on its own: "Watchlist · 6" is the answer to
+ * half the question before anybody presses it, and a bare silhouette in a row
+ * of header buttons is one more thing to hover over to find out.
+ */
+export function WatchlistButton({
+  open,
+  total,
+  onClick,
+}: {
+  open: boolean;
+  total: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={open ? "Hide the watchlist" : "Everyone you are watching"}
+      aria-pressed={open}
+      aria-expanded={open}
+      className={cn(
+        "text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]",
+        open && "bg-accent text-foreground",
+      )}
+    >
+      <Users className="size-3.5 shrink-0" strokeWidth={1.6} />
+      Watchlist
+      <span className="tabular-nums">· {total}</span>
+    </button>
+  );
+}
+
+/**
+ * EVERYONE BEING WATCHED, OVER WHATEVER IS OPEN.
+ *
+ * ---------------------------------------------------------------------------
+ * THE LIST WAS ONLY REACHABLE WHERE IT WAS ALREADY DRAWN, and that is the
+ * whole reason this exists. The analyst's grid of people disappears the moment
+ * a run is opened or the unfiled pile is on; the file page's rail is hidden
+ * under a laptop's width. So from two of the three screens this feature has,
+ * "who am I watching" was two or three presses and a guess — on the page whose
+ * entire subject is the watchlist.
+ *
+ * A DRAWER RATHER THAN A SECOND RAIL, because the answer this page already
+ * gave for the settings panel is the right one twice: parked off the right
+ * edge, one press away, and it opens OVER what is on screen rather than
+ * instead of it. Reading a dossier and checking who else has moved this week
+ * are not two destinations.
+ *
+ * THE SAME MECHANICS AS THAT PANEL, deliberately — kept mounted and slid, so
+ * opening is a transform rather than a mount; `inert` and `aria-hidden` while
+ * it is off screen so nothing inside can be tabbed into from the page behind;
+ * Escape to shut. Two drawers on one page that behaved differently would read
+ * as two features. Only one is ever open, and that rule lives with the pages
+ * that own both pieces of state.
+ *
+ * ONE COMPONENT, BOTH PAGES. The analyst has a composer, so its rows offer
+ * "Add to chat"; a person's file has none, so `onAttach` is left off there and
+ * the button is not drawn rather than drawn dead.
+ *
+ * THE SWEEP LINE IS THE HEADER'S SECOND SENTENCE, because the question that
+ * brings somebody here — "is it really pulling for all of them?" — is about
+ * the list as a whole. `sweepLine` refuses to say "for everyone" until it is
+ * true of every row underneath it.
+ *
+ * THE SEARCH BOX FILTERS NAME AND COMPANY AND NOTHING ELSE. Tags and notes are
+ * where the owner's own words are, and a box that quietly matched them would
+ * make "investor" find people whose names contain no such word — a filter that
+ * has to be explained is a filter that lies at a glance.
+ */
+export function WatchlistDrawer({
+  open,
+  people,
+  sweep,
+  loading,
+  unfiled = 0,
+  attached = null,
+  onClose,
+  onAttach,
+  onAdd,
+}: {
+  open: boolean;
+  people: WatchPerson[];
+  /** Where the twenty-hourly refresh has got to, or null before the read is
+   *  back. Null draws no sentence rather than an optimistic one. */
+  sweep: WatchSweep | null;
+  loading: boolean;
+  /** Runs naming nobody on the list. Zero hides the row rather than offering a
+   *  pile that is not there. */
+  unfiled?: number;
+  /** Whose chip is in the composer, on a page that has one. */
+  attached?: string | null;
+  onClose: () => void;
+  onAttach?: (person: WatchPerson) => void;
+  onAdd: () => void;
+}) {
+  const [q, setQ] = useState("");
+  /* A SHUT DRAWER FORGETS ITS FILTER. Re-opening onto three of six people,
+     because of a word typed yesterday, is a list that looks like it lost
+     somebody.
+
+     ADJUSTED DURING RENDER RATHER THAN IN AN EFFECT, which is React's own
+     answer for state that has to follow a prop: an effect would paint the
+     stale list for a frame first, and the box is not an external system to
+     synchronise with. */
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (!open) setQ("");
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [open, onClose]);
+
+  const needle = q.trim().toLowerCase();
+  const shown = useMemo(
+    () =>
+      needle
+        ? people.filter((p) =>
+            `${p.name} ${said(p.company)}`.toLowerCase().includes(needle),
+          )
+        : people,
+    [people, needle],
+  );
+
+  return (
+    <aside
+      aria-hidden={!open}
+      inert={!open || undefined}
+      aria-label="The watchlist"
+      className={cn(
+        "bg-sidebar border-line-soft absolute inset-y-0 right-0 z-20 flex w-[360px] max-w-full flex-col border-l shadow-lg transition-transform duration-300 ease-out",
+        open ? "translate-x-0" : "translate-x-full",
+      )}
+    >
+      <div className="border-line-soft shrink-0 border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Users className="text-muted-foreground size-3.5" strokeWidth={1.6} />
+          <h2 className="text-[14px] font-medium">
+            Watchlist{" "}
+            <span className="text-muted-foreground tabular-nums">{people.length}</span>
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close the watchlist"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto rounded-lg p-1.5"
+          >
+            <X className="size-3.5" strokeWidth={1.6} />
+          </button>
+        </div>
+
+        {/* WHEN EVERYBODY WAS LAST PULLED. Nothing is claimed before the read
+            is back: a stamp is a promise about rows that are not on screen
+            yet. */}
+        <p className="text-muted-foreground mt-1 text-[12px]">
+          {sweep ? sweepLine(sweep) : loading ? "Reading the list…" : ""}
+        </p>
+
+        <div className="relative mt-2.5">
+          <Search
+            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2"
+            strokeWidth={1.6}
+          />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="Search the watchlist"
+            placeholder="Search by name or company"
+            className="h-8 pl-8 text-[13px]"
+          />
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        {shown.map((p) => (
+          <div key={p.id} className="hover:bg-accent rounded-[10px] px-2 py-2 transition-colors">
+            <div className="flex items-start gap-2">
+              <PersonAvatar person={p} size={24} className="mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate text-[13.5px]">{p.name}</span>
+                  <span className={cn("size-1.5 shrink-0 rounded-full", tone(p))} />
+                </div>
+                <div className="text-muted-foreground truncate text-[12px]">
+                  {whoLine(p)}
+                </div>
+                {/* THE FIGURES STAY OFF THESE ROWS, AND THE BUTTONS SHARE A
+                    LINE WITH WHAT IS LEFT. In 360 pixels beside a face, six
+                    numbers wrap onto three lines and the drawer becomes the
+                    grid it exists to reach past; the file count, what is new
+                    and what moved are the three that answer "who should I look
+                    at", which is the question that opened this panel. */}
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <PersonStats
+                    person={p}
+                    figures={false}
+                    className="min-w-0 flex-1 text-[12px]"
+                  />
+                  {onAttach && (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={attached === p.id}
+                      onClick={() => onAttach(p)}
+                    >
+                      {attached === p.id ? "In the box" : "Add to chat"}
+                    </Button>
+                  )}
+                  <Button size="xs" variant="ghost" asChild>
+                    <Link to={personAddress(p.id)} onClick={onClose}>
+                      Open
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {shown.length === 0 && (
+          <p className="text-muted-foreground px-2 py-2 text-[12.5px]">
+            {loading
+              ? "Reading the list…"
+              : needle
+                ? `Nobody on the list matches “${q.trim()}”.`
+                : "Nobody on the list yet."}
+          </p>
+        )}
+      </div>
+
+      <div className="border-line-soft flex shrink-0 flex-col gap-px border-t p-2">
+        <button
+          onClick={onAdd}
+          className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2 rounded-[9px] px-1.5 py-1.5 text-left text-[13.5px] transition-colors"
+        >
+          <Plus className="size-4 shrink-0" strokeWidth={1.6} />
+          Add a person
+        </button>
+        {/* THE PILE THAT BELONGS TO NOBODY, from here too. It is part of the
+            list's story — dossiers written before somebody was on it, or after
+            they came off — and it is otherwise only reachable from the one
+            view this drawer exists to be independent of. */}
+        {unfiled > 0 && (
+          <Link
+            to={`/team/people?person=${UNFILED}`}
+            onClick={onClose}
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2 rounded-[9px] px-1.5 py-1.5 text-[13.5px] transition-colors"
+          >
+            <span className="bg-border size-1.5 shrink-0 rounded-full" />
+            Unfiled dossiers
+            <span className="ml-auto tabular-nums">{unfiled}</span>
+          </Link>
+        )}
+      </div>
+    </aside>
   );
 }
 

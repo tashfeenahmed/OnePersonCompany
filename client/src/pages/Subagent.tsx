@@ -6,6 +6,7 @@ import {
   ArrowUp,
   ArrowUpRight,
   MessageSquare,
+  RefreshCw,
   Settings2,
   Square,
   TriangleAlert,
@@ -14,6 +15,7 @@ import {
 import { PageShell, TopBar } from "@/components/PageShell";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
 import { Markdown } from "@/components/Markdown";
+import { ReportFrame } from "@/components/runs/ReportFrame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -30,12 +32,20 @@ import { personAddress, standing } from "@/components/org/roleLook";
 import { attaches } from "@/components/org/dossiers";
 import { RunRail } from "@/components/org/RunRail";
 import { RunView } from "@/components/org/RunView";
-import { PersonDialog, PersonGrid, UNFILED } from "@/components/org/Watchlist";
+import {
+  PersonDialog,
+  PersonGrid,
+  UNFILED,
+  WatchlistButton,
+  WatchlistDrawer,
+} from "@/components/org/Watchlist";
 import { useApi } from "@/hooks/useApi";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { ago, duration } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { sweepLine } from "@/lib/watchDeltas";
+import { isHtmlReport } from "@/lib/report";
 import { readCards, runsApi, type RunSummary } from "@/lib/api/runs";
 import { peopleApi, type WatchInput, type WatchPerson } from "@/lib/api/people";
 import {
@@ -327,6 +337,29 @@ export function Subagent() {
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [settingsOpen]);
+
+  /* ----------------------------------------------------- the watch drawer */
+
+  /**
+   * THE WHOLE LIST, OVER WHATEVER IS OPEN. The grid in the middle is only
+   * drawn on one of this page's three views — a run open or the unfiled pile
+   * on and it is gone — so the list itself lives in a drawer that any of them
+   * can reach. See `WatchlistDrawer`.
+   *
+   * ONE DRAWER AT A TIME, and the rule lives here because this is the only
+   * place that holds both pieces of state. Two panels sliding out of the same
+   * edge would stack, and the one underneath would be a page the reader can
+   * see the shadow of and not reach.
+   */
+  const [watchOpen, setWatchOpen] = useState(false);
+  const toggleWatch = () => {
+    setWatchOpen((was) => !was);
+    setSettingsOpen(false);
+  };
+  const toggleSettings = () => {
+    setSettingsOpen((was) => !was);
+    setWatchOpen(false);
+  };
 
   /* ------------------------------------------------------------ composer */
 
@@ -677,8 +710,19 @@ export function Subagent() {
           {/* A stage is a venture's, and a worker with no venture has none.
               Nothing stands in for it. */}
           {!portfolio && venture && <StagePill stage={venture.stage} />}
+          {/* THE WAY INTO THE LIST, LEFT OF THE GEAR. On the analyst it is the
+              most-wanted thing in this corner, and it was previously reachable
+              only from the middle of the page — and only on the one view that
+              draws the cards. */}
+          {watchlisted && (
+            <WatchlistButton
+              open={watchOpen}
+              total={people.length}
+              onClick={toggleWatch}
+            />
+          )}
           <button
-            onClick={() => setSettingsOpen(!settingsOpen)}
+            onClick={toggleSettings}
             title={settingsOpen ? "Hide settings" : "Who this is, and its standing instructions"}
             aria-pressed={settingsOpen}
             aria-expanded={settingsOpen}
@@ -795,7 +839,12 @@ export function Subagent() {
                             : `${sa.title} for ${venture!.name}.`}
                         </span>
                       </h1>
-                      <p className="text-muted-foreground mb-6 text-[14.5px]">
+                      <p
+                        className={cn(
+                          "text-muted-foreground text-[14.5px]",
+                          watchlisted ? "mb-1.5" : "mb-6",
+                        )}
+                      >
                         {watchlisted ? (
                           <>
                             This is {sa.name}, not the chief of staff. It belongs
@@ -819,6 +868,16 @@ export function Subagent() {
                           </>
                         )}
                       </p>
+                      {/* THAT THE PULLS ARE HAPPENING FOR EVERYBODY, said
+                          before the grid rather than discovered one card at a
+                          time. `sweepLine` will not say "for everyone" while
+                          one row has never been read — see lib/watchDeltas. */}
+                      {watchlisted && watch.data && (
+                        <p className="text-muted-foreground mb-6 flex items-center gap-1.5 text-[12.5px]">
+                          <RefreshCw className="size-3 shrink-0" strokeWidth={1.7} />
+                          {sweepLine(watch.data.sweep)}
+                        </p>
+                      )}
                     </>
                   )}
 
@@ -1046,6 +1105,30 @@ export function Subagent() {
           />
         )}
 
+        {/* ------------------------------------------- watchlist drawer */}
+        {/* DRAWN ON EVERY VIEW OF THIS PAGE, which is the point of it: with a
+            run open or the unfiled pile on there are no cards in the middle,
+            and the list has to be reachable anyway. */}
+        {watchlisted && (
+          <WatchlistDrawer
+            open={watchOpen}
+            people={people}
+            sweep={watch.data?.sweep ?? null}
+            loading={watch.loading && !watch.data}
+            unfiled={unfiledRuns.length}
+            attached={chip?.id ?? null}
+            onClose={() => setWatchOpen(false)}
+            onAttach={(p) => {
+              attach(p);
+              setWatchOpen(false);
+            }}
+            onAdd={() => {
+              setWatchOpen(false);
+              openForm();
+            }}
+          />
+        )}
+
         {/* -------------------------------------------- settings drawer */}
         <aside
           aria-hidden={!settingsOpen}
@@ -1194,6 +1277,11 @@ function ExchangeView({
 }) {
   const { run } = x;
   const body = useMemo(() => readCards(x.output).body.trim(), [x.output]);
+  /* A dossier is a designed HTML document and goes in the sandboxed frame;
+     every other kind of reply is markdown and goes where it always went. The
+     question is asked of the text rather than of the run's kind — see
+     `lib/report.ts` — so a half-written document draws too. */
+  const bodyIsHtml = useMemo(() => isHtmlReport(body), [body]);
   const inFlight = run.status === "running" || run.status === "queued";
   const took = duration(run.ms, { nullText: "" });
 
@@ -1243,7 +1331,12 @@ function ExchangeView({
           <p className="text-destructive mb-2 text-[13.5px] leading-relaxed">{run.error}</p>
         )}
 
-        {body && <Markdown text={body} />}
+        {body &&
+          (bodyIsHtml ? (
+            <ReportFrame html={body} title={run.title} fileName={run.title} />
+          ) : (
+            <Markdown text={body} />
+          ))}
 
         {run.status === "running" && (
           <p className="text-muted-foreground mt-2 text-[13.5px]">
