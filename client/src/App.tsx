@@ -24,6 +24,7 @@ const Venture = lazy(() => import("@/pages/Venture").then(m => ({ default: m.Ven
 const VentureForm = lazy(() => import("@/pages/VentureForm").then(m => ({ default: m.VentureForm })));
 const VentureMap = lazy(() => import("@/pages/VentureMap").then(m => ({ default: m.VentureMap })));
 const Subagent = lazy(() => import("@/pages/Subagent").then(m => ({ default: m.Subagent })));
+const Person = lazy(() => import("@/pages/Person").then(m => ({ default: m.Person })));
 const Settings = lazy(() => import("@/pages/Settings").then(m => ({ default: m.Settings })));
 const Ops = lazy(() => import("@/areas/security/Ops").then(m => ({ default: m.Ops })));
 const Board = lazy(() => import("@/pages/Board").then(m => ({ default: m.Board })));
@@ -147,6 +148,20 @@ export default function App() {
                       /ventures/... is a longer literal prefix.
                     */}
                     <Route path="/team/:role" element={<Subagent />} />
+                    {/*
+                      ONE WATCHED PERSON'S FILE. A person used to be a query
+                      parameter on the line above — `?person=<id>`, a filter
+                      over the analyst's transcript — and a page carrying
+                      pulled metrics, a timeline of public activity, the
+                      mailbox's read on the relationship and every dossier ever
+                      written is not a filtered view of a conversation. So it
+                      is a page, and pages have addresses.
+
+                      THREE SEGMENTS, so it cannot collide with the two-segment
+                      route above it whatever the role is called; the order is
+                      for reading rather than for routing.
+                    */}
+                    <Route path="/team/people/:personId" element={<Person />} />
                     {/*
                       THE VENTURE'S OTHER TABS. Real addresses rather than
                       state, the same rule the boards follow: "what is

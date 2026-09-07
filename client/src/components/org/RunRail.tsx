@@ -66,7 +66,13 @@ export function RunRail({
   }
 
   return (
-    <aside className="bg-sidebar border-line-soft hidden w-[264px] shrink-0 flex-col border-r lg:flex">
+    /* WHITE, NOT THE SIDEBAR'S TINT — the same change the watchlist's rail
+       made, for the same reason: the app's rail is already a tinted gutter,
+       and a second tinted column beside it reads as one gutter with a seam
+       down the middle. This rail is a surface somebody reads, and on paper a
+       surface somebody reads is paper. The hairline stays: it is what
+       separates the two now that the fill no longer does. */
+    <aside className="border-line-soft hidden w-[264px] shrink-0 flex-col border-r bg-white lg:flex dark:bg-background">
       <div className="border-line-soft shrink-0 border-b px-3.5 pt-3.5 pb-2.5">
         <div className="truncate text-[13.5px] font-medium">{name}</div>
         <div className="text-muted-foreground text-[12px]">

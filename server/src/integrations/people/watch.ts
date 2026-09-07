@@ -37,9 +37,25 @@
  *
  * DELETING A WATCH ROW DELETES NO RUN. Taking somebody off the list is losing
  * interest in them; it is not a claim that the reports were never written, and
- * the ledger is the box's record rather than this list's property.
+ * the ledger is the box's record rather than this list's property. Its EVENTS
+ * do die with it, and the asymmetry is the point: a dossier is work this box
+ * did, an event is a copy of somebody else's public timeline.
+ *
+ * ONE THING HAS CHANGED SINCE THAT FIRST PARAGRAPH WAS WRITTEN, and it is
+ * worth stating rather than quietly amending. The LIST is still typed — no
+ * scan adds a row, no timer invents a name — but a row now has a second half
+ * that IS collected: follower counts, karma, and a timeline of public posts
+ * and pushes, in `metrics`, `people_watch_events` and `activity_at`. The two
+ * halves never touch. Nothing pulled can write `name`, `company`, `role`,
+ * `email` or `note`, and nothing typed is overwritten by a pull — including
+ * on import, where an existing non-empty field always wins. Read a blank
+ * identity line as "he did not write it down" and a null metric as "not
+ * known"; neither is ever a measurement of the person.
  */
+import { createHash } from "node:crypto";
 import { db, now } from "../../db.ts";
+import { people, type Person } from "./contacts.ts";
+import { shapeRun, type RunRow } from "../runs/store.ts";
 import { dispatch, type DispatchBody } from "../subagents/routes.ts";
 import { ensureTeam, subagentId, subagentRow } from "../subagents/store.ts";
 
@@ -50,8 +66,14 @@ export const MAX_EMAIL = 200;
 export const MAX_NOTE = 4000;
 export const MAX_LINK = 500;
 
+/** The tags. Twelve of forty characters is a shelf label — "investor",
+ *  "ai", "same market" — and not a second note: a person carrying thirty of
+ *  them has been described rather than filed. */
+export const MAX_TAGS = 12;
+export const MAX_TAG = 40;
+
 /**
- * THE FIVE PLACES, AND NO SIXTH.
+ * THE NINE PLACES, AND NO TENTH.
  *
  * A closed list rather than a free-form map because these are what a dossier
  * run is told to go and read, and an open map would let a caller put anything
@@ -59,8 +81,26 @@ export const MAX_LINK = 500;
  * DROPPED rather than refused: the client's fields and this list will drift by
  * one for as long as it takes to deploy both halves, and a 400 in that window
  * would lose the whole edit rather than the one field nobody here knows.
+ *
+ * FOUR OF THE NINE ARE NOW ALSO ADDRESSES THIS BOX ITSELF READS. `github`,
+ * `bluesky`, `hn` and `rss` are what activity.ts pulls a public timeline from,
+ * which is why they are worth their own keys rather than a line in the note —
+ * and why `handle()` exists below. The other five are still only ever quoted
+ * into a brief: there is no keyless public API behind X, LinkedIn, Substack, a
+ * YouTube channel or somebody's own site, and a watchlist that needed a token
+ * for each would stop working one credential at a time.
  */
-export const LINK_KEYS = ["website", "github", "x", "linkedin", "bluesky"] as const;
+export const LINK_KEYS = [
+  "website",
+  "github",
+  "x",
+  "linkedin",
+  "bluesky",
+  "hn",
+  "rss",
+  "substack",
+  "youtube",
+] as const;
 export type LinkKey = (typeof LINK_KEYS)[number];
 export type Links = Partial<Record<LinkKey, string>>;
 
@@ -72,7 +112,39 @@ const LINK_LABEL: Record<LinkKey, string> = {
   x: "X",
   linkedin: "LinkedIn",
   bluesky: "Bluesky",
+  hn: "Hacker News",
+  rss: "RSS",
+  substack: "Substack",
+  youtube: "YouTube",
 };
+
+/**
+ * THE HANDLE INSIDE WHATEVER WAS TYPED.
+ *
+ * STORED AS TYPED, USED NORMALISED, and the split is the whole point. What the
+ * owner writes in the GitHub box is his own note about where to find somebody
+ * — "@t3dotgg", "https://github.com/pc", "karpathy" are all the same fact
+ * written three ways — and rewriting his field on save would be this box
+ * arguing with him about his own notes. But `api.github.com/users/@t3dotgg`
+ * is a 404, so the moment the string is used as an ARGUMENT it has to be one
+ * shape.
+ *
+ * The rule: drop a query string, drop a scheme, and where anything is left
+ * with a slash in it take the LAST segment — which is the user in
+ * github.com/pc, in x.com/theo/ and in bsky.app/profile/karpathy.bsky.social
+ * alike. A bare string with no slash is returned as it stands minus any
+ * leading @, because a Bluesky handle IS a hostname ("t3.gg") and a rule that
+ * stripped hostnames would eat it.
+ */
+export function handle(raw: string | undefined | null): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return "";
+  /* A tracking parameter is not part of a name. */
+  const bare = trimmed.split(/[?#]/)[0]!.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  const parts = bare.split("/").filter((p) => p.trim());
+  const last = parts.length > 1 ? parts[parts.length - 1]! : (parts[0] ?? "");
+  return last.replace(/^@+/, "").trim();
+}
 
 export type WatchRow = {
   id: string;
@@ -82,8 +154,70 @@ export type WatchRow = {
   email: string;
   note: string;
   links: string;
+  /** JSON string[]. */
+  tags: string;
+  /** JSON, and every figure in it nullable — see `Metrics`. */
+  metrics: string;
+  /** When the last pull RAN. NULL is "never pulled", which is a different
+   *  thing from "pulled and found nothing". */
+  activity_at: string | null;
+  /** JSON string[] — what the last pull could not read. */
+  pull_warnings: string;
   created_at: string;
   updated_at: string;
+};
+
+export type EventRow = {
+  person_id: string;
+  key: string;
+  source: string;
+  kind: string;
+  title: string;
+  url: string | null;
+  at: string;
+  first_seen_at: string;
+};
+
+export type WatchEvent = {
+  key: string;
+  source: string;
+  kind: string;
+  title: string;
+  url: string | null;
+  at: string;
+  firstSeenAt: string;
+};
+
+/**
+ * THE TRACKED NUMBERS, AND EVERY ONE OF THEM MAY BE null.
+ *
+ * NULL IS "NOT KNOWN" AND IS NEVER 0. There is no GitHub link on the row, or
+ * there is one and the API did not answer — either way nobody here knows the
+ * number, and a 0 would be a claim that they have no followers. An account
+ * that genuinely has none reports 0, and the two must stay distinguishable or
+ * the card lies about the quietest people on it.
+ *
+ * `at` IS WHEN THE PULL RAN, not when each figure was read. A source that
+ * failed leaves the number it last gave standing — blanking a known figure
+ * because a public API was down would be the page going empty over somebody
+ * else's outage — and says so in `pullWarnings`.
+ */
+export type Metrics = {
+  ghFollowers: number | null;
+  ghRepos: number | null;
+  bskyFollowers: number | null;
+  bskyPosts: number | null;
+  hnKarma: number | null;
+  at: string | null;
+};
+
+export const NO_METRICS: Metrics = {
+  ghFollowers: null,
+  ghRepos: null,
+  bskyFollowers: null,
+  bskyPosts: null,
+  hnKarma: null,
+  at: null,
 };
 
 export type DossierRecord = {
@@ -104,6 +238,21 @@ export type WatchPerson = {
   email: string;
   note: string;
   links: Links;
+  /** His own shelf labels. Not a taxonomy and not derived from anything. */
+  tags: string[];
+  metrics: Metrics;
+  /** When the public sources were last read. NULL means never. */
+  activityAt: string | null;
+  /**
+   * EVENTS THIS BOX FIRST SAW IN THE LAST SEVEN DAYS — which is NOT the same
+   * as events that happened in the last seven days, and the difference is the
+   * whole reason `first_seen_at` is a column. A person pulled for the first
+   * time has a timeline going back years and all of it is new TO THIS BOX, so
+   * the number reads high on the day they are added. That is what it measures
+   * — what changed here — and it must never be reported as "they published 40
+   * things this week".
+   */
+  newEvents: number;
   createdAt: string;
   updatedAt: string;
   dossiers: DossierRecord;
@@ -218,6 +367,58 @@ export function watchByName(name: string, exceptId?: string): WatchRow | undefin
   return watchRows().find((r) => r.name.trim().toLowerCase() === wanted && r.id !== exceptId);
 }
 
+/**
+ * The JSON columns, each read defensively and each answering EMPTY rather than
+ * throwing. A row whose JSON will not parse is a row somebody edited with a
+ * shell; taking the whole list down over it would be the page going blank on
+ * one bad field, which is the failure mode this codebase spends its comments
+ * arguing against.
+ */
+export function parseTags(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const out: string[] = [];
+    for (const v of parsed) {
+      if (typeof v !== "string") continue;
+      const t = v.trim().slice(0, MAX_TAG);
+      /* Case-folded uniqueness: "AI" and "ai" are one shelf. The first
+         spelling wins, because it is the one he typed first. */
+      if (t && !out.some((held) => held.toLowerCase() === t.toLowerCase())) out.push(t);
+    }
+    return out.slice(0, MAX_TAGS);
+  } catch {
+    return [];
+  }
+}
+
+export function parseMetrics(raw: string): Metrics {
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  try {
+    const p = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof p !== "object" || p === null || Array.isArray(p)) return { ...NO_METRICS };
+    return {
+      ghFollowers: num(p.ghFollowers),
+      ghRepos: num(p.ghRepos),
+      bskyFollowers: num(p.bskyFollowers),
+      bskyPosts: num(p.bskyPosts),
+      hnKarma: num(p.hnKarma),
+      at: typeof p.at === "string" && p.at ? p.at : null,
+    };
+  } catch {
+    return { ...NO_METRICS };
+  }
+}
+
+export function parseWarnings(raw: string): string[] {
+  try {
+    const p = JSON.parse(raw) as unknown;
+    return Array.isArray(p) ? p.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function parseLinks(raw: string): Links {
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -236,7 +437,35 @@ export function parseLinks(raw: string): Links {
   }
 }
 
-export function shape(row: WatchRow, runs: DossierRunRow[]): WatchPerson {
+/** How long an event stays "new". A week rather than a day because the sweep
+ *  runs every twenty hours and a badge that emptied overnight would only ever
+ *  be seen by somebody who happened to look the same morning. */
+export const NEW_FOR_DAYS = 7;
+
+/**
+ * How many events each person has first seen inside the window — counted for
+ * the WHOLE LIST in one grouped query rather than once per card.
+ *
+ * The list is a table of tens and the events a table of thousands; a per-row
+ * COUNT would be tens of index scans to draw one page. Passed into `shape` the
+ * same way `dossierRuns()` is, for the same reason: the shaping of one person
+ * must not reach into the database on its own or the list becomes N+1 by
+ * accident the next time somebody adds a field.
+ */
+export function newEventCounts(at = Date.now()): Map<string, number> {
+  const since = new Date(at - NEW_FOR_DAYS * 86_400_000).toISOString();
+  const rows = db
+    .prepare(
+      `SELECT person_id, COUNT(*) AS n
+         FROM people_watch_events
+        WHERE first_seen_at >= ?
+        GROUP BY person_id`,
+    )
+    .all(since) as unknown as { person_id: string; n: number }[];
+  return new Map(rows.map((r) => [r.person_id, Number(r.n)]));
+}
+
+export function shape(row: WatchRow, runs: DossierRunRow[], fresh?: Map<string, number>): WatchPerson {
   return {
     id: row.id,
     name: row.name,
@@ -245,6 +474,10 @@ export function shape(row: WatchRow, runs: DossierRunRow[]): WatchPerson {
     email: row.email,
     note: row.note,
     links: parseLinks(row.links),
+    tags: parseTags(row.tags),
+    metrics: parseMetrics(row.metrics),
+    activityAt: row.activity_at,
+    newEvents: fresh?.get(row.id) ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     dossiers: record(runs, row.name),
@@ -255,14 +488,15 @@ export function shape(row: WatchRow, runs: DossierRunRow[]): WatchPerson {
  *  so "adam" does not sort after "Zoe" the way a byte comparison would. */
 export function watchList(): WatchPerson[] {
   const runs = dossierRuns();
+  const fresh = newEventCounts();
   return watchRows()
-    .map((r) => shape(r, runs))
+    .map((r) => shape(r, runs, fresh))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id));
 }
 
 export function watchPerson(id: string): WatchPerson | null {
   const row = watchRow(id);
-  return row ? shape(row, dossierRuns()) : null;
+  return row ? shape(row, dossierRuns(), newEventCounts()) : null;
 }
 
 export function insertWatch(fields: {
@@ -272,12 +506,13 @@ export function insertWatch(fields: {
   email: string;
   note: string;
   links: Links;
+  tags?: string[];
 }): WatchRow {
   const id = mintWatchId();
   const ts = now();
   db.prepare(
-    `INSERT INTO people_watch (id, name, company, role, email, note, links, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO people_watch (id, name, company, role, email, note, links, tags, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     fields.name,
@@ -286,6 +521,7 @@ export function insertWatch(fields: {
     fields.email,
     fields.note,
     JSON.stringify(fields.links),
+    JSON.stringify(fields.tags ?? []),
     ts,
     ts,
   );
@@ -306,7 +542,18 @@ export function updateWatch(id: string, changes: Partial<Record<string, string>>
   return watchRow(id)!;
 }
 
+/**
+ * Off the list — and the pulled timeline goes with them.
+ *
+ * THE DOSSIERS STAY AND THE EVENTS DO NOT, which looks inconsistent until the
+ * two are named for what they are. A dossier is work this box was asked to do
+ * and did; it belongs to the ledger. An event is a cached copy of a line from
+ * somebody else's public feed, kept only so a card can be drawn without
+ * hitting four APIs — nothing is lost by dropping it, and a re-add pulls it
+ * back within the day.
+ */
 export function deleteWatch(id: string): void {
+  db.prepare("DELETE FROM people_watch_events WHERE person_id = ?").run(id);
   db.prepare("DELETE FROM people_watch WHERE id = ?").run(id);
 }
 
@@ -395,4 +642,443 @@ export function dispatchDossier(row: WatchRow, opts: { focus?: string; parentSes
   };
   if (opts.parentSessionId) body.parentSessionId = opts.parentSessionId;
   return dispatch(worker, body);
+}
+
+/* --------------------------------------------------------------- the events */
+
+/** How many events are kept per person. Three hundred is roughly a year of a
+ *  busy GitHub account and several years of a quiet one; past that the table
+ *  would grow without bound to hold a timeline nobody scrolls to. */
+export const MAX_EVENTS = 300;
+
+/** What the reader is handed in one go. A file, not an archive. */
+export const EVENT_PAGE = 200;
+
+/** What a source hands back, before this file gives it an identity. */
+export type PulledEvent = {
+  source: string;
+  kind: string;
+  title: string;
+  url: string | null;
+  at: string;
+};
+
+/**
+ * THE IDENTITY OF AN EVENT IS A HASH OF THE EVENT, not of the source's own id.
+ *
+ * Four sources, four id schemes — a GitHub event id, an AT-protocol URI, an
+ * Algolia objectID, an RSS guid which on a good number of real feeds is either
+ * absent or is just the link again. There is no field all four have. What all
+ * four DO have is a source, a URL and a title, and "the same source said the
+ * same thing about the same link" is the only definition of sameness that
+ * holds across them — which is exactly what re-pulling every twenty hours
+ * needs, because the alternative is a timeline that duplicates itself daily.
+ */
+export function eventKey(source: string, url: string | null, title: string): string {
+  return createHash("sha256").update(`${source}|${url ?? ""}|${title}`).digest("hex").slice(0, 24);
+}
+
+const shapeEvent = (r: EventRow): WatchEvent => ({
+  key: r.key,
+  source: r.source,
+  kind: r.kind,
+  title: r.title,
+  url: r.url,
+  at: r.at,
+  firstSeenAt: r.first_seen_at,
+});
+
+/** One person's timeline, newest first. */
+export function eventList(personId: string, limit = EVENT_PAGE): WatchEvent[] {
+  return (
+    db
+      .prepare(
+        `SELECT * FROM people_watch_events
+          WHERE person_id = ?
+          ORDER BY at DESC
+          LIMIT ?`,
+      )
+      .all(personId, Math.max(1, Math.min(MAX_EVENTS, limit))) as unknown as EventRow[]
+  ).map(shapeEvent);
+}
+
+/**
+ * File a pull's events and say how many of them this box had never seen.
+ *
+ * `first_seen_at` IS NOT TOUCHED BY THE UPDATE. `at` is: a source may restate
+ * when a thing happened, and its own answer is the better one. But when this
+ * box first saw a row is a fact about this box, and letting a re-pull refresh
+ * it would make every event permanently new and the badge permanently wrong.
+ */
+export function saveEvents(personId: string, events: PulledEvent[], at = now()): number {
+  const held = db.prepare("SELECT 1 FROM people_watch_events WHERE person_id = ? AND key = ?");
+  const upsert = db.prepare(
+    `INSERT INTO people_watch_events (person_id, key, source, kind, title, url, at, first_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(person_id, key) DO UPDATE SET title = excluded.title, at = excluded.at`,
+  );
+  let fresh = 0;
+  const seen = new Set<string>();
+  for (const e of events) {
+    const key = eventKey(e.source, e.url, e.title);
+    /* Two identical items inside ONE pull are one event, and counting the
+       second as new would inflate the badge without inserting a row. */
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!held.get(personId, key)) fresh++;
+    upsert.run(personId, key, e.source, e.kind, e.title, e.url, e.at, at);
+  }
+  /* Trimmed by `at`, so what is dropped is the oldest thing that happened
+     rather than the oldest thing this box happened to fetch. */
+  db.prepare(
+    `DELETE FROM people_watch_events
+      WHERE person_id = ?
+        AND key NOT IN (
+          SELECT key FROM people_watch_events WHERE person_id = ? ORDER BY at DESC LIMIT ?
+        )`,
+  ).run(personId, personId, MAX_EVENTS);
+  return fresh;
+}
+
+/* ------------------------------------------------- the mailbox relationship */
+
+/**
+ * THE NAME REDUCED TO WHAT TWO SPELLINGS OF ONE PERSON HAVE IN COMMON.
+ *
+ * FIRST WORD AND LAST WORD, accent-folded and lower-cased, cut at the first
+ * comma. That is deliberately crude, and the crudeness is the safety: middle
+ * names, initials, honorifics and the "founder of Acme" clause all vary
+ * between how the owner types somebody into a watch row and how their mail
+ * client signs their name, and none of them identify anybody. What is left —
+ * "andrej karpathy" — either matches or it does not.
+ *
+ * ACCENTS ARE FOLDED because "José García" and "Jose Garcia" are one person
+ * typed by two keyboards. That folding also merges genuinely different names
+ * in some languages, which is why a name match is never trusted where it is
+ * ambiguous: see `contactFor`.
+ */
+export function nameKey(raw: string | null | undefined): string {
+  const cut = (raw ?? "").split(",")[0]!;
+  const folded = cut.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const words = folded.match(/[a-z0-9'-]+/g) ?? [];
+  if (!words.length) return "";
+  return words.length === 1 ? words[0]! : `${words[0]} ${words[words.length - 1]}`;
+}
+
+export type ContactLine = {
+  address: string;
+  temperature: Person["temperature"];
+  quietDays: number | null;
+  cadenceDays: number | null;
+  lastAt: string | null;
+  received: number;
+  sent: number;
+  why: string;
+  /** "email" when the row's own address matched, "name" when it was the
+   *  first-and-last-word key. A name match is a GUESS and is labelled one, the
+   *  way a venture link is. */
+  matchedBy: "email" | "name";
+};
+
+/**
+ * THE MAILBOX'S SIDE OF A WATCHED PERSON, OR NOTHING AT ALL.
+ *
+ * NULL IS THE ORDINARY ANSWER. Most people on this list have never written to
+ * the owner — that is what the list is for — so an absent contact means the
+ * mailbox has not seen them and never means the watch row is wrong.
+ *
+ * THE EMAIL IS TRIED FIRST because an address is an identity and a name is a
+ * label. Only when there is no address, or it matches nothing in the scanned
+ * window, is the name key tried — and an AMBIGUOUS name match answers NULL
+ * rather than picking one. Two different people who both fold to "james
+ * smith" is not a rare case in a mailbox of thousands, and quietly attaching
+ * one stranger's correspondence to a watched person's file is a worse failure
+ * than an empty panel.
+ */
+export function contactFor(
+  person: { name: string; email: string },
+  roster: Person[] = people(),
+): ContactLine | null {
+  const email = person.email.trim().toLowerCase();
+  let matches = email ? roster.filter((p) => p.address === email) : [];
+  let matchedBy: "email" | "name" = "email";
+
+  if (!matches.length) {
+    const key = nameKey(person.name);
+    if (!key) return null;
+    matches = roster.filter((p) => p.name && nameKey(p.name) === key);
+    matchedBy = "name";
+    /* One address seen through two mailboxes is one person; two addresses are
+       two people this name cannot choose between. */
+    if (new Set(matches.map((p) => p.address)).size > 1) return null;
+  }
+  if (!matches.length) return null;
+
+  /* The same address in two mailboxes is two relationships with one human and
+     the tables never add them up. The heavier one is shown — it is the one the
+     contacts list itself puts first — and the other is a click away on the
+     contact document. */
+  const best = [...matches].sort((a, b) => b.weight - a.weight || a.mailbox.localeCompare(b.mailbox))[0]!;
+  return {
+    address: best.address,
+    temperature: best.temperature,
+    quietDays: best.quietDays,
+    cadenceDays: best.cadenceDays,
+    lastAt: best.lastAt,
+    received: best.received,
+    sent: best.sent,
+    why: best.why,
+    matchedBy,
+  };
+}
+
+/* ----------------------------------------------------------------- the file */
+
+/** Every portfolio-wide dossier run in full, for `shapeRun`. Separate from
+ *  `dossierRuns` because the list needs five columns per run and the file
+ *  needs the whole row; one query cannot be both without the list paying. */
+function dossierRunRows(): RunRow[] {
+  return db
+    .prepare(
+      `SELECT * FROM agent_runs
+        WHERE kind = 'dossier' AND venture_id IS NULL
+        ORDER BY queued_at DESC`,
+    )
+    .all() as unknown as RunRow[];
+}
+
+export type WatchFile = {
+  person: WatchPerson;
+  contact: ContactLine | null;
+  events: WatchEvent[];
+  dossiers: ReturnType<typeof shapeRun>[];
+  warnings: string[];
+};
+
+/**
+ * ONE WATCHED PERSON, WHOLE: what he typed, what the mailbox knows, what the
+ * public sources said, and what has been written about them.
+ *
+ * THE FOUR PARTS ARE FOUR DIFFERENT KINDS OF CLAIM and the document keeps them
+ * apart rather than blending them into a profile. `person` is his own notes.
+ * `contact` is measured from mail headers and may be a name-match guess.
+ * `events` are somebody else's public feed, cached. `dossiers` are runs this
+ * box performed. Nothing here merges them, because the merged object would
+ * have no honest way to say which half of a sentence came from where.
+ *
+ * `warnings` IS THE LAST PULL'S, not this request's. It is the answer to "why
+ * is the GitHub number missing" and it survives on the row until the next
+ * pull, because a source that was down an hour ago is exactly what a reader
+ * looking at a stale figure needs to be told.
+ */
+export function watchFile(id: string): WatchFile | null {
+  const row = watchRow(id);
+  if (!row) return null;
+  const person = shape(row, dossierRuns(), newEventCounts());
+  return {
+    person,
+    contact: contactFor({ name: row.name, email: row.email }),
+    events: eventList(id),
+    dossiers: dossierRunRows()
+      .filter((r) => attaches(r.title, row.name))
+      .map(shapeRun),
+    warnings: parseWarnings(row.pull_warnings),
+  };
+}
+
+/* --------------------------------------------------------------- the import */
+
+/** A single import call is a paste of a list, not a migration of a CRM. */
+export const MAX_IMPORT = 500;
+
+export type ImportFields = {
+  name: string;
+  company: string;
+  role: string;
+  email: string;
+  note: string;
+  links: Links;
+  tags: string[];
+};
+
+const text = (v: unknown, max: number): string =>
+  typeof v === "string" ? v.trim().slice(0, max) : "";
+
+/**
+ * ONE ROW OF SOMEBODY ELSE'S EXPORT, READ INTO THIS TABLE'S SHAPE.
+ *
+ * NO NAME, NO ROW. The name is the primary identity here and the join onto the
+ * dossiers; a row without one could not be found again, merged again, or
+ * titled. It is skipped rather than refused, because one nameless line in a
+ * file of two hundred should not lose the other hundred and ninety-nine.
+ *
+ * PHONE AND LOCATION ARE DROPPED, and stating it is better than a reader
+ * discovering it. This table has five identity lines and no sixth; the honest
+ * alternatives were to invent two columns for fields nothing on this box reads,
+ * or to append them to `note`, which is HIS OWN WORDS and must not have an
+ * importer's sentences put into it. Anything not read here is a field this box
+ * has no use for rather than a field it lost.
+ */
+export function readImportRow(raw: unknown): ImportFields | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const name = text(r.name, MAX_NAME);
+  if (!name) return null;
+
+  const links: Links = {};
+  const rawLinks = r.links;
+  if (typeof rawLinks === "object" && rawLinks !== null && !Array.isArray(rawLinks)) {
+    for (const key of LINK_KEYS) {
+      const v = text((rawLinks as Record<string, unknown>)[key], MAX_LINK);
+      if (v) links[key] = v;
+    }
+  }
+
+  const tags: string[] = [];
+  if (Array.isArray(r.tags))
+    for (const t of r.tags) {
+      const v = text(t, MAX_TAG);
+      if (v && !tags.some((held) => held.toLowerCase() === v.toLowerCase())) tags.push(v);
+    }
+
+  return {
+    name,
+    company: text(r.company, MAX_NAME),
+    role: text(r.role, MAX_NAME),
+    email: text(r.email, MAX_EMAIL),
+    note: text(r.note, MAX_NOTE),
+    links,
+    tags: tags.slice(0, MAX_TAGS),
+  };
+}
+
+/**
+ * THE MERGE RULE, AND IT IS ONE SENTENCE: WHAT IS ALREADY THERE WINS.
+ *
+ * An import fills gaps. It never corrects, never replaces and never "updates"
+ * — because the row it is writing into is the owner's own note about a person
+ * and the file it is reading from is an export from another program. If those
+ * two disagree about somebody's company, the one that knows which is right is
+ * him, and the one that would be silently overwritten is the one he typed. So
+ * a non-empty field is never touched, and re-running the same import a second
+ * time changes nothing at all.
+ *
+ * LINKS MERGE PER KEY by the same rule — a typed GitHub survives an imported
+ * one, an empty one is filled. TAGS ARE A UNION, case-folded, because a tag is
+ * a shelf rather than a value: adding "ai" takes nothing away, and there is no
+ * conflict to resolve.
+ */
+export function mergeWatchFields(
+  existing: { company: string; role: string; email: string; note: string; links: Links; tags: string[] },
+  incoming: Omit<ImportFields, "name">,
+): Omit<ImportFields, "name"> {
+  const fill = (held: string, add: string) => (held.trim() ? held : add);
+  const links: Links = { ...existing.links };
+  for (const key of LINK_KEYS) {
+    const add = incoming.links[key];
+    if (add && !links[key]?.trim()) links[key] = add;
+  }
+  const tags = [...existing.tags];
+  for (const t of incoming.tags)
+    if (!tags.some((held) => held.toLowerCase() === t.toLowerCase())) tags.push(t);
+
+  return {
+    company: fill(existing.company, incoming.company),
+    role: fill(existing.role, incoming.role),
+    email: fill(existing.email, incoming.email),
+    note: fill(existing.note, incoming.note),
+    links,
+    tags: tags.slice(0, MAX_TAGS),
+  };
+}
+
+export type ImportResult = { added: number; updated: number; people: WatchPerson[] };
+
+/**
+ * Take a list of people and leave the watchlist holding all of them.
+ *
+ * UPSERT BY NAME, CASE-INSENSITIVELY, for the reason the POST door refuses a
+ * duplicate: the name is the join onto the dossiers, so two rows under two
+ * casings would be one person's record split in half. Here the collision is
+ * MERGED rather than refused — the whole point of an import is that the list
+ * may already know some of these people, and a 409 per row would make the
+ * feature useless the second time it was used.
+ *
+ * `updated` COUNTS ROWS THAT ACTUALLY CHANGED. An import that filled nothing
+ * in reports zero, which is the truth; counting every matched row as an update
+ * would report six changes on a re-run that changed nothing.
+ */
+export function importPeople(rows: unknown[]): ImportResult {
+  const touched: string[] = [];
+  let added = 0;
+  let updated = 0;
+
+  for (const raw of rows.slice(0, MAX_IMPORT)) {
+    const fields = readImportRow(raw);
+    if (!fields) continue;
+
+    /* Re-read per row rather than once: two lines of the same file may name
+       the same person, and the second must merge into the row the first made. */
+    const existing = watchByName(fields.name);
+    if (!existing) {
+      const row = insertWatch({
+        name: fields.name,
+        company: fields.company,
+        role: fields.role,
+        email: fields.email,
+        note: fields.note,
+        links: fields.links,
+        tags: fields.tags,
+      });
+      added++;
+      touched.push(row.id);
+      continue;
+    }
+
+    const held = {
+      company: existing.company,
+      role: existing.role,
+      email: existing.email,
+      note: existing.note,
+      links: parseLinks(existing.links),
+      tags: parseTags(existing.tags),
+    };
+    const merged = mergeWatchFields(held, fields);
+    const changes: Record<string, string> = {};
+    for (const key of ["company", "role", "email", "note"] as const)
+      if (merged[key] !== held[key]) changes[key] = merged[key];
+    const links = JSON.stringify(merged.links);
+    if (links !== JSON.stringify(held.links)) changes.links = links;
+    const tags = JSON.stringify(merged.tags);
+    if (tags !== JSON.stringify(held.tags)) changes.tags = tags;
+
+    if (Object.keys(changes).length) {
+      updateWatch(existing.id, changes);
+      updated++;
+    }
+    if (!touched.includes(existing.id)) touched.push(existing.id);
+  }
+
+  const runs = dossierRuns();
+  const fresh = newEventCounts();
+  const shaped = touched
+    .map((id) => watchRow(id))
+    .filter((r): r is WatchRow => !!r)
+    .map((r) => shape(r, runs, fresh))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  return { added, updated, people: shaped };
+}
+
+/**
+ * Record what a pull learned, WITHOUT touching `updated_at`.
+ *
+ * `updated_at` IS ABOUT THE TYPED HALF. It answers "when did he last change
+ * this card", and a sweep that ran at four in the morning bumping it would
+ * make every row on the list look freshly edited and would destroy the only
+ * signal that column carries. `activity_at` is the pull's own clock.
+ */
+export function writePull(id: string, pull: { metrics: Metrics; warnings: string[]; at: string }): void {
+  db.prepare(
+    "UPDATE people_watch SET metrics = ?, pull_warnings = ?, activity_at = ? WHERE id = ?",
+  ).run(JSON.stringify(pull.metrics), JSON.stringify(pull.warnings.slice(0, 20)), pull.at, id);
 }

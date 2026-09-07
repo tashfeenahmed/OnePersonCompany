@@ -48,19 +48,26 @@ import { briefRow, briefWeeks, isoWeek, writeBrief, type Figures } from "./brief
 import {
   LINK_KEYS,
   MAX_EMAIL,
+  MAX_IMPORT,
   MAX_LINK,
   MAX_NAME,
   MAX_NOTE,
+  MAX_TAG,
+  MAX_TAGS,
+  NEW_FOR_DAYS,
   deleteWatch,
   dispatchDossier,
+  importPeople,
   insertWatch,
   updateWatch,
   watchByName,
+  watchFile,
   watchList,
   watchPerson,
   watchRow,
   type Links,
 } from "./watch.ts";
+import { pullPerson } from "./activity.ts";
 
 export const peopleRoutes = new Hono();
 
@@ -346,7 +353,9 @@ const TEXT_FIELDS = [
  * a thing to search on, and refusing "jane (at) acme.io" would be this box
  * arguing with the owner about his own notes.
  */
-function readWatchBody(body: Record<string, unknown>): Bad | { values: Record<string, string>; links?: Links } {
+function readWatchBody(
+  body: Record<string, unknown>,
+): Bad | { values: Record<string, string>; links?: Links; tags?: string[] } {
   const values: Record<string, string> = {};
   for (const f of TEXT_FIELDS) {
     if (!(f.key in body)) continue;
@@ -358,10 +367,37 @@ function readWatchBody(body: Record<string, unknown>): Bad | { values: Record<st
     values[f.column] = t;
   }
 
-  if (!("links" in body) || body.links === undefined) return { values };
+  /*
+    TAGS ARE VALIDATED AND NOT INTERPRETED. A tag is a shelf label the owner
+    invents — "investor", "same market", "met at a conference" — and this box
+    has no taxonomy to check it against and no business having one. What is
+    checked is that there are not thirty of them and that none is a paragraph:
+    past that, a tag list is a filing decision and filing is his.
+
+    Sending `tags: []` CLEARS them, the same way an empty string clears a
+    company. Leaving the key out changes nothing.
+  */
+  let tags: string[] | undefined;
+  if ("tags" in body && body.tags !== undefined) {
+    const raw = body.tags;
+    if (!Array.isArray(raw)) return { error: "tags is a list of short labels." };
+    if (raw.length > MAX_TAGS) return { error: `That is more than ${MAX_TAGS} tags.` };
+    tags = [];
+    for (const v of raw) {
+      if (typeof v !== "string") return { error: "Every tag is text." };
+      const t = v.trim();
+      if (!t) continue;
+      if (t.length > MAX_TAG) return { error: `“${t.slice(0, 20)}…” is longer than ${MAX_TAG} characters — that is a note, not a tag.` };
+      if (!tags.some((held) => held.toLowerCase() === t.toLowerCase())) tags.push(t);
+    }
+  }
+
+  if (!("links" in body) || body.links === undefined) return { values, tags };
   const raw = body.links;
   if (typeof raw !== "object" || raw === null || Array.isArray(raw))
-    return { error: "links is an object of where to find them — website, github, x, linkedin, bluesky." };
+    return {
+      error: `links is an object of where to find them — ${LINK_KEYS.join(", ")}.`,
+    };
   const links: Links = {};
   for (const key of LINK_KEYS) {
     const v = (raw as Record<string, unknown>)[key];
@@ -375,7 +411,7 @@ function readWatchBody(body: Record<string, unknown>): Bad | { values: Record<st
   }
   /* Anything not in LINK_KEYS is dropped in silence — see watch.ts for why a
      400 would be the worse answer during a half-deployed change. */
-  return { values, links };
+  return { values, links, tags };
 }
 
 const WATCH_DEFINITIONS = {
@@ -396,6 +432,33 @@ const WATCH_DEFINITIONS = {
     "Every field but the name is optional and is exactly what he typed. An " +
     "empty field means it was not written down — it does not mean nobody " +
     "knows it, and a dossier brief omits the line rather than saying “unknown”.",
+  metrics:
+    "Pulled from KEYLESS public sources — GitHub's API, Bluesky's public " +
+    "AppView, Algolia's Hacker News index, an RSS feed — and every figure is " +
+    "nullable. null is NOT KNOWN: there is no link of that kind on the card, " +
+    "or the source did not answer. It is never 0. `metrics.at` is when the " +
+    "pull RAN; a source that failed leaves its last figure standing and says " +
+    "so in `warnings`.",
+  activity:
+    "`activityAt` is when the sources were last read, and null means never " +
+    "pulled — which is a different thing from pulled and quiet. Events are " +
+    "somebody else's public timeline, cached: at most 300 per person, and " +
+    "nothing about them is private or inferred.",
+  newEvents:
+    `Events this box FIRST SAW in the last ${NEW_FOR_DAYS} days, which is not ` +
+    "the same as events that happened in them. A person pulled for the first " +
+    "time has a whole timeline that is new to this box, so the number reads " +
+    "high on the day they are added and must never be reported as “they " +
+    "published this many things this week”.",
+  contact:
+    "The mailbox's side of a watched person, matched on their email address " +
+    "first and otherwise on first-and-last name folded for accents and case. " +
+    "`matchedBy: \"name\"` is a GUESS; an ambiguous name match returns null " +
+    "rather than a stranger's correspondence, and null is the ordinary answer " +
+    "because most people on this list have never written to him.",
+  tags:
+    "His own shelf labels, at most " + MAX_TAGS + " of " + MAX_TAG + " " +
+    "characters. Nothing derives them and there is no taxonomy behind them.",
 };
 
 peopleRoutes.get("/watch", (c) =>
@@ -404,6 +467,77 @@ peopleRoutes.get("/watch", (c) =>
     definitions: WATCH_DEFINITIONS,
   }),
 );
+
+/**
+ * TAKE A LIST OF PEOPLE AND LEAVE THE WATCHLIST HOLDING ALL OF THEM.
+ *
+ * DECLARED BEFORE `/watch/:id` for the reason `/watch` is declared before
+ * `/:address`: Hono matches in declaration order, and "import" is a perfectly
+ * good watch id as far as a router is concerned.
+ *
+ * THE ONE RULE WORTH READING BEFORE CALLING THIS: an import FILLS GAPS AND
+ * OVERWRITES NOTHING. A person already on the list keeps every field he typed
+ * — company, role, email, note, and each link separately — and gains only the
+ * ones that were empty. Tags are unioned. So running the same file twice
+ * changes nothing the second time, and a file that disagrees with his notes
+ * loses the argument, which is the only safe default for a door that takes a
+ * few hundred rows in one request.
+ */
+peopleRoutes.post("/watch/import", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  const rows = body?.people;
+  if (!Array.isArray(rows))
+    return c.json(
+      { error: "Send { people: [...] } — a list of rows with at least a name each." },
+      400,
+    );
+  if (rows.length > MAX_IMPORT)
+    return c.json(
+      {
+        error: `That is ${rows.length.toLocaleString()} rows. This door takes ${MAX_IMPORT} at a time — a watchlist is a list somebody keeps, not a CRM export.`,
+      },
+      413,
+    );
+
+  const out = importPeople(rows);
+  return c.json({
+    ...out,
+    definitions: {
+      ...WATCH_DEFINITIONS,
+      merge:
+        "Existing rows are matched by name, case-insensitively, and only their " +
+        "EMPTY fields are filled. Nothing typed here is ever overwritten by an " +
+        "import, links merge one key at a time, and tags are unioned.",
+      counts:
+        "`updated` counts rows that actually CHANGED. Re-importing the same " +
+        "file reports zero, because nothing was filled in. Rows with no name " +
+        "are skipped, and phone and location are not read — this table has no " +
+        "column for them and the note is his own words.",
+      returned: "The rows added or merged, name-sorted. Not the whole list.",
+    },
+  });
+});
+
+/**
+ * ONE WATCHED PERSON'S FILE.
+ *
+ * FOUR PANELS AND FOUR DIFFERENT KINDS OF CLAIM, kept apart on purpose:
+ * `person` is what he typed plus the tracked numbers, `contact` is measured
+ * from mail headers and may be a name-match guess, `events` are a cached copy
+ * of somebody else's public feed, and `dossiers` are runs this box performed.
+ * A merged "profile" object would have no way to say which half of a sentence
+ * came from where.
+ *
+ * IT DOES NOT PULL. Reading a page must not spend somebody else's rate limit,
+ * and a GET that fetched four APIs would take four seconds and would fire on
+ * every refresh. The sweep pulls every twenty hours; the button POSTs.
+ */
+peopleRoutes.get("/watch/:id", (c) => {
+  const id = c.req.param("id");
+  const file = watchFile(id);
+  if (!file) return c.json({ error: `Nobody on the watchlist has the id ${id}.` }, 404);
+  return c.json({ ...file, definitions: WATCH_DEFINITIONS });
+});
 
 peopleRoutes.post("/watch", async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -438,6 +572,7 @@ peopleRoutes.post("/watch", async (c) => {
     email: read.values.email ?? "",
     note: read.values.note ?? "",
     links: read.links ?? {},
+    tags: read.tags ?? [],
   });
   return c.json(watchPerson(row.id)!, 201);
 });
@@ -469,8 +604,12 @@ peopleRoutes.patch("/watch/:id", async (c) => {
     were written, stop appearing here. They are still in the ledger.
   */
   if (read.links !== undefined) changes.links = JSON.stringify(read.links);
+  if (read.tags !== undefined) changes.tags = JSON.stringify(read.tags);
   if (!Object.keys(changes).length)
-    return c.json({ error: "Nothing to change. Send name, company, role, email, note or links." }, 400);
+    return c.json(
+      { error: "Nothing to change. Send name, company, role, email, note, links or tags." },
+      400,
+    );
 
   updateWatch(id, changes);
   return c.json(watchPerson(id)!);
@@ -510,6 +649,37 @@ peopleRoutes.post("/watch/:id/dossier", async (c) => {
 
   const out = dispatchDossier(row, { focus, parentSessionId: parent });
   return c.json(out.json, out.status);
+});
+
+/**
+ * READ THIS PERSON'S PUBLIC SOURCES NOW.
+ *
+ * NOT DESTRUCTIVE AND NOT EXPENSIVE, which is the whole difference between
+ * this door and the one above it. `dossier` dispatches an agent: it takes the
+ * run slot, pays for a long completion on the owner's account and cannot be
+ * refunded by cancelling. This makes at most six anonymous GETs against public
+ * APIs and writes what they said. It spends nothing, and marking it
+ * destructive to be safe would teach a client to ignore the flag on the door
+ * that really is.
+ *
+ * IT ANSWERS 200 EVEN WHEN EVERY SOURCE FAILED. The failures are the
+ * `warnings` on the document — a 502 would throw away the three sources that
+ * did answer and the numbers already on the row, which is the page going blank
+ * over somebody else's outage.
+ */
+peopleRoutes.post("/watch/:id/pull", async (c) => {
+  const id = c.req.param("id");
+  const row = watchRow(id);
+  if (!row) return c.json({ error: `Nobody on the watchlist has the id ${id}.` }, 404);
+
+  try {
+    await pullPerson(row);
+  } catch (e) {
+    /* Every source already fails soft into a warning, so reaching here means
+       the store itself refused. That is this box's fault and is said plainly. */
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+  return c.json({ ...watchFile(id)!, definitions: WATCH_DEFINITIONS });
 });
 
 peopleRoutes.get("/:address", (c) => {

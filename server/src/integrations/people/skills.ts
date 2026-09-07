@@ -8,13 +8,19 @@
  * one. Folding them into one skill would put an entry on this box whose rules
  * contradict each other paragraph by paragraph.
  *
- * `people` HAS TWO ACTIONS AND THEY ARE BOTH ABOUT THE WATCHLIST. Nothing
+ * `people` HAS THREE ACTIONS AND ALL THREE ARE ABOUT THE WATCHLIST. Nothing
  * else in the entry can be written to: the contacts are a fold of headers and
  * the brief is a weekly record, so there is nothing there to change. The
  * watchlist is the opposite — it is typed, and adding to it is the only way a
  * row ever appears. `watch_add` is not destructive (a row the owner will find
  * and can edit or delete); `dossier` is, because it takes the run slot and
- * pays for a long completion, and cancelling the run does not refund it.
+ * pays for a long completion, and cancelling the run does not refund it;
+ * `pull` is NOT, and the distinction is worth defending rather than rounding
+ * up. A pull makes at most six anonymous GETs against public APIs and writes
+ * what they said onto the person's own row. It spends no run slot, no tokens
+ * and no credential, and flagging it destructive “to be safe” would teach a
+ * client to ignore the flag on `dossier`, which really does spend. It does
+ * reach machines that are not this one, which is what `openWorld` says.
  * `commitments` has three actions and none is destructive — done, dismiss and
  * scan are all reversible, and marking them destructive to be safe would train
  * a client to ignore the field.
@@ -32,6 +38,7 @@ import {
   MIN_QUIET_DAYS,
 } from "./contacts.ts";
 import { DEFAULT_DAYS, MAX_MESSAGES } from "./commitments.ts";
+import { MAX_EVENTS, NEW_FOR_DAYS } from "./watch.ts";
 
 export const SKILLS: Skill[] = [
   {
@@ -51,7 +58,10 @@ export const SKILLS: Skill[] = [
       "relations brief: who he has stopped writing to, who went quiet, who is " +
       "new. And, separately, the WATCHLIST: people he keeps an eye on, typed " +
       "by hand rather than collected, each with the dossiers written about " +
-      "them.",
+      "them — and, on each one's file, tracked numbers and a public-activity " +
+      "timeline pulled from KEYLESS sources (GitHub, Bluesky, Hacker News, " +
+      "RSS), plus the mailbox's own side of the relationship where there is " +
+      "one.",
     rules: [
       "THIS IS METADATA. No subject line, snippet or message body is anywhere " +
         "in these tables — the collector asks Gmail for headers only. So this " +
@@ -95,16 +105,44 @@ export const SKILLS: Skill[] = [
       "The same person seen through two connected mailboxes is two rows and " +
         "two relationships. They are shown side by side and are never added " +
         "together.",
-      "THE WATCHLIST IS A DIFFERENT KIND OF THING FROM THE CONTACTS. It is " +
-        "typed by hand, nothing collects or refreshes it, and most people on " +
-        "it have never written to him \u2014 so an empty contacts record for " +
-        "somebody on the watchlist means the mailbox has not seen them, never " +
-        "that the entry is wrong. Its fields are his notes, not measurements, " +
-        "and a blank one means he did not write it down.",
+      "THE WATCHLIST IS A DIFFERENT KIND OF THING FROM THE CONTACTS, AND IT " +
+        "HAS TWO HALVES. The IDENTITY half \u2014 name, company, role, email, " +
+        "note, links, tags \u2014 is typed by hand; nothing collects it, nothing " +
+        "refreshes it, and a blank field means he did not write it down rather " +
+        "than that nobody knows. The PUBLIC half \u2014 metrics and events \u2014 is " +
+        "pulled from keyless public sources and never writes over anything he " +
+        "typed. Most people on the list have never written to him, so an empty " +
+        "contacts record for one of them means the mailbox has not seen them, " +
+        "never that the entry is wrong.",
       "A person\u2019s `dossiers.count` is FINISHED dossiers. A failed or " +
         "running one is in `dossiers.last` with its status, and reporting " +
         "`last` as a written dossier without reading its status is reporting " +
         "a report that does not exist.",
+      "EVERY TRACKED NUMBER IS NULLABLE AND null MEANS NOT KNOWN, NEVER ZERO. " +
+        "There is no link of that kind on the card, or the public source did " +
+        "not answer \u2014 and `warnings` says which. An account with genuinely " +
+        "no followers reports 0, so “no followers” and “nobody here knows” " +
+        "must not be said with the same word.",
+      "`metrics.at` and `activityAt` are when the PULL RAN, not when anything " +
+        "happened. `activityAt: null` is “never pulled”, which is different " +
+        "from “pulled and quiet”. A source that failed leaves its last figure " +
+        "standing rather than blanking it, so a number may be older than the " +
+        "timestamp beside it whenever `warnings` is non-empty.",
+      `\`newEvents\` counts events this box FIRST SAW in the last ` +
+        `${NEW_FOR_DAYS} days \u2014 not events that happened in them. A person ` +
+        "pulled for the first time has a whole timeline that is new to this " +
+        "box, so the number reads high on the day they are added and must " +
+        "never be reported as “they published that many things this week”.",
+      "The activity timeline is PUBLIC POSTS AND PUSHES, cached from sources " +
+        "that need no credential. It is not everything they did, it is not " +
+        "everything they published, and a quiet timeline is evidence about " +
+        "four feeds and nothing else. X and LinkedIn are not read at all.",
+      "The `contact` panel on a person\u2019s file is matched on their email " +
+        "address first and otherwise on first-and-last name, accent- and " +
+        "case-folded. `matchedBy: \"name\"` IS A GUESS, an ambiguous name match " +
+        "returns null rather than a stranger\u2019s correspondence, and null is " +
+        "the ordinary answer because most people on this list have never " +
+        "written to him.",
     ],
     views: [
       {
@@ -212,8 +250,24 @@ export const SKILLS: Skill[] = [
         key: "watch",
         path: "/api/people/watch",
         about:
-          "The owner’s hand-kept list of people of interest — name, company, role, email, links and his own note — each with its dossier record: how many have been written, whether one is running or queued, and how the last one ended. TYPED, not collected: most of these people are not in the contacts document at all.",
+          "The owner’s hand-kept list of people of interest — name, company, role, email, links, tags and his own note — each with its tracked numbers, when its public sources were last read, how many events are new to this box, and its dossier record: how many have been written, whether one is running or queued, and how the last one ended. The IDENTITY half is TYPED, not collected: most of these people are not in the contacts document at all.",
         params: [],
+      },
+      {
+        key: "person",
+        path: "/api/people/watch/:id",
+        about:
+          "The file on one watched person, in four separately-sourced parts: `person` (what he typed, plus the tracked numbers), `contact` (the mailbox’s side of the relationship, or null — usually null), `events` (their public activity, newest first, at most " +
+          `${MAX_EVENTS} kept per person: GitHub pushes, releases and new repositories, Bluesky posts, Hacker News stories and comments, RSS items), and \`dossiers\` (every dossier run attaching to their name, newest first). \`warnings\` is what the LAST pull could not read.`,
+        params: [
+          {
+            name: "id",
+            type: "string",
+            required: true,
+            in: "path",
+            about: "The watch entry’s id, from the watch view.",
+          },
+        ],
       },
     ],
     actions: [
@@ -253,13 +307,37 @@ export const SKILLS: Skill[] = [
            refund it \u2014 see the four in skills/registry.ts. */
         destructive: true,
       },
+      {
+        key: "pull",
+        method: "POST",
+        path: "/api/people/watch/:id/pull",
+        about:
+          "Read one watched person\u2019s public sources now \u2014 GitHub, Bluesky, " +
+          "Hacker News and an RSS feed, whichever they have a link for \u2014 and " +
+          "refresh their tracked numbers and activity timeline. NOT DESTRUCTIVE " +
+          "AND NOT EXPENSIVE: at most six anonymous GETs against keyless public " +
+          "APIs, no run slot, no tokens, no credential. It answers 200 even " +
+          "when every source failed, with the failures in `warnings` and the " +
+          "previous numbers left standing. A sweep already does this every " +
+          "twenty hours, so call it when he asks for something up to the " +
+          "minute, not to fill a page.",
+        params: [
+          { name: "id", type: "string", required: true, in: "path", about: "The watch entry\u2019s id, from the watch view." },
+        ],
+      },
     ],
     asks: [
       "Who have I stopped writing to?",
       "Which correspondences have gone quiet against their own rhythm?",
       "Who at this venture's domain do I actually talk to?",
       "Who am I watching, and when was the last dossier on them written?",
+      "What has anybody on my watchlist shipped or posted lately?",
     ],
+    /* IT REACHES THE OPEN WEB. `pull` fetches four third-party APIs and
+       `dossier` hands a brief to a worker with a browser. Declaring false here
+       because most of the views are a loopback read would be a lie told in the
+       one field an MCP client is designed to trust. */
+    openWorld: true,
   },
 
   {

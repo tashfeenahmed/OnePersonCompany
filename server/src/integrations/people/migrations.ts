@@ -256,4 +256,88 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ) WITHOUT ROWID;
     `,
   },
+  {
+    name: "114_people_watch_file",
+    sql: `
+      -- THE WATCHED PERSON'S FILE: what is publicly true about them, beside
+      -- what the owner typed about them.
+      --
+      -- 113 gave the watchlist its identity lines and nothing else, and that
+      -- was the honest table for a list that nothing collected. This step adds
+      -- the half that IS collected — followers, karma, a timeline of public
+      -- posts and pushes — and the first thing to say about it is that the two
+      -- halves never overwrite each other. \`name\`, \`company\`, \`role\`,
+      -- \`email\` and \`note\` are still only ever what he typed. Everything
+      -- added here comes from somebody else's public API and is stamped with
+      -- when it was read.
+      --
+      -- KEYLESS SOURCES ONLY, and that is a design decision rather than a
+      -- limitation to be fixed later. A watchlist that needed an X token, a
+      -- LinkedIn cookie and a scraping budget would be a watchlist that stops
+      -- working the first time one of them expires, on a box whose owner would
+      -- have no idea which. GitHub's public API, Bluesky's public AppView,
+      -- Algolia's Hacker News index and an RSS feed all answer an anonymous
+      -- GET, so the file either fills in or says in \`pull_warnings\` which
+      -- source did not answer — and no page ever goes blank because a
+      -- credential went stale.
+      --
+      -- \`metrics\` IS JSON AND EVERY FIGURE IN IT MAY BE null. Null is "not
+      -- known": the link was never typed, or the source did not answer. It is
+      -- never 0. A GitHub account with no followers reports 0 and a person
+      -- with no GitHub link reports null, and conflating those would put
+      -- "0 followers" under somebody who has an audience elsewhere.
+      --
+      -- \`activity_at\` IS WHEN THE PULL RAN, NOT WHEN ANYTHING HAPPENED. It
+      -- is what the sweep reads to decide who is due, and what a reader is
+      -- shown so that an empty timeline can be told apart from a timeline
+      -- nobody has fetched yet. NULL means never pulled.
+      ALTER TABLE people_watch ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE people_watch ADD COLUMN metrics TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE people_watch ADD COLUMN activity_at TEXT;
+      ALTER TABLE people_watch ADD COLUMN pull_warnings TEXT NOT NULL DEFAULT '[]';
+
+      -- ONE PUBLIC THING A WATCHED PERSON DID, and the key is a HASH OF THE
+      -- THING rather than of the source's own id.
+      --
+      -- Four sources with four id schemes — a GitHub event id, an AT-protocol
+      -- URI, an Algolia objectID, an RSS guid that is often just the link —
+      -- and one of them (RSS) has no stable id at all on a good number of real
+      -- feeds. sha256(source|url|title) is an id every source can produce, and
+      -- it makes re-pulling idempotent for the only definition of "the same
+      -- event" that holds across all four: the same source said the same thing
+      -- about the same URL.
+      --
+      -- \`first_seen_at\` IS KEPT ACROSS AN UPDATE AND \`at\` IS NOT. \`at\` is
+      -- when the thing happened, as its source states it, and a source may
+      -- restate it. \`first_seen_at\` is when THIS BOX first saw it, which is
+      -- the only basis on which anything here can honestly be called new — a
+      -- freshly watched person's whole timeline arrives at once, and every row
+      -- of it is old news that this box has never seen before.
+      CREATE TABLE IF NOT EXISTS people_watch_events (
+        -- The watch row this belongs to. Its events die with it: unlike the
+        -- dossiers, which are the box's own work and stay in the run ledger,
+        -- these are a cache of somebody else's public timeline and mean
+        -- nothing once the person is off the list.
+        person_id     TEXT NOT NULL,
+        -- sha256(source|url|title), first 24 characters.
+        key           TEXT NOT NULL,
+        -- "GitHub", "Bluesky", "Hacker News", "RSS" — as shown to a reader.
+        source        TEXT NOT NULL,
+        -- push, create, release, public, post, comment, story.
+        kind          TEXT NOT NULL,
+        title         TEXT NOT NULL,
+        -- NULL when the source gave no link. Not every feed item has one.
+        url           TEXT,
+        -- When it happened, per the source.
+        at            TEXT NOT NULL,
+        -- When this box first pulled it. What "new" is measured from.
+        first_seen_at TEXT NOT NULL,
+        PRIMARY KEY (person_id, key)
+      ) WITHOUT ROWID;
+
+      -- The timeline read, which is the only read there is: one person's
+      -- events, newest first.
+      CREATE INDEX IF NOT EXISTS people_watch_events_at ON people_watch_events(person_id, at);
+    `,
+  },
 ];

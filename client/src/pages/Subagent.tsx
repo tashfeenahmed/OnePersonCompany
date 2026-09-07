@@ -1,6 +1,6 @@
 import { appPage } from "../../../shared/navigation";
 import { appForKind } from "../../../shared/runRoutes";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowUp,
@@ -25,16 +25,10 @@ import {
   statusTone,
 } from "@/components/runs/format";
 import { RoleIcon } from "@/components/org/RoleIcon";
-import { runAddress, standing } from "@/components/org/roleLook";
+import { personAddress, runAddress, standing } from "@/components/org/roleLook";
 import { attaches } from "@/components/org/dossiers";
 import { RunRail } from "@/components/org/RunRail";
-import {
-  PersonForm,
-  PersonGrid,
-  PersonHeader,
-  UNFILED,
-  WatchRail,
-} from "@/components/org/Watchlist";
+import { PersonDialog, PersonGrid, UNFILED, WatchRail } from "@/components/org/Watchlist";
 import { useApi } from "@/hooks/useApi";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { ago, duration } from "@/lib/format";
@@ -116,14 +110,27 @@ import {
  * Every other worker is addressed by SUBJECT — a page, a rival, a keyword —
  * and its runs are a log because the second sweep of a moving thing is a
  * second reading. This one is addressed by PERSON, and three dossiers on Jane
- * are one file rather than three jobs. So its rail is the watchlist, picking a
- * name narrows the transcript to that person's runs, and the empty state is a
- * grid of the people rather than an empty conversation — because there IS
- * something to show before any run exists.
+ * are one file rather than three jobs. So its rail is the watchlist, and its
+ * middle is a GRID OF THE PEOPLE rather than an empty conversation — because
+ * there IS something to show before any run exists.
  *
- * WHICH PERSON IS OPEN LIVES IN THE URL (`?person=<id>`), not in state. It
- * survives a reload, it is a link somebody can send, and the polling that runs
- * underneath it does not silently reset it.
+ * A PERSON IS A PAGE NOW, AND NOT A FILTER ON THIS ONE. `?person=<id>` used to
+ * narrow the transcript in place; a file with pulled metrics, a timeline and a
+ * shelf of dossiers on it stopped being a view of this conversation, so it
+ * moved to /team/people/<id> — see pages/Person.tsx. The rail's rows and the
+ * cards' "Open" both go there.
+ *
+ * ONE QUERY PARAMETER SURVIVES, AND IT IS NOT A PERSON. `?person=unfiled` is
+ * the pile of dossiers naming somebody nobody is watching, which really is a
+ * filter over this transcript and has nowhere else to be drawn.
+ *
+ * "ADD TO CHAT" IS THE OTHER HALF OF A CARD. Opening a file is one thing to
+ * want; saying something about somebody without leaving the eleven others is
+ * the other, so a card can put a person in the composer as a chip. What that
+ * actually does is put their name on the FIRST LINE of the brief, which is
+ * what files the dossier under them — the owner does not have to know that,
+ * which is why the chip says "About Jane Doe" and the placeholder asks what to
+ * look into rather than who this is about.
  *
  * THE ATTACHMENT RULE IS THE SERVER'S, MIRRORED — see `components/org/dossiers`
  * for the whole argument. There is no person id on a run; the only join is the
@@ -192,19 +199,42 @@ export function Subagent() {
   const watchReload = watch.reload;
   const people = useMemo(() => watch.data?.people ?? [], [watch.data]);
 
-  /* WHICH PERSON IS OPEN, FROM THE URL. `?person=` absent is "everyone", and
-     the reserved `unfiled` is the pile of runs that name nobody on the list. */
+  /* THE ONE VIEW THAT IS STILL A QUERY PARAMETER. `?person=unfiled` is the
+     pile of runs naming nobody on the list — a filter over THIS transcript,
+     which is why it stayed here when the people themselves became pages. Any
+     other value is an address that has moved, and the effect below sends it
+     on rather than drawing an empty page. */
   const [params, setParams] = useSearchParams();
   const chosen = watchlisted ? params.get("person") : null;
-  const person = people.find((p) => p.id === chosen) ?? null;
   const onUnfiled = chosen === UNFILED;
 
-  function choose(id: string | null) {
-    const next = new URLSearchParams(params);
-    if (id) next.set("person", id);
-    else next.delete("person");
-    setParams(next);
-  }
+  /** The rail, the cards and the crumb all mean the same three destinations. */
+  const goTo = useCallback(
+    (id: string | null) => {
+      if (id === null) {
+        const next = new URLSearchParams(params);
+        next.delete("person");
+        setParams(next);
+        return;
+      }
+      if (id === UNFILED) {
+        const next = new URLSearchParams(params);
+        next.set("person", UNFILED);
+        setParams(next);
+        return;
+      }
+      navigate(personAddress(id));
+    },
+    [navigate, params, setParams],
+  );
+
+  /* A LINK ALREADY SENT STILL WORKS. `?person=<id>` was this page's address
+     for one person for as long as the watchlist has existed; it is now that
+     person's own page, so an old link is forwarded rather than landing on a
+     grid that ignores it. */
+  useEffect(() => {
+    if (chosen && chosen !== UNFILED) navigate(personAddress(chosen), { replace: true });
+  }, [chosen, navigate]);
 
   /*
     POLLED, LIKE THE RUN PAGES, and for their reason: the report is flushed to
@@ -278,15 +308,30 @@ export function Subagent() {
 
   /* --------------------------------------------------- the person's form */
 
-  /** Null is closed; `{ editing: null }` is adding; `{ editing: p }` is
-   *  editing p. One piece of state, because the form is one form. */
+  /** Null is shut; `{ editing: null }` is adding; `{ editing: p }` is editing
+   *  p. One piece of state, because the form is one form — and it is a dialog
+   *  now rather than a card wedged above the grid. */
   const [editor, setEditor] = useState<{ editing: WatchPerson | null } | null>(null);
   const [personSaving, setPersonSaving] = useState(false);
   const [personProblem, setPersonProblem] = useState<string | null>(null);
-  const [removing, setRemoving] = useState(false);
-  /** Which cards have had their button pressed and not yet heard back. Not the
+  /** Which people have had a dossier asked for and not yet heard back. Not the
    *  same as the server's `running`: this covers the second in between. */
   const [asking, setAsking] = useState<Set<string>>(new Set());
+
+  /**
+   * WHO THE COMPOSER IS ABOUT, when a card has put somebody in it.
+   *
+   * ONE AT A TIME, and that is the contract rather than a simplification: the
+   * server titles a dossier from the FIRST LINE of the brief and files it
+   * against the watched person whose name that line is. Two names on one line
+   * is a run that belongs to neither of them.
+   */
+  const [attached, setAttached] = useState<WatchPerson | null>(null);
+  /* The row the chip names is the server's, not this component's copy of it —
+     so a rename, or a dossier finishing, shows in the chip. And somebody taken
+     off the list stops being attached rather than sending a brief about a
+     person who is no longer watched. */
+  const chip = attached ? (people.find((p) => p.id === attached.id) ?? null) : null;
 
   /* ---------------------------------------------------------- the scroll */
 
@@ -299,32 +344,27 @@ export function Subagent() {
   const runs = sa?.runs ?? [];
 
   /**
-   * WHOSE EXCHANGES ARE ON SCREEN. Everything, one person's, or the ones that
-   * name nobody being watched — and "nobody" is only sayable once the list has
+   * WHOSE EXCHANGES ARE ON SCREEN. Everything, or — on the analyst — the ones
+   * that name nobody being watched. "Nobody" is only sayable once the list has
    * arrived, so before it does nothing is unfiled rather than everything.
    */
   const listed = !!watch.data;
   /** The watchlist's default view is the CARDS, not a conversation — so on it
    *  the only transcript that has anywhere else to be is the unfiled one. */
-  const everyone = watchlisted && !person && !onUnfiled;
+  const everyone = watchlisted && !onUnfiled;
   const unattached = (title: string) => !people.some((p) => attaches(title, p.name));
-  const shown = person
-    ? transcript.filter((x) => attaches(x.run.title, person.name))
-    : watchlisted
-      ? /* NOTHING IS UNFILED UNTIL THE LIST HAS ARRIVED. Filtering against an
-           empty watchlist would put every dossier under "naming nobody on the
-           list" for the half second before the read lands, which is a
-           statement about the owner's list rather than a loading state. */
-        listed
-        ? transcript.filter((x) => unattached(x.run.title))
-        : []
-      : transcript;
+  const shown = watchlisted
+    ? /* NOTHING IS UNFILED UNTIL THE LIST HAS ARRIVED. Filtering against an
+         empty watchlist would put every dossier under "naming nobody on the
+         list" for the half second before the read lands, which is a statement
+         about the owner's list rather than a loading state. */
+      listed
+      ? transcript.filter((x) => unattached(x.run.title))
+      : []
+    : transcript;
   const unfiledRuns = watchlisted && listed ? runs.filter((r) => unattached(r.title)) : [];
   /** Watched by nobody, and the read has come back to prove it. */
   const emptyList = everyone && listed && people.length === 0;
-  /** The form as drawn: whatever was opened, or the new-person one standing
-   *  open under the explanation when there is nobody on the list at all. */
-  const opened = editor ?? (emptyList ? { editing: null } : null);
 
   const last = shown[shown.length - 1];
   const growth = `${chosen ?? ""}:${shown.length}:${last?.output.length ?? 0}:${last?.run.status ?? ""}`;
@@ -423,12 +463,12 @@ export function Subagent() {
     goes into the transcript on the right and the reply grows under it. The
     rail's badge is told the same way the chat tells it.
 
-    WITH A PERSON OPEN, THE NAME GOES ON THE FIRST LINE, and that is what makes
-    the run come back to this page rather than to the unfiled pile. The server
-    titles a dossier from the brief's first line; the typed text is the focus,
-    on its own paragraph underneath. The owner does not have to know that — the
-    placeholder asks what the dossier should look INTO, not who it is about,
-    because the who is already on screen.
+    WITH A PERSON IN THE CHIP, THE NAME GOES ON THE FIRST LINE, and that is
+    what files the dossier under them rather than in the unfiled pile. The
+    server titles a dossier from the brief's first line; the typed text is the
+    focus, on its own paragraph underneath. The owner does not have to know
+    that — the placeholder asks what the dossier should look INTO, not who it
+    is about, because the who is in the chip above the box.
   */
   async function send() {
     if (!sa || !canSend) return;
@@ -438,7 +478,7 @@ export function Subagent() {
     setProblem(null);
     try {
       await subagentApi.dispatch(sa.id, {
-        brief: person ? `${person.name}\n\n${text}` : text,
+        brief: chip ? `${chip.name}\n\n${text}` : text,
       });
       setBrief("");
       stuck.current = true;
@@ -475,38 +515,24 @@ export function Subagent() {
     }
   }
 
+  /** THE GRID IS WHERE A SAVE LANDS, deliberately. Adding somebody here does
+   *  not jump to their file: this is the page for building the list, and
+   *  three people in a row is the ordinary way it gets built. Their card is
+   *  in the grid when the dialog shuts, and "Open" is right on it. */
   async function savePerson(input: WatchInput) {
     if (!editor) return;
     setPersonSaving(true);
     setPersonProblem(null);
     try {
       const target = editor.editing;
-      const kept = target
-        ? await peopleApi.updateWatch(target.id, input)
-        : await peopleApi.addWatch(input);
+      if (target) await peopleApi.updateWatch(target.id, input);
+      else await peopleApi.addWatch(input);
       setEditor(null);
       watchReload();
-      choose(kept.id);
     } catch (e) {
       setPersonProblem(e instanceof Error ? e.message : String(e));
     } finally {
       setPersonSaving(false);
-    }
-  }
-
-  /** Off the list, not out of the record: the dossiers already written stay
-   *  and reappear as unfiled. */
-  async function removePerson(p: WatchPerson) {
-    setRemoving(true);
-    setPersonProblem(null);
-    try {
-      await peopleApi.removeWatch(p.id);
-      choose(null);
-      watchReload();
-    } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRemoving(false);
     }
   }
 
@@ -530,21 +556,28 @@ export function Subagent() {
   }
 
   const canSend = !!sa && sa.enabled && !live && !sending;
-  /** THE EMPTY BOX IS AN OFFER, not a dead button. With a person open and
-   *  nothing typed, the one thing to do is the standard profile — so the send
-   *  arrow becomes the sentence that says so. */
-  const offerDossier = !!person && !brief.trim();
+  /** THE EMPTY BOX IS AN OFFER, not a dead button. With somebody in the chip
+   *  and nothing typed, the one thing to do is the standard profile — so the
+   *  send arrow becomes the sentence that says so. */
+  const offerDossier = !!chip && !brief.trim();
   const placeholder = !sa
     ? ""
     : !sa.enabled
       ? "Switched off. Turn it on in settings to give it work."
       : live
         ? `${sa.name} is on the last brief. The box opens again when the report is in.`
-        : briefHint(sa.role, venture?.name ?? "this venture", person?.name ?? null);
+        : briefHint(sa.role, venture?.name ?? "this venture", chip?.name ?? null);
 
   const openForm = () => {
     setPersonProblem(null);
     setEditor({ editing: null });
+  };
+
+  /** A card puts somebody in the composer. The box is focused as well as
+   *  filled, because the next thing to do is type into it. */
+  const attach = (p: WatchPerson) => {
+    setAttached(p);
+    inputRef.current?.focus();
   };
 
   return (
@@ -590,19 +623,19 @@ export function Subagent() {
               <RoleIcon role={role} className="text-muted-foreground size-3.5" />
               {sa?.name ?? "…"}
             </span>
-            {/* WHO IS OPEN, IN THE BAR, because the transcript below is
-                narrowed and a filter nobody can see is a page that looks
-                broken. It is a crumb rather than a chip: pressing it is how
-                you get back to everyone. */}
-            {person && (
+            {/* WHICH VIEW IS OPEN, IN THE BAR, because the transcript below
+                is narrowed and a filter nobody can see is a page that looks
+                broken. A crumb rather than a chip: pressing it is how you get
+                back to everyone. */}
+            {onUnfiled && (
               <>
                 <span className="text-muted-foreground text-[13.5px]">/</span>
                 <button
-                  onClick={() => choose(null)}
+                  onClick={() => goTo(null)}
                   title="Back to everyone"
                   className="text-muted-foreground hover:text-foreground px-2 py-1 text-[13.5px]"
                 >
-                  {person.name}
+                  Unfiled
                 </button>
               </>
             )}
@@ -656,7 +689,7 @@ export function Subagent() {
               current={chosen}
               unfiled={unfiledRuns.length}
               loading={watch.loading && !watch.data}
-              onPick={choose}
+              onPick={goTo}
               onAdd={openForm}
             />
           ) : (
@@ -701,21 +734,7 @@ export function Subagent() {
 
               {sa && (venture || portfolio) && (
                 <>
-                  {person ? (
-                    <PersonHeader
-                      /* KEYED, so an armed "Really remove" does not survive a
-                         switch to somebody else. A confirm that crosses people
-                         is the one way this button deletes the wrong one. */
-                      key={person.id}
-                      person={person}
-                      removing={removing}
-                      onEdit={() => {
-                        setPersonProblem(null);
-                        setEditor({ editing: person });
-                      }}
-                      onRemove={() => void removePerson(person)}
-                    />
-                  ) : onUnfiled ? (
+                  {onUnfiled ? (
                     <>
                       <h1 className="mb-1.5 text-[20px] font-normal tracking-[-0.02em]">
                         Unfiled dossiers
@@ -771,48 +790,26 @@ export function Subagent() {
                   )}
 
                   {/* ----------------------------- the watchlist's own view */}
+                  {/* THE GRID IS ALWAYS DRAWN, EMPTY OR NOT, because the
+                      dotted square at the end of it IS the way to add
+                      somebody — so an empty list is one square and one
+                      sentence rather than a card explaining that a form is
+                      about to appear. */}
                   {everyone && (
                     <div className="mb-6">
-                      {emptyList ? (
-                        /* NOT "no runs yet". The list is the thing that is
-                           empty, and what to do about it is a sentence rather
-                           than a shrug — so the form is directly under it
-                           instead of behind a button that opens one. */
-                        <div className="bg-card mb-5 rounded-[14px] p-4.5">
-                          <p className="text-[14px]">Nobody is on the list yet.</p>
-                          <p className="text-muted-foreground mt-1.5 text-[13.5px]">
-                            Add a person of interest — a founder, a customer, a
-                            correspondent — and the People Analyst writes a
-                            sourced dossier on them; re-runs open with what
-                            changed.
-                          </p>
-                        </div>
-                      ) : (
-                        <PersonGrid
-                          people={people}
-                          busy={asking}
-                          onOpen={choose}
-                          onWrite={(p) => void writeDossier(p)}
-                          onAdd={openForm}
-                        />
+                      {emptyList && (
+                        <p className="text-muted-foreground mb-3 text-[13.5px]">
+                          Nobody is on the list yet. Add a person of interest and
+                          the People Analyst writes a sourced dossier on them.
+                        </p>
                       )}
+                      <PersonGrid
+                        people={people}
+                        attached={chip?.id ?? null}
+                        onAttach={attach}
+                        onAdd={openForm}
+                      />
                     </div>
-                  )}
-
-                  {/* THE FORM, WHEREVER IT WAS OPENED FROM. Keyed on who is
-                      being edited so re-opening it on somebody else starts
-                      from their fields rather than the last person's. On an
-                      empty list it is open with no way to shut it, because
-                      there is nothing behind it to go back to. */}
-                  {opened && (
-                    <PersonForm
-                      key={opened.editing?.id ?? "new"}
-                      person={opened.editing}
-                      saving={personSaving}
-                      problem={personProblem}
-                      onCancel={emptyList ? null : () => setEditor(null)}
-                      onSave={(input) => void savePerson(input)}
-                    />
                   )}
 
                   {/* THE PILE THAT BELONGS TO NOBODY, under the cards and said
@@ -838,7 +835,6 @@ export function Subagent() {
                       kindName={kind?.name ?? sa?.kind ?? "run"}
                       portfolio={portfolio}
                       ventureName={venture?.name ?? null}
-                      person={person}
                       onUnfiled={onUnfiled}
                     />
                   ) : (
@@ -885,6 +881,30 @@ export function Subagent() {
                   canSend && "hover:bg-card-hover focus-within:bg-card-hover",
                 )}
               >
+                {/* WHO THIS BRIEF IS ABOUT, above the box rather than typed
+                    into it. The chip is the name that will go on the first
+                    line; removing it is an × because that is what a chip's ×
+                    means everywhere else on this app. */}
+                {chip && (
+                  <div className="mb-2 flex items-center gap-1.5 px-1.5">
+                    <span className="bg-muted flex items-center gap-1 rounded-full py-1 pr-1 pl-2.5 text-[12.5px]">
+                      About {chip.name}
+                      <button
+                        onClick={() => setAttached(null)}
+                        aria-label={`Take ${chip.name} out of the brief`}
+                        className="hover:bg-accent text-muted-foreground hover:text-foreground rounded-full p-0.5"
+                      >
+                        <X className="size-3" strokeWidth={2} />
+                      </button>
+                    </span>
+                    <Link
+                      to={personAddress(chip.id)}
+                      className="text-muted-foreground hover:text-foreground text-[12.5px] underline"
+                    >
+                      their file
+                    </Link>
+                  </div>
+                )}
                 <Textarea
                   ref={inputRef}
                   aria-label="Brief"
@@ -945,10 +965,10 @@ export function Subagent() {
                     <Button
                       size="sm"
                       className="ml-auto"
-                      disabled={!canSend || asking.has(person!.id)}
-                      onClick={() => void writeDossier(person!)}
+                      disabled={!canSend || asking.has(chip!.id)}
+                      onClick={() => void writeDossier(chip!)}
                     >
-                      {asking.has(person!.id) ? "Asking…" : "Write a dossier"}
+                      {asking.has(chip!.id) ? "Asking…" : "Write a dossier"}
                     </Button>
                   ) : (
                     <button
@@ -969,14 +989,28 @@ export function Subagent() {
                 {sa
                   ? live
                     ? `${sa.name} is busy. One run at a time on this box, and a second brief for the same worker would only queue behind it.`
-                    : person
-                      ? `Filed under ${person.name}: the name goes on the first line of the brief, which is what puts the dossier in their file.`
+                    : chip
+                      ? `Filed under ${chip.name}: the name goes on the first line of the brief, which is what puts the dossier in their file.`
                       : `${sa.name} answers with a report, not a turn. It takes minutes, queues like everything else, and carries on with this tab shut.`
                   : " "}
               </p>
             </div>
           </div>
         </div>
+
+        {/* THE FORM, WHEREVER IT WAS OPENED FROM — the rail's footer, the
+            dotted square, or a card's Edit. A dialog rather than a card wedged
+            into the grid: see components/org/Watchlist. */}
+        {watchlisted && (
+          <PersonDialog
+            open={!!editor}
+            person={editor?.editing ?? null}
+            saving={personSaving}
+            problem={personProblem}
+            onOpenChange={(open) => !open && setEditor(null)}
+            onSave={(input) => void savePerson(input)}
+          />
+        )}
 
         {/* -------------------------------------------- settings drawer */}
         <aside
@@ -1049,56 +1083,27 @@ export function Subagent() {
 /**
  * NOTHING TO READ, AND THE REASON WHY.
  *
- * Five different emptinesses used to be one sentence. A worker nobody has
- * briefed, a person nobody has written about, a person whose dossiers are
- * older than the last twenty runs, an unfiled view with nothing in it and a
- * filter that matched none of them are five different situations, and the
- * middle one — "there are three, they are just not on this page" — is the one
- * that reads as data loss if it is drawn as "nothing yet".
+ * Three different emptinesses used to be one sentence. A worker nobody has
+ * briefed, an unfiled view with nothing in it, and a venture worker whose runs
+ * were all started with a different venture chosen are three different
+ * situations, and the last two read as data loss if they are drawn as
+ * "nothing yet". (The fourth and fifth — a person with no dossiers, and a
+ * person whose dossiers are older than the last twenty runs — moved to that
+ * person's own page along with everything else about them.)
  */
 function EmptyTranscript({
   sa,
   kindName,
   portfolio,
   ventureName,
-  person,
   onUnfiled,
 }: {
   sa: SubagentDetail;
   kindName: string;
   portfolio: boolean;
   ventureName: string | null;
-  person: WatchPerson | null;
   onUnfiled: boolean;
 }) {
-  if (person)
-    return (
-      <p className="text-muted-foreground mb-6 text-[13.5px]">
-        {person.dossiers.count > 0 ? (
-          <>
-            {person.dossiers.count === 1
-              ? "The one dossier on"
-              : `All ${person.dossiers.count} dossiers on`}{" "}
-            {person.name} are older than {sa.name}'s last twenty runs, so the
-            reports are not on this page. They are on{" "}
-            <Link
-              to={appPage(appForKind(sa.kind))}
-              className="hover:text-foreground underline"
-            >
-              the {kindName} page
-            </Link>
-            . The box below writes a new one.
-          </>
-        ) : (
-          <>
-            No dossier on {person.name} yet. The box below writes the first one —
-            leave it empty for the standard profile, or say what it should look
-            into.
-          </>
-        )}
-      </p>
-    );
-
   if (onUnfiled)
     return (
       <p className="text-muted-foreground mb-6 text-[13.5px]">

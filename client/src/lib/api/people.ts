@@ -1,7 +1,16 @@
 import { call } from "@/lib/api";
 import { qs, seg } from "@/lib/qs";
-import type { RunStatus } from "@/lib/api/runs";
+import type { RunStatus, RunSummary } from "@/lib/api/runs";
 import type { Dispatched } from "@/lib/api/subagents";
+import { hrefFor, LINK_SITES, linkLabel, type LinkKey, type LinkSite } from "@/lib/personLinks";
+
+/* WHERE A LINK GOES IS ONE FUNCTION, and it lives in an import-free leaf so a
+   node test can run it — see `@/lib/personLinks` for the four readings. It is
+   re-exported here because every caller of it already holds a `WatchPerson`,
+   and two import paths for one rule is how a card and a header come to
+   disagree about where somebody's GitHub is. */
+export { hrefFor, LINK_SITES, linkLabel };
+export type { LinkKey, LinkSite };
 
 /**
  * PEOPLE AND COMMITMENTS, FROM THIS SIDE.
@@ -220,13 +229,7 @@ export type ScanResult = {
  * empty string that renders as a stray separator. Callers use `said()` rather
  * than trusting a `.trim()` to be safe.
  */
-export type WatchLinks = {
-  website?: string | null;
-  github?: string | null;
-  x?: string | null;
-  linkedin?: string | null;
-  bluesky?: string | null;
-};
+export type WatchLinks = Partial<Record<LinkKey, string | null>>;
 
 export type WatchPerson = {
   id: string;
@@ -237,6 +240,40 @@ export type WatchPerson = {
   note: string | null;
   links: WatchLinks;
   createdAt: string;
+  /**
+   * THE OWNER'S OWN WORDS FOR WHY THIS PERSON IS ON THE LIST — "investor",
+   * "competitor", "spoke at the conference". Free text, never a taxonomy, and
+   * an empty array is a person nobody has labelled rather than a person with
+   * no properties. Sent whole on a write: a PATCH with `tags` REPLACES the
+   * set, which is the only reading under which removing one is possible.
+   */
+  tags: string[];
+  /**
+   * WHAT THE PUBLIC INTERNET SAYS THIS PERSON'S NUMBERS ARE, at `at`.
+   *
+   * EVERY ONE OF THESE IS NULL UNTIL SOMEBODY PULLS, and null after a pull is
+   * still an answer: it means that site had nothing to say — no GitHub on
+   * file, an account with no posts, a handle that 404s. Null is never drawn
+   * as a zero, because "0 followers" and "we never asked" are the two facts
+   * this page most needs to keep apart. `at` is null when nothing has ever
+   * been measured, and it is the ONE stamp for all five: they are read in a
+   * single pull or not at all.
+   */
+  metrics: {
+    ghFollowers: number | null;
+    ghRepos: number | null;
+    bskyFollowers: number | null;
+    bskyPosts: number | null;
+    hnKarma: number | null;
+    at: string | null;
+  };
+  /** The newest public event on record for them, or null for somebody with
+   *  none. NOT the same as `metrics.at` — that is when we last looked, this is
+   *  when they last did something. */
+  activityAt: string | null;
+  /** Events first seen in the last week. A count the server keeps because it
+   *  is the only thing that knows what this box had already seen. */
+  newEvents: number;
   updatedAt: string;
   /**
    * THE DOSSIERS ON THIS PERSON, COUNTED BY THE SERVER.
@@ -269,11 +306,89 @@ export type WatchInput = {
   email?: string;
   note?: string;
   links?: WatchLinks;
+  /** THE WHOLE SET, ALWAYS. There is no add-one route and there should not be
+   *  one: a partial tag write needs a merge rule, and the only merge rule that
+   *  can delete a tag is "the client sends what the list now is". */
+  tags?: string[];
 };
 
 /** A field the owner may not have filled in, as a string to draw or "". The
  *  one place null becomes "" on this side, so nothing else has to guess. */
 export const said = (value: string | null | undefined): string => (value ?? "").trim();
+
+/* ----------------------------------------------------------- one person */
+
+/**
+ * THE MAILBOX'S OPINION OF SOMEBODY ON THE WATCHLIST, OR NULL.
+ *
+ * A WATCHED PERSON AND A CORRESPONDENT ARE TWO DIFFERENT FACTS and this is the
+ * one place they are allowed to meet. The join is the email address the owner
+ * typed, and nothing else: a person with no address on file, or one whose
+ * address has never appeared in the connected mailbox, gets `null` here and
+ * their page says so in a sentence. It is NEVER filled in from a name match —
+ * two people called Jane Doe would become one relationship, and the whole
+ * point of the field is that it is evidence.
+ *
+ * The numbers are `Person`'s, narrowed to the ones a file wants: how long it
+ * has been quiet, what the usual gap is, which way the mail runs, and the
+ * server's own sentence for how it decided. `temperature: null` is "no rhythm
+ * measured yet" and is drawn as that rather than as cold.
+ */
+export type PersonContact = {
+  address: string;
+  temperature: Temperature;
+  /** Days since anything passed either way. Null when no dated mail exists. */
+  quietDays: number | null;
+  /** The median gap, or null under enough separate days to claim one. */
+  cadenceDays: number | null;
+  lastAt: string | null;
+  received: number;
+  sent: number;
+  /** The arithmetic in words, from the server. Shown, never paraphrased. */
+  why: string;
+};
+
+/**
+ * ONE THING THIS PERSON DID IN PUBLIC.
+ *
+ * `key` is the server's dedupe identity, so the same commit read twice is one
+ * row. `at` is when it HAPPENED and `firstSeenAt` is when this box first saw
+ * it — two different dates, and the difference is what makes a "NEW" pill
+ * honest: an old post found today is new to the reader and not new to the
+ * world, and the timeline says so by showing the date it happened next to a
+ * pill that means "you have not seen this".
+ */
+export type PersonEvent = {
+  key: string;
+  /** github | bluesky | hn | rss — a chip, and a string rather than a union
+   *  because a source added on the server should draw here without a release. */
+  source: string;
+  kind: string;
+  title: string;
+  url: string | null;
+  at: string | null;
+  firstSeenAt: string;
+};
+
+/**
+ * THE FILE ON ONE PERSON: who they are, the mailbox's view of them, what they
+ * have done in public, and everything written about them.
+ *
+ * `warnings` IS NOT AN ERROR CHANNEL. A pull that read GitHub and could not
+ * reach Bluesky is a partial success, and the page draws what came back with
+ * the sentence about what did not underneath it. A page that threw the whole
+ * document away because one of four sources timed out would be showing less
+ * than it has.
+ */
+export type PersonFile = {
+  person: WatchPerson;
+  contact: PersonContact | null;
+  /** Newest first. */
+  events: PersonEvent[];
+  /** Every dossier run naming this person, newest first. */
+  dossiers: RunSummary[];
+  warnings: string[];
+};
 
 export const peopleApi = {
   list: (params: {
@@ -331,6 +446,24 @@ export const peopleApi = {
    *  They reappear as unfiled, which is honest: nobody is watching them now. */
   removeWatch: (id: string) =>
     call<{ id: string; deleted: true }>(`/people/watch/${seg(id)}`, { method: "DELETE" }),
+
+  /** THE WHOLE FILE ON ONE PERSON, in one request: the row, the mailbox's
+   *  view, the public activity and the dossiers. One document rather than four
+   *  because the page draws all of it at once and four polls on a 10s clock is
+   *  four times the traffic for the same screen. */
+  personFile: (id: string) => call<PersonFile>(`/people/watch/${seg(id)}`),
+
+  /**
+   * GO AND READ THEIR PUBLIC ACTIVITY NOW.
+   *
+   * SECONDS, NOT MILLISECONDS — it is four outbound fetches — and it answers
+   * with the same document `personFile` does, already updated, so the page
+   * swaps the whole file in rather than pulling again afterwards. Sources that
+   * did not answer come back in `warnings` and the rest of the document is
+   * still true.
+   */
+  pullPerson: (id: string) =>
+    call<PersonFile>(`/people/watch/${seg(id)}/pull`, { method: "POST" }),
 
   /**
    * Write one now.

@@ -106,6 +106,23 @@ export const portfolioAddress = (role: string) =>
   `/team/${encodeURIComponent(role)}`;
 
 /**
+ * ONE WATCHED PERSON'S FILE: /team/people/<id>.
+ *
+ * A PERSON IS A PLACE, which is the change this address makes. Who was open
+ * used to be `?person=<id>` on the analyst's own page — a filter over a
+ * transcript — and a file with metrics, a timeline and a shelf of dossiers on
+ * it is not a filtered view of a conversation. It is a page, so it has a path,
+ * and the back button, a middle click and a pasted link all mean what they
+ * look like they mean.
+ *
+ * THE ID AND NOT THE NAME, unlike every other address on this app. A name is
+ * the one field the owner edits, and an address that changed when somebody
+ * fixed a spelling would break every link already sent.
+ */
+export const personAddress = (id: string) =>
+  `/team/people/${encodeURIComponent(id)}`;
+
+/**
  * WHAT THIS WORKER IS DOING, IN ONE WORD AND ONE COLOUR.
  *
  * The order is the order of urgency and it is not the order of the fields:

@@ -1,12 +1,29 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Plus, Users, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowUpRight, Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { statusWord } from "@/components/runs/format";
+import { personAddress } from "@/components/org/roleLook";
 import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { said, type WatchInput, type WatchLinks, type WatchPerson } from "@/lib/api/people";
+import {
+  hrefFor,
+  LINK_SITES,
+  said,
+  type WatchInput,
+  type WatchLinks,
+  type WatchPerson,
+} from "@/lib/api/people";
 
 /**
  * THE PEOPLE THE OWNER IS WATCHING, AND THE FILE ON EACH OF THEM.
@@ -23,11 +40,18 @@ import { said, type WatchInput, type WatchLinks, type WatchPerson } from "@/lib/
  * tone. So the list exists on the server, independent of any run, and a
  * dossier is something that happens TO a name on it.
  *
- * WHICH IS WHY THE ZERO STATE IS A GRID AND NOT AN EMPTY TRANSCRIPT. On every
- * other worker's page "nothing yet" is a fair thing to draw, because a worker
- * with no runs has done nothing. Here there is something to show before any
- * run exists — the people — and a page that showed an empty conversation over
- * a list of eleven watched humans would be reporting the wrong emptiness.
+ * A PERSON IS A PLACE NOW. Picking a name used to narrow the analyst's
+ * transcript in place; it opens their file at /team/people/<id> instead —
+ * numbers, public activity, correspondence and every dossier ever written.
+ * That is a page rather than a filter, so it has an address, and the cards
+ * here are the way in to it.
+ *
+ * THE GRID IS ALWAYS DRAWN, INCLUDING WHEN IT IS EMPTY, and the dotted square
+ * at the end of it is both the way to add somebody and the whole zero state.
+ * The form used to stand open under an explanation on an empty list, which
+ * made the first thing a new owner saw a nine-box form rather than the one
+ * gesture they needed. One dotted square and one sentence is the same offer
+ * with none of the furniture.
  *
  * THE STATUS DOT IS THREE STATES AND NOT TWO. Amber while a dossier is being
  * written or is waiting its turn; green when there is a file to read; grey
@@ -48,7 +72,7 @@ export const UNFILED = "unfiled";
 
 /** The initial-letter tile. A picture would be better and this app has none of
  *  anybody — a generated avatar would be a face nobody has, so it is a letter. */
-function Tile({ name, className }: { name: string; className?: string }) {
+export function Tile({ name, className }: { name: string; className?: string }) {
   return (
     <div
       className={cn(
@@ -83,6 +107,15 @@ function meta(p: WatchPerson): string {
   return flight + (who || said(p.email) || "no dossier yet");
 }
 
+/** Role and company, or the address, or the fact that neither was typed. */
+function whoLine(p: WatchPerson): string {
+  return (
+    [said(p.role), said(p.company)].filter(Boolean).join(" · ") ||
+    said(p.email) ||
+    "no role or company on file"
+  );
+}
+
 /** How thick the file is, in words. A count with no date is half an answer —
  *  three dossiers, the newest from March, is a different situation to three
  *  from this morning. */
@@ -103,29 +136,51 @@ function fileLine(p: WatchPerson): string {
   return `${n} ${n === 1 ? "dossier" : "dossiers"}${at ? ` · newest ${ago(at)}` : ""}`;
 }
 
-/**
- * WHERE A LINK GOES.
- *
- * The server stores what was typed, and what people type in a box marked
- * "GitHub" is a handle about as often as it is a URL. A full URL is used
- * exactly as given; anything else is hung off the site's own prefix, with a
- * leading @ dropped. A bare `example.com` in the website box gets https://
- * rather than being treated as a relative path, which is the one reading that
- * would take somebody to a page on this app.
- */
-const SITES: { key: keyof WatchLinks; label: string; base: string }[] = [
-  { key: "website", label: "Website", base: "" },
-  { key: "github", label: "GitHub", base: "https://github.com/" },
-  { key: "x", label: "X", base: "https://x.com/" },
-  { key: "linkedin", label: "LinkedIn", base: "https://www.linkedin.com/in/" },
-  { key: "bluesky", label: "Bluesky", base: "https://bsky.app/profile/" },
-];
+/** THE OWNER'S OWN WORDS, drawn as themselves. No colour per tag and no
+ *  taxonomy: "investor" and "rude on the phone" are the same kind of thing
+ *  here, which is a note somebody wrote. */
+export function Tags({ tags, className }: { tags: string[]; className?: string }) {
+  if (tags.length === 0) return null;
+  return (
+    <div className={cn("flex flex-wrap items-center gap-1", className)}>
+      {tags.map((t) => (
+        <span
+          key={t}
+          className="bg-muted text-muted-foreground rounded-full px-2 py-px text-[11.5px]"
+        >
+          {t}
+        </span>
+      ))}
+    </div>
+  );
+}
 
-function href(value: string, base: string): string | null {
-  const v = value.trim();
-  if (!v) return null;
-  if (/^https?:\/\//i.test(v)) return v;
-  return base ? base + v.replace(/^@/, "") : `https://${v}`;
+/** The links somebody filled in, as chips that leave this app. Built through
+ *  `hrefFor` so a handle, a bare domain and a pasted URL all land in the same
+ *  place — see `@/lib/personLinks`. */
+export function LinkChips({ links }: { links: WatchLinks }) {
+  const drawn = LINK_SITES.map((site) => ({
+    key: site.key,
+    label: site.label,
+    url: hrefFor(site.key, links?.[site.key]),
+  })).filter((l) => l.url !== null);
+  if (drawn.length === 0) return null;
+  return (
+    <>
+      {drawn.map((l) => (
+        <a
+          key={l.key}
+          href={l.url!}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="bg-card hover:bg-card-hover flex items-center gap-1 rounded-full px-2.5 py-1 text-[12.5px] transition-colors"
+        >
+          {l.label}
+          <ArrowUpRight className="size-3" strokeWidth={1.8} />
+        </a>
+      ))}
+    </>
+  );
 }
 
 /* ------------------------------------------------------------------ rail */
@@ -137,11 +192,16 @@ function href(value: string, base: string): string | null {
  * pages a run is the unit somebody navigates by. Here it is not: the owner
  * thinks "what do we know about Jane", and the three dossiers on Jane are the
  * answer to that question rather than three separate things to find. So this
- * rail lists the names and the transcript narrows to whoever is picked.
+ * rail lists the names, and a name is a page.
  *
  * "EVERYONE" IS A ROW AND NOT AN X. It is the state the page opens in, it is
  * where the cards are, and a rail whose only way back was deselecting the
  * current row would be a rail with a mode nobody can see.
+ *
+ * WHITE, RATHER THAN THE SIDEBAR'S TINT, and so is the runs rail beside it.
+ * Two greys stacked — the app's own rail, then the page's — read as one
+ * gutter with a seam down it; the page's rail is a surface the reader works
+ * on, and on paper that surface is paper.
  */
 export function WatchRail({
   people,
@@ -164,7 +224,7 @@ export function WatchRail({
     "flex w-full items-center gap-2 rounded-[9px] px-1.5 py-1.5 text-left transition-colors";
 
   return (
-    <aside className="bg-sidebar border-line-soft hidden w-[264px] shrink-0 flex-col border-r lg:flex">
+    <aside className="border-line-soft hidden w-[264px] shrink-0 flex-col border-r bg-white lg:flex dark:bg-background">
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-3 pb-3">
         <button
           onClick={() => onPick(null)}
@@ -188,6 +248,14 @@ export function WatchRail({
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
                   <span className="min-w-0 flex-1 truncate text-[13.5px]">{p.name}</span>
+                  {/* WHAT HAS TURNED UP SINCE THEY WERE LAST LOOKED AT. A
+                      count rather than a dot, because "three new things" and
+                      "one new thing" are different reasons to open a file. */}
+                  {p.newEvents > 0 && (
+                    <span className="bg-ok-bg text-ok shrink-0 rounded-full px-1.5 text-[10.5px] font-medium">
+                      {p.newEvents}
+                    </span>
+                  )}
                   <span className={cn("size-1.5 shrink-0 rounded-full", tone(p))} />
                 </span>
                 <span className="text-muted-foreground block truncate text-[11.5px]">
@@ -243,25 +311,34 @@ export function WatchRail({
 
 /* --------------------------------------------------------------- the one */
 
-/** WHO IS OPEN, at the top of their own transcript. The links are chips rather
- *  than a paragraph of URLs: they are things to open, and they open away from
- *  this app, which is what the new tab says. */
+/**
+ * WHO IS OPEN, at the top of their own file.
+ *
+ * THE PRIMARY ACTION IS ON THE HEADER because there is exactly one thing this
+ * page is for: writing a dossier on this person. The focus box beside it is
+ * one line and optional — empty means the standard profile, which is what the
+ * server writes when nothing is said — and it is a box rather than a second
+ * page because "what has changed since June?" is six words, not a form.
+ *
+ * TWO PRESSES TO REMOVE, because one press deletes something the owner typed.
+ */
 export function PersonHeader({
   person,
   onEdit,
   onRemove,
   removing,
+  onWrite,
+  writing,
 }: {
   person: WatchPerson;
   onEdit: () => void;
   onRemove: () => void;
   removing: boolean;
+  onWrite: (focus: string) => void;
+  writing: boolean;
 }) {
-  /* TWO PRESSES, because one press deletes something the owner typed. The
-     confirm is the button itself changing its mind rather than a dialog: the
-     thing being confirmed stays on screen behind it. It resets when the header
-     is keyed to a new person rather than in an effect — see the call site. */
   const [sure, setSure] = useState(false);
+  const [focus, setFocus] = useState("");
   useEffect(() => {
     if (!sure) return;
     const t = setTimeout(() => setSure(false), 4000);
@@ -269,23 +346,21 @@ export function PersonHeader({
   }, [sure]);
 
   const line = [said(person.role), said(person.company)].filter(Boolean).join(" · ");
-  const links = SITES.map((site) => ({
-    ...site,
-    url: href(said(person.links?.[site.key]), site.base),
-  })).filter((l) => l.url);
+  const flight = writing || person.dossiers.running || person.dossiers.queued > 0;
 
   return (
     <div className="mb-6">
       <div className="flex flex-wrap items-start gap-3">
-        <Tile name={person.name} className="mt-0.5 size-[34px] text-[14px]" />
+        <Tile name={person.name} className="mt-0.5 size-[40px] text-[16px]" />
         <div className="min-w-0 flex-1">
-          <h1 className="flex items-center gap-2 text-[20px] font-normal tracking-[-0.02em]">
+          <h1 className="flex items-center gap-2 text-[24px] leading-tight font-normal tracking-[-0.02em]">
             {person.name}
             <span className={cn("size-1.5 shrink-0 rounded-full", tone(person))} />
           </h1>
           <p className="text-muted-foreground text-[13.5px]">
             {line || said(person.email) || "Nothing said about them yet."}
           </p>
+          <Tags tags={person.tags} className="mt-2" />
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <Button variant="outline" size="sm" onClick={onEdit}>
@@ -302,9 +377,9 @@ export function PersonHeader({
         </div>
       </div>
 
-      {(links.length > 0 || said(person.email) || said(person.note)) && (
+      {(said(person.email) || Object.keys(person.links ?? {}).length > 0) && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {said(person.email) && line && (
+          {said(person.email) && (
             <a
               href={`mailto:${said(person.email)}`}
               className="bg-card hover:bg-card-hover rounded-full px-2.5 py-1 text-[12.5px] transition-colors"
@@ -312,18 +387,7 @@ export function PersonHeader({
               {said(person.email)}
             </a>
           )}
-          {links.map((l) => (
-            <a
-              key={l.key}
-              href={l.url!}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="bg-card hover:bg-card-hover flex items-center gap-1 rounded-full px-2.5 py-1 text-[12.5px] transition-colors"
-            >
-              {l.label}
-              <ArrowUpRight className="size-3" strokeWidth={1.8} />
-            </a>
-          ))}
+          <LinkChips links={person.links ?? {}} />
         </div>
       )}
 
@@ -333,12 +397,31 @@ export function PersonHeader({
         </p>
       )}
 
-      {/* A COUNT THE PAGE CANNOT DERIVE. The transcript below is the last
-          twenty runs narrowed to this person; the file may be thicker than
-          that, and the server is the only thing that knows. */}
-      <p className="text-muted-foreground mt-3 text-[12.5px]">
-        {fileLine(person)}
-      </p>
+      {/* ASK FOR ONE, FROM HERE. The focus box is beside the button rather
+          than under it: it is an argument to the press, and a box on its own
+          row reads as a second thing to do. */}
+      <div className="mt-4 flex flex-wrap items-start gap-2">
+        <Button disabled={flight} onClick={() => onWrite(focus.trim())}>
+          {flight
+            ? person.dossiers.queued > 0 && !person.dossiers.running
+              ? "Queued…"
+              : "Writing…"
+            : person.dossiers.count > 0
+              ? "Write another dossier"
+              : "Write a dossier"}
+        </Button>
+        <Textarea
+          rows={1}
+          aria-label="What the dossier should look into"
+          value={focus}
+          disabled={flight}
+          onChange={(e) => setFocus(e.target.value)}
+          placeholder="Optional — what should it look into?"
+          className="min-h-[36px] w-full max-w-[420px] flex-1 resize-none py-2 text-[13px]"
+        />
+      </div>
+
+      <p className="text-muted-foreground mt-2 text-[12.5px]">{fileLine(person)}</p>
     </div>
   );
 }
@@ -348,83 +431,81 @@ export function PersonHeader({
 /**
  * EVERYONE, AS CARDS, with the way to add one as the last of them.
  *
- * The add tile is part of the grid rather than a button in a toolbar for the
+ * THE ADD TILE IS PART OF THE GRID rather than a button in a toolbar, for the
  * Ventures page's reason: the list and the way to grow it are the same
- * gesture, and on an empty grid the dashed tile IS the empty state.
+ * gesture, and on an empty grid the dotted square IS the empty state.
+ *
+ * TWO ACTIONS AND THEY ARE DIFFERENT VERBS. "Open" goes to the file — the
+ * numbers, the activity, everything ever written. "Add to chat" brings the
+ * person BACK to the composer on this page, which is the other thing an owner
+ * looking at a grid of names wants: to say something about one of them without
+ * leaving the eleven others. One card, two destinations, both named.
  */
 export function PersonGrid({
   people,
-  busy,
-  onOpen,
-  onWrite,
+  attached,
+  onAttach,
   onAdd,
 }: {
   people: WatchPerson[];
-  /** Ids with a dossier being asked for right now — the button's own state,
-   *  which is not the same as the server's `running`: it covers the second
-   *  between the press and the answer. */
-  busy: Set<string>;
-  onOpen: (id: string) => void;
-  onWrite: (person: WatchPerson) => void;
+  /** Whose chip is currently in the composer, so the card can say so rather
+   *  than offering to attach somebody who already is. */
+  attached: string | null;
+  onAttach: (person: WatchPerson) => void;
   onAdd: () => void;
 }) {
   return (
     <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
-      {people.map((p) => {
-        const flight = p.dossiers.running || p.dossiers.queued > 0 || busy.has(p.id);
-        return (
-          <div
-            key={p.id}
-            className="bg-card flex min-h-[132px] flex-col rounded-[14px] p-4"
-          >
-            <button
-              onClick={() => onOpen(p.id)}
-              className="flex items-start gap-2.5 text-left"
-            >
-              <Tile name={p.name} className="mt-0.5 size-[26px] text-[12px]" />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5">
-                  <span className="min-w-0 flex-1 truncate text-[14px] font-medium">
-                    {p.name}
-                  </span>
-                  <span className={cn("size-1.5 shrink-0 rounded-full", tone(p))} />
+      {people.map((p) => (
+        <div key={p.id} className="bg-card flex min-h-[168px] flex-col rounded-[14px] p-4">
+          <Link to={personAddress(p.id)} className="flex items-start gap-2.5">
+            <Tile name={p.name} className="mt-0.5 size-[26px] text-[12px]" />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate text-[14px] font-medium">
+                  {p.name}
                 </span>
-                <span className="text-muted-foreground block truncate text-[12.5px]">
-                  {[said(p.role), said(p.company)].filter(Boolean).join(" · ") ||
-                    said(p.email) ||
-                    "no role or company on file"}
-                </span>
+                <span className={cn("size-1.5 shrink-0 rounded-full", tone(p))} />
               </span>
-            </button>
+              <span className="text-muted-foreground block truncate text-[12.5px]">
+                {whoLine(p)}
+              </span>
+            </span>
+          </Link>
 
-            <p className="text-muted-foreground mt-3 text-[12.5px]">{fileLine(p)}</p>
+          <Tags tags={p.tags} className="mt-2.5" />
 
-            <div className="mt-auto pt-3">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={flight}
-                onClick={() => onWrite(p)}
-              >
-                {flight
-                  ? p.dossiers.queued > 0 && !p.dossiers.running
-                    ? "Queued…"
-                    : "Writing…"
-                  : p.dossiers.count > 0
-                    ? "Write another"
-                    : "Write a dossier"}
-              </Button>
-            </div>
+          <p className="text-muted-foreground mt-2.5 text-[12.5px]">
+            {fileLine(p)}
+            {p.newEvents > 0 && ` · ${p.newEvents} new`}
+          </p>
+
+          <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={attached === p.id}
+              onClick={() => onAttach(p)}
+            >
+              {attached === p.id ? "In the box" : "Add to chat"}
+            </Button>
+            <Button size="sm" variant="ghost" asChild>
+              <Link to={personAddress(p.id)}>Open</Link>
+            </Button>
           </div>
-        );
-      })}
+        </div>
+      ))}
 
+      {/* THE DOTTED SQUARE. Square rather than card-shaped so it reads as a
+          slot to fill rather than as a person with no name, and capped in
+          height so that on a wide grid it does not stretch four real cards to
+          the width of a column. */}
       <button
         onClick={onAdd}
-        className="text-muted-foreground hover:border-line-strong hover:text-foreground flex min-h-[132px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed transition-colors"
+        className="text-muted-foreground hover:border-line-strong hover:text-foreground border-line-strong/60 flex aspect-square max-h-[220px] min-h-[168px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed transition-colors"
       >
-        <Plus className="size-[18px]" strokeWidth={1.6} />
-        <span className="text-[14px]">Add person</span>
+        <Plus className="size-[22px]" strokeWidth={1.5} />
+        <span className="text-[14px]">Add one</span>
       </button>
     </div>
   );
@@ -433,63 +514,115 @@ export function PersonGrid({
 /* -------------------------------------------------------------- the form */
 
 /**
- * THE ONE FORM, FOR ADDING AND FOR EDITING.
+ * THE ONE FORM, FOR ADDING AND FOR EDITING, IN A DIALOG.
  *
- * A CARD RATHER THAN A DIALOG, and that is not a styling preference: a dialog
- * over this page would cover the list the owner is adding to, and the thing
- * they most often want while typing a name is to see whether it is already
- * there. It sits where the cards are and pushes them down.
+ * IT WAS A CARD AND IT IS A DIALOG NOW, and the argument that kept it inline
+ * has expired. The old note said a dialog would cover the list somebody is
+ * adding to, and that the thing they most want while typing a name is to see
+ * whether it is already there — but the server answers that question properly
+ * with a 409 on the name, and it is shown right here under the box. What the
+ * inline card actually cost was the grid: a nine-field form pushing eleven
+ * people down the page every time somebody fixed a typo, and, on an empty
+ * list, a form as the first thing anybody ever saw.
  *
  * THE SERVER'S 409 IS SHOWN WHERE IT HAPPENED. A duplicate name is a real
  * answer — somebody is already on the list — and it belongs under the name box
  * rather than in a toast that has gone by the time the owner looks up.
+ *
+ * TAGS ARE COMMA-SEPARATED TEXT and not a chip editor. They are the owner's
+ * own words, they are written once and read many times, and a box that turns
+ * "investor, met at YC" into two tags is a thing anybody can predict.
  */
-export function PersonForm({
+export function PersonDialog({
+  open,
+  person,
+  saving,
+  problem,
+  onOpenChange,
+  onSave,
+}: {
+  open: boolean;
+  /** The person being edited, or null for a new one. */
+  person: WatchPerson | null;
+  saving: boolean;
+  problem: string | null;
+  onOpenChange: (open: boolean) => void;
+  onSave: (input: WatchInput) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[86vh] gap-3 overflow-y-auto sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>
+            {person ? `Edit ${person.name}` : "Add a person of interest"}
+          </DialogTitle>
+          <DialogDescription>
+            Only the name is required. Everything else is what the analyst has to
+            go on — the links are where it reads them in public.
+          </DialogDescription>
+        </DialogHeader>
+        {/* KEYED ON WHO IS BEING EDITED so re-opening on somebody else starts
+            from their fields rather than from the last person's. */}
+        <PersonFields
+          key={person?.id ?? "new"}
+          person={person}
+          saving={saving}
+          problem={problem}
+          onCancel={() => onOpenChange(false)}
+          onSave={onSave}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PersonFields({
   person,
   saving,
   problem,
   onCancel,
   onSave,
 }: {
-  /** The person being edited, or null for a new one. */
   person: WatchPerson | null;
   saving: boolean;
   problem: string | null;
-  /** NULL WHEN THERE IS NOTHING TO GO BACK TO — an empty watchlist, where the
-   *  form is the page. A Cancel button that shuts nothing is worse than no
-   *  Cancel button, so it is not drawn rather than drawn dead. */
-  onCancel: (() => void) | null;
+  onCancel: () => void;
   onSave: (input: WatchInput) => void;
 }) {
-  const [form, setForm] = useState<Required<Omit<WatchInput, "links">> & { links: Record<string, string> }>(() => ({
+  const [form, setForm] = useState(() => ({
     name: person?.name ?? "",
     role: said(person?.role),
     company: said(person?.company),
     email: said(person?.email),
     note: said(person?.note),
-    links: Object.fromEntries(SITES.map((s) => [s.key, said(person?.links?.[s.key])])),
+    tags: (person?.tags ?? []).join(", "),
+    links: Object.fromEntries(
+      LINK_SITES.map((s) => [s.key, said(person?.links?.[s.key])]),
+    ) as Record<string, string>,
   }));
 
   const set = (patch: Partial<typeof form>) => setForm({ ...form, ...patch });
   const named = form.name.trim().length > 0;
 
-  return (
-    <section className="bg-card mb-5 rounded-[14px] p-4.5">
-      <div className="mb-3 flex items-center gap-2">
-        <h2 className="text-[14px] font-medium">
-          {person ? `Edit ${person.name}` : "Add a person of interest"}
-        </h2>
-        {onCancel && (
-          <button
-            onClick={onCancel}
-            aria-label="Close the form"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground ml-auto rounded-lg p-1.5"
-          >
-            <X className="size-3.5" strokeWidth={1.6} />
-          </button>
-        )}
-      </div>
+  const submit = () =>
+    onSave({
+      name: form.name.trim(),
+      role: form.role.trim(),
+      company: form.company.trim(),
+      email: form.email.trim(),
+      note: form.note,
+      /* SPLIT, TRIMMED, AND THE BLANKS DROPPED. "a, b, " is two tags. */
+      tags: form.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+      links: Object.fromEntries(
+        LINK_SITES.map((s) => [s.key, (form.links[s.key] ?? "").trim()]),
+      ) as WatchLinks,
+    });
 
+  return (
+    <div>
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground text-[12.5px]">
@@ -528,15 +661,34 @@ export function PersonForm({
         </label>
       </div>
 
+      <label className="mt-2 flex flex-col gap-1">
+        <span className="text-muted-foreground text-[12.5px]">
+          Tags — your own words, separated by commas
+        </span>
+        <Input
+          value={form.tags}
+          onChange={(e) => set({ tags: e.target.value })}
+          placeholder="investor, met at the conference"
+        />
+      </label>
+
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
-        {SITES.map((site) => (
+        {LINK_SITES.map((site) => (
           <label key={site.key} className="flex flex-col gap-1">
             <span className="text-muted-foreground text-[12.5px]">{site.label}</span>
             <Input
               value={form.links[site.key] ?? ""}
               onChange={(e) => set({ links: { ...form.links, [site.key]: e.target.value } })}
-              placeholder={site.base ? `${site.base}handle` : "https://example.com"}
+              placeholder={site.hint}
             />
+            {/* WHERE IT WILL ACTUALLY GO, as they type. A handle box that
+                silently becomes a URL should show the URL rather than making
+                somebody save and click to find out. */}
+            {hrefFor(site.key, form.links[site.key]) && (
+              <span className="text-muted-foreground truncate text-[11.5px]">
+                {hrefFor(site.key, form.links[site.key])}
+              </span>
+            )}
           </label>
         ))}
       </div>
@@ -560,30 +712,14 @@ export function PersonForm({
         </p>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button
-          disabled={!named || saving}
-          onClick={() =>
-            onSave({
-              name: form.name.trim(),
-              role: form.role.trim(),
-              company: form.company.trim(),
-              email: form.email.trim(),
-              note: form.note,
-              links: Object.fromEntries(
-                SITES.map((s) => [s.key, (form.links[s.key] ?? "").trim()]),
-              ) as WatchLinks,
-            })
-          }
-        >
+      <DialogFooter className="mt-4">
+        <Button variant="ghost" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+        <Button disabled={!named || saving} onClick={submit}>
           {saving ? "Saving…" : person ? "Save" : "Add"}
         </Button>
-        {onCancel && (
-          <Button variant="ghost" onClick={onCancel} disabled={saving}>
-            Cancel
-          </Button>
-        )}
-      </div>
-    </section>
+      </DialogFooter>
+    </div>
   );
 }

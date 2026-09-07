@@ -38,6 +38,7 @@ import {
   syncConnected,
 } from "./contacts.ts";
 import { startWeekly } from "./brief.ts";
+import { startWatchSweep } from "./activity.ts";
 import { peopleRoutes } from "./routes.ts";
 import { commitmentRoutes } from "./commitments-routes.ts";
 import { SKILLS, PACKS } from "./skills.ts";
@@ -154,5 +155,15 @@ export const manifest: IntegrationManifest = {
     syncConnected();
     setInterval(() => syncConnected(), 10 * 60_000).unref();
     startWeekly();
+    /*
+      THE WATCHLIST'S PUBLIC HALF, AND IT IS THE ONE TIMER IN THIS AREA THAT
+      NEEDS NO MAILBOX. It reads GitHub, Bluesky, Hacker News and RSS
+      anonymously, so it runs on a box with no Gmail account connected at all —
+      which is exactly the box where a watchlist is the only thing this area
+      can offer. Twenty-hourly per person, checked hourly, two seconds apart,
+      and every source failing into a sentence on the row rather than an
+      exception here: see activity.ts.
+    */
+    startWatchSweep();
   },
 };
