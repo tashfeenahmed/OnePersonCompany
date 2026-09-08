@@ -133,6 +133,11 @@ export type CalendarEvent = {
   /** Does it occupy the day: not all-day, not cancelled, not declined. */
   busy: boolean;
   minutes: number | null;
+  /** Google's own permalink for the occurrence, and its Meet room. Addresses,
+   *  never content. Null on rows collected before migration 036 ran, which is
+   *  drawn as "no link" and never as a broken one. */
+  link: string | null;
+  meetLink: string | null;
   updated: string | null;
 };
 
@@ -166,12 +171,20 @@ export type CalendarReport = {
     /** The owner's own tick in Google. An unticked calendar is not read. */
     selected: boolean;
     accessRole: string | null;
+    /** Google's own colour as '#rrggbb', or null where it sent nothing
+     *  usable. Never a colour this app picked — see migration 036. */
+    color: string | null;
     seenAt: string | null;
   }[];
   today: CalendarDay & { next: CalendarEvent | null };
   days: CalendarDay[];
   summary: {
+    /** The days `days` ACTUALLY covers — `from` is clamped to what the box
+     *  holds, so this is read back rather than assumed. */
     window: { from: string; to: string; days: number };
+    /** How far this box's collection reaches at all. A page draws no day
+     *  outside it, because a day nobody read is not a free day. */
+    held: { from: string; to: string; backDays: number; aheadDays: number };
     events: number;
     busyMinutes: number;
     busyHours: number;
@@ -919,7 +932,11 @@ export const reports = {
   /** The last 30 complete days per website, plus up to `days` of daily line. */
   umami: (days = 90) => call<UmamiReport>(`/umami?days=${days}`),
   /** Today and the next `days`. The collector holds 7 back and 21 ahead. */
-  calendar: (days = 7) => call<CalendarReport>(`/calendar?days=${days}`),
+  /** `from` moves the days array off today — the calendar page pages
+   *  backwards, the widgets never do. The route clamps it to the collected
+   *  window and reports what it settled on in `summary.window`. */
+  calendar: (days = 7, from?: string) =>
+    call<CalendarReport>(`/calendar?days=${days}${from ? `&from=${from}` : ""}`),
   pypi: () => call<PypiReport>("/pypi"),
   bluesky: (days = 90) => call<BlueskyReport>(`/bluesky?days=${days}`),
   /** Availability is over THIS BOX'S checks, at whatever cadence it managed. */

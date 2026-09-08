@@ -343,4 +343,43 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX bluesky_posts_at ON bluesky_posts (created_at DESC);
     `,
   },
+
+  {
+    name: "036_calendar_colour_and_link",
+    sql: `
+      -- THE TWO THINGS A CALENDAR PAGE NEEDS AND A CALENDAR WIDGET NEVER DID.
+      --
+      -- A widget draws a list of rows, and a row does not need a colour or a
+      -- way out. A GRID does: six calendars merged into one week are
+      -- indistinguishable without the colour the owner already assigned them
+      -- in Google, and an occurrence on a read-only page has exactly one
+      -- useful action — open it where it can be changed.
+      --
+      -- \`color\` IS GOOGLE'S OWN, NOT ONE THIS BOX PICKED. calendarList
+      -- reports \`backgroundColor\` as a six-digit hex per calendar, which is
+      -- what the owner sees in the app they already use; a palette invented
+      -- here would mean the same calendar is teal in Google and coral on this
+      -- dashboard, and a colour that disagrees with its source is worse than
+      -- no colour. NULL where Google sent nothing usable, and the page falls
+      -- back to its own neutral tokens rather than inventing one.
+      --
+      -- \`html_link\` AND \`hangout_link\` ARE ADDRESSES, NOT CONTENT. The
+      -- first is Google's own permalink for the occurrence; the second is the
+      -- Meet room when the event has one. Neither is a description and neither
+      -- names a guest, so migration 032's line — no body, no guest list —
+      -- stands exactly where it was. They are stored rather than derived
+      -- because an occurrence id has to be base64'd with the calendar id to
+      -- build a Google link, and a link this box GUESSED would 404 silently.
+      --
+      -- ADDED AS COLUMNS ON THE EXISTING TABLES rather than as a new table:
+      -- both are one-to-one with a row that already exists, and a join table
+      -- for a hex triplet is a table nobody would thank us for. They are NULL
+      -- on every row written before this migration, and fill in on the next
+      -- collection — a NULL colour and a NULL link are both drawn as absent,
+      -- which is the truth until the collector next runs.
+      ALTER TABLE calendar_calendars ADD COLUMN color TEXT;
+      ALTER TABLE calendar_events ADD COLUMN html_link TEXT;
+      ALTER TABLE calendar_events ADD COLUMN hangout_link TEXT;
+    `,
+  },
 ];

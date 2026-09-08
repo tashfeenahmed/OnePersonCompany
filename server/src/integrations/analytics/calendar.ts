@@ -183,6 +183,10 @@ export type CalendarInfo = {
    *  decides which calendars are read — see migration 032. */
   selected: boolean;
   accessRole: string | null;
+  /** Google's own `backgroundColor` for this calendar — the colour the owner
+   *  already sees in the app they use — as a six-digit hex, or null. See
+   *  migration 036 on why it is Google's and never one this box picked. */
+  color: string | null;
 };
 
 export type EventRow = {
@@ -201,8 +205,24 @@ export type EventRow = {
   organizerSelf: boolean | null;
   /** The OWNER's responseStatus, or null on an event with no guest list. */
   response: string | null;
+  /** Google's own permalink for this occurrence. An ADDRESS, not content —
+   *  see migration 036 — and the only useful action a read-only page has. */
+  link: string | null;
+  /** The Meet room, when the event has one. Also an address. */
+  meetLink: string | null;
   updated: string | null;
 };
+
+/** An https URL, or null. The one gate every link Google sends passes
+ *  through before it can reach the database — see `events` below. */
+function httpsOnly(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).protocol === "https:" ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 /* -------------------------------------------------------------- readers */
 
@@ -215,9 +235,10 @@ export async function calendarList(token: string): Promise<CalendarInfo[]> {
       primary?: boolean;
       selected?: boolean;
       accessRole?: string;
+      backgroundColor?: string;
     }[];
   }>("/users/me/calendarList", token, [
-    ["fields", "items(id,summary,timeZone,primary,selected,accessRole)"],
+    ["fields", "items(id,summary,timeZone,primary,selected,accessRole,backgroundColor)"],
     ["maxResults", "250"],
   ]);
   const out: CalendarInfo[] = [];
@@ -237,6 +258,17 @@ export async function calendarList(token: string): Promise<CalendarInfo[]> {
       */
       selected: item.selected !== false,
       accessRole: item.accessRole ?? null,
+      /*
+        ONLY A PLAIN SIX-DIGIT HEX IS KEPT. Google has always sent
+        `backgroundColor` in that form, but it lands in a `style` attribute on
+        the page and a value that is anything else — an old `colorId`, a
+        theme name, a string somebody's proxy rewrote — would be a colour this
+        box did not check going straight into the DOM. Refused here rather
+        than in the renderer, so the column can only ever hold a colour.
+      */
+      color: /^#[0-9a-f]{6}$/i.test(item.backgroundColor ?? "")
+        ? item.backgroundColor!
+        : null,
     });
   }
   return out;
@@ -263,6 +295,8 @@ export async function events(
       status?: string;
       location?: string;
       updated?: string;
+      htmlLink?: string;
+      hangoutLink?: string;
       start?: { dateTime?: string; date?: string };
       end?: { dateTime?: string; date?: string };
       organizer?: { self?: boolean };
@@ -278,11 +312,14 @@ export async function events(
     ["showDeleted", "false"],
     /* THE MASK IS THE PRIVACY BOUNDARY. `description` is not in it, so a body
        is never fetched, never held and never logged. Nor are attendee
-       addresses: only `self` and `responseStatus`, which are about the owner. */
+       addresses: only `self` and `responseStatus`, which are about the owner.
+       `htmlLink` and `hangoutLink` were added to it for the calendar page and
+       do not move that line: both are addresses of the occurrence, neither is
+       its content, and neither names a guest. */
     [
       "fields",
-      "nextPageToken,items(id,summary,status,location,updated,start,end," +
-        "organizer/self,attendees(self,responseStatus))",
+      "nextPageToken,items(id,summary,status,location,updated,htmlLink," +
+        "hangoutLink,start,end,organizer/self,attendees(self,responseStatus))",
     ],
   ]);
 
@@ -302,6 +339,12 @@ export async function events(
       attendees: item.attendees ? item.attendees.length : null,
       organizerSelf: item.organizer ? item.organizer.self === true : null,
       response: mine?.responseStatus ?? null,
+      /* ONLY https, and only from Google. Both of these end up in an `href`
+         on the page, so a scheme that is not https — a `javascript:` a
+         compromised proxy inserted, say — is dropped here rather than trusted
+         to a renderer that might one day forget to check. */
+      link: httpsOnly(item.htmlLink),
+      meetLink: httpsOnly(item.hangoutLink),
       updated: item.updated ?? null,
     });
   }
