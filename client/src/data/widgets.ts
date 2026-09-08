@@ -463,6 +463,40 @@ export type Widget = {
      * rows the same collector wrote.
      */
     ads?: boolean;
+
+    /*
+      THE OVERVIEW BOARD'S THREE. All three are this box's own — no credential
+      gates any of them — and each is its own flag for the reason `gsc` and
+      `bing` are two: they are three fetches from three routers on three
+      clocks, and nothing anywhere adds a figure across them.
+    */
+    /**
+     * The action inbox: alerts, commitments, mail needing a reply, failed
+     * runs and payment failures, joined by `/api/action-inbox` and ALREADY
+     * filtered — resolved and snoozed rows never leave the server. See
+     * lib/api/inbox.
+     */
+    inbox?: boolean;
+    /**
+     * The portfolio P&L for the current month — every venture's net revenue,
+     * cost and margin per currency, plus the ledger's unallocated share and
+     * the model spend. `/api/finance/profit/portfolio`.
+     *
+     * ITS OWN FLAG BESIDE `finance`, not a widening of it. `finance` is the
+     * rate card — what the bills say a month costs — and this is arithmetic
+     * over one calendar month of collected rows. They disagree on purpose,
+     * and a card asking only "what does the estate cost" must not pay for a
+     * P&L it does not draw.
+     */
+    profit?: boolean;
+    /**
+     * The venture screenshots: the newest picture of each front page, its
+     * date, and whether the file is still on disk. `/api/capture`.
+     *
+     * The picture's `url` is already an address on this origin, so a card
+     * draws it with a plain lazy `<img>` and never composes a path.
+     */
+    capture?: boolean;
   };
   /**
    * A WORD ABOUT WHAT KIND OF NUMBER THIS IS, worn as a small mono pill after
@@ -934,6 +968,30 @@ export const SOURCES: Record<string, WidgetSource> = {
     icon: null,
     mono: "Ix",
     tint: "#4a8a6b",
+    connected: true,
+  },
+
+  /* ======================================================================
+     OVERVIEW BOARD (Workdash /overview) — two more of this box's own.
+
+     Neither is a plugin. The inbox is a JOIN over five tables other areas
+     wrote, and the venture cards are the ventures the owner typed in plus
+     the pictures this box took of them. Always connected: there is no
+     credential to be missing, so an empty card means nothing is waiting and
+     nothing has been photographed, which is what the cards say in words.
+     ====================================================================== */
+  inbox: {
+    name: "Action inbox",
+    icon: null,
+    mono: "In",
+    tint: "#8a5a4a",
+    connected: true,
+  },
+  ventures: {
+    name: "Ventures",
+    icon: null,
+    mono: "Ve",
+    tint: "#4a6b5a",
     connected: true,
   },
 };
@@ -4197,6 +4255,129 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "donut",
     window: "now",
     live: { boxes: true, fleet: true },
+  },
+
+  /* ========================================================================
+     OVERVIEW BOARD (Workdash /overview) — the four cards nothing else draws.
+
+     THE OVERVIEW IS ALMOST ENTIRELY A PLACING JOB. Workdash's page is a
+     headline strip, a revenue section, every project, the traffic, the fleet
+     and a bottom band — and this catalog already draws every figure in it:
+     `payments.mrr` is its ARR tile, `payments.movement` its waterfall,
+     `finance.groups` its cost donut, `fleet.alerts` its fleet strip,
+     `registrars.runway` its domain band. What was genuinely missing is these
+     four, and each of them is missing because it JOINS documents no single
+     existing card reads together.
+
+     They are `overview.*` rather than filed under an area for that reason: an
+     area owns a document, and none of these is about one. The Overview is the
+     one page whose whole subject is the join.
+     ======================================================================== */
+
+  /*
+    WHAT IS WAITING, ACTIONABLE FIRST.
+
+    Workdash's Overview does not draw this — it hands the top issue to the
+    agent digest and leaves the list on /kanban — and the owner asked for it
+    on the page instead. The reason it works here is that OPC already has the
+    join Workdash's `useIssues` + `useActions` pair had to build in the
+    browser: `/api/action-inbox` reads five areas through their own readers,
+    drops what has been resolved or snoozed, and sorts by urgency then
+    recency. So this card filters nothing and reorders nothing.
+
+    A TABLE AND NOT A `rows` LIST, because four facts about a waiting thing —
+    which area, what it is, when, and what answering it is called — read as
+    four columns and as a run-on sentence in two. `rowTones` puts the urgency
+    in a dot so the actionable half of the list is visible before it is read.
+  */
+  "overview.attention": {
+    src: "inbox",
+    name: "Needs attention",
+    kind: "table",
+    /* A LEVEL, NOT A WINDOW. What is open is open: an alert nobody
+       acknowledged in March is still waiting today, and hiding it behind a
+       seven-day picker would be the dashboard deciding which of the owner's
+       unanswered things have expired. */
+    window: "now",
+    live: { inbox: true },
+    headers: ["", "What", "Where", "When", "To close it"],
+  },
+
+  /*
+    WHAT THE MONTH EARNED AGAINST WHAT IT COST, and what that leaves.
+
+    The one card on this board that performs the subtraction Workdash's "Where
+    the money goes" performs in prose. It reads the portfolio P&L, which is
+    computed over the CURRENT CALENDAR MONTH from collected rows — not the
+    picker's window, and it says so — and the cost ledger beside it.
+
+    PER CURRENCY, LIKE EVERYTHING ELSE HERE. The P&L answers in a list keyed
+    by currency and this card draws the one the revenue is in, naming it; the
+    others are rows underneath. There is no combined figure and there is not
+    going to be one.
+
+    NO RUNWAY. Nothing in the finance area computes one — a runway needs a
+    cash balance and a burn, and this box has a rate card and a month of
+    margin — so the caption says "not computed" rather than dividing two
+    numbers that do not answer the question.
+  */
+  "overview.margin": {
+    src: "finance",
+    name: "Revenue against costs",
+    kind: "proportion",
+    /* THE P&L'S MONTH IS THE P&L'S. `/finance/profit/portfolio` answers for
+       one calendar month and takes no `days`, so the picker cannot move it
+       and the card wears "now" rather than a span it did not measure. */
+    window: "now",
+    live: { profit: true, finance: true },
+  },
+
+  /*
+    EVERY VENTURE ON ONE ROW — the table under Workdash's project grid.
+
+    FOUR DOCUMENTS JOINED ON THE HOST, which is why this is one card rather
+    than four columns somebody could have added to an existing table. The P&L
+    supplies the venture list and its money; `/api/capture` supplies the
+    website (and the date of its last picture); Umami answers traffic for that
+    host; the uptime probe answers whether it is up. A venture missing from
+    one of them gets a dash in that column and keeps its row.
+
+    THERE IS NO DEPLOY COLUMN AND THERE CANNOT BE ONE. Workdash's row carries
+    "last deploy"; nothing on this box records a deployment against a venture
+    — not the run ledger, not the audit, not the capture table — so the fourth
+    column is the date of the last front-page PHOTOGRAPH, which is a different
+    claim and is labelled as one. Inventing a deploy date out of a screenshot
+    run would be the exact failure this dashboard exists to avoid.
+  */
+  "overview.health": {
+    src: "ventures",
+    name: "Every venture",
+    kind: "table",
+    live: { profit: true, capture: true, umami: true, uptime: true },
+    headers: ["Venture", "Net revenue", "Cost", "Traffic", "Up", "Last picture"],
+  },
+
+  /*
+    THE FRONT PAGES THEMSELVES.
+
+    A `feed`, which is the kind that exists because a row of numbers about a
+    picture is not a picture — and this is the only card on any board that
+    answers "what does this thing actually look like right now". The weekly
+    capture run photographs each venture's website at 1280x800; this draws the
+    newest good picture of each, whatever the newest ATTEMPT was, because a
+    failed run does not delete last week's photograph.
+
+    THE AGE IS ON THE ITEM AND NOT ONLY IN THE HOVER. The run is weekly, so a
+    fortnight means it was missed or the captures are failing, and a month-old
+    front page passed off as current is a picture that lies. A venture with no
+    picture keeps its item and carries the reason instead.
+  */
+  "overview.shots": {
+    src: "ventures",
+    name: "How the sites look",
+    kind: "feed",
+    window: "now",
+    live: { capture: true },
   },
 };
 

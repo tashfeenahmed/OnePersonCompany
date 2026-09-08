@@ -278,7 +278,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 21;
+export const SEED_VERSION = 23;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -350,6 +350,107 @@ const SEED: StoreState = {
   sessions: [],
 
   dashboards: [
+    /*
+      THE OVERVIEW IS FIRST, AND ITS POSITION IS THE ARGUMENT.
+
+      SEEDED IN SEED_VERSION 23, FOLLOWING WORKDASH'S /overview TOP TO BOTTOM.
+      It is the page the owner opens first, so it is the first tab and the one
+      a bare /dashboards lands on — see Dashboards.tsx. Every other board here
+      is a subject; this one is the answer to "how is the whole thing doing",
+      and a board that has to be scrolled to is a board that is read second.
+
+      ALMOST EVERY CARD ON IT ALREADY EXISTED. Workdash's Overview asks for
+      MRR and ARR, what the window left, whether anybody showed up, the daily
+      charge line, the movement waterfall, the cost donut, the search figures,
+      the traffic table, the fleet meters and the renewal horizon — and this
+      catalog draws all of them for the boards those subjects live on. Placing
+      them here rather than writing `overview.*` copies is the whole point: two
+      cards drawing MRR two ways is two numbers to reconcile.
+
+      THE FOUR NEW ONES ARE THE FOUR JOINS. `overview.attention` is five areas
+      in one list, `overview.margin` is revenue against the ledger,
+      `overview.health` is four documents on one host, and `overview.shots` is
+      the only card anywhere that shows what the sites look like.
+
+      THE ORDER IS WORKDASH'S, WITH ONE ADDITION. The headline strip, then what
+      is waiting (which Workdash keeps for the agent digest and the owner asked
+      to see), then the nine figures behind the headline, then revenue, then
+      every venture, then traffic, then the fleet and the names.
+    */
+    {
+      id: "d-overview",
+      slug: "overview",
+      name: "Overview",
+      widgets: [
+        /* THE HEADLINE. Four one-column tiles on one row: what recurs, that
+           annualised, what the window actually left, and whether anybody
+           showed up. Workdash's funnel read upwards, in its order. */
+        { id: "ov1", type: "payments.mrr", w: 1 },
+        { id: "ov2", type: "stripe.arr", w: 1 },
+        { id: "ov3", type: "stripe.net30", w: 1 },
+        { id: "ov4", type: "umami.pageviews", w: 1 },
+        /* WHAT IS WAITING, full width and second. Above the money on purpose:
+           a figure is a thing to know and this is a thing to do. */
+        { id: "ov5", type: "overview.attention", w: 4 },
+        /*
+          THE EIGHT FIGURES BEHIND THE HEADLINE, two rows of four.
+
+          Workdash folds these behind a chevron; a dashboard of cards has no
+          fold, and a card is already the size of the thing it says.
+
+          ALL EIGHT ARE PLAIN `metric` TILES AND THAT IS THE POINT. The board
+          first placed the Payments board's richer forms here — the proportion
+          cards with a split bar and a table of buckets under the figure — and
+          a row of four cards where one carries nine rows and the next carries
+          "0.3%" stretches all four to the tall one's height, leaving three
+          boxes mostly empty. A row is a row when its cards are the same KIND
+          of card; the rich forms are downstairs where they have a partner
+          their own size.
+        */
+        { id: "ov6", type: "stripe.subs", w: 1 },
+        { id: "ov7", type: "stripe.churn", w: 1 },
+        { id: "ov8", type: "stripe.pending", w: 1 },
+        { id: "ov9", type: "stripe.payouts", w: 1 },
+        { id: "ov10", type: "gsc.clicks", w: 1 },
+        { id: "ov11", type: "gsc.impressions", w: 1 },
+        { id: "ov12", type: "gsc.ctr", w: 1 },
+        { id: "ov13", type: "gsc.position", w: 1 },
+        /* REVENUE, in Workdash's order: the daily line, then the movement
+           against the cost donut, then the two proportion cards that answer
+           "what went wrong with the money" — each pair matched in kind so the
+           two halves of a row end level. */
+        { id: "ov14", type: "payments.daily", w: 4 },
+        { id: "ov15", type: "payments.movement", w: 2 },
+        { id: "ov16", type: "finance.groups", w: 2 },
+        { id: "ov17", type: "payments.failRate", w: 2 },
+        { id: "ov18", type: "payments.floor", w: 2 },
+        /* And the subtraction those cards imply, spelled out — the one card
+           on the board that puts revenue and the ledger in one sentence. */
+        { id: "ov19", type: "overview.margin", w: 4 },
+        /* EVERY VENTURE: the figures, then the pictures. The table first
+           because it is the one you read; the photographs under it because
+           they are the one you recognise. */
+        { id: "ov20", type: "overview.health", w: 4 },
+        { id: "ov21", type: "overview.shots", w: 4 },
+        /* PORTFOLIO TRAFFIC — Workdash's views-against-visitors panel, in this
+           board's vocabulary. */
+        { id: "ov22", type: "umami.sites", w: 4 },
+        /* THE FLEET. The alert strip runs the full width because that is what
+           a strip is — one line on a good morning, and a two-column card
+           holding one line beside nine meters is a half-empty box the height
+           of the fleet. The two meter cards under it are the matched pair. */
+        { id: "ov23", type: "fleet.alerts", w: 4 },
+        { id: "ov24", type: "fleet.disk", w: 2 },
+        { id: "ov25", type: "fleet.memory", w: 2 },
+        /* THE QUIET BAND at the bottom, which is where Workdash puts it: what
+           is answering, and what expires. */
+        { id: "ov26", type: "uptime.up", w: 1 },
+        { id: "ov27", type: "registrars.expiring", w: 1 },
+        { id: "ov28", type: "registrars.lapsed", w: 1 },
+        { id: "ov29", type: "registrars.autoRenewOff", w: 1 },
+        { id: "ov30", type: "registrars.runway", w: 4 },
+      ],
+    },
     {
       id: "d-morning",
       slug: "morning-check",
@@ -1551,9 +1652,20 @@ function migrate(state: StoreState): StoreState {
     new board goes after the nearest seed board BEFORE it that this state
     still has, and only at the end when it has none of them. The owner's own
     order is untouched — one board is inserted, nothing moves.
+
+    A BOARD SEEDED FIRST LANDS FIRST, which the rule above could not say.
+    "After the nearest seed board before it" has no answer for a board with
+    nothing before it, and "at the end" was the fallback for a board whose
+    neighbours this state has all deleted — a reasonable last resort there,
+    and exactly wrong here. Overview (SEED_VERSION 23) is seeded at the head
+    of the list BECAUSE it is the board to open first; appending it to a strip
+    of twenty would put the page the owner reads first in the place nobody
+    scrolls to. So position zero in the seed means position zero in the state,
+    and the general rule is unchanged for every board that has a neighbour.
   */
   const gifted = added.reduce((list, board) => {
     const at = SEED.dashboards.findIndex((d) => d.id === board.id);
+    if (at === 0) return [board, ...list];
     const before = SEED.dashboards.slice(0, at).map((d) => d.id).reverse();
     const anchor = before.map((id) => list.findIndex((d) => d.id === id)).find((i) => i >= 0);
     if (anchor === undefined) return [...list, board];

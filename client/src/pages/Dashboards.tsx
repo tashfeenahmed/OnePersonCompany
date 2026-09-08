@@ -55,9 +55,21 @@ export function Dashboards() {
 
   const boards = state.dashboards.filter((d) => !d.ventureId);
   const board = boards.find((d) => d.slug === slug);
-  const first = boards[0];
+  /*
+    WHERE A BARE /dashboards LANDS: the Overview if this workspace has it,
+    and otherwise whatever is first.
 
-  // The bare /dashboards: land on the first board and put its own address in
+    BY ID AND NOT BY POSITION, which is the whole reason this is not just
+    `boards[0]`. The strip is drag-reorderable and the order is the owner's;
+    somebody who drags Costs to the front has said where the tabs go, not
+    which board answers "open my dashboard". The Overview is the board built
+    to be opened first — it is the one that joins every other board's subject
+    into one page — so it is the destination while it exists, and a workspace
+    that deleted it falls back to the first tab rather than to nothing.
+  */
+  const first = boards.find((d) => d.id === "d-overview") ?? boards[0];
+
+  // The bare /dashboards: land on that board and put its own address in
   // the bar, replacing rather than pushing so Back still leaves the page.
   if (!slug && !report)
     return first ? (
