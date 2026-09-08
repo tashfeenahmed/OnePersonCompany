@@ -393,6 +393,69 @@ export async function indexingFor(hostRaw: string, opts: { check: boolean }) {
   };
 }
 
+/* ------------------------------------------------------------ overview */
+
+/**
+ * Every venture host's IndexNow standing on one page, computed on the read.
+ *
+ * THE PORTFOLIO QUESTION IS "WHICH SITES HAVE NEVER TOLD ANYBODY ANYTHING",
+ * and the per-host document above cannot answer it without one request per
+ * host. So this is the log folded by host — how many notifications were
+ * RECEIVED, how many were refused, how many this box declined to send because
+ * the key file was not hosted — and the newest row's date. NOTHING HERE
+ * TOUCHES THE NETWORK: the key file is not re-checked, because a board that
+ * refreshes would make one request to every owner's server every time.
+ *
+ * `received` counts 200s and 202s, and a received notification is not a crawl
+ * and not an indexing — `means` says so on the wire so no card can promise
+ * more than the protocol does.
+ */
+export function indexingOverview() {
+  const hosts = db
+    .prepare("SELECT DISTINCT host FROM ventures WHERE host IS NOT NULL AND host <> '' ORDER BY host")
+    .all() as unknown as { host: string }[];
+  const rows = db
+    .prepare(
+      `SELECT host, outcome, COUNT(*) AS n, MAX(submitted_at) AS last
+         FROM growth_indexing GROUP BY host, outcome`,
+    )
+    .all() as unknown as { host: string; outcome: string; n: number; last: string }[];
+  const newest = db
+    .prepare(
+      `SELECT host, outcome, submitted_at, reason FROM growth_indexing g
+        WHERE id = (SELECT id FROM growth_indexing WHERE host = g.host ORDER BY submitted_at DESC, id DESC LIMIT 1)`,
+    )
+    .all() as unknown as { host: string; outcome: string; submitted_at: string; reason: string }[];
+  const latest = new Map(newest.map((r) => [r.host, r]));
+
+  const perHost = hosts.map(({ host }) => {
+    const h = hostOf(host) ?? host;
+    const mine = rows.filter((r) => r.host === h);
+    const tally = (outcome: string) => mine.filter((r) => r.outcome === outcome).reduce((a, r) => a + r.n, 0);
+    const last = latest.get(h) ?? null;
+    return {
+      host: h,
+      submissions: mine.reduce((a, r) => a + r.n, 0),
+      received: tally("received") + tally("accepted"),
+      refused: tally("refused") + tally("unreachable"),
+      /* Attempts this box refused to make because the key file was missing —
+         kept apart from a refusal by IndexNow, which is somebody else's no. */
+      dryRun: tally("dry-run"),
+      last: last ? { at: last.submitted_at, outcome: last.outcome, reason: last.reason } : null,
+    };
+  });
+
+  return {
+    hosts: perHost,
+    autoSubmit: (configValue(PLUGIN, "autoSubmit") ?? "off").trim().toLowerCase() === "on",
+    told: perHost.filter((h) => h.received > 0).length,
+    never: perHost.filter((h) => h.submissions === 0).length,
+    means:
+      "A received notification is what IndexNow ACKNOWLEDGED. It is not a crawl and not an indexing. Google has never joined IndexNow and is told nothing by any of this.",
+    generatedAt: now(),
+  };
+}
+
 /* ------------------------------------------------------- the automatic pass */
 
 /** How often the automatic pass looks. Fifteen minutes is far below how often

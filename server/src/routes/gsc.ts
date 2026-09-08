@@ -166,7 +166,51 @@ gscRoutes.get("/", (c) => {
 
   /* --------------------------------------------------------- per property */
 
+  /*
+    THE RANKED ROWS, CUT PER PROPERTY AS WELL AS ACROSS THE PORTFOLIO. The
+    portfolio lists below are forty queries and twenty-five pages ordered by
+    clicks, which on this account is one busy property's list wearing the
+    portfolio's name — eighteen properties never reach it. A card drawn per
+    property needs each property's own top rows, so they are cut here from the
+    same stored snapshot. Five each: a headline per property, not a report.
+    The same caveats travel: Google's rows are clicks-ordered and capped, so a
+    property's "top query" is the top of what Google returned.
+  */
+  const queryRows = gscRanked("queries");
+  const pageRows = gscRanked("pages");
+  const PER_PROPERTY = 5;
+  const perPropertyQueries = new Map<string, typeof queryRows>();
+  for (const r of queryRows) {
+    const mine = perPropertyQueries.get(r.property) ?? [];
+    if (mine.length < PER_PROPERTY) mine.push(r);
+    perPropertyQueries.set(r.property, mine);
+  }
+  const perPropertyPages = new Map<string, typeof pageRows>();
+  const perPropertyZeroClick = new Map<string, typeof pageRows>();
+  for (const r of pageRows) {
+    const mine = perPropertyPages.get(r.property) ?? [];
+    if (mine.length < PER_PROPERTY) mine.push(r);
+    perPropertyPages.set(r.property, mine);
+    /* Shown and never clicked — within the pages Google returned, which is a
+       FLOOR on the real count and is said to be one on the wire. */
+    if (r.impressions > 0 && r.clicks === 0) {
+      const zero = perPropertyZeroClick.get(r.property) ?? [];
+      zero.push(r);
+      perPropertyZeroClick.set(r.property, zero);
+    }
+  }
+
   const byProperty = new Map<string, { now: Agg; prev: Agg; prevDays: number }>();
+  /*
+    EACH PROPERTY'S OWN DAILY LINE, beside the portfolio one further down. The
+    summed series answers "did the portfolio grow"; it cannot answer "which
+    property did", and a card drawn per property has to be drawn from rows
+    that were never added together. Same rows, same `days`, so the two lines
+    end on the same day and can be read beside each other. Position is the
+    day's own impression-weighted figure as the collector stored it, and null
+    on a day nobody saw the property.
+  */
+  const dailyByProperty = new Map<string, { day: string; clicks: number; impressions: number; position: number | null }[]>();
   for (const r of rows) {
     const entry = byProperty.get(r.property) ?? { now: blank(), prev: blank(), prevDays: 0 };
     if (inWindow(r.day)) add(entry.now, r);
@@ -175,6 +219,9 @@ gscRoutes.get("/", (c) => {
       entry.prevDays += 1;
     }
     byProperty.set(r.property, entry);
+    const line = dailyByProperty.get(r.property) ?? [];
+    line.push({ day: r.day, clicks: r.clicks, impressions: r.impressions, position: r.position });
+    dailyByProperty.set(r.property, line);
   }
 
   const properties = sites.map((s: GscSiteRow) => {
@@ -244,6 +291,43 @@ gscRoutes.get("/", (c) => {
       },
       error: s.error,
       seenAt: s.seen_at,
+      /* Oldest first, every collected day back to `seriesDays`, not only the
+         window: a per-property line is read for its shape. */
+      series: dailyByProperty.get(s.property) ?? [],
+      topQueries: (perPropertyQueries.get(s.property) ?? []).map((r) => ({
+        query: r.query!,
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.ctr,
+        position: r.position === null ? null : Number(r.position.toFixed(1)),
+      })),
+      topPages: (perPropertyPages.get(s.property) ?? []).map((r) => ({
+        page: r.page!,
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.ctr,
+        position: r.position === null ? null : Number(r.position.toFixed(1)),
+      })),
+      /* The same band and floor as the portfolio list — one definition, in
+         growth/serp.ts — so this property's page-two list is the portfolio
+         list narrowed and never a second opinion. */
+      striking: strikingRows(s.property, PER_PROPERTY).map((r) => ({
+        query: r.query,
+        impressions: r.impressions,
+        clicks: r.clicks,
+        position: r.position === null ? null : Number(r.position.toFixed(1)),
+      })),
+      zeroClick: (() => {
+        const zero = [...(perPropertyZeroClick.get(s.property) ?? [])].sort(
+          (a, b) => b.impressions - a.impressions,
+        );
+        return {
+          count: zero.length,
+          /* A floor: only the pages Google returned could be counted. */
+          floor: true as const,
+          pages: zero.slice(0, 3).map((r) => ({ page: r.page!, impressions: r.impressions })),
+        };
+      })(),
     };
   });
 
@@ -283,8 +367,6 @@ gscRoutes.get("/", (c) => {
 
   /* ---------------------------------------------------------------- ranked */
 
-  const queryRows = gscRanked("queries");
-  const pageRows = gscRanked("pages");
   const named = (property: string) => label(property);
   /* Rounded here rather than at collection time. The database keeps what
      Google sent — 3.5662295081967215 places — because that is the measurement;

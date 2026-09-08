@@ -23,6 +23,7 @@ import type {
   UptimeReport,
 } from "@/lib/api/reports";
 import type { LiveData } from "@/lib/live";
+import type { SeoOpsDocs } from "@/lib/api/seoboard";
 import { WIDGETS } from "@/data/widgets";
 import { LIVE_BUILDERS } from "@/lib/liveWidgets";
 
@@ -174,6 +175,16 @@ export const SCOPABLE_SOURCES = new Set([
   */
   "audit",
   "competitors",
+  /*
+    THE FOUR SEO DOCUMENTS THIS BOX COMPUTES ITSELF. Authority and IndexNow
+    carry a host on every row; the AI answers and the follow-ups carry a
+    venture id, and the audit overview is the map from hosts to ids — the
+    join `scopeCompetitors` already makes. See `scopeSeo`.
+  */
+  "authority",
+  "geo",
+  "seoops",
+  "indexing",
 ]);
 
 /**
@@ -187,11 +198,12 @@ export const SCOPABLE_SOURCES = new Set([
  * measurement exists is the other.
  */
 export const PORTFOLIO_WIDGETS = new Set([
-  // One row per day, every zone/property/site already summed into it.
+  // One row per day, every zone already summed into it.
   "cf.daily",
   "cf.visitors",
-  "gsc.trend",
-  "bing.trend",
+  /* `gsc.trend` and `bing.trend` USED TO BE HERE. Both routes now carry each
+     property's own daily line, so a venture's line is those lines summed
+     and the two cards narrow honestly — see `scopeGsc`. */
   // Demand for phrases, measured in a market, not traffic to a site.
   "bing.keywords",
   // GitHub's account-level and traffic-window figures: stars and followers
@@ -349,8 +361,15 @@ function scopeGsc(G: GscReport | null, hosts: string[]): GscReport | null {
           : null;
       })(),
     },
-    series: [],
-    seriesDays: 0,
+    /* THE VENTURE'S OWN DAILY LINE, summed from its properties' own lines —
+       rows that were never added to any other property's. Position is not
+       on it, for the reason it is not on the route's: a rank across
+       properties is a mean over impressions, and `gsc.position` folds it
+       from the per-property lines itself. */
+    series: sumDays(properties.map((p) => p.series ?? []), (d) => ({ clicks: d.clicks, impressions: d.impressions })).map(
+      (d) => ({ day: d.day, clicks: d.clicks, impressions: d.impressions, properties: d.n }),
+    ),
+    seriesDays: G.seriesDays,
     properties,
     queries: G.queries.filter((q) => names.has(q.property)),
     striking: G.striking.filter((q) => names.has(q.property)),
@@ -396,8 +415,10 @@ function scopeBing(B: BingReport | null, hosts: string[]): BingReport | null {
       sites: sites.length,
       verified: sites.filter((s) => s.verified === true).length,
     },
-    series: [],
-    seriesDays: 0,
+    series: sumDays(sites.map((s) => s.series ?? []), (d) => ({ impressions: d.impressions, clicks: d.clicks })).map(
+      (d) => ({ day: d.day, impressions: d.impressions, clicks: d.clicks }),
+    ),
+    seriesDays: B.seriesDays,
     sites,
     queries: B.queries.filter((q) => names.has(q.site)),
     index: {
@@ -406,7 +427,13 @@ function scopeBing(B: BingReport | null, hosts: string[]): BingReport | null {
       crawlErrors: sum(sites, (s) => s.index.crawlErrors),
       blockedByRobots: sum(sites, (s) => s.index.blockedByRobots),
       day: B.index.day,
-      series: [],
+      /* Counts of a robot's acts add across sites the way the route adds
+         them; `inIndex` is a level per site and is not on this line. */
+      series: sumDays(sites.map((s) => s.index.series ?? []), (d) => ({
+        crawled: d.crawled ?? 0,
+        errors: d.errors ?? 0,
+        blocked: d.blocked ?? 0,
+      })).map((d) => ({ day: d.day, crawled: d.crawled, errors: d.errors, blocked: d.blocked })),
     },
     links: {
       ...B.links,
@@ -668,6 +695,8 @@ export function scopeLive(
        `scopeCompetitors`. The UNNARROWED one, so the map is complete however
        few of its rows survived the filter above. */
     competitors: scopeCompetitors(base.competitors, hosts, base.audit),
+    /* The audit overview goes in as the map, as it does for competitors. */
+    seo: scopeSeo(base.seo, hosts, base.audit),
   };
 
   const liveTypes = new Set<string>();
@@ -712,6 +741,7 @@ export function scopeLive(
       /* Passed unnarrowed, like the calendar above and for the same shape of
          reason: the queue belongs to the box rather than to a venture. */
       runs: scoped.runs,
+      seo: scoped.seo,
     });
     if (patch) liveTypes.add(type);
   }
@@ -1251,4 +1281,86 @@ function scopeCompetitors(
         .sort()
         .at(-1) ?? null,
   };
+}
+
+/* ------------------------------------------------------ seo board parity */
+
+/**
+ * Several per-site daily lines folded into one, by calendar day.
+ *
+ * WHAT IS SUMMED IS WHAT THE ROUTE SUMS: clicks, impressions, a crawler's
+ * counts — quantities of acts. `n` is how many of the lines had a row that
+ * day, which is the route's `properties` column. A rank or a level is never
+ * passed through here, because there is no honest sum of either.
+ */
+function sumDays<T extends { day: string }, K extends string>(
+  lines: T[][],
+  pick: (row: T) => Record<K, number>,
+): ({ day: string; n: number } & Record<K, number>)[] {
+  const byDay = new Map<string, { n: number } & Record<K, number>>();
+  for (const line of lines)
+    for (const row of line) {
+      const add = pick(row);
+      const cur = byDay.get(row.day);
+      if (!cur) {
+        byDay.set(row.day, { n: 1, ...add });
+        continue;
+      }
+      cur.n += 1;
+      for (const k of Object.keys(add) as K[]) cur[k] = ((cur[k] as number) + add[k]) as (typeof cur)[K];
+    }
+  return [...byDay.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([day, d]) => ({ day, ...d }));
+}
+
+/**
+ * The four SEO documents this box computes, narrowed to a venture.
+ *
+ * TWO JOIN BY HOST AND TWO BY VENTURE ID. Authority and the IndexNow log name
+ * a host on every row, so they narrow the way a Cloudflare zone does. The AI
+ * answers and the follow-ups name a venture by id, and the audit overview —
+ * a row per venture, crawled or not, carrying both id and host — is the map
+ * from one to the other, exactly as it is for the competitor profiles. A
+ * follow-up also carries the Search Console property it was read from, which
+ * is a second, independent way in; either is enough.
+ *
+ * WITH NO MAP THE ID-KEYED PAIR IS NULLED, NOT PASSED WHOLE. Passing every
+ * venture's AI answers under one venture's name is the failure the scope
+ * exists to prevent, and null draws the honest empty card.
+ */
+function scopeSeo(S: SeoOpsDocs | null, hosts: string[], audit: AuditOverview | null): SeoOpsDocs | null {
+  if (!S) return null;
+  const ids = new Set(
+    (audit?.ventures ?? []).filter((v) => isHost(v.host, hosts)).map((v) => v.id),
+  );
+  const authority = S.authority
+    ? { ...S.authority, hosts: S.authority.hosts.filter((h) => isHost(h.host, hosts)) }
+    : null;
+  const indexing = S.indexing
+    ? (() => {
+        const mine = S.indexing.hosts.filter((h) => isHost(h.host, hosts));
+        return {
+          ...S.indexing,
+          hosts: mine,
+          told: mine.filter((h) => h.received > 0).length,
+          never: mine.filter((h) => h.submissions === 0).length,
+        };
+      })()
+    : null;
+  const geo =
+    S.geo && ids.size
+      ? { ...S.geo, answers: S.geo.answers.filter((a) => ids.has(a.ventureId)) }
+      : null;
+  const followups = S.followups
+    ? {
+        ...S.followups,
+        baselines: S.followups.baselines.filter(
+          (b) => (b.ventureId !== null && ids.has(b.ventureId)) || mentions(b.property, hosts) || mentions(b.url, hosts),
+        ),
+      }
+    : null;
+  if (!authority?.hosts.length && !indexing?.hosts.length && !geo?.answers.length && !followups?.baselines.length)
+    return null;
+  return { ...S, authority, indexing, geo, followups };
 }
