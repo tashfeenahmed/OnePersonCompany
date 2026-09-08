@@ -99,6 +99,8 @@ export function BoardView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [q, setQ] = useState("");
+  /** The per-project palette row whose venture list is open, by widget id. */
+  const [pickFor, setPickFor] = useState<string | null>(null);
   const [moveNote, setMoveNote] = useState("");
   const [renaming, setRenaming] = useState(false);
   // Reset with the board, so leaving edit mode or switching boards never
@@ -305,6 +307,11 @@ export function BoardView({
                   onRemove={() =>
                     mutate((list) => list.filter((x) => x.id !== w.id))
                   }
+                  onSetParam={(param) =>
+                    mutate((list) =>
+                      list.map((x) => (x.id === w.id ? { ...x, param } : x)),
+                    )
+                  }
                   dragHandlers={{
                     "data-widget-id": w.id,
                     onPointerDown: (e) => grab(e, w.id),
@@ -412,32 +419,88 @@ export function BoardView({
 
                     {items.map(([key, def]) => {
                       const added = board.widgets.some((w) => w.type === key);
+                      /*
+                        A PER-PROJECT WIDGET IS ADDED WITH ITS VENTURE. The
+                        row opens into the venture list and each venture is
+                        one click — "Search · Example App 1" lands on the board
+                        already narrowed, rather than as a card that has to
+                        be found again and given a venture in its header.
+                        The same widget for a second venture is a second
+                        card, so "added" is said per venture, not per row.
+                      */
+                      const per = !!def.perProject;
+                      const addedFor = new Set(
+                        board.widgets.filter((w) => w.type === key).map((w) => w.param),
+                      );
                       return (
-                        <button
-                          key={key}
-                          disabled={!src.connected}
-                          onClick={() =>
-                            mutate((list) => [
-                              ...list,
-                              { id: uid("w"), type: key, w: defaultWidth(key) },
-                            ])
-                          }
-                          className={cn(
-                            "hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-2 py-1.5 text-left text-[13.5px]",
-                            added && "text-muted-foreground",
-                            !src.connected && "pointer-events-none opacity-45",
-                          )}
-                        >
-                          {widgetName(def, live.window)}
-                          <span
+                        <div key={key}>
+                          <button
+                            disabled={!src.connected}
+                            aria-expanded={per ? pickFor === key : undefined}
+                            onClick={() =>
+                              per
+                                ? setPickFor((open) => (open === key ? null : key))
+                                : mutate((list) => [
+                                    ...list,
+                                    { id: uid("w"), type: key, w: defaultWidth(key) },
+                                  ])
+                            }
                             className={cn(
-                              "text-muted-foreground ml-auto text-[11.5px]",
-                              added && "text-ok",
+                              "hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-2 py-1.5 text-left text-[13.5px]",
+                              added && !per && "text-muted-foreground",
+                              !src.connected && "pointer-events-none opacity-45",
                             )}
                           >
-                            {added ? "added" : def.kind}
-                          </span>
-                        </button>
+                            <span className="truncate">{widgetName(def, live.window)}</span>
+                            {per && (
+                              <span className="text-muted-foreground shrink-0 rounded-[7px] border px-1 py-px text-[10.5px] leading-[1.35]">
+                                per project
+                              </span>
+                            )}
+                            <span
+                              className={cn(
+                                "text-muted-foreground ml-auto shrink-0 text-[11.5px]",
+                                added && "text-ok",
+                              )}
+                            >
+                              {per
+                                ? added
+                                  ? `${addedFor.size} added`
+                                  : pickFor === key ? "pick a venture" : "choose…"
+                                : added ? "added" : def.kind}
+                            </span>
+                          </button>
+                          {per && pickFor === key && (
+                            <div className="border-line-soft mb-1.5 ml-3 flex flex-col gap-px border-l pl-2">
+                              {state.ventures.map((v) => {
+                                const has = addedFor.has(v.id);
+                                return (
+                                  <button
+                                    key={v.id}
+                                    onClick={() =>
+                                      mutate((list) => [
+                                        ...list,
+                                        { id: uid("w"), type: key, w: defaultWidth(key), param: v.id },
+                                      ])
+                                    }
+                                    className={cn(
+                                      "hover:bg-accent flex w-full items-center gap-2 rounded-[9px] px-2 py-1 text-left text-[13px]",
+                                      has && "text-muted-foreground",
+                                    )}
+                                  >
+                                    <span className="truncate">{v.name}</span>
+                                    <span className={cn("text-muted-foreground ml-auto shrink-0 text-[11px]", has && "text-ok")}>
+                                      {has ? "added" : (v.host ?? "no website")}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                              {!state.ventures.length && (
+                                <p className="text-muted-foreground px-2 py-1 text-[12px]">No ventures yet.</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>

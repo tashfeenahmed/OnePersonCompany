@@ -124,6 +124,23 @@ export type PlacedWidget = {
   type: string;
   /** Column span on the four-column grid: 1, 2 or 4. */
   w: 1 | 2 | 4;
+  /**
+   * THE VENTURE A PER-PROJECT CARD IS ABOUT, by venture id.
+   *
+   * Only read on a widget whose catalog entry says `perProject`; every other
+   * card ignores it. A per-project card is a scoped card whose scope is
+   * chosen on the card rather than by the page it sits on — so the Search
+   * board can carry "Search · Example App 1" beside "Search · FreeLLMAPI" without
+   * either board belonging to a venture. The card resolves the id to the
+   * venture's hosts and narrows the live documents with the same rule a
+   * venture board uses (lib/scope.ts), which is why this is an id and never
+   * a hostname: a venture whose website changes keeps its cards.
+   *
+   * Optional and absent on every card placed before it existed, so no
+   * migration; the workspace validator (shared/workspace.ts) lets it through
+   * by shape. A per-project card with no value says "pick a venture".
+   */
+  param?: string;
 };
 
 export type Dashboard = {
@@ -255,7 +272,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 16;
+export const SEED_VERSION = 17;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -605,30 +622,69 @@ const SEED: StoreState = {
       trusts it is out by a factor of five. That card is where the discrepancy
       is explained rather than discovered.
     */
+    /*
+      RE-SEEDED IN SEED_VERSION 17 TO FOLLOW WORKDASH'S ALL-PROPERTIES SEARCH
+      PAGE TOP TO BOTTOM: the four tiles, the two lines under them (rank and
+      sitemaps), "Portfolio impressions per day" at full width with its clicks
+      twin, clicks against impressions, then every property drawn as itself —
+      first as the rail (a row and a sparkline each), then as the table and
+      the per-property lines — and the quiet ones last. After that the cards
+      Workdash's per-property page draws, cut across the portfolio: the
+      ranked queries, pages and page-two list, the per-property tables, the
+      zero-click floor, the sitemaps. Bing closes, still apart from Google.
+
+      THE PER-PROPERTY CARDS ARE NOT SEEDED HERE, and it is deliberate: they
+      take a venture (`PlacedWidget.param`) and the seed cannot know which
+      ventures have traffic. The rail shows every property at a glance, and
+      the palette adds "Search · <venture>" in one click for the ones that
+      deserve a card of their own.
+
+      Three `rows` cards left — `gsc.queries`, `gsc.pages`, `gsc.striking` —
+      replaced by their ranked-bar versions, as the SEO re-seed did.
+    */
     {
       id: "d-search",
       slug: "search",
       name: "Search",
       widgets: [
-        { id: "se1", type: "gsc.impressions", w: 1 },
+        /* Workdash's four tiles, then its two note lines as cards. */
         { id: "se2", type: "gsc.clicks", w: 1 },
+        { id: "se1", type: "gsc.impressions", w: 1 },
+        { id: "se21", type: "gsc.ctr", w: 1 },
+        { id: "se22", type: "gsc.properties", w: 1 },
+        { id: "se6", type: "gsc.position", w: 1 },
+        { id: "se23", type: "audit.issues", w: 1 },
+        { id: "se15", type: "gsc.sitemaps", w: 2 },
+        /* The portfolio, drawn: the daily lines and the dumbbell. */
+        { id: "se5", type: "gsc.trend", w: 4 },
+        { id: "se24", type: "gsc.clicksTrend", w: 4 },
+        { id: "se25", type: "gsc.dumbbell", w: 4 },
+        /* Every property as itself — the rail first, then the table. */
+        { id: "se26", type: "gsc.rail", w: 4 },
+        { id: "se13", type: "gsc.sites", w: 4 },
+        { id: "se27", type: "gsc.propertyClicks", w: 4 },
+        { id: "se28", type: "gsc.propertyImpressions", w: 4 },
+        { id: "se29", type: "gsc.quiet", w: 2 },
+        { id: "se8", type: "gsc.coverage", w: 2 },
+        /* The per-property page's cards, cut across the portfolio. */
+        { id: "se30", type: "gsc.queriesRanked", w: 2 },
+        { id: "se31", type: "gsc.pagesRanked", w: 2 },
+        { id: "se32", type: "gsc.strikingRanked", w: 4 },
+        { id: "se33", type: "gsc.propertyQueries", w: 4 },
+        { id: "se34", type: "gsc.propertyStriking", w: 4 },
+        { id: "se35", type: "gsc.zeroClick", w: 2 },
+        { id: "se12", type: "gsc.movers", w: 2 },
+        { id: "se36", type: "gsc.sitemapsByProperty", w: 4 },
+        { id: "se37", type: "gsc.cannot", w: 4 },
+        /* Bing, kept apart from Google as it always was. */
         { id: "se3", type: "bing.impressions", w: 1 },
         { id: "se4", type: "bing.clicks", w: 1 },
-        { id: "se5", type: "gsc.trend", w: 4 },
-        { id: "se6", type: "gsc.position", w: 1 },
         { id: "se7", type: "bing.index", w: 1 },
-        { id: "se8", type: "gsc.coverage", w: 2 },
-        { id: "se9", type: "gsc.queries", w: 2 },
+        { id: "se19", type: "bing.trend", w: 4 },
+        { id: "se18", type: "bing.sites", w: 4 },
         { id: "se10", type: "bing.queries", w: 2 },
-        { id: "se11", type: "gsc.striking", w: 2 },
-        { id: "se12", type: "gsc.movers", w: 2 },
-        { id: "se13", type: "gsc.sites", w: 4 },
-        { id: "se14", type: "gsc.pages", w: 2 },
-        { id: "se15", type: "gsc.sitemaps", w: 2 },
         { id: "se16", type: "bing.keywords", w: 2 },
         { id: "se17", type: "bing.backlinks", w: 2 },
-        { id: "se18", type: "bing.sites", w: 4 },
-        { id: "se19", type: "bing.trend", w: 2 },
         { id: "se20", type: "bing.crawl", w: 2 },
       ],
     },
@@ -826,6 +882,20 @@ const SEED: StoreState = {
         { id: "seo4", type: "presence.matrix", w: 4 },
         { id: "seo11", type: "presence.blocked", w: 2 },
         { id: "seo37", type: "seoops.moved", w: 2 },
+        /*
+          PER PROJECT (SEED_VERSION 17). One of each per-project card, with
+          no venture chosen: each says "pick a venture" until the owner does,
+          in edit mode, from the card's own header — and the palette adds a
+          second one for a second venture. Seeded without a venture because
+          the seed cannot know which one the owner reads first; seeded at
+          all because a card that has to be found in the palette is a card
+          nobody finds.
+        */
+        { id: "seo39", type: "gsc.project", w: 2 },
+        { id: "seo40", type: "audit.project", w: 2 },
+        { id: "seo41", type: "authority.project", w: 2 },
+        { id: "seo42", type: "indexing.project", w: 2 },
+        { id: "seo43", type: "seoops.project", w: 2 },
         /* The refusals close the board, the way `meta.cannot` closes Social. */
         { id: "seo38", type: "gsc.cannot", w: 4 },
       ],
@@ -1095,6 +1165,9 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A dumbbell has an axis and a label gutter to fit, like a table. */
   if (kind === "dumbbell") return 4;
+  /* Everything else — and a profile is among them on purpose: four tiles, a
+     line and a list fit two columns, like the property cards on Workdash's
+     Search page it is modelled on. */
   return 2;
 }
 
@@ -1355,10 +1428,17 @@ function migrate(state: StoreState): StoreState {
        top-up is usually more of the same subject and reads fine after what
        is there; the Costs one is the HEADLINE of its board — the bill
        itself, ahead of the metered providers — and a headline appended under
-       twenty-one cards is a headline nobody scrolls to. */
+       twenty-one cards is a headline nobody scrolls to.
+
+       A PER-PROJECT CARD NEVER LEADS. It arrives with no venture chosen and
+       draws a prompt until one is, and a prompt at the top of a board is
+       not a headline whatever board it is on — so those trail even where
+       the rest of the top-up leads. */
+    const leads = TOP_UP_LEADS.has(d.id) ? arriving.filter((w) => !WIDGETS[w.type]?.perProject) : [];
+    const trails = arriving.filter((w) => !leads.includes(w));
     return {
       ...d,
-      widgets: TOP_UP_LEADS.has(d.id) ? [...arriving, ...d.widgets] : [...d.widgets, ...arriving],
+      widgets: [...leads, ...d.widgets, ...trails],
     };
   });
 
@@ -1463,8 +1543,34 @@ const TOP_UPS: Record<string, string[]> = {
     that reports what the site itself is like, and an error count belongs at the
     top of the board where somebody is already asking why the impressions moved.
     Just the one figure: the SEO board is where the rest of the crawl lives.
+
+    THEN, IN SEED_VERSION 17, WORKDASH'S ALL-PROPERTIES PAGE: the CTR and
+    property tiles, the clicks twin of the impressions line, the dumbbell,
+    the rail of every property with a sparkline, the per-property lines, and
+    the per-property page's cards cut across the portfolio. They LEAD — see
+    TOP_UP_LEADS — for the reason the SEO ones did: the first of them are
+    tiles, and tiles appended under twenty cards are tiles nobody reads. The
+    three `rows` cards they supersede stay where the owner has them.
   */
-  "d-search": ["audit.issues"],
+  "d-search": [
+    "audit.issues",
+    "gsc.ctr",
+    "gsc.properties",
+    "gsc.clicksTrend",
+    "gsc.dumbbell",
+    "gsc.rail",
+    "gsc.propertyClicks",
+    "gsc.propertyImpressions",
+    "gsc.quiet",
+    "gsc.queriesRanked",
+    "gsc.pagesRanked",
+    "gsc.strikingRanked",
+    "gsc.propertyQueries",
+    "gsc.propertyStriking",
+    "gsc.zeroClick",
+    "gsc.sitemapsByProperty",
+    "gsc.cannot",
+  ],
   /*
     Costs shipped as the metered providers alone — LLM, media, Hetzner's
     projection — with the ledger behind the Finance page nowhere on it. The
@@ -1517,11 +1623,21 @@ const TOP_UPS: Record<string, string[]> = {
     "geo.mentioned",
     "seoops.moved",
     "gsc.cannot",
+    /*
+      THE PER-PROJECT GROUP (SEED_VERSION 17). These take a venture and
+      arrive without one, so they TRAIL the board whatever TOP_UP_LEADS says
+      — a "pick a venture" prompt is not a headline; see `migrate()`.
+    */
+    "gsc.project",
+    "audit.project",
+    "authority.project",
+    "indexing.project",
+    "seoops.project",
   ],
 };
 
 /** The boards whose top-up leads rather than trails — see `migrate()`. */
-const TOP_UP_LEADS = new Set(["d-costs", "d-seo"]);
+const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search"]);
 
 /** The addresses already taken inside one scope — a venture's boards, or the
  *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is

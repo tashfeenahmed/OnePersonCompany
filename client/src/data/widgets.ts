@@ -19,7 +19,8 @@ export type WidgetKind =
   | "runway"
   | "donut"
   | "ranked"
-  | "dumbbell";
+  | "dumbbell"
+  | "profile";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -101,6 +102,28 @@ export type RankedRow = {
   text: string;
   sub?: string;
   mark?: string | null;
+  /**
+   * The row's own recent line — a few dozen daily values — drawn small
+   * beside the name. For a list where the bar says HOW MUCH and the question
+   * behind it is WHICH WAY: a property with the second-longest bar and a
+   * falling line is a different row from one with the same bar rising. A
+   * shape only, no axis and no hover; the figures are in `text` and `sub`.
+   */
+  spark?: number[];
+};
+
+/**
+ * One figure on a profile card: a label, the figure, and a word under it.
+ *
+ * Two to four of these sit in a row at the top of a `profile` — the four
+ * tiles Workdash's property card opens with — and every one is already
+ * formatted by the builder, for the reason `DonutSlice.text` is: the card
+ * does not decide what a click count or a rank looks like.
+ */
+export type ProfileFigure = {
+  label: string;
+  value: string;
+  sub?: string;
 };
 
 /**
@@ -134,6 +157,21 @@ export type Widget = {
   src: string;
   name: string;
   kind: WidgetKind;
+  /**
+   * A CARD ABOUT ONE VENTURE, chosen on the card.
+   *
+   * Every widget draws the whole portfolio unless the board it is on belongs
+   * to a venture. A per-project widget is the other way round: it carries
+   * its venture with it (`PlacedWidget.param`, a venture id) and draws only
+   * that venture's rows wherever it is placed, so a global board can hold
+   * "Search · Example App 1" beside "Search · FreeLLMAPI". The card resolves the
+   * id to the venture's hosts and narrows the live documents with the rule a
+   * venture board uses (lib/scope `narrowLive`) before the builder runs;
+   * the builder gets `project` in its inputs and reads the documents as a
+   * venture board's card would. In edit mode the card's header carries a
+   * venture picker, and the palette asks which venture before adding one.
+   */
+  perProject?: boolean;
   /**
    * Where the real numbers come from, once the provider is connected:
    * a key in the server's `readings` table, or "summary" for a provider
@@ -373,6 +411,15 @@ export type Widget = {
   dumbbell?: DumbbellRow[];
   names?: [string, string];
   log?: boolean;
+  /**
+   * profile — one thing's card: a row of figures, its line, a short list.
+   * The tiles are `figures`; the line is `series`/`seriesAt`/`unit` as a
+   * metric's sparkline is; the list is `rows` as a rows card's is; and
+   * `caption` closes it. Workdash's property card on /search is the model —
+   * clicks, impressions, CTR and rank, clicks per day, the top queries —
+   * and the audit's per-venture card wears the same shape.
+   */
+  figures?: ProfileFigure[];
   /** runway — deadlines on one axis, with the two lines they are judged by. */
   runway?: RunwayRow[];
   thresholds?: { warn: number; crit: number };
@@ -1049,9 +1096,13 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { gsc: true },
   },
+  /* "PORTFOLIO" IS IN THE NAME because the line is every property summed —
+     Workdash's "Portfolio impressions per day" — and a reader inside one
+     venture's board gets the venture's own sum under that venture's name
+     instead; the builder renames it. */
   "gsc.trend": {
     src: "gsc",
-    name: "Impressions a day",
+    name: "Impressions a day · portfolio",
     kind: "chart",
     live: { gsc: true },
     /* A count, not a percentage: this is a quantity of times a link was shown.
@@ -3094,7 +3145,7 @@ export const WIDGETS: Record<string, Widget> = {
      theirs: forty times apart, the two cannot share one. */
   "gsc.clicksTrend": {
     src: "gsc",
-    name: "Clicks a day · Google",
+    name: "Clicks a day · portfolio",
     kind: "chart",
     live: { gsc: true },
     unit: "count",
@@ -3241,6 +3292,125 @@ export const WIDGETS: Record<string, Widget> = {
     src: "indexing",
     name: "Search engines told · IndexNow",
     kind: "rows",
+    live: { seo: true },
+  },
+
+  /* ======================================================================
+     SEARCH BOARD + PER-PROJECT WIDGETS (Workdash /search, /search/<site>).
+
+     TWO THINGS ARRIVE TOGETHER. First, the one card Workdash's all-properties
+     page had that this board did not: the rail — every property as a row
+     with a sparkline, ranked by clicks, so the whole portfolio is read at a
+     glance without twenty cards. Second, the PER-PROJECT cards: Workdash's
+     property card and its per-property page, each taking a venture on the
+     card (`perProject`, `PlacedWidget.param`) and drawing that venture's
+     property alone. The SEO side gets the same for its own four documents —
+     the audit, the authority estimate, IndexNow and what moved.
+
+     EVERY PER-PROJECT BUILDER READS DOCUMENTS ALREADY NARROWED to the
+     venture's hosts — the card does that with lib/scope's rule before the
+     builder runs — so a builder below is written exactly as a portfolio
+     one is, and declines with null when the venture has nothing in the
+     source. The card, not the builder, puts the venture's name on the card.
+
+     THE SAME THREE RULES. Nothing adds Google to Bing. Every window is on
+     the card from the route's own window. No score anywhere.
+     ====================================================================== */
+  /* Workdash's rail: a row per property, a bar against the busiest, the
+     property's own daily clicks as a shape beside the name. Ranked by
+     clicks because the question is "where is the search traffic". */
+  "gsc.rail": {
+    src: "gsc",
+    name: "Every property, by clicks",
+    kind: "ranked",
+    live: { gsc: true },
+  },
+  /* Workdash's SiteCard, one venture: the four tiles, clicks per day, the
+     top queries. */
+  "gsc.project": {
+    src: "gsc",
+    name: "Search",
+    kind: "profile",
+    perProject: true,
+    live: { gsc: true },
+    unit: "count",
+  },
+  /* The per-property page's cards, one venture each. Clicks and impressions
+     are two charts rather than two lines: forty times apart, they cannot
+     share an axis, which is the rule `gsc.trend` keeps. */
+  "gsc.projectDaily": {
+    src: "gsc",
+    name: "Clicks a day",
+    kind: "chart",
+    perProject: true,
+    live: { gsc: true },
+    unit: "count",
+  },
+  "gsc.projectImpressions": {
+    src: "gsc",
+    name: "Impressions a day",
+    kind: "chart",
+    perProject: true,
+    live: { gsc: true },
+    unit: "count",
+  },
+  "gsc.projectQueries": {
+    src: "gsc",
+    name: "Top queries",
+    kind: "ranked",
+    perProject: true,
+    live: { gsc: true },
+  },
+  "gsc.projectPages": {
+    src: "gsc",
+    name: "Top pages",
+    kind: "ranked",
+    perProject: true,
+    live: { gsc: true },
+  },
+  "gsc.projectStriking": {
+    src: "gsc",
+    name: "Page-two opportunities · 5–20",
+    kind: "ranked",
+    perProject: true,
+    live: { gsc: true },
+  },
+  "gsc.projectSitemaps": {
+    src: "gsc",
+    name: "Sitemaps",
+    kind: "rows",
+    perProject: true,
+    live: { gsc: true },
+  },
+  /* The SEO side, one venture each. The audit card is the overview's row
+     for the venture — counts, not pages: the page list is the crawl itself,
+     a megabyte the board never fetches, and the caption says where it is. */
+  "audit.project": {
+    src: "audit",
+    name: "Audit",
+    kind: "profile",
+    perProject: true,
+    live: { audit: true },
+  },
+  "authority.project": {
+    src: "authority",
+    name: "Authority · this box's own estimate",
+    kind: "rows",
+    perProject: true,
+    live: { seo: true },
+  },
+  "indexing.project": {
+    src: "indexing",
+    name: "Search engines told · IndexNow",
+    kind: "rows",
+    perProject: true,
+    live: { seo: true },
+  },
+  "seoops.project": {
+    src: "seoops",
+    name: "What moved · after SEO work",
+    kind: "rows",
+    perProject: true,
     live: { seo: true },
   },
 };

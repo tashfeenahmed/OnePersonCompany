@@ -31,7 +31,12 @@ export function isWorkspacePreferences(v: unknown): boolean {
     && (s.seeded === undefined || typeof s.seeded === "boolean")
     && (s.children === undefined || list(s.children, c => text(c.id, 200) && text(c.title, 2000) && ref(c.to) && ref(c.status))))) return false;
   if (!list(v.dashboards, d => text(d.id, 200) && !!d.id && text(d.name) && text(d.slug, 200) && !!d.slug && ref(d.ventureId)
-    && list(d.widgets, x => text(x.id, 200) && !!x.id && text(x.type, 200) && [1, 2, 4].includes(Number(x.w)) && typeof x.w === "number", 500), 200)) return false;
+    /* `param` is a per-project card's venture id — see PlacedWidget in
+       client/src/lib/store.tsx. Optional, and checked by shape only: a
+       venture deleted since the card was placed is a card that says so, not
+       an invalid document. */
+    && list(d.widgets, x => text(x.id, 200) && !!x.id && text(x.type, 200) && [1, 2, 4].includes(Number(x.w)) && typeof x.w === "number"
+      && (x.param === undefined || (text(x.param, 200) && !!x.param)), 500), 200)) return false;
   const slugs = (v.dashboards as Obj[]).map(d => `${d.ventureId ?? ""}/${d.slug}`);
   return new Set(slugs).size === slugs.length;
 }

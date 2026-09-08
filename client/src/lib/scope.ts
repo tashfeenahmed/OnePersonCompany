@@ -652,52 +652,8 @@ export function scopeLive(
      the hostname guess; a filter that has no use for one simply ignores it. */
   entities: LinkedEntity[] = [],
 ): LiveData {
-  const hosts = hostList.map(host).filter(Boolean);
-  if (!hosts.length && !entities.length) return base;
-
-  const domains = base.domains.filter((d) => isHost(d.name, hosts));
-
-  const scoped: Omit<LiveData, "liveTypes"> = {
-    ...base,
-    metrics: {},
-    domains,
-    domainSummary: scopeDomainSummary(base.domainSummary, domains),
-    gsc: scopeGsc(base.gsc, hosts),
-    bing: scopeBing(base.bing, hosts),
-    cloudflare: scopeCloudflare(base.cloudflare, hosts),
-    github: scopeGithub(base.github, hosts),
-    mail: scopeMail(base.mail, hosts),
-    /*
-      THE SECOND WAVE. Each takes the links as well as the hosts, and prefers
-      them — see `linkedSet`. Two of the eight take no hosts at all: a Bluesky
-      handle that looks like the venture's domain is a coincidence of the
-      verification scheme, and an ssh box's hostname is where the machine is
-      rather than what it serves.
-
-      CALENDAR IS ABSENT AND STAYS ABSENT. It is not in SCOPABLE_SOURCES either,
-      so its cards read `base` and wear the portfolio tag; there is no site on
-      an event and splitting a morning between two ventures is an attribution
-      nobody has written down.
-    */
-    umami: scopeUmami(base.umami, hosts, entities),
-    pypi: scopePypi(base.pypi, hosts, entities),
-    bluesky: scopeBluesky(base.bluesky, entities),
-    uptime: scopeUptime(base.uptime, hosts, entities),
-    boxes: scopeFleet(base.boxes, entities),
-    products: scopeProducts(base.products, hosts, entities),
-    backlinks: scopeBacklinks(base.backlinks, hosts, entities),
-    presence: scopePresence(base.presence, hosts, entities),
-    /* The two this box produces that carry a venture on every row. `runs` is
-       absent on purpose and stays whole — see SCOPABLE_SOURCES. */
-    audit: scopeAudit(base.audit, hosts),
-    /* The AUDIT document goes in beside the hosts, because it is the map: a
-       profile names its venture by id and the scope is a set of hosts. See
-       `scopeCompetitors`. The UNNARROWED one, so the map is complete however
-       few of its rows survived the filter above. */
-    competitors: scopeCompetitors(base.competitors, hosts, base.audit),
-    /* The audit overview goes in as the map, as it does for competitors. */
-    seo: scopeSeo(base.seo, hosts, base.audit),
-  };
+  const scoped = narrowLive(base, hostList, entities);
+  if (scoped === base) return base;
 
   const liveTypes = new Set<string>();
   for (const type of Object.keys(WIDGETS)) {
@@ -752,6 +708,75 @@ export function scopeLive(
   }
 
   return { ...scoped, liveTypes };
+}
+
+/**
+ * The documents alone, narrowed, with no verdict on which cards can answer.
+ *
+ * SPLIT OUT OF `scopeLive` FOR THE PER-PROJECT CARDS. A venture board
+ * narrows once and asks every builder whether it can still answer, which is
+ * what `liveTypes` is for and is worth a pass over four hundred builders
+ * once per board. A per-project card narrows for itself — one card, one
+ * venture, one builder — and a pass over every builder per card would be
+ * twenty boards' worth of work on a board with twenty of them. So the
+ * narrowing is here on its own, and `scopeLive` is this plus the verdict.
+ *
+ * THE SAME BASE BACK when there is nothing to narrow to — no hosts and no
+ * links — so a caller can tell "narrowed to nothing" from "not narrowed".
+ * `liveTypes` is carried through untouched, which is only right for a
+ * caller that does not read it; `scopeLive` replaces it.
+ */
+export function narrowLive(
+  base: LiveData,
+  hostList: string[],
+  entities: LinkedEntity[] = [],
+): LiveData {
+  const hosts = hostList.map(host).filter(Boolean);
+  if (!hosts.length && !entities.length) return base;
+
+  const domains = base.domains.filter((d) => isHost(d.name, hosts));
+
+  return {
+    ...base,
+    metrics: {},
+    domains,
+    domainSummary: scopeDomainSummary(base.domainSummary, domains),
+    gsc: scopeGsc(base.gsc, hosts),
+    bing: scopeBing(base.bing, hosts),
+    cloudflare: scopeCloudflare(base.cloudflare, hosts),
+    github: scopeGithub(base.github, hosts),
+    mail: scopeMail(base.mail, hosts),
+    /*
+      THE SECOND WAVE. Each takes the links as well as the hosts, and prefers
+      them — see `linkedSet`. Two of the eight take no hosts at all: a Bluesky
+      handle that looks like the venture's domain is a coincidence of the
+      verification scheme, and an ssh box's hostname is where the machine is
+      rather than what it serves.
+
+      CALENDAR IS ABSENT AND STAYS ABSENT. It is not in SCOPABLE_SOURCES either,
+      so its cards read `base` and wear the portfolio tag; there is no site on
+      an event and splitting a morning between two ventures is an attribution
+      nobody has written down.
+    */
+    umami: scopeUmami(base.umami, hosts, entities),
+    pypi: scopePypi(base.pypi, hosts, entities),
+    bluesky: scopeBluesky(base.bluesky, entities),
+    uptime: scopeUptime(base.uptime, hosts, entities),
+    boxes: scopeFleet(base.boxes, entities),
+    products: scopeProducts(base.products, hosts, entities),
+    backlinks: scopeBacklinks(base.backlinks, hosts, entities),
+    presence: scopePresence(base.presence, hosts, entities),
+    /* The two this box produces that carry a venture on every row. `runs` is
+       absent on purpose and stays whole — see SCOPABLE_SOURCES. */
+    audit: scopeAudit(base.audit, hosts),
+    /* The AUDIT document goes in beside the hosts, because it is the map: a
+       profile names its venture by id and the scope is a set of hosts. See
+       `scopeCompetitors`. The UNNARROWED one, so the map is complete however
+       few of its rows survived the filter above. */
+    competitors: scopeCompetitors(base.competitors, hosts, base.audit),
+    /* The audit overview goes in as the map, as it does for competitors. */
+    seo: scopeSeo(base.seo, hosts, base.audit),
+  };
 }
 
 /* ------------------------------------------- the second wave, narrowed */

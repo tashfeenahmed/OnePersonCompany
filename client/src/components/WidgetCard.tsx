@@ -1,6 +1,7 @@
 import { measuredWidget } from "@/lib/widgetView";
 import { Trash2, UnfoldHorizontal } from "lucide-react";
 import { BrandTile } from "@/components/BrandTile";
+import { useMemo } from "react";
 import {
   Bars,
   Chart,
@@ -8,6 +9,7 @@ import {
   Dumbbell,
   Figures,
   MeterRow,
+  Profile,
   Ranked,
   Runway,
   Sparkline,
@@ -17,11 +19,59 @@ import { cn } from "@/lib/utils";
 import { BRAND_ICONS } from "@/data/brandIcons";
 import { ModelMark } from "@/components/ModelMark";
 import { SOURCES, WIDGETS, type Widget } from "@/data/widgets";
-import type { PlacedWidget } from "@/lib/store";
-import { collectedAt, deltaOver, useLive } from "@/lib/live";
-import { LIVE_BUILDERS } from "@/lib/liveWidgets";
-import { isScopedWidget, useScope } from "@/lib/scope";
+import { useStore, type PlacedWidget } from "@/lib/store";
+import { collectedAt, deltaOver, useLive, type LiveData } from "@/lib/live";
+import { LIVE_BUILDERS, type LiveInputs, type ProjectScope } from "@/lib/liveWidgets";
+import { isScopedWidget, narrowLive, useScope } from "@/lib/scope";
 import { hasPrevious, widgetName } from "@/lib/window";
+
+/** Every document a builder reads, off one live context. The same list the
+ *  fetch layer and the scope hand over; kept in one place here so a card
+ *  narrowed to a venture and a card that is not are fed identically. */
+function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<LiveInputs, "param" | "project">): LiveInputs {
+  return {
+    points,
+    summary: live.hetzner,
+    fleet: live.fleet,
+    load: live.load,
+    volumes: live.volumes,
+    domains: live.domains,
+    domainSummary: live.domainSummary,
+    github: live.github,
+    npm: live.npm,
+    costs: live.costs,
+    stock: live.stock,
+    mobile: live.mobile,
+    stripe: live.stripe,
+    adsense: live.adsense,
+    cloudflare: live.cloudflare,
+    gsc: live.gsc,
+    bing: live.bing,
+    meta: live.meta,
+    demand: live.demand,
+    mail: live.mail,
+    umami: live.umami,
+    calendar: live.calendar,
+    pypi: live.pypi,
+    bluesky: live.bluesky,
+    uptime: live.uptime,
+    boxes: live.boxes,
+    products: live.products,
+    backlinks: live.backlinks,
+    presence: live.presence,
+    audit: live.audit,
+    runs: live.runs,
+    llm: live.llm,
+    competitors: live.competitors,
+    finance: live.finance,
+    leakage: live.leakage,
+    disputes: live.disputes,
+    queue: live.queue,
+    seo: live.seo,
+    window: live.window,
+    ...extra,
+  };
+}
 
 /**
  * ONE WIDGET, ON ONE CARD.
@@ -38,6 +88,7 @@ export function WidgetCard({
   onCycleWidth,
   onRemove,
   onMove,
+  onSetParam,
   dragHandlers,
   dropSide,
   dragging,
@@ -47,6 +98,9 @@ export function WidgetCard({
   onCycleWidth: () => void;
   onRemove: () => void;
   onMove?: (direction: number) => void;
+  /** A per-project card's venture, chosen from its header in edit mode.
+   *  Undefined clears it back to "pick a venture". */
+  onSetParam?: (param: string | undefined) => void;
   /** The grab handle's attributes — a pointerdown and a data id, from BoardView. */
   dragHandlers?: React.HTMLAttributes<HTMLDivElement>;
   dropSide?: "before" | "after" | null;
@@ -68,65 +122,66 @@ export function WidgetCard({
   const scope = useScope();
   const narrowed = !!scope && isScopedWidget(placed.type);
   const live = scope && !narrowed ? scope.base : all;
+
+  /*
+    A PER-PROJECT CARD IS A THIRD KIND, and it is narrowed HERE rather than
+    by the page: the venture is on the card (`PlacedWidget.param`), so the
+    same rule a venture board runs — lib/scope's `narrowLive` over the
+    venture's hosts — runs for this one card, from the PORTFOLIO document
+    whichever page the card is on. Inside a venture board the page's own
+    scope is set aside for it: a card that says "Example App 1" draws Example App 1
+    even on FreeLLMAPI's board, because that is what it was placed to do.
+
+    Narrowed once per venture and per refresh, not per render: the pass is
+    a filter over every report the page holds.
+  */
+  const { state } = useStore();
+  const perProject = !!base?.perProject;
+  const venture = perProject && placed.param
+    ? (state.ventures.find((v) => v.id === placed.param) ?? null)
+    : null;
+  const portfolio = scope ? scope.base : all;
+  const projectLive = useMemo(
+    () => (venture?.host ? narrowLive(portfolio, [venture.host]) : null),
+    [portfolio, venture],
+  );
   if (!base) return null;
   const src = SOURCES[base.src];
+  const project: ProjectScope | null = venture
+    ? { id: venture.id, name: venture.name, hosts: venture.host ? [venture.host] : [] }
+    : null;
 
-  // Real numbers replace the sample ones in place, so the card's layout does
-  // not change when a provider connects — only what it is showing.
-  const isLive = live.liveTypes.has(placed.type);
   const points = base.live?.metric
     ? (live.metrics[base.live.metric] ?? [])
     : [];
   // Live values are merged OVER the catalog entry, so the sample definition
   // still supplies the name, the kind and the width — only the numbers change.
-  const patch = isLive
-    ? LIVE_BUILDERS[placed.type]?.({
-        points,
-        summary: live.hetzner,
-        fleet: live.fleet,
-        load: live.load,
-        volumes: live.volumes,
-        domains: live.domains,
-        domainSummary: live.domainSummary,
-        github: live.github,
-        npm: live.npm,
-        costs: live.costs,
-        stock: live.stock,
-        mobile: live.mobile,
-        stripe: live.stripe,
-        adsense: live.adsense,
-        cloudflare: live.cloudflare,
-        gsc: live.gsc,
-        bing: live.bing,
-        meta: live.meta,
-        demand: live.demand,
-        mail: live.mail,
-        umami: live.umami,
-        calendar: live.calendar,
-        pypi: live.pypi,
-        bluesky: live.bluesky,
-        uptime: live.uptime,
-        boxes: live.boxes,
-        products: live.products,
-        backlinks: live.backlinks,
-        presence: live.presence,
-        audit: live.audit,
-        runs: live.runs,
-        llm: live.llm,
-        competitors: live.competitors,
-        finance: live.finance,
-        leakage: live.leakage,
-        disputes: live.disputes,
-        queue: live.queue,
-        seo: live.seo,
-        window: live.window,
-      })
-    : null;
+  //
+  // A PER-PROJECT CARD ASKS ITS BUILDER ITSELF. The context's `liveTypes`
+  // was decided over the portfolio with no venture, which is exactly the
+  // call a per-project builder declines, so the verdict is made here from
+  // the narrowed document instead: live if the builder answered.
+  const build = LIVE_BUILDERS[placed.type];
+  const patch = perProject
+    ? project && projectLive && build
+      ? build(inputsOf(projectLive, points, { param: placed.param, project }))
+      : null
+    : live.liveTypes.has(placed.type) && build
+      ? build(inputsOf(live, points, {}))
+      : null;
+  // Real numbers replace the sample ones in place, so the card's layout does
+  // not change when a provider connects — only what it is showing.
+  const isLive = perProject ? patch !== null : live.liveTypes.has(placed.type);
   // Presentation metadata is reusable; sample data never enters a live card.
   // THE NAME CARRIES THE PICKER'S WINDOW before the patch is laid over it, so
   // a builder that has to say a different span — churn under "all" is the
   // ninety-day row — can still name it; see lib/window.
   const def: Widget = measuredWidget({ ...base, name: widgetName(base, live.window) }, patch);
+  /* THE VENTURE'S NAME GOES ON THE CARD HERE, after the builder has had its
+     say, so "Search · 28d" reads "Search · 28d · Example App 1" whether the
+     builder answered or declined — a card with nothing to draw still has to
+     say whose nothing it is. */
+  const title = venture ? `${def.name} · ${venture.name}` : def.name;
 
   // "No change" and "not enough history to say" are different claims. A sample
   // widget with delta 0 means the first; a live one measured twice in an hour
@@ -157,8 +212,29 @@ export function WidgetCard({
     : sourceState === "error" ? `Could not refresh ${src.name}: ${live.sourceErrors[sourceKey] ?? "Try again."}`
     : sourceState === "disconnected" ? `Connect ${src.name} to see this metric.`
     : live.loading ? "Loading…" : `No measurements collected from ${src.name} yet.`;
-  const empty =
-    narrowed && !isLive && scope
+  /*
+    A PER-PROJECT CARD HAS FOUR WAYS TO BE EMPTY, and they are four different
+    sentences: no venture chosen yet, a venture that has since been deleted,
+    a venture with no website to narrow to, and a venture the source has
+    nothing for. The last is told apart from "the source has nothing at all"
+    by whether the portfolio document is there — a builder declining over a
+    narrowed document with the portfolio one present means this venture had
+    no rows, which is a finding rather than a fault.
+  */
+  const hasPortfolioDoc = !!report && !!(portfolio as unknown as Record<string, unknown>)[report];
+  const empty = perProject
+    ? !placed.param
+      ? "Pick a venture: edit the board and choose one in this card's header."
+      : !venture
+        ? "This card's venture is no longer in the workspace — pick another in edit mode."
+        : !venture.host
+          ? `${venture.name} has no website yet, so there is nothing to narrow to.`
+          : isLive
+            ? null
+            : hasPortfolioDoc
+              ? `Nothing for ${venture.name} (${venture.host}) in ${src.name}.`
+              : unavailable
+    : narrowed && !isLive && scope
       ? scope.base.liveTypes.has(placed.type)
         ? `Nothing for ${scope.label} in ${src.name}.`
         : `Nothing collected from ${src.name} yet, so there is nothing to narrow.`
@@ -195,11 +271,14 @@ export function WidgetCard({
             name the only thing allowed to give, so a long name truncates
             rather than the dot dropping. */}
         <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate text-[12.5px]">{def.name}</span>
+          <span className="truncate text-[12.5px]">{title}</span>
           {/* WHAT KIND OF NUMBER, in a word — "measured", "est.", "metered".
               Only a builder sets one, so it is only ever on a live card; see
               Widget.tag. */}
-          {isLive && def.tag && (
+          {/* Not beside the venture picker: in edit mode a per-project
+              card's header holds the picker, and a tag as well left the
+              name four letters long. The tag is for reading, not editing. */}
+          {isLive && def.tag && !(editing && perProject) && (
             <span className="text-muted-foreground bg-muted shrink-0 rounded-[5px] px-1.5 py-px font-mono text-[10px] font-medium">
               {def.tag}
             </span>
@@ -211,13 +290,33 @@ export function WidgetCard({
             />
           )}
         </span>
-        {scope && !narrowed && (
+        {scope && !narrowed && !perProject && (
           <span
             title={`This figure has no per-site breakdown, so it is the whole portfolio rather than ${scope.label}.`}
             className="text-muted-foreground shrink-0 rounded-[7px] border px-1 py-px text-[10.5px] leading-[1.35]"
           >
             portfolio
           </span>
+        )}
+        {/* THE VENTURE PICKER, in edit mode, on a per-project card. A select
+            rather than a dialog because there are twenty ventures and one
+            choice; it stops the pointer so the grab handle around it does
+            not start a drag. */}
+        {editing && perProject && (
+          <select
+            aria-label={`Venture for ${def.name}`}
+            value={placed.param ?? ""}
+            onChange={(e) => onSetParam?.(e.target.value || undefined)}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="bg-muted text-foreground h-6 max-w-[124px] shrink-0 rounded-[7px] border-0 px-1.5 text-[11.5px]"
+          >
+            <option value="">Pick a venture…</option>
+            {state.ventures.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
         )}
         {editing && (
           <div className="ml-auto flex gap-px">
@@ -398,6 +497,20 @@ export function WidgetCard({
         {!empty && def.kind === "dumbbell" &&
           (def.dumbbell?.length ? (
             <Dumbbell rows={def.dumbbell} names={def.names} log={def.log} caption={def.caption} />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing measured yet.</p>
+          ))}
+
+        {!empty && def.kind === "profile" &&
+          (def.figures?.length ? (
+            <Profile
+              figures={def.figures}
+              series={def.series}
+              at={def.seriesAt}
+              unit={def.unit}
+              rows={def.rows}
+              caption={def.caption}
+            />
           ) : (
             <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing measured yet.</p>
           ))}

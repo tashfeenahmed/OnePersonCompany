@@ -172,13 +172,15 @@ gscRoutes.get("/", (c) => {
     clicks, which on this account is one busy property's list wearing the
     portfolio's name — eighteen properties never reach it. A card drawn per
     property needs each property's own top rows, so they are cut here from the
-    same stored snapshot. Five each: a headline per property, not a report.
-    The same caveats travel: Google's rows are clicks-ordered and capped, so a
+    same stored snapshot. Ten each: enough for a per-project card to be a
+    short report rather than a headline — Workdash's per-property page shows
+    ten — and still a fraction of the forty the portfolio list carries. The
+    same caveats travel: Google's rows are clicks-ordered and capped, so a
     property's "top query" is the top of what Google returned.
   */
   const queryRows = gscRanked("queries");
   const pageRows = gscRanked("pages");
-  const PER_PROPERTY = 5;
+  const PER_PROPERTY = 10;
   const perPropertyQueries = new Map<string, typeof queryRows>();
   for (const r of queryRows) {
     const mine = perPropertyQueries.get(r.property) ?? [];

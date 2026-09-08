@@ -21,6 +21,7 @@ import type {
   DonutSlice,
   DumbbellRow,
   Meter,
+  ProfileFigure,
   RankedRow,
   RunwayRow,
   StatusTone,
@@ -1258,6 +1259,11 @@ export function Donut({
  * length already say. `sub` is right-aligned on the name's line: a long bar
  * over a small token count is an expensive model, and the two are read in
  * the same glance.
+ *
+ * A ROW MAY CARRY ITS OWN LINE. `spark` is a small shape between the name
+ * and `sub` — the row's recent daily values — for a list where the bar says
+ * how much and the reader's next question is which way. Workdash's search
+ * rail is the model. No axis, no hover: the figures are already printed.
  */
 export function Ranked({ rows, caption }: { rows: RankedRow[]; caption?: string }) {
   const top = Math.max(1, ...rows.map((r) => Math.max(r.value, 0)));
@@ -1270,6 +1276,7 @@ export function Ranked({ rows, caption }: { rows: RankedRow[]; caption?: string 
             <div className="flex items-baseline gap-2 text-[13px]">
               {r.mark && <ModelMark name={r.mark} size={13} className="self-center" />}
               <span className="truncate">{r.label}</span>
+              {r.spark && r.spark.length > 1 && <MiniLine values={r.spark} />}
               {r.sub && (
                 <span className="text-muted-foreground ml-auto shrink-0 text-[12px] tabular-nums">
                   {r.sub}
@@ -1299,6 +1306,93 @@ export function Ranked({ rows, caption }: { rows: RankedRow[]; caption?: string 
       {caption && (
         <p className="text-muted-foreground mt-0.5 text-[12px] leading-snug">{caption}</p>
       )}
+    </div>
+  );
+}
+
+/**
+ * A row's line at the size of a word: fifty-six pixels, a polyline, nothing
+ * else. Scaled to its own range, so it says "which way" and never "how much"
+ * — the how much is the bar under it, and two of these are not comparable
+ * with each other, which is why there is no axis to invite it.
+ */
+function MiniLine({ values }: { values: number[] }) {
+  const W = 56;
+  const H = 14;
+  const min = Math.min(...values);
+  const span = Math.max(...values) - min || 1;
+  const pts = values
+    .map((v, j) => `${((j / (values.length - 1)) * (W - 2) + 1).toFixed(1)},${(H - 1.5 - ((v - min) / span) * (H - 3)).toFixed(1)}`)
+    .join(" ");
+  return (
+    <svg
+      aria-hidden
+      width={W}
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      className="ml-auto shrink-0 self-center"
+      style={{ color: "var(--chart-line-1)" }}
+    >
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.2} strokeLinejoin="round" strokeLinecap="round" opacity={0.6} />
+    </svg>
+  );
+}
+
+/* ---------------------------------------------------------------- profile */
+
+/**
+ * One thing's card: a row of figures, its line, a short list.
+ *
+ * THE FIGURES ARE SET SMALLER THAN A METRIC TILE'S — twenty pixels against
+ * twenty-eight — because there are four of them and they are read across,
+ * the way Workdash's property card reads clicks, impressions, CTR and rank
+ * in one line before the chart. The line under them is the metric tile's
+ * own sparkline, so the shape is the same shape a reader already knows;
+ * the list under that is a rows card's list. Nothing here is new to the
+ * eye; only the arrangement is.
+ *
+ * AUTO-FIT COLUMNS rather than a fixed four, because the same card is
+ * placed at one, two and four columns of the grid, and four figures across
+ * a one-column tile is four figures nobody can read.
+ */
+export function Profile({
+  figures,
+  series,
+  at,
+  unit,
+  rows,
+  caption,
+}: {
+  figures: ProfileFigure[];
+  series?: number[];
+  at?: string[];
+  unit?: ChartUnit;
+  rows?: [string, string][];
+  caption?: string;
+}) {
+  return (
+    <div className="mt-1">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-x-3 gap-y-2.5">
+        {figures.map((f) => (
+          <div key={f.label} className="min-w-0">
+            <div className="text-muted-foreground text-[11.5px] leading-snug">{f.label}</div>
+            <div className="truncate text-[20px] leading-tight tracking-[-0.02em] tabular-nums">{f.value}</div>
+            {f.sub && <div className="text-muted-foreground truncate text-[11.5px] leading-snug">{f.sub}</div>}
+          </div>
+        ))}
+      </div>
+      {series && series.length > 1 && <Sparkline series={series} at={at} unit={unit} />}
+      {rows && rows.length > 0 && (
+        <div className="border-line-soft mt-2.5 flex flex-col gap-1.5 border-t pt-2.5">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex items-baseline gap-2 text-[13px]">
+              <span className="truncate">{k}</span>
+              <span className="text-muted-foreground ml-auto text-[12.5px] whitespace-nowrap tabular-nums">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {caption && <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{caption}</p>}
     </div>
   );
 }

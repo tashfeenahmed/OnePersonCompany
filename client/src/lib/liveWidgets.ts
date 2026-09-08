@@ -255,6 +255,31 @@ export type LiveInputs = {
   /** The four SEO documents this box computes itself: authority, AI
    *  visibility, follow-ups and the IndexNow log. Four fields, no sums. */
   seo?: SeoOpsDocs | null;
+  /*
+    THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
+    is placed with a venture id (`PlacedWidget.param`); the card resolves it
+    to the venture and, BEFORE calling the builder, narrows every document
+    above to the venture's hosts with the rule a venture board uses
+    (lib/scope `narrowLive`). So a per-project builder reads `gsc`, `audit`,
+    `seo` and the rest exactly as a card on that venture's board would —
+    the venture's properties, the venture's crawl row — and never filters
+    for itself. `project` is how it knows it was asked about one venture at
+    all: absent on every portfolio call (the fetch layer's live-dot pass,
+    a venture board's pass), and a per-project builder returns null then
+    rather than draw the portfolio under a venture's name. `param` is the
+    raw id, for a builder that needs to say it; the card puts the venture's
+    NAME on the card, so builders do not.
+  */
+  param?: string;
+  project?: ProjectScope;
+};
+
+/** The venture a per-project card was asked about — see `LiveInputs`. */
+export type ProjectScope = {
+  id: string;
+  name: string;
+  /** Lowercase, no leading "www." — what the documents were narrowed to. */
+  hosts: string[];
 };
 
 /**
@@ -3688,9 +3713,13 @@ Object.assign(LIVE_BUILDERS, {
     return { rows };
   },
 
-  "gsc.trend": ({ gsc: G }: LiveInputs) => {
+  "gsc.trend": ({ gsc: G, window: W }: LiveInputs) => {
     if (!G || G.series.length < 2) return null;
     return {
+      /* "PORTFOLIO" ON THE CARD — Workdash's "Portfolio impressions per
+         day" — unless the document was narrowed to one property, in which
+         case the property's name is the honest word; see `portfolioLine`. */
+      name: `Impressions a day · ${portfolioWord(G)} · ${windowLabel(W ?? G.seriesDays)}`,
       chart: [
         {
           label: "impressions",
@@ -3701,9 +3730,7 @@ Object.assign(LIVE_BUILDERS, {
       /* Clicks are NOT drawn beside this. They run about forty times smaller on
          this portfolio, and on a shared axis starting at zero they would be a
          flat line along the bottom pretending to be a measurement. */
-      caption: G.window.end
-        ? `daily, every property summed · ends ${dayShort(G.window.end)}, three days back, because Google has not finalised the days after it`
-        : "daily, every property summed",
+      caption: portfolioLine(G),
     };
   },
 
@@ -7701,14 +7728,13 @@ Object.assign(LIVE_BUILDERS, {
 
   /* ----------------------------------------------------- daily lines */
 
-  "gsc.clicksTrend": ({ gsc: G }: LiveInputs) => {
+  "gsc.clicksTrend": ({ gsc: G, window: W }: LiveInputs) => {
     if (!G || G.series.length < 2) return null;
     return {
+      name: `Clicks a day · ${portfolioWord(G)} · ${windowLabel(W ?? G.seriesDays)}`,
       chart: [{ label: "clicks", points: G.series.map((d) => ({ ts: at(d.day), value: d.clicks })) }],
       unit: "count" as const,
-      caption: G.window.end
-        ? `daily, every property summed · ends ${dayShort(G.window.end)}, three days back, because Google has not finalised the days after it`
-        : "daily, every property summed",
+      caption: portfolioLine(G),
     };
   },
 
@@ -8118,5 +8144,414 @@ Object.assign(LIVE_BUILDERS, {
        Google is told nothing by any of this. */
     rows.push(["Google", "not told — it never joined IndexNow"]);
     return { rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+
+/* ============================================ search board + per project ==
+   WORKDASH'S ALL-PROPERTIES SEARCH PAGE AND ITS PER-PROPERTY PAGE, as cards.
+
+   The rail is the one portfolio card here; everything else takes a venture
+   on the card. THE PER-PROJECT BUILDERS FILTER NOTHING: the documents they
+   read were narrowed to the venture's hosts by the card before the call —
+   see the `project` note on `LiveInputs` — so `G.properties` below is the
+   venture's property or properties and `G.totals` is their sum, computed by
+   the same code a venture board runs (lib/scope `scopeGsc`). Each declines
+   with null when `project` is absent, which is every portfolio pass, so a
+   per-project card never wears the live dot over a portfolio figure.
+
+   THE CARD NAMES THE VENTURE. A builder's `name` carries the window and
+   nothing else; "Search · 28d" becomes "Search · 28d · Example App 1" on the
+   card, and a builder that declines still leaves a card called
+   "Search · Example App 1" saying why.
+*/
+
+/** "portfolio", or the one property's name when the document holds only
+ *  one — a venture board with a single property, where "portfolio" would
+ *  be a word for something that is not there. */
+function portfolioWord(G: GscReport): string {
+  return G.properties.length === 1 ? G.properties[0]!.label : "portfolio";
+}
+
+/** The caption under a summed daily line: how many properties are in the
+ *  sum, how many days landed, and why it stops short of today. */
+function portfolioLine(G: GscReport): string {
+  const n = G.properties.length;
+  const who = n === 1 ? "one property" : `${n} properties summed, ${G.totals.properties} of them with traffic`;
+  return also(
+    `daily · ${who} · ${G.series.length} days drawn`,
+    G.window.end
+      ? `ends ${dayShort(G.window.end)} — the last three days are missing because Google has not finalised them`
+      : "",
+  );
+}
+
+/** A movement in the short form a tile's small print has room for. Null is
+ *  "no window before it", never a zero. */
+function movedShort(delta: number | null): string {
+  if (delta === null) return "no window before";
+  const rounded = Math.abs(delta) >= 10 ? Math.round(delta) : Number(delta.toFixed(1));
+  return `${rounded > 0 ? "+" : ""}${rounded}% on previous`;
+}
+
+/** The day a daily line peaked, for "busiest day" small print. */
+function busiestDay<T extends { day: string }>(line: T[], by: (d: T) => number): T | null {
+  return line.reduce<T | null>((best, d) => (best === null || by(d) > by(best) ? d : best), null);
+}
+
+/** A page's label under one property or under several: the path alone
+ *  when the host is the card's, host and path when it is not. */
+const pageWord = (G: GscReport) => (G.properties.length > 1 ? pageLabel : pathOf);
+
+/** The ranked rows of every property in the document, one list. On a
+ *  one-property venture this is that property's list; on a venture with an
+ *  apex and a subdomain it is both, and the property rides in `sub`. */
+function acrossProperties<T>(G: GscReport, pick: (p: GscProperty) => T[] | undefined): (T & { property: string })[] {
+  return G.properties.flatMap((p) => (pick(p) ?? []).map((row) => ({ ...row, property: p.label })));
+}
+
+/** "1 click", "12 clicks". */
+const clicksWord = (n: number) => `${count(n)} click${n === 1 ? "" : "s"}`;
+
+/** "on example-app-1.example.test" only when the card holds more than one property. */
+const onProperty = (G: GscReport, property: string) => (G.properties.length > 1 ? property : "");
+
+Object.assign(LIVE_BUILDERS, {
+  /* ---------------------------------------------------------- the rail */
+
+  "gsc.rail": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    const seen = [...G.properties]
+      .filter((p) => p.impressions > 0)
+      .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+    if (!seen.length) return null;
+    const quiet = G.properties.length - seen.length;
+    return {
+      name: `Every property, by clicks · ${G.window.days}d`,
+      tag: "measured",
+      ranked: seen.map((p) => ({
+        label: p.label,
+        /* THE BAR IS CLICKS, against the busiest property rather than the
+           sum — Workdash's rail asks "how does this one compare with the
+           busiest", and a share of the total draws eighteen invisible bars
+           under one full one. */
+        value: p.clicks,
+        text: clicksWord(p.clicks),
+        sub: also(
+          also(`${count(p.impressions)} impr`, p.ctr === null ? "" : `${percent(p.ctr, 2)} CTR`),
+          p.position === null ? "" : `#${place(p.position)}`,
+        ),
+        /* The property's OWN daily clicks — rows never added to another
+           property's — as a shape beside the name. */
+        spark: p.series.length > 1 ? p.series.map((d) => d.clicks) : undefined,
+      })),
+      caption: also(
+        `${seen.length} propert${seen.length === 1 ? "y" : "ies"} with impressions in the ${gscEnds(G)}, busiest first · the line beside each name is its own clicks a day over ${G.seriesDays}d`,
+        quiet ? `${quiet} quiet, listed on "No search data yet"` : "",
+      ),
+    };
+  },
+
+  /* ------------------------------------------- one venture's search */
+
+  "gsc.project": ({ gsc: G, project }: LiveInputs) => {
+    if (!project || !G?.connected || !G.properties.length) return null;
+    const t = G.totals;
+    const prevCtr = G.previous.ctr;
+    const moved = G.delta.position;
+    const top = acrossProperties(G, (p) => p.topQueries)
+      .sort((a, b) => b.clicks - a.clicks)
+      .slice(0, 5);
+    const pageTwo = G.properties.reduce((n, p) => n + (p.striking?.length ?? 0), 0);
+    const peak = busiestDay(G.series, (d) => d.clicks);
+    const rows: [string, string][] = top.map((q) => [
+      q.query,
+      also(`${clicksWord(q.clicks)} · #${place(q.position)}`, onProperty(G, q.property)),
+    ]);
+    if (!rows.length)
+      rows.push(["No query rows", "every query withheld by Google, or none yet"]);
+    return {
+      name: `Search · ${G.window.days}d`,
+      tag: "measured",
+      figures: [
+        { label: "Clicks", value: count(t.clicks), sub: movedShort(G.delta.clicks) },
+        { label: "Impressions", value: count(t.impressions), sub: movedShort(G.delta.impressions) },
+        {
+          label: "CTR",
+          value: t.ctr === null ? DASH : percent(t.ctr, 2),
+          /* Points, not percent of a percent — the rule `gsc.ctr` keeps. */
+          sub: t.ctr === null || prevCtr === null ? "no window before" : `${t.ctr - prevCtr >= 0 ? "+" : ""}${(t.ctr - prevCtr).toFixed(2)} pts`,
+        },
+        {
+          label: "Position",
+          value: place(t.position),
+          /* Places, and positive is worse — said in a word rather than a sign. */
+          sub: moved === null ? "no window before" : moved === 0 ? "no change" : `${Math.abs(moved).toFixed(1)} ${moved > 0 ? "worse" : "better"}`,
+        },
+      ],
+      series: G.series.length > 1 ? G.series.map((d) => d.clicks) : undefined,
+      seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
+      unit: "count" as const,
+      rows,
+      caption: also(
+        also(
+          `${G.properties.length === 1 ? G.properties[0]!.label : `${G.properties.length} properties`} · ${gscEnds(G)}`,
+          peak && G.series.length > 1 ? `clicks a day over ${G.seriesDays}d, busiest ${count(peak.clicks)} on ${dayShort(peak.day)}` : "",
+        ),
+        also(
+          `${pageTwo} quer${pageTwo === 1 ? "y" : "ies"} on page two`,
+          G.coverage.pct === null ? "" : `query rows cover ${percent(G.coverage.pct)} of impressions`,
+        ),
+      ),
+    };
+  },
+
+  "gsc.projectDaily": ({ gsc: G, project, window: W }: LiveInputs) => {
+    if (!project || !G || G.series.length < 2) return null;
+    const peak = busiestDay(G.series, (d) => d.clicks);
+    const mean = G.series.reduce((n, d) => n + d.clicks, 0) / G.series.length;
+    return {
+      name: `Clicks a day · ${windowLabel(W ?? G.seriesDays)}`,
+      chart: [{ label: "clicks", points: G.series.map((d) => ({ ts: at(d.day), value: d.clicks })) }],
+      unit: "count" as const,
+      caption: also(
+        also(
+          `${count(G.totals.clicks)} clicks from ${count(G.totals.impressions)} impressions in the ${gscEnds(G)}`,
+          `mean ${mean.toFixed(1)} a day over ${G.series.length} days drawn${peak ? `, busiest ${count(peak.clicks)} on ${dayShort(peak.day)}` : ""}`,
+        ),
+        G.window.end ? `ends ${dayShort(G.window.end)} — the last three days are missing because Google has not finalised them` : "",
+      ),
+    };
+  },
+
+  "gsc.projectImpressions": ({ gsc: G, project, window: W }: LiveInputs) => {
+    if (!project || !G || G.series.length < 2) return null;
+    const peak = busiestDay(G.series, (d) => d.impressions);
+    const mean = G.series.reduce((n, d) => n + d.impressions, 0) / G.series.length;
+    return {
+      name: `Impressions a day · ${windowLabel(W ?? G.seriesDays)}`,
+      chart: [{ label: "impressions", points: G.series.map((d) => ({ ts: at(d.day), value: d.impressions })) }],
+      unit: "count" as const,
+      caption: also(
+        also(
+          `${count(G.totals.impressions)} impressions in the ${gscEnds(G)}`,
+          `mean ${Math.round(mean).toLocaleString("en-US")} a day over ${G.series.length} days drawn${peak ? `, busiest ${count(peak.impressions)} on ${dayShort(peak.day)}` : ""}`,
+        ),
+        G.window.end ? `ends ${dayShort(G.window.end)} — the last three days are missing because Google has not finalised them` : "",
+      ),
+    };
+  },
+
+  "gsc.projectQueries": ({ gsc: G, project }: LiveInputs) => {
+    if (!project || !G?.connected || !G.properties.length) return null;
+    if (!G.properties.some((p) => p.topQueries)) return null;
+    const rows = acrossProperties(G, (p) => p.topQueries)
+      .sort((a, b) => b.clicks - a.clicks)
+      .slice(0, 10);
+    if (!rows.length)
+      return {
+        name: `Top queries · ${G.window.days}d`,
+        ranked: [{ label: "No query rows", value: 0, text: DASH, sub: "every query withheld, or none yet" }],
+        caption: "Google withholds queries too rare to anonymise; a property with impressions and no rows had every query withheld",
+      };
+    return {
+      name: `Top queries · ${G.window.days}d`,
+      ranked: rows.map((q) => ({
+        label: q.query,
+        value: q.clicks,
+        text: clicksWord(q.clicks),
+        sub: also(`${count(q.impressions)} impr · #${place(q.position)}`, onProperty(G, q.property)),
+      })),
+      caption:
+        G.coverage.pct === null
+          ? "Google's clicks-ordered rows — a sample of the impressions, never all of them"
+          : `these rows cover ${percent(G.coverage.pct)} of impressions — Google withholds rare queries and caps the rows`,
+    };
+  },
+
+  "gsc.projectPages": ({ gsc: G, project }: LiveInputs) => {
+    if (!project || !G?.connected || !G.properties.length) return null;
+    if (!G.properties.some((p) => p.topPages)) return null;
+    const rows = acrossProperties(G, (p) => p.topPages)
+      .sort((a, b) => b.clicks - a.clicks)
+      .slice(0, 10);
+    if (!rows.length) return null;
+    const label = pageWord(G);
+    return {
+      name: `Top pages · ${G.window.days}d`,
+      ranked: rows.map((p) => ({
+        label: label(p.page),
+        value: p.clicks,
+        text: clicksWord(p.clicks),
+        sub: `${count(p.impressions)} impr · #${place(p.position)}`,
+      })),
+      caption: "landing pages from search, by clicks · Google's own capped page rows",
+    };
+  },
+
+  "gsc.projectStriking": ({ gsc: G, project }: LiveInputs) => {
+    if (!project || !G?.connected || !G.properties.length) return null;
+    if (!G.properties.some((p) => p.striking)) return null;
+    const rows = acrossProperties(G, (p) => p.striking)
+      .sort((a, b) => b.impressions - a.impressions)
+      .slice(0, 10);
+    if (!rows.length)
+      return {
+        ranked: [{ label: "Nothing at position 5–20", value: 0, text: DASH, sub: "with 3+ impressions" }],
+        caption: "drawn from Google's clicks-ordered rows, so a high-impression query with no clicks can be missing",
+      };
+    return {
+      ranked: rows.map((q) => ({
+        label: q.query,
+        /* THE BAR IS IMPRESSIONS, not the rank — the rule `gsc.strikingRanked` keeps. */
+        value: q.impressions,
+        text: `${count(q.impressions)} impr`,
+        sub: also(`#${place(q.position)} · ${clicksWord(q.clicks)}`, onProperty(G, q.property)),
+      })),
+      caption:
+        "position 5–20 with 3+ impressions, most impressions first · drawn from Google's clicks-ordered rows, so a high-impression query with no clicks can be missing",
+    };
+  },
+
+  "gsc.projectSitemaps": ({ gsc: G, project }: LiveInputs) => {
+    if (!project || !G?.connected || !G.properties.length) return null;
+    const rows: [string, string][] = [];
+    for (const p of G.properties) {
+      const s = p.sitemaps;
+      const who = onProperty(G, p.label);
+      /* THREE STATES AND NOT TWO — the rule `gsc.sitemaps` keeps. */
+      if (s.state === "reported") {
+        rows.push([also("Submitted", who), `${count(s.count)} sitemap${s.count === 1 ? "" : "s"} · ${count(s.submitted)} URLs`]);
+        if (s.errors || s.warnings)
+          rows.push([also("Complaints", who), also(s.errors ? `${count(s.errors)} error${s.errors === 1 ? "" : "s"}` : "", s.warnings ? `${count(s.warnings)} warning${s.warnings === 1 ? "" : "s"}` : "")]);
+        if (s.pending) rows.push([also("Pending", who), `${count(s.pending)} not yet processed`]);
+        rows.push([also("Last read by Google", who), s.lastDownloaded ? dayShort(s.lastDownloaded.slice(0, 10)) : "never"]);
+      } else if (s.state === "none") rows.push([also("Submitted", who), "nothing — Google is finding pages by crawling alone"]);
+      else rows.push([also("Submitted", who), "could not be read — not the same as none"]);
+    }
+    rows.push(["Submitted, not indexed", "Search Console publishes no index count by API"]);
+    return { rows };
+  },
+
+  /* ---------------------------------------------- one venture's SEO */
+
+  "audit.project": ({ audit: A, project }: LiveInputs) => {
+    if (!project || !A?.ventures.length) return null;
+    /* The overview's row for the venture — the card narrowed the document,
+       so the first row is the venture's; a venture with two hosts on two
+       rows is drawn from the one crawled most recently. */
+    const v = [...A.ventures].sort((a, b) => (b.ts ?? "").localeCompare(a.ts ?? ""))[0]!;
+    if (!v.ts || !v.issues)
+      return {
+        figures: [
+          { label: "Errors", value: DASH },
+          { label: "Warnings", value: DASH },
+          { label: "Pages", value: DASH },
+          { label: "Crawled", value: "never" },
+        ],
+        rows: [["Never crawled", "unmeasured, which is not the same as clean"]] as [string, string][],
+        caption: "run an audit from the venture's page",
+      };
+    const site = hostOf(v.canonicalHost);
+    return {
+      tag: "measured",
+      figures: [
+        { label: "Errors", value: count(v.issues.error), sub: v.issues.error ? "faults with an owner" : "none found" },
+        { label: "Warnings", value: count(v.issues.warning), sub: `${count(v.issues.notice)} notice${v.issues.notice === 1 ? "" : "s"}` },
+        { label: "Pages", value: count(v.pages), sub: "reached by the crawl" },
+        { label: "Crawled", value: ago(v.ts), sub: dayShort(v.ts.slice(0, 10)) },
+      ],
+      rows: [
+        ["HTTPS", httpsWord(v.https)],
+        ["Sitemap", v.sitemap ? tailOf(v.sitemap) : "none found at any address tried"],
+        /* A MISSING robots.txt IS NOT A CLOSED SITE — the audit's own note. */
+        ["robots.txt", v.robots === null ? "not established" : v.robots ? "answered" : "none — everything allowed"],
+        ["Answered at", site ?? "nothing answered"],
+      ] as [string, string][],
+      caption: also(
+        "the crawl's counts, never a score · three errors over four pages is not three over forty",
+        "the page-by-page list is the crawl itself, on the venture's SEO page",
+      ),
+    };
+  },
+
+  "authority.project": ({ seo, project }: LiveInputs) => {
+    const hosts = seo?.authority?.hosts;
+    if (!project || !hosts?.length) return null;
+    const rows: [string, string][] = [];
+    for (const h of hosts) {
+      const who = hosts.length > 1 ? h.host : "";
+      rows.push([also("Estimate", who), h.estimate === null ? "nothing could be read — not a low score" : `${Math.round(h.estimate)} of 100, this box's own`]);
+      rows.push([
+        also("Aim under difficulty", who),
+        h.ceiling !== null ? `KD ${h.ceiling} at most` : h.estimate === null ? DASH : "no ceiling — not the constraint at this size",
+      ]);
+      rows.push([also("Basis", who), h.basis.length ? h.basis.join(" + ") : "nothing could be read"]);
+      if (h.missing.length) rows.push([also("Not read", who), h.missing.join(", ")]);
+      rows.push([
+        also("Referring domains", who),
+        h.links.referringDomains === null ? DASH : also(count(h.links.referringDomains), h.links.from ? `from ${h.links.from}` : ""),
+      ]);
+    }
+    rows.push(["Not a Domain Rating", "nor any vendor's score — see the route's own label"]);
+    return { tag: "est.", rows };
+  },
+
+  "indexing.project": ({ seo, project }: LiveInputs) => {
+    const I = seo?.indexing;
+    if (!project || !I?.hosts.length) return null;
+    const rows: [string, string][] = [];
+    for (const h of I.hosts) {
+      const who = I.hosts.length > 1 ? h.host : "";
+      if (!h.submissions) {
+        rows.push([also("Submitted", who), "nothing yet — submit from the venture's Growth page"]);
+        continue;
+      }
+      rows.push([also("Submitted", who), `${count(h.submissions)} · ${count(h.received)} received`]);
+      if (h.refused) rows.push([also("Refused by IndexNow", who), count(h.refused)]);
+      /* A DRY RUN IS THIS BOX'S OWN NO — the key file was not hosted. */
+      if (h.dryRun) rows.push([also("Held here", who), `${count(h.dryRun)} — key file missing`]);
+      if (h.last) rows.push([also("Last", who), `${h.last.outcome} · ${dayShort(h.last.at.slice(0, 10))}`]);
+    }
+    rows.push(["Auto-submit", I.autoSubmit ? "on" : "off"]);
+    /* THE PROTOCOL'S OWN LIMIT: a receipt is not a crawl, and Google is
+       told nothing by any of this. */
+    rows.push(["Google", "not told — it never joined IndexNow"]);
+    return { rows };
+  },
+
+  "seoops.project": ({ seo, project }: LiveInputs) => {
+    const F = seo?.followups;
+    if (!project || !F) return null;
+    if (!F.baselines.length)
+      return {
+        rows: [
+          ["Nothing tracked for this venture", `finish a board card tagged ${F.schedule.tag} naming one of its URLs`],
+          ["Then", `readings ${F.schedule.offsetsDays.join(", ")} days after, over ${F.schedule.windowDays}d windows`],
+        ] as [string, string][],
+      };
+    const VERDICT: Record<string, string> = {
+      up: "up",
+      down: "down",
+      flat: "flat",
+      thin: "too thin to judge",
+      unmeasured: "not measurable",
+    };
+    const rows: [string, string][] = F.baselines.slice(0, 8).map((b) => {
+      const last = b.diagnoses.at(-1);
+      if (!last) {
+        const next = b.due.find((d) => !d.overdue) ?? b.due[0];
+        return [tailOf(b.url), next ? `${next.dayOffset}d reading due ${dayShort(next.dueAt.slice(0, 10))}` : "no reading due"];
+      }
+      const d = last.delta;
+      const moved =
+        d && d.clicks !== null && d.impressions !== null
+          ? `${d.clicks >= 0 ? "+" : ""}${count(d.clicks)} clicks · ${d.impressions >= 0 ? "+" : ""}${count(d.impressions)} impr`
+          : "";
+      return [tailOf(b.url), also(`${VERDICT[last.verdict] ?? last.verdict} at ${last.dayOffset}d`, moved)];
+    });
+    if (F.baselines.length > rows.length) rows.push([`+${F.baselines.length - rows.length} more`, "tracked"]);
+    rows.push(["Verdicts are arithmetic", "correlation, not cause"]);
+    return { tag: "measured", rows };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
