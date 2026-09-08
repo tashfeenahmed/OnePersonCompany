@@ -1,6 +1,7 @@
 import { sidebarPins, togglePin, reorderPins, type SidebarPin } from "../../../shared/sidebarPins";
 import { isWorkspacePreferences } from "../../../shared/workspace";
 import { isPaletteId, type PaletteId } from "./palettes";
+import { DEFAULT_WINDOW, isWindowValue, type WindowValue } from "@/lib/window";
 import { useWorkspaceSync, saveRecovery, preferences } from "./workspaceSync";
 import {
   createContext,
@@ -214,6 +215,19 @@ export type StoreState = {
    * every browser they open it in.
    */
   palette?: PaletteId;
+  /**
+   * THE WINDOW EVERY DASHBOARD PAGE IS DRAWN OVER — 7, 30, 90 days or "all".
+   * Optional and absent on an older state, where absent means a month, which
+   * is what most routes answered before there was a picker (see lib/window).
+   *
+   * IN THE STORE AND NOT IN THE URL, unlike which board is open. A board's
+   * address is a fact about one place; the window is how the owner reads
+   * every board and every report tab, and it rides the workspace preferences
+   * to every browser for the reason the palette does. One value for the
+   * whole Dashboards area rather than one per board, because the point of it
+   * is that two cards on two boards can be read against each other.
+   */
+  dashboardWindow?: WindowValue;
 };
 
 export const VENTURE_COLORS = [
@@ -1230,6 +1244,13 @@ function migrate(state: StoreState): StoreState {
     ? state.ventures
     : revived;
 
+  /* Repair: a window the picker cannot draw — a hand-edited export, a value
+     from a build that offered a different set — is dropped back to the
+     default rather than carried into every fetch on every board. Ungated by
+     `seedVersion` for the same reason the slug repair below is. */
+  if (state.dashboardWindow !== undefined && !isWindowValue(state.dashboardWindow))
+    state = { ...state, dashboardWindow: undefined };
+
   // Repair: an address for every board, unique across the set. Existing slugs
   // are claimed first so a board that already has one keeps it.
   if (dashboards.some((d) => !d.slug)) {
@@ -1655,6 +1676,9 @@ type StoreApi = {
   /** The chrome's palette. An unknown id clears it back to the default rather
    *  than storing a name nothing can draw. */
   setPalette: (id: PaletteId) => void;
+  /** The window every dashboard page is drawn over. A value the picker cannot
+   *  draw clears it back to the default rather than being stored. */
+  setDashboardWindow: (w: WindowValue) => void;
   setWidgets: (dashboardId: string, widgets: PlacedWidget[]) => void;
   setWorkspace: (patch: Partial<Workspace>) => void;
   togglePinned: (pin: SidebarPin) => void;
@@ -2028,6 +2052,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       setPalette(id) {
         setState((s) => ({ ...s, palette: isPaletteId(id) ? id : undefined }));
+      },
+
+      setDashboardWindow(w) {
+        setState((s) => ({
+          ...s,
+          dashboardWindow: isWindowValue(w) && w !== DEFAULT_WINDOW ? w : undefined,
+        }));
       },
 
       togglePinned(pin) {

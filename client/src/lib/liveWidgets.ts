@@ -66,7 +66,10 @@ import { drift, failRate, planSplit, splitLeaving, sumMonthly, worthALook } from
    to join the widget catalog to its builders, and node resolves the specifier
    itself with no bundler and no tsconfig paths in front of it. Everything else
    this file imports is a type and is stripped; this one is real code. */
-import { DASH, ago, bytes, compact, count, duration, inDays, money, pct } from "./format.ts";
+import { DASH, ago, bytes, compact, count, day, duration, inDays, money, pct } from "./format.ts";
+/* The same relative-with-extension rule as `./format.ts` above: the window
+   labels are real code and the catalog check runs this file under bare node. */
+import { windowLabel, type WindowValue } from "./window.ts";
 
 /**
  * How each live widget turns collected data into the shape its card draws.
@@ -80,6 +83,18 @@ import { DASH, ago, bytes, compact, count, duration, inDays, money, pct } from "
  */
 
 export type LiveInputs = {
+  /**
+   * THE WINDOW THE PICKER ASKED FOR — 7, 30, 90 or "all" — see lib/window.
+   * Every document below was fetched over it, so most builders never read
+   * this: they caption from the document's own `window.days`, which is what
+   * the route actually answered. The ones that do read it are the ones where
+   * that would mislead — a route that clamped ("all" over Cloudflare is the
+   * ninety days it keeps), a figure that is the source's own fixed window
+   * (Umami's thirty complete days), or a rate that has no all-time reading
+   * (churn). Optional the way `mobile` is, so a caller that has not been
+   * taught to pass it draws the month it always drew.
+   */
+  window?: WindowValue;
   points: { ts: string; value: number }[];
   summary: HetznerSummary | null;
   fleet: HetznerServer[];
@@ -322,6 +337,40 @@ function across(n: number | undefined): string {
 
 /** Two clauses joined only if both exist, so nothing ever reads " · ". */
 const also = (a: string, b: string) => [a, b].filter(Boolean).join(" · ");
+
+/**
+ * "30 days", or what was ACTUALLY held when that is the smaller truth.
+ *
+ * `asked` is the route's own `window.days` — what it clamped the request
+ * to; `landed` is how many days of record came back inside it. Under "all"
+ * the honest span is the landed one, named as everything the keeper holds,
+ * because "all time" over thirty days of Cloudflare rollups is thirty days.
+ * Under a number the two usually agree; where they do not — ninety asked of
+ * a source that started collecting in July — the card says so rather than
+ * captioning a fortnight "90 days".
+ */
+function heldDays(w: WindowValue | undefined, asked: number, landed: number, keeper: string): string {
+  if (w === "all") return `${count(landed)} days — everything ${keeper} holds`;
+  if (landed < asked) return `${count(landed)} of ${asked} days held by ${keeper}`;
+  return `${asked} days`;
+}
+
+/** Whether the picker is on a span this source cannot move to. */
+const isAll = (w: WindowValue | undefined) => w === "all";
+
+/** "30 days", or under "all" what the cost ledgers hold — the route caps at
+ *  four hundred days and each provider's export goes back as far as it does,
+ *  so the honest span is the charged days the OpenAI rows actually cover. */
+const costDays = (C: CostsReport, w: WindowValue | undefined) =>
+  w === "all" ? `${count(C.openai.days.length)} charged days — everything the exports hold` : `${C.window.days} days`;
+
+/** "7 complete days", or under "all" the complete days Cloudflare's rollups
+ *  actually cover on this box — the route caps at ninety and the collector
+ *  started in August, so "all time" here is a number of weeks and says so. */
+const cfDays = (C: CloudflareReport, w: WindowValue | undefined) =>
+  w === "all" || C.window.collectedDays < C.window.days
+    ? `${heldDays(w, C.window.days, C.window.collectedDays, "Cloudflare")}`.replace(" days", " complete days")
+    : `${C.window.days} complete days`;
 
 function age(iso: string | null): string {
   const m = months(iso);
@@ -1047,6 +1096,13 @@ Object.assign(LIVE_BUILDERS, {
  *  moment of the day they are drawn at. */
 const at = (day: string) => `${day}T00:00:00Z`;
 
+/** The tail of a daily download line the picker asks for, summed, with how
+ *  many days were actually there to sum. "all" is the whole line. */
+function sliceDays(line: { day: string; downloads: number }[], w: WindowValue | undefined) {
+  const tail = w === "all" || w === undefined ? line : line.slice(-w);
+  return { sum: tail.reduce((n, d) => n + d.downloads, 0), days: tail.length };
+}
+
 /** "owner/name" → "name" when the owner is the account itself, because a
  *  column of the account's own name repeated as a prefix says nothing. The
  *  org-owned rows keep their prefix, which is the case where it means
@@ -1328,13 +1384,22 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "npm.last30": ({ npm: npmDoc }: LiveInputs) => {
+  "npm.last30": ({ npm: npmDoc, window: W }: LiveInputs) => {
     const s = npmDoc?.summary;
     if (!s || !s.configured) return null;
+    /*
+      THE ROUTE TAKES NO WINDOW, SO THE CARD CUTS THE LINE ITSELF. npm's route
+      holds a daily line as far back as it has been collected and publishes a
+      rolling thirty off it; any other span is the same sum over a different
+      tail, and downloads add across days. Where the line is shorter than the
+      ask the card says how many days it really summed.
+    */
+    const cut = sliceDays(npmDoc!.days, W);
     return {
-      value: count(s.last30),
+      value: count(W === undefined || W === 30 ? s.last30 : cut.sum),
       sub: also(
-        `${s.answering} of ${s.configured} package${s.configured === 1 ? "" : "s"}`,
+        `${s.answering} of ${s.configured} package${s.configured === 1 ? "" : "s"}` +
+          (W !== undefined && W !== 30 ? ` · ${heldDays(W, W === "all" ? cut.days : W, cut.days, "the npm line")}` : ""),
         s.failing ? `${s.failing} not answering` : "",
       ),
     };
@@ -1372,15 +1437,15 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "npm.table": ({ npm: npmDoc }: LiveInputs) => {
+  "npm.table": ({ npm: npmDoc, window: W }: LiveInputs) => {
     const packages = npmDoc?.packages ?? [];
     if (!packages.length) return null;
     return {
-      headers: ["Package", "Last full week", "30d", "Held", "State"],
+      headers: ["Package", "Last full week", windowLabel(W ?? 30), "Held", "State"],
       table: packages.map((p) => [
         p.package,
         p.lastCompleteWeek ? count(p.lastCompleteWeek.downloads) : "—",
-        count(p.days.slice(-30).reduce((n, d) => n + d.downloads, 0)),
+        count(sliceDays(p.days, W ?? 30).sum),
         `${p.days.length}d`,
         // A package npm would not answer for keeps the figures it already has
         // and says why they stopped moving, rather than reading as a quiet week.
@@ -1502,7 +1567,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "openai.projects": ({ costs: COSTS }: LiveInputs) => {
+  "openai.projects": ({ costs: COSTS, window: W }: LiveInputs) => {
     const o = COSTS?.openai;
     if (!o?.projects.length) return null;
     const rows: [string, string][] = o.projects.map((p) => [p.name, usd(p.usd)]);
@@ -1511,7 +1576,7 @@ Object.assign(LIVE_BUILDERS, {
       one thing this API's grouping buys: the two cards agree to the cent by
       construction rather than by both being right.
     */
-    rows.push([`Total, ${COSTS!.window.days} days`, usd(o.usd ?? 0)]);
+    rows.push([`Total, ${heldDays(W, COSTS!.window.days, o.days.length, "OpenAI's usage export")}`, usd(o.usd ?? 0)]);
     return { rows };
   },
 
@@ -1571,7 +1636,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "openrouter.models": ({ costs: COSTS }: LiveInputs) => {
+  "openrouter.models": ({ costs: COSTS, window: W }: LiveInputs) => {
     const a = COSTS?.openrouter.activity;
     if (!a?.models.length) return null;
     // Half a cent, not zero: a model that cost $0.0004 draws a bar nobody can
@@ -1596,7 +1661,7 @@ Object.assign(LIVE_BUILDERS, {
         mark: m.model,
       })),
       caption:
-        `${COSTS!.window.days} days · biggest first` +
+        `${costDays(COSTS!, W)} · biggest first` +
         (priced > top.length ? ` · top ${top.length} of ${priced} priced models` : "") +
         ` · ${count(a.requests)} requests in all`,
     };
@@ -1699,7 +1764,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "replicate.models": ({ costs: COSTS }: LiveInputs) => {
+  "replicate.models": ({ costs: COSTS, window: W }: LiveInputs) => {
     const r = COSTS?.replicate;
     if (!r?.models.length) return null;
     const top = r.models.slice(0, 8);
@@ -1713,7 +1778,7 @@ Object.assign(LIVE_BUILDERS, {
           (m.failed ? ` · ${count(m.failed)} failed` : ""),
       })),
       caption:
-        `${COSTS!.window.days} days · predict time, biggest first` +
+        `${costDays(COSTS!, W)} · predict time, biggest first` +
         (r.models.length > top.length ? ` · top ${top.length} of ${r.models.length} models` : "") +
         " · Replicate publishes no rate, so no cost follows",
     };
@@ -1776,7 +1841,7 @@ Object.assign(LIVE_BUILDERS, {
 
   /* ------------------------------------------------------------ costs */
 
-  "costs.llm": ({ costs: COSTS }: LiveInputs) => {
+  "costs.llm": ({ costs: COSTS, window: W }: LiveInputs) => {
     if (!COSTS) return null;
     /*
       TWO PROVIDERS ADDED, AND THE THIRD NAMED FOR ITS ABSENCE. OpenAI and
@@ -1795,11 +1860,16 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: usd(parts.reduce((n, p) => n + p.usd, 0)),
       tag: "metered",
-      sub: `${parts.map((p) => p.name).join(" + ")} · Replicate is not in this: it reports no spend`,
+      /* Under "all" the name says "all time" and the span that actually
+         backs it — the charged days the exports hold — is said here. */
+      sub: also(
+        `${parts.map((p) => p.name).join(" + ")} · Replicate is not in this: it reports no spend`,
+        isAll(W) ? costDays(COSTS, W) : "",
+      ),
     };
   },
 
-  "costs.byProvider": ({ costs: COSTS }: LiveInputs) => {
+  "costs.byProvider": ({ costs: COSTS, window: W }: LiveInputs) => {
     if (!COSTS) return null;
     const parts: { name: string; usd: number }[] = [];
     if (COSTS.openai.usd !== null)
@@ -1832,14 +1902,14 @@ Object.assign(LIVE_BUILDERS, {
         text: usd(p.usd),
         sub: detail[p.name],
       })),
-      center: { value: usd(total, total >= 100 ? 0 : 2), note: `per ${COSTS.window.days} days` },
+      center: { value: usd(total, total >= 100 ? 0 : 2), note: isAll(W) ? "all time collected" : `per ${COSTS.window.days} days` },
       caption:
         "USD only — Hetzner bills in euro and is on its own card" +
         (COSTS.replicate.connected ? " · Replicate reports no spend" : ""),
     };
   },
 
-  "costs.sideBySide": ({ summary, costs: COSTS }: LiveInputs) => {
+  "costs.sideBySide": ({ summary, costs: COSTS, window: W }: LiveInputs) => {
     if (!COSTS) return null;
     /*
       THE CARD THE CURRENCY PROBLEM PRODUCED.
@@ -1864,12 +1934,12 @@ Object.assign(LIVE_BUILDERS, {
       llm.push({ name: "OpenRouter", usd: COSTS.openrouter.activity.usd });
     if (llm.length)
       rows.push([
-        `${llm.length > 1 ? "LLM APIs" : llm[0]!.name} · ${COSTS.window.days} days`,
+        `${llm.length > 1 ? "LLM APIs" : llm[0]!.name} · ${costDays(COSTS, W)}`,
         usd(llm.reduce((n, p) => n + p.usd, 0)),
       ]);
     if (COSTS.replicate.runs)
       rows.push([
-        `Media · Replicate, ${COSTS.window.days} days`,
+        `Media · Replicate, ${costDays(COSTS, W)}`,
         "no price published",
       ]);
     if (summary)
@@ -2530,6 +2600,11 @@ const inCurrency = (n: number, currency: string, dp = 2) =>
 const churnRow = (s: StripeReport | null | undefined, days: number) =>
   s?.churn.find((r) => r.days === days) ?? null;
 
+/** Which of the route's three churn windows the picker lands on. The three
+ *  ARE the picker's numbers; "all" takes the widest, because a rate over the
+ *  whole record divides by a book that did not exist yet. */
+const churnDays = (w: WindowValue | undefined) => (w === "all" ? 90 : w === 7 || w === 90 ? w : 30);
+
 Object.assign(LIVE_BUILDERS, {
   /* ------------------------------------------------------------- stripe */
 
@@ -2572,9 +2647,15 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "stripe.net30": ({ points, stripe: S }: LiveInputs) => {
+  "stripe.net30": ({ points, stripe: S, window: W }: LiveInputs) => {
     const r = firstCurrency(S?.revenue);
     if (!r) return null;
+    /* Under "all" the route measured the span itself, from the earliest day
+       the history walk has filled — so the card names that day rather than a
+       count of days nobody can check. */
+    /* With the year: the walk reaches 2021, and "since 30 Oct" reads as this
+       year's. */
+    const since = isAll(W) && S?.history.from ? `since ${day(S.history.from, { year: true })}` : "";
     /*
       THE LEDGER'S NET AND NOTHING ELSE. Gross minus refunds, disputes and
       everything Stripe held back, off the balance ledger — never the charge
@@ -2584,7 +2665,10 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: inCurrency(r.net, r.currency, 0),
       sub: also(
-        `after ${inCurrency(r.fees, r.currency, 0)} of Stripe's fees, refunds and disputes · sales tax withheld is counted apart`,
+        also(
+          `after ${inCurrency(r.fees, r.currency, 0)} of Stripe's fees, refunds and disputes · sales tax withheld is counted apart`,
+          since,
+        ),
         across(S?.accounts.length),
       ),
       series: points.length > 1 ? points.map((p) => p.value) : undefined,
@@ -2618,8 +2702,16 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "stripe.churn": ({ stripe: S }: LiveInputs) => {
-    const c = churnRow(S, 30);
+  "stripe.churn": ({ stripe: S, window: W }: LiveInputs) => {
+    /*
+      CHURN HAS NO ALL-TIME READING. It is MRR lost over the book a window
+      OPENED with, and a window that opens at the beginning of the record
+      opens with an empty book. The route cuts it at seven, thirty and ninety
+      days; the picker's number is one of those, and "all" is drawn over the
+      widest — with the name saying ninety, not "all time".
+    */
+    const days = churnDays(W);
+    const c = churnRow(S, days);
     if (!c || c.ratePct === null) return null;
     /*
       THE DENOMINATOR IS ON THE CARD, because there are four defensible ones
@@ -2639,20 +2731,25 @@ Object.assign(LIVE_BUILDERS, {
     */
     const alsoLost = c.churnedMrr - c.churnedFromStartMrr;
     return {
+      ...(isAll(W) ? { name: `Revenue churn · ${days}d` } : {}),
       value: `${c.ratePct.toFixed(1)}%`,
       tone: c.ratePct >= 5 ? ("warn" as StatusTone) : ("ok" as StatusTone),
       sub: also(
-        `${inCurrency(c.churnedFromStartMrr, c.currency, 0)} lost of a ` +
-          `${inCurrency(c.startBookMrr, c.currency, 0)} starting book, reconstructed`,
-        alsoLost > 0.005
-          ? `${inCurrency(alsoLost, c.currency, 0)} more started and ended inside the window`
-          : "",
+        also(
+          `${inCurrency(c.churnedFromStartMrr, c.currency, 0)} lost of a ` +
+            `${inCurrency(c.startBookMrr, c.currency, 0)} starting book, reconstructed`,
+          alsoLost > 0.005
+            ? `${inCurrency(alsoLost, c.currency, 0)} more started and ended inside the window`
+            : "",
+        ),
+        isAll(W) ? "a rate, so it has no all-time reading — this is the widest window" : "",
       ),
     };
   },
 
-  "stripe.churnNotChurn": ({ stripe: S }: LiveInputs) => {
-    const c = churnRow(S, 90);
+  "stripe.churnNotChurn": ({ stripe: S, window: W }: LiveInputs) => {
+    const days = churnDays(W);
+    const c = churnRow(S, days);
     if (!c) return null;
     /*
       THE CARD THAT KEEPS THE CHURN FIGURE HONEST. Of this account's dead
@@ -2688,7 +2785,7 @@ Object.assign(LIVE_BUILDERS, {
         "Not yet checked for a payment",
         `${count(S.subscriptions.unresolvedCancellations)} · counted as real churn until they are`,
       ]);
-    return { rows };
+    return { ...(isAll(W) ? { name: `What is not churn · ${days}d` } : {}), rows };
   },
 
   "stripe.payouts": ({ points, stripe: S }: LiveInputs) => {
@@ -2718,9 +2815,10 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "stripe.gross": ({ stripe: S }: LiveInputs) => {
+  "stripe.gross": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     if (!c?.series.length) return null;
+    const span = isAll(W) && S?.history.from ? `since ${day(S.history.from, { year: true })}` : `over ${c.days} days`;
     return {
       chart: [
         {
@@ -2736,7 +2834,7 @@ Object.assign(LIVE_BUILDERS, {
         account sells $3,000 research studies beside a $19 subscription.
       */
       caption:
-        `succeeded charges over ${c.days} days · one-off payments included, so this is ` +
+        `succeeded charges ${span} · one-off payments included, so this is ` +
         `not MRR · refunds are not deducted here`,
     };
   },
@@ -2820,7 +2918,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "stripe.declines": ({ stripe: S }: LiveInputs) => {
+  "stripe.declines": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     if (!c) return null;
     /*
@@ -2844,7 +2942,7 @@ Object.assign(LIVE_BUILDERS, {
     ];
     if (c.refunds)
       rows.push([
-        `Refunds, ${c.days}d`,
+        `Refunds, ${isAll(W) ? "all time" : `${c.days}d`}`,
         `${count(c.refunds)} · ${inCurrency(c.refunded, c.currency)}`,
       ]);
     return { rows };
@@ -2902,7 +3000,7 @@ Object.assign(LIVE_BUILDERS, {
 
   /* ------------------------------------------------------------ adsense */
 
-  "adsense.earnings": ({ adsense: A }: LiveInputs) => {
+  "adsense.earnings": ({ adsense: A, window: W }: LiveInputs) => {
     /*
       NULL UNTIL SOMEBODY GRANTS CONSENT, which is the whole point. `earnings`
       is null in every state but `authorised` — no rows and no successful
@@ -2923,7 +3021,7 @@ Object.assign(LIVE_BUILDERS, {
       value: inCurrency(A.earnings, currency, A.earnings < 10 ? 2 : 0),
       sub: also(
         also(
-          `${count(A.sites.length)} site${A.sites.length === 1 ? "" : "s"} · ${A.window.days} days`,
+          `${count(A.sites.length)} site${A.sites.length === 1 ? "" : "s"} · ${heldDays(W, A.window.days, A.days.length, "AdSense")}`,
           "estimated — Google revises recent days",
         ),
         across(A.accounts.length),
@@ -2933,7 +3031,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "adsense.rpm": ({ adsense: A }: LiveInputs) => {
+  "adsense.rpm": ({ adsense: A, window: W }: LiveInputs) => {
     if (A?.state !== "authorised") return null;
     const sites = A.sites.filter((s) => s.rpm !== null).slice(0, 8);
     if (!sites.length) return null;
@@ -2946,10 +3044,10 @@ Object.assign(LIVE_BUILDERS, {
     */
     return {
       bars: sites.map((s) => s.rpm!),
-      labels: `${sites.length} site${sites.length === 1 ? "" : "s"} · earnings per thousand impressions, ${A.window.days} days`,
+      labels: `${sites.length} site${sites.length === 1 ? "" : "s"} · earnings per thousand impressions, ${heldDays(W, A.window.days, A.days.length, "AdSense")}`,
       barLabels: sites.map(
         (s) =>
-          `${s.site} · ${inCurrency(s.rpm!, A.currency ?? "USD")} RPM · ${inCurrency(s.usd, A.currency ?? "USD")} over ${A.window.days} days`,
+          `${s.site} · ${inCurrency(s.rpm!, A.currency ?? "USD")} RPM · ${inCurrency(s.usd, A.currency ?? "USD")} over ${isAll(W) ? `${A.days.length} days` : `${A.window.days} days`}`,
       ),
     };
   },
@@ -3020,7 +3118,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "cf.total": ({ cloudflare: C }: LiveInputs) => {
+  "cf.total": ({ cloudflare: C, window: W }: LiveInputs) => {
     if (!C || !C.summary.withTraffic) return null;
     /* The sparkline is the window's own complete days — today is in the
        document and deliberately not on the line, because a bucket Cloudflare
@@ -3030,7 +3128,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: compact(C.summary.requests),
       sub: also(
-        `${C.summary.withTraffic} zone${C.summary.withTraffic === 1 ? "" : "s"} · ${C.window.days} complete days to ${dayShort(C.window.through)}`,
+        `${C.summary.withTraffic} zone${C.summary.withTraffic === 1 ? "" : "s"} · ${cfDays(C, W)} to ${dayShort(C.window.through)}`,
         blind ? `${blind} not measured` : "",
       ),
       series: done.length > 1 ? done.map((d) => d.requests) : undefined,
@@ -3038,7 +3136,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "cf.requests": ({ cloudflare: C }: LiveInputs) => {
+  "cf.requests": ({ cloudflare: C, window: W }: LiveInputs) => {
     const measured = (C?.zones ?? []).filter((z) => z.traffic);
     if (!measured.length) return null;
     const top = [...measured]
@@ -3049,7 +3147,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       bars: top.map((z) => z.traffic!.requests),
       labels: also(
-        `top ${top.length} of ${measured.length} zones · ${C!.window.days} complete days`,
+        `top ${top.length} of ${measured.length} zones · ${cfDays(C!, W)}`,
         blind ? `${blind} without analytics` : rest ? `${rest} smaller` : "",
       ),
       barLabels: top.map(
@@ -3112,15 +3210,15 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "cf.bandwidth": ({ cloudflare: C }: LiveInputs) => {
+  "cf.bandwidth": ({ cloudflare: C, window: W }: LiveInputs) => {
     if (!C || !C.summary.withTraffic) return null;
     return {
       value: bytes(C.summary.bytes, { base: 1000 }),
-      sub: `served from the edge over ${C.window.days} complete days, ${C.summary.withTraffic} zones`,
+      sub: `served from the edge over ${cfDays(C, W)}, ${C.summary.withTraffic} zones`,
     };
   },
 
-  "cf.threats": ({ cloudflare: C }: LiveInputs) => {
+  "cf.threats": ({ cloudflare: C, window: W }: LiveInputs) => {
     /* Null when any zone's window came back from a field set that could not ask
        for threats: an undercount presented as a count is worse than a sample. */
     if (!C || C.summary.threats === null) return null;
@@ -3130,23 +3228,23 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: count(C.summary.threats),
       sub: also(
-        `Cloudflare's own count over ${C.window.days} complete days`,
+        `Cloudflare's own count over ${cfDays(C, W)}`,
         share === null ? "" : `${percent(share, 2)} of requests`,
       ),
     };
   },
 
-  "cf.cacheRatio": ({ cloudflare: C }: LiveInputs) => {
+  "cf.cacheRatio": ({ cloudflare: C, window: W }: LiveInputs) => {
     /* A ratio over zero requests is unknowable rather than 0%, which is why
        this returns null instead of drawing a confident nothing. */
     if (!C || C.summary.cacheRatio === null) return null;
     return {
       value: pct(C.summary.cacheRatio),
-      sub: `${count(C.summary.cached)} of ${count(C.summary.requests)} requests answered at the edge · ${C.summary.proxied ?? "—"} of ${C.summary.records ?? "—"} records are proxied`,
+      sub: `${count(C.summary.cached)} of ${count(C.summary.requests)} requests answered at the edge over ${cfDays(C, W)} · ${C.summary.proxied ?? "—"} of ${C.summary.records ?? "—"} records are proxied`,
     };
   },
 
-  "cf.responses": ({ cloudflare: C }: LiveInputs) => {
+  "cf.responses": ({ cloudflare: C, window: W }: LiveInputs) => {
     const measured = (C?.zones ?? []).filter((z) => z.traffic);
     if (!measured.length) return null;
     /* One null anywhere makes the whole split unknown. A 5xx count that quietly
@@ -3172,9 +3270,10 @@ Object.assign(LIVE_BUILDERS, {
     if (!all) return null;
     return {
       bars: totals,
-      labels: classes
-        .map(([name], i) => `${name} ${pct(totals[i]! / all, { digits: 0 })}`)
-        .join(" · "),
+      labels: also(
+        classes.map(([name], i) => `${name} ${pct(totals[i]! / all, { digits: 0 })}`).join(" · "),
+        cfDays(C!, W),
+      ),
       barLabels: classes.map(
         ([name], i) => `${name} · ${count(totals[i]!)} responses · ${pct(totals[i]! / all)}`,
       ),
@@ -4466,7 +4565,7 @@ Object.assign(LIVE_BUILDERS, {
     say so in the place the number would be rather than carrying a zero that
     would rank them below every story forever.
   */
-  "hn.mentions": ({ demand: D }: LiveInputs) => {
+  "hn.mentions": ({ demand: D, window: W }: LiveInputs) => {
     if (!D?.hn.seenAt) return null;
     const rows: [string, string][] = D.hn.signals
       .slice()
@@ -4478,7 +4577,7 @@ Object.assign(LIVE_BUILDERS, {
       ]);
     if (!rows.length)
       rows.push([
-        `Nothing in ${D.windowDays} days for ${D.terms.length} phrase${
+        `Nothing in ${isAll(W) ? `the ${D.windowDays} days the route holds` : `${D.windowDays} days`} for ${D.terms.length} phrase${
           D.terms.length === 1 ? "" : "s"
         }`,
         "asked and answered",
@@ -4797,14 +4896,14 @@ Object.assign(LIVE_BUILDERS, {
     days of sent mail and every contact in the window is new against it; the
     caption states the span rather than letting the figure imply a lifetime.
   */
-  "gmail.contacts": ({ mail: M }: LiveInputs) => {
+  "gmail.contacts": ({ mail: M, window: W }: LiveInputs) => {
     if (!M?.connected.gmail) return null;
     const { people, new: fresh, historyFrom, windowDays } = M.outreach;
     if (!M.mailboxes.length) return null;
     return {
       value: count(people),
       sub: also(
-        `${count(fresh)} first written to in these ${windowDays}d`,
+        `${count(fresh)} first written to in ${isAll(W) ? `the ${windowDays}d the route holds` : `these ${windowDays}d`}`,
         historyFrom
           ? `judged against sent mail back to ${shortDay(historyFrom)}`
           : "no sent-mail history yet",
@@ -5173,10 +5272,64 @@ function mergedTop(
     .map((r) => [r.label, count(r.count)] as [string, string]);
 }
 
+/** The last N complete days of a daily line, and the N before them where
+ *  the line holds them. Today is dropped: the line is in the instance's
+ *  timezone and its last bucket may still be filling. `null` when the line
+ *  is too short to say anything. */
+function umamiCut(
+  line: { day: string; pageviews: number; sessions: number }[],
+  w: WindowValue | undefined,
+): { now: typeof line; before: typeof line | null } | null {
+  const today = new Date().toISOString().slice(0, 10);
+  const complete = line.filter((d) => d.day < today);
+  if (!complete.length) return null;
+  if (w === "all" || w === undefined) return { now: complete, before: null };
+  const now = complete.slice(-w);
+  const before = complete.length >= 2 * w ? complete.slice(-2 * w, -w) : null;
+  return { now, before };
+}
+
+/** A percentage change over a sum, or null over nothing. */
+const delta = (now: number, before: number) =>
+  before > 0 ? Number((((now - before) / before) * 100).toFixed(1)) : null;
+
+/** The clause a fixed-window Umami figure wears when the picker is elsewhere. */
+const umamiFixed = (days: number, w: WindowValue | undefined) =>
+  w === undefined || w === days ? "" : `Umami's own ${days} complete days — the picker does not move this one`;
+
 Object.assign(LIVE_BUILDERS, {
-  "umami.pageviews": ({ umami: U }: LiveInputs) => {
+  "umami.pageviews": ({ umami: U, window: W }: LiveInputs) => {
     const p = U?.portfolio;
     if (!p?.answering || p.window.pageviews === null) return null;
+    /*
+      THE HEADLINE FOLLOWS THE PICKER OFF THE DAILY LINE. The route's own
+      window is the collector's thirty complete days, whatever `days` it was
+      asked; the line beside it is up to ninety days and pageviews ADD across
+      days, so any other span is a sum over the line — the last N complete
+      days against the N before them where the line holds both. At thirty the
+      route's figure is used as it always was. Visitors do not add and stay
+      on their own card, at Umami's window, saying so.
+    */
+    const cut = umamiCut(p.days, W);
+    if (W !== undefined && W !== p.window.days && cut) {
+      return {
+        value: count(cut.now.reduce((n, d) => n + d.pageviews, 0)),
+        sub: also(
+          also(
+            `${p.answering} of ${p.websites} site${p.websites === 1 ? "" : "s"} answering`,
+            heldDays(W, W === "all" ? cut.now.length : W, cut.now.length, "Umami's daily line"),
+          ),
+          cut.before
+            ? movedBy(
+                delta(cut.now.reduce((n, d) => n + d.pageviews, 0), cut.before.reduce((n, d) => n + d.pageviews, 0)),
+                cut.now.length,
+              )
+            : isAll(W) ? "no previous window to compare with" : "no comparable window before it",
+        ),
+        series: cut.now.length > 1 ? cut.now.map((d) => d.pageviews) : undefined,
+        seriesAt: cut.now.length > 1 ? cut.now.map((d) => at(d.day)) : undefined,
+      };
+    }
     return {
       value: count(p.window.pageviews),
       sub: also(
@@ -5200,7 +5353,7 @@ Object.assign(LIVE_BUILDERS, {
     `meta.roas` makes, for the same reason: a key a saved board points at is
     worth more than a card, and a wrong number is worth less than neither.
   */
-  "umami.visitors": ({ umami: U }: LiveInputs) => {
+  "umami.visitors": ({ umami: U, window: W }: LiveInputs) => {
     const p = U?.portfolio;
     if (!p?.answering) return null;
     const sites = p.visitors.perSite.filter((s) => s.visitors !== null);
@@ -5209,7 +5362,13 @@ Object.assign(LIVE_BUILDERS, {
       const only = sites[0]!;
       return {
         value: count(only.visitors),
-        sub: `${only.domain ?? only.entity} · de-duplicated over ${p.window.days} days`,
+        /* Visitors are de-duplicated inside Umami's own window and cannot be
+           re-cut from a daily line, so this stays at thirty whatever the
+           picker says — and says so when they disagree. */
+        sub: also(
+          `${only.domain ?? only.entity} · de-duplicated over ${p.window.days} days`,
+          umamiFixed(p.window.days, W),
+        ),
       };
     }
     const biggest = [...sites].sort((a, b) => (b.visitors ?? 0) - (a.visitors ?? 0))[0]!;
@@ -5222,23 +5381,26 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "umami.bounce": ({ umami: U }: LiveInputs) => {
+  "umami.bounce": ({ umami: U, window: W }: LiveInputs) => {
     const w = U?.portfolio.window;
     if (!w || w.bounceRate === null) return null;
     return {
       value: percent(w.bounceRate),
       /* Computed from the SUMS rather than averaged across sites: an average
          of two percentages weights four visits like four thousand. */
-      sub: `a visit with one pageview, Umami's own definition · ${count(w.bounces)} of ${count(w.visits)} visits`,
+      sub: also(
+        `a visit with one pageview, Umami's own definition · ${count(w.bounces)} of ${count(w.visits)} visits`,
+        umamiFixed(w.days, W),
+      ),
     };
   },
 
-  "umami.avgVisit": ({ umami: U }: LiveInputs) => {
+  "umami.avgVisit": ({ umami: U, window: W }: LiveInputs) => {
     const w = U?.portfolio.window;
     if (!w || w.avgVisitSeconds === null) return null;
     return {
       value: secs(w.avgVisitSeconds),
-      sub: `total time ÷ ${count(w.visits)} visits, over ${w.days} days`,
+      sub: also(`total time ÷ ${count(w.visits)} visits, over ${w.days} days`, umamiFixed(w.days, W)),
     };
   },
 
@@ -5415,15 +5577,21 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "pypi.last30": ({ pypi: P }: LiveInputs) => {
+  "pypi.last30": ({ pypi: P, window: W }: LiveInputs) => {
     const s = P?.summary;
     if (!s || !P?.days.length) return null;
+    /* The same cut `npm.last30` makes, for the same reason: the route takes
+       no window and the line is the record. */
+    const cut = sliceDays(P.days, W);
+    const thirty = W === undefined || W === 30;
     return {
-      value: count(s.last30),
+      value: count(thirty ? s.last30 : cut.sum),
       /* Rolling from the days HELD, which is not a calendar month and not
          pypistats' own `last_month` window. Saying which is the difference
          between a figure and a figure somebody can check. */
-      sub: `rolling 30 days of ${P.days.length} held · mirrors excluded`,
+      sub: thirty
+        ? `rolling 30 days of ${P.days.length} held · mirrors excluded`
+        : `${heldDays(W, W === "all" ? cut.days : W, cut.days, "the pypistats line")} · mirrors excluded`,
     };
   },
 
@@ -5447,15 +5615,15 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "pypi.packages": ({ pypi: P }: LiveInputs) => {
+  "pypi.packages": ({ pypi: P, window: W }: LiveInputs) => {
     const packages = P?.packages ?? [];
     if (!packages.length) return null;
     return {
-      headers: ["Package", "Last full week", "30d", "Version", "State"],
+      headers: ["Package", "Last full week", windowLabel(W ?? 30), "Version", "State"],
       table: packages.map((p) => [
         p.package,
         p.lastCompleteWeek ? count(p.lastCompleteWeek.downloads) : "—",
-        count(p.last30),
+        count(W === undefined || W === 30 ? p.last30 : sliceDays(p.days, W).sum),
         p.version ?? "—",
         // A package pypistats would not answer for keeps the figures it has and
         // says why they stopped moving, rather than reading as a quiet week.
@@ -6586,14 +6754,18 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "llm.window": ({ llm: L }: LiveInputs) => {
+  "llm.window": ({ llm: L, window: W }: LiveInputs) => {
     if (!L) return null;
     const unreported = L.unreported.chatTurns + L.unreported.runs;
-    if (!L.total.calls) return { value: "0", sub: `nothing reported in ${L.window.days} days` };
+    /* The ledgers are this box's own and start when it did; under "all" the
+       route caps at four hundred days and the days with anything in them are
+       the honest span. */
+    const span = heldDays(W, L.window.days, L.days.filter((d) => d.calls > 0).length, "the ledgers");
+    if (!L.total.calls) return { value: "0", sub: `nothing reported in ${span}` };
     return {
       value: compact(L.total.tokens),
       sub: also(
-        `${count(L.total.calls)} calls over ${L.window.days} days · ${compact(L.total.promptTokens)} in, ${compact(L.total.completionTokens)} out`,
+        `${count(L.total.calls)} calls over ${span} · ${compact(L.total.promptTokens)} in, ${compact(L.total.completionTokens)} out`,
         /* Named beside the total rather than folded into it as zero: a turn
            that reported nothing cost something, and this figure is short by
            exactly that much. */

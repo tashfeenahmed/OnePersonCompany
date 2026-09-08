@@ -868,8 +868,8 @@ export type LlmReport = {
 };
 
 export const reports = {
-  /** This box's own LLM use over the last thirty days. */
-  llm: () => call<LlmReport>("/llm"),
+  /** This box's own LLM use over the last `days`. */
+  llm: (days = 30) => call<LlmReport>(`/llm?days=${days}`),
   /** The last 30 complete days per website, plus up to `days` of daily line. */
   umami: (days = 90) => call<UmamiReport>(`/umami?days=${days}`),
   /** Today and the next `days`. The collector holds 7 back and 21 ahead. */

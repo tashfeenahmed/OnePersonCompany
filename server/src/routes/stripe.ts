@@ -394,7 +394,22 @@ function chargeSection(days: number, nowMs: number) {
 /* ------------------------------------------------------------------- route */
 
 stripeRoutes.get("/", (c) => {
-  const days = Math.min(Math.max(Number(c.req.query("days") ?? 30) || 30, 1), 400);
+  const asked = c.req.query("days");
+  const state = [...stripeState().values()];
+  /*
+    `days=all` IS THE LEDGER'S OWN REACH, not a bigger clamp. The daily
+    tables go back as far as the history walk has filled them — on this
+    account to 2021 — and a cap of 400 would quietly hand a reader "all
+    time" that stopped last summer. So "all" is measured from the earliest
+    `historyFrom` any account reports, and a numeric ask keeps the cap: an
+    unbounded number against an append-only table is still a way to ask for
+    the whole database by accident.
+  */
+  const historyFrom = state.map((s) => s.historyFrom).filter(Boolean).sort()[0] ?? null;
+  const days =
+    asked === "all"
+      ? Math.max(1, historyFrom ? Math.ceil((Date.now() - Date.parse(historyFrom)) / 86_400_000) + 1 : 400)
+      : Math.min(Math.max(Number(asked ?? 30) || 30, 1), 400);
   const nowMs = Date.now();
   const isConnected = connected("stripe");
   const collected = everCollected("stripe");
@@ -434,7 +449,6 @@ stripeRoutes.get("/", (c) => {
   const payouts = stripePayouts(10);
   const paid = payouts.filter((p) => p.status === "paid");
   const inFlight = payouts.filter((p) => p.status === "pending" || p.status === "in_transit");
-  const state = [...stripeState().values()];
 
   return c.json({
     window: { days },
@@ -549,7 +563,7 @@ stripeRoutes.get("/", (c) => {
       should read it here rather than infer it from a chart that starts flat.
     */
     history: {
-      from: state.map((s) => s.historyFrom).filter(Boolean).sort()[0] ?? null,
+      from: historyFrom,
       complete: state.length > 0 && state.every((s) => s.backfilled),
       rewalkDays: WALK_DAYS,
       chunkDays: HISTORY_CHUNK_DAYS,

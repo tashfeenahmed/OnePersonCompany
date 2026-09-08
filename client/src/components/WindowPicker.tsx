@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import type { WindowValue } from "@/lib/window";
 
 /**
  * "LAST N DAYS" — ONE CONTROL, ONCE.
@@ -23,8 +24,10 @@ import { cn } from "@/lib/utils";
  */
 
 /** A span, or the whole record. `"all"` exists because some records genuinely
- *  have an "everything" reading and a number cannot express it. */
-export type WindowValue = number | "all";
+ *  have an "everything" reading and a number cannot express it. The type
+ *  lives in lib/window with the labels, so the builders — which never import
+ *  a component — can name the same thing. */
+export type { WindowValue };
 
 /** Six days is "6d"; "all" is a word, because it is not a length. */
 function pillLabel(value: WindowValue): string {
@@ -32,7 +35,7 @@ function pillLabel(value: WindowValue): string {
 }
 
 function longLabel(value: WindowValue): string {
-  return value === "all" ? "everything" : `last ${value} day${value === 1 ? "" : "s"}`;
+  return value === "all" ? "all time" : `last ${value} day${value === 1 ? "" : "s"}`;
 }
 
 export function WindowPicker({

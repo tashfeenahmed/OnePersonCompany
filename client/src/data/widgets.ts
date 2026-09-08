@@ -6,6 +6,8 @@
  * generated, so a reload does not repaint the board with different numbers.
  */
 
+import type { WidgetWindow } from "../lib/window.ts";
+
 export type WidgetKind =
   | "metric"
   | "bars"
@@ -293,6 +295,14 @@ export type Widget = {
    * with the name in a one-column tile and the window is already in the name.
    */
   tag?: string;
+  /**
+   * WHICH WINDOW THE NAME CARRIES — see lib/window. `"selected"` names carry
+   * no span here and the card appends the picker's ("Net revenue · 30d");
+   * `"now"` is a level the picker does not move and the card says so. A name
+   * with a literal span in it ("Repo views · 14d") is a source's own window
+   * that cannot follow the picker, and its builder says why.
+   */
+  window?: WidgetWindow;
   /** metric */
   value?: string;
   /** Colours the reading and puts a word beside it — "watch", "act". Only for
@@ -703,24 +713,28 @@ export const WIDGETS: Record<string, Widget> = {
   "stripe.mrr": {
     src: "stripe",
     name: "MRR",
+    window: "now",
     kind: "metric",
     live: { stripe: true, metric: "stripe.mrr" },
   },
   "stripe.net30": {
     src: "stripe",
-    name: "Net revenue · 30d",
+    name: "Net revenue",
+    window: "selected",
     kind: "metric",
     live: { stripe: true, metric: "stripe.net30" },
   },
   "stripe.subs": {
     src: "stripe",
     name: "Active subscriptions",
+    window: "now",
     kind: "metric",
     live: { stripe: true, metric: "stripe.subs" },
   },
   "stripe.churn": {
     src: "stripe",
-    name: "Revenue churn · 30d",
+    name: "Revenue churn",
+    window: "selected",
     kind: "metric",
     live: { stripe: true },
     invert: true,
@@ -728,18 +742,21 @@ export const WIDGETS: Record<string, Widget> = {
   "stripe.arr": {
     src: "stripe",
     name: "ARR",
+    window: "now",
     kind: "metric",
     live: { stripe: true },
   },
   "stripe.churnNotChurn": {
     src: "stripe",
-    name: "What is not churn · 90d",
+    name: "What is not churn",
+    window: "selected",
     kind: "rows",
     live: { stripe: true },
   },
   "stripe.payouts": {
     src: "stripe",
     name: "Payout balance",
+    window: "now",
     kind: "metric",
     live: { stripe: true, metric: "stripe.balance" },
   },
@@ -752,31 +769,36 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "stripe.fees": {
     src: "stripe",
-    name: "What Stripe kept · 30d",
+    name: "What Stripe kept",
+    window: "selected",
     kind: "rows",
     live: { stripe: true },
   },
   "stripe.products": {
     src: "stripe",
     name: "MRR by product",
+    window: "now",
     kind: "bars",
     live: { stripe: true },
   },
   "stripe.pending": {
     src: "stripe",
     name: "Cancelling, still billing",
+    window: "now",
     kind: "metric",
     live: { stripe: true },
   },
   "stripe.declines": {
     src: "stripe",
-    name: "Failed payments · 30d",
+    name: "Failed payments",
+    window: "selected",
     kind: "rows",
     live: { stripe: true },
   },
   "stripe.mix": {
     src: "stripe",
     name: "Subscription mix",
+    window: "now",
     kind: "rows",
     live: { stripe: true },
   },
@@ -795,7 +817,8 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "adsense.earnings": {
     src: "adsense",
-    name: "Ad earnings · 30d",
+    name: "Ad earnings",
+    window: "selected",
     kind: "metric",
     live: { adsense: true },
   },
@@ -827,7 +850,8 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "appstore.installs": {
     src: "appstore",
-    name: "App Store downloads · 30d",
+    name: "App Store downloads",
+    window: "selected",
     kind: "metric",
     live: { mobile: true, metric: "appstore.downloads" },
   },
@@ -840,7 +864,8 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "appstore.proceeds": {
     src: "appstore",
-    name: "Estimated proceeds · 30d",
+    name: "Estimated proceeds",
+    window: "selected",
     kind: "rows",
     live: { mobile: true },
   },
@@ -853,6 +878,7 @@ export const WIDGETS: Record<string, Widget> = {
   "appstore.rating": {
     src: "appstore",
     name: "iOS rating",
+    window: "now",
     kind: "metric",
     live: { mobile: true },
   },
@@ -883,7 +909,8 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "play.installs": {
     src: "play",
-    name: "Android installs · 30d",
+    name: "Android installs",
+    window: "selected",
     kind: "metric",
     live: { mobile: true, metric: "play.installs" },
   },
@@ -915,6 +942,7 @@ export const WIDGETS: Record<string, Widget> = {
   "play.rating": {
     src: "play",
     name: "Play rating",
+    window: "now",
     kind: "metric",
     live: { mobile: true },
   },
@@ -1164,19 +1192,22 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "cf.requests": {
     src: "cf",
-    name: "Requests by zone · 7d",
+    name: "Requests by zone",
+    window: "selected",
     kind: "bars",
     live: { cloudflare: true },
   },
   "cf.dns": {
     src: "cf",
     name: "DNS drift",
+    window: "now",
     kind: "statuses",
     live: { cloudflare: true },
   },
   "cf.total": {
     src: "cf",
-    name: "Requests · 7d",
+    name: "Requests",
+    window: "selected",
     kind: "metric",
     live: { cloudflare: true },
   },
@@ -1204,31 +1235,36 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "cf.bandwidth": {
     src: "cf",
-    name: "Bandwidth served · 7d",
+    name: "Bandwidth served",
+    window: "selected",
     kind: "metric",
     live: { cloudflare: true },
   },
   "cf.threats": {
     src: "cf",
-    name: "Threats stopped · 7d",
+    name: "Threats stopped",
+    window: "selected",
     kind: "metric",
     live: { cloudflare: true },
   },
   "cf.zones": {
     src: "cf",
     name: "Zones",
+    window: "now",
     kind: "metric",
     live: { cloudflare: true },
   },
   "cf.responses": {
     src: "cf",
-    name: "Edge responses · 7d",
+    name: "Edge responses",
+    window: "selected",
     kind: "bars",
     live: { cloudflare: true },
   },
   "cf.cacheRatio": {
     src: "cf",
-    name: "Cached at the edge · 7d",
+    name: "Cached at the edge",
+    window: "selected",
     kind: "metric",
     live: { cloudflare: true },
   },
@@ -1826,7 +1862,8 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "npm.last30": {
     src: "npm",
-    name: "npm downloads · 30d",
+    name: "npm downloads",
+    window: "selected",
     kind: "metric",
     live: { npm: true },
   },
@@ -1861,14 +1898,16 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "openai.cost": {
     src: "openai",
-    name: "OpenAI spend · 30d",
+    name: "OpenAI spend",
+    window: "selected",
     kind: "metric",
     live: { costs: true, metric: "openai.spend" },
     invert: true,
   },
   "openai.daily": {
     src: "openai",
-    name: "Spend by day · 30d",
+    name: "Spend by day",
+    window: "selected",
     kind: "chart",
     live: { costs: true },
     unit: "usd",
@@ -1889,19 +1928,22 @@ export const WIDGETS: Record<string, Widget> = {
   "openrouter.credits": {
     src: "openrouter",
     name: "OpenRouter credits",
+    window: "now",
     kind: "metric",
     live: { costs: true, metric: "openrouter.balance" },
   },
   "openrouter.spend": {
     src: "openrouter",
-    name: "OpenRouter spend · 30d",
+    name: "OpenRouter spend",
+    window: "selected",
     kind: "metric",
     live: { costs: true, metric: "openrouter.spend" },
     invert: true,
   },
   "openrouter.models": {
     src: "openrouter",
-    name: "Spend by model · 30d",
+    name: "Spend by model",
+    window: "selected",
     kind: "ranked",
     live: { costs: true },
   },
@@ -1926,7 +1968,8 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "openrouter.tokens": {
     src: "openrouter",
-    name: "Tokens · 30d",
+    name: "Tokens",
+    window: "selected",
     kind: "metric",
     live: { costs: true },
   },
@@ -1946,7 +1989,8 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "openrouter.modelTable": {
     src: "openrouter",
-    name: "Every model · 30d",
+    name: "Every model",
+    window: "selected",
     kind: "table",
     live: { costs: true },
     headers: ["Model", "Spend", "Share", "Requests", "Tokens", "$/M"],
@@ -1982,13 +2026,15 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "replicate.runs": {
     src: "replicate",
-    name: "Predictions · 30d",
+    name: "Predictions",
+    window: "selected",
     kind: "metric",
     live: { costs: true, metric: "replicate.predictions" },
   },
   "replicate.compute": {
     src: "replicate",
-    name: "Compute time · 30d",
+    name: "Compute time",
+    window: "selected",
     kind: "metric",
     live: { costs: true, metric: "replicate.compute" },
   },
@@ -2025,7 +2071,8 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "costs.llm": {
     src: "costs",
-    name: "LLM spend · 30d",
+    name: "LLM spend",
+    window: "selected",
     kind: "metric",
     live: { costs: true },
     invert: true,
@@ -2064,7 +2111,8 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "llm.window": {
     src: "llm",
-    name: "Tokens · 30d",
+    name: "Tokens",
+    window: "selected",
     kind: "metric",
     live: { llm: true },
   },
@@ -2077,19 +2125,22 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "llm.byModel": {
     src: "llm",
-    name: "Tokens by model · 30d",
+    name: "Tokens by model",
+    window: "selected",
     kind: "bars",
     live: { llm: true },
   },
   "llm.byWork": {
     src: "llm",
-    name: "Tokens by kind of work · 30d",
+    name: "Tokens by kind of work",
+    window: "selected",
     kind: "rows",
     live: { llm: true },
   },
   "llm.byVenture": {
     src: "llm",
-    name: "Tokens by venture · 30d",
+    name: "Tokens by venture",
+    window: "selected",
     kind: "rows",
     live: { llm: true },
   },
@@ -2124,6 +2175,7 @@ export const WIDGETS: Record<string, Widget> = {
   "gmail.unread": {
     src: "gmail",
     name: "Inbox needing a reply",
+    window: "now",
     kind: "metric",
     live: { mail: true, metric: "gmail.needingReply" },
     invert: true,
@@ -2139,6 +2191,7 @@ export const WIDGETS: Record<string, Widget> = {
   "gmail.inbox": {
     src: "gmail",
     name: "Unread in the inbox",
+    window: "now",
     kind: "metric",
     live: { mail: true, metric: "gmail.unread" },
   },
@@ -2160,7 +2213,8 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "gmail.contacts": {
     src: "gmail",
-    name: "People you wrote to · 30d",
+    name: "People you wrote to",
+    window: "selected",
     kind: "metric",
     live: { mail: true },
   },
@@ -2215,7 +2269,8 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "resend.sends": {
     src: "resend",
-    name: "Emails sent · 30d",
+    name: "Emails sent",
+    window: "selected",
     kind: "metric",
     live: { mail: true },
   },
@@ -2254,7 +2309,8 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "resend.outcomes": {
     src: "resend",
-    name: "What became of the mail · 30d",
+    name: "What became of the mail",
+    window: "selected",
     kind: "rows",
     live: { mail: true },
   },
@@ -2332,7 +2388,8 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "hn.mentions": {
     src: "hn",
-    name: "Mentions · 7d",
+    name: "Mentions",
+    window: "selected",
     kind: "rows",
     live: { demand: true },
   },
@@ -2375,7 +2432,8 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "umami.pageviews": {
     src: "umami",
-    name: "Pageviews · 30d",
+    name: "Pageviews",
+    window: "selected",
     kind: "metric",
     live: { umami: true },
   },
@@ -2481,7 +2539,8 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "pypi.last30": {
     src: "pypi",
-    name: "Downloads · 30d",
+    name: "Downloads",
+    window: "selected",
     kind: "metric",
     live: { pypi: true },
   },

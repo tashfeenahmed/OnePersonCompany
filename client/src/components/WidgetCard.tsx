@@ -21,6 +21,7 @@ import type { PlacedWidget } from "@/lib/store";
 import { collectedAt, deltaOver, useLive } from "@/lib/live";
 import { LIVE_BUILDERS } from "@/lib/liveWidgets";
 import { isScopedWidget, useScope } from "@/lib/scope";
+import { hasPrevious, widgetName } from "@/lib/window";
 
 /**
  * ONE WIDGET, ON ONE CARD.
@@ -118,15 +119,21 @@ export function WidgetCard({
         disputes: live.disputes,
         queue: live.queue,
         seo: live.seo,
+        window: live.window,
       })
     : null;
   // Presentation metadata is reusable; sample data never enters a live card.
-  const def: Widget = measuredWidget(base, patch);
+  // THE NAME CARRIES THE PICKER'S WINDOW before the patch is laid over it, so
+  // a builder that has to say a different span — churn under "all" is the
+  // ninety-day row — can still name it; see lib/window.
+  const def: Widget = measuredWidget({ ...base, name: widgetName(base, live.window) }, patch);
 
   // "No change" and "not enough history to say" are different claims. A sample
   // widget with delta 0 means the first; a live one measured twice in an hour
   // means the second, and it should say nothing rather than imply a flat line.
-  const trend = isLive ? (patch?.delta ?? deltaOver(points)) : null;
+  // Over ALL TIME there is no previous window to have changed against, so a
+  // live card says nothing there too — a dash rather than a zero.
+  const trend = isLive && hasPrevious(live.window) ? (patch?.delta ?? deltaOver(points)) : null;
 
   // Positive is not always good: churn, spend and latency read the other way.
   const good = trend ? (def.invert ? trend < 0 : trend > 0) : null;

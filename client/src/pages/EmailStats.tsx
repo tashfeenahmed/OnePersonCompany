@@ -11,6 +11,8 @@ import {
 } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { ago } from "@/lib/format";
+import { useStore } from "@/lib/store";
+import { DEFAULT_WINDOW, daysFor, windowLabel } from "@/lib/window";
 import { PLUGINS } from "@/data/plugins";
 
 /**
@@ -53,7 +55,13 @@ import { PLUGINS } from "@/data/plugins";
  */
 export function EmailStats() {
   const plugins = useApi(() => api.plugins(), []);
-  const mail = useApi(() => api.mail(30), []);
+  /* THE DASHBOARDS' WINDOW, not one of this page's own: this is a tab beside
+     the boards and is read over the same span they are. The route caps at
+     four hundred days, which is further than the mail tables reach. */
+  const { state } = useStore();
+  const selected = state.dashboardWindow ?? DEFAULT_WINDOW;
+  const days = daysFor(selected, 400);
+  const mail = useApi(() => api.mail(days), [days]);
 
   const byId = new Map((plugins.data?.plugins ?? []).map((p) => [p.id, p]));
   const gmailAccounts = byId.get("gmail")?.accounts ?? [];
@@ -121,7 +129,7 @@ export function EmailStats() {
               }
             />
             <Tile
-              label="Sent · 30d"
+              label={`Sent · ${windowLabel(selected)}`}
               value={sending ? String(sending.sent) : "—"}
               sub={
                 sending
@@ -177,7 +185,7 @@ export function EmailStats() {
           }
         >
           {resendAccounts.map((a) => (
-            <DomainCard key={a.id} account={a} domain={domains.get(a.id)} />
+            <DomainCard key={a.id} account={a} domain={domains.get(a.id)} sentLabel={`Sent · ${windowLabel(selected)}`} />
           ))}
         </Section>
 
@@ -408,9 +416,12 @@ function MailboxCard({
 function DomainCard({
   account,
   domain,
+  sentLabel,
 }: {
   account: PluginAccount;
   domain: SendingDomain | undefined;
+  /** "Sent · 30d" — the window the page was read over, named once above. */
+  sentLabel: string;
 }) {
   const s = domain?.sends;
   const dnsBad = !!domain?.dns.unhealthy.length;
@@ -423,7 +434,7 @@ function DomainCard({
       {domain ? (
         <>
           <div className="mt-3.5 grid grid-cols-3 gap-3">
-            <Fig label="Sent · 30d" value={s ? String(s.sent) : null} />
+            <Fig label={sentLabel} value={s ? String(s.sent) : null} />
             <Fig
               label="Bounce"
               value={s?.bounceRate == null ? null : pct(s.bounceRate / 100)}

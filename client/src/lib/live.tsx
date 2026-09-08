@@ -53,6 +53,8 @@ import {
   LIVE_BUILDERS,
 } from "@/lib/liveWidgets";
 import { ScopeContext, scopeLive, type LinkedEntity } from "@/lib/scope";
+import { useStore } from "@/lib/store";
+import { DEFAULT_WINDOW, daysFor, type WindowValue } from "@/lib/window";
 
 /**
  * Real numbers for the widgets that have them.
@@ -215,6 +217,14 @@ export type LiveData = {
    *  visibility, follow-ups, IndexNow — fetched unconditionally like the
    *  ledger, each null on its own failure. See lib/api/seoboard. */
   seo: SeoOpsDocs | null;
+  /**
+   * THE WINDOW EVERY DOCUMENT ABOVE WAS ASKED FOR — the picker's, from the
+   * store. Carried here so a card can label itself and a builder can tell
+   * "all" from ninety without a second path to the store. What each route
+   * actually answered is in its own document (`window.days`, the complete
+   * days that landed); see `daysFor` below for what "all" was turned into.
+   */
+  window: WindowValue;
   /** Which widget types are showing real data right now. */
   sourceStates: Record<string, "loading" | "disconnected" | "ready" | "error">;
   sourceErrors: Record<string, string>;
@@ -263,6 +273,7 @@ const LiveContext = createContext<LiveData>({
   disputes: null,
   queue: null,
   seo: null,
+  window: DEFAULT_WINDOW,
   sourceStates: {}, sourceErrors: {},
   loading: true,
   error: null,
@@ -281,6 +292,15 @@ const LiveContext = createContext<LiveData>({
 export const LOAD_HOURS = 24;
 
 export function LiveProvider({ children }: { children: ReactNode }) {
+  /*
+    ONE WINDOW FOR EVERY FETCH BELOW. Each route used to be asked at its own
+    default — Stripe thirty, Cloudflare seven, Search Console ninety — so two
+    cards side by side were about different fortnights and nothing said so.
+    The picker in the Dashboards header writes the store; this reads it, and a
+    change refetches everything the boards need over the new span.
+  */
+  const { state: stored } = useStore();
+  const selected: WindowValue = stored.dashboardWindow ?? DEFAULT_WINDOW;
   const [metrics, setMetrics] = useState<Record<string, Point[]>>({});
   const [hetzner, setHetzner] = useState<HetznerSummary | null>(null);
   const [fleet, setFleet] = useState<HetznerServer[]>([]);
@@ -541,7 +561,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       tryFetch(hz && wanted.needsFleet, api.hetznerServers, (f) => setFleet(f.servers), "fleet");
       tryFetch(hz && wanted.needsLoad, () => api.hetznerLoad(LOAD_HOURS), setLoad, "load");
       tryFetch(hz && wanted.needsVolumes, api.hetznerVolumes, (v) => setVolumes(v.volumes), "volumes");
-      tryFetch(libraries && wanted.needsStock, () => api.stock(), setStock, "stock");
+      tryFetch(libraries && wanted.needsStock, () => api.stock(daysFor(selected, 400)), setStock, "stock");
       tryFetch(registrars && wanted.needsDomains, api.domains, (d) => {
         setDomains(d.domains);
         setDomainSummary(d.summary);
@@ -550,16 +570,21 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         ANY ONE OF THE THREE COST PROVIDERS IS ENOUGH TO ASK. The report is one
         document with a section each, and a section whose provider has never
         collected says so on its own — so fetching it with only OpenRouter
-        connected gives a real, partial answer rather than an empty one. The
-        window is the route's own default, because "what is this costing me" is
-        a question about a month and three cards over three spans cannot be
-        read together.
+        connected gives a real, partial answer rather than an empty one.
+
+        EVERY WINDOWED ROUTE FROM HERE DOWN IS ASKED FOR THE PICKER'S SPAN,
+        through `daysFor`, which turns "all" into the most that route will
+        answer — its clamp, found in server/src/routes and the integrations'
+        route files. A route whose figures are a LEVEL (a balance, the book)
+        ignores the number, and a route whose window is its source's own
+        (Meta's `last_30d`, Search Console's 28, GitHub's fourteen) keeps it
+        and only widens its daily line; the cards for those say so.
       */
       const spenders =
         connected.has("openai") ||
         connected.has("openrouter") ||
         connected.has("replicate");
-      tryFetch(spenders && wanted.needsCosts, () => api.costs(), setCosts, "costs");
+      tryFetch(spenders && wanted.needsCosts, () => api.costs(daysFor(selected, 400)), setCosts, "costs");
 
       /*
         GitHub and npm are asked separately, because they are separate answers
@@ -587,12 +612,14 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       */
       tryFetch(
         (connected.has("appstore") || connected.has("playstore")) && wanted.needsMobile,
-        () => api.mobile(),
+        () => api.mobile(daysFor(selected, 400)),
         setMobile, "mobile");
 
       tryFetch(
         connected.has("stripe") && wanted.needsStripe,
-        () => api.stripe(),
+        /* "all" goes through as the word: the ledger reaches back to 2021 and
+           the route measures that itself rather than taking a cap. */
+        () => api.stripe(selected === "all" ? "all" : daysFor(selected, 400)),
         setStripe, "stripe");
       /*
         THE PAYMENTS BOARD'S THREE COMPANION DOCUMENTS, GATED ON STRIPE. Each
@@ -626,20 +653,19 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         every one of those states, so nothing wears a live dot over numbers
         that were never read.
       */
-      tryFetch(wanted.needsAdsense, () => api.adsense(), setAdsense, "adsense");
+      tryFetch(wanted.needsAdsense, () => api.adsense(daysFor(selected, 400)), setAdsense, "adsense");
 
       /*
         CLOUDFLARE IS FETCHED ONLY WHEN IT IS CONNECTED, unlike AdSense above.
         Its cards have nothing to say without a token — there is no
         "not authorised" state worth a card here, only a token that has not been
         pasted — so with none the cards keep their samples and wear no live dot.
-        The window is the route's own default, because every zone card on a
-        board has to be drawn over the same seven days or they cannot be read
-        beside each other.
+        The route caps at ninety days and the document says how many complete
+        days actually landed, which is what its cards quote under "all".
       */
       tryFetch(
         connected.has("cloudflare") && wanted.needsCloudflare,
-        () => api.cloudflare(),
+        () => api.cloudflare(daysFor(selected, 90)),
         setCloudflare, "cloudflare");
 
       /*
@@ -650,7 +676,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         phrase nothing of ours ranks for. An owner with one of the two
         connected has a real answer to one real question.
       */
-      tryFetch(connected.has("gsc") && wanted.needsGsc, () => api.gsc(), setGsc, "gsc");
+      /* Search Console's FIGURES are its own 28-day window ending three days
+         back, whatever is asked; `days` only widens the daily line. Bing takes
+         no window at all. Both are asked anyway so the line follows the picker
+         where there is one. */
+      tryFetch(connected.has("gsc") && wanted.needsGsc, () => api.gsc(daysFor(selected, 400)), setGsc, "gsc");
       tryFetch(
         connected.has("bing-webmaster") && wanted.needsBing,
         () => api.bing(),
@@ -666,7 +696,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         wears no live dot; with a token it says the true thing, which on this
         account is that no Instagram Business account is linked to any Page.
       */
-      tryFetch(connected.has("meta") && wanted.needsMeta, () => api.meta(), setMeta, "meta");
+      /* Meta's window figures are Meta's own `last_30d`; `days` widens the
+         daily line only, and the cards say which is which. */
+      tryFetch(connected.has("meta") && wanted.needsMeta, () => api.meta(daysFor(selected, 400)), setMeta, "meta");
 
       /*
         ANY ONE OF THE THREE DEMAND SOURCES IS ENOUGH TO ASK, the rule the
@@ -683,7 +715,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           connected.has("hackernews") ||
           connected.has("searxng")) &&
           wanted.needsDemand,
-        () => api.demand(),
+        () => api.demand(daysFor(selected, 365)),
         setDemand, "demand");
 
       /*
@@ -697,7 +729,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       */
       tryFetch(
         (connected.has("gmail") || connected.has("resend")) && wanted.needsMail,
-        () => api.mail(),
+        () => api.mail(daysFor(selected, 400)),
         setMail, "mail");
 
       /*
@@ -712,14 +744,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         one they work immediately. Coupling those five to anything would mean a
         dead Google token emptying a card about a certificate.
 
-        Each is asked for its own default window rather than for a window this
-        file chose, because two cards from one report have to be drawn over the
-        same span to be read beside each other — and a per-card range switch is
-        nine presses to compare two machines over the same evening.
+        Each windowed one is asked for the picker's span, through the same
+        `daysFor` as the block above. Umami's collector stores ninety days of
+        daily line and its headline figures are its own thirty complete days;
+        the calendar is a look AHEAD and keeps its week; the probe and the
+        fleet are asked in hours and keep their day.
       */
       tryFetch(
         connected.has("umami") && wanted.needsUmami,
-        () => reports.umami(),
+        () => reports.umami(daysFor(selected, 90)),
         setUmami, "umami");
       tryFetch(
         connected.has("calendar") && wanted.needsCalendar,
@@ -731,7 +764,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         setPypi, "pypi");
       tryFetch(
         connected.has("bluesky") && wanted.needsBluesky,
-        () => reports.bluesky(),
+        () => reports.bluesky(daysFor(selected, 400)),
         setBluesky, "bluesky");
       tryFetch(
         connected.has("uptime") && wanted.needsUptime,
@@ -747,7 +780,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
          would be a rename that only this file knows about. */
       tryFetch(
         connected.has("product-stats") && wanted.needsProducts,
-        () => reports.products(),
+        () => reports.products(daysFor(selected, 400)),
         setProducts, "products");
       tryFetch(
         connected.has("backlinks") && wanted.needsBacklinks,
@@ -778,7 +811,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       tryFetch(wanted.needsAudit, () => reports.audit(), setAudit, "audit");
       tryFetch(wanted.needsRuns, () => reports.runs(), setRuns, "runs");
       /* No plugin gates this one: the ledgers are this box's own. */
-      tryFetch(wanted.needsLlm, () => reports.llm(), setLlm, "llm");
+      tryFetch(wanted.needsLlm, () => reports.llm(daysFor(selected, 400)), setLlm, "llm");
       tryFetch(
         wanted.needsCompetitors,
         () => reports.competitors(),
@@ -798,7 +831,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           if (!connected.has(m.split(".")[0]!)) { if (alive) setSourceStates(s => ({ ...s, [source]: "disconnected" })); return [m, [] as Point[]] as const; }
           if (alive) setSourceStates(s => ({ ...s, [source]: "loading" }));
           try {
-            const r = await api.metric(m, 90);
+            /* The readings table is this box's own and holds what has been
+               collected since the metric existed; four hundred days is the
+               route's cap and further than any of it goes. */
+            const r = await api.metric(m, daysFor(selected, 400));
             if (alive) setSourceStates(s => ({ ...s, [source]: "ready" }));
             return [
               m,
@@ -816,7 +852,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [wanted, tick]);
+  }, [wanted, tick, selected]);
 
   const value = useMemo<LiveData>(() => {
     // A widget is live when its builder can actually answer with what arrived.
@@ -865,6 +901,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         disputes,
         queue,
         seo,
+        window: selected,
       });
       if (patch) liveTypes.add(type);
     }
@@ -907,10 +944,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       disputes,
       queue,
       seo,
+      window: selected,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
     };
   }, [
+    selected,
     sourceStates, sourceErrors, loading, error,
     metrics,
     hetzner,
