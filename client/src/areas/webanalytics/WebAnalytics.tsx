@@ -4,8 +4,9 @@ import { SubTabs } from "@/components/TabStrip";
 import { PageShell } from "@/components/PageShell";
 import { RankedBars } from "@/components/RankedBars";
 import { Failed, Loading, Num, Rules, SectionCard } from "@/components/ui/state";
-import { WindowPicker } from "@/components/WindowPicker";
 import { useApi } from "@/hooks/useApi";
+import { useStore } from "@/lib/store";
+import { DEFAULT_WINDOW, windowWords } from "@/lib/window";
 import { count, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { webAnalytics, type AdRow, type Finding, type SegmentBlock } from "./api";
@@ -45,22 +46,30 @@ const TABS = [
 
 type TabKey = (typeof TABS)[number]["key"];
 
+/**
+ * THE WINDOW IS THE DASHBOARDS' ONE WINDOW, from the store, not a control of
+ * this page's own — this is a tab beside the boards and is read over the
+ * span they are. The segments route cuts at seven or thirty days and nothing
+ * else (the heuristics are calibrated to those two), so ninety and "all" are
+ * drawn over thirty and the page says so beside the figures. An older link
+ * with `?days=` in it still opens; the number in it is ignored.
+ */
 export function WebAnalytics() {
   const [params, setParams] = useSearchParams();
   const tab = (TABS.find((t) => t.key === params.get("tab"))?.key ?? "segments") as TabKey;
   const site = params.get("site") ?? "";
-  const days = params.get("days") === "7" ? 7 : 30;
+  const { state } = useStore();
+  const selected = state.dashboardWindow ?? DEFAULT_WINDOW;
+  const days: 7 | 30 = selected === 7 ? 7 : 30;
   const bots = params.get("bots") === "1";
 
-  const set = (next: Partial<{ tab: TabKey; site: string; days: 7 | 30; bots: boolean }>) => {
+  const set = (next: Partial<{ tab: TabKey; site: string; bots: boolean }>) => {
     const out: Record<string, string> = {};
     const t = next.tab ?? tab;
     const s = next.site ?? site;
-    const d = next.days ?? days;
     const b = next.bots ?? bots;
     if (t !== "segments") out.tab = t;
     if (s) out.site = s;
-    if (d !== 30) out.days = String(d);
     if (b) out.bots = "1";
     setParams(out);
   };
@@ -77,9 +86,9 @@ export function WebAnalytics() {
         <SegmentsTab
           site={site}
           days={days}
+          asked={selected === days ? "" : `the segments cut at 7 or 30 days, so ${windowWords(selected)} is drawn over 30`}
           bots={bots}
           onSite={(s) => set({ site: s })}
-          onDays={(d) => set({ days: d })}
           onBots={(b) => set({ bots: b })}
         />
       )}
@@ -149,16 +158,17 @@ function SitePicker({
 function SegmentsTab({
   site,
   days,
+  asked,
   bots,
   onSite,
-  onDays,
   onBots,
 }: {
   site: string;
   days: 7 | 30;
+  /** Why the span drawn is not the span the picker asked for, or empty. */
+  asked: string;
   bots: boolean;
   onSite: (s: string) => void;
-  onDays: (d: 7 | 30) => void;
   onBots: (b: boolean) => void;
 }) {
   return (
@@ -168,18 +178,13 @@ function SegmentsTab({
         onSite={onSite}
         right={
           <>
-            <WindowPicker
-              value={days}
-              onChange={(d) => onDays(d === 7 ? 7 : 30)}
-              options={[7, 30]}
-              label="Window in days"
-              className="ml-auto"
-            />
             {/* WHICH WINDOW HAS A COMPARISON is a fact about the data, not a
-                label on the control: the 7-day cut is drawn against the 7 days
+                label on a control: the 7-day cut is drawn against the 7 days
                 before it and the 30-day cut has nothing to compare with. */}
-            <span className="text-muted-foreground text-[12.5px]">
-              the 7-day window is drawn against the 7 days before it
+            <span className="text-muted-foreground ml-auto text-[12.5px]">
+              {`over ${days} days`}
+              {asked ? ` — ${asked}` : ""}
+              {days === 7 ? " · drawn against the 7 days before it" : " · nothing to compare with"}
             </span>
             <label className="flex items-center gap-1.5 text-[12.5px]">
               <input type="checkbox" checked={bots} onChange={(e) => onBots(e.target.checked)} />

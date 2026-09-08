@@ -51,8 +51,12 @@ type RunRow = {
 const dayOf = (iso: string) => iso.slice(0, 10);
 
 llm.get("/", (c) => {
+  /* Clamped the way every other windowed route clamps: a dashboard asks all
+     of them for one span, and this ledger is the one that answered thirty
+     whatever it was asked. */
+  const windowDays = Math.min(Math.max(Number(c.req.query("days") ?? WINDOW_DAYS) || WINDOW_DAYS, 1), 400);
   const to = now();
-  const fromMs = Date.parse(to) - WINDOW_DAYS * 86_400_000;
+  const fromMs = Date.parse(to) - windowDays * 86_400_000;
   const from = new Date(fromMs).toISOString();
   const today = dayOf(to);
 
@@ -156,7 +160,7 @@ llm.get("/", (c) => {
 
   return c.json({
     generatedAt: to,
-    window: { days: WINDOW_DAYS, from: dayOf(from), to: today },
+    window: { days: windowDays, from: dayOf(from), to: today },
     total: { calls, promptTokens: prompt, completionTokens: completion, tokens: prompt + completion },
     unreported: { chatTurns: unreportedChat, runs: unreportedRuns },
     today: { ...todayTally, tokens: todayTally.chatTokens + todayTally.runTokens },

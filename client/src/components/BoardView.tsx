@@ -24,6 +24,7 @@ import {
   type PlacedWidget,
 } from "@/lib/store";
 import { collectedAt, useLive } from "@/lib/live";
+import { widgetName, windowWords } from "@/lib/window";
 import { SOURCES, WIDGETS } from "@/data/widgets";
 
 /**
@@ -242,6 +243,12 @@ export function BoardView({
                       {freshness ?? ""}
                     </>
                   )}
+                  {/* The span every windowed card below is drawn over, from
+                      the picker in the strip above. Said here as well because
+                      a board is read from its title down, and "last 7 days"
+                      is the first thing that changes what the figures mean. */}
+                  {" · "}
+                  {windowWords(live.window)}
                   {/* What this board's numbers are about. On a venture board it
                       is the most important sentence on the page: every figure
                       below either belongs to that host or wears a "portfolio"
@@ -421,7 +428,7 @@ export function BoardView({
                             !src.connected && "pointer-events-none opacity-45",
                           )}
                         >
-                          {def.name}
+                          {widgetName(def, live.window)}
                           <span
                             className={cn(
                               "text-muted-foreground ml-auto text-[11.5px]",

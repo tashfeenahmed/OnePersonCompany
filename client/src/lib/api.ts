@@ -3450,7 +3450,9 @@ export const api = {
   /** The whole Stripe board in one fetch: the book, the ledger, the attempts
    *  and the balance. Two currencies would arrive as two rows, never as one
    *  sum. */
-  stripe: (days = 30) => call<StripeReport>(`/stripe?days=${days}`),
+  /** `"all"` is the ledger's own reach — the route measures it from the
+   *  earliest history any account holds, which on this box is 2021. */
+  stripe: (days: number | "all" = 30) => call<StripeReport>(`/stripe?days=${days}`),
 
   /** AdSense, which answers even when nothing has authorised it — the
    *  not-authorised state is the point, not an error to swallow. */

@@ -6,8 +6,9 @@ import { PageShell } from "@/components/PageShell";
 import { RankedBars, type RankedRow } from "@/components/RankedBars";
 import { Button } from "@/components/ui/button";
 import { Failed, Loading, Num, Rules, SectionCard } from "@/components/ui/state";
-import { WindowPicker } from "@/components/WindowPicker";
 import { useApi } from "@/hooks/useApi";
+import { useStore } from "@/lib/store";
+import { DEFAULT_WINDOW, daysFor, windowNote } from "@/lib/window";
 import { pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -59,21 +60,31 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 /**
- * THE TAB AND THE WINDOW LIVE IN THE QUERY STRING, so every view of this page
- * is a link somebody can send — the same decision the Growth page made, for
- * the same reason: "the reviews tab over sixty days" is a thing to point at,
- * and a page whose state is only in React has no address for it.
+ * THE TAB LIVES IN THE QUERY STRING, so every view of this page is a link
+ * somebody can send — the same decision the Growth page made, for the same
+ * reason: "the reviews tab" is a thing to point at, and a page whose state is
+ * only in React has no address for it.
+ *
+ * THE WINDOW DOES NOT. It is the Dashboards' one window, from the store — the
+ * picker in the strip above this tab — so this report is read over the same
+ * span as the boards beside it. This area ingests sixty days at most, so a
+ * wider ask is answered over sixty and the page says so; an older link with
+ * `?days=` in it still opens, and the number in it is ignored rather than
+ * fought over.
  */
+const INGESTED_DAYS = 60;
+
 export function MobileHealth() {
   const [params, setParams] = useSearchParams();
   const tab = (TABS.find((t) => t.key === params.get("tab"))?.key ?? "health") as TabKey;
-  const days = Math.min(Math.max(Number(params.get("days") ?? 30) || 30, 1), 60);
-  const set = (next: { tab?: TabKey; days?: number }) => {
+  const { state } = useStore();
+  const selected = state.dashboardWindow ?? DEFAULT_WINDOW;
+  const days = daysFor(selected, INGESTED_DAYS);
+  const clamped = windowNote(selected, days, "this area");
+  const set = (next: { tab?: TabKey }) => {
     const t = next.tab ?? tab;
-    const d = next.days ?? days;
     const out: Record<string, string> = {};
     if (t !== "health") out.tab = t;
-    if (d !== 30) out.days = String(d);
     setParams(out);
   };
 
@@ -91,13 +102,9 @@ export function MobileHealth() {
           onSelect={(k) => set({ tab: k as TabKey })}
           className="mb-0"
         />
-        <WindowPicker
-          value={days}
-          onChange={(d) => set({ days: Number(d) })}
-          options={[7, 14, 30, 60]}
-          label="Window in days"
-          className="ml-auto"
-        />
+        <span className="text-muted-foreground ml-auto text-[12.5px]">
+          {clamped ? `over ${days} days — ${clamped}` : `over ${days} days`}
+        </span>
       </div>
 
       {tab === "health" && <HealthTab days={days} />}

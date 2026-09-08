@@ -5,6 +5,8 @@ import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NoBoard } from "@/components/BoardView";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
+import { WindowPicker } from "@/components/WindowPicker";
+import { DASHBOARD_WINDOWS, DEFAULT_WINDOW } from "@/lib/window";
 import { appPage } from "../../../shared/navigation";
 const EmailStats = lazy(() => import("@/pages/EmailStats").then(m => ({ default: m.EmailStats })));
 const MobileHealth = lazy(() => import("@/areas/mobilehealth/MobileHealth").then(m => ({ default: m.MobileHealth })));
@@ -47,7 +49,7 @@ const REPORTS = [
  * check: a board from before the distinction existed is a global board.
  */
 export function Dashboards() {
-  const { state, reorderDashboards } = useStore();
+  const { state, reorderDashboards, setDashboardWindow } = useStore();
   const { slug, report: reportParam } = useParams();
   const report = REPORTS.find((r) => r.key === reportParam) ?? null;
 
@@ -97,6 +99,22 @@ export function Dashboards() {
           activeKey={report ? `report:${report.key}` : board?.id ?? null}
           onReorder={reorderDashboards}
           className="min-w-0 flex-1"
+        />
+        {/*
+          ONE WINDOW FOR EVERY BOARD AND EVERY REPORT TAB, here and nowhere
+          else. It sits in this strip rather than on each board because the
+          point of it is that two boards — and a report beside them — are
+          read over the same span; a control per page would be back to the
+          seven fetch defaults this replaces. The store keeps it (see
+          `dashboardWindow`), the fetch layer reads it, and every windowed
+          card's name follows it.
+        */}
+        <WindowPicker
+          value={state.dashboardWindow ?? DEFAULT_WINDOW}
+          onChange={setDashboardWindow}
+          options={DASHBOARD_WINDOWS}
+          label="Window every dashboard is drawn over"
+          className="shrink-0"
         />
         <Button asChild size="sm" className="mt-0.5 shrink-0 whitespace-nowrap">
           <Link to="/dashboards/new">
