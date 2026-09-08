@@ -1,3 +1,4 @@
+import { useEffect, useState, type MouseEvent } from "react";
 import type { CalendarEvent } from "@/lib/api/reports";
 import { cn } from "@/lib/utils";
 import {
@@ -121,7 +122,7 @@ function Block({
   of: number;
   dark: boolean;
   color: string | null;
-  onOpen: () => void;
+  onOpen: (e: MouseEvent<HTMLButtonElement>) => void;
 }) {
   const start = eventStart(event);
   if (!start) return null;
@@ -195,6 +196,138 @@ function Block({
   );
 }
 
+/** What a click on a block opened: the event, its colour, and the block's
+ *  own rectangle on screen, measured at the click. */
+type Opened = {
+  event: CalendarEvent;
+  color: string | null;
+  rect: { x: number; y: number; w: number; h: number };
+};
+
+const CARD_W = 288;
+const CARD_H = 240;
+
+function useWide(): boolean {
+  const [wide, setWide] = useState(() => window.matchMedia("(min-width: 768px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const onChange = () => setWide(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return wide;
+}
+
+/**
+ * The event, where it was clicked — Google's own gesture, and Workdash's.
+ *
+ * THE CARD IS FIXED TO THE VIEWPORT, NOT ABSOLUTE IN THE CELL. Workdash's
+ * month grid has no scroll container, so a card positioned inside the cell
+ * simply floats beside it; this grid scrolls sideways inside its own card
+ * on a narrow window, and an absolutely positioned popover inside an
+ * overflow container is clipped at the container's edge. So the block's
+ * rectangle is measured at the click and the card is placed from that:
+ * beside the block on the right when there is room, on the left when there
+ * is not, and never past the bottom of the window. Below md the columns are
+ * a few characters wide and there is nowhere beside them; the same card
+ * becomes a centred overlay with a scrim, as Workdash's does.
+ *
+ * DISMISSAL: a fixed backdrop button underneath, the card above it, Escape
+ * handled by the grid. One card at a time — clicking another block moves it.
+ */
+function EventPopover({
+  opened,
+  dark,
+  wide,
+  onClose,
+}: {
+  opened: Opened;
+  dark: boolean;
+  wide: boolean;
+  onClose: () => void;
+}) {
+  const { event, color, rect } = opened;
+  const start = eventStart(event);
+  const end = eventEnd(event);
+  const range = event.allDay
+    ? "all day"
+    : start
+      ? `${clockLabel(start)}${end ? `–${clockLabel(end)}` : ""}${event.minutes ? ` · ${hoursLabel(event.minutes)}` : ""}`
+      : null;
+  const cancelled = event.status === "cancelled";
+  const declined = event.response === "declined";
+
+  const gap = 8;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const fitsRight = rect.x + rect.w + gap + CARD_W <= vw - gap;
+  const left = fitsRight ? rect.x + rect.w + gap : Math.max(gap, rect.x - gap - CARD_W);
+  const top = Math.max(gap, Math.min(rect.y, vh - CARD_H - gap));
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-hidden
+        tabIndex={-1}
+        onClick={onClose}
+        className={cn("fixed inset-0 z-30 cursor-default", !wide && "bg-foreground/20")}
+      />
+      <div
+        role="dialog"
+        aria-label={titleOf(event)}
+        style={
+          wide
+            ? { position: "fixed", left, top, width: CARD_W }
+            : { position: "fixed", left: "50%", top: "50%", width: `min(${CARD_W}px, calc(100vw - 2rem))`, transform: "translate(-50%, -50%)" }
+        }
+        className="bg-card border-line-soft z-40 flex flex-col gap-1.5 rounded-[12px] border p-3 text-left shadow-lg"
+      >
+        <span className={cn("text-[13.5px] leading-snug font-medium break-words", cancelled && "line-through opacity-60")}>
+          {titleOf(event)}
+        </span>
+        {range && <span className="text-muted-foreground font-mono text-[11px] tabular-nums">{range}</span>}
+        <span className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+          <span
+            className="rounded-sm border-l-2 px-1.5 py-px"
+            style={{ backgroundColor: tint(color, dark), borderLeftColor: dot(color) }}
+          >
+            {event.calendar || "calendar"}
+          </span>
+          {event.status === "tentative" && <span>tentative</span>}
+          {declined && <span>declined</span>}
+          {cancelled && <span>called off</span>}
+          {event.busy === false && !event.allDay && <span>free</span>}
+        </span>
+        {event.location && (
+          <span className="text-muted-foreground text-[11.5px] leading-relaxed break-words">{event.location}</span>
+        )}
+        {event.attendees !== null && event.attendees > 0 && (
+          /* A count, never a list: the collector never fetches an address. */
+          <span className="text-muted-foreground text-[11px]">
+            {event.attendees} attendee{event.attendees === 1 ? "" : "s"}
+            {event.organizerSelf ? " · yours" : ""}
+          </span>
+        )}
+        {(event.link || event.meetLink) && (
+          <span className="mt-0.5 flex flex-wrap gap-x-3 text-[11.5px]">
+            {event.meetLink && (
+              <a href={event.meetLink} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                Join Meet ↗
+              </a>
+            )}
+            {event.link && (
+              <a href={event.link} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                Open in Google Calendar ↗
+              </a>
+            )}
+          </span>
+        )}
+      </div>
+    </>
+  );
+}
+
 export function WeekGrid({
   columns,
   today,
@@ -222,6 +355,21 @@ export function WeekGrid({
   const allDayRows = Math.max(...columns.map((c) => c.allDay.length), 0);
   const nowMin = minutesInto(now);
   const nowVisible = nowMin >= from && nowMin <= to;
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const wide = useWide();
+  useEffect(() => {
+    if (!opened) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpened(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [opened]);
+  const openAt = (event: CalendarEvent, color: string | null, day: string) => (e: MouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setOpened({ event, color, rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
+    onSelectDay(day);
+  };
 
   return (
     <div className="bg-card rounded-[14px] p-3">
@@ -294,7 +442,7 @@ export function WeekGrid({
                     <button
                       key={eventKey(e)}
                       type="button"
-                      onClick={() => onSelectDay(col.day)}
+                      onClick={openAt(e, color, col.day)}
                       title={`${titleOf(e)} · ${e.calendar}`}
                       style={{
                         backgroundColor: tint(color, dark),
@@ -374,7 +522,7 @@ export function WeekGrid({
                       of={seats[i]!.of}
                       dark={dark}
                       color={colors.get(x.e.calendarId) ?? null}
-                      onOpen={() => onSelectDay(col.day)}
+                      onOpen={openAt(x.e, colors.get(x.e.calendarId) ?? null, col.day)}
                     />
                   ))}
                   {/* WHERE THE DAY HAS GOT TO, on today's column alone. It is
@@ -407,6 +555,7 @@ export function WeekGrid({
           .map((c) => `${isoDay(c.date)}: ${c.timed.length + c.allDay.length} entries`)
           .join(". ")}
       </span>
+      {opened && <EventPopover opened={opened} dark={dark} wide={wide} onClose={() => setOpened(null)} />}
     </div>
   );
 }
