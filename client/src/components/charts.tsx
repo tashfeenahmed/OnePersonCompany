@@ -19,6 +19,7 @@ import { ModelMark } from "@/components/ModelMark";
 import type {
   ChartSeries,
   DonutSlice,
+  DumbbellRow,
   Meter,
   RankedRow,
   RunwayRow,
@@ -1295,6 +1296,132 @@ export function Ranked({ rows, caption }: { rows: RankedRow[]; caption?: string 
           </div>
         );
       })}
+      {caption && (
+        <p className="text-muted-foreground mt-0.5 text-[12px] leading-snug">{caption}</p>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------- dumbbell */
+
+/**
+ * Two magnitudes per row, on one axis, joined.
+ *
+ * THE CONNECTOR IS THE FINDING. Clicks and impressions for a property are two
+ * columns in the table beside this card; here they are two dots and the
+ * distance between them, which is the click-through rate drawn rather than
+ * printed — a short bar is a property that converts what Google shows it, a
+ * long one is a property Google shows and nobody chooses.
+ *
+ * THE AXIS IS LOGARITHMIC WHEN THE BUILDER SAYS SO, and it says so for
+ * exactly the pair above: clicks run forty times smaller than impressions on
+ * this portfolio, and on a linear axis every click dot sits on the origin
+ * pretending to be zero. Decades are drawn as gridlines so the reader sees
+ * that a step is a tenfold, not a doubling. A zero cannot be placed on a log
+ * axis, so it is parked at the axis's floor and the row's hover says so.
+ *
+ * NOT A CHART WITH AN SVG. Rows are HTML like the ranked bars, so the labels
+ * are set at the card's type size and the row count can be anything; only
+ * the dots and the connector are positioned.
+ */
+export function Dumbbell({
+  rows,
+  names,
+  log,
+  caption,
+}: {
+  rows: DumbbellRow[];
+  names?: [string, string];
+  log?: boolean;
+  caption?: string;
+}) {
+  const values = rows.flatMap((r) => [r.a, r.b]).filter((v) => v > 0);
+  const top = Math.max(1, ...values);
+  /* The floor of a log axis is the decade under the smallest non-zero value,
+     so a property with three clicks is a dot with room on its left rather
+     than one glued to the edge. */
+  const floor = log ? Math.pow(10, Math.floor(Math.log10(Math.max(1, Math.min(...values, top))))) : 0;
+  const lo = log ? Math.log10(floor) : 0;
+  const hi = log ? Math.log10(top) : top;
+  const span = hi - lo || 1;
+  const X = (v: number) => {
+    if (v <= 0) return 0;
+    const t = log ? (Math.log10(Math.max(v, floor)) - lo) / span : v / span;
+    return Math.max(0, Math.min(1, t)) * 100;
+  };
+  const ticks: number[] = [];
+  if (log) for (let d = floor; d <= top; d *= 10) ticks.push(d);
+  else for (let i = 0; i <= 4; i++) ticks.push((top / 4) * i);
+
+  return (
+    <div className="mt-1 flex flex-col gap-2">
+      {names && (
+        <div className="text-muted-foreground flex gap-3 text-[11.5px]">
+          {names.map((n, i) => (
+            <span key={n} className="flex items-center gap-1">
+              <i className="size-2 rounded-full" style={{ background: seriesColour(i) }} />
+              {n}
+            </span>
+          ))}
+        </div>
+      )}
+      {rows.map((r) => {
+        const xa = X(r.a);
+        const xb = X(r.b);
+        const said = `${r.label} · ${names?.[0] ?? "a"} ${count(r.a)} · ${names?.[1] ?? "b"} ${count(r.b)}${
+          r.a <= 0 || r.b <= 0 ? " · a zero is parked at the axis floor" : ""
+        }${r.sub ? ` · ${r.sub}` : ""}`;
+        return (
+          <div key={r.label} className="min-w-0">
+            <div className="flex items-baseline gap-2 text-[13px]">
+              <span className="truncate">{r.label}</span>
+              <span className="text-muted-foreground ml-auto shrink-0 text-[12px] tabular-nums">
+                {r.sub ? `${r.sub} · ` : ""}
+                {r.text}
+              </span>
+            </div>
+            <div className="relative mt-1 h-[14px]" role="img" aria-label={said} title={said}>
+              {/* The decade gridlines, under the row so the eye reads tenfolds. */}
+              {ticks.map((t) => (
+                <i
+                  key={t}
+                  className="absolute inset-y-0 w-px"
+                  style={{ left: `${X(t)}%`, background: "var(--chart-grid, var(--border))", opacity: 0.6 }}
+                />
+              ))}
+              <i
+                className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full"
+                style={{
+                  left: `${Math.min(xa, xb)}%`,
+                  width: `${Math.abs(xb - xa)}%`,
+                  background: "var(--foreground)",
+                  opacity: 0.22,
+                }}
+              />
+              <i
+                className="absolute top-1/2 size-[9px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+                style={{ left: `${xa}%`, background: seriesColour(0) }}
+              />
+              <i
+                className="absolute top-1/2 size-[9px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+                style={{ left: `${xb}%`, background: seriesColour(1) }}
+              />
+            </div>
+          </div>
+        );
+      })}
+      <div className="text-muted-foreground relative h-[14px] text-[10.5px] tabular-nums">
+        {ticks.map((t, i) => (
+          <span
+            key={t}
+            className="absolute -translate-x-1/2"
+            style={{ left: `${X(t)}%`, transform: i === 0 ? "none" : i === ticks.length - 1 ? "translateX(-100%)" : undefined }}
+          >
+            {count(t)}
+          </span>
+        ))}
+      </div>
       {caption && (
         <p className="text-muted-foreground mt-0.5 text-[12px] leading-snug">{caption}</p>
       )}

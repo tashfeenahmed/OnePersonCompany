@@ -5,6 +5,7 @@ import {
   Bars,
   Chart,
   Donut,
+  Dumbbell,
   Figures,
   MeterRow,
   Ranked,
@@ -116,6 +117,7 @@ export function WidgetCard({
         leakage: live.leakage,
         disputes: live.disputes,
         queue: live.queue,
+        seo: live.seo,
       })
     : null;
   // Presentation metadata is reusable; sample data never enters a live card.
@@ -382,6 +384,13 @@ export function WidgetCard({
         {!empty && def.kind === "ranked" &&
           (def.ranked?.length ? (
             <Ranked rows={def.ranked} caption={def.caption} />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing measured yet.</p>
+          ))}
+
+        {!empty && def.kind === "dumbbell" &&
+          (def.dumbbell?.length ? (
+            <Dumbbell rows={def.dumbbell} names={def.names} log={def.log} caption={def.caption} />
           ) : (
             <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing measured yet.</p>
           ))}

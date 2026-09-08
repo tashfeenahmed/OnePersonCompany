@@ -18,6 +18,7 @@ import type {
   StripeReport,
   AdSenseReport,
   GscReport,
+  GscProperty,
   BingReport,
   MetaReport,
   MetaAdAccount,
@@ -52,6 +53,7 @@ import type { Meter, RunwayRow, StatusTone, Widget } from "@/data/widgets";
 import type { Expense, FinanceReport } from "@/lib/api/finance";
 import type { LeakageReport } from "@/lib/api/activity";
 import type { DisputeDoc, RecoveryCase, RecoveryQueue } from "@/lib/api/customers";
+import type { SeoOpsDocs } from "@/lib/api/seoboard";
 import { rateBetween } from "./fx.ts";
 import { drift, failRate, planSplit, splitLeaving, sumMonthly, worthALook } from "./payments.ts";
 /* EVERY FIGURE ON THESE CARDS IS DRAWN BY `@/lib/format`. A private formatter
@@ -235,6 +237,9 @@ export type LiveInputs = {
   leakage?: LeakageReport | null;
   disputes?: DisputeDoc | null;
   queue?: RecoveryQueue | null;
+  /** The four SEO documents this box computes itself: authority, AI
+   *  visibility, follow-ups and the IndexNow log. Four fields, no sums. */
+  seo?: SeoOpsDocs | null;
 };
 
 /**
@@ -3464,12 +3469,33 @@ Object.assign(LIVE_BUILDERS, {
       moved === null || moved === 0
         ? "no change on the previous window"
         : `${Math.abs(moved).toFixed(1)} ${moved > 0 ? "worse" : "better"} than the previous ${G.window.days}d`;
+    /*
+      THE DAILY LINE IS WEIGHTED THE SAME WAY THE HEADLINE IS. The portfolio
+      series on the wire carries no position — a day's rank across properties
+      is a mean over impressions, so it is folded here from each property's
+      own day, and a day nobody saw any property is left out rather than
+      drawn as a nought. Lower is better; the sparkline is the shape only.
+    */
+    const days = new Map<string, { weighted: number; impressions: number }>();
+    for (const p of G.properties)
+      for (const d of p.series ?? []) {
+        if (d.position === null || d.impressions <= 0) continue;
+        const e = days.get(d.day) ?? { weighted: 0, impressions: 0 };
+        e.weighted += d.position * d.impressions;
+        e.impressions += d.impressions;
+        days.set(d.day, e);
+      }
+    const line = [...days.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([day, e]) => ({ day, position: Number((e.weighted / e.impressions).toFixed(1)) }));
     return {
       value: place(G.totals.position),
       sub: also(
         `impression-weighted across ${G.totals.properties} properties`,
         drift,
       ),
+      series: line.length > 1 ? line.map((d) => d.position) : undefined,
+      seriesAt: line.length > 1 ? line.map((d) => at(d.day)) : undefined,
     };
   },
 
@@ -7394,6 +7420,531 @@ Object.assign(LIVE_BUILDERS, {
     ];
     if (leak?.noAmount.length) rows.push(["Leakage buckets with a count and no amount", leak.noAmount.join(", ")]);
     rows.push(["One figure across stores", "Google's and Apple's money never joins Stripe's"]);
+    return { rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+
+/* ============================================= seo board parity (workdash) ==
+   THE CARDS THE SEO BOARD LACKED AGAINST WORKDASH'S /seo AND /search PAGES.
+
+   Every builder below reads a window off the route and writes it on the
+   card's name, so "Clicks · 28d" follows the collector rather than the
+   catalog. The per-property cards read `GscProperty.series`, `.topQueries`,
+   `.topPages`, `.striking` and `.zeroClick` — cuts the route makes per
+   property so that eighteen quiet properties are drawn as themselves rather
+   than folded under one busy one. A route older than those fields makes
+   these builders return null, which draws "nothing collected" rather than a
+   wrong number.
+*/
+
+/** A page as a person reads it in a column of many hosts: host and path. The
+ *  `pathOf` above drops the host because its cards sit under one property;
+ *  these sit under the whole portfolio. */
+function pageLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname.replace(/^www\./, "")}${u.pathname === "/" ? "/" : u.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+/** A URL's tail for a narrow row — the last segment, or the host for a root. */
+function tailOf(url: string): string {
+  try {
+    const u = new URL(url);
+    const seg = u.pathname.split("/").filter(Boolean).at(-1);
+    return seg ? `/${seg}` : `${u.hostname}/`;
+  } catch {
+    return url;
+  }
+}
+
+/** "to 5 Sep" — the window's end, which on Search Console is three days
+ *  back and is the difference between a lag and a decline. */
+const gscEnds = (G: GscReport) => (G.window.end ? `${G.window.days}d to ${dayShort(G.window.end)}` : `${G.window.days}d`);
+
+/** The busiest `n` properties by `by`, of those with a line to draw. */
+function busiest(G: GscReport, by: "clicks" | "impressions", n = 4) {
+  const withLine = G.properties.filter((p) => (p.series?.length ?? 0) > 1);
+  return {
+    drawn: [...withLine].sort((a, b) => b[by] - a[by]).slice(0, n),
+    of: withLine.length,
+  };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  /* -------------------------------------------------- search totals */
+
+  "gsc.ctr": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || G.totals.ctr === null) return null;
+    const prev = G.previous.ctr;
+    /* POINTS, NOT PERCENT OF A PERCENT. A CTR that went from 3.3% to 3.8%
+       moved half a point; "+15%" over it is a figure in no unit. */
+    const moved =
+      prev === null
+        ? "no comparable window before it"
+        : `${G.totals.ctr - prev >= 0 ? "+" : ""}${(G.totals.ctr - prev).toFixed(2)} pts on the previous ${G.window.days}d`;
+    return {
+      /* NO TAG ON THIS TILE OR THE ONE BELOW: its siblings carry none, and a
+         one-column tile has room for a name or a tag, not both. What kind of
+         number it is — measured, weighted — is in the sentence under it. */
+      name: `CTR · Google · ${G.window.days}d`,
+      value: percent(G.totals.ctr, 2),
+      sub: also(
+        also(`${count(G.totals.clicks)} clicks of ${count(G.totals.impressions)} impressions, weighted across properties`, moved),
+        gscEnds(G),
+      ),
+    };
+  },
+
+  "gsc.properties": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    const quiet = G.properties.filter((p) => p.impressions === 0 && !p.error).length;
+    const failed = G.properties.filter((p) => p.error).length;
+    return {
+      value: count(G.properties.length),
+      sub: also(
+        also(`${G.totals.properties} with traffic in the ${gscEnds(G)}`, quiet ? `${quiet} quiet` : ""),
+        failed ? `${failed} could not be read` : "",
+      ),
+    };
+  },
+
+  "gsc.quiet": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    const quiet = G.properties.filter((p) => p.impressions === 0);
+    const rows: [string, string][] = quiet
+      .slice(0, 8)
+      .map((p) => [p.label, p.error ? "could not be read" : `no impressions, ${gscEnds(G)}`]);
+    if (quiet.length > 8) rows.push([`+${quiet.length - 8} more`, "also quiet"]);
+    if (!quiet.length) rows.push(["Every property had impressions", gscEnds(G)]);
+    /* THE LAST ROW IS THE READING. A verified property Google has shown to
+       nobody yet is not a broken one, and a card that listed it in red would
+       send somebody to fix a thing that only needs time. */
+    rows.push(["Data accumulates over time", "quiet is not broken"]);
+    return { name: `No search data yet · ${G.window.days}d`, rows };
+  },
+
+  /* ----------------------------------------------------- daily lines */
+
+  "gsc.clicksTrend": ({ gsc: G }: LiveInputs) => {
+    if (!G || G.series.length < 2) return null;
+    return {
+      chart: [{ label: "clicks", points: G.series.map((d) => ({ ts: at(d.day), value: d.clicks })) }],
+      unit: "count" as const,
+      caption: G.window.end
+        ? `daily, every property summed · ends ${dayShort(G.window.end)}, three days back, because Google has not finalised the days after it`
+        : "daily, every property summed",
+    };
+  },
+
+  "gsc.propertyClicks": ({ gsc: G }: LiveInputs) => {
+    if (!G) return null;
+    const { drawn, of } = busiest(G, "clicks");
+    if (!drawn.length) return null;
+    return {
+      name: `Clicks a day, by property · ${G.seriesDays}d`,
+      chart: drawn.map((p) => ({
+        label: p.label,
+        points: (p.series ?? []).map((d) => ({ ts: at(d.day), value: d.clicks })),
+      })),
+      unit: "count" as const,
+      /* WHAT IS NOT DRAWN IS SAID. Four lines is what the eye can follow;
+         the other properties are on the table beside this, not folded into
+         a fifth line called "other". */
+      caption: also(
+        `${drawn.length} of ${of} properties drawn, busiest by clicks in the ${gscEnds(G)} · the rest are on the property table, not summed`,
+        G.window.end ? `ends ${dayShort(G.window.end)}` : "",
+      ),
+    };
+  },
+
+  "gsc.propertyImpressions": ({ gsc: G }: LiveInputs) => {
+    if (!G) return null;
+    const { drawn, of } = busiest(G, "impressions");
+    if (!drawn.length) return null;
+    return {
+      name: `Impressions a day, by property · ${G.seriesDays}d`,
+      chart: drawn.map((p) => ({
+        label: p.label,
+        points: (p.series ?? []).map((d) => ({ ts: at(d.day), value: d.impressions })),
+      })),
+      unit: "count" as const,
+      caption: also(
+        `${drawn.length} of ${of} properties drawn, busiest by impressions in the ${gscEnds(G)} · the rest are on the property table, not summed`,
+        G.window.end ? `ends ${dayShort(G.window.end)}` : "",
+      ),
+    };
+  },
+
+  /* ---------------------------------------------- clicks v impressions */
+
+  "gsc.dumbbell": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected) return null;
+    const rows = G.properties
+      .filter((p) => p.impressions > 0)
+      .sort((a, b) => b.impressions - a.impressions)
+      .map((p) => ({
+        label: p.label,
+        a: p.clicks,
+        b: p.impressions,
+        text: p.ctr === null ? "—" : `${percent(p.ctr, 2)} CTR`,
+        sub: p.position === null ? undefined : `#${place(p.position)}`,
+      }));
+    if (!rows.length) return null;
+    return {
+      name: `Clicks against impressions · ${G.window.days}d`,
+      tag: "measured",
+      dumbbell: rows,
+      names: ["Clicks", "Impressions"] as [string, string],
+      log: true,
+      caption: `${rows.length} properties with impressions, most first · ${gscEnds(G)} · the axis is in decades, so a step is tenfold, and a property with no clicks is parked at the floor`,
+    };
+  },
+
+  /* ------------------------------------------------- the ranked lists */
+
+  "gsc.queriesRanked": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.queries.length) return null;
+    return {
+      name: `Top queries · ${G.window.days}d · Google`,
+      ranked: G.queries.slice(0, 8).map((q) => ({
+        label: q.query,
+        value: q.clicks,
+        text: `${count(q.clicks)} clicks`,
+        sub: `${q.property} · ${count(q.impressions)} impr · #${place(q.position)}`,
+      })),
+      /* THE CAPTION IS THE POINT OF THE CARD, as it is on `gsc.queries`:
+         these rows sit inside a fifth of the impressions the properties had. */
+      caption:
+        G.coverage.pct === null
+          ? "Google's clicks-ordered rows — a sample of the impressions, never all of them"
+          : `these rows cover ${percent(G.coverage.pct)} of impressions — Google withholds rare queries and caps the rows`,
+    };
+  },
+
+  "gsc.pagesRanked": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.pages.length) return null;
+    return {
+      name: `Top pages · ${G.window.days}d · Google`,
+      ranked: G.pages.slice(0, 8).map((p) => ({
+        label: pageLabel(p.page),
+        value: p.clicks,
+        text: `${count(p.clicks)} clicks`,
+        sub: `${count(p.impressions)} impr · #${place(p.position)}`,
+      })),
+      caption: "landing pages from search, by clicks · Google's own capped page rows",
+    };
+  },
+
+  "gsc.strikingRanked": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.striking.length) return null;
+    return {
+      ranked: G.striking.slice(0, 8).map((q) => ({
+        label: q.query,
+        /* THE BAR IS IMPRESSIONS, not the rank: what is at stake is how often
+           the page is one push from a click, and a rank is not a length. */
+        value: q.impressions,
+        text: `${count(q.impressions)} impr`,
+        sub: `${q.property} · #${place(q.position)} · ${count(q.clicks)} click${q.clicks === 1 ? "" : "s"}`,
+      })),
+      caption:
+        "position 5–20 with 3+ impressions, most impressions first · drawn from Google's clicks-ordered rows, so a high-impression query with no clicks can be missing",
+    };
+  },
+
+  /* ------------------------------------------- every property, once */
+
+  "gsc.propertyQueries": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    if (!G.properties.some((p) => p.topQueries)) return null;
+    const seen = G.properties.filter((p) => p.impressions > 0);
+    const shown = seen.slice(0, 12);
+    const table = shown.map((p) => {
+      const q = p.topQueries?.[0];
+      /* A PROPERTY WITH IMPRESSIONS AND NO QUERY ROW IS NOT A PROPERTY WITH
+         NO QUERIES. Google anonymised every one of them, which is the
+         reading the coverage column exists to make possible. */
+      if (!q)
+        return [p.label, "no query rows — every query withheld", "—", "—", "—",
+          p.queryCoverage.pct === null ? "—" : percent(p.queryCoverage.pct)];
+      return [
+        p.label,
+        q.query,
+        count(q.clicks),
+        count(q.impressions),
+        place(q.position),
+        p.queryCoverage.pct === null ? "—" : percent(p.queryCoverage.pct),
+      ];
+    });
+    if (seen.length > shown.length)
+      table.push([`+${seen.length - shown.length} smaller properties`, "—", "—", "—", "—", "—"]);
+    return {
+      name: `Top query, every property · ${G.window.days}d`,
+      headers: ["Property", "Top query", "Clicks", "Impressions", "Position", "Rows cover"],
+      table,
+    };
+  },
+
+  "gsc.propertyStriking": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    if (!G.properties.some((p) => p.striking)) return null;
+    const rows = G.properties
+      .filter((p) => p.striking?.length)
+      .sort((a, b) => (b.striking?.[0]?.impressions ?? 0) - (a.striking?.[0]?.impressions ?? 0));
+    const table = rows.slice(0, 12).map((p) => {
+      const q = p.striking![0]!;
+      return [p.label, q.query, place(q.position), count(q.impressions), count(q.clicks)];
+    });
+    const without = G.properties.filter((p) => p.impressions > 0 && !p.striking?.length).length;
+    if (without) table.push([`${without} propert${without === 1 ? "y" : "ies"} with traffic`, "nothing at 5–20 with 3+ impressions", "—", "—", "—"]);
+    if (!table.length) return { table: [["no property", "nothing sits at position 5–20 with 3+ impressions", "—", "—", "—"]] };
+    return {
+      headers: ["Property", "Query", "Position", "Impressions", "Clicks"],
+      table,
+    };
+  },
+
+  "gsc.sitemapsByProperty": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    /* Worst first: the property with errors is the row to act on, and the
+       one that submitted nothing is the row after it. */
+    const order = (p: GscProperty) =>
+      p.sitemaps.state === "reported" ? -((p.sitemaps.errors ?? 0) * 1000 + (p.sitemaps.warnings ?? 0)) : p.sitemaps.state === "none" ? 1 : 2;
+    const table = [...G.properties]
+      .sort((a, b) => order(a) - order(b) || b.impressions - a.impressions)
+      .map((p) => {
+        const s = p.sitemaps;
+        if (s.state === "reported")
+          return [
+            p.label,
+            count(s.count),
+            count(s.submitted),
+            count(s.errors),
+            count(s.warnings),
+            s.lastDownloaded ? dayShort(s.lastDownloaded.slice(0, 10)) : "never read by Google",
+          ];
+        /* THREE STATES AND NOT TWO — the rule `gsc.sitemaps` keeps. */
+        if (s.state === "none") return [p.label, "none submitted", "—", "—", "—", "—"];
+        return [p.label, "could not be read", "—", "—", "—", "—"];
+      });
+    return {
+      headers: ["Property", "Sitemaps", "URLs submitted", "Errors", "Warnings", "Last read"],
+      table,
+    };
+  },
+
+  "gsc.zeroClick": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    if (!G.properties.some((p) => p.zeroClick)) return null;
+    const pages = G.properties
+      .flatMap((p) => (p.zeroClick?.pages ?? []).map((z) => ({ ...z, property: p.label })))
+      .sort((a, b) => b.impressions - a.impressions);
+    const total = G.properties.reduce((n, p) => n + (p.zeroClick?.count ?? 0), 0);
+    const rows: [string, string][] = pages
+      .slice(0, 6)
+      .map((z) => [pageLabel(z.page), `${count(z.impressions)} impr · never clicked`]);
+    if (!pages.length) rows.push(["No page shown and never clicked", "within the rows Google returned"]);
+    else if (total > rows.length) rows.push([`${count(total)} such pages in all`, `${rows.length} drawn`]);
+    /* A FLOOR, AND TAGGED AS ONE: only the pages Google's capped page rows
+       returned could be counted, and a page past the cap is unmeasured. */
+    rows.push(["Within Google's top pages per property", "a floor, not a total"]);
+    return { name: `Zero-click pages · ${G.window.days}d`, tag: "floor", rows };
+  },
+
+  "gsc.cannot": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected) return null;
+    /* THE ROUTE'S OWN LIST, in the short form a row can hold. Each is a
+       property of Search Console rather than a gap in the collector; the last
+       row says how many the route lists so a reader can go and read them. */
+    const rows: [string, string][] = [
+      ["The last three days", `not finalised — every window ends ${G.window.lagDays}d back`],
+      ["A true top-queries list", "rare queries withheld, rows capped"],
+      ["Pages indexed", "no API for the Index Coverage report"],
+      ["Why a position moved", "the rank is reported, never the reason"],
+      ["Country and device splits", "not collected here — the Search board's cut is by property"],
+    ];
+    rows.push(["Said by the route", `${G.cannot.length} refusals, on /api/gsc`]);
+    return { rows };
+  },
+
+  /* ------------------------------------------------------------ audit */
+
+  "audit.ranked": ({ audit: A }: LiveInputs) => {
+    const rows = audited(A);
+    if (!rows.length) return null;
+    const worst = [...rows].sort(
+      (a, b) => b.issues.error - a.issues.error || b.issues.warning - a.issues.warning,
+    );
+    const never = (A?.ventures.length ?? 0) - rows.length;
+    return {
+      ranked: worst.slice(0, 10).map((v) => ({
+        label: v.name,
+        value: v.issues.error,
+        text: v.issues.error ? `${count(v.issues.error)} error${v.issues.error === 1 ? "" : "s"}` : "clean",
+        /* Warnings ride beside the name and are NEVER in the bar: forty
+           notices must not outweigh a dead homepage. */
+        sub: `${count(v.pages)} page${v.pages === 1 ? "" : "s"} · ${count(v.issues.warning)} warn`,
+      })),
+      caption: also(
+        "errors, worst first — there is no score by design",
+        never ? `${never} venture${never === 1 ? "" : "s"} never crawled, not drawn` : "",
+      ),
+    };
+  },
+
+  "audit.crawled": ({ audit: A }: LiveInputs) => {
+    const rows = audited(A);
+    if (!A) return null;
+    const never = A.ventures.length - rows.length;
+    const pages = rows.reduce((n, v) => n + (v.pages ?? 0), 0);
+    return {
+      tag: "measured",
+      value: count(rows.length),
+      sub: also(
+        `of ${A.ventures.length} ventures · ${count(pages)} pages reached in all`,
+        never ? `${never} never crawled — unmeasured, not clean` : "",
+      ),
+    };
+  },
+
+  /* ------------------------------------------------------------- bing */
+
+  "bing.propertyIndex": ({ bing: B }: LiveInputs) => {
+    if (!B) return null;
+    const withLine = B.sites.filter((s) => (s.index.series?.length ?? 0) > 1);
+    const drawn = [...withLine].sort((a, b) => (b.index.inIndex ?? 0) - (a.index.inIndex ?? 0)).slice(0, 4);
+    if (!drawn.length) return null;
+    return {
+      name: `Pages in Bing's index, by site · ${B.seriesDays}d`,
+      chart: drawn.map((s) => ({
+        label: s.label,
+        points: (s.index.series ?? [])
+          .filter((d) => d.inIndex !== null)
+          .map((d) => ({ ts: at(d.day), value: d.inIndex! })),
+      })),
+      unit: "count" as const,
+      caption: `pages Bing is holding, a level per day and never summed over days · ${drawn.length} of ${withLine.length} sites drawn`,
+    };
+  },
+
+  /* --------------------------------------- this box's own four documents */
+
+  "authority.ceiling": ({ seo }: LiveInputs) => {
+    const A = seo?.authority;
+    if (!A?.hosts.length) return null;
+    return {
+      /* AN ESTIMATE, AND TAGGED AS ONE. Not a Domain Rating and not anybody's
+         score — the route's own label, kept. */
+      tag: "est.",
+      headers: ["Host", "Estimate", "Aim under difficulty", "Basis", "Ref. domains"],
+      /* The route's order — by host — and NEVER sorted by estimate: two rows
+         whose basis differs are two measurements, and an order would invent
+         a comparison between them. */
+      table: A.hosts.map((h) => [
+        h.host,
+        h.estimate === null ? "—" : String(Math.round(h.estimate)),
+        h.ceiling !== null ? String(h.ceiling) : h.estimate === null ? "—" : "no ceiling — not the constraint at this size",
+        h.basis.length ? h.basis.join(" + ") : "nothing could be read",
+        h.links.referringDomains === null ? "—" : count(h.links.referringDomains),
+      ]),
+    };
+  },
+
+  "geo.mentioned": ({ seo }: LiveInputs) => {
+    const D = seo?.geo;
+    if (!D) return null;
+    if (!D.answers.length)
+      return {
+        ranked: [{ label: "Nothing asked yet", value: 0, text: "—", sub: "run a GEO check from a venture's page" }],
+        caption: "does a model name these products when asked what to use?",
+      };
+    const by = new Map<string, { name: string; asked: number; mentioned: number; judged: number; recommended: number }>();
+    for (const a of D.answers) {
+      const e = by.get(a.ventureId) ?? { name: a.ventureName ?? a.ventureId, asked: 0, mentioned: 0, judged: 0, recommended: 0 };
+      e.asked += 1;
+      if (a.mentioned) e.mentioned += 1;
+      if (a.recommended !== null) e.judged += 1;
+      if (a.recommended === true) e.recommended += 1;
+      by.set(a.ventureId, e);
+    }
+    const providers = Object.keys(D.byProvider);
+    return {
+      tag: "measured",
+      ranked: [...by.values()]
+        /* AGAINST ITS OWN DENOMINATOR: the bar is the share of this venture's
+           own questions, so three of three and thirty of thirty draw alike. */
+        .sort((a, b) => b.mentioned / b.asked - a.mentioned / a.asked)
+        .slice(0, 8)
+        .map((e) => ({
+          label: e.name,
+          value: Math.round((e.mentioned / e.asked) * 100),
+          text: `${e.mentioned} of ${e.asked} mentioned`,
+          sub: e.judged ? `${e.recommended} recommended of ${e.judged} judged` : "not judged",
+        })),
+      caption: also(
+        `${providers.join(", ")} · no tools, no web · mentioned means the name or host appeared in the answer`,
+        "recommended was judged by a second completion and is null where it did not answer",
+      ),
+    };
+  },
+
+  "seoops.moved": ({ seo }: LiveInputs) => {
+    const F = seo?.followups;
+    if (!F) return null;
+    if (!F.baselines.length)
+      return {
+        rows: [
+          ["Nothing tracked yet", `finish a board card tagged ${F.schedule.tag} naming a URL`],
+          ["Then", `readings ${F.schedule.offsetsDays.join(", ")} days after, over ${F.schedule.windowDays}d windows`],
+        ] as [string, string][],
+      };
+    const VERDICT: Record<string, string> = {
+      up: "up",
+      down: "down",
+      flat: "flat",
+      thin: "too thin to judge",
+      unmeasured: "not measurable",
+    };
+    const rows: [string, string][] = F.baselines.slice(0, 8).map((b) => {
+      const last = b.diagnoses.at(-1);
+      const who = b.ventureName ? ` · ${b.ventureName}` : "";
+      if (!last) {
+        const next = b.due.find((d) => !d.overdue) ?? b.due[0];
+        return [`${tailOf(b.url)}${who}`, next ? `${next.dayOffset}d reading due ${dayShort(next.dueAt.slice(0, 10))}` : "no reading due"];
+      }
+      const d = last.delta;
+      const moved =
+        d && d.clicks !== null && d.impressions !== null
+          ? `${d.clicks >= 0 ? "+" : ""}${count(d.clicks)} clicks · ${d.impressions >= 0 ? "+" : ""}${count(d.impressions)} impr`
+          : "";
+      return [`${tailOf(b.url)}${who}`, also(`${VERDICT[last.verdict] ?? last.verdict} at ${last.dayOffset}d`, moved)];
+    });
+    if (F.baselines.length > rows.length) rows.push([`+${F.baselines.length - rows.length} more`, "tracked"]);
+    rows.push(["Verdicts are arithmetic", "correlation, not cause"]);
+    return { tag: "measured", rows };
+  },
+
+  "indexing.told": ({ seo }: LiveInputs) => {
+    const I = seo?.indexing;
+    if (!I) return null;
+    const told = [...I.hosts].filter((h) => h.submissions > 0).sort((a, b) => b.submissions - a.submissions);
+    const rows: [string, string][] = told.slice(0, 6).map((h) => [
+      h.host,
+      also(
+        also(`${count(h.received)} received`, h.refused ? `${count(h.refused)} refused` : ""),
+        /* A DRY RUN IS THIS BOX'S OWN NO — the key file was not hosted — and
+           is kept apart from a refusal, which is IndexNow's. */
+        h.dryRun ? `${count(h.dryRun)} held: key file missing` : h.last ? `last ${dayShort(h.last.at.slice(0, 10))}` : "",
+      ),
+    ]);
+    if (!told.length) rows.push(["No host has submitted anything", "submit from a venture's Growth page"]);
+    rows.push([`${count(I.never)} of ${count(I.hosts.length)} hosts never submitted`, I.autoSubmit ? "auto-submit on" : "auto-submit off"]);
+    /* THE PROTOCOL'S OWN LIMIT, ON THE CARD: a receipt is not a crawl, and
+       Google is told nothing by any of this. */
+    rows.push(["Google", "not told — it never joined IndexNow"]);
     return { rows };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

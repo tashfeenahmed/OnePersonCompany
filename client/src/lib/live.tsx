@@ -48,6 +48,7 @@ import { WIDGETS } from "@/data/widgets";
 import { finance as financeApi, type FinanceReport } from "@/lib/api/finance";
 import { activityApi, type LeakageReport } from "@/lib/api/activity";
 import { customersApi, type DisputeDoc, type RecoveryQueue } from "@/lib/api/customers";
+import { seoboard, type SeoOpsDocs } from "@/lib/api/seoboard";
 import {
   LIVE_BUILDERS,
 } from "@/lib/liveWidgets";
@@ -210,6 +211,10 @@ export type LiveData = {
   disputes: DisputeDoc | null;
   /** The recovery queue: who is leaving, whose card is failing. */
   queue: RecoveryQueue | null;
+  /** The four SEO documents this box computes itself — authority, AI
+   *  visibility, follow-ups, IndexNow — fetched unconditionally like the
+   *  ledger, each null on its own failure. See lib/api/seoboard. */
+  seo: SeoOpsDocs | null;
   /** Which widget types are showing real data right now. */
   sourceStates: Record<string, "loading" | "disconnected" | "ready" | "error">;
   sourceErrors: Record<string, string>;
@@ -257,6 +262,7 @@ const LiveContext = createContext<LiveData>({
   leakage: null,
   disputes: null,
   queue: null,
+  seo: null,
   sourceStates: {}, sourceErrors: {},
   loading: true,
   error: null,
@@ -312,6 +318,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [leakage, setLeakage] = useState<LeakageReport | null>(null);
   const [disputes, setDisputes] = useState<DisputeDoc | null>(null);
   const [queue, setQueue] = useState<RecoveryQueue | null>(null);
+  const [seo, setSeo] = useState<SeoOpsDocs | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
@@ -362,6 +369,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsLeakage = false;
     let needsDisputes = false;
     let needsQueue = false;
+    let needsSeo = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -399,6 +407,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.leakage) needsLeakage = true;
       if (w.live?.disputes) needsDisputes = true;
       if (w.live?.queue) needsQueue = true;
+      if (w.live?.seo) needsSeo = true;
     }
     return {
       series: [...series],
@@ -437,6 +446,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsLeakage,
       needsDisputes,
       needsQueue,
+      needsSeo,
     };
   }, []);
 
@@ -481,6 +491,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setLeakage(null);
       setDisputes(null);
       setQueue(null);
+      setSeo(null);
     void (async () => {
       /*
         WHICH PROVIDERS ARE ACTUALLY CONNECTED, asked once for the page.
@@ -776,6 +787,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
          registrars, typed into on the Finance page, and never behind a
          credential of its own. */
       tryFetch(wanted.needsFinance, () => financeApi.report(), setFinance, "finance");
+      /* This box's own SEO arithmetic, receipts and verdicts: no plugin gates
+         it, and a route of the four failing leaves its field null alone. */
+      tryFetch(wanted.needsSeo, () => seoboard.docs(), setSeo, "seo");
 
       await Promise.all(tasks);
       const pairs = await Promise.all(
@@ -850,6 +864,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         leakage,
         disputes,
         queue,
+        seo,
       });
       if (patch) liveTypes.add(type);
     }
@@ -891,6 +906,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       leakage,
       disputes,
       queue,
+      seo,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
     };
@@ -933,6 +949,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     leakage,
     disputes,
     queue,
+    seo,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
@@ -1227,6 +1244,27 @@ export function collectedAt(src: string, live: LiveData): string | null {
       return live.costs?.generatedAt ?? null;
     case "finance":
       return live.finance?.summary.generatedAt ?? null;
+    /*
+      THE FOUR SEO DOCUMENTS, EACH QUOTING ITS OWN CLOCK — never the moment
+      the bundle was assembled, which is "just now" for every one of them.
+      Authority and IndexNow are computed on the read, so their own stamp is
+      the honest one; the AI answers and the follow-ups are dated by the
+      newest row, which is when the work was actually done.
+    */
+    case "authority":
+      return live.seo?.authority ? live.seo.fetchedAt : null;
+    case "geo":
+      return live.seo?.geo?.answers.map((a) => a.ts).sort().at(-1) ?? null;
+    case "seoops":
+      return (
+        live.seo?.followups?.baselines
+          .flatMap((b) => [b.baseline?.at ?? null, ...b.followUps.map((f) => f.at)])
+          .filter((at): at is string => !!at)
+          .sort()
+          .at(-1) ?? null
+      );
+    case "indexing":
+      return live.seo?.indexing?.hosts.map((h) => h.last?.at ?? "").filter(Boolean).sort().at(-1) ?? null;
     default:
       return null;
   }

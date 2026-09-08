@@ -241,7 +241,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 15;
+export const SEED_VERSION = 16;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -751,23 +751,69 @@ const SEED: StoreState = {
       cards are built to say so rather than let an empty column read as a clean
       one.
     */
+    /*
+      RE-SEEDED IN SEED_VERSION 16 TO FOLLOW WORKDASH'S SEO PAGES TOP TO
+      BOTTOM: the totals, then every property drawn as itself, then the
+      queries and pages, then indexing and authority. Nothing that was here
+      left unless a new card draws the same rows in Workdash's form —
+      `gsc.striking` and `gsc.pages` went, replaced by their ranked-bar
+      versions; everything else kept its place in the new order.
+
+      NO SCORE, STILL. Workdash opens with a median audit score and ranks
+      its sites by one; the audit here refuses a score, so `audit.ranked` is
+      errors worst-first and `audit.crawled` beside `audit.issues` is the
+      honest pair of tiles. The four documents this box computes itself —
+      authority, AI visibility, follow-ups, IndexNow — close the board with
+      what Workdash draws from its agent routes.
+    */
     {
       id: "d-seo",
       slug: "seo",
       name: "SEO",
       widgets: [
-        { id: "seo1", type: "audit.issues", w: 1 },
+        /* Totals — the four search tiles, the audit pair, the two lines. */
+        { id: "seo13", type: "gsc.clicks", w: 1 },
+        { id: "seo14", type: "gsc.impressions", w: 1 },
+        { id: "seo15", type: "gsc.ctr", w: 1 },
         { id: "seo2", type: "gsc.position", w: 1 },
+        { id: "seo16", type: "gsc.properties", w: 1 },
+        { id: "seo17", type: "audit.crawled", w: 1 },
+        { id: "seo1", type: "audit.issues", w: 1 },
+        { id: "seo8", type: "bing.index", w: 1 },
+        { id: "seo18", type: "gsc.trend", w: 4 },
+        { id: "seo19", type: "gsc.clicksTrend", w: 4 },
+        /* Every property, drawn as itself. Full width where a card has one
+           row per property: eighteen rows beside a five-row neighbour is a
+           card ending a screen above the one next to it. */
+        { id: "seo20", type: "gsc.dumbbell", w: 4 },
+        { id: "seo21", type: "audit.ranked", w: 2 },
+        { id: "seo12", type: "audit.worst", w: 2 },
+        { id: "seo22", type: "gsc.propertyClicks", w: 4 },
+        { id: "seo23", type: "gsc.propertyImpressions", w: 4 },
+        { id: "seo24", type: "gsc.sites", w: 4 },
+        { id: "seo5", type: "audit.ventures", w: 4 },
+        { id: "seo25", type: "gsc.quiet", w: 2 },
+        { id: "seo29", type: "gsc.zeroClick", w: 2 },
+        /* Queries and pages. */
+        { id: "seo26", type: "gsc.queriesRanked", w: 2 },
+        { id: "seo27", type: "gsc.pagesRanked", w: 2 },
+        { id: "seo28", type: "gsc.strikingRanked", w: 4 },
+        { id: "seo30", type: "gsc.propertyQueries", w: 4 },
+        { id: "seo31", type: "gsc.propertyStriking", w: 4 },
+        /* Indexing and authority. */
+        { id: "seo32", type: "gsc.sitemapsByProperty", w: 4 },
+        { id: "seo9", type: "bing.crawl", w: 2 },
+        { id: "seo33", type: "indexing.told", w: 2 },
+        { id: "seo34", type: "bing.propertyIndex", w: 4 },
+        { id: "seo35", type: "authority.ceiling", w: 4 },
+        { id: "seo10", type: "backlinks.domains", w: 2 },
+        { id: "seo36", type: "geo.mentioned", w: 2 },
         { id: "seo3", type: "backlinks.bySource", w: 4 },
         { id: "seo4", type: "presence.matrix", w: 4 },
-        { id: "seo5", type: "audit.ventures", w: 4 },
-        { id: "seo6", type: "gsc.striking", w: 2 },
-        { id: "seo7", type: "gsc.pages", w: 2 },
-        { id: "seo8", type: "bing.index", w: 1 },
-        { id: "seo9", type: "bing.crawl", w: 2 },
-        { id: "seo10", type: "backlinks.domains", w: 2 },
         { id: "seo11", type: "presence.blocked", w: 2 },
-        { id: "seo12", type: "audit.worst", w: 2 },
+        { id: "seo37", type: "seoops.moved", w: 2 },
+        /* The refusals close the board, the way `meta.cannot` closes Social. */
+        { id: "seo38", type: "gsc.cannot", w: 4 },
       ],
     },
     /*
@@ -1033,6 +1079,8 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
+  /* A dumbbell has an axis and a label gutter to fit, like a table. */
+  if (kind === "dumbbell") return 4;
   return 2;
 }
 
@@ -1412,10 +1460,47 @@ const TOP_UPS: Record<string, string[]> = {
     "finance.power",
     "finance.domains",
   ],
+  /*
+    SEO gained Workdash's graphs in SEED_VERSION 16: the search totals, the
+    daily lines, every property drawn as itself, the ranked query and page
+    lists, and the four documents this box computes on its own. They LEAD —
+    see TOP_UP_LEADS — because the first of them are the totals the whole
+    page is read from, and totals appended under twelve cards are totals
+    nobody scrolls to. The two `rows` cards they supersede (`gsc.striking`,
+    `gsc.pages`) are left where the owner has them: a top-up never removes.
+  */
+  "d-seo": [
+    "gsc.clicks",
+    "gsc.impressions",
+    "gsc.ctr",
+    "gsc.properties",
+    "audit.crawled",
+    "gsc.trend",
+    "gsc.clicksTrend",
+    "gsc.dumbbell",
+    "audit.ranked",
+    "gsc.propertyClicks",
+    "gsc.propertyImpressions",
+    "gsc.sites",
+    "gsc.quiet",
+    "gsc.queriesRanked",
+    "gsc.pagesRanked",
+    "gsc.strikingRanked",
+    "gsc.zeroClick",
+    "gsc.propertyQueries",
+    "gsc.propertyStriking",
+    "gsc.sitemapsByProperty",
+    "indexing.told",
+    "bing.propertyIndex",
+    "authority.ceiling",
+    "geo.mentioned",
+    "seoops.moved",
+    "gsc.cannot",
+  ],
 };
 
 /** The boards whose top-up leads rather than trails — see `migrate()`. */
-const TOP_UP_LEADS = new Set(["d-costs"]);
+const TOP_UP_LEADS = new Set(["d-costs", "d-seo"]);
 
 /** The addresses already taken inside one scope — a venture's boards, or the
  *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is

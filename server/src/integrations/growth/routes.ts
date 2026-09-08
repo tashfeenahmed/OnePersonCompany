@@ -25,7 +25,7 @@ import { hostOf } from "../../shared/host.ts";
 import { authorityAll, authorityFor } from "./authority.ts";
 import { croFor, finishExperiment, startExperiment } from "./cro.ts";
 import { adsHealthAll, adsHealthFor } from "./ads.ts";
-import { auditDelta, indexingFor, sitemapUrls, sitemapsFor, submit } from "./indexing.ts";
+import { auditDelta, indexingFor, indexingOverview, sitemapUrls, sitemapsFor, submit } from "./indexing.ts";
 import { competitorSet, rowsForRun, rowsForVenture } from "./serp.ts";
 import { asoForRun, asoForVenture, ASO_RUBRIC } from "./aso.ts";
 
@@ -117,6 +117,10 @@ growthRoutes.post("/indexing/submit", async (c) => {
   const got = await submit({ host, urls, reason, dryRun: body?.dryRun === true });
   return "error" in got ? c.json({ error: got.error }, 400) : c.json(got);
 });
+
+/* The portfolio fold of the log, before the per-host route so Hono does not
+   read "indexing" as a host. No network: see `indexingOverview`. */
+growthRoutes.get("/indexing", (c) => c.json(indexingOverview()));
 
 growthRoutes.get("/indexing/:host", async (c) =>
   c.json(await indexingFor(c.req.param("host"), { check: c.req.query("check") === "1" })),

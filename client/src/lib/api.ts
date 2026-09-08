@@ -1428,6 +1428,22 @@ export type GscProperty = {
   };
   error: string | null;
   seenAt: string;
+  /** This property's own finalised daily line, oldest first, over the same
+   *  `seriesDays` as the portfolio series — and never added into it here. */
+  series: { day: string; clicks: number; impressions: number; position: number | null }[];
+  /*
+    THE PROPERTY'S OWN CUT OF THE RANKED ROWS — five each — so a card drawn
+    per property is drawn from that property's rows and not from the
+    portfolio list, which on this account is one busy property's list wearing
+    the portfolio's name. Optional on the type because a route that predates
+    them answers without them, and a builder then declines rather than draws.
+  */
+  topQueries?: { query: string; clicks: number; impressions: number; ctr: number | null; position: number | null }[];
+  topPages?: { page: string; clicks: number; impressions: number; ctr: number | null; position: number | null }[];
+  /** Position 5–20 with 3+ impressions — the portfolio definition, narrowed. */
+  striking?: { query: string; impressions: number; clicks: number; position: number | null }[];
+  /** Shown and never clicked, within the pages Google returned: a FLOOR. */
+  zeroClick?: { count: number; floor: true; pages: { page: string; impressions: number }[] };
 };
 
 export type GscRanked = {
@@ -1505,7 +1521,18 @@ export type BingSite = {
     crawlErrors: number | null;
     blockedByRobots: number | null;
     day: string | null;
+    /** The site's own crawl history: in-index is a level per day and is never
+     *  summed over days. */
+    series: {
+      day: string;
+      inIndex: number | null;
+      crawled: number | null;
+      errors: number | null;
+      blocked: number | null;
+    }[];
   };
+  /** This site's own daily traffic, oldest first, over `seriesDays`. */
+  series: { day: string; impressions: number; clicks: number }[];
   /** The crawler's inbound-link count. */
   inLinks: number | null;
   /** How many of OUR pages the link endpoint could NAME a link into. Zero on

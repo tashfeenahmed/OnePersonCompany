@@ -16,7 +16,8 @@ export type WidgetKind =
   | "table"
   | "runway"
   | "donut"
-  | "ranked";
+  | "ranked"
+  | "dumbbell";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -98,6 +99,24 @@ export type RankedRow = {
   text: string;
   sub?: string;
   mark?: string | null;
+};
+
+/**
+ * One row of a dumbbell: a name and TWO magnitudes on one axis, joined.
+ *
+ * The connector is the finding. A row where `a` and `b` sit close together
+ * and a row where they are two decades apart are the same two columns in a
+ * table and two different pictures here — which is why this is a kind of its
+ * own rather than a ranked bar with a second figure in its sub-line. `text`
+ * is what the row prints at the right, already formatted; `sub` is the small
+ * print beside the name, the way `RankedRow.sub` is.
+ */
+export type DumbbellRow = {
+  label: string;
+  a: number;
+  b: number;
+  text: string;
+  sub?: string;
 };
 
 export type WidgetSource = {
@@ -260,6 +279,9 @@ export type Widget = {
     disputes?: boolean;
     /** The recovery queue: who has asked to cancel, whose card is failing. */
     queue?: boolean;
+    /** The four SEO documents this box computes itself — authority, AI
+     *  visibility, follow-ups, IndexNow — asked for as one bundle. */
+    seo?: boolean;
   };
   /**
    * A WORD ABOUT WHAT KIND OF NUMBER THIS IS, worn as a small mono pill after
@@ -334,6 +356,13 @@ export type Widget = {
   center?: { value: string; note: string };
   /** ranked — horizontal bars, largest first, the figure at each bar's tip. */
   ranked?: RankedRow[];
+  /** dumbbell — two magnitudes per row on one shared axis. `names` labels
+   *  the two ends for the legend; `log` puts the axis on decades, which is
+   *  the only way a click count and an impression count forty times its size
+   *  can share one line without the smaller sitting on the origin. */
+  dumbbell?: DumbbellRow[];
+  names?: [string, string];
+  log?: boolean;
   /** runway — deadlines on one axis, with the two lines they are judged by. */
   runway?: RunwayRow[];
   thresholds?: { warn: number; crit: number };
@@ -617,6 +646,41 @@ export const SOURCES: Record<string, WidgetSource> = {
     icon: null,
     mono: "Fi",
     tint: "#5f6b3f",
+    connected: true,
+  },
+  /* ======================================================================
+     SEO BOARD PARITY (Workdash /seo + /search) — four sources this box
+     computes itself. None is a plugin: authority is arithmetic over rows
+     other collectors wrote, the AI answers are what a run recorded, the
+     follow-ups are readings this box took, IndexNow is a log of what it
+     sent. Always connected; an empty card is work not yet done, and says so.
+     ====================================================================== */
+  authority: {
+    name: "Authority",
+    icon: null,
+    mono: "At",
+    tint: "#4a6b8a",
+    connected: true,
+  },
+  geo: {
+    name: "AI visibility",
+    icon: null,
+    mono: "Ai",
+    tint: "#6b4a8a",
+    connected: true,
+  },
+  seoops: {
+    name: "SEO follow-ups",
+    icon: null,
+    mono: "Fu",
+    tint: "#8a6b4a",
+    connected: true,
+  },
+  indexing: {
+    name: "IndexNow",
+    icon: null,
+    mono: "Ix",
+    tint: "#4a8a6b",
     connected: true,
   },
 };
@@ -2929,6 +2993,196 @@ export const WIDGETS: Record<string, Widget> = {
     name: "What this board will not say",
     kind: "rows",
     live: { stripe: true, leakage: true },
+  },
+  /* ======================================================================
+     SEO BOARD PARITY (Workdash /seo + /search).
+
+     WHAT WORKDASH DRAWS THAT THIS BOARD DID NOT: the search totals as four
+     tiles, a daily line for clicks as well as impressions, one line PER
+     PROPERTY, clicks against impressions on one axis, the query and page
+     lists as ranked bars, the page-two list, the sitemaps and the top query
+     of every property in one table each, the zero-click pages, the audit
+     ranked worst first, and the four things this box computes itself —
+     authority, AI visibility, follow-ups after SEO work, and IndexNow.
+
+     THREE RULES CARRIED OVER. Nothing here adds Google to Bing. Every window
+     is written on the card by the builder, from the route's own window,
+     rather than baked into the name. And THERE IS NO SCORE: Workdash ranks
+     its sites by an audit score, this box's audit refuses one on purpose, so
+     the ranked card here is errors, worst first, and says so in its caption.
+     ====================================================================== */
+  "gsc.ctr": {
+    src: "gsc",
+    name: "CTR · Google",
+    kind: "metric",
+    live: { gsc: true },
+  },
+  "gsc.properties": {
+    src: "gsc",
+    name: "Properties",
+    kind: "metric",
+    live: { gsc: true },
+  },
+  /* A verified property with nothing shown yet is not a broken one — the
+     card Workdash calls "No search data yet". */
+  "gsc.quiet": {
+    src: "gsc",
+    name: "No search data yet",
+    kind: "rows",
+    live: { gsc: true },
+  },
+  /* Clicks on their own axis, the way `gsc.trend` keeps impressions on
+     theirs: forty times apart, the two cannot share one. */
+  "gsc.clicksTrend": {
+    src: "gsc",
+    name: "Clicks a day · Google",
+    kind: "chart",
+    live: { gsc: true },
+    unit: "count",
+  },
+  /* ONE LINE PER PROPERTY, the busiest four. The rest are on the table
+     beside this card rather than summed into a fifth line called "other". */
+  "gsc.propertyClicks": {
+    src: "gsc",
+    name: "Clicks a day, by property",
+    kind: "chart",
+    live: { gsc: true },
+    unit: "count",
+  },
+  "gsc.propertyImpressions": {
+    src: "gsc",
+    name: "Impressions a day, by property",
+    kind: "chart",
+    live: { gsc: true },
+    unit: "count",
+  },
+  /* Two dots per property on one log axis; the distance between them is the
+     click-through rate drawn rather than printed. */
+  "gsc.dumbbell": {
+    src: "gsc",
+    name: "Clicks against impressions",
+    kind: "dumbbell",
+    live: { gsc: true },
+    log: true,
+  },
+  /* The three ranked lists as Workdash draws them: a bar per row, the
+     figure at its tip, the property and the rank in the small print. The
+     `rows` cards of the same name on the Search board stay as they are. */
+  "gsc.queriesRanked": {
+    src: "gsc",
+    name: "Top queries · Google",
+    kind: "ranked",
+    live: { gsc: true },
+  },
+  "gsc.pagesRanked": {
+    src: "gsc",
+    name: "Top pages · Google",
+    kind: "ranked",
+    live: { gsc: true },
+  },
+  "gsc.strikingRanked": {
+    src: "gsc",
+    name: "Page-two opportunities · 5–20",
+    kind: "ranked",
+    live: { gsc: true },
+  },
+  /* EVERY PROPERTY ON ONE TABLE, three times: its own top query, its own
+     page-two query, its own sitemap standing. The portfolio lists above are
+     one busy property's list wearing the portfolio's name; these are cut per
+     property on the route. */
+  "gsc.propertyQueries": {
+    src: "gsc",
+    name: "Top query, every property",
+    kind: "table",
+    live: { gsc: true },
+    headers: ["Property", "Top query", "Clicks", "Impressions", "Position", "Rows cover"],
+  },
+  "gsc.propertyStriking": {
+    src: "gsc",
+    name: "Striking distance, every property",
+    kind: "table",
+    live: { gsc: true },
+    headers: ["Property", "Query", "Position", "Impressions", "Clicks"],
+  },
+  "gsc.sitemapsByProperty": {
+    src: "gsc",
+    name: "Sitemaps, every property",
+    kind: "table",
+    live: { gsc: true },
+    headers: ["Property", "Sitemaps", "URLs submitted", "Errors", "Warnings", "Last read"],
+  },
+  /* Shown and never clicked — within the pages Google returned, so a FLOOR. */
+  "gsc.zeroClick": {
+    src: "gsc",
+    name: "Zero-click pages",
+    kind: "rows",
+    live: { gsc: true },
+  },
+  /* The route's own `cannot` list as a card, the way `meta.cannot` closes
+     the Social board: said here rather than left to be assumed. */
+  "gsc.cannot": {
+    src: "gsc",
+    name: "What Search Console cannot say",
+    kind: "rows",
+    live: { gsc: true },
+  },
+  /* Errors, worst first — NOT a score. The audit refuses one, so the bar is
+     the error count and the warnings ride in the small print, never added. */
+  "audit.ranked": {
+    src: "audit",
+    name: "Errors by site, worst first",
+    kind: "ranked",
+    live: { audit: true },
+  },
+  "audit.crawled": {
+    src: "audit",
+    name: "Sites audited",
+    kind: "metric",
+    live: { audit: true },
+  },
+  /* A LEVEL per day, one line per site: pages Bing is holding. Never
+     summed over days, and never on an axis with anything a person did. */
+  "bing.propertyIndex": {
+    src: "bing",
+    name: "Pages in Bing's index, by site",
+    kind: "chart",
+    live: { bing: true },
+    unit: "count",
+  },
+  /* LISTED BY HOST AND NEVER RANKED. Two hosts whose basis differs are two
+     different measurements wearing one word, so the table keeps the route's
+     order and the basis column is what makes a row readable. */
+  "authority.ceiling": {
+    src: "authority",
+    name: "Authority · this box's own estimate",
+    kind: "table",
+    live: { seo: true },
+    headers: ["Host", "Estimate", "Aim under difficulty", "Basis", "Ref. domains"],
+  },
+  /* Mentioned-of-asked per venture, the bar against the venture's OWN
+     denominator — a venture asked three times is not compared with one
+     asked thirty. */
+  "geo.mentioned": {
+    src: "geo",
+    name: "Measured AI visibility",
+    kind: "ranked",
+    live: { seo: true },
+  },
+  /* Workdash's "What moved": a Search Console reading taken after a card was
+     finished, against the one taken when it was. The verdict is arithmetic. */
+  "seoops.moved": {
+    src: "seoops",
+    name: "What moved · after SEO work",
+    kind: "rows",
+    live: { seo: true },
+  },
+  /* Workdash's "Search engines told": which hosts have told IndexNow
+     anything, and the sentence that a receipt is not an indexing. */
+  "indexing.told": {
+    src: "indexing",
+    name: "Search engines told · IndexNow",
+    kind: "rows",
+    live: { seo: true },
   },
 };
 
