@@ -1396,8 +1396,8 @@ export const PLUGINS: Plugin[] = [
     cat: "signals",
     connected: false,
     secret: "users",
-    desc: "Who signed up, read from a JSON endpoint each product publishes about its own users.",
-    help: "Stripe knows who paid and Umami knows who visited. Neither knows who SIGNED UP, because a signup happens inside an application and no third party is told about it \u2014 so the application publishes it, and this reads it. ONE ACCOUNT IS ONE PRODUCT and the account's name is the product's name. THE CONTRACT HAS TWO FORMS: either { \"users\": [ { \"id\", \"createdAt\", and optionally \"email\", \"plan\", \"paid\", \"lastSeenAt\", \"country\" } ], \"total\"?, \"generatedAt\"? } or, for a product that cannot list its users at all, { \"counts\": { \"total\": n, \"new\": { \"days\": 7, \"n\": n } } }. The second form exists because an empty list and a product that cannot name its users are OPPOSITE facts, and a schema with only the first would have made the second invisible. ADDRESSES ARE HASHED with a salt made once on this install, and only the mail domain is kept readable \u2014 there is no route here that takes or returns an address, which is the point. A DOCUMENT THAT FAILS VALIDATION CHANGES NOTHING: the rows the last good one produced stay exactly as they were, beside a sentence naming the field that is wrong. Verification at connect time runs the same validator, so a mis-spelled createdAt costs a minute at the form instead of half a day as an empty chart.",
+    desc: "Who signed up \u2014 from a JSON endpoint a product publishes, from its database on one of your own boxes, or from Stripe.",
+    help: "Stripe knows who paid and Umami knows who visited. Neither knows who SIGNED UP, because a signup happens inside an application and no third party is told about it \u2014 so the application publishes it, and this reads it. ONE ACCOUNT IS ONE PRODUCT and the account's name is the product's name. THE CONTRACT HAS TWO FORMS: either { \"users\": [ { \"id\", \"createdAt\", and optionally \"email\", \"plan\", \"paid\", \"lastSeenAt\", \"country\" } ], \"total\"?, \"generatedAt\"? } or, for a product that cannot list its users at all, { \"counts\": { \"total\": n, \"new\": { \"days\": 7, \"n\": n } } }. The second form exists because an empty list and a product that cannot name its users are OPPOSITE facts, and a schema with only the first would have made the second invisible. ADDRESSES ARE HASHED with a salt made once on this install, and only the mail domain is kept readable \u2014 there is no route here that takes or returns an address, which is the point. A DOCUMENT THAT FAILS VALIDATION CHANGES NOTHING: the rows the last good one produced stay exactly as they were, beside a sentence naming the field that is wrong. Verification at connect time runs the same validator, so a mis-spelled createdAt costs a minute at the form instead of half a day as an empty chart. THREE DOORS, ONE CONTRACT. Most products here will never publish an endpoint \u2014 their user tables are Postgres, SQLite, MySQL and MongoDB on machines you own \u2014 so an account may instead name a FLEET BOX and the application on it, and the collector runs the same read-only users probe over the ssh credential the Fleet plugin already holds. No second key is stored, and no command can be typed here: an account names a box and a product, nothing more. A third door names a STRIPE PRODUCT PREFIX, for a product whose own users table holds nothing but an admin login and whose customers are subscribers \u2014 that one publishes a total and no user list, because a subscription is not a person and a customer with two of them is two rows in Stripe. FILL IN ONE DOOR AND CLEAR THE REST: an account naming two is refused rather than resolved by precedence, because the wrong pick is a product quietly reporting somebody else's figures.",
     docs: null,
     fields: [
       {
@@ -1413,9 +1413,30 @@ export const PLUGINS: Plugin[] = [
         ph: "only if the endpoint needs one",
         optional: true,
       },
+      {
+        key: "box",
+        label: "Or: the Fleet box it runs on",
+        kind: "text",
+        ph: "Apps box \u2014 the name of the account on the Fleet plugin",
+        optional: true,
+      },
+      {
+        key: "product",
+        label: "\u2026 and the application on it",
+        kind: "text",
+        ph: "example-app-8, example-app-2, example-app-3, example-app-4, example-app-1, example-app-5\u2026",
+        optional: true,
+      },
+      {
+        key: "stripe",
+        label: "Or: the Stripe product whose subscribers are the users",
+        kind: "text",
+        ph: "FreeLLMAPI \u2014 matched as a prefix, so every plan of it counts",
+        optional: true,
+      },
     ],
     usedBy: [
-      "collect_users (one fetch per product, validated against the contract, the rows upserted)",
+      "collect_users (one read per product \u2014 a fetch, a probe over the box's own ssh credential, or the Stripe tables here \u2014 validated against the contract, the rows upserted)",
       "GET /api/users \u2014 per product: its own total, new in 7d and 30d, paid, the daily series",
       "GET /api/activity \u2014 signups become events on the feed, at their own timestamps",
     ],

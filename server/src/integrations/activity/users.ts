@@ -72,6 +72,15 @@
 import { createHash, randomBytes } from "node:crypto";
 import { db, finishRun, now, startRun, syncPlugin } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
+import {
+  boxDocument,
+  boxReader,
+  parsePrefixes,
+  SOURCES,
+  sourceFor,
+  stripeDocument,
+  type BoxRead,
+} from "./users-boxes.ts";
 
 export const PLUGIN = "users";
 
@@ -530,35 +539,218 @@ export async function fetchEndpoint(url: string, token: string | null): Promise<
   }
 }
 
+/* ------------------------------------------------------------- three doors */
+
+/**
+ * WHERE ONE PRODUCT'S USERS COME FROM.
+ *
+ * The contract has not changed and neither has anything downstream of it: every
+ * branch below produces a document, `validate` checks it, and the same upsert
+ * stores it. What differs is only who was asked.
+ *
+ *   endpoint  the product published the document itself, at a URL. The
+ *             original door and still the right one — a product that can
+ *             publish its own users needs nothing here to know its schema.
+ *   box       the product's database is on one of the owner's own machines and
+ *             will never have an endpoint. The `fleet` account for that box
+ *             already holds the ssh credential, and a read-only probe on the
+ *             box turns its tables into rows; see users-boxes.ts.
+ *   stripe    the product has no self-hosted user table worth counting — its
+ *             customers are subscribers, and they are counted from the Stripe
+ *             tables this box already collects.
+ *
+ * THE KIND IS DERIVED FROM THE FIELDS AND NOT STORED, so there is no way for an
+ * account to claim one kind and hold another's credentials. An account holding
+ * fields for two kinds is refused by name rather than resolved by precedence:
+ * picking one would be picking on the owner's behalf, and the wrong pick is a
+ * product silently reporting somebody else's figures.
+ */
+export type DocSource = "endpoint" | "box" | "stripe";
+
+export type AccountKind =
+  | { kind: "endpoint"; url: string; token: string | null }
+  | { kind: "box"; box: string; product: string }
+  | { kind: "stripe"; prefixes: string[] }
+  | { kind: "none"; why: string };
+
+export function kindOf(values: Record<string, string>): AccountKind {
+  const url = (values.url ?? "").trim();
+  const box = (values.box ?? "").trim();
+  const product = (values.product ?? "").trim();
+  const stripe = (values.stripe ?? "").trim();
+
+  const named = [url && "an endpoint", (box || product) && "a box", stripe && "Stripe"].filter(
+    Boolean,
+  ) as string[];
+  if (named.length > 1)
+    return {
+      kind: "none",
+      why:
+        `This account names ${named.join(" and ")}. One account is one product read ONE way — fill in the endpoint, ` +
+        `or the box and product, or the Stripe prefixes, and clear the rest.`,
+    };
+
+  if (url) return { kind: "endpoint", url, token: (values.token ?? "").trim() || null };
+  if (box || product) {
+    if (!box)
+      return { kind: "none", why: `“${product}” has no box. Type the name of the Fleet account whose machine holds it.` };
+    if (!product)
+      return {
+        kind: "none",
+        why:
+          `The box “${box}” is set but no product is. Type the probe's own id for the application — ` +
+          `${SOURCE_IDS}.`,
+      };
+    return { kind: "box", box, product };
+  }
+  if (stripe) return { kind: "stripe", prefixes: parsePrefixes(stripe) };
+
+  return {
+    kind: "none",
+    why:
+      "This account says nothing about where its users are. Give it an endpoint publishing the users contract, " +
+      "or a Fleet box and the probe's id for the application on it, or the Stripe product prefixes whose " +
+      "subscribers are the user base.",
+  };
+}
+
+/** The ids an account may name, for an error message that does not send the
+ *  owner to read a source file. */
+const SOURCE_IDS = SOURCES.map((s) => s.id).join(", ");
+
+/** What one read produced, whichever door it came through. `url` is the
+ *  LOCATOR — an https endpoint, an ssh target and the application, or the name
+ *  of this box's own tables — and is what the panel prints under "where". */
+export type Read = {
+  ok: boolean;
+  status: number | null;
+  ms: number;
+  doc: unknown;
+  error: string | null;
+  url: string;
+  source: DocSource;
+  site: string | null;
+  /** Sentences the READER produced, as distinct from the validator's. A row
+   *  the probe returned with no id is a problem with the source, not with the
+   *  contract, and the two are kept apart so neither hides the other. */
+  problems: string[];
+};
+
+/** One product read off a box, through a reader that probes each box once —
+ *  see `boxReader`. Split out so `verify` and the collector share it. */
+async function readBox(
+  kind: { box: string; product: string },
+  probeOne: (label: string) => Promise<BoxRead>,
+): Promise<Read> {
+  const src = sourceFor(kind.product);
+  const where = `ssh://${kind.box}#${kind.product}`;
+  const site = src?.site ? `https://${src.site}` : null;
+  const base = { status: null, source: "box" as const, site, url: where };
+
+  const run = await probeOne(kind.box);
+  if (!run.probe)
+    return { ...base, ok: false, ms: run.ms, doc: null, error: run.error, problems: [], url: run.target ? `ssh://${run.target}#${kind.product}` : where };
+
+  const locator = `ssh://${run.target}#${kind.product}`;
+  const app = run.probe.apps.find((a) => a.id === kind.product);
+  if (!app)
+    return {
+      ...base, url: locator, ok: false, ms: run.ms, doc: null, problems: [],
+      error:
+        `The probe on ${run.target} ran, and no application there calls itself “${kind.product}”. It found: ` +
+        `${run.probe.apps.map((a) => a.id).join(", ") || "nothing at all"}. An application whose container is ` +
+        `stopped is simply absent from that list.`,
+    };
+  /* A PROBE THAT RAN AND AN APPLICATION THAT DID NOT ANSWER are two different
+     failures and the second is reported as the product's own, not the box's:
+     one stopped database must not read as an unreachable machine. */
+  if (app.error)
+    return { ...base, url: locator, ok: false, ms: run.ms, doc: null, problems: [], error: `${app.app} on ${run.target}: ${app.error}` };
+
+  const built = boxDocument(app, src, run.probe.collectedAt);
+  return { ...base, url: locator, ok: true, ms: run.ms, doc: built.doc, error: null, problems: built.problems };
+}
+
+/** One product's users derived from this box's own Stripe tables. No call
+ *  goes out: `stripe_subscriptions` is already collected. */
+function readStripe(prefixes: string[]): Read {
+  const started = Date.now();
+  const built = stripeDocument(prefixes);
+  return {
+    ok: built.error === null,
+    status: null,
+    ms: Date.now() - started,
+    doc: built.doc,
+    error: built.error,
+    url: `stripe:${prefixes.join(",")}`,
+    source: "stripe",
+    site: null,
+    /* THE FIRST CLAUSE HAS TO STAND ALONE. Surfaces that draw a product's
+       problems cut the sentence short — the board's "worth a look" card takes
+       sixty characters — so the caveat that matters is said before the
+       explanation of it, not after. */
+    problems: built.matched.length
+      ? [
+          `Counted from Stripe: a total, and nobody named. A row in stripe_subscriptions is a SUBSCRIPTION and not a ` +
+            `person — somebody holding two of them is two rows — so this product publishes a count rather than a list. ` +
+            `Matched: ${built.matched.join(", ")}.`,
+        ]
+      : [],
+  };
+}
+
+/** One account, read whichever way its fields say. */
+export async function readAccount(
+  values: Record<string, string>,
+  probeOne: (label: string) => Promise<BoxRead>,
+): Promise<Read> {
+  const kind = kindOf(values);
+  if (kind.kind === "none")
+    return { ok: false, status: null, ms: 0, doc: null, error: kind.why, url: "", source: "endpoint", site: null, problems: [] };
+  if (kind.kind === "box") return readBox(kind, probeOne);
+  if (kind.kind === "stripe") return readStripe(kind.prefixes);
+  const got = await fetchEndpoint(kind.url, kind.token);
+  return { ...got, url: kind.url, source: "endpoint", site: null, problems: [] };
+}
+
 /**
  * Verify, for the credential registry.
  *
  * IT VALIDATES THE CONTRACT AND NOT MERELY THE CONNECTION, which is the whole
  * value of doing it at connect time: the owner is standing at the form with
  * the endpoint's code open, and "users[0].createdAt is missing" costs them a
- * minute there and half a day if it is found later as an empty chart.
+ * minute there and half a day if it is found later as an empty chart. The same
+ * is true of a box — "no application there calls itself example-app-5-clod" is a
+ * typo caught at the form, and an empty card a fortnight later otherwise.
  */
 export async function verify(values: Record<string, string>): Promise<string | null> {
-  const url = (values.url ?? "").trim();
-  if (!url)
-    return "Paste the URL of an endpoint publishing the users contract — see the panel on this page for the two shapes it accepts.";
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return `“${url}” is not a URL. It needs a scheme: https://app.example.com/api/users.json.`;
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
-    return "Only http and https endpoints can be read here.";
+  const kind = kindOf(values);
+  if (kind.kind === "none") return kind.why;
 
-  const token = (values.token ?? "").trim();
-  const got = await fetchEndpoint(url, token || null);
+  if (kind.kind === "box" && !sourceFor(kind.product))
+    return (
+      `“${kind.product}” is not an application this box has a mapping for, so its rows could not be read even if the ` +
+      `probe returned them. The ones it knows: ${SOURCE_IDS}.`
+    );
+
+  if (kind.kind === "endpoint") {
+    let parsed: URL;
+    try {
+      parsed = new URL(kind.url);
+    } catch {
+      return `“${kind.url}” is not a URL. It needs a scheme: https://app.example.com/api/users.json.`;
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
+      return "Only http and https endpoints can be read here.";
+  }
+
+  const got = await readAccount(values, boxReader());
   if (!got.ok) {
     if (got.status === 401 || got.status === 403)
-      return token
+      return kind.kind === "endpoint" && kind.token
         ? `The endpoint refused the token (${got.status}). It is sent as “Authorization: Bearer <token>” — check that is the header it wants.`
         : `The endpoint needs authentication (${got.status}). Paste a token, or put the key in the URL if that is how it is read.`;
-    return got.error ?? "The endpoint did not answer.";
+    return got.error ?? "It did not answer.";
   }
 
   const check = validate(got.doc);
@@ -568,6 +760,15 @@ export async function verify(values: Record<string, string>): Promise<string | n
      is looking at the field, and a warning printed on a page they navigate
      away from is a warning nobody sees. They can save again to accept it —
      nothing here rejects a document the collector would keep. */
+  /* ONLY THE VALIDATOR'S RESERVATIONS ARE A REFUSAL. `check.problems` are facts
+     about the DOCUMENT — a mis-spelled createdAt the owner can go and fix — and
+     showing them at the form is the whole value of verifying at connect time.
+     `got.problems` are facts about the SOURCE, permanent and structural: a
+     Stripe product that counts subscriptions rather than people, an application
+     whose rows carry no id. Refusing on those would put a gate in front of the
+     owner that saving again is the only way through and that no amount of
+     fixing would ever open. They are stored on the document instead and are on
+     the plugin panel, dated, beside the figures they qualify. */
   if (check.problems.length)
     return `It answered and the shape is right, but: ${check.problems.slice(0, 3).join(" ")} Save again to connect anyway — those rows will be skipped and the rest kept.`;
   return null;
@@ -583,6 +784,14 @@ export type DocRow = {
   ms: number | null;
   shape: string | null;
   url: string | null;
+  /** How the document was obtained: 'endpoint' (the product published it),
+   *  'box' (read off a fleet box with the users probe) or 'stripe' (derived
+   *  from this box's own Stripe tables). NULL on a row stored before this
+   *  column existed, which means 'endpoint' — it was the only way then. */
+  source: string | null;
+  /** The product's own site, where there is no endpoint URL to guess a venture
+   *  from. NULL for an endpoint account, whose `url` already carries a host. */
+  site: string | null;
   doc: string | null;
   users: number | null;
   total: number | null;
@@ -620,7 +829,7 @@ export function redact(doc: unknown): string {
 
 function writeDoc(
   accountId: number,
-  url: string,
+  where: { url: string; source: DocSource; site: string | null },
   f: { ok: boolean; status: number | null; ms: number },
   fields: {
     shape: string | null;
@@ -634,8 +843,8 @@ function writeDoc(
 ) {
   db.prepare(
     `INSERT INTO activity_user_docs
-       (account_id, ts, ok, status, ms, shape, url, doc, users, total, generated_at, error, problems)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+       (account_id, ts, ok, status, ms, shape, url, source, site, doc, users, total, generated_at, error, problems)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(account_id) DO UPDATE SET
        ts = excluded.ts, ok = excluded.ok, status = excluded.status, ms = excluded.ms,
        -- A failed fetch or a refused document KEEPS what the last good one
@@ -644,6 +853,11 @@ function writeDoc(
        -- picture, where nulls would be a page that lost its users.
        shape = COALESCE(excluded.shape, activity_user_docs.shape),
        url = excluded.url,
+       -- Both follow the account every time, including to NULL: an account
+       -- moved from an endpoint to a box has changed where its figures come
+       -- from, and a COALESCE here would leave the panel naming the old one.
+       source = excluded.source,
+       site = excluded.site,
        doc = COALESCE(excluded.doc, activity_user_docs.doc),
        users = COALESCE(excluded.users, activity_user_docs.users),
        total = COALESCE(excluded.total, activity_user_docs.total),
@@ -657,7 +871,9 @@ function writeDoc(
     f.status,
     f.ms,
     fields.shape,
-    url,
+    where.url,
+    where.source,
+    where.site,
     fields.doc,
     fields.users,
     fields.total,
@@ -793,13 +1009,20 @@ export type UsersSummary = {
 export async function collectUsers(): Promise<UsersSummary> {
   const runId = startRun(PLUGIN);
   forgetGoneAccounts();
-  const { ready, broken } = accounts.credentialed(PLUGIN, ["url"], "collect_users");
-  const warnings = broken.map(
-    (b) => `${b.account.label}: missing ${b.missing.join(", ")} — the account is connected but incomplete.`,
-  );
+  /*
+    NO FIELD IS REQUIRED OF AN ACCOUNT HERE, because three kinds of account
+    need three different sets of them — see `kindOf`, which derives the kind
+    from what is present and refuses anything that names two. An account that
+    says nothing is reported by name with what to fill in, which is what
+    `credentialed`'s own `broken` list would have said about a missing URL.
+  */
+  const { ready } = accounts.credentialed(PLUGIN, [], "collect_users");
+  const warnings: string[] = [];
 
-  if (!ready.length && !broken.length) {
-    const error = "No product endpoint is connected. Add one as a URL on the plugin page.";
+  if (!ready.length) {
+    const error =
+      "No product is connected. Add one on the plugin page: an endpoint publishing the users contract, a Fleet box " +
+      "and the application on it, or the Stripe product whose subscribers are the user base.";
     finishRun(runId, false, undefined, error);
     syncPlugin(PLUGIN, error);
     return { ok: false, runId, endpoints: 0, answered: 0, rows: 0, warnings, error };
@@ -807,17 +1030,19 @@ export async function collectUsers(): Promise<UsersSummary> {
 
   let answered = 0;
   let rows = 0;
+  /* ONE PROBE RUN PER BOX, however many of these products live on it. */
+  const probeOne = boxReader();
 
   for (const { account, values } of ready) {
-    const url = (values.url ?? "").trim();
-    const got = await fetchEndpoint(url, (values.token ?? "").trim() || null);
+    const got = await readAccount(values, probeOne);
+    const where = { url: got.url, source: got.source, site: got.site };
 
     if (!got.ok) {
-      writeDoc(account.id, url, got, {
+      writeDoc(account.id, where, got, {
         shape: null, doc: null, users: null, total: null, generatedAt: null,
-        error: got.error, problems: [],
+        error: got.error, problems: got.problems,
       });
-      accounts.markFailed(account.id, got.error ?? "The endpoint did not answer.");
+      accounts.markFailed(account.id, got.error ?? "It did not answer.");
       warnings.push(`${account.label}: ${got.error}`);
       continue;
     }
@@ -825,9 +1050,9 @@ export async function collectUsers(): Promise<UsersSummary> {
     const check = validate(got.doc);
     if (!check.ok) {
       const why = `The document does not match the contract. ${check.problems.join(" ")}`;
-      writeDoc(account.id, url, { ...got, ok: false }, {
+      writeDoc(account.id, where, { ...got, ok: false }, {
         shape: null, doc: redact(got.doc), users: null, total: null, generatedAt: null,
-        error: why, problems: check.problems,
+        error: why, problems: [...got.problems, ...check.problems],
       });
       accounts.markFailed(account.id, why);
       warnings.push(`${account.label}: ${why}`);
@@ -837,37 +1062,42 @@ export async function collectUsers(): Promise<UsersSummary> {
     accounts.markOk(account.id);
     answered += 1;
     const p = check.parsed;
+    /* THE READER'S PROBLEMS COME FIRST. "12 rows carried no id" is a fact about
+       the source and "users[3].createdAt is not ISO" is a fact about the
+       document; both are kept, in that order, because the first usually
+       explains the second. */
+    const problems = [...got.problems, ...check.problems];
 
     if (p.shape === "users") {
       writeUsers(account.id, account.label, p.users);
       rebuildDays(account.id);
       rows += p.users.length;
-      writeDoc(account.id, url, got, {
+      writeDoc(account.id, where, got, {
         shape: "users",
         doc: redact(got.doc),
         users: p.users.length,
         total: p.total,
         generatedAt: p.generatedAt,
         error: null,
-        problems: check.problems,
+        problems,
       });
     } else {
       writeCountDay(account.id, p.total);
-      writeDoc(account.id, url, got, {
+      writeDoc(account.id, where, got, {
         shape: "counts",
         doc: redact(got.doc),
         users: null,
         total: p.total,
         generatedAt: p.generatedAt,
         error: null,
-        problems: check.problems,
+        problems,
       });
     }
     if (check.problems.length)
       warnings.push(`${account.label}: ${check.problems.length} row problem(s) — ${check.problems[0]}`);
   }
 
-  const endpoints = ready.length + broken.length;
+  const endpoints = ready.length;
   if (!answered) {
     const error = warnings.join("; ") || "No product endpoint answered.";
     finishRun(runId, false, undefined, error);

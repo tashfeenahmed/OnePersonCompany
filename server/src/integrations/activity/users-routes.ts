@@ -321,9 +321,13 @@ userRoutes.get("/", (c) => {
   const countries = facetCounts("country", 12);
   const spans = signupSpans();
   const series = dayRows(fromDay);
+  /* THE HOST GUESS READS `site` FIRST. A product read off a box has no endpoint
+     hostname to guess a venture from, so the source table names the product's
+     own site instead — see migration 135. An endpoint account has no `site` and
+     falls through to the URL it always used. */
   const ventures = ventureFor(
     list.map((a) => ({ id: a.id, label: a.label })),
-    new Map(list.map((a) => [a.id, docs.get(a.id)?.url ?? null])),
+    new Map(list.map((a) => [a.id, docs.get(a.id)?.site ?? docs.get(a.id)?.url ?? null])),
   );
 
   const products = list.map((account) => {
@@ -351,6 +355,12 @@ userRoutes.get("/", (c) => {
        *  anything has validated — not a failure, nobody has asked yet. */
       shape,
       url: doc?.url ?? null,
+      /** WHICH DOOR THIS PRODUCT'S USERS CAME THROUGH — "endpoint" (it
+       *  published the document), "box" (read off one of the owner's own
+       *  machines with the users probe) or "stripe" (derived from the Stripe
+       *  tables here). Null before anything was collected, and on a row stored
+       *  before the column existed, which means "endpoint". */
+      source: doc?.source ?? null,
       reachable: doc ? doc.ok === 1 : null,
       lastFetchedAt: doc?.ts ?? null,
       /** The product's own clock on the document, if it stamped one. Older
@@ -541,7 +551,10 @@ userRoutes.get("/entities", (c) => {
   const docs = new Map(docRows().map((d) => [d.account_id, d]));
   return c.json({
     entities: accounts.list(PLUGIN).map((a) => {
-      const url = docs.get(a.id)?.url ?? null;
+      /* `site` first, for the same reason the roll-up's venture guess reads it
+         first: a box-backed product's locator is an ssh target, and the host
+         worth matching a venture against is the product's own. */
+      const url = docs.get(a.id)?.site ?? docs.get(a.id)?.url ?? null;
       let host: string | null = null;
       if (url) {
         try {
