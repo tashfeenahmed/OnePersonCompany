@@ -13,13 +13,14 @@ import {
    by 1000 while the panels divided by 1024, so one disk read 5.0 GB and 5.4
    GB on adjacent cards. The `/s` stays local — it is part of the claim, not
    part of the number. */
-import { bytes, count, money, pct } from "@/lib/format";
+import { ago, bytes, count, money, pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ModelMark } from "@/components/ModelMark";
 import type {
   ChartSeries,
   DonutSlice,
   DumbbellRow,
+  FeedItem,
   Meter,
   ProfileFigure,
   ProportionPart,
@@ -1266,9 +1267,26 @@ export function Donut({
  * and `sub` — the row's recent daily values — for a list where the bar says
  * how much and the reader's next question is which way. Workdash's search
  * rail is the model. No axis, no hover: the figures are already printed.
+ *
+ * `max` FIXES THE AXIS, AND ONLY A SCORE SHOULD USE IT. The default scale is
+ * relative — the longest bar is the biggest row — which is right whenever the
+ * question is "which of these is largest". It is wrong for a figure that is
+ * already out of something: four category scores of 55, 52, 50 and 48 drawn
+ * relatively are one full bar and three nearly-full ones, which says the
+ * account is doing well at everything. Passing `max={100}` makes the length
+ * mean "how much of the available credit was earned", and four mediocre scores
+ * look mediocre.
  */
-export function Ranked({ rows, caption }: { rows: RankedRow[]; caption?: string }) {
-  const top = Math.max(1, ...rows.map((r) => Math.max(r.value, 0)));
+export function Ranked({
+  rows,
+  caption,
+  max,
+}: {
+  rows: RankedRow[];
+  caption?: string;
+  max?: number;
+}) {
+  const top = max ?? Math.max(1, ...rows.map((r) => Math.max(r.value, 0)));
   return (
     <div className="mt-1 flex flex-col gap-2">
       {rows.map((r) => {
@@ -1830,8 +1848,13 @@ export function Figures({
                 key={h}
                 scope="col"
                 className={cn(
+                  /* THE SAME GUTTER THE CELLS UNDER IT HAVE. Without `pl-3`
+                     two narrow right-aligned headers touch — "Bid strategy"
+                     and "Ads" render as one word — while the figures below
+                     them are correctly spaced, which reads as a typo in the
+                     header rather than as missing padding. */
                   "border-line-soft border-b pb-1 font-normal",
-                  i === 0 ? "text-left" : "text-right",
+                  i === 0 ? "text-left" : "pl-3 text-right",
                 )}
               >
                 {h}
@@ -1841,7 +1864,10 @@ export function Figures({
         </thead>
         <tbody>
           {rows.map((r, ri) => (
-            <tr key={r[0]} className="hover:bg-muted/40 transition-colors">
+            /* KEYED BY POSITION AS WELL AS BY NAME. Two rows may legitimately
+               share a first cell — an account with two ad sets called the same
+               thing — and a duplicate key drops one of them silently. */
+            <tr key={`${r[0]}-${ri}`} className="hover:bg-muted/40 transition-colors">
               {r.map((cell, i) => (
                 <td
                   key={i}
@@ -2119,4 +2145,132 @@ function niceCeiling(n: number): number {
     if (candidate >= n) return Math.round(candidate);
   }
   return Math.round(10 * power);
+}
+
+/* ------------------------------------------------------------------- feed */
+
+/**
+ * ONE PUBLISHED THING PER ROW: the picture, the words, the numbers, the link.
+ *
+ * THE ONE KIND IN THIS FILE THAT DRAWS NO QUANTITY. Every other picture here
+ * answers "how much" or "which is biggest"; this one answers "what did people
+ * actually see", which is the question an advertisement or a post is on a board
+ * to answer and which no bar can be shaped into. The figures are still there —
+ * as a formatted key/value strip under the copy — but they are the caption on
+ * the thing rather than the thing.
+ *
+ * THE IMAGE IS A PLAIN, LAZY `<img>` IN A FIXED BOX, and every clause of that
+ * is load-bearing. Fixed, because Meta's creative urls are SIGNED AND EXPIRE
+ * within days and a 403 is the ordinary failure here — a card that reflowed as
+ * its pictures dropped out would redraw itself between two refreshes. Hidden on
+ * error rather than shown broken, because a broken frame reads as "this thing
+ * had no picture", which is a claim about the thing and not about the url.
+ * Lazy, because a feed of twenty creatives below the fold is twenty requests to
+ * somebody else's CDN nobody asked for. Plain, because an embed would be a
+ * third-party script on the owner's dashboard and there is no version of that
+ * this file will draw.
+ *
+ * THE LINK IS WHATEVER THE BUILDER SAID IT WAS. This component does not know
+ * whether an href is a permalink to the thing or the address the thing pointed
+ * at — that distinction is a claim about the data, so the builder makes it in
+ * `meta` and the card only opens a new tab.
+ */
+export function Feed({ items, caption }: { items: FeedItem[]; caption?: string }) {
+  return (
+    <div className="mt-2">
+      <ul className="flex flex-col">
+        {items.map((item, i) => (
+          <li
+            key={`${item.title}-${i}`}
+            className="border-border/60 flex gap-3 border-b py-3 first:pt-1 last:border-0 last:pb-0"
+          >
+            <FeedImage item={item} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                {item.tone && (
+                  <i
+                    aria-hidden="true"
+                    className={cn(
+                      "mt-[5px] size-1.5 shrink-0 self-start rounded-full",
+                      item.tone === "ok" && "bg-ok",
+                      item.tone === "warn" && "bg-warn",
+                      item.tone === "bad" && "bg-destructive",
+                    )}
+                  />
+                )}
+                <p className="min-w-0 flex-1 text-[13px] leading-snug font-medium">
+                  {item.href ? (
+                    <a
+                      href={item.href}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="hover:underline"
+                    >
+                      {item.title}
+                    </a>
+                  ) : (
+                    item.title
+                  )}
+                </p>
+                {item.at && (
+                  <span className="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">
+                    {ago(item.at)}
+                  </span>
+                )}
+              </div>
+              {item.text && (
+                /* Three lines, then a fade — the copy is here so a reader can
+                   recognise the thing, not so they can proof-read it, and a
+                   creative with two hundred words of body would push every
+                   other item off the card. */
+                <p className="text-muted-foreground mt-0.5 line-clamp-3 text-[12.5px] leading-snug whitespace-pre-line">
+                  {item.text}
+                </p>
+              )}
+              {item.meta.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] leading-snug">
+                  {item.meta.map(([label, value]) => (
+                    <span key={label} className="text-muted-foreground inline-flex items-baseline gap-1">
+                      <b className="text-foreground font-medium tabular-nums">{value}</b>
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {caption && (
+        <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{caption}</p>
+      )}
+    </div>
+  );
+}
+
+/** The fixed frame. See `Feed`: an expired signature is the ordinary case. */
+function FeedImage({ item }: { item: FeedItem }) {
+  const [failed, setFailed] = useState(false);
+  if (!item.image || failed)
+    return (
+      <div className="border-border text-muted-foreground flex size-16 shrink-0 items-center justify-center rounded-md border border-dashed text-[10.5px]">
+        {item.image ? "expired" : "no image"}
+      </div>
+    );
+  const img = (
+    <img
+      src={item.image}
+      alt={`Creative for ${item.title}`}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="border-border size-16 shrink-0 rounded-md border object-cover"
+    />
+  );
+  return item.href ? (
+    <a href={item.href} target="_blank" rel="noreferrer noopener" className="shrink-0">
+      {img}
+    </a>
+  ) : (
+    img
+  );
 }

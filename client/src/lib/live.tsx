@@ -49,6 +49,7 @@ import { finance as financeApi, type FinanceReport } from "@/lib/api/finance";
 import { activityApi, type LeakageReport } from "@/lib/api/activity";
 import { customersApi, type DisputeDoc, type RecoveryQueue } from "@/lib/api/customers";
 import { seoboard, type SeoOpsDocs } from "@/lib/api/seoboard";
+import { adsboard, type AdsBoardDocs } from "@/lib/api/adsboard";
 import {
   LIVE_BUILDERS,
 } from "@/lib/liveWidgets";
@@ -217,6 +218,11 @@ export type LiveData = {
    *  visibility, follow-ups, IndexNow — fetched unconditionally like the
    *  ledger, each null on its own failure. See lib/api/seoboard. */
   seo: SeoOpsDocs | null;
+  /** The three ads documents this box computes over Meta's own rows — the
+   *  health rubric, the advertisements with their creatives, and the campaign
+   *  → venture map. Gated on the Meta plugin, because all three read tables
+   *  the Meta collector wrote. See lib/api/adsboard. */
+  ads: AdsBoardDocs | null;
   /**
    * THE WINDOW EVERY DOCUMENT ABOVE WAS ASKED FOR — the picker's, from the
    * store. Carried here so a card can label itself and a builder can tell
@@ -273,6 +279,7 @@ const LiveContext = createContext<LiveData>({
   disputes: null,
   queue: null,
   seo: null,
+  ads: null,
   window: DEFAULT_WINDOW,
   sourceStates: {}, sourceErrors: {},
   loading: true,
@@ -339,6 +346,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [disputes, setDisputes] = useState<DisputeDoc | null>(null);
   const [queue, setQueue] = useState<RecoveryQueue | null>(null);
   const [seo, setSeo] = useState<SeoOpsDocs | null>(null);
+  const [ads, setAds] = useState<AdsBoardDocs | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
@@ -390,6 +398,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsDisputes = false;
     let needsQueue = false;
     let needsSeo = false;
+    let needsAds = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -428,6 +437,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.disputes) needsDisputes = true;
       if (w.live?.queue) needsQueue = true;
       if (w.live?.seo) needsSeo = true;
+      if (w.live?.ads) needsAds = true;
     }
     return {
       series: [...series],
@@ -467,6 +477,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsDisputes,
       needsQueue,
       needsSeo,
+      needsAds,
     };
   }, []);
 
@@ -512,6 +523,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setDisputes(null);
       setQueue(null);
       setSeo(null);
+      setAds(null);
     void (async () => {
       /*
         WHICH PROVIDERS ARE ACTUALLY CONNECTED, asked once for the page.
@@ -823,6 +835,18 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       /* This box's own SEO arithmetic, receipts and verdicts: no plugin gates
          it, and a route of the four failing leaves its field null alone. */
       tryFetch(wanted.needsSeo, () => seoboard.docs(), setSeo, "seo");
+      /* THE ADS BUNDLE RIDES ON THE META PLUGIN, because all three of its
+         documents are arithmetic over rows the Meta collector wrote. Without
+         the token there is nothing to score, no advertisement to draw and no
+         campaign to map — and three cards showing samples is the honest state,
+         exactly as it is for /api/meta itself. The ad-level daily table is
+         retained on the day-grained schedule, so 90 is the most it answers. */
+      tryFetch(
+        connected.has("meta") && wanted.needsAds,
+        () => adsboard.docs(daysFor(selected, 90)),
+        setAds,
+        "ads",
+      );
 
       await Promise.all(tasks);
       const pairs = await Promise.all(
@@ -901,6 +925,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         disputes,
         queue,
         seo,
+        ads,
         window: selected,
       });
       if (patch) liveTypes.add(type);
@@ -944,6 +969,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       disputes,
       queue,
       seo,
+      ads,
       window: selected,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
@@ -989,6 +1015,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     disputes,
     queue,
     seo,
+    ads,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
@@ -1167,6 +1194,23 @@ export function collectedAt(src: string, live: LiveData): string | null {
          than getting its own case because there is no second fetch behind it:
          its state is a field on the Pages this timestamp dates. */
       return live.meta?.seenAt ?? null;
+    /*
+      THE ADS BUNDLE QUOTES META'S CLOCK, not its own. All three of its
+      documents are arithmetic over rows the Meta collector wrote, and the
+      arithmetic runs on every request — dating a health score to "just now"
+      over figures collected six hours ago would be the one thing this case
+      exists to prevent. The newest ad account `seenAt` is when Meta was last
+      read, which is when any of it last changed.
+    */
+    case "ads":
+      return (
+        live.ads?.health?.accounts
+          .map((a) => a.account.seenAt)
+          .sort()
+          .at(-1) ??
+        live.meta?.seenAt ??
+        null
+      );
     case "reddit":
     case "hn":
     case "searxng":
