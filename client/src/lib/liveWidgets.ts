@@ -11103,6 +11103,16 @@ Object.assign(LIVE_BUILDERS, {
         caption: `Hetzner's HYPERVISOR view, not the guest's — this box has no in-guest CPU sample yet, and the probe only began taking one recently. ${hzLoad.cpuScaled ? `Scaled to the whole box over ${hzLoad.cores} cores.` : "Hetzner's raw per-core sum, which can exceed 100: the core count is unknown."} Mean ${percent(hzLoad.cpu.mean, 0)}, peak ${percent(hzLoad.cpu.peak, 0)}.`,
       };
 
+    /* ONE READING IS A FIGURE, NOT A LINE. The in-guest sample began today, so
+       for a box Hetzner did not sell there is exactly one point until the next
+       collection; a card that said "no reading" under a tile showing 40% would
+       be contradicting its neighbour. */
+    if (guest.length === 1)
+      return {
+        tag: "measured",
+        chart: [],
+        caption: `One in-guest reading so far for ${S.label}: ${percent(guest[0]!.value, 0)} busy. The line starts at the next collection, ${F?.cadenceMinutes ?? 30} min after this one; Hetzner has no view of this box because it is not a machine it sold.`,
+      };
     return {
       tag: "measured",
       chart: [],
