@@ -304,6 +304,16 @@ const LiveContext = createContext<LiveData>({
  */
 export const LOAD_HOURS = 24;
 
+/**
+ * The most the ssh fleet's own route will answer, in days.
+ *
+ * Not a preference: `fleet_samples` is pruned at thirty days (see the retention
+ * registry in integrations/ops/fleet.ts) and the route clamps `hours` at 720 to
+ * match. "All time" over these boxes IS a month, and a card drawn over it says
+ * a month rather than "all time".
+ */
+export const FLEET_MAX_DAYS = 30;
+
 export function LiveProvider({ children }: { children: ReactNode }) {
   /*
     ONE WINDOW FOR EVERY FETCH BELOW. Each route used to be asked at its own
@@ -792,9 +802,18 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         connected.has("uptime") && wanted.needsUptime,
         () => reports.uptime(),
         setUptime, "uptime");
+      /*
+        THE FLEET FOLLOWS THE PICKER, IN HOURS. Its route takes `hours` and
+        clamps at 720, which is exactly the thirty days `fleet_samples` is
+        pruned to — so "all time" here is a month and the document's own
+        `window.hours` is what the cards caption from. A half-hourly probe over
+        thirty days is a large document and it is the honest one: the per-box
+        memory, CPU and load lines are drawn from these rows and nothing else
+        holds them.
+      */
       tryFetch(
         connected.has("fleet") && wanted.needsBoxes,
-        () => reports.fleet(),
+        () => reports.fleet(daysFor(selected, FLEET_MAX_DAYS) * 24),
         setBoxes, "boxes");
       /* The plugin id is `product-stats`; the field, the source and the widget
          keys are all `products`. Written out here rather than renamed at either

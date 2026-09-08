@@ -236,6 +236,25 @@ export type WidgetSource = {
   connected: boolean;
 };
 
+/**
+ * WHAT KIND OF THING A CARD CAN BE PINNED TO.
+ *
+ * A placed widget may carry a `param` (see `PlacedWidget` in lib/store), and
+ * this says what that string IS. "venture" is a venture id and narrows every
+ * document to that venture's host; "server" is a FLEET ACCOUNT ID and picks
+ * one box out of the fleet document. They are different resolutions of the
+ * same mechanism, so a third kind is a choice list and a resolver in
+ * lib/params and nothing else.
+ */
+export type ParamKind = "venture" | "server";
+
+/** What a per-param card is pinned to, and how the picker says it. */
+export type PerParam = {
+  kind: ParamKind;
+  /** The word on the picker and in the palette — "Server", "Venture". */
+  label: string;
+};
+
 export type Widget = {
   src: string;
   name: string;
@@ -255,6 +274,25 @@ export type Widget = {
    * venture picker, and the palette asks which venture before adding one.
    */
   perProject?: boolean;
+  /**
+   * THE SAME MECHANISM, FOR A THING THAT IS NOT A VENTURE.
+   *
+   * `perProject: true` above is exactly `perParam: { kind: "venture" }` and
+   * lib/params reads it as one; this field is what a card pinned to anything
+   * else declares. `{ kind: "server" }` is a fleet account id, and the choices
+   * come from the LIVE FLEET DOCUMENT rather than from the workspace — the
+   * boxes are not something the owner typed into this app, so a seed cannot
+   * know them and the palette lists whatever answered ssh this morning.
+   *
+   * Everything else is shared with the venture case: the card's header carries
+   * a `<select>` in edit mode, the palette expands the row into the choice
+   * list, the card's name gains " · <choice>", and the builder is handed
+   * `param` plus a resolved object in `LiveInputs`. A per-server builder is
+   * given `server` and reads the portfolio document; there is no narrowing
+   * pass, because picking a box out of a list of boxes is not a filter over
+   * hostnames.
+   */
+  perParam?: PerParam;
   /**
    * Where the real numbers come from, once the provider is connected:
    * a key in the server's `readings` table, or "summary" for a provider
@@ -3984,6 +4022,181 @@ export const WIDGETS: Record<string, Widget> = {
     name: "AdSense by month",
     kind: "rows",
     live: { adsense: true },
+  },
+  /* ============================================== SERVERS BOARD PARITY ==
+     WORKDASH'S /servers, AS CARDS. That page is a grid of one card PER
+     MACHINE — name, three meters with their own thresholds, a mount for every
+     attached volume, a CPU line, uptime and what is running — over a fleet
+     summary and an alert strip. A board of portfolio-wide widgets cannot draw
+     that, because "the box" is not a thing a fleet-wide card has: it can only
+     ever rank nine machines against each other.
+
+     So the per-machine half is `perParam: { kind: "server" }` — the venture
+     mechanism, generalised (see lib/params). A `server.*` card carries a
+     FLEET ACCOUNT ID, the palette expands into the live list of boxes, and
+     the same widget placed twice with two different boxes is two cards. The
+     seed cannot place any of them: the fleet is whatever answered ssh this
+     morning, not something the workspace knows.
+
+     WHAT IS MEASURED WHERE, because three sources answer about one machine
+     and they do not measure the same thing.
+       · THE SSH PROBE is inside the guest and is the only thing that can see
+         memory, every filesystem, load, uptime and what is running. It runs
+         every half hour.
+       · HETZNER measures from the hypervisor: CPU, network and disk
+         throughput, per server, every quarter hour — and structurally cannot
+         see memory or a filesystem. It answers for seven of the nine boxes
+         and for none of the machines Hetzner never sold.
+       · THE PROBE'S OWN CPU is new (046_fleet_cpu) and is a percentage of one
+         sampled second inside the guest. Where a box has none yet, the cards
+         fall back to Hetzner's line and SAY WHICH ONE THEY DREW.
+     Nothing below averages the two together.
+  */
+
+  /* ---- one box, chosen on the card --------------------------------------
+     Workdash's ServerCard, taken apart into the cards a board is made of. The
+     overview is the whole of it at a glance; the rest are the pieces somebody
+     pins beside it when one machine is the day's problem. */
+  "server.overview": {
+    src: "fleet",
+    name: "Server",
+    kind: "profile",
+    window: "selected",
+    perParam: { kind: "server", label: "Server" },
+    live: { boxes: true, fleet: true, load: true },
+  },
+  "server.cpu": {
+    src: "fleet",
+    name: "CPU",
+    kind: "chart",
+    window: "selected",
+    perParam: { kind: "server", label: "Server" },
+    live: { boxes: true, fleet: true, load: true },
+    unit: "percent",
+  },
+  "server.memory": {
+    src: "fleet",
+    name: "Memory",
+    kind: "chart",
+    window: "selected",
+    perParam: { kind: "server", label: "Server" },
+    live: { boxes: true },
+    unit: "percent",
+  },
+  /* EVERY FILESYSTEM, NOT "the disk". A box with a database on an attached
+     volume has two answers to "is the disk full" and only one of them is the
+     root, which is the whole reason this card is meters and not a figure. */
+  "server.disk": {
+    src: "fleet",
+    name: "Filesystems",
+    kind: "meters",
+    window: "now",
+    perParam: { kind: "server", label: "Server" },
+    live: { boxes: true },
+  },
+  "server.load": {
+    src: "fleet",
+    name: "Load",
+    kind: "chart",
+    window: "selected",
+    perParam: { kind: "server", label: "Server" },
+    live: { boxes: true },
+    unit: "percent",
+  },
+  /* THE ONE CARD HERE THAT THE PROBE CANNOT ANSWER AT ALL. Nothing inside the
+     guest is sampled for throughput, so this is Hetzner's hypervisor view or
+     it is nothing — and on a box Hetzner never sold it says so instead of
+     drawing an empty axis. */
+  "server.network": {
+    src: "fleet",
+    name: "Network & disk throughput",
+    kind: "rows",
+    perParam: { kind: "server", label: "Server" },
+    live: { boxes: true, fleet: true, load: true },
+  },
+  "server.containers": {
+    src: "fleet",
+    name: "What runs here",
+    kind: "table",
+    window: "now",
+    perParam: { kind: "server", label: "Server" },
+    live: { boxes: true },
+    headers: ["Container", "Image", "Status", "Up"],
+  },
+  "server.counters": {
+    src: "fleet",
+    name: "Counters",
+    kind: "rows",
+    window: "now",
+    perParam: { kind: "server", label: "Server" },
+    live: { boxes: true },
+  },
+
+  /* ---- the fleet, above the cards ---------------------------------------
+     Workdash opens with four figures, an alert strip and one table of every
+     box. These are those, in this board's vocabulary — and the alert strip
+     leads, because a board whose first card is a chart is a board somebody
+     reads after the outage. */
+  "fleet.alerts": {
+    src: "fleet",
+    name: "Worth a look",
+    kind: "statuses",
+    window: "now",
+    live: { boxes: true },
+  },
+  "fleet.table": {
+    src: "fleet",
+    name: "Every box",
+    kind: "table",
+    window: "now",
+    live: { boxes: true, fleet: true, load: true },
+    headers: ["Box", "CPU", "Memory", "Fullest disk", "Load/cpu", "Up", "Last seen"],
+  },
+  /* EVERY MOUNT ON EVERY BOX, which is the only card on the board where an
+     attached volume filling up is visible without knowing which machine to
+     look at. Workdash puts a volume beside its box's root disk; a board reads
+     across boxes, so they are ranked together and each row names its box. */
+  "fleet.mounts": {
+    src: "fleet",
+    name: "Every filesystem",
+    kind: "meters",
+    window: "now",
+    live: { boxes: true },
+  },
+  "fleet.fullest": {
+    src: "fleet",
+    name: "Fullest disk",
+    kind: "metric",
+    window: "now",
+    live: { boxes: true },
+  },
+  "fleet.reporting": {
+    src: "fleet",
+    /* SHORT, because the card is one column wide and the window suffix and the
+       "measured" pill share the line with it. "Reporting · now" fits; "Boxes
+       reporting · now" truncates to an ellipsis in the one place a reader is
+       trying to learn what the figure is. */
+    name: "Reporting",
+    kind: "metric",
+    window: "now",
+    live: { boxes: true },
+  },
+  /* THE ONE FIGURE THAT ADDS ACROSS BOXES. Disk does not (filesystems share
+     pools) and load does not (it is already per machine); RAM does, because a
+     byte here and a byte there are two bytes the owner is paying for. */
+  "fleet.memoryTotal": {
+    src: "fleet",
+    name: "Fleet RAM",
+    kind: "metric",
+    window: "now",
+    live: { boxes: true },
+  },
+  "fleet.providers": {
+    src: "fleet",
+    name: "Boxes by provider",
+    kind: "donut",
+    window: "now",
+    live: { boxes: true, fleet: true },
   },
 };
 

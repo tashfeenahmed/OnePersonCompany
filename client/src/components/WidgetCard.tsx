@@ -24,14 +24,15 @@ import { ModelMark } from "@/components/ModelMark";
 import { SOURCES, WIDGETS, type Widget } from "@/data/widgets";
 import { useStore, type PlacedWidget } from "@/lib/store";
 import { collectedAt, deltaOver, useLive, type LiveData } from "@/lib/live";
-import { LIVE_BUILDERS, type LiveInputs, type ProjectScope } from "@/lib/liveWidgets";
+import { LIVE_BUILDERS, type LiveInputs, type ProjectScope, type ServerScope } from "@/lib/liveWidgets";
+import { PARAM_NOUN, paramChoices, paramKindOf } from "@/lib/params";
 import { isScopedWidget, narrowLive, useScope } from "@/lib/scope";
 import { hasPrevious, widgetName } from "@/lib/window";
 
 /** Every document a builder reads, off one live context. The same list the
  *  fetch layer and the scope hand over; kept in one place here so a card
  *  narrowed to a venture and a card that is not are fed identically. */
-function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<LiveInputs, "param" | "project">): LiveInputs {
+function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<LiveInputs, "param" | "project" | "server">): LiveInputs {
   return {
     points,
     summary: live.hetzner,
@@ -141,11 +142,29 @@ export function WidgetCard({
     a filter over every report the page holds.
   */
   const { state } = useStore();
-  const perProject = !!base?.perProject;
+  /*
+    WHICH KIND OF THING THIS CARD IS PINNED TO, if any. `perProject: true` is
+    read as `{ kind: "venture" }` in lib/params, so the venture path below is
+    the same code it always was and a second kind is a second resolution
+    rather than a second mechanism.
+  */
+  const paramKind = paramKindOf(base);
+  const perParam = paramKind !== null;
+  const perProject = paramKind === "venture";
   const venture = perProject && placed.param
     ? (state.ventures.find((v) => v.id === placed.param) ?? null)
     : null;
   const portfolio = scope ? scope.base : all;
+  /*
+    A PER-SERVER CARD IS NOT NARROWED, IT IS PICKED. A venture is a hostname
+    the documents have to be filtered by; a box is a row in a list of boxes,
+    and the builder is handed the row. So there is no `narrowLive` pass here —
+    the whole portfolio document goes in, with `server` saying which box the
+    card is about, and the builders read the one box.
+  */
+  const box = paramKind === "server" && placed.param
+    ? (portfolio.boxes?.boxes.find((b) => String(b.accountId) === placed.param) ?? null)
+    : null;
   const projectLive = useMemo(
     () => (venture?.host ? narrowLive(portfolio, [venture.host]) : null),
     [portfolio, venture],
@@ -154,6 +173,9 @@ export function WidgetCard({
   const src = SOURCES[base.src];
   const project: ProjectScope | null = venture
     ? { id: venture.id, name: venture.name, hosts: venture.host ? [venture.host] : [] }
+    : null;
+  const server: ServerScope | null = box
+    ? { id: String(box.accountId), label: box.label, box }
     : null;
 
   const points = base.live?.metric
@@ -167,16 +189,20 @@ export function WidgetCard({
   // call a per-project builder declines, so the verdict is made here from
   // the narrowed document instead: live if the builder answered.
   const build = LIVE_BUILDERS[placed.type];
-  const patch = perProject
-    ? project && projectLive && build
-      ? build(inputsOf(projectLive, points, { param: placed.param, project }))
-      : null
+  const patch = perParam
+    ? perProject
+      ? project && projectLive && build
+        ? build(inputsOf(projectLive, points, { param: placed.param, project }))
+        : null
+      : server && build
+        ? build(inputsOf(portfolio, points, { param: placed.param, server }))
+        : null
     : live.liveTypes.has(placed.type) && build
       ? build(inputsOf(live, points, {}))
       : null;
   // Real numbers replace the sample ones in place, so the card's layout does
   // not change when a provider connects — only what it is showing.
-  const isLive = perProject ? patch !== null : live.liveTypes.has(placed.type);
+  const isLive = perParam ? patch !== null : live.liveTypes.has(placed.type);
   // Presentation metadata is reusable; sample data never enters a live card.
   // THE NAME CARRIES THE PICKER'S WINDOW before the patch is laid over it, so
   // a builder that has to say a different span — churn under "all" is the
@@ -186,7 +212,11 @@ export function WidgetCard({
      say, so "Search · 28d" reads "Search · 28d · Example App 1" whether the
      builder answered or declined — a card with nothing to draw still has to
      say whose nothing it is. */
-  const title = venture ? `${def.name} · ${venture.name}` : def.name;
+  const title = venture
+    ? `${def.name} · ${venture.name}`
+    : server
+      ? `${def.name} · ${server.label}`
+      : def.name;
 
   // "No change" and "not enough history to say" are different claims. A sample
   // widget with delta 0 means the first; a live one measured twice in an hour
@@ -227,18 +257,36 @@ export function WidgetCard({
     no rows, which is a finding rather than a fault.
   */
   const hasPortfolioDoc = !!report && !!(portfolio as unknown as Record<string, unknown>)[report];
-  const empty = perProject
-    ? !placed.param
-      ? "Pick a venture: edit the board and choose one in this card's header."
-      : !venture
-        ? "This card's venture is no longer in the workspace — pick another in edit mode."
-        : !venture.host
-          ? `${venture.name} has no website yet, so there is nothing to narrow to.`
-          : isLive
-            ? null
-            : hasPortfolioDoc
-              ? `Nothing for ${venture.name} (${venture.host}) in ${src.name}.`
-              : unavailable
+  /*
+    A PER-SERVER CARD HAS THREE WAYS TO BE EMPTY and they are three different
+    sentences: no box chosen, a box that has left the fleet since the card was
+    placed, and a box the probe has nothing to say about. The last is the
+    interesting one — a machine that stopped answering ssh keeps its card and
+    its name, and the card reports the silence instead of the numbers.
+  */
+  const emptyServer = !placed.param
+    ? "Pick a server: edit the board and choose one in this card's header."
+    : !server
+      ? "This card's server is no longer in the fleet — pick another in edit mode."
+      : isLive
+        ? null
+        : portfolio.boxes
+          ? `Nothing measured for ${server.label} yet.${server.box.error ? ` The last probe said: ${server.box.error}` : ""}`
+          : unavailable;
+  const empty = perParam
+    ? perProject
+      ? !placed.param
+        ? "Pick a venture: edit the board and choose one in this card's header."
+        : !venture
+          ? "This card's venture is no longer in the workspace — pick another in edit mode."
+          : !venture.host
+            ? `${venture.name} has no website yet, so there is nothing to narrow to.`
+            : isLive
+              ? null
+              : hasPortfolioDoc
+                ? `Nothing for ${venture.name} (${venture.host}) in ${src.name}.`
+                : unavailable
+      : emptyServer
     : narrowed && !isLive && scope
       ? scope.base.liveTypes.has(placed.type)
         ? `Nothing for ${scope.label} in ${src.name}.`
@@ -283,7 +331,7 @@ export function WidgetCard({
           {/* Not beside the venture picker: in edit mode a per-project
               card's header holds the picker, and a tag as well left the
               name four letters long. The tag is for reading, not editing. */}
-          {isLive && def.tag && !(editing && perProject) && (
+          {isLive && def.tag && !(editing && perParam) && (
             <span className="text-muted-foreground bg-muted shrink-0 rounded-[5px] px-1.5 py-px font-mono text-[10px] font-medium">
               {def.tag}
             </span>
@@ -295,7 +343,7 @@ export function WidgetCard({
             />
           )}
         </span>
-        {scope && !narrowed && !perProject && (
+        {scope && !narrowed && !perParam && (
           <span
             title={`This figure has no per-site breakdown, so it is the whole portfolio rather than ${scope.label}.`}
             className="text-muted-foreground shrink-0 rounded-[7px] border px-1 py-px text-[10.5px] leading-[1.35]"
@@ -307,18 +355,25 @@ export function WidgetCard({
             rather than a dialog because there are twenty ventures and one
             choice; it stops the pointer so the grab handle around it does
             not start a drag. */}
-        {editing && perProject && (
+        {editing && perParam && paramKind && (
           <select
-            aria-label={`Venture for ${def.name}`}
+            aria-label={`${PARAM_NOUN[paramKind]} for ${def.name}`}
             value={placed.param ?? ""}
             onChange={(e) => onSetParam?.(e.target.value || undefined)}
             onPointerDown={(e) => e.stopPropagation()}
             className="bg-muted text-foreground h-6 max-w-[124px] shrink-0 rounded-[7px] border-0 px-1.5 text-[11.5px]"
           >
-            <option value="">Pick a venture…</option>
-            {state.ventures.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
+            <option value="">Pick a {PARAM_NOUN[paramKind]}…</option>
+            {paramChoices(paramKind, {
+              ventures: state.ventures,
+              /* THE PORTFOLIO DOCUMENT, not the narrowed one. Inside a venture
+                 board the fleet is filtered to that venture's linked boxes, and
+                 a picker that could only offer those would be a picker that
+                 hides most of the machines. */
+              fleet: portfolio.boxes,
+            }).map((choice) => (
+              <option key={choice.id} value={choice.id}>
+                {choice.name}
               </option>
             ))}
           </select>

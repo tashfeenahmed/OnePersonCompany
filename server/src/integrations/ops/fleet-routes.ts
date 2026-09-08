@@ -33,6 +33,13 @@
  * call that disk 2% full when df, Finder and every alert anybody would want
  * agree it is 62%.
  *
+ * CPU IS NOT LOAD AND THE DOCUMENT CARRIES BOTH. Load counts runnable tasks,
+ * so a box stuck on a slow disk carries a load of four with idle cores and a
+ * box pinned on two threads carries a load of two. `cpuPercent` is utilisation
+ * measured inside the guest over one sampled second; `loadPerCpu` is what the
+ * scheduler has queued. Neither substitutes for the other, and `cpuPercent` is
+ * null — never zero — on a box whose last probe predates it.
+ *
  * COUNTERS ARE THE OWNER'S OWN QUESTIONS and the values come from readings, so
  * they have real history. A counter with no reading is reported as having no
  * reading — never as zero. See fleet.ts's `parseCounters` for the format and
@@ -59,6 +66,20 @@ export const fleetRoutes = new Hono();
  *  "nearly full" means. */
 const WARN = 80;
 const CRIT = 90;
+
+/**
+ * The other two pairs, because a disk's limits are not a CPU's.
+ *
+ * A filesystem at 80% is worth a look and at 90% is an outage waiting for a
+ * log rotation; a CPU at 80% is a machine doing its job. Published here beside
+ * the disk pair for the same reason that one is: the page, the alert list and
+ * the agent must all mean one thing by "busy", and three copies of a number in
+ * three files is how they stop meaning it.
+ */
+const CPU_WARN = 75;
+const CPU_CRIT = 90;
+const MEM_WARN = 80;
+const MEM_CRIT = 92;
 
 function clamp(value: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, value));
@@ -137,6 +158,11 @@ fleetRoutes.get("/", (c) => {
         ts: last.ts,
         uptimeSeconds: last.uptime_s,
         cpus: last.cpus,
+        /* HOW BUSY, AS OPPOSED TO HOW LOADED. Percent of one sampled second in
+           which the cores were not idle, measured inside the guest. NULL means
+           NOT MEASURED — a box last probed before 046_fleet_cpu, or one where
+           neither /proc/stat nor ps answered — and it is never drawn as 0. */
+        cpuPercent: last.cpu_pct,
         load: { one: last.load1, five: last.load5, fifteen: last.load15 },
         /** The only load figure that means the same thing on every box. Null
          *  when the core count is unknown — an undivided load average put
@@ -186,9 +212,14 @@ fleetRoutes.get("/", (c) => {
       samples: mine.map((s) => ({
         ts: s.ts,
         load1: s.load1,
+        /* Null on every row written before the column existed. A gap in a line
+           is the honest drawing of that; a zero would be a quiet machine. */
+        cpuPercent: s.cpu_pct,
+        cpus: s.cpus,
         memUsed: s.mem_used,
         memTotal: s.mem_total,
         swapUsed: s.swap_used,
+        swapTotal: s.swap_total,
       })),
     };
   });
@@ -199,7 +230,20 @@ fleetRoutes.get("/", (c) => {
 
   return c.json({
     window: { hours, unit: "bytes for memory and disk, seconds for uptime" },
-    thresholds: { warn: WARN, critical: CRIT, basis: "percent of used / (used + available)" },
+    thresholds: {
+      warn: WARN,
+      critical: CRIT,
+      basis: "percent of used / (used + available)",
+      /** Disks fill long before a CPU matters, so the pairs travel per metric
+       *  rather than per page. `disk` is the pair above, named. */
+      disk: { warn: WARN, critical: CRIT },
+      cpu: { warn: CPU_WARN, critical: CPU_CRIT },
+      memory: { warn: MEM_WARN, critical: MEM_CRIT },
+    },
+    /** How often the collector probes, in minutes. A box is "not reporting"
+     *  when it has been silent for several of these — the page decides how
+     *  many, but it must not have to guess the cadence itself. */
+    cadenceMinutes: 30,
     boxes,
     totals: {
       boxes: list.length,
