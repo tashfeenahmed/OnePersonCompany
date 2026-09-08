@@ -1,6 +1,6 @@
 import { lazy } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { Activity, BarChart3, Globe, Plus, TrendingUp, Wallet } from "lucide-react";
+import { Activity, BarChart3, CreditCard, Globe, Plus, TrendingUp, Wallet } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NoBoard } from "@/components/BoardView";
 import { Button } from "@/components/ui/button";
@@ -88,7 +88,7 @@ export function Dashboards() {
              per-venture P&L are a page, and this strip is the place somebody
              already comes to ask what things cost. It leaves /dashboards on
              purpose — see areas/finance/Finance.tsx. */
-          tabs={[...REPORTS.map((r) => ({ key: `report:${r.key}`, to: `/dashboards/reports/${r.key}`, label: r.label, icon: r.icon, fixed: true })), { key: "page:finance", to: "/finance", label: "Finance", icon: Wallet, fixed: true }, ...boards.map((d) => ({
+          tabs={[...REPORTS.map((r) => ({ key: `report:${r.key}`, to: `/dashboards/reports/${r.key}`, label: r.label, icon: r.icon, fixed: true })), { key: "page:finance", to: "/finance", label: "Finance", icon: Wallet, fixed: true }, { key: "page:payments", to: "/payments", label: "Payments", icon: CreditCard, fixed: true }, ...boards.map((d) => ({
             key: d.id,
             to: `/dashboards/${d.slug}`,
             label: d.name,
