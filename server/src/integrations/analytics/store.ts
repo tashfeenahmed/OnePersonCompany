@@ -279,6 +279,8 @@ export type CalendarRow = {
   is_primary: number;
   selected: number;
   access_role: string | null;
+  /** Google's own backgroundColor as '#rrggbb', or null. Migration 036. */
+  color: string | null;
   seen_at: string;
 };
 
@@ -291,6 +293,7 @@ export function replaceCalendars(
     primary: boolean;
     selected: boolean;
     accessRole: string | null;
+    color: string | null;
   }[],
 ) {
   const seen = now();
@@ -300,13 +303,13 @@ export function replaceCalendars(
     const ins = db.prepare(
       `INSERT INTO calendar_calendars
          (account_id, calendar_id, summary, timezone, is_primary, selected,
-          access_role, seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          access_role, color, seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const r of rows)
       ins.run(
         accountId, r.id, r.summary, r.timezone, r.primary ? 1 : 0,
-        r.selected ? 1 : 0, r.accessRole, seen,
+        r.selected ? 1 : 0, r.accessRole, r.color, seen,
       );
     db.exec("COMMIT");
   } catch (err) {
@@ -334,6 +337,10 @@ export type CalendarEventRow = {
   attendees: number | null;
   organizer_self: number | null;
   response: string | null;
+  /** Google's permalink for the occurrence, and its Meet room. Addresses, not
+   *  content — migration 036. Null on every row written before it. */
+  html_link: string | null;
+  hangout_link: string | null;
   updated_at: string | null;
 };
 
@@ -348,6 +355,8 @@ export type CalendarEventInput = {
   attendees: number | null;
   organizerSelf: boolean | null;
   response: string | null;
+  link: string | null;
+  meetLink: string | null;
   updated: string | null;
 };
 
@@ -380,22 +389,24 @@ export function replaceCalendarEvents(
       `INSERT INTO calendar_events
          (account_id, calendar_id, event_id, summary, starts_at, ends_at,
           all_day, status, location, attendees, organizer_self, response,
-          updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+          html_link, hangout_link, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(account_id, calendar_id, event_id) DO UPDATE SET
          summary = excluded.summary, starts_at = excluded.starts_at,
          ends_at = excluded.ends_at, all_day = excluded.all_day,
          status = excluded.status, location = excluded.location,
          attendees = excluded.attendees,
          organizer_self = excluded.organizer_self,
-         response = excluded.response, updated_at = excluded.updated_at`,
+         response = excluded.response, html_link = excluded.html_link,
+         hangout_link = excluded.hangout_link,
+         updated_at = excluded.updated_at`,
     );
     for (const e of events)
       ins.run(
         accountId, calendarId, e.id, e.summary, e.start, e.end,
         e.allDay ? 1 : 0, e.status, e.location, e.attendees,
         e.organizerSelf === null ? null : e.organizerSelf ? 1 : 0,
-        e.response, e.updated,
+        e.response, e.link, e.meetLink, e.updated,
       );
     db.exec("COMMIT");
   } catch (err) {

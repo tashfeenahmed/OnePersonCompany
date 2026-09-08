@@ -22,6 +22,14 @@ const icons: Record<string, string> = {
   "/activity": "activity",
   "/customers": "customers",
   "/alerts": "alerts",
+  /* THE ONE ROW WEARING SOMEBODY ELSE'S ARTWORK. Every icon in this set was
+     generated to order — see design/module-icons/prompts.json — and there is
+     no calendar among them. The kanban board is the nearest honest stand-in
+     (a ruled grid of columns and cards is what a week view is), and it is
+     deliberately not a lookalike drawn by hand in a different style: one icon
+     that does not match is a smaller fault than one that almost does. Replace
+     it with a `calendar.webp` generated from that file's prompt structure. */
+  "/calendar": "board",
   "/dashboards": "dashboards",
   /* The org-tree artwork: the Sub-agents page IS the org chart. */
   "/subagents": "org",

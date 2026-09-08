@@ -52,6 +52,21 @@ export const calendarRoutes = new Hono();
  *  them. */
 const DEFAULT_DAYS = 7;
 
+/**
+ * The widest `days` this route will serve, which is the whole window the
+ * collector maintains and not one day more.
+ *
+ * IT USED TO BE `AHEAD_DAYS`, AND THAT WAS RIGHT WHILE THE ONLY CALLER LOOKED
+ * FORWARD. The calendar PAGE looks at a week at a time and pages backwards as
+ * well as forwards, so it asks for the whole held window in one document and
+ * slices its own weeks out of it — which is a span of BACK_DAYS + AHEAD_DAYS
+ * whenever `?from=` starts behind today. Asking for more than the collector
+ * holds is not refused so much as pointless: the days past the edge would
+ * come back empty and read as free time, which is the one lie this file is
+ * built to avoid.
+ */
+const MAX_DAYS = BACK_DAYS + AHEAD_DAYS;
+
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 /** The local date this box is having, as 'YYYY-MM-DD'. Deliberately LOCAL and
@@ -130,6 +145,11 @@ const shape = (e: CalendarEventRow, calendarName: (id: string) => string) => ({
   attendees: e.attendees,
   organizerSelf: e.organizer_self === null ? null : e.organizer_self === 1,
   response: e.response,
+  /* WHERE THE OCCURRENCE CAN BE CHANGED, since it cannot be changed here.
+     Null on every row collected before migration 036, and null is drawn as
+     "no link" rather than as a broken one. */
+  link: e.html_link,
+  meetLink: e.hangout_link,
   busy: isBusy(e),
   minutes:
     isBusy(e) && e.starts_at && e.ends_at
@@ -138,25 +158,56 @@ const shape = (e: CalendarEventRow, calendarName: (id: string) => string) => ({
   updated: e.updated_at,
 });
 
+/** A 'YYYY-MM-DD' that is really one, or null. Nothing else may become a
+ *  window bound: the bounds go into a string comparison against stored starts,
+ *  and a bound of "yesterday" would silently match everything. */
+function asDay(value: string | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const d = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value ? null : value;
+}
+
 calendarRoutes.get("/", (c) => {
-  const days = clamp(Number(c.req.query("days") ?? DEFAULT_DAYS) || DEFAULT_DAYS, 1, AHEAD_DAYS);
+  const days = clamp(Number(c.req.query("days") ?? DEFAULT_DAYS) || DEFAULT_DAYS, 1, MAX_DAYS);
   const today = localDay();
-  const horizon = addDays(today, days);
+
+  /*
+    WHERE THE `days` ARRAY STARTS, and it is today unless somebody says
+    otherwise. `?from=` exists for the calendar page, which draws a WEEK at a
+    time and pages in both directions — a grid that could only ever begin on
+    the day you happen to be reading it would put Monday in a different column
+    every morning.
+
+    IT IS CLAMPED TO THE COLLECTED WINDOW rather than honoured as asked. Days
+    behind BACK_DAYS or past AHEAD_DAYS hold no rows on this box, and a route
+    that returned them as empty days would be reporting free time it never
+    read. Clamping means a caller asking for March gets the earliest week
+    there IS, and `summary.window` says which one it got, so the page can tell
+    the reader it did not go where they asked.
+  */
+  const earliest = addDays(today, -BACK_DAYS);
+  const latest = addDays(today, AHEAD_DAYS);
+  const asked = asDay(c.req.query("from"));
+  const start =
+    asked === null ? today : asked < earliest ? earliest : asked > latest ? latest : asked;
+  const horizon = addDays(start, days);
 
   const cals = calendars();
   const name = (id: string) => cals.find((x) => x.calendar_id === id)?.summary ?? id;
   const accountLabels = new Map(accountRows("calendar").map((a) => [a.id, a.label]));
 
   /* The read window starts at the owner's own back-window so "what did I do
-     last week" stays answerable from the same document, and ends at the
-     horizon. The string bounds work because every stored start begins with a
-     sortable date. */
-  const from = addDays(today, -BACK_DAYS);
-  const rows = calendarEventsBetween(from, addDays(horizon, 1));
+     last week" stays answerable from the same document, and ends at whichever
+     of the horizon and today reaches further — the `today` block below is
+     always the box's own today even when the caller is looking at last week.
+     The string bounds work because every stored start begins with a sortable
+     date. */
+  const from = earliest;
+  const rows = calendarEventsBetween(from, addDays(horizon > today ? horizon : today, 1));
 
   const todays = rows.filter((e) => dayOf(e) === today);
-  const upcoming = rows.filter((e) => dayOf(e) >= today && dayOf(e) < horizon);
-  const past = rows.filter((e) => dayOf(e) < today);
+  const upcoming = rows.filter((e) => dayOf(e) >= start && dayOf(e) < horizon);
+  const past = rows.filter((e) => dayOf(e) < start);
 
   const byDay: {
     day: string;
@@ -166,7 +217,7 @@ calendarRoutes.get("/", (c) => {
     busyHours: number;
   }[] = [];
   for (let i = 0; i < days; i++) {
-    const day = addDays(today, i);
+    const day = addDays(start, i);
     const held = upcoming.filter((e) => dayOf(e) === day);
     const minutes = busyMinutes(held);
     byDay.push({
@@ -201,6 +252,9 @@ calendarRoutes.get("/", (c) => {
       /** The owner's own tick in Google. Only selected calendars are read. */
       selected: k.selected === 1,
       accessRole: k.access_role,
+      /** Google's own colour for it, so a grid on this box agrees with the
+       *  app the owner already knows. Null until the collector next runs. */
+      color: k.color,
       seenAt: k.seen_at,
     })),
     today: {
@@ -217,7 +271,15 @@ calendarRoutes.get("/", (c) => {
     },
     days: byDay,
     summary: {
-      window: { from: today, to: horizon, days },
+      /* WHICH DAYS `days` ACTUALLY COVERS, which is not always the ones asked
+         for: `from` is clamped to the collected window, so a caller reads
+         this back rather than assuming its own request was honoured. */
+      window: { from: start, to: horizon, days },
+      /* WHAT THIS BOX HOLDS AT ALL, so a page can say where its grid stops
+         being a measurement. Bounds, not a promise that every day inside them
+         was read: a calendar the grant cannot see contributes nothing here
+         and the plugin's own error says so. */
+      held: { from: earliest, to: latest, backDays: BACK_DAYS, aheadDays: AHEAD_DAYS },
       events: upcoming.length,
       busyMinutes: totalBusy,
       busyHours: Math.round((totalBusy / 60) * 10) / 10,
@@ -243,6 +305,10 @@ calendarRoutes.get("/", (c) => {
         "created in. Nothing here is normalised to UTC, and the day an event " +
         "belongs to is the date inside its own timestamp.",
       today: `“Today” is ${today}, this server's local date.`,
+      horizon:
+        "`?from=` moves the days array; it is CLAMPED to the collected window " +
+        "rather than refused, so summary.window.from is the day this document " +
+        "actually starts on and summary.held is as far as this box can go.",
       window:
         `The collector maintains ${BACK_DAYS} days back and ${AHEAD_DAYS} ahead ` +
         "across the calendars ticked in Google. Anything outside that is not " +

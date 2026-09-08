@@ -38,6 +38,7 @@ const Workflows = lazy(() => import("@/areas/chief/Workflows").then(m => ({ defa
 const Finance = lazy(() => import("@/areas/finance/Finance").then(m => ({ default: m.Finance })));
 const ActivityPage = lazy(() => import("@/areas/activity/ActivityPage").then(m => ({ default: m.ActivityPage })));
 const Customers = lazy(() => import("@/areas/customers/Customers").then(m => ({ default: m.Customers })));
+const Calendar = lazy(() => import("@/areas/calendar/Calendar").then(m => ({ default: m.Calendar })));
 
 export default function App() {
   return (
@@ -213,6 +214,13 @@ export default function App() {
                         at three distances, and the URL is the selection. */}
                     <Route path="/customers" element={<Customers />} />
                     <Route path="/customers/:tab" element={<Customers />} />
+                    {/* CALENDAR — one week at a time, and the day IS the
+                        address: /calendar/2026-09-08 opens the week containing
+                        that day and selects it, so one parameter carries both
+                        and a link to a particular day is one somebody can keep.
+                        /calendar is this week. */}
+                    <Route path="/calendar" element={<Calendar />} />
+                    <Route path="/calendar/:day" element={<Calendar />} />
                     <Route path="/integrations" element={<Plugins />} />
                     <Route path="/integrations/:id" element={<PluginDetail />} />
                     {/* "Plugin" was the wrong word: these are connections to
