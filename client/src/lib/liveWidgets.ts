@@ -10218,7 +10218,7 @@ Object.assign(LIVE_BUILDERS, {
         /* Clipped rather than wrapped: the detail names every campaign it
            found and one of them runs past three hundred characters. The whole
            sentence is on the Growth page, where the card is a page. */
-        f.detail.length > 120 ? `${f.detail.slice(0, 119).replace(/[\s,.;:-]+$/, "")}…` : f.detail,
+        f.detail.length > 84 ? `${f.detail.slice(0, 83).replace(/[\s,.;:-]+$/, "")}…` : f.detail,
       ]),
       rowTones: h.failing.map((f): StatusTone => (f.result === "fail" ? "bad" : "warn")),
       caption: "worst first, a failure before a warning at the same severity — the order somebody fixing things works in",
