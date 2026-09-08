@@ -53,7 +53,7 @@ import type { Meter, ProfileFigure, ProportionPart, RunwayRow, StatusTone, Water
 import type { Expense, FinanceReport, PortfolioPnl } from "@/lib/api/finance";
 import type { InboxDoc, InboxItem } from "@/lib/api/inbox";
 import type { CaptureReport } from "@/lib/api/ventures";
-import type { LeakageReport } from "@/lib/api/activity";
+import type { LeakageReport, RecentSignup, UserProduct, UsersReport } from "@/lib/api/activity";
 import type { DisputeDoc, RecoveryCase, RecoveryQueue } from "@/lib/api/customers";
 import type { SeoOpsDocs } from "@/lib/api/seoboard";
 import type { SocialBoardDocs } from "@/lib/api/socialboard";
@@ -308,6 +308,18 @@ export type LiveInputs = {
   profit?: PortfolioPnl | null;
   /** The newest good photograph of each venture's front page. */
   capture?: CaptureReport | null;
+  /**
+   * WHO SIGNED UP — the users roll-up, one row per product endpoint.
+   *
+   * ITS OWN FIELD BESIDE `products`, which is the `gsc`/`bing` decision rather
+   * than the `demand` one, and it fails the `demand` test on exactly the point
+   * that test is about. Both documents carry a figure a reader would call
+   * "users": this one counts PEOPLE by one definition for every product, and
+   * `products` quotes whatever each product's own admin page means by the
+   * phrase it was mapped from. One field holding both would be one field away
+   * from a card that added them.
+   */
+  users?: UsersReport | null;
   /*
     THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
     is placed with a venture id (`PlacedWidget.param`); the card resolves it
@@ -11861,6 +11873,640 @@ Object.assign(LIVE_BUILDERS, {
           "changed. Nothing here judges the picture — that is the screenshot QA pass, on the " +
           "Ops page.",
       ),
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+
+/* ================================================== USERS BOARD PARITY ====
+   WORKDASH'S /users, AS BUILDERS — workstream "users-board", 2026-09-08.
+
+   THE ONE DIFFERENCE THAT DECIDES EVERY BUILDER BELOW. Workdash reads the
+   applications' own databases over ssh, so a source that fails is a box that
+   did not answer. Here each product PUBLISHES a document against a contract,
+   and it can be absent from a figure in three ways that look nothing alike:
+   never collected (nobody has asked), unreachable (asked and refused), and
+   counts-only (answered with a total and cannot list anybody, so it has a user
+   count and no windows at all). Every builder here counts only the products
+   that can answer the question it is asking and SAYS HOW MANY IT LEFT OUT.
+   None of them turns an absence into a zero.
+
+   WHAT ADDS AND WHAT DOES NOT. Two products' users are two disjoint sets of
+   people, so a portfolio user count is a count of people — and so are the
+   population and country splits. A PLAN IS NOT: one product's "pro" and
+   another's are two words two people chose, so `users.plans` names its product
+   on every row and sums nothing. And a product-stats metric is neither: it is
+   whatever that product's admin page means by the word the owner mapped, which
+   is why `users.products` reads a different document and says whose figure
+   each row is.
+*/
+
+/** Products that HAVE a list of users — the only ones with a signup window, a
+ *  paid split or a lastSeenAt level. `shape === "users"` and nothing looser: a
+ *  product never collected, or whose first document was refused, has no shape
+ *  at all and cannot answer any of them. It is ABSENT from these figures. */
+const listedUsers = (U: UsersReport | null | undefined): UserProduct[] =>
+  (U?.products ?? []).filter((p) => p.shape === "users");
+
+/**
+ * The window's UTC day grid, oldest first.
+ *
+ * THE ROUTE'S DAILY ROWS ARE SPARSE — a day nobody signed up on has no row —
+ * and a line drawn straight from Tuesday to Friday would interpolate two days
+ * of signups that never happened. So the grid is built here and the counts are
+ * placed on it, which makes a quiet day a zero rather than a gap.
+ */
+function dayGrid(days: number): string[] {
+  const out: string[] = [];
+  const end = Date.now();
+  for (let i = days - 1; i >= 0; i--) out.push(new Date(end - i * 86_400_000).toISOString().slice(0, 10));
+  return out;
+}
+
+/** One product's signups placed on the grid. Only `source: "rows"` days carry
+ *  a signup count; a counts-only product's rows are a LEVEL and are never read
+ *  here — see the users route on why the two are on separate rows. */
+function signupsOn(p: UserProduct, grid: string[]): number[] {
+  const held = new Map(p.days.filter((d) => d.signups !== null).map((d) => [d.day, d.signups ?? 0]));
+  return grid.map((d) => held.get(d) ?? 0);
+}
+
+/** Signups inside the window the route was asked for, summed off the daily
+ *  line rather than read from `new30d` — so the figure follows the picker
+ *  instead of the contract's two fixed windows. */
+const newInWindow = (p: UserProduct, grid: string[]): number =>
+  signupsOn(p, grid).reduce((n, v) => n + v, 0);
+
+/** "Example App 1 and Example App 2", "Example App 1, Example App 2 and 2 more" — the products left out
+ *  of a figure, BY NAME. A count on its own ("2 products absent") tells a
+ *  reader a number is short without telling them which way or by how much. */
+function nameThem(products: UserProduct[], cap = 3): string {
+  const names = products.map((p) => p.product);
+  if (!names.length) return "";
+  if (names.length <= cap) return names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return `${names.slice(0, cap).join(", ")} and ${names.length - cap} more`;
+}
+
+/** How a product is filed under a venture, in the words the server used. A
+ *  host match is EVIDENCE THAT TWO STRINGS LOOK ALIKE and says so. */
+const filedBy = (how: "setting" | "link" | "host"): string =>
+  how === "setting" ? "filed by the setting" : how === "link" ? "filed on the venture map" : "filed by a hostname that looked alike — a guess";
+
+/** The state of one product's endpoint, for the table's last column. */
+function endpointState(p: UserProduct): { text: string; tone: StatusTone | null } {
+  if (p.reachable === null) return { text: "never collected", tone: null };
+  if (p.reachable === false) return { text: p.error?.slice(0, 40) ?? "unreachable", tone: "bad" };
+  if (p.shape === "counts") return { text: "counts only — no windows", tone: "warn" };
+  if (p.partialList) return { text: `${count(p.rowsHeld)} of ${count(p.total)} listed`, tone: "warn" };
+  return { text: "listing", tone: "ok" };
+}
+
+/**
+ * THE WORDS A PRODUCT'S OWN ADMIN PAGE USES FOR PEOPLE.
+ *
+ * `users.products` reads /api/products, whose rows are the labels the owner
+ * typed when they mapped a path out of each product's JSON. This board wants
+ * the ones about people; "pricing views" is a different question on a
+ * different board. Matched on the OWNER'S LABEL rather than on the path,
+ * because the path is a shape inside somebody else's document and the label is
+ * the one part of the row a person wrote on purpose.
+ */
+const ABOUT_PEOPLE = /user|signup|sign-up|account|subscri|member|customer|paid|paying|active/i;
+
+/**
+ * THE USER BASE, ANCHORED AT TODAY AND WALKED BACKWARDS.
+ *
+ * THE ONLY HONEST WAY TO DRAW IT FROM WHAT THE CONTRACT CARRIES. There is no
+ * historical user count anywhere on this box — the daily table holds SIGNUPS —
+ * so the line is today's base minus each day's arrivals going back. It can
+ * therefore see nobody who has since been deleted, which is why it only ever
+ * rises, and the label under it says so rather than letting the shape imply
+ * that nobody ever leaves.
+ *
+ * LISTING PRODUCTS ONLY. A counts-only product's users have no signup dates
+ * at all, so its total would sit flat across the whole window and add a
+ * plateau to a line about growth. It is left out and named.
+ *
+ * Empty — no `series` at all — when nothing can be walked back, so the card
+ * draws its figure with no line rather than a flat one.
+ */
+function basePoints(U: UsersReport, grid: string[]): Partial<Widget> {
+  const able = listedUsers(U);
+  const now = able.reduce((n, p) => n + (p.total ?? p.rowsHeld), 0);
+  if (!able.length || grid.length < 2 || !now) return {};
+  const perDay = grid.map((_, i) => able.reduce((n, p) => n + signupsOn(p, grid)[i]!, 0));
+  const base: number[] = new Array(grid.length);
+  base[grid.length - 1] = now;
+  for (let i = grid.length - 1; i > 0; i--) base[i - 1] = Math.max(0, base[i]! - perDay[i]!);
+  const countsOnly = U.products.filter((p) => p.shape === "counts");
+  return {
+    series: base,
+    seriesAt: grid.map((d) => `${d}T00:00:00Z`),
+    unit: "count",
+    seriesLabel: countsOnly.length
+      ? `The ${count(now)} of them that are LISTED, walked back through each day's signups — it cannot see anybody deleted since, so it only ever rises. ${nameThem(countsOnly)} are not in the line at all: a total with no signup dates`
+      : `Walked back through each day's signups — it cannot see anybody deleted since, so it only ever rises`,
+  };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  /* ---- what is wrong, and what is connected --------------------------- */
+  "users.worth": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const out: [string, StatusTone][] = [];
+    for (const p of U.products.filter((x) => x.reachable === false))
+      out.push([`${p.product} — ${p.error?.slice(0, 46) ?? "did not answer"}`, "bad"]);
+    for (const p of U.products.filter((x) => x.problems.length))
+      out.push([`${p.product} — ${p.problems[0]!.slice(0, 60)}`, "warn"]);
+    for (const p of U.products.filter((x) => x.partialList))
+      out.push([`${p.product} lists ${count(p.rowsHeld)} of the ${count(p.total)} it claims`, "warn"]);
+    /* NEVER COLLECTED IS NOT A FAILURE and is deliberately the mildest line
+       here: nobody has asked yet, which is work rather than a fault. */
+    const never = U.products.filter((p) => p.reachable === null);
+    if (never.length) out.push([`${nameThem(never)} — never collected, nobody has asked yet`, "warn"]);
+    if (!out.length)
+      out.push([
+        `every endpoint answered${U.summary.countsOnly ? ` · ${U.summary.countsOnly} of them counts-only` : ""}`,
+        "ok",
+      ]);
+    return { statuses: out.slice(0, 6) };
+  },
+
+  "users.sources": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const statuses: [string, StatusTone][] = U.products.map((p) => {
+      const s = endpointState(p);
+      return [
+        `${p.product} · ${s.text}${p.lastFetchedAt ? ` · ${ago(p.lastFetchedAt)}` : ""}`,
+        s.tone ?? "warn",
+      ];
+    });
+    return { statuses };
+  },
+
+  /* ---- the tiles ------------------------------------------------------- */
+  "users.total": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const grid = dayGrid(U.window.days);
+    /* A PRODUCT'S OWN TOTAL BEATS A COUNT OF THE ROWS HELD, which is a floor:
+       nothing here deletes a row and no endpoint promises to list everybody. */
+    const sized = U.products
+      .map((p) => ({ p, n: p.total ?? p.rowsHeld }))
+      .filter((x) => x.n > 0)
+      .sort((a, b) => b.n - a.n);
+    const parts: ProportionPart[] = sized.slice(0, 4).map((x) => ({
+      label: x.p.product,
+      value: x.n,
+      text: count(x.n),
+    }));
+    const rest = sized.slice(4).reduce((n, x) => n + x.n, 0);
+    if (rest > 0) parts.push({ label: `${sized.length - 4} more`, value: rest, text: count(rest) });
+    const missing = U.products.filter((p) => p.reachable !== true);
+    return {
+      value: count(U.summary.totalUsers),
+      /* A FLOOR RATHER THAN A TOTAL whenever a product refused or published no
+         count of its own: it is left out entirely rather than counted as zero,
+         so the figure is the smallest the portfolio could be. */
+      tag: U.summary.complete === false ? "floor" : "measured",
+      sub: also(
+        `across ${count(U.summary.configured)} product${U.summary.configured === 1 ? "" : "s"} — two products' users are two sets of people, so this adds`,
+        missing.length ? `${nameThem(missing)} left out entirely, not counted as zero` : "",
+      ),
+      partsLabel: "Users by product",
+      parts,
+      /* THE SHAPE THE BASE ARRIVED AT, as a sparkline rather than as a chart
+         of its own — `Chart` quotes its mean per sampling grain ("mean 600/
+         day"), which is true of a rate and false of a level. Workdash puts
+         this line in the same place, under the figure on the stat card. */
+      ...basePoints(U, grid),
+    };
+  },
+
+  "users.new": ({ users: U, window: W }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const grid = dayGrid(U.window.days);
+    const able = listedUsers(U);
+    if (!able.length)
+      return { value: DASH, sub: "no product lists its users, so nothing here can date a signup — this is not a zero" };
+    const n = able.reduce((sum, p) => sum + newInWindow(p, grid), 0);
+    const absentOnes = U.products.filter((p) => p.shape !== "users");
+    return {
+      value: `+${count(n)}`,
+      tag: "metered",
+      sub: also(
+        `off the daily lines, over ${U.window.days} UTC days${W !== undefined && W !== "all" && U.window.days < W ? ` — the route holds ${U.window.days}, not ${W}` : ""}`,
+        absentOnes.length
+          ? `${nameThem(absentOnes, 2)} cannot date a signup — absent, never a zero`
+          : "every connected product can date a signup",
+      ),
+    };
+  },
+
+  "users.active": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const able = U.products.filter((p) => p.active !== null);
+    if (!able.length)
+      return {
+        value: DASH,
+        sub: "no product publishes a lastSeenAt, so nobody can say who came back. That is silence, not zero.",
+      };
+    /* NAMED ONLY WHERE THE SILENCE IS ABOUT lastSeenAt. A product that lists
+       its users and publishes no lastSeenAt has DECLINED this question; one
+       that has never been collected has not been asked it. Both are absent
+       from the figure, and only the first belongs in a sentence about who
+       publishes a lastSeenAt. */
+    const silent = listedUsers(U).filter((p) => p.active === null);
+    return {
+      value: count(U.summary.active),
+      tag: "measured",
+      sub: also(
+        "a lastSeenAt inside the window — a level, not a daily active count",
+        silent.length
+          ? `${nameThem(silent, 2)} list users and publish none — absent, not zero`
+          : "every product that lists its users publishes one",
+      ),
+    };
+  },
+
+  "users.paying": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const s = U.summary;
+    if (s.paid + s.free + s.paidUnknown === 0) return null;
+    const parts: ProportionPart[] = [
+      { label: "paying", value: s.paid, text: count(s.paid), tone: "ok" },
+      { label: "free", value: s.free, text: count(s.free) },
+    ];
+    /* THREE-VALUED AND DRAWN AS THREE. A row whose product did not publish
+       `paid` is not free; it is a row nobody has said anything about, and
+       folding it into "free" would be the one arithmetic this card exists to
+       refuse. */
+    if (s.paidUnknown) parts.push({ label: "not said", value: s.paidUnknown, text: count(s.paidUnknown) });
+    return {
+      value: count(s.paid),
+      tag: "measured",
+      sub: also(
+        `of ${count(s.paid + s.free)} rows whose product said either way`,
+        s.paidUnknown ? `${count(s.paidUnknown)} rows say nothing — not free` : "every listed row answered",
+      ),
+      partsLabel: "The listed rows by what their product said about paying",
+      parts,
+    };
+  },
+
+  "users.conversion": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const s = U.summary;
+    const said = s.paid + s.free;
+    if (!said)
+      return { value: DASH, sub: "no product publishes a paid flag, so there is no denominator — this is not 0%" };
+    return {
+      value: pct(s.paid / said),
+      tag: "measured",
+      /* PAID SHARE AND NOT CONVERSION. Conversion is a rate out of everyone
+         who could have paid; this is a rate out of everyone a product said
+         something about, and the difference is `paidUnknown`. */
+      sub: also(
+        `${count(s.paid)} of ${count(said)} rows whose product answered — a share of those, not a conversion rate`,
+        s.paidUnknown ? `${count(s.paidUnknown)} rows are outside the denominator entirely` : "",
+      ),
+    };
+  },
+
+  "users.email": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const s = U.summary;
+    const held = listedUsers(U).reduce((n, p) => n + p.rowsHeld, 0);
+    if (!held) return null;
+    return {
+      value: count(s.withEmail),
+      tag: "measured",
+      /* AN ADDRESS ON FILE IS NOT AN AUDIENCE, and the two figures are printed
+         together for exactly that reason. The address itself is nowhere on
+         this board: the collector stores a salted hash and the domain. */
+      sub: also(
+        `${pct(s.withEmail / held, { digits: 0 })} of the ${count(held)} rows held — a hash and a domain, never an address`,
+        `${count(s.contactPermitted)} may lawfully be written to, which is the figure that sizes a campaign`,
+      ),
+    };
+  },
+
+  "users.returned": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const able = U.products.filter((p) => p.returned !== null);
+    if (!able.length)
+      return { value: DASH, sub: "no product publishes a lastSeenAt, so nobody can say whether anyone came back" };
+    const grid = dayGrid(U.window.days);
+    const joined = able.reduce((n, p) => n + newInWindow(p, grid), 0);
+    if (!joined) return { value: DASH, sub: "nobody joined inside this window, so there is nobody to have come back" };
+    return {
+      value: pct(U.summary.returned / joined),
+      tag: "measured",
+      sub: also(
+        `${count(U.summary.returned)} of ${count(joined)} who joined in the window were seen again a day or more later`,
+        "the first point of a retention curve — the contract publishes one lastSeenAt, so there is no second point",
+      ),
+    };
+  },
+
+  /* ---- the two lines --------------------------------------------------- */
+  "users.signups": ({ users: U }: LiveInputs) => {
+    if (!U) return null;
+    const grid = dayGrid(U.window.days);
+    const drawable = listedUsers(U)
+      .map((p) => ({ p, values: signupsOn(p, grid) }))
+      .filter((x) => x.values.some((v) => v > 0))
+      .sort((a, b) => b.values.reduce((n, v) => n + v, 0) - a.values.reduce((n, v) => n + v, 0));
+    if (!drawable.length) return null;
+    /*
+      FOUR LINES AT MOST, AND THE REST ARE NAMED. The chart cycles four
+      colours; a fifth product would draw in the first product's hue on the one
+      card whose subject is telling products apart. Workdash merges every
+      product into one line instead — this box knows which products can date a
+      signup, so it can draw them apart, and the caption carries whatever did
+      not fit rather than dropping it silently.
+    */
+    const drawn = drawable.slice(0, 4);
+    const over = drawable.slice(4).map((x) => x.p);
+    const cannot = U.products.filter((p) => p.shape !== "users");
+    return {
+      chart: drawn.map((x) => ({
+        label: x.p.product,
+        points: grid.map((day, i) => ({ ts: `${day}T00:00:00Z`, value: x.values[i]! })),
+      })),
+      caption: [
+        `Signups per UTC day, from the rows each product listed. The last day is the collection day and is still filling.`,
+        over.length ? `Not drawn: ${nameThem(over, 4)} — the plot holds four colours and a fifth would repeat one.` : "",
+        cannot.length
+          ? `Not in any line: ${nameThem(cannot)} — a product that cannot list its users cannot date a signup, so it is left out whole rather than contributing zeros.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  },
+
+  /* ---- who they are ---------------------------------------------------- */
+  "users.share": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const sized = U.products
+      .map((p) => ({ p, n: p.total ?? p.rowsHeld }))
+      .filter((x) => x.n > 0)
+      .sort((a, b) => b.n - a.n);
+    if (!sized.length) return null;
+    const whole = sized.reduce((n, x) => n + x.n, 0);
+    const silent = U.products.filter((p) => (p.total ?? p.rowsHeld) === 0);
+    return {
+      ranked: sized.map((x) => ({
+        label: x.p.product,
+        value: x.n,
+        text: count(x.n),
+        sub: pct(x.n / whole, { digits: 0 }),
+      })),
+      caption: [
+        sized.length === 1
+          ? "One product answered, so this is the whole base."
+          : `${sized[0]!.p.product} is ${pct(sized[0]!.n / whole, { digits: 0 })} of the ${count(whole)} users these products reported — worth knowing before reading any average.`,
+        silent.length
+          ? `${nameThem(silent)} report no figure at all and have no bar: nobody could read them, which is a different fact from nobody having signed up.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  },
+
+  "users.populations": ({ users: U }: LiveInputs) => {
+    if (!U) return null;
+    const rows = Object.entries(U.summary.populations)
+      .filter(([, n]) => n > 0)
+      .sort(([, a], [, b]) => b - a);
+    if (!rows.length) return null;
+    const whole = rows.reduce((n, [, v]) => n + v, 0);
+    return {
+      ranked: rows.map(([name, n]) => ({
+        label: name,
+        value: n,
+        text: count(n),
+        sub: pct(n / whole, { digits: 0 }),
+      })),
+      /* WHY THIS CARD EXISTS AT ALL: a portfolio whose products each mean
+         something different by "user" produces a headline that is true of
+         nothing. A row published without a population is a customer — that is
+         what the contract always implied — so this splits the listed rows and
+         never the counts-only totals, which carry no population. */
+      caption: `Who these ${count(whole)} listed people are to the business, as their own products classified them. A row that said nothing is a customer, which is what the contract always implied. Counts-only products are not in this: a bare total carries no populations.`,
+    };
+  },
+
+  "users.plans": ({ users: U }: LiveInputs) => {
+    if (!U) return null;
+    const rows = listedUsers(U)
+      .flatMap((p) => p.plans.map((x) => ({ product: p.product, plan: x.value, n: x.n })))
+      .sort((a, b) => b.n - a.n)
+      .slice(0, 10);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map((r) => ({
+        label: `${r.product} · ${r.plan}`,
+        value: r.n,
+        text: count(r.n),
+      })),
+      /* EVERY ROW NAMES ITS PRODUCT AND NOTHING IS ADDED. Two products' "pro"
+         plans are two words two people chose independently, and a bar holding
+         both would be a bar in no unit. */
+      caption: "Every row is one product's own plan name. Nothing here is added across products: two owners chose the word “pro” independently, and a total of them would be a number about a coincidence of spelling.",
+    };
+  },
+
+  "users.countries": ({ users: U }: LiveInputs) => {
+    if (!U) return null;
+    const merged = new Map<string, number>();
+    for (const p of listedUsers(U))
+      for (const c of p.countries) merged.set(c.value, (merged.get(c.value) ?? 0) + c.n);
+    const rows = [...merged.entries()].sort(([, a], [, b]) => b - a).slice(0, 10);
+    if (!rows.length) return null;
+    const placed = listedUsers(U).reduce((n, p) => n + p.countries.reduce((m, c) => m + c.n, 0), 0);
+    const held = listedUsers(U).reduce((n, p) => n + p.rowsHeld, 0);
+    return {
+      ranked: rows.map(([code, n]) => ({ label: code, value: n, text: count(n), sub: pct(n / placed, { digits: 0 }) })),
+      /* THE ONE PER-ROW FACT THAT DOES ADD ACROSS PRODUCTS. A person in IE is
+         in IE whoever they signed up with, which is exactly what a plan name
+         is not. */
+      caption: `${count(placed)} of the ${count(held)} rows held carry a country, and these add across products — a person in IE is in IE whoever they signed up with. Only the top ten are drawn; the rest of each product's list is on its own page.`,
+    };
+  },
+
+  /* ---- the tables ------------------------------------------------------ */
+  "users.table": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    const grid = dayGrid(U.window.days);
+    const rows: string[][] = [];
+    const tones: (StatusTone | null)[] = [];
+    for (const p of U.products) {
+      const s = endpointState(p);
+      const countsOnly = p.shape === "counts";
+      rows.push([
+        /* THE VENTURE ONLY WHEN IT ADDS SOMETHING. Most endpoints are labelled
+           with their product's name and are filed under a venture of the same
+           name, and "Example App 1 · Example App 1" is a column twice as wide saying
+           the same thing once. */
+        p.venture && p.venture.name.toLowerCase() !== p.product.toLowerCase()
+          ? `${p.product} · ${p.venture.name}`
+          : p.product,
+        count(p.total ?? (p.rowsHeld || null)),
+        countsOnly
+          ? p.newWindow
+            ? `${count(p.newWindow.n)} in ${p.newWindow.days}d — its own window`
+            : DASH
+          : p.shape === "users"
+            ? `+${count(newInWindow(p, grid))}`
+            : DASH,
+        count(p.active, { nullText: DASH }),
+        p.paid === null ? DASH : `${count(p.paid)}${p.paidUnknown ? ` · ${count(p.paidUnknown)} not said` : ""}`,
+        when(p.lastSignupAt),
+        s.text,
+      ]);
+      tones.push(s.tone);
+    }
+    return {
+      table: rows,
+      rowTones: tones,
+      /* THE HEADER FOLLOWS THE PICKER because the "new" column is summed off
+         the daily line rather than read from the contract's fixed windows —
+         except on a counts-only row, which quotes the window the PRODUCT chose
+         in the product's own words. */
+      headers: ["Product", "Users", `New · ${windowLabel(U.window.days)}`, "Active", "Paying", "Last signup", "State"],
+      caption: "“Users” is the product's own count where it published one, and a count of the rows held here otherwise — which is a floor. A dash is a product that cannot answer that column, never a zero.",
+    };
+  },
+
+  "users.recent": ({ users: U }: LiveInputs) => {
+    const recent = U?.recentSignups ?? [];
+    if (!recent.length) return null;
+    return {
+      /* THE HEADERS TRAVEL WITH THE PATCH. `measuredWidget` keeps only the
+         presentation metadata off the catalog entry — the name, the kind, the
+         unit — so a live table that did not restate its headers draws a
+         headerless one. */
+      headers: ["When", "Product", "Mail domain", "Plan", "Paying", "Country"],
+      table: recent.slice(0, 15).map((r: RecentSignup) => [
+        when(r.createdAt),
+        r.product,
+        r.emailDomain ?? "no address on file",
+        r.plan ?? DASH,
+        r.paid === null ? DASH : r.paid ? "yes" : "no",
+        r.country ?? DASH,
+      ]),
+      /* THERE IS NO ADDRESS HERE AND THERE CANNOT BE. The collector stores a
+         salted hash and the mail domain; "gmail.com" identifies nobody, and
+         there is no route in this application that takes or returns an
+         address. That is the capability being declined, not a gap. */
+      caption: "Merged and re-sorted by the route — five from each of four products is not the newest twenty overall. The mail DOMAIN and nothing more: addresses are stored as a salted hash and no route here takes or returns one.",
+    };
+  },
+
+  /* ---- one venture's users --------------------------------------------- */
+  "users.project": ({ users: U, project }: LiveInputs) => {
+    if (!project || !U) return null;
+    /*
+      THE ROUTE HAS ALREADY DECIDED WHICH VENTURE EACH PRODUCT BELONGS TO —
+      the setting the owner typed, then the link on the venture map, then a
+      hostname that looked alike, in that order. This reads that decision
+      instead of matching hostnames here, which would silently drop a product
+      the owner mapped BY NAME and is the one case the setting exists for.
+    */
+    const mine = U.products.filter((p) => p.venture?.id === project.id);
+    if (!mine.length) return null;
+    const grid = dayGrid(U.window.days);
+    const listing = mine.filter((p) => p.shape === "users");
+    const total = mine.reduce((n, p) => n + (p.total ?? p.rowsHeld), 0);
+    const fresh = listing.reduce((n, p) => n + newInWindow(p, grid), 0);
+    const canSee = mine.filter((p) => p.active !== null);
+    const paid = listing.reduce((n, p) => n + (p.paid ?? 0), 0);
+    const said = listing.reduce((n, p) => n + (p.paid ?? 0) + (p.free ?? 0), 0);
+    const line = grid.map((_, i) => listing.reduce((n, p) => n + signupsOn(p, grid)[i]!, 0));
+    return {
+      figures: [
+        { label: "Users", value: count(total), sub: mine.length === 1 ? mine[0]!.product : `${mine.length} endpoints` },
+        { label: "New", value: listing.length ? `+${count(fresh)}` : DASH, sub: listing.length ? "in the window" : "cannot date a signup" },
+        {
+          label: "Active",
+          value: canSee.length ? count(canSee.reduce((n, p) => n + (p.active ?? 0), 0)) : DASH,
+          sub: canSee.length ? "seen in the window" : "no lastSeenAt published",
+        },
+        { label: "Paying", value: said ? count(paid) : DASH, sub: said ? `${pct(paid / said)} of those who said` : "not published" },
+      ],
+      series: line.some((v) => v > 0) ? line : undefined,
+      seriesAt: line.some((v) => v > 0) ? grid.map((d) => `${d}T00:00:00Z`) : undefined,
+      unit: "count",
+      rows: listing
+        .flatMap((p) => p.plans.slice(0, 3).map((x): [string, string] => [`${p.product} · ${x.value}`, count(x.n)]))
+        .slice(0, 6),
+      caption: `${mine.map((p) => `${p.product} — ${filedBy(p.venture!.matchedBy)}`).join(". ")}.`,
+    };
+  },
+
+  /* ---- the two closing cards ------------------------------------------- */
+  "users.products": ({ products: P }: LiveInputs) => {
+    const endpoints = P?.endpoints ?? [];
+    const rows: [string, string][] = [];
+    for (const e of endpoints)
+      for (const m of e.metrics) {
+        if (rows.length >= 12) break;
+        if (!ABOUT_PEOPLE.test(m.label)) continue;
+        rows.push([`${e.label} · ${m.label}`, m.error ? m.error.slice(0, 40) : count(m.value)]);
+      }
+    if (!rows.length) return null;
+    /*
+      NOTHING ON THIS CARD IS COMPARABLE WITH ANYTHING ELSE ON THE BOARD, and
+      that is why it is here rather than folded into a tile. Every row is one
+      product's own definition of a word the owner mapped out of its admin
+      JSON — one product's "total users" counts staff logins and another's does
+      not — so the rows are quoted with their product's name attached and are
+      never added, to each other or to the users document above.
+    */
+    /* The closing row is the caption this kind has no field for — see
+       WidgetCard: a `rows` card draws its rows and nothing else. */
+    rows.push(["each product's own words", "never added, to each other or to the figures above"]);
+    return { rows };
+  },
+
+  "users.cannot": ({ users: U }: LiveInputs) => {
+    if (!U?.products.length) return null;
+    /* Products that LIST their users and still publish no lastSeenAt. One
+       that has never been collected has declined nothing; it has not been
+       asked, and it belongs on `users.worth` rather than here. */
+    const silent = listedUsers(U).filter((p) => p.active === null);
+    const countsOnly = U.products.filter((p) => p.shape === "counts");
+    /*
+      THE REFUSALS, AS ROWS. Every one of these is a question a reader will
+      ask of this board, and an absence is a worse answer than a sentence:
+      "there is no retention curve" sends somebody to look for the card, and
+      "the contract publishes one lastSeenAt per person" tells them why there
+      will never be one.
+    */
+    return {
+      rows: [
+        ["Daily active users", "not collected — lastSeenAt is a level, and nothing records that somebody was here on a Tuesday"],
+        ["A retention curve", "not collected — one lastSeenAt per person means week two and week three are the same field"],
+        ["Sessions, or time in product", "not in the contract at all — that is the analytics area's question, about visitors rather than accounts"],
+        [
+          "Anyone's email address",
+          "declined — stored as a salted hash and a domain, and no route here takes or returns one",
+        ],
+        [
+          "Signups from a counts-only product",
+          countsOnly.length
+            ? `${nameThem(countsOnly)} — a total and no rows, so no window can ever account for its users`
+            : "none connected today",
+        ],
+        [
+          "Who came back, per product",
+          silent.length
+            ? `${nameThem(silent)} list their users and publish no lastSeenAt`
+            : "every product that lists its users publishes lastSeenAt",
+        ],
+      ],
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
