@@ -11198,7 +11198,7 @@ Object.assign(LIVE_BUILDERS, {
         ] as [string, string][],
       };
     const three = (s: { now: number | null; mean: number | null; peak: number | null }) =>
-      `${rate(s.now)} now · ${rate(s.mean)} mean · ${rate(s.peak)} peak`;
+      `${rate(s.now)} · peak ${rate(s.peak)}`;
     return {
       tag: "measured",
       rows: [
