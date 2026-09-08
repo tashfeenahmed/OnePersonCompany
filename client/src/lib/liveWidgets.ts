@@ -49,7 +49,7 @@ import type {
   UmamiWebsite,
   UptimeReport,
 } from "@/lib/api/reports";
-import type { Meter, ProportionPart, RunwayRow, StatusTone, WaterfallStep, Widget } from "@/data/widgets";
+import type { Meter, ProfileFigure, ProportionPart, RunwayRow, StatusTone, WaterfallStep, Widget } from "@/data/widgets";
 import type { Expense, FinanceReport } from "@/lib/api/finance";
 import type { LeakageReport } from "@/lib/api/activity";
 import type { DisputeDoc, RecoveryCase, RecoveryQueue } from "@/lib/api/customers";
@@ -78,7 +78,7 @@ import {
    to join the widget catalog to its builders, and node resolves the specifier
    itself with no bundler and no tsconfig paths in front of it. Everything else
    this file imports is a type and is stripped; this one is real code. */
-import { DASH, ago, bytes, clock, compact, count, day, duration, inDays, money, pct } from "./format.ts";
+import { DASH, ago, bytes, clock, compact, count, day, duration, durationS, inDays, money, pct } from "./format.ts";
 /* The same relative-with-extension rule as `./format.ts` above: the window
    labels are real code and the catalog check runs this file under bare node. */
 import { windowLabel, type WindowValue } from "./window.ts";
@@ -284,6 +284,20 @@ export type LiveInputs = {
   */
   param?: string;
   project?: ProjectScope;
+  /*
+    THE PER-SERVER CONTRACT, WHICH IS THE SAME MECHANISM AND NOT THE SAME PASS.
+
+    A widget whose catalog entry says `perParam: { kind: "server" }` is placed
+    with a FLEET ACCOUNT ID and the card resolves it to one box out of the
+    fleet document. NOTHING IS NARROWED on the way in: a venture is a hostname
+    every document has to be filtered by, but a box is a row in a list of
+    boxes, so the builder gets the whole portfolio — `boxes`, and `fleet` and
+    `load` beside it, which is what lets a per-server card join its box to the
+    Hetzner row for the same machine — with `server` saying which one it is
+    about. `server` is absent on every portfolio call, and a per-server builder
+    returns null then rather than draw the fleet under one machine's name.
+  */
+  server?: ServerScope;
 };
 
 /** The venture a per-project card was asked about — see `LiveInputs`. */
@@ -292,6 +306,21 @@ export type ProjectScope = {
   name: string;
   /** Lowercase, no leading "www." — what the documents were narrowed to. */
   hosts: string[];
+};
+
+/**
+ * The box a per-server card was asked about — see `LiveInputs`.
+ *
+ * The row itself travels rather than an id the builder would have to look up
+ * again: the card has already found it, and a second lookup is a second place
+ * that can disagree about which box "52" is.
+ */
+export type ServerScope = {
+  /** The fleet account id as a string — `PlacedWidget.param`. */
+  id: string;
+  /** The owner's own name for the box, which is the account's label. */
+  label: string;
+  box: FleetBox;
 };
 
 /**
@@ -8821,5 +8850,609 @@ Object.assign(LIVE_BUILDERS, {
     if (F.baselines.length > rows.length) rows.push([`+${F.baselines.length - rows.length} more`, "tracked"]);
     rows.push(["Verdicts are arithmetic", "correlation, not cause"]);
     return { tag: "measured", rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================== SERVERS BOARD PARITY ======
+   WORKDASH'S /servers, AS CARDS — the per-machine half of it especially, which
+   no fleet-wide widget can draw. See the matching banner in data/widgets.ts for
+   what the three sources each measure and why nothing here averages them.
+
+   THE ONE RULE THAT GOVERNS EVERY BUILDER BELOW: a figure says which
+   instrument took it. "CPU 12%" out of the guest and "CPU 12%" off the
+   hypervisor are two different measurements of one machine — they disagree by
+   several points on a busy box, because one counts the host's own overhead and
+   the other does not — so no card prints one without naming it.
+*/
+
+/** Where a fleet reading turns amber and where it turns red, per metric.
+ *
+ *  READ OFF THE DOCUMENT WHEREVER THE SERVER PUBLISHES IT, so the page, the
+ *  alert list and an agent reading /api/fleet cannot end up meaning three
+ *  different things by "nearly full". The fallbacks are for a server that
+ *  predates the per-metric pairs and are Workdash's own numbers. */
+function fleetLimits(F: FleetReport | null | undefined) {
+  return {
+    disk: F?.thresholds.disk ?? { warn: F?.thresholds.warn ?? 80, critical: F?.thresholds.critical ?? 90 },
+    cpu: F?.thresholds.cpu ?? { warn: CPU_LIMITS.warn, critical: CPU_LIMITS.crit },
+    memory: F?.thresholds.memory ?? { warn: 80, critical: 92 },
+  };
+}
+
+/** The address the probe logs in to, out of `user@host[:port]`. Lower case,
+ *  because it is compared against a vendor's own record of the same machine. */
+function targetHost(box: FleetBox): string | null {
+  if (!box.target) return null;
+  const at = box.target.indexOf("@");
+  const rest = at < 0 ? box.target : box.target.slice(at + 1);
+  return rest.split(":")[0]!.toLowerCase() || null;
+}
+
+/**
+ * The Hetzner row for a box the ssh probe knows, or null.
+ *
+ * THE JOIN IS THE IP ADDRESS, and the hostname is only a second try. The two
+ * populations are keyed by different things on purpose — an ssh account
+ * survives a rename and a Hetzner server id survives a move — so nothing
+ * upstream can be asked to reconcile them, and the one fact both records carry
+ * about the same machine is where it answers. A box Hetzner never sold matches
+ * nothing here, which is a real answer and not a failed lookup.
+ */
+function hetznerRow(box: FleetBox, servers: HetznerServer[]): HetznerServer | null {
+  const host = targetHost(box);
+  if (host)
+    for (const s of servers) if (s.ipv4 && s.ipv4.toLowerCase() === host) return s;
+  if (box.hostname)
+    for (const s of servers) if (s.name && s.name.toLowerCase() === box.hostname.toLowerCase()) return s;
+  return null;
+}
+
+/** Whose hardware this is. Three answers and no guessing: Hetzner because its
+ *  own listing has the machine, the local network because the address is one
+ *  nobody can rent, and otherwise somebody else — which is what "Oracle" and
+ *  "a VPS at another provider" both look like from here, and the card says the
+ *  vaguer true thing rather than the sharper invented one. */
+function providerOf(box: FleetBox, servers: HetznerServer[]): string {
+  if (hetznerRow(box, servers)) return "Hetzner";
+  const host = targetHost(box);
+  if (host && (/^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) || /\.(local|lan|home|internal)$/.test(host)))
+    return "On the local network";
+  return "Another provider";
+}
+
+/** A box's filesystems, root first and then fullest first. Root leads because
+ *  it is the one every box has and the one a reader is looking for; the rest
+ *  are ordered by how close they are to being a problem. */
+function mountsOf(box: FleetBox) {
+  return [...box.disks].sort((a, b) => {
+    if (a.mount === "/") return -1;
+    if (b.mount === "/") return 1;
+    return (b.meter?.percent ?? 0) - (a.meter?.percent ?? 0);
+  });
+}
+
+/** The mounts that are not the root filesystem — the attached volumes and
+ *  second disks, which is what "are there extra disks on this box" means. */
+const extraMounts = (box: FleetBox) => box.disks.filter((d) => d.mount !== "/");
+
+/** How long a box has been silent, in milliseconds, or null when it has never
+ *  been seen at all. */
+function silentFor(box: FleetBox): number | null {
+  return box.seenAt ? Date.now() - Date.parse(box.seenAt) : null;
+}
+
+/** Has this box missed enough probes to call it? THREE CADENCES, because one
+ *  missed run is a slow ssh handshake on a domestic line and two is a
+ *  coincidence; three is a machine that has stopped answering. */
+function notReporting(box: FleetBox, F: FleetReport | null | undefined): boolean {
+  const gap = silentFor(box);
+  return gap !== null && gap > (F?.cadenceMinutes ?? 30) * 60_000 * 3;
+}
+
+/** A percentage series out of the box's own samples, dropping the rows that
+ *  hold no reading. A MISSED SAMPLE IS A GAP AND NEVER A ZERO — a line that
+ *  drew nulls as nought would report every collection failure as an idle
+ *  machine. */
+function sampleSeries(box: FleetBox, of: "cpu" | "memory" | "swap" | "load"): { ts: string; value: number }[] {
+  const out: { ts: string; value: number }[] = [];
+  for (const s of box.samples) {
+    let v: number | null = null;
+    if (of === "cpu") v = s.cpuPercent;
+    else if (of === "memory") v = s.memTotal && s.memUsed !== null ? (s.memUsed / s.memTotal) * 100 : null;
+    else if (of === "swap") v = s.swapTotal && s.swapUsed !== null ? (s.swapUsed / s.swapTotal) * 100 : null;
+    else {
+      const cores = s.cpus ?? box.sample?.cpus ?? null;
+      v = s.load1 !== null && cores ? (s.load1 / cores) * 100 : null;
+    }
+    if (v === null || !Number.isFinite(v)) continue;
+    out.push({ ts: s.ts, value: Math.round(v * 10) / 10 });
+  }
+  return out;
+}
+
+/** The window a run of samples actually covers, in words, for a caption. The
+ *  picker may have asked for ninety days of a collector that has been up for
+ *  two, and the card says which it drew. */
+function sampleSpan(points: { ts: string }[]): string {
+  if (points.length < 2) return "not enough samples yet";
+  const minutes = (Date.parse(points[points.length - 1]!.ts) - Date.parse(points[0]!.ts)) / 60_000;
+  /* MINUTES ARE A REAL ANSWER HERE, and the reason this does not start at
+     hours: a column added to the probe has one sample per box per collection,
+     so the first afternoon of it is a line covering ninety minutes — and
+     rounding that to "0 hours drawn" is a caption that reads like a bug. */
+  if (minutes < 90) return `${Math.round(minutes)} minutes`;
+  const hours = minutes / 60;
+  if (hours < 48) return `${Math.round(hours)} hours`;
+  return `${Math.round(hours / 24)} days`;
+}
+
+/**
+ * WHAT KIND OF MORNING THIS BOX IS HAVING, in a word and a tone.
+ *
+ * WORST-OF, and judged per metric against that metric's own pair rather than
+ * against one number — 77% of a disk (act at 90) is a quieter morning than 77%
+ * of memory (act at 92) is loud, and ranking raw percentages across metrics
+ * with different limits is how a page ends up shouting about the wrong box.
+ */
+function boxState(box: FleetBox, F: FleetReport | null | undefined): { tone: StatusTone; word: string } {
+  const L = fleetLimits(F);
+  if (notReporting(box, F)) return { tone: "bad", word: "not reporting" };
+  if (!box.sample) return { tone: "warn", word: "never sampled" };
+  if (box.error) return { tone: "bad", word: "last probe failed" };
+  const readings: [number | null, { warn: number; critical: number }][] = [
+    [box.sample.cpuPercent, L.cpu],
+    [box.sample.memory?.percent ?? null, L.memory],
+    ...box.disks.map((d) => [d.meter?.percent ?? null, L.disk] as [number | null, { warn: number; critical: number }]),
+  ];
+  for (const [v, pair] of readings) if (v !== null && v >= pair.critical) return { tone: "bad", word: "act" };
+  if ((box.sample.loadPerCpu ?? 0) > 1) return { tone: "warn", word: "more tasks than cores" };
+  for (const [v, pair] of readings) if (v !== null && v >= pair.warn) return { tone: "warn", word: "watch" };
+  return { tone: "ok", word: "fine" };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  /* ---------------------------------------------------------- one machine */
+
+  "server.overview": ({ server: S, boxes: F, fleet: HZ, load: HL }: LiveInputs) => {
+    if (!S) return null;
+    const box = S.box;
+    const L = fleetLimits(F);
+    const mem = box.sample?.memory ?? null;
+    const root = box.disks.find((d) => d.mount === "/") ?? mountsOf(box)[0] ?? null;
+    const hz = hetznerRow(box, HZ ?? []);
+    const hzLoad = hz ? (HL?.servers ?? []).find((s) => s.id === hz.id) ?? null : null;
+
+    /* CPU, AND WHICH INSTRUMENT SAW IT. The in-guest reading wins where there
+       is one, because it is the one that includes what this machine is
+       actually running; the hypervisor's is the fallback and is labelled. */
+    const guestCpu = box.sample?.cpuPercent ?? null;
+    const hyperCpu = hzLoad?.samples ? hzLoad.cpu.now : null;
+    const cpu = guestCpu ?? hyperCpu;
+    /* SHORT ENOUGH TO SURVIVE A ONE-COLUMN TILE. The sentence about what a
+       one-second sample is belongs in the caption; the tile only has to say
+       which instrument, because that is what changes between two boxes. */
+    const cpuSub =
+      guestCpu !== null ? "in the guest" : hyperCpu !== null ? "hypervisor" : "not measured yet";
+
+    const line = sampleSeries(box, "memory");
+    const figures: ProfileFigure[] = [
+      { label: "CPU", value: percent(cpu, 0), sub: cpuSub },
+      {
+        label: "Memory",
+        value: percent(mem?.percent ?? null, 0),
+        /* USED IS TOTAL MINUS AVAILABLE, done at the probe: Linux's page cache
+           is not memory anybody is short of. */
+        sub: mem ? `${bytes(mem.used)} of ${bytes(box.sample?.memoryTotal ?? null)}` : "no sample",
+      },
+      {
+        label: "Disk",
+        value: percent(root?.meter?.percent ?? null, 0),
+        sub: root ? `${root.mount} · ${bytes(root.avail)} free` : "no filesystem reported",
+      },
+      {
+        label: "Load / cpu",
+        value: box.sample?.loadPerCpu === null || !box.sample ? DASH : box.sample.loadPerCpu.toFixed(2),
+        sub: `${box.sample?.load.one ?? DASH} over ${box.sample?.cpus ?? "?"} cores`,
+      },
+    ];
+
+    /* THE META LINE AND THEN EVERY FILESYSTEM, which is where uptime lives —
+       it is a fact you read once about a machine rather than a reading you
+       scan a grid of cards for, and a fifth tile in a two-column card wraps
+       onto a row of its own with three empty columns beside it. Attached
+       volumes are rows here because "is the disk full" has as many answers as
+       the box has mounts and the tile above only carries the root's., attached volumes included, because "is the
+    */
+    const rows: [string, string][] = [
+      ["Up", also(durationS(box.sample?.uptimeSeconds ?? null), box.kernel ?? "")],
+      ...(box.docker
+        ? ([[
+            box.docker.installed ? "Containers" : "Docker",
+            box.docker.installed ? `${count(box.docker.running)} running` : "not installed here",
+          ]] as [string, string][])
+        : []),
+      ...mountsOf(box).map<[string, string]>((d) => [
+        d.mount === "/" ? "/ (root)" : d.mount,
+        `${percent(d.meter?.percent ?? null, 0)} · ${bytes(d.used)} of ${bytes(d.size)}`,
+      ]),
+    ];
+    const extras = extraMounts(box);
+    const state = boxState(box, F);
+
+    return {
+      tag: "measured",
+      figures,
+      series: line.map((p) => p.value),
+      seriesAt: line.map((p) => p.ts),
+      unit: "percent" as const,
+      rows,
+      caption: also(
+        `${state.word} · ${box.hostname ?? DASH} at ${targetHost(box) ?? DASH}`,
+        also(
+          line.length > 1 ? `the line is memory used over ${sampleSpan(line)}` : "no memory history yet",
+          also(
+            extras.length
+              ? `${extras.length} filesystem${extras.length === 1 ? "" : "s"} beside the root disk`
+              : "one filesystem, the root disk",
+            also(
+              hz ? `${hz.plan ?? "Hetzner"} · ${hz.location ?? DASH}` : "not a box Hetzner sold",
+              `disks act at ${L.disk.critical}%, memory at ${L.memory.critical}%, CPU at ${L.cpu.critical}% · probed every ${F?.cadenceMinutes ?? 30} min, last ${ago(box.seenAt)}`,
+            ),
+          ),
+        ),
+      ),
+    };
+  },
+
+  "server.cpu": ({ server: S, boxes: F, fleet: HZ, load: HL, window: W }: LiveInputs) => {
+    if (!S) return null;
+    const box = S.box;
+    const guest = sampleSeries(box, "cpu");
+    if (guest.length > 1)
+      return {
+        tag: "measured",
+        chart: [{ label: "CPU busy", points: guest }],
+        unit: "percent" as const,
+        caption: `Percent of a sampled second in which the cores were not idle, read inside the guest every ${F?.cadenceMinutes ?? 30} min — ${sampleSpan(guest)} drawn. Waiting on a disk counts as idle, so a slow volume does not read as a busy CPU.`,
+      };
+
+    /* THE HYPERVISOR IS THE FALLBACK AND RENAMES THE CARD. Hetzner's metrics
+       are fetched over a fixed day, so a card drawn from them cannot wear the
+       picker's window in its name — it would be promising ninety days of a
+       document that holds one. */
+    const hz = hetznerRow(box, HZ ?? []);
+    const hzLoad = hz ? (HL?.servers ?? []).find((s) => s.id === hz.id) ?? null : null;
+    if (hzLoad && hzLoad.cpu.points.length > 1)
+      return {
+        name: `CPU · ${HL?.hours ?? 24}h`,
+        tag: "measured",
+        chart: [{ label: "CPU", points: hzLoad.cpu.points }],
+        unit: "percent" as const,
+        caption: `Hetzner's HYPERVISOR view, not the guest's — this box has no in-guest CPU sample yet, and the probe only began taking one recently. ${hzLoad.cpuScaled ? `Scaled to the whole box over ${hzLoad.cores} cores.` : "Hetzner's raw per-core sum, which can exceed 100: the core count is unknown."} Mean ${percent(hzLoad.cpu.mean, 0)}, peak ${percent(hzLoad.cpu.peak, 0)}.`,
+      };
+
+    return {
+      tag: "measured",
+      chart: [],
+      caption: `No CPU reading for ${S.label} over ${windowLabel(W ?? 30)}. The ssh probe records one from the box's next collection; Hetzner has none because this is not a machine it sold.`,
+    };
+  },
+
+  "server.memory": ({ server: S, boxes: F }: LiveInputs) => {
+    if (!S) return null;
+    const box = S.box;
+    const mem = sampleSeries(box, "memory");
+    if (mem.length < 2) return null;
+    const swap = sampleSeries(box, "swap");
+    const L = fleetLimits(F);
+    return {
+      tag: "measured",
+      /* SWAP BESIDE MEMORY AND NEVER ADDED TO IT. They are two pools with two
+         meanings — a box at 40% RAM and 99% swap has a problem that adding the
+         two would hide behind a comfortable average. */
+      chart: [
+        { label: "Memory used", points: mem },
+        ...(swap.length > 1 ? [{ label: "Swap used", points: swap }] : []),
+      ],
+      unit: "percent" as const,
+      caption: `Used is total minus AVAILABLE, so the page cache is not counted as memory anybody is short of. ${bytes(box.sample?.memory?.used ?? null)} of ${bytes(box.sample?.memoryTotal ?? null)} now, watch at ${L.memory.warn}% and act at ${L.memory.critical}% · ${sampleSpan(mem)} drawn${swap.length > 1 ? `, swap ${percent(box.sample?.swap?.percent ?? null, 0)} of ${bytes((box.sample?.swap?.used ?? 0) + (box.sample?.swap?.free ?? 0))}` : ", no swap on this box"}.`,
+    };
+  },
+
+  "server.load": ({ server: S }: LiveInputs) => {
+    if (!S) return null;
+    const box = S.box;
+    const points = sampleSeries(box, "load");
+    if (points.length < 2) return null;
+    const cores = box.sample?.cpus ?? null;
+    return {
+      tag: "measured",
+      chart: [{ label: "Load per cpu", points }],
+      unit: "percent" as const,
+      /* AS A PERCENTAGE OF ONE RUNNABLE TASK PER CORE, which is the only
+         reading that means the same thing on a Pi and on a sixteen-core box.
+         100% is exactly saturated and the line goes above it rather than being
+         clamped. */
+      caption: `The one-minute load average divided by ${cores ?? "the box's"} core${cores === 1 ? "" : "s"}: 100% is one runnable task per core, exactly saturated. Load counts tasks WAITING as well as running, so it climbs on a slow disk while the CPU sits idle — the CPU card is the other half of that sentence. Now ${box.sample?.load.one ?? DASH} / ${box.sample?.load.five ?? DASH} / ${box.sample?.load.fifteen ?? DASH} over 1, 5 and 15 minutes · ${sampleSpan(points)} drawn.`,
+    };
+  },
+
+  "server.disk": ({ server: S, boxes: F }: LiveInputs) => {
+    if (!S) return null;
+    const box = S.box;
+    const L = fleetLimits(F);
+    const mounts = mountsOf(box).filter((d) => d.meter);
+    if (!mounts.length) return null;
+    const extras = extraMounts(box);
+    return {
+      tag: "measured",
+      meters: mounts.map<Meter>((d) => ({
+        label: d.mount === "/" ? "/ (root)" : d.mount,
+        value: d.meter!.percent,
+        warn: L.disk.warn,
+        crit: L.disk.critical,
+        note: `${bytes(d.used)} of ${bytes(d.size)} · ${bytes(d.avail)} free`,
+      })),
+      /* THE PERCENTAGE IS used / (used + available) — what `df` calls Capacity
+         — and not used / size. ext4 reserves 5% for root and an APFS container
+         shares free space between volumes, so used/size calls a 62%-full Mac
+         2% full. */
+      caption: `Every filesystem the probe found, as df reports Capacity: used / (used + available), not used / size. ${extras.length ? `${extras.length} beside the root disk — ${extras.map((d) => d.mount).join(", ")}.` : "Only the root disk; nothing else is mounted."} Watch at ${L.disk.warn}%, act at ${L.disk.critical}%.`,
+    };
+  },
+
+  "server.network": ({ server: S, fleet: HZ, load: HL }: LiveInputs) => {
+    if (!S) return null;
+    const hz = hetznerRow(S.box, HZ ?? []);
+    const hzLoad = hz ? (HL?.servers ?? []).find((s) => s.id === hz.id) ?? null : null;
+    /* NOT AN EMPTY CARD: "nobody measures this here" is the finding, and it is
+       a different sentence from "the collector has not run". */
+    if (!hzLoad || !hzLoad.samples)
+      return {
+        tag: "measured",
+        rows: [
+          ["Nothing measures throughput here", hz ? "Hetzner has no samples for this box yet" : "not a machine Hetzner sold"],
+          ["The ssh probe cannot see it", "bytes in and out are counted by the hypervisor, outside the guest"],
+        ] as [string, string][],
+      };
+    const three = (s: { now: number | null; mean: number | null; peak: number | null }) =>
+      `${rate(s.now)} now · ${rate(s.mean)} mean · ${rate(s.peak)} peak`;
+    return {
+      tag: "measured",
+      rows: [
+        ["Network in", three(hzLoad.netIn)],
+        ["Network out", three(hzLoad.netOut)],
+        ["Disk read", three(hzLoad.diskRead)],
+        ["Disk write", three(hzLoad.diskWrite)],
+      ] as [string, string][],
+      caption: `Hetzner's hypervisor over ${HL?.hours ?? 24}h, ${count(hzLoad.samples)} samples. Its window is Hetzner's own and does not follow the picker. Rates, not totals — the /s is part of the unit.`,
+    };
+  },
+
+  "server.containers": ({ server: S }: LiveInputs) => {
+    if (!S) return null;
+    const box = S.box;
+    /* THREE DIFFERENT ANSWERS AND THEY ARE NOT ONE. The probe never reached
+       the box; docker is not installed on it; docker is there and running
+       nothing. Only the last is a fleet with an empty machine in it. */
+    if (box.docker === null) return null;
+    if (!box.containers.length)
+      return {
+        tag: "measured",
+        headers: ["Container", "Image", "Status", "Up"],
+        table: [[box.docker.installed ? "Nothing running" : "Docker is not installed here", DASH, DASH, DASH]],
+      };
+    const tone = (status: string | null): StatusTone | null =>
+      !status ? null : /^up\b/i.test(status) ? "ok" : /paused|restarting/i.test(status) ? "warn" : "bad";
+    return {
+      tag: "measured",
+      headers: ["Container", "Image", "Status", "Up"],
+      table: box.containers.map((ct) => [ct.name, ct.image ?? DASH, ct.status ?? DASH, ct.since ?? DASH]),
+      rowTones: box.containers.map((ct) => tone(ct.status)),
+    };
+  },
+
+  "server.counters": ({ server: S }: LiveInputs) => {
+    if (!S) return null;
+    const counters = S.box.counters;
+    /* "NOBODY HAS ASKED THIS BOX ANYTHING" IS THE ANSWER, and it is not the
+       same sentence as "the commands ran and measured nothing". Counters are
+       the owner's own lines on the fleet plugin's settings page, so an empty
+       list is a thing nobody has typed yet rather than a collection that
+       failed — and the card says which, with where to type them. */
+    if (!counters.length)
+      return {
+        rows: [
+          ["No counters configured", "the owner's own measurements, one per box"],
+          ["Where", "the fleet plugin's settings: one line of “label = shell command”"],
+        ] as [string, string][],
+      };
+    return {
+      tag: "measured",
+      rows: counters.map((c) => [
+        c.label,
+        /* NEVER ZERO for a counter with no reading: a command that has not run
+           and a command that printed 0 look identical as a figure, and only one
+           of them is a measurement. */
+        c.latest ? count(c.latest.value) : "no value yet — not zero",
+      ]) as [string, string][],
+      caption: "The owner's own commands, run on every box by the probe. A command that failed has no reading rather than a nought.",
+    };
+  },
+
+  /* ------------------------------------------------------------- the fleet */
+
+  "fleet.alerts": ({ boxes: F }: LiveInputs) => {
+    const boxes = F?.boxes ?? [];
+    if (!boxes.length) return null;
+    const L = fleetLimits(F);
+    const found: [string, StatusTone][] = [];
+    const bad: [string, StatusTone][] = [];
+
+    for (const b of boxes) {
+      /* A BOX THAT HAS STOPPED ANSWERING LEADS, because every other reading
+         about it is now history wearing a present tense. */
+      if (notReporting(b, F))
+        bad.push([`${b.label} has not reported for ${ago(b.seenAt)}`.replace(" ago", ""), "bad"]);
+      else if (b.error) bad.push([`${b.label}: ${b.error.slice(0, 90)}`, "bad"]);
+      for (const d of b.disks) {
+        const v = d.meter?.percent ?? null;
+        if (v === null) continue;
+        if (v >= L.disk.critical) bad.push([`${b.label} ${d.mount} is ${percent(v, 0)} full — ${bytes(d.avail)} left`, "bad"]);
+        else if (v >= L.disk.warn) found.push([`${b.label} ${d.mount} is ${percent(v, 0)} full — ${bytes(d.avail)} left`, "warn"]);
+      }
+      const mem = b.sample?.memory?.percent ?? null;
+      if (mem !== null && mem >= L.memory.critical) bad.push([`${b.label} memory is ${percent(mem, 0)}`, "bad"]);
+      else if (mem !== null && mem >= L.memory.warn) found.push([`${b.label} memory is ${percent(mem, 0)}`, "warn"]);
+      const cpu = b.sample?.cpuPercent ?? null;
+      if (cpu !== null && cpu >= L.cpu.critical) bad.push([`${b.label} CPU is ${percent(cpu, 0)}`, "bad"]);
+      else if (cpu !== null && cpu >= L.cpu.warn) found.push([`${b.label} CPU is ${percent(cpu, 0)}`, "warn"]);
+      const perCpu = b.sample?.loadPerCpu ?? null;
+      if (perCpu !== null && perCpu > 1)
+        found.push([`${b.label} load is ${perCpu.toFixed(2)} per cpu — more runnable tasks than cores`, "warn"]);
+      const swap = b.sample?.swap?.percent ?? null;
+      if (swap !== null && swap >= L.disk.critical)
+        found.push([`${b.label} swap is ${percent(swap, 0)} — the box is paging`, "warn"]);
+    }
+
+    const statuses = [...bad, ...found].slice(0, 12);
+    const answering = boxes.filter((b) => b.sample).length;
+    if (!statuses.length)
+      statuses.push([
+        `Nothing above its line — ${answering} of ${boxes.length} boxes reporting, fullest disk ${percent(F?.totals.fullestDisk?.percent ?? null, 0)}`,
+        "ok",
+      ]);
+    return {
+      tag: "measured",
+      statuses,
+      caption: `Disks watch at ${L.disk.warn}% and act at ${L.disk.critical}%, memory at ${L.memory.warn} and ${L.memory.critical}, CPU at ${L.cpu.warn} and ${L.cpu.critical}. A box is called silent after three missed probes — ${(F?.cadenceMinutes ?? 30) * 3} minutes.`,
+    };
+  },
+
+  "fleet.table": ({ boxes: F, fleet: HZ, load: HL }: LiveInputs) => {
+    const boxes = F?.boxes ?? [];
+    if (!boxes.length) return null;
+    return {
+      tag: "measured",
+      headers: ["Box", "CPU", "Memory", "Fullest disk", "Load/cpu", "Up", "Last seen"],
+      table: boxes.map((b) => {
+        const disk = fullestMount(b);
+        const hz = hetznerRow(b, HZ ?? []);
+        const hzLoad = hz ? (HL?.servers ?? []).find((s) => s.id === hz.id) ?? null : null;
+        /* The in-guest reading, or the hypervisor's with a mark saying so. A
+           column that silently mixed the two would be a column nobody could
+           compare down. */
+        const cpu =
+          b.sample?.cpuPercent !== null && b.sample
+            ? percent(b.sample.cpuPercent, 0)
+            : hzLoad?.samples
+              ? `${percent(hzLoad.cpu.now, 0)} *`
+              : DASH;
+        return [
+          b.label,
+          cpu,
+          b.sample?.memory ? percent(b.sample.memory.percent, 0) : DASH,
+          disk ? `${disk.mount} ${percent(disk.meter!.percent, 0)}` : DASH,
+          b.sample?.loadPerCpu === null || !b.sample ? DASH : b.sample.loadPerCpu.toFixed(2),
+          durationS(b.sample?.uptimeSeconds ?? null),
+          ago(b.seenAt),
+        ];
+      }),
+      rowTones: boxes.map((b) => boxState(b, F).tone),
+      caption: `One row per box, as the probe last saw it. A CPU marked * is Hetzner's hypervisor rather than the guest's own reading. Probed every ${F?.cadenceMinutes ?? 30} minutes.`,
+    };
+  },
+
+  "fleet.mounts": ({ boxes: F }: LiveInputs) => {
+    const L = fleetLimits(F);
+    const all = (F?.boxes ?? []).flatMap((b) =>
+      b.disks.filter((d) => d.meter).map((d) => ({ box: b.label, disk: d, extra: d.mount !== "/" })),
+    );
+    if (!all.length) return null;
+    const shown = [...all].sort((a, b) => b.disk.meter!.percent - a.disk.meter!.percent).slice(0, 12);
+    return {
+      tag: "measured",
+      meters: shown.map<Meter>((r) => ({
+        label: `${r.box} · ${r.disk.mount}`,
+        value: r.disk.meter!.percent,
+        warn: L.disk.warn,
+        crit: L.disk.critical,
+        note: `${bytes(r.disk.avail)} free${r.extra ? " · extra disk" : ""}`,
+      })),
+      /* RANKED ACROSS BOXES AND NEVER ADDED. Filesystems share pools — a Mac's
+         root and its data volume report one container's free space twice — so
+         there is no fleet disk total, and this is the card that replaces one. */
+      caption: `${shown.length} of ${all.length} filesystems, fullest first, across ${F?.boxes.length ?? 0} boxes. ${all.filter((r) => r.extra).length} are not a root disk. Sizes are never added: filesystems share pools, so a fleet disk total would count the same free space twice.`,
+    };
+  },
+
+  "fleet.fullest": ({ boxes: F }: LiveInputs) => {
+    const worst = F?.totals.fullestDisk ?? null;
+    if (!worst || worst.percent === null) return null;
+    const L = fleetLimits(F);
+    const disk = (F?.boxes ?? [])
+      .flatMap((b) => b.disks.map((d) => ({ b, d })))
+      .find((r) => r.b.label === worst.box && r.d.mount === worst.mount);
+    return {
+      tag: "measured",
+      value: percent(worst.percent, 0),
+      tone: worst.percent >= L.disk.critical ? "bad" : worst.percent >= L.disk.warn ? "warn" : "ok",
+      sub: `${worst.box} · ${worst.mount}${disk ? ` · ${bytes(disk.d.avail)} free` : ""} · act at ${L.disk.critical}%`,
+    };
+  },
+
+  "fleet.reporting": ({ boxes: F }: LiveInputs) => {
+    const boxes = F?.boxes ?? [];
+    if (!boxes.length) return null;
+    const answering = boxes.filter((b) => b.sample).length;
+    const silent = boxes.filter((b) => notReporting(b, F)).length;
+    return {
+      tag: "measured",
+      value: `${answering}/${boxes.length}`,
+      tone: silent ? "bad" : answering < boxes.length ? "warn" : "ok",
+      sub: also(
+        silent ? `${silent} silent for over ${(F?.cadenceMinutes ?? 30) * 3} min` : "all answering",
+        `last probe ${ago(F?.totals.seenAt ?? null)}`,
+      ),
+    };
+  },
+
+  "fleet.memoryTotal": ({ boxes: F }: LiveInputs) => {
+    const total = F?.totals.memoryBytes ?? null;
+    if (!total) return null;
+    const answering = F?.totals.answering ?? 0;
+    return {
+      tag: "measured",
+      value: bytes(total.used),
+      /* THIS IS THE ONE FIGURE ON THE BOARD THAT ADDS. A byte of RAM on one box
+         and a byte on another are two bytes the owner is paying for; disk and
+         load are not like that, and neither has a total anywhere here. */
+      sub: `of ${bytes(total.total)} across ${answering} box${answering === 1 ? "" : "es"} · used is total minus available`,
+    };
+  },
+
+  "fleet.providers": ({ boxes: F, fleet: HZ }: LiveInputs) => {
+    const boxes = F?.boxes ?? [];
+    if (!boxes.length) return null;
+    const groups = new Map<string, FleetBox[]>();
+    for (const b of boxes) {
+      const key = providerOf(b, HZ ?? []);
+      groups.set(key, [...(groups.get(key) ?? []), b]);
+    }
+    const slices = [...groups.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([label, list]) => ({
+        label,
+        value: list.length,
+        text: String(list.length),
+        sub: list.map((b) => b.label).join(", "),
+      }));
+    return {
+      tag: "measured",
+      slices,
+      center: { value: String(boxes.length), note: boxes.length === 1 ? "box" : "boxes" },
+      caption:
+        "Whose hardware each box is, joined on the address the probe logs in to. “Another provider” is every machine Hetzner did not sell and that is not on the local network — this dashboard has no vendor list to name them from, and a guess would be worse than the vaguer true answer.",
+    };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

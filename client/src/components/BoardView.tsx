@@ -26,6 +26,7 @@ import {
 import { collectedAt, useLive } from "@/lib/live";
 import { widgetName, windowWords } from "@/lib/window";
 import { SOURCES, WIDGETS } from "@/data/widgets";
+import { PARAM_BADGE, PARAM_NOUN, paramChoices, paramKindOf } from "@/lib/params";
 
 /**
  * ONE DASHBOARD, WHEREVER IT LIVES.
@@ -428,10 +429,18 @@ export function BoardView({
                         The same widget for a second venture is a second
                         card, so "added" is said per venture, not per row.
                       */
-                      const per = !!def.perProject;
+                      const kind = paramKindOf(def);
+                      const per = kind !== null;
                       const addedFor = new Set(
                         board.widgets.filter((w) => w.type === key).map((w) => w.param),
                       );
+                      /* THE CHOICES COME FROM WHEREVER THAT KIND LIVES —
+                         ventures out of the workspace, boxes out of the live
+                         fleet document. See lib/params for why they are not
+                         one list. */
+                      const choices = kind
+                        ? paramChoices(kind, { ventures: state.ventures, fleet: live.boxes })
+                        : [];
                       return (
                         <div key={key}>
                           <button
@@ -452,9 +461,9 @@ export function BoardView({
                             )}
                           >
                             <span className="truncate">{widgetName(def, live.window)}</span>
-                            {per && (
+                            {per && kind && (
                               <span className="text-muted-foreground shrink-0 rounded-[7px] border px-1 py-px text-[10.5px] leading-[1.35]">
-                                per project
+                                {PARAM_BADGE[kind]}
                               </span>
                             )}
                             <span
@@ -463,24 +472,24 @@ export function BoardView({
                                 added && "text-ok",
                               )}
                             >
-                              {per
+                              {per && kind
                                 ? added
                                   ? `${addedFor.size} added`
-                                  : pickFor === key ? "pick a venture" : "choose…"
+                                  : pickFor === key ? `pick a ${PARAM_NOUN[kind]}` : "choose…"
                                 : added ? "added" : def.kind}
                             </span>
                           </button>
-                          {per && pickFor === key && (
+                          {per && kind && pickFor === key && (
                             <div className="border-line-soft mb-1.5 ml-3 flex flex-col gap-px border-l pl-2">
-                              {state.ventures.map((v) => {
-                                const has = addedFor.has(v.id);
+                              {choices.map((choice) => {
+                                const has = addedFor.has(choice.id);
                                 return (
                                   <button
-                                    key={v.id}
+                                    key={choice.id}
                                     onClick={() =>
                                       mutate((list) => [
                                         ...list,
-                                        { id: uid("w"), type: key, w: defaultWidth(key), param: v.id },
+                                        { id: uid("w"), type: key, w: defaultWidth(key), param: choice.id },
                                       ])
                                     }
                                     className={cn(
@@ -488,15 +497,25 @@ export function BoardView({
                                       has && "text-muted-foreground",
                                     )}
                                   >
-                                    <span className="truncate">{v.name}</span>
+                                    <span className="truncate">{choice.name}</span>
                                     <span className={cn("text-muted-foreground ml-auto shrink-0 text-[11px]", has && "text-ok")}>
-                                      {has ? "added" : (v.host ?? "no website")}
+                                      {has ? "added" : choice.note}
                                     </span>
                                   </button>
                                 );
                               })}
-                              {!state.ventures.length && (
-                                <p className="text-muted-foreground px-2 py-1 text-[12px]">No ventures yet.</p>
+                              {/* A KIND WITH NO CHOICES IS A SENTENCE, and the
+                                  two kinds are empty for different reasons: no
+                                  venture has been created, or no box has
+                                  answered ssh — the second of which is a
+                                  plugin that is not connected rather than
+                                  something the owner has not done here. */}
+                              {!choices.length && (
+                                <p className="text-muted-foreground px-2 py-1 text-[12px]">
+                                  {kind === "venture"
+                                    ? "No ventures yet."
+                                    : "No boxes yet — connect the fleet plugin and add one as user@host."}
+                                </p>
                               )}
                             </div>
                           )}

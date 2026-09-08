@@ -13,6 +13,7 @@ import {
 } from "react";
 import { PLUGINS } from "@/data/plugins";
 import { DASHBOARD_PRESETS, WIDGETS } from "@/data/widgets";
+import { paramKindOf } from "@/lib/params";
 import {
   api,
   type Venture,
@@ -125,20 +126,25 @@ export type PlacedWidget = {
   /** Column span on the four-column grid: 1, 2 or 4. */
   w: 1 | 2 | 4;
   /**
-   * THE VENTURE A PER-PROJECT CARD IS ABOUT, by venture id.
+   * THE ONE THING A PINNED CARD IS ABOUT, by id.
    *
-   * Only read on a widget whose catalog entry says `perProject`; every other
-   * card ignores it. A per-project card is a scoped card whose scope is
-   * chosen on the card rather than by the page it sits on — so the Search
-   * board can carry "Search · Example App 1" beside "Search · FreeLLMAPI" without
-   * either board belonging to a venture. The card resolves the id to the
-   * venture's hosts and narrows the live documents with the same rule a
-   * venture board uses (lib/scope.ts), which is why this is an id and never
-   * a hostname: a venture whose website changes keeps its cards.
+   * WHAT KIND OF ID IT IS COMES FROM THE CATALOG ENTRY, never from the string:
+   * `perProject: true` means a venture id and `perParam: { kind: "server" }`
+   * means a fleet account id. Every other card ignores this field. See
+   * lib/params for the resolution and for why the choices come from two
+   * different places.
+   *
+   * A pinned card is a scoped card whose scope is chosen on the card rather
+   * than by the page it sits on — so the Search board carries "Search ·
+   * Example App 1" beside "Search · FreeLLMAPI", and the Servers board carries
+   * "Memory · Home Pi" beside "Memory · Demo box", without either board
+   * belonging to anything. It is an ID and never a hostname for the reason a
+   * venture whose website changes keeps its cards, and a box that moves
+   * address keeps its account.
    *
    * Optional and absent on every card placed before it existed, so no
    * migration; the workspace validator (shared/workspace.ts) lets it through
-   * by shape. A per-project card with no value says "pick a venture".
+   * by shape. A pinned card with no value says which kind to pick.
    */
   param?: string;
 };
@@ -272,7 +278,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 18;
+export const SEED_VERSION = 19;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -377,33 +383,49 @@ const SEED: StoreState = {
       ],
     },
     /*
-      SERVERS. The four figures first,
-      then the fleet's own line, then every box as a meter, then the numbers
-      behind the pictures. The difference is what can be measured — Hetzner
-      reports from the hypervisor, so this has CPU, network and disk throughput
-      and no memory or filesystem meter. Those need something running inside
-      the guest, and a meter that cannot be measured is not drawn.
+      SERVERS, IN WORKDASH'S ORDER: what is worth a look, the fleet in four
+      figures, the fleet's own line, then every box in one table and every
+      filesystem under it — and finally what the hypervisor sees that nothing
+      inside a guest can.
+
+      THE PER-MACHINE CARDS ARE NOT SEEDED AND CANNOT BE. Workdash's page is a
+      grid of one card per box; here that is `server.overview` and its
+      siblings, each pinned to a FLEET ACCOUNT ID (see lib/params). The fleet
+      is whatever answered ssh this morning — nine machines today, a different
+      nine after a move — so a seed that named one would be a seed that names a
+      box this workspace may never have had. They are one click from the
+      palette instead, where the list is the live one.
+
+      The Hetzner cards stay because they measure something the probe cannot:
+      network and disk throughput are counted outside the guest, and the
+      Hetzner board next door is about the BILL rather than the machines.
     */
     {
       id: "d-servers",
       slug: "servers",
       name: "Servers",
       widgets: [
-        { id: "sv1", type: "hetzner.fleetCpu", w: 1 },
-        { id: "sv2", type: "hetzner.busiest", w: 1 },
-        { id: "sv3", type: "hetzner.serverCount", w: 1 },
-        { id: "sv4", type: "hetzner.spend", w: 1 },
-        { id: "sv5", type: "hetzner.load", w: 4 },
-        { id: "sv6", type: "hetzner.cpuMeters", w: 2 },
-        { id: "sv7", type: "hetzner.servers", w: 1 },
-        { id: "sv8", type: "hetzner.arch", w: 1 },
-        { id: "sv9", type: "hetzner.figures", w: 4 },
-        { id: "sv10", type: "hetzner.traffic", w: 2 },
-        { id: "sv11", type: "hetzner.diskWrite", w: 2 },
-        { id: "sv12", type: "hetzner.quiet", w: 2 },
-        { id: "sv13", type: "hetzner.volumes", w: 2 },
-        { id: "sv14", type: "hetzner.specs", w: 2 },
-        { id: "sv15", type: "hetzner.age", w: 2 },
+        /* The widths are `defaultWidth`'s, deliberately: a board that already
+           exists gets these cards from the top-up, which places them at that
+           width, and a seeded board that disagreed would be two layouts for
+           one board depending on when the workspace was created. */
+        { id: "sv1", type: "fleet.alerts", w: 2 },
+        { id: "sv2", type: "fleet.fullest", w: 1 },
+        { id: "sv3", type: "fleet.reporting", w: 1 },
+        { id: "sv4", type: "hetzner.fleetCpu", w: 1 },
+        { id: "sv5", type: "fleet.memoryTotal", w: 1 },
+        { id: "sv6", type: "hetzner.spend", w: 1 },
+        { id: "sv7", type: "hetzner.busiest", w: 1 },
+        { id: "sv8", type: "hetzner.load", w: 4 },
+        { id: "sv9", type: "fleet.table", w: 4 },
+        { id: "sv10", type: "fleet.mounts", w: 2 },
+        { id: "sv11", type: "fleet.providers", w: 2 },
+        { id: "sv12", type: "hetzner.cpuMeters", w: 2 },
+        { id: "sv13", type: "hetzner.traffic", w: 2 },
+        { id: "sv14", type: "hetzner.diskWrite", w: 2 },
+        { id: "sv15", type: "hetzner.volumes", w: 2 },
+        { id: "sv16", type: "hetzner.specs", w: 2 },
+        { id: "sv17", type: "hetzner.age", w: 2 },
       ],
     },
     /*
@@ -1447,11 +1469,13 @@ function migrate(state: StoreState): StoreState {
        itself, ahead of the metered providers — and a headline appended under
        twenty-one cards is a headline nobody scrolls to.
 
-       A PER-PROJECT CARD NEVER LEADS. It arrives with no venture chosen and
-       draws a prompt until one is, and a prompt at the top of a board is
-       not a headline whatever board it is on — so those trail even where
-       the rest of the top-up leads. */
-    const leads = TOP_UP_LEADS.has(d.id) ? arriving.filter((w) => !WIDGETS[w.type]?.perProject) : [];
+       A PINNED CARD NEVER LEADS. It arrives with nothing chosen — no
+       venture, no box — and draws a prompt until something is, and a prompt
+       at the top of a board is not a headline whatever board it is on, so
+       those trail even where the rest of the top-up leads. */
+    const leads = TOP_UP_LEADS.has(d.id)
+      ? arriving.filter((w) => paramKindOf(WIDGETS[w.type]) === null)
+      : [];
     const trails = arriving.filter((w) => !leads.includes(w));
     return {
       ...d,
@@ -1542,7 +1566,28 @@ const TOP_UPS: Record<string, string[]> = {
     box is at 40% memory" and "the site it serves is not answering" are the two
     halves of the same morning and only one of them is visible from Hetzner.
   */
-  "d-servers": ["fleet.memory", "fleet.disk", "uptime.up", "uptime.tls"],
+  /*
+    SERVERS GAINED WORKDASH'S PAGE IN SEED_VERSION 19. The alert strip and the
+    three fleet figures LEAD — see TOP_UP_LEADS — for the reason the Costs
+    top-up does: "which box is nearly out of disk" is the question this board
+    is opened with, and an answer appended under fifteen cards is an answer
+    nobody scrolls to. The per-machine `server.*` cards are deliberately absent
+    from this list: they are pinned to one box each and a top-up cannot know
+    which, so they arrive from the palette with a machine already chosen.
+  */
+  "d-servers": [
+    "fleet.memory",
+    "fleet.disk",
+    "uptime.up",
+    "uptime.tls",
+    "fleet.alerts",
+    "fleet.fullest",
+    "fleet.reporting",
+    "fleet.memoryTotal",
+    "fleet.table",
+    "fleet.mounts",
+    "fleet.providers",
+  ],
   /*
     Morning check gains the day's calendar and whether anything went down
     overnight — and now the run ledger with them. A run survives the tab
@@ -1667,7 +1712,7 @@ const TOP_UPS: Record<string, string[]> = {
 };
 
 /** The boards whose top-up leads rather than trails — see `migrate()`. */
-const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search", "d-payments"]);
+const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search", "d-payments", "d-servers"]);
 
 /** The addresses already taken inside one scope — a venture's boards, or the
  *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is

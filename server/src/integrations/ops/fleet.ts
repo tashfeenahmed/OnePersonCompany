@@ -243,6 +243,20 @@ export function checkCounters(raw: string): string | null {
  * mounts go too: they are a second view of space the underlying disk already
  * reported.
  *
+ * EVERY BYTE FIGURE IS PRINTED WITH %.0f AND NEVER %d, and that is a bug fix
+ * rather than a style. awk's `%d` goes through a C int on mawk, which is what
+ * Debian and Raspberry Pi OS ship as `awk` — so a Pi with 8 GB of RAM and a
+ * 115 GB card reported 2,147,483,647 bytes for both, saturated at INT32_MAX,
+ * and the fleet page drew that box's memory as 0% used and its disk as exactly
+ * half full. `%.0f` goes through a double, which holds every byte count any
+ * machine here will ever have.
+ *
+ * CPU IS SAMPLED OVER A SECOND, and it costs the probe that second per box.
+ * /proc/stat holds counters since boot, so ONE read of it is the machine's
+ * whole life averaged — a number that never moves. Two reads a second apart
+ * are the utilisation of that second, which is the question. Nine seconds
+ * added to a collection that runs every thirty minutes is the price.
+ *
  * MEMORY IS BYTES EVERYWHERE. /proc/meminfo is kB and vm_stat is pages, and
  * both are converted here rather than downstream, so nothing above this line
  * has to know which kind of machine answered. `mem_used` is total minus
@@ -284,13 +298,13 @@ if [ -r /proc/cpuinfo ]; then
   CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
 fi
 if [ -r /proc/meminfo ]; then
-  MT=$(awk '/^MemTotal:/ {printf "%d", $2*1024}' /proc/meminfo 2>/dev/null)
-  MA=$(awk '/^MemAvailable:/ {printf "%d", $2*1024}' /proc/meminfo 2>/dev/null)
+  MT=$(awk '/^MemTotal:/ {printf "%.0f", $2*1024}' /proc/meminfo 2>/dev/null)
+  MA=$(awk '/^MemAvailable:/ {printf "%.0f", $2*1024}' /proc/meminfo 2>/dev/null)
   if [ -z "$MA" ]; then
-    MA=$(awk '/^MemFree:/ {printf "%d", $2*1024}' /proc/meminfo 2>/dev/null)
+    MA=$(awk '/^MemFree:/ {printf "%.0f", $2*1024}' /proc/meminfo 2>/dev/null)
   fi
-  ST=$(awk '/^SwapTotal:/ {printf "%d", $2*1024}' /proc/meminfo 2>/dev/null)
-  SF=$(awk '/^SwapFree:/ {printf "%d", $2*1024}' /proc/meminfo 2>/dev/null)
+  ST=$(awk '/^SwapTotal:/ {printf "%.0f", $2*1024}' /proc/meminfo 2>/dev/null)
+  SF=$(awk '/^SwapFree:/ {printf "%.0f", $2*1024}' /proc/meminfo 2>/dev/null)
   if [ -n "$MT" ] && [ -n "$MA" ]; then MU=$((MT - MA)); fi
   if [ -n "$ST" ] && [ -n "$SF" ]; then SU=$((ST - SF)); fi
 fi
@@ -314,17 +328,40 @@ if [ -z "$MT" ]; then
   MT=$(sysctl -n hw.memsize 2>/dev/null)
   PG=$(sysctl -n hw.pagesize 2>/dev/null)
   if [ -n "$PG" ]; then
-    MA=$(vm_stat 2>/dev/null | awk -v p=$PG '/Pages free/ {gsub(/[^0-9]/,"",$NF); f=$NF} /Pages inactive/ {gsub(/[^0-9]/,"",$NF); i=$NF} /Pages speculative/ {gsub(/[^0-9]/,"",$NF); s=$NF} END {if (p != "") printf "%d", (f+i+s)*p}')
+    MA=$(vm_stat 2>/dev/null | awk -v p=$PG '/Pages free/ {gsub(/[^0-9]/,"",$NF); f=$NF} /Pages inactive/ {gsub(/[^0-9]/,"",$NF); i=$NF} /Pages speculative/ {gsub(/[^0-9]/,"",$NF); s=$NF} END {if (p != "") printf "%.0f", (f+i+s)*p}')
   fi
   if [ -n "$MT" ] && [ -n "$MA" ]; then MU=$((MT - MA)); fi
   SW=$(sysctl -n vm.swapusage 2>/dev/null)
   if [ -n "$SW" ]; then
-    ST=$(printf '%s' "$SW" | awk '{for(i=1;i<=NF;i++) if ($i == "total") {v=$(i+2); sub(/[A-Za-z]$/,"",v); printf "%d", v*1048576}}')
-    SU=$(printf '%s' "$SW" | awk '{for(i=1;i<=NF;i++) if ($i == "used") {v=$(i+2); sub(/[A-Za-z]$/,"",v); printf "%d", v*1048576}}')
+    ST=$(printf '%s' "$SW" | awk '{for(i=1;i<=NF;i++) if ($i == "total") {v=$(i+2); sub(/[A-Za-z]$/,"",v); printf "%.0f", v*1048576}}')
+    SU=$(printf '%s' "$SW" | awk '{for(i=1;i<=NF;i++) if ($i == "used") {v=$(i+2); sub(/[A-Za-z]$/,"",v); printf "%.0f", v*1048576}}')
   fi
 fi
 
-DISKS=$(df -Pk 2>/dev/null | awk 'NR>1 && $2+0>0 && $1 !~ /^(devfs|map|tmpfs|devtmpfs|udev|none|overlay|shm)$/ && $6 !~ /^\/(dev|proc|sys|run)($|\/)/ { m=$6; for(i=7;i<=NF;i++) m=m" "$i; gsub(/\\/,"\\\\",m); gsub(/"/,"\\\"",m); printf "%s{\"mount\":\"%s\",\"size\":%d,\"used\":%d,\"avail\":%d}", (c++?",":""), m, $2*1024, $3*1024, $4*1024 }')
+# HOW BUSY THE CPU IS, sampled over a second, because /proc/stat is a set of
+# COUNTERS SINCE BOOT and one read of it is a machine's whole life averaged —
+# a figure that never moves and answers nothing. Two reads a second apart give
+# the utilisation of that second, which is what "is this box busy" means.
+#
+# IOWAIT COUNTS AS IDLE. A core blocked on a disk is not a core doing work, and
+# lumping it into "busy" turns a slow volume into a CPU alarm — the one
+# misreading that would make this figure worse than not having it.
+#
+# The macOS door is ps, summed and divided by the core count. It is an
+# APPROXIMATION and the route says so: ps reports each process's average over
+# its own lifetime, not over the last second.
+CPU=
+if [ -r /proc/stat ]; then
+  CS1=$(awk '/^cpu / {idle=$5+$6; tot=0; for (i=2;i<=NF;i++) tot+=$i; printf "%.0f %.0f", idle, tot; exit}' /proc/stat 2>/dev/null)
+  sleep 1
+  CS2=$(awk '/^cpu / {idle=$5+$6; tot=0; for (i=2;i<=NF;i++) tot+=$i; printf "%.0f %.0f", idle, tot; exit}' /proc/stat 2>/dev/null)
+  CPU=$(printf '%s %s' "$CS1" "$CS2" | awk 'NF==4 {di=$3-$1; dt=$4-$2; if (dt>0) {v=(1-di/dt)*100; if (v<0) v=0; if (v>100) v=100; printf "%.1f", v}}')
+fi
+if [ -z "$CPU" ]; then
+  CPU=$(ps -A -o %cpu= 2>/dev/null | awk -v c="$CPUS" '{s+=$1} END {if (c+0>0) {v=s/(c+0); if (v>100) v=100; printf "%.1f", v}}')
+fi
+
+DISKS=$(df -Pk 2>/dev/null | awk 'NR>1 && $2+0>0 && $1 !~ /^(devfs|map|tmpfs|devtmpfs|udev|none|overlay|shm)$/ && $6 !~ /^\/(dev|proc|sys|run)($|\/)/ { m=$6; for(i=7;i<=NF;i++) m=m" "$i; gsub(/\\/,"\\\\",m); gsub(/"/,"\\\"",m); printf "%s{\"mount\":\"%s\",\"size\":%.0f,\"used\":%.0f,\"avail\":%.0f}", (c++?",":""), m, $2*1024, $3*1024, $4*1024 }')
 
 DOCKER=0
 CONTS=
@@ -361,6 +398,7 @@ printf '"kernel":"%s",' "$(j "$KERNEL")"
 printf '"uptime_s":%s,' "$(n "$UP_S")"
 printf '"load1":%s,"load5":%s,"load15":%s,' "$(n "$L1")" "$(n "$L5")" "$(n "$L15")"
 printf '"cpus":%s,' "$(n "$CPUS")"
+printf '"cpu_pct":%s,' "$(n "$CPU")"
 printf '"mem_total":%s,"mem_used":%s,"mem_avail":%s,' "$(n "$MT")" "$(n "$MU")" "$(n "$MA")"
 printf '"swap_total":%s,"swap_used":%s,' "$(n "$ST")" "$(n "$SU")"
 printf '"docker":%s,' "$DOCKER"
@@ -391,6 +429,9 @@ export type Probe = {
   load5: number | null;
   load15: number | null;
   cpus: number | null;
+  /** Percent busy over one sampled second. Null on a box neither door could
+   *  answer for, which is NOT an idle CPU. */
+  cpu_pct: number | null;
   mem_total: number | null;
   mem_used: number | null;
   mem_avail: number | null;
@@ -580,12 +621,16 @@ for (const table of ["fleet_samples", "fleet_disks", "fleet_containers"])
 export function writeSample(accountId: number, ts: string, p: Probe) {
   db.prepare(
     `INSERT INTO fleet_samples
-       (account_id, ts, load1, load5, load15, cpus, mem_total, mem_used,
+       (account_id, ts, load1, load5, load15, cpus, cpu_pct, mem_total, mem_used,
         mem_avail, swap_total, swap_used, uptime_s)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(account_id, ts) DO NOTHING`,
   ).run(
-    accountId, ts, p.load1, p.load5, p.load15, p.cpus, p.mem_total, p.mem_used,
+    accountId, ts, p.load1, p.load5, p.load15, p.cpus,
+    /* A probe that printed no number leaves the column NULL rather than 0 —
+       "not measured" and "idle" are two different mornings. */
+    Number.isFinite(p.cpu_pct as number) ? p.cpu_pct : null,
+    p.mem_total, p.mem_used,
     p.mem_avail, p.swap_total, p.swap_used, p.uptime_s,
   );
 
@@ -670,6 +715,7 @@ export type SampleRow = {
   load5: number | null;
   load15: number | null;
   cpus: number | null;
+  cpu_pct: number | null;
   mem_total: number | null;
   mem_used: number | null;
   mem_avail: number | null;

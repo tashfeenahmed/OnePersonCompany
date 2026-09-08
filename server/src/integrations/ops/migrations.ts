@@ -243,4 +243,24 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE product_docs ADD COLUMN url TEXT;
     `,
   },
+
+  {
+    name: "046_fleet_cpu",
+    sql: `
+      -- HOW BUSY THE CPU ACTUALLY IS, which nothing in 041_fleet could say.
+      --
+      -- The probe recorded load averages and no utilisation, and the two are
+      -- not the same measurement: load counts RUNNABLE TASKS, so a box waiting
+      -- on a slow disk carries a load of 4 with idle cores, and a box pinned at
+      -- 100% on two threads carries a load of 2. "Is this machine busy" is a
+      -- question about utilisation, and the Servers board is asked it first.
+      --
+      -- REAL AND NULLABLE. It is a percentage of one instant sampled over a
+      -- second, so 12.5 is a real reading and rounding it to an integer throws
+      -- away the only resolution a quiet box has. NULL is the state every row
+      -- written before this column existed is in, and it means NOT MEASURED —
+      -- never an idle CPU. Every card below draws those rows as a gap.
+      ALTER TABLE fleet_samples ADD COLUMN cpu_pct REAL;
+    `,
+  },
 ];

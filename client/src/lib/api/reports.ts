@@ -411,6 +411,11 @@ export type FleetBox = {
     ts: string;
     uptimeSeconds: number | null;
     cpus: number | null;
+    /** Percent of one sampled second in which the cores were not idle,
+     *  measured INSIDE the guest. Null means NOT MEASURED — a box whose last
+     *  probe predates 046_fleet_cpu, or one neither /proc/stat nor ps could
+     *  answer for — and is never drawn as an idle CPU. */
+    cpuPercent: number | null;
     load: { one: number | null; five: number | null; fifteen: number | null };
     /** The only load figure comparable between boxes. */
     loadPerCpu: number | null;
@@ -446,15 +451,32 @@ export type FleetBox = {
   samples: {
     ts: string;
     load1: number | null;
+    /** Null on every row written before the column existed. A gap in a line,
+     *  never a zero. */
+    cpuPercent: number | null;
+    cpus: number | null;
     memUsed: number | null;
     memTotal: number | null;
     swapUsed: number | null;
+    swapTotal: number | null;
   }[];
 };
 
 export type FleetReport = {
   window: { hours: number; unit: string };
-  thresholds: { warn: number; critical: number; basis: string };
+  thresholds: {
+    warn: number;
+    critical: number;
+    basis: string;
+    /** The pair per metric, because a disk's limits are not a CPU's. Optional
+     *  because a server that predates them answers with the two above only. */
+    disk?: { warn: number; critical: number };
+    cpu?: { warn: number; critical: number };
+    memory?: { warn: number; critical: number };
+  };
+  /** How often the collector probes, in minutes. A box silent for several of
+   *  these has stopped reporting. Optional for the same reason. */
+  cadenceMinutes?: number;
   boxes: FleetBox[];
   totals: {
     boxes: number;
