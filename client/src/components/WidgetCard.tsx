@@ -113,6 +113,9 @@ export function WidgetCard({
         llm: live.llm,
         competitors: live.competitors,
         finance: live.finance,
+        leakage: live.leakage,
+        disputes: live.disputes,
+        queue: live.queue,
       })
     : null;
   // Presentation metadata is reusable; sample data never enters a live card.

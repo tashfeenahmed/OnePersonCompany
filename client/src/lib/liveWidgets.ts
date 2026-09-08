@@ -50,7 +50,10 @@ import type {
 } from "@/lib/api/reports";
 import type { Meter, RunwayRow, StatusTone, Widget } from "@/data/widgets";
 import type { Expense, FinanceReport } from "@/lib/api/finance";
+import type { LeakageReport } from "@/lib/api/activity";
+import type { DisputeDoc, RecoveryCase, RecoveryQueue } from "@/lib/api/customers";
 import { rateBetween } from "./fx.ts";
+import { drift, failRate, planSplit, splitLeaving, sumMonthly, worthALook } from "./payments.ts";
 /* EVERY FIGURE ON THESE CARDS IS DRAWN BY `@/lib/format`. A private formatter
    here drifts from the panel showing the same number — 1.5M on this card, 1.5m
    on that one, 1,500,000 on a third — and nothing catches it. The adapters
@@ -221,6 +224,17 @@ export type LiveInputs = {
   /** The cost ledger, renewals and electricity model — this box's own rate
    *  card. Optional the way the second-wave reports are. */
   finance?: FinanceReport | null;
+  /*
+    THE PAYMENTS BOARD'S THREE COMPANION DOCUMENTS, three fields for the
+    reason `gsc` and `bing` are two: each carries a figure that looks like
+    one on the Stripe document and must never be added to it. The dispute
+    cases are dated by the bank and the ledger's dispute debit by the
+    posting; the queue's monthly amount is normalised the way MRR is and is
+    still not MRR. Optional, like every field added after the first release.
+  */
+  leakage?: LeakageReport | null;
+  disputes?: DisputeDoc | null;
+  queue?: RecoveryQueue | null;
 };
 
 /**
@@ -6992,5 +7006,394 @@ Object.assign(LIVE_BUILDERS, {
       tone: n > 0 ? ("warn" as StatusTone) : undefined,
       sub: n ? "left out of every total — the bill above is a floor" : "every line in the ledger has a price",
     };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================ payments
+   THE PAYMENTS BOARD — workstream "payments-board", 2026-09-08.
+
+   One builder per `payments.*` widget in the catalog. The arithmetic they
+   share — the fail rate, the fixed 7d-against-30d drift, the alerts and
+   their thresholds, the plan split, the sixty-day cut through the queue —
+   lives in ./payments.ts, where the test runner can hold it to account.
+
+   THREE DOCUMENTS BESIDE THE STRIPE ONE, AND NOTHING IS ADDED ACROSS THEM.
+   The leakage buckets, the dispute cases and the recovery queue are each
+   computed from the Stripe tables on every read, and each carries a figure
+   that LOOKS like one on the Stripe document: the dispute cases are dated by
+   the bank and the ledger's dispute debit by the posting; the queue's monthly
+   amount is normalised the way MRR is and is still not MRR. Every builder
+   below reads one document per figure and says which.
+*/
+
+/** The recovery queue's line for a person: the address when contact access
+ *  is on, the domain when it is off, and the product beside it. */
+function leavingWho(c: RecoveryCase): string {
+  const ctx = (c.context ?? {}) as { product?: string; plan?: string };
+  const who = c.contact.address ?? (c.contact.domain ? `someone at ${c.contact.domain}` : "no address on the subscription");
+  return also(who, ctx.product ?? ctx.plan ?? "");
+}
+
+/** "yearly" or "monthly", from the price's own interval; empty when the
+ *  case carries none. Goes in the value column, where nothing truncates. */
+function leavingInterval(c: RecoveryCase): string {
+  const i = (c.context ?? {}) as { interval?: string };
+  return i.interval === "year" ? "yearly" : i.interval === "month" ? "monthly" : (i.interval ?? "");
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "payments.gross": ({ stripe: S }: LiveInputs) => {
+    const c = firstCurrency(S?.charges);
+    if (!c) return null;
+    const r = firstCurrency(S?.revenue);
+    const attempts = c.succeeded + c.failed;
+    /*
+      GROSS IS THE CHARGE WALK, NET IS THE LEDGER, and they sit in one
+      sentence without being subtracted from each other: gross is dated by
+      the charge and net by the posting, so "gross minus net" would be two
+      populations dated differently and subtracted anyway. The fee rate is
+      Stripe's cut EX-TAX over gross, the only blended rate this box quotes.
+    */
+    return {
+      name: `Gross · ${c.days}d`,
+      tag: "metered",
+      value: inCurrency(c.gross, c.currency, 0),
+      sub: also(
+        also(
+          `${count(c.succeeded)} of ${count(attempts)} attempts settled`,
+          c.refunds ? `${inCurrency(c.refunded, c.currency)} refunded` : "",
+        ),
+        r
+          ? `${inCurrency(r.net, r.currency, 0)} net after ${inCurrency(r.feesTotal, r.currency, 0)} in fees and tax withheld` +
+              (r.feeRatePct === null ? "" : ` · Stripe's cut ${r.feeRatePct.toFixed(1)}% of gross`)
+          : "",
+      ),
+    };
+  },
+
+  "payments.alerts": ({ stripe: S, disputes: D, queue: Q }: LiveInputs) => {
+    const c = firstCurrency(S?.charges);
+    if (!S?.connected || !c) return null;
+    const d = firstCurrency(D?.currencies);
+    const alerts = worthALook({
+      days: c.days,
+      succeeded: c.succeeded,
+      failed: c.failed,
+      blocked: c.blocked,
+      declined: c.declined,
+      pastDue: S.subscriptions.pastDue,
+      disputesNeedingResponse: d?.cases.needsResponseNow ?? 0,
+      disputesAtStake: d?.cases.openNowAmount ?? 0,
+      nextEvidenceDueBy: d?.cases.nextEvidenceDueBy ? dayShort(d.cases.nextEvidenceDueBy.slice(0, 10)) : null,
+      failingInvoices: Q?.counts.byKind.payment_failed ?? 0,
+      fmtMoney: (n) => inCurrency(n, d?.currency ?? c.currency),
+    });
+    const statuses: [string, StatusTone][] = alerts.map((a) => [a.text, a.tone]);
+    /*
+      A DOCUMENT THAT HAS NOT ARRIVED IS SAID, NOT SKIPPED. The alerts above
+      default a missing document to zero because the sentence needs a number,
+      and a zero that came from "not read" would let a dispute with a deadline
+      pass in silence — so the absence is a line of its own.
+    */
+    if (!D) statuses.push(["The dispute cases have not been read, so no dispute could be raised here.", "warn"]);
+    if (!Q) statuses.push(["The recovery queue has not been read, so no failing invoice could be counted here.", "warn"]);
+    if (!statuses.length)
+      statuses.push([`Nothing needs a look · attempts, disputes, past-due subscriptions and the recovery queue are all quiet over ${c.days} days`, "ok"]);
+    return { statuses };
+  },
+
+  "payments.floor": ({ leakage: L, stripe: S }: LiveInputs) => {
+    const leak = firstCurrency(L?.currencies);
+    if (!leak) return null;
+    const cur = leak.currency;
+    const t = leak.totals;
+    const m = firstCurrency(S?.mrr);
+    /*
+      TWO TOTALS, TWO UNITS, TWO ROWS. The window figure is money that moved
+      off the ledger; the per-month figure is a rate — contracted money not
+      arriving for as long as it stays that way — and the document's
+      `combined: null` exists so nobody adds them. The share of MRR is the
+      only arithmetic performed here, and it divides a rate by a rate.
+    */
+    const months = m && m.amount > 0 && m.currency.toLowerCase() === cur.toLowerCase() ? t.perMonth / m.amount : null;
+    const rows: [string, string][] = [
+      [`Left in ${t.windowLabel} · refunds, disputes and their fees, off the ledger`, inCurrency(t.window, cur)],
+      [
+        "Not arriving, per month · past-due MRR + coupons",
+        also(`${inCurrency(t.perMonth, cur)}/mo`, months === null ? "" : `${pct(months)} of MRR`),
+      ],
+    ];
+    /*
+      A DASH IS A COUNT WITH NO PRICE. A declined card and an abandoned
+      checkout are recorded as attempts, never as amounts, so those buckets
+      carry a count and no money — and are in neither total above, which is
+      why both totals are floors. A "+" after a bucket is the bucket's own
+      word for being a lower bound.
+    */
+    for (const b of leak.buckets)
+      rows.push([
+        `${b.label} · ${b.window}`,
+        also(
+          b.amount === null ? DASH : `${inCurrency(b.amount, cur)}${b.floor ? "+" : ""}`,
+          b.count === null ? "" : count(b.count),
+        ),
+      ]);
+    return { tag: "floor", rows };
+  },
+
+  "payments.failRate": ({ stripe: S }: LiveInputs) => {
+    const c = firstCurrency(S?.charges);
+    if (!c) return null;
+    const rate = failRate(c.succeeded, c.failed);
+    const name = `Fail rate · ${c.days}d`;
+    if (rate === null) return { name, tag: "metered", value: DASH, sub: "no payment attempts in this window, so there is no rate" };
+    const d = drift(c.series);
+    /*
+      THE DRIFT IS A FIXED PAIR. Seven days against thirty, whatever the
+      board's window, because the point of the comparison is that it does
+      not move with the control; null when the series is shorter than thirty
+      days. The fail rate itself counts BOTH of Stripe's words for a failure
+      — blocked by its own checks, declined by the bank — which is why it is
+      not the decline rate on the `stripe.declines` card beside it, whose
+      denominator is only the attempts a bank saw.
+    */
+    return {
+      name,
+      tag: "metered",
+      value: pct(rate / 100, { digits: 0 }),
+      tone: rate >= 25 ? ("bad" as StatusTone) : undefined,
+      sub: also(
+        `${count(c.failed)} of ${count(c.succeeded + c.failed)} attempts failed · ${count(c.blocked)} blocked by Stripe's own checks, ${count(c.declined)} declined by the bank`,
+        d
+          ? `7d ${pct(d.short / 100, { digits: 0 })} against 30d ${pct(d.long / 100, { digits: 0 })} — ${d.verdict}, a fixed pair`
+          : "",
+      ),
+    };
+  },
+
+  "payments.daily": ({ stripe: S }: LiveInputs) => {
+    const c = firstCurrency(S?.charges);
+    const r = firstCurrency(S?.revenue);
+    if (!c?.series.length && !r?.series.length) return null;
+    const days = c?.days ?? r?.days ?? 30;
+    /*
+      TWO LINES BECAUSE THEY ARE TWO CLOCKS. Gross is dated by the charge and
+      net by the balance posting, after Stripe's fee, tax withheld, refunds
+      and disputes; whatever crossed midnight sits in different days on the
+      two, so a single "margin" line drawn between them would be arithmetic
+      across two calendars. A yearly plan lands here as one spike and in the
+      MRR card as a twelfth of itself — the chart and the figure answer
+      different questions.
+    */
+    const chart = [
+      c && {
+        label: `Gross charges, ${c.currency.toUpperCase()}`,
+        points: c.series.map((p) => ({ ts: at(p.day), value: p.gross })),
+      },
+      r && {
+        label: `Net settled, ${r.currency.toUpperCase()}`,
+        points: r.series.map((p) => ({ ts: at(p.day), value: p.net })),
+      },
+    ].filter((s): s is { label: string; points: { ts: string; value: number }[] } => !!s);
+    return {
+      name: `Daily revenue · ${days}d`,
+      tag: "metered",
+      chart,
+      unit: "usd" as const,
+      caption:
+        `${days} days · gross is dated by the charge and includes one-off payments; ` +
+        `net is the ledger, dated by the posting, after fees, tax withheld, refunds and disputes`,
+    };
+  },
+
+  "payments.movement": ({ stripe: S }: LiveInputs) => {
+    const c = churnRow(S, 30);
+    const p = S?.subscriptions.pendingCancellation;
+    if (!c || !p) return null;
+    const m = (n: number) => inCurrency(n, c.currency);
+    const rows: [string, string][] = [
+      [`New · ${count(c.newSubs)} sub${c.newSubs === 1 ? "" : "s"}`, `+${m(c.newMrr)}`],
+      [`Churned · ${count(c.churnedSubs)} sub${c.churnedSubs === 1 ? "" : "s"}`, `−${m(c.churnedMrr)}`],
+    ];
+    if (c.involuntary) rows.push(["of which a card failed or was disputed", count(c.involuntary)]);
+    const lost = c.byProduct.slice(0, 2);
+    if (lost.length)
+      rows.push([
+        "Lost from",
+        lost.map((x) => `${x.product} (${m(x.mrr)})`).join(", ") +
+          (c.byProduct.length > lost.length ? ` and ${c.byProduct.length - lost.length} more` : ""),
+      ]);
+    rows.push(["Net", `${c.netMrr >= 0 ? "+" : "−"}${m(Math.abs(c.netMrr))}`]);
+    /*
+      WHAT NEVER STARTED IS NOT CHURN AND IS IN NO FIGURE ABOVE. A trial that
+      ended without a payment and a checkout that expired before one are the
+      two rows here that say "would have billed"; the money never existed, so
+      it is never a loss, and each is its own funnel problem.
+    */
+    const t = c.notChurn.trialNonConversion;
+    const f = c.notChurn.failedActivation;
+    if (t.subscriptions) rows.push([`Trials cancelled · ${count(t.subscriptions)}`, `${m(t.wouldHaveBeen)}/mo never started`]);
+    if (f.subscriptions) rows.push([`Failed checkouts · ${count(f.subscriptions)}`, `${m(f.wouldHaveBeen)}/mo never started`]);
+    /*
+      ASKED TO CANCEL IS STILL BILLING AND STILL IN MRR. An annual plan that
+      switched off auto-renew stays paid for months; only the ones ending
+      inside sixty days are the ones somebody could still write to.
+    */
+    const pending = firstCurrency(p.mrr);
+    const soon = firstCurrency(p.endingSoon.mrr);
+    rows.push(["Asked to cancel, still billing", count(p.count)]);
+    if (p.count) {
+      rows.push([
+        `ending within ${p.endingSoon.days} days · ${count(p.endingSoon.count)}`,
+        soon ? `${m(soon.amount)}/mo` : DASH,
+      ]);
+      rows.push(["Leaving with them, eventually", pending ? `${m(pending.amount)}/mo` : DASH]);
+    }
+    rows.push([
+      `Revenue churn · ${c.days}d`,
+      also(
+        c.ratePct === null ? DASH : pct(c.ratePct / 100),
+        c.subRatePct === null ? "" : `${pct(c.subRatePct / 100)} of subscriptions`,
+      ),
+    ]);
+    return { name: `MRR movement · ${c.days}d`, tag: "approx", rows };
+  },
+
+  "payments.leaving": ({ queue: Q }: LiveInputs) => {
+    if (!Q) return null;
+    const churn = Q.items.filter((c) => c.kind === "churn");
+    if (!churn.length)
+      return { tag: "now", rows: [["Nobody is cancelling", "no churn case in the recovery queue"]] as [string, string][] };
+    const { soon, later, undated } = splitLeaving(churn);
+    const cur = churn[0]?.currency ?? "USD";
+    const total = sumMonthly(churn);
+    const laterTotal = sumMonthly(later);
+    /*
+      SOONEST FIRST, AND ONLY THE ONES A LETTER COULD STILL REACH. Everyone
+      here is still paying and still in MRR until the date beside their name;
+      a renewal declined months out is counted and not listed, because there
+      is no deadline to beat. The card sends nothing — preparing a follow-up
+      happens in the recovery queue, which writes into the Outbox.
+    */
+    const shown = soon.slice(0, 6);
+    const rows: [string, string][] = shown.map((c) => [
+      leavingWho(c),
+      also(also(c.amount === null ? DASH : `${inCurrency(c.amount, c.currency ?? cur)}/mo`, leavingInterval(c)), `ends ${inDays(c.daysLeft)}`),
+    ]);
+    if (soon.length > shown.length) rows.push([`${count(soon.length - shown.length)} more ending within 60 days`, "in the recovery queue"]);
+    if (!soon.length) rows.push(["Nothing ends in the next two months", "every cancellation here is a renewal declined well ahead"]);
+    if (later.length)
+      rows.push([
+        `Declined renewal, months out · ${count(later.length)}`,
+        `${inCurrency(laterTotal.total, cur)}/mo${laterTotal.unpriced ? " at least" : ""} · still paid up`,
+      ]);
+    if (undated.length) rows.push([`Already ended, still in the queue · ${count(undated.length)}`, "until somebody resolves them"]);
+    rows.push([
+      `Leaving with them · ${count(churn.length)} sub${churn.length === 1 ? "" : "s"}`,
+      `${inCurrency(total.total, cur)}/mo${total.unpriced ? ` at least · ${count(total.unpriced)} unpriced` : ""}`,
+    ]);
+    return { tag: "now", rows };
+  },
+
+  "payments.plans": ({ stripe: S }: LiveInputs) => {
+    const m = firstCurrency(S?.mrr);
+    if (!m) return null;
+    const { top, more } = planSplit(S?.plans ?? [], 8);
+    /*
+      A SHARE OF A RUN RATE IS NOT A WINDOW. Each bar is what one plan bills
+      as the book stands, and the share is of the whole MRR rather than of
+      the bars drawn — so the eight bars need not add to 100%, and the
+      caption says how many plans were left off. Subscriptions only: a
+      one-off payment has no plan and is on the gross card, not here.
+    */
+    return {
+      tag: "now",
+      ranked: top.map((p) => ({
+        label: p.name,
+        value: p.mrr,
+        text: `${inCurrency(p.mrr, p.currency)}/mo`,
+        sub: `${count(p.subscribers)} sub${p.subscribers === 1 ? "" : "s"}`,
+      })),
+      caption: also(
+        `shares of the whole MRR, ${inCurrency(m.amount, m.currency)}/mo`,
+        more ? `${count(more)} more plan${more === 1 ? "" : "s"} not drawn` : "subscriptions only",
+      ),
+    };
+  },
+
+  "payments.disputes": ({ disputes: D }: LiveInputs) => {
+    if (!D) return null;
+    const c = firstCurrency(D.currencies);
+    const cur = c?.currency ?? "USD";
+    const days = D.window.days;
+    const openNow = c?.cases.openNow ?? D.open.length;
+    const rows: [string, string][] = [];
+    /*
+      CASES AND THE LEDGER ARE TWO POPULATIONS AND ARE NEVER ADDED. A case is
+      dated by when the bank opened it and excludes Stripe's fee; the ledger
+      is dated by when money moved and includes it. Both are drawn, each
+      under its own label, and the last row says why they disagree.
+    */
+    if (openNow > 0) {
+      rows.push(["Open now", `${count(openNow)} · ${inCurrency(c?.cases.openNowAmount ?? 0, cur)} at stake`]);
+      if (c?.cases.nextEvidenceDueBy) rows.push(["Next evidence due", dayShort(c.cases.nextEvidenceDueBy.slice(0, 10))]);
+    } else rows.push(["Needing a response now", "none"]);
+    rows.push([`Opened · ${days}d`, `${count(c?.cases.opened ?? 0)} · ${inCurrency(c?.cases.openedAmount ?? 0, cur)}`]);
+    if (c)
+      rows.push([
+        `Left the ledger · ${days}d`,
+        `${inCurrency(c.ledger.moneyOut, cur)} · ${inCurrency(c.ledger.disputes, cur)} disputed + ${inCurrency(c.ledger.disputeFees, cur)} in fees`,
+      ]);
+    const o = D.counts.byOutcome;
+    rows.push(["All time", `${count(o.lost)} lost · ${count(o.won)} won · ${count(o.undecided)} undecided`]);
+    rows.push(["Cases and the ledger", "two populations, dated apart, never added"]);
+    return { name: `Disputes · ${days}d`, tag: "metered", rows };
+  },
+
+  "payments.attemptDays": ({ stripe: S }: LiveInputs) => {
+    const c = firstCurrency(S?.charges);
+    if (!c?.series.length) return null;
+    const shown = c.series.slice(-14).reverse();
+    return {
+      name: `Attempts by day · last ${count(shown.length)} of ${c.days}`,
+      tag: "metered",
+      headers: ["Day", "Succeeded", "Blocked", "Declined", "Gross"],
+      table: shown.map((d) => [dayShort(d.day), count(d.succeeded), count(d.blocked), count(d.declined), inCurrency(d.gross, c.currency)]),
+    };
+  },
+
+  "payments.ledgerDays": ({ stripe: S }: LiveInputs) => {
+    const r = firstCurrency(S?.revenue);
+    if (!r?.series.length) return null;
+    const shown = r.series.slice(-14).reverse();
+    return {
+      name: `Settled by day · last ${count(shown.length)} of ${r.days}`,
+      tag: "metered",
+      headers: ["Day", "Gross", "Fees", "Net"],
+      table: shown.map((d) => [dayShort(d.day), inCurrency(d.gross, r.currency), inCurrency(d.fees, r.currency), inCurrency(d.net, r.currency)]),
+    };
+  },
+
+  "payments.cannot": ({ stripe: S, leakage: L }: LiveInputs) => {
+    if (!S?.connected) return null;
+    const leak = firstCurrency(L?.currencies);
+    /*
+      WHAT THE BOARD WILL NOT SAY, beside `stripe.limits` rather than instead
+      of it: that card carries Stripe's own refusals, this one carries what
+      the COLLECTOR does not keep and what this board refuses to add. Each
+      line is a question a reader will ask of the cards above, answered
+      before they go looking for a figure that is not there.
+    */
+    const rows: [string, string][] = [
+      ["A list of individual charges", "the collector stores days, not charges"],
+      ["Decline codes", "blocked and declined are kept, the bank's reason is not"],
+      [
+        "How far back the days go",
+        also(S.history.from ? `to ${dayShort(S.history.from)}` : "the first collection", S.history.complete ? "complete" : "still being filled in"),
+      ],
+    ];
+    if (leak?.noAmount.length) rows.push(["Leakage buckets with a count and no amount", leak.noAmount.join(", ")]);
+    rows.push(["One figure across stores", "Google's and Apple's money never joins Stripe's"]);
+    return { rows };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

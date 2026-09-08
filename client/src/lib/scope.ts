@@ -712,6 +712,11 @@ export function scopeLive(
       /* Passed unnarrowed, like the calendar above and for the same shape of
          reason: the queue belongs to the box rather than to a venture. */
       runs: scoped.runs,
+      /* Unnarrowed too, like `stripe` above them: a Stripe account is the
+         box's, and no row on these three carries a host to narrow by. */
+      leakage: scoped.leakage,
+      disputes: scoped.disputes,
+      queue: scoped.queue,
     });
     if (patch) liveTypes.add(type);
   }

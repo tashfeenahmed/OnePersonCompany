@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { drift, failRate, planSplit, rateOverLast, splitLeaving, sumMonthly, worthALook, type AttemptDay } from "./math.ts";
+import { drift, failRate, planSplit, rateOverLast, splitLeaving, sumMonthly, worthALook, type AttemptDay } from "./payments.ts";
 
 const day = (i: number, succeeded: number, failed: number): AttemptDay => ({
   day: `2026-08-${String(i + 1).padStart(2, "0")}`,
@@ -59,10 +59,12 @@ test("the alerts fire on their own thresholds and read as sentences", () => {
     fmtMoney: (n) => `$${n}`,
   });
   assert.equal(loud.length, 4);
-  assert.match(loud[0]!, /^40% of payment attempts failed — 254 of 640 in the last 30 days\. 119 were blocked/);
-  assert.equal(loud[1], "1 dispute worth $57 needs a response; the first evidence deadline is 12 Sep.");
-  assert.equal(loud[2], "2 subscriptions are past due — billing and failing, and not in MRR.");
-  assert.equal(loud[3], "45 failing invoices sit in the recovery queue waiting for a follow-up.");
+  assert.match(loud[0]!.text, /^40% of payment attempts failed — 254 of 640 in the last 30 days\. 119 were blocked/);
+  assert.equal(loud[1]!.text, "1 dispute worth $57 needs a response; the first evidence deadline is 12 Sep.");
+  assert.equal(loud[2]!.text, "2 subscriptions are past due — billing and failing, and not in MRR.");
+  assert.equal(loud[3]!.text, "45 failing invoices sit in the recovery queue waiting for a follow-up.");
+  // Money at risk is said loudly; a follow-up to write is a warning.
+  assert.deepEqual(loud.map((a) => a.tone), ["bad", "bad", "warn", "warn"]);
 });
 
 test("the plan split keeps the biggest four and counts the rest, ignoring plans that bill nothing", () => {

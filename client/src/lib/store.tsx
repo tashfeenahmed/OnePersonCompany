@@ -241,7 +241,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 14;
+export const SEED_VERSION = 15;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -517,6 +517,62 @@ const SEED: StoreState = {
         { id: "rv20", type: "adsense.access", w: 1 },
         { id: "rv21", type: "adsense.rpm", w: 2 },
         { id: "rv22", type: "mobile.presence", w: 2 },
+      ],
+    },
+    /*
+      PAYMENTS. The Revenue board one level deeper: what came in over the
+      window, what is contracted to keep coming in, and where money is
+      leaking out — the Workdash Payments page as a board of widgets rather
+      than a page, so it can be reshaped like the rest.
+
+      THE HERO ROW IS FOUR LEVELS AND ONE SUM. MRR, ARR and the book are the
+      subscription contract as it stands this minute and wear "now"; the
+      gross tile beside them is the window's charges, and is the only one of
+      the four the window moves. The alerts sit under them at full width
+      because a dispute with a deadline is the one thing on this board that
+      has to be read before the rest.
+
+      NOTHING HERE IS A SECOND DRAWING OF A REVENUE CARD. Where the two
+      boards want the same figure they place the same widget — `stripe.mrr`,
+      `stripe.subs`, `stripe.fees`, `stripe.mix`, `stripe.declines`,
+      `stripe.payouts` — and the `payments.*` widgets are only what Revenue
+      does not draw: the leakage buckets, the fail rate with its fixed
+      drift, gross beside net per day, MRR movement, the cancellations still
+      billing, the disputes.
+
+      THE APP STORES ARE TWO CARDS AT THE END and are on no Stripe figure.
+      Google's and Apple's money settles on its own calendar, one figure a
+      month, and never joins the ledger above it.
+    */
+    {
+      id: "d-payments",
+      slug: "payments",
+      name: "Payments",
+      widgets: [
+        { id: "py1", type: "stripe.mrr", w: 1 },
+        { id: "py2", type: "payments.gross", w: 1 },
+        { id: "py3", type: "stripe.subs", w: 1 },
+        { id: "py4", type: "stripe.arr", w: 1 },
+        { id: "py5", type: "payments.alerts", w: 4 },
+        { id: "py6", type: "payments.floor", w: 2 },
+        { id: "py7", type: "payments.failRate", w: 1 },
+        { id: "py8", type: "stripe.churn", w: 1 },
+        { id: "py9", type: "payments.daily", w: 4 },
+        { id: "py10", type: "stripe.fees", w: 2 },
+        { id: "py11", type: "payments.movement", w: 2 },
+        { id: "py12", type: "payments.leaving", w: 2 },
+        { id: "py13", type: "payments.plans", w: 2 },
+        { id: "py14", type: "stripe.mix", w: 2 },
+        { id: "py15", type: "stripe.declines", w: 2 },
+        { id: "py16", type: "payments.disputes", w: 2 },
+        { id: "py17", type: "stripe.payouts", w: 1 },
+        { id: "py18", type: "stripe.pending", w: 1 },
+        { id: "py19", type: "payments.attemptDays", w: 2 },
+        { id: "py20", type: "payments.ledgerDays", w: 2 },
+        { id: "py21", type: "play.revenue", w: 2 },
+        { id: "py22", type: "appstore.proceeds", w: 2 },
+        { id: "py23", type: "payments.cannot", w: 2 },
+        { id: "py24", type: "stripe.limits", w: 2 },
       ],
     },
     /*
@@ -1187,6 +1243,24 @@ function migrate(state: StoreState): StoreState {
     });
 
   /*
+    A GIFTED BOARD LANDS BESIDE ITS SEED NEIGHBOUR, not at the end of the
+    strip. Payments (SEED_VERSION 15) is seeded right after Revenue because it
+    is that subject one level deeper, and a state that already had Revenue
+    should read the same way — appended after twenty boards it would be the
+    last tab on a strip nobody scrolls to the end of. The rule is general: a
+    new board goes after the nearest seed board BEFORE it that this state
+    still has, and only at the end when it has none of them. The owner's own
+    order is untouched — one board is inserted, nothing moves.
+  */
+  const gifted = added.reduce((list, board) => {
+    const at = SEED.dashboards.findIndex((d) => d.id === board.id);
+    const before = SEED.dashboards.slice(0, at).map((d) => d.id).reverse();
+    const anchor = before.map((id) => list.findIndex((d) => d.id === id)).find((i) => i >= 0);
+    if (anchor === undefined) return [...list, board];
+    return [...list.slice(0, anchor + 1), board, ...list.slice(anchor + 1)];
+  }, dashboards);
+
+  /*
     TOPPING UP A BOARD THE OWNER ALREADY HAS.
 
     The gift above only adds boards whose id is ABSENT, which is right — it is
@@ -1201,7 +1275,7 @@ function migrate(state: StoreState): StoreState {
     that they are free to delete. It is gated by the same seedVersion, so it
     runs once and a card removed on purpose stays removed.
   */
-  const topped = (added.length ? [...dashboards, ...added] : dashboards).map((d) => {
+  const topped = gifted.map((d) => {
     const wanted = TOP_UPS[d.id];
     if (!wanted) return d;
     const have = new Set(d.widgets.map((w) => w.type));
@@ -1533,7 +1607,7 @@ function sameChildren(a?: SessionChild[], b?: SessionChild[]): boolean {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StoreState>(load);
-  const sync = useWorkspaceSync(state, setState);
+  const sync = useWorkspaceSync(state, setState, migrate);
   const [storageError, setStorageError] = useState("");
 
   /* The chats with a turn in flight. Not in `state`, and not persisted — see

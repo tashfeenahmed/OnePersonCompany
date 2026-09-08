@@ -46,6 +46,8 @@ import {
 } from "@/lib/api/reports";
 import { WIDGETS } from "@/data/widgets";
 import { finance as financeApi, type FinanceReport } from "@/lib/api/finance";
+import { activityApi, type LeakageReport } from "@/lib/api/activity";
+import { customersApi, type DisputeDoc, type RecoveryQueue } from "@/lib/api/customers";
 import {
   LIVE_BUILDERS,
 } from "@/lib/liveWidgets";
@@ -189,6 +191,25 @@ export type LiveData = {
   /** The cost ledger, the renewals ahead and the electricity model — this
    *  box's own rate card, fetched unconditionally like the three above it. */
   finance: FinanceReport | null;
+
+  /*
+    THE THREE DOCUMENTS THE PAYMENTS BOARD READS BESIDE `stripe`, EACH ITS OWN
+    FIELD. All three are computed from the Stripe tables on every request —
+    the leakage buckets, the dispute cases and the recovery queue — so they
+    are gated on the Stripe plugin below, not on a plugin of their own. They
+    stay three fields rather than joining `stripe` because they are three
+    fetches with three windows, and because two of them carry a figure that
+    LOOKS like one on the Stripe document and must never be added to it: the
+    dispute cases are dated by the bank, the ledger's dispute debit by the
+    posting, and the leakage document says so on every row.
+  */
+  /** Where money is leaking out, per currency: refunds, disputes, declines,
+   *  past-due subscriptions, coupons, abandoned checkouts. `combined: null`. */
+  leakage: LeakageReport | null;
+  /** The dispute cases beside the ledger's dispute money, kept apart. */
+  disputes: DisputeDoc | null;
+  /** The recovery queue: who is leaving, whose card is failing. */
+  queue: RecoveryQueue | null;
   /** Which widget types are showing real data right now. */
   sourceStates: Record<string, "loading" | "disconnected" | "ready" | "error">;
   sourceErrors: Record<string, string>;
@@ -233,6 +254,9 @@ const LiveContext = createContext<LiveData>({
   llm: null,
   competitors: null,
   finance: null,
+  leakage: null,
+  disputes: null,
+  queue: null,
   sourceStates: {}, sourceErrors: {},
   loading: true,
   error: null,
@@ -285,6 +309,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [llm, setLlm] = useState<LlmReport | null>(null);
   const [competitors, setCompetitors] = useState<CompetitorsReport | null>(null);
   const [finance, setFinance] = useState<FinanceReport | null>(null);
+  const [leakage, setLeakage] = useState<LeakageReport | null>(null);
+  const [disputes, setDisputes] = useState<DisputeDoc | null>(null);
+  const [queue, setQueue] = useState<RecoveryQueue | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
@@ -332,6 +359,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsLlm = false;
     let needsCompetitors = false;
     let needsFinance = false;
+    let needsLeakage = false;
+    let needsDisputes = false;
+    let needsQueue = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -366,6 +396,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.llm) needsLlm = true;
       if (w.live?.competitors) needsCompetitors = true;
       if (w.live?.finance) needsFinance = true;
+      if (w.live?.leakage) needsLeakage = true;
+      if (w.live?.disputes) needsDisputes = true;
+      if (w.live?.queue) needsQueue = true;
     }
     return {
       series: [...series],
@@ -401,6 +434,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsLlm,
       needsCompetitors,
       needsFinance,
+      needsLeakage,
+      needsDisputes,
+      needsQueue,
     };
   }, []);
 
@@ -442,6 +478,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setLlm(null);
       setCompetitors(null);
       setFinance(null);
+      setLeakage(null);
+      setDisputes(null);
+      setQueue(null);
     void (async () => {
       /*
         WHICH PROVIDERS ARE ACTUALLY CONNECTED, asked once for the page.
@@ -544,6 +583,28 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         connected.has("stripe") && wanted.needsStripe,
         () => api.stripe(),
         setStripe, "stripe");
+      /*
+        THE PAYMENTS BOARD'S THREE COMPANION DOCUMENTS, GATED ON STRIPE. Each
+        is computed from the Stripe tables on every read — the leakage buckets
+        in the Activity area, the dispute cases and the recovery queue in
+        Customers — so with no Stripe key there is nothing behind them, and
+        asking would return an empty document that reads as a quiet month.
+        Their windows are the routes' own defaults, the same thirty days the
+        Stripe document is asked for, so a card drawn from one can be read
+        beside a card drawn from another.
+      */
+      tryFetch(
+        connected.has("stripe") && wanted.needsLeakage,
+        () => activityApi.leakage(),
+        setLeakage, "leakage");
+      tryFetch(
+        connected.has("stripe") && wanted.needsDisputes,
+        () => customersApi.disputes(30),
+        setDisputes, "disputes");
+      tryFetch(
+        connected.has("stripe") && wanted.needsQueue,
+        () => customersApi.queue({ limit: 200 }),
+        setQueue, "queue");
       /*
         ADSENSE IS ASKED WHETHER OR NOT IT IS CONNECTED, which is the one
         exception to the rule above and the reason for it: this route's most
@@ -786,6 +847,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         llm,
         competitors,
         finance,
+        leakage,
+        disputes,
+        queue,
       });
       if (patch) liveTypes.add(type);
     }
@@ -824,6 +888,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       llm,
       competitors,
       finance,
+      leakage,
+      disputes,
+      queue,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
     };
@@ -863,6 +930,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     llm,
     competitors,
     finance,
+    leakage,
+    disputes,
+    queue,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;

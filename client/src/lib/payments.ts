@@ -1,10 +1,11 @@
 /**
- * The arithmetic the Payments page performs on what the API sends — kept out
- * of the components so the test runner can hold it to account without a DOM.
+ * THE ARITHMETIC OF THE PAYMENTS BOARD, kept out of the widget builders so
+ * the test runner can hold it to account without a DOM. The builders in
+ * `liveWidgets.ts` call these; nothing else does.
  *
  * NONE OF THIS INVENTS A FIGURE. Every function here divides, sorts or slices
  * numbers the server already stood behind; where a denominator is missing the
- * answer is null and the page draws a dash, never a confident zero.
+ * answer is null and the card draws a dash, never a confident zero.
  */
 
 /** One day of payment attempts, the shape `/api/stripe` sends per day. */
@@ -65,6 +66,13 @@ export function drift(series: readonly AttemptDay[]): Drift | null {
 }
 
 /**
+ * One line of the "Worth a look" card: the sentence, and how loudly to say
+ * it. "bad" is money already at risk — a dispute with a deadline, a fail rate
+ * past the line; "warn" is something to write about this week.
+ */
+export type Alert = { text: string; tone: "warn" | "bad" };
+
+/**
  * Which alerts the "Worth a look" card should carry, as sentences. Each one
  * has its own threshold, and the thresholds are here so a test can name them.
  */
@@ -80,30 +88,38 @@ export function worthALook(input: {
   nextEvidenceDueBy: string | null;
   failingInvoices: number;
   fmtMoney: (n: number) => string;
-}): string[] {
-  const out: string[] = [];
+}): Alert[] {
+  const out: Alert[] = [];
   const attempts = input.succeeded + input.failed;
   const rate = failRate(input.succeeded, input.failed);
   if (rate !== null && rate >= 25 && attempts >= 10) {
-    out.push(
-      `${Math.round(rate)}% of payment attempts failed — ${input.failed} of ${attempts} in the last ${input.days} days. ` +
+    out.push({
+      tone: "bad",
+      text:
+        `${Math.round(rate)}% of payment attempts failed — ${input.failed} of ${attempts} in the last ${input.days} days. ` +
         `${input.blocked} were blocked by Stripe's own checks and ${input.declined} were declined by the customer's bank.`,
-    );
+    });
   }
   if (input.disputesNeedingResponse > 0) {
-    out.push(
-      `${input.disputesNeedingResponse} dispute${input.disputesNeedingResponse === 1 ? "" : "s"} worth ${input.fmtMoney(input.disputesAtStake)} ` +
+    out.push({
+      tone: "bad",
+      text:
+        `${input.disputesNeedingResponse} dispute${input.disputesNeedingResponse === 1 ? "" : "s"} worth ${input.fmtMoney(input.disputesAtStake)} ` +
         `need${input.disputesNeedingResponse === 1 ? "s" : ""} a response` +
         (input.nextEvidenceDueBy ? `; the first evidence deadline is ${input.nextEvidenceDueBy}.` : "."),
-    );
+    });
   }
   if (input.pastDue > 0) {
-    out.push(`${input.pastDue} subscription${input.pastDue === 1 ? " is" : "s are"} past due — billing and failing, and not in MRR.`);
+    out.push({
+      tone: "warn",
+      text: `${input.pastDue} subscription${input.pastDue === 1 ? " is" : "s are"} past due — billing and failing, and not in MRR.`,
+    });
   }
   if (input.failingInvoices > 0) {
-    out.push(
-      `${input.failingInvoices} failing invoice${input.failingInvoices === 1 ? "" : "s"} sit${input.failingInvoices === 1 ? "s" : ""} in the recovery queue waiting for a follow-up.`,
-    );
+    out.push({
+      tone: "warn",
+      text: `${input.failingInvoices} failing invoice${input.failingInvoices === 1 ? "" : "s"} sit${input.failingInvoices === 1 ? "s" : ""} in the recovery queue waiting for a follow-up.`,
+    });
   }
   return out;
 }

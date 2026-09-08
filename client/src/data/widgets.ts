@@ -246,6 +246,20 @@ export type Widget = {
      *  the renewals ahead and the electricity model. The rate card behind the
      *  Finance page, drawn as cards. */
     finance?: boolean;
+    /*
+      THE PAYMENTS BOARD'S THREE COMPANION DOCUMENTS, each computed from the
+      Stripe tables on every read and each its own flag, so a card that only
+      needs the leakage buckets does not ask for the recovery queue. All three
+      are gated on the Stripe plugin in live.tsx — there is no credential
+      behind them but Stripe's.
+    */
+    /** Where money is leaking out: refunds, disputes, declines, past-due
+     *  subscriptions, coupons, abandoned checkouts — two totals, never added. */
+    leakage?: boolean;
+    /** The dispute cases beside the ledger's dispute money, kept apart. */
+    disputes?: boolean;
+    /** The recovery queue: who has asked to cancel, whose card is failing. */
+    queue?: boolean;
   };
   /**
    * A WORD ABOUT WHAT KIND OF NUMBER THIS IS, worn as a small mono pill after
@@ -2815,6 +2829,106 @@ export const WIDGETS: Record<string, Widget> = {
     name: "Unpriced lines",
     kind: "metric",
     live: { finance: true },
+  },
+  /* --------------------------------------------------------------- payments
+    THE PAYMENTS BOARD — workstream "payments-board", 2026-09-08.
+
+    What the Stripe cards above do not draw, for the board that mirrors
+    Workdash's Payments page: the window's gross beside its attempts, the
+    alerts, the leakage buckets, the fail rate with its fixed seven-against-
+    thirty drift, gross beside net per day, MRR movement, the cancellations
+    still billing, MRR by plan, the disputes, the two day tables and the
+    honest list of what the board cannot say.
+
+    FILED UNDER STRIPE, because every one reads `/api/stripe` or one of the
+    three documents computed from the same tables on every request — the
+    leakage buckets, the dispute cases and the recovery queue — and the live
+    dot's clock is when Stripe was last read, whichever of the four answered.
+
+    NOTHING HERE IS A SECOND DRAWING OF A CARD THAT EXISTS. MRR, ARR, the
+    book, revenue churn, the fees, the mix, blocked-against-declined and the
+    payout balance are the `stripe.*` widgets above, and the seeded board
+    places those; a builder below that could have printed one of them prints
+    the thing beside it instead.
+
+    EVERY WINDOWED NAME IS REWRITTEN BY ITS BUILDER from the document's own
+    `days`, so "· 30d" here is the sample's window and not a promise.
+  */
+  "payments.gross": {
+    src: "stripe",
+    name: "Gross · 30d",
+    kind: "metric",
+    live: { stripe: true },
+  },
+  "payments.alerts": {
+    src: "stripe",
+    name: "Worth a look",
+    kind: "statuses",
+    live: { stripe: true, disputes: true, queue: true },
+  },
+  "payments.floor": {
+    src: "stripe",
+    name: "Money on the floor",
+    kind: "rows",
+    live: { leakage: true, stripe: true },
+  },
+  "payments.failRate": {
+    src: "stripe",
+    name: "Fail rate · 30d",
+    kind: "metric",
+    live: { stripe: true },
+    invert: true,
+  },
+  "payments.daily": {
+    src: "stripe",
+    name: "Daily revenue · 30d",
+    kind: "chart",
+    live: { stripe: true },
+    unit: "usd",
+  },
+  "payments.movement": {
+    src: "stripe",
+    name: "MRR movement · 30d",
+    kind: "rows",
+    live: { stripe: true },
+  },
+  "payments.leaving": {
+    src: "stripe",
+    name: "Leaving unless someone writes",
+    kind: "rows",
+    live: { queue: true },
+  },
+  "payments.plans": {
+    src: "stripe",
+    name: "Revenue by plan",
+    kind: "ranked",
+    live: { stripe: true },
+  },
+  "payments.disputes": {
+    src: "stripe",
+    name: "Disputes · 30d",
+    kind: "rows",
+    live: { disputes: true },
+  },
+  "payments.attemptDays": {
+    src: "stripe",
+    name: "Attempts by day · last 14 of 30",
+    kind: "table",
+    live: { stripe: true },
+    headers: ["Day", "Succeeded", "Blocked", "Declined", "Gross"],
+  },
+  "payments.ledgerDays": {
+    src: "stripe",
+    name: "Settled by day · last 14 of 30",
+    kind: "table",
+    live: { stripe: true },
+    headers: ["Day", "Gross", "Fees", "Net"],
+  },
+  "payments.cannot": {
+    src: "stripe",
+    name: "What this board will not say",
+    kind: "rows",
+    live: { stripe: true, leakage: true },
   },
 };
 

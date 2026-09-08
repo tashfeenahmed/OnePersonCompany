@@ -36,7 +36,6 @@ const Alerts = lazy(() => import("@/areas/proactive/Alerts").then(m => ({ defaul
 const Login = lazy(() => import("@/areas/security/Login").then(m => ({ default: m.Login })));
 const Workflows = lazy(() => import("@/areas/chief/Workflows").then(m => ({ default: m.Workflows })));
 const Finance = lazy(() => import("@/areas/finance/Finance").then(m => ({ default: m.Finance })));
-const Payments = lazy(() => import("@/areas/payments/Payments").then(m => ({ default: m.Payments })));
 const ActivityPage = lazy(() => import("@/areas/activity/ActivityPage").then(m => ({ default: m.ActivityPage })));
 const Customers = lazy(() => import("@/areas/customers/Customers").then(m => ({ default: m.Customers })));
 
@@ -288,11 +287,6 @@ export default function App() {
                         that subject one level deeper. */}
                     <Route path="/finance" element={<Finance />} />
                     <Route path="/finance/:tab" element={<Finance />} />
-                    {/* PAYMENTS — the revenue side of the same strip: what
-                        Stripe and the app stores collected, the subscription
-                        book, and the money on the floor. One page, no tabs,
-                        the way Workdash's Payments page is one page. */}
-                    <Route path="/payments" element={<Payments />} />
                     <Route path="/workflows" element={<Workflows />} />
                     <Route path="/workflows/:tab" element={<Workflows />} />
                     <Route path="*" element={<div className="p-8"><h1 className="text-2xl mb-3">Page not found</h1><p>This address does not match a page.</p><Link className="underline" to="/">Go to your workspace</Link></div>} />

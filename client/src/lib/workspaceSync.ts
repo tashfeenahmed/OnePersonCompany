@@ -15,7 +15,24 @@ function metadata(): { revision: number; saved: string | null; hasLocal: boolean
     return { revision: Number.isInteger(m?.revision) ? m.revision : 0, saved: typeof m?.saved === "string" ? m.saved : null, hasLocal: !!localStorage.getItem("opc-state-v5") };
   } catch { return { revision: 0, saved: null, hasLocal: false }; }
 }
-export function useWorkspaceSync(state: StoreState, setState: React.Dispatch<React.SetStateAction<StoreState>>) {
+/*
+  THE SERVER'S DOCUMENT IS MIGRATED ON THE WAY IN, the same way localStorage's
+  is on load. A browser with an empty cache seeds itself, finds the server's
+  copy is the one to keep, and accepts it wholesale — and until this ran the
+  seed through `migrate`, that copy arrived stamped with whatever SEED_VERSION
+  it was last saved under, so a board gifted by a newer build (Payments, at
+  15) never reached a fresh browser and was overwritten in one that had it.
+  Migrating here stamps the document, which makes the local copy differ from
+  the saved one, which is what the next tick PUTs — so the gift reaches the
+  server exactly once, from whichever browser first sees the old stamp.
+  `migrate` is passed in rather than imported: the store imports this hook,
+  and a runtime import back would be a cycle for one function.
+*/
+export function useWorkspaceSync(
+  state: StoreState,
+  setState: React.Dispatch<React.SetStateAction<StoreState>>,
+  migrate: (s: StoreState) => StoreState = (s) => s,
+) {
   const current = useRef(state);
   useLayoutEffect(() => { current.current = state; }, [state]);
   const [initial] = useState(metadata);
@@ -37,8 +54,8 @@ export function useWorkspaceSync(state: StoreState, setState: React.Dispatch<Rea
       if (doc.data) {
         // An older workspace has favorites but no pinnedItems; accepting it must
         // also clear a newer browser's pin list instead of silently merging it.
-        current.current = { ...current.current, pinnedItems: undefined, favoritePaths: undefined, palette: undefined, ...doc.data };
-        setState(s => ({ ...s, pinnedItems: undefined, favoritePaths: undefined, palette: undefined, ...doc.data }));
+        current.current = migrate({ ...current.current, pinnedItems: undefined, favoritePaths: undefined, palette: undefined, ...doc.data });
+        setState(s => migrate({ ...s, pinnedItems: undefined, favoritePaths: undefined, palette: undefined, ...doc.data }));
       }
       remember();
     };
@@ -91,6 +108,6 @@ export function useWorkspaceSync(state: StoreState, setState: React.Dispatch<Rea
     const focus = () => { void sync(); };
     window.addEventListener("focus", focus);
     return () => { alive = false; clearInterval(timer); window.removeEventListener("focus", focus); };
-  }, [initial, setState]);
+  }, [initial, setState, migrate]);
   return { status, ready, hasConflict, retry: () => actions.current?.sync(), resolve: (local: boolean) => actions.current?.resolve(local) };
 }
