@@ -255,7 +255,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 16;
+export const SEED_VERSION = 17;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -558,33 +558,47 @@ const SEED: StoreState = {
       Google's and Apple's money settles on its own calendar, one figure a
       month, and never joins the ledger above it.
     */
+    /*
+      RE-SEEDED IN SEED_VERSION 17 TO FOLLOW WORKDASH'S PAYMENTS PAGE TOP TO
+      BOTTOM: the hero row (MRR with its plan bar, gross with its attempts
+      bar, the book by state), "Worth a look", "Money on the floor", and
+      then the detail — why payments fail, the daily line, the charge list —
+      with the narrow cards after. Workdash's two detail columns are one grid
+      here, so a row is two half-width cards and each pair is matched by
+      HEIGHT rather than by Workdash's column order: the fail-rate card, with
+      its bar, its buckets and its trend, sits beside the plan list, and the
+      movement waterfall beside the cancellations, so no card ends a screen
+      above its neighbour.
+    */
     {
       id: "d-payments",
       slug: "payments",
       name: "Payments",
       widgets: [
-        { id: "py1", type: "stripe.mrr", w: 1 },
+        { id: "py1", type: "payments.mrr", w: 1 },
         { id: "py2", type: "payments.gross", w: 1 },
-        { id: "py3", type: "stripe.subs", w: 1 },
+        { id: "py3", type: "payments.subs", w: 1 },
         { id: "py4", type: "stripe.arr", w: 1 },
         { id: "py5", type: "payments.alerts", w: 4 },
-        { id: "py6", type: "payments.floor", w: 2 },
-        { id: "py7", type: "payments.failRate", w: 1 },
-        { id: "py8", type: "stripe.churn", w: 1 },
+        { id: "py6", type: "payments.floor", w: 4 },
+        { id: "py7", type: "payments.failRate", w: 2 },
+        { id: "py13", type: "payments.plans", w: 2 },
         { id: "py9", type: "payments.daily", w: 4 },
-        { id: "py10", type: "stripe.fees", w: 2 },
+        { id: "py25", type: "payments.recent", w: 4 },
         { id: "py11", type: "payments.movement", w: 2 },
         { id: "py12", type: "payments.leaving", w: 2 },
-        { id: "py13", type: "payments.plans", w: 2 },
+        { id: "py21", type: "play.revenue", w: 2 },
+        { id: "py22", type: "appstore.proceeds", w: 2 },
         { id: "py14", type: "stripe.mix", w: 2 },
-        { id: "py15", type: "stripe.declines", w: 2 },
+        { id: "py26", type: "payments.attempts", w: 2 },
         { id: "py16", type: "payments.disputes", w: 2 },
         { id: "py17", type: "stripe.payouts", w: 1 },
         { id: "py18", type: "stripe.pending", w: 1 },
+        { id: "py8", type: "stripe.churn", w: 1 },
+        { id: "py10", type: "stripe.fees", w: 2 },
+        { id: "py15", type: "stripe.declines", w: 2 },
         { id: "py19", type: "payments.attemptDays", w: 2 },
         { id: "py20", type: "payments.ledgerDays", w: 2 },
-        { id: "py21", type: "play.revenue", w: 2 },
-        { id: "py22", type: "appstore.proceeds", w: 2 },
         { id: "py23", type: "payments.cannot", w: 2 },
         { id: "py24", type: "stripe.limits", w: 2 },
       ],
@@ -1095,6 +1109,9 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A dumbbell has an axis and a label gutter to fit, like a table. */
   if (kind === "dumbbell") return 4;
+  /* A proportion is a metric tile with a bar under the figure: one column,
+     the way the hero row of the Payments board places three of them. */
+  if (kind === "proportion") return 1;
   return 2;
 }
 
@@ -1518,10 +1535,23 @@ const TOP_UPS: Record<string, string[]> = {
     "seoops.moved",
     "gsc.cannot",
   ],
+  /*
+    Payments gained Workdash's graphs in SEED_VERSION 17. The cards that
+    were already on the board (`payments.gross`, `payments.floor`,
+    `payments.failRate`, `payments.movement`) kept their ids and changed
+    KIND in place — a proportion bar under the figure, a waterfall for the
+    movement — so a placed board upgrades on its next render with nothing
+    to append. What is new is the two hero tiles with their own bars, the
+    attempts card and the charge list, and they LEAD (see TOP_UP_LEADS)
+    because the first two are the tiles the page is read from. The
+    `stripe.mrr` and `stripe.subs` tiles they stand beside are left where
+    the owner has them: a top-up never removes.
+  */
+  "d-payments": ["payments.mrr", "payments.subs", "payments.attempts", "payments.recent"],
 };
 
 /** The boards whose top-up leads rather than trails — see `migrate()`. */
-const TOP_UP_LEADS = new Set(["d-costs", "d-seo"]);
+const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-payments"]);
 
 /** The addresses already taken inside one scope — a venture's boards, or the
  *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is

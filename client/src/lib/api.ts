@@ -870,6 +870,22 @@ export type CostsReport = {
  */
 export type StripeMoney = { currency: string; amount: number };
 
+export type StripeCharge = {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  paid: boolean;
+  refunded: boolean;
+  createdAt: string;
+  description: string | null;
+  /** Already masked — "t***@gmail.com" — and never anything fuller. */
+  email: string | null;
+  failure: string | null;
+  failureCode: string | null;
+  outcomeType: string | null;
+};
+
 export type StripeReport = {
   window: { days: number };
   connected: boolean;
@@ -1014,6 +1030,20 @@ export type StripeReport = {
     }[];
     note: string;
   }[];
+  /**
+   * THE CHARGES THEMSELVES, newest first, for the ninety days the collector
+   * keeps them — the rows the day series was folded from. Optional because a
+   * route older than this field sends none, and a card must then say
+   * "nothing collected" rather than draw an empty month. The address is
+   * masked in the table and arrives that way; `failure` is Stripe's own
+   * sentence for a decline.
+   */
+  recent?: StripeCharge[];
+  /** True when the table held more than the document carries. */
+  recentTruncated?: boolean;
+  /** How far back the held rows go, so a list under a wider window is
+   *  labelled as the span it is rather than read as a quiet year. */
+  recentHeld?: { days: number; from: string | null; total: number; note: string };
   products: { name: string; subscribers: number; mrr: number; currency: string }[];
   plans: { name: string; subscribers: number; mrr: number; currency: string }[];
   balance: {

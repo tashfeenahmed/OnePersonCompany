@@ -238,6 +238,46 @@ export type ChargeDay = {
 };
 
 /**
+ * One charge, as the Payments board lists it — the row the day above was
+ * folded from, kept only for the ninety days the walk rewalks.
+ *
+ * `emailMasked` is the ONLY form of the address this row ever holds: the
+ * masking happens here, in the walk, before anything is returned, so no
+ * writer downstream has a full address to leak by accident. `failureCode`
+ * and `failureMessage` are Stripe's own words for a decline — the one place
+ * on this box the bank's reason survives, since the day table keeps counts.
+ */
+export type ChargeRow = {
+  id: string;
+  accountId: number;
+  amount: number;
+  currency: string;
+  status: string;
+  paid: boolean;
+  refunded: boolean;
+  createdAt: string;
+  description: string | null;
+  emailMasked: string | null;
+  failureCode: string | null;
+  failureMessage: string | null;
+  outcomeType: string | null;
+};
+
+/**
+ * "t***@gmail.com": enough to recognise a customer in a list, not enough to
+ * write to. THE STARS ARE A FIXED THREE, so the mask says nothing about how
+ * long the address was; the host stays because it is what makes a row
+ * recognisable at all. Anything that is not an address is null rather than
+ * a guess.
+ */
+export function maskEmail(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const at = email.indexOf("@");
+  if (at < 1 || at === email.length - 1) return null;
+  return `${email[0]}***@${email.slice(at + 1)}`;
+}
+
+/**
  * One UTC day of SETTLEMENT, per currency, straight off the balance ledger.
  *
  * `fees` is Stripe's own cut EX-TAX and is the figure any blended rate must be
@@ -362,6 +402,9 @@ export type AccountOutcome = {
 
 export type CollectResult = {
   chargeDays: ChargeDay[];
+  /** The rolling walk's charges, one row each — never the history chunk's,
+   *  which is read once and would otherwise freeze in the table. */
+  charges: ChargeRow[];
   ledgerDays: LedgerDay[];
   subscriptions: SubscriptionRow[];
   balances: BalanceRow[];
@@ -723,6 +766,7 @@ export async function collect(
   const pairs = keyAccounts(reader);
   const out: CollectResult = {
     chargeDays: [],
+    charges: [],
     ledgerDays: [],
     subscriptions: [],
     balances: [],
@@ -746,6 +790,7 @@ export async function collect(
         truncated,
       );
       out.chargeDays.push(...walked.chargeDays);
+      out.charges.push(...walked.charges);
       out.ledgerDays.push(...walked.ledgerDays);
       out.subscriptions.push(...walked.subscriptions);
       out.balances.push(...walked.balances);
@@ -999,7 +1044,18 @@ async function collectAccount(
   const chargeAcc = new Map<string, DayAcc>();
   const ledgerAcc = new Map<string, LedgerAcc>();
 
-  await walkCharges(key, { "created[gte]": rollingFrom }, chargeAcc, truncated);
+  /*
+    THE ROLLING WALK IS THE ONLY ONE THAT KEEPS INDIVIDUAL CHARGES. It rereads
+    the same ninety days on every run, so a row it wrote is a row it will
+    correct — a refund, a late dispute. The history chunk below is read once
+    and never again, and a charge kept from it would be a charge frozen at
+    whatever it looked like that day; the collector prunes to the same edge.
+  */
+  const charges: ChargeRow[] = [];
+  await walkCharges(key, { "created[gte]": rollingFrom }, chargeAcc, truncated, {
+    accountId: account.id,
+    keep: charges,
+  });
   await walkLedger(key, { "created[gte]": rollingFrom }, ledgerAcc, truncated);
 
   /*
@@ -1085,6 +1141,7 @@ async function collectAccount(
 
   return {
     chargeDays,
+    charges,
     ledgerDays,
     subscriptions,
     balances,
@@ -1105,6 +1162,14 @@ type StripeCharge = {
   paid?: boolean;
   refunded?: boolean;
   outcome?: { type?: string } | null;
+  description?: string | null;
+  /** The address on the card form; `receipt_email` is the one Stripe was
+   *  told to send the receipt to. Either identifies the row and both are
+   *  masked on the way in. */
+  billing_details?: { email?: string | null } | null;
+  receipt_email?: string | null;
+  failure_code?: string | null;
+  failure_message?: string | null;
 };
 
 async function walkCharges(
@@ -1112,12 +1177,31 @@ async function walkCharges(
   range: Params,
   acc: Map<string, DayAcc>,
   truncated: Set<string>,
+  /** Where to keep the rows themselves, when this walk is one whose rows
+   *  will be read again. Absent for the history chunk. */
+  rows?: { accountId: number; keep: ChargeRow[] },
 ) {
   for await (const c of page<StripeCharge>("charges", key, range, truncated)) {
     const currency = c.currency ?? "usd";
     const k = `${utcDay(c.created)}|${currency}`;
     const row = acc.get(k) ?? emptyDay();
     const ok = Boolean(c.paid) && c.status === "succeeded";
+    if (rows)
+      rows.keep.push({
+        id: c.id,
+        accountId: rows.accountId,
+        amount: money(c.amount ?? 0),
+        currency,
+        status: c.status ?? "unknown",
+        paid: Boolean(c.paid),
+        refunded: Boolean(c.refunded) || (c.amount_refunded ?? 0) > 0,
+        createdAt: iso(c.created) ?? new Date(0).toISOString(),
+        description: c.description ?? null,
+        emailMasked: maskEmail(c.billing_details?.email ?? c.receipt_email),
+        failureCode: c.failure_code ?? null,
+        failureMessage: c.failure_message ?? null,
+        outcomeType: c.outcome?.type ?? null,
+      });
     if (ok) {
       row.gross += c.amount ?? 0;
       row.succeeded += 1;

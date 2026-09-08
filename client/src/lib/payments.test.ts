@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { drift, failRate, planSplit, rateOverLast, splitLeaving, sumMonthly, worthALook, type AttemptDay } from "./payments.ts";
+import { attemptBuckets, bucketDays, chargesInWindow, drift, failRate, planSplit, rateOverLast, splitLeaving, sumMonthly, trailingFailRate, worthALook, TRAILING_MIN_DAYS, type AttemptDay } from "./payments.ts";
 
 const day = (i: number, succeeded: number, failed: number): AttemptDay => ({
   day: `2026-08-${String(i + 1).padStart(2, "0")}`,
@@ -90,4 +90,58 @@ test("leaving subscriptions split at sixty days, soonest first, undated last", (
   assert.deepEqual(s.undated.map((c) => c.id), ["gone"]);
   // A case with no amount makes the total a floor, and says so by count.
   assert.deepEqual(sumMonthly(cases), { total: 20, unpriced: 1 });
+});
+
+test("the trailing line needs thirty-seven days, drops days nothing was attempted in, and is one point a day after that", () => {
+  const short = Array.from({ length: TRAILING_MIN_DAYS - 1 }, (_, i) => day(i, 10, 2));
+  assert.equal(trailingFailRate(short), null);
+
+  // Forty days at a flat 20%: the first point lands on day 30 and every
+  // point after it reads 20%.
+  const flat = Array.from({ length: 40 }, (_, i) => day(i, 8, 2));
+  const line = trailingFailRate(flat)!;
+  assert.equal(line.length, 11);
+  assert.equal(line[0]!.day, flat[29]!.day);
+  assert.ok(line.every((p) => p.rate === 20));
+
+  // Thirty quiet days then ten busy ones: the windows that saw nothing are
+  // not 0%, they are absent.
+  const quiet = [
+    ...Array.from({ length: 30 }, (_, i) => day(i, 0, 0)),
+    ...Array.from({ length: 10 }, (_, i) => day(30 + i, 3, 1)),
+  ];
+  const late = trailingFailRate(quiet)!;
+  assert.equal(late.length, 10);
+  assert.equal(late[0]!.rate, 25);
+
+  // The cap keeps an all-time series to a year of points.
+  const long = Array.from({ length: 800 }, (_, i) => day(i, 8, 2));
+  assert.equal(trailingFailRate(long)!.length, 365);
+});
+
+test("attempts are bucketed newest first at a grain that follows the window", () => {
+  assert.equal(bucketDays(7), 1);
+  assert.equal(bucketDays(30), 7);
+  assert.equal(bucketDays(90), 14);
+  assert.equal(bucketDays(1800), 30);
+
+  const month = Array.from({ length: 30 }, (_, i) => day(i, 10, i < 7 ? 5 : 1));
+  const weeks = attemptBuckets(month, 7);
+  assert.equal(weeks.length, 5);
+  // Newest first, and the oldest run is the short one — two days.
+  assert.equal(weeks[0]!.to, month[29]!.day);
+  assert.equal(weeks[4]!.from, month[0]!.day);
+  assert.equal(weeks[4]!.to, month[1]!.day);
+  assert.equal(weeks[4]!.failed, 10);
+  assert.equal(weeks[0]!.succeeded, 70);
+  assert.deepEqual(attemptBuckets([], 7), []);
+});
+
+test("a charge list is cut to the window by its own timestamps and left whole for all time", () => {
+  const now = Date.parse("2026-09-08T12:00:00Z");
+  const at = (daysAgo: number) => ({ createdAt: new Date(now - daysAgo * 86_400_000).toISOString() });
+  const list = [at(1), at(6), at(8), at(40)];
+  assert.equal(chargesInWindow(list, 7, now).length, 2);
+  assert.equal(chargesInWindow(list, 30, now).length, 3);
+  assert.equal(chargesInWindow(list, "all", now).length, 4);
 });

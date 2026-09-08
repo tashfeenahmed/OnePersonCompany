@@ -21,9 +21,11 @@ import type {
   DonutSlice,
   DumbbellRow,
   Meter,
+  ProportionPart,
   RankedRow,
   RunwayRow,
   StatusTone,
+  WaterfallStep,
 } from "@/data/widgets";
 
 /**
@@ -1506,6 +1508,206 @@ export function MeterRow({ meter }: { meter: Meter }) {
   );
 }
 
+/* ------------------------------------------------------------- proportion */
+
+/**
+ * One bar, split into the parts of a whole, with a key under it.
+ *
+ * THE FORM FOR TWO OR THREE PARTS OF SOMETHING WHOSE SIZE IS ALREADY ON THE
+ * CARD — attempts that settled against attempts that failed, the book by
+ * state, MRR by plan. A donut would ask the reader to compare arcs for a
+ * comparison that is really "which side of this line is bigger", and a pie
+ * of two slices is a joke. The whole is the card's own figure, so the bar
+ * carries no total of its own: it says how that figure divides.
+ *
+ * COLOUR IS A JUDGEMENT OR A DISTINCTION, NEVER DECORATION, the rule the
+ * whole file keeps. A part with a `tone` is being judged — failed is bad,
+ * past due is a warning — and takes the status token; a part without one
+ * takes the next series hue, so four plans are four hues and nothing is red
+ * unless something is wrong. The key prints the part's own text, because a
+ * segment eleven pixels wide cannot hold a word, and the smallest part is
+ * the one a reader most needs named.
+ *
+ * NOTHING TO DIVIDE IS AN EMPTY TRACK, NOT A HIDDEN BAR. A window with no
+ * attempts is a fact about the window, and a card that quietly lost its bar
+ * would read as a card that never had one.
+ */
+export function Proportion({ parts, label }: { parts: ProportionPart[]; label?: string }) {
+  const total = parts.reduce((n, p) => n + Math.max(p.value, 0), 0);
+  const colour = (p: ProportionPart, i: number) => (p.tone ? TONE_COLOR[p.tone] : seriesColour(i));
+  const share = (p: ProportionPart) => (total > 0 ? Math.max(p.value, 0) / total : 0);
+  return (
+    <div className="mt-2.5">
+      <div
+        className="flex h-[10px] gap-0.5"
+        role="img"
+        aria-label={`${label ?? "Split"}: ${parts.map((p) => `${p.label} ${pct(share(p), { digits: 0 })}`).join(", ")}`}
+      >
+        {total > 0 ? (
+          parts.map((p, i) => {
+            const s = share(p);
+            if (s <= 0) return null;
+            return (
+              <span
+                key={p.label}
+                className="min-w-[2px] rounded-[2px]"
+                style={{ flex: `${s * 100} 1 0`, background: colour(p, i), opacity: 0.9 }}
+                title={`${p.label} · ${p.text ?? ""} ${pct(s, { digits: 0 })}`.replace("  ", " ")}
+              />
+            );
+          })
+        ) : (
+          <span className="bg-border/60 flex-1 rounded-[2px]" title={label ? `${label}: nothing to divide` : "nothing to divide"} />
+        )}
+      </div>
+      <div className="text-muted-foreground mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] leading-snug">
+        {parts.map((p, i) => (
+          <span key={p.label} className="inline-flex min-w-0 items-center gap-1.5">
+            <i aria-hidden="true" className="size-2 shrink-0 rounded-[2px]" style={{ background: colour(p, i), opacity: 0.9 }} />
+            <span className="truncate">{p.label}</span>
+            <b className="text-foreground shrink-0 font-medium tabular-nums">
+              {p.text ?? (total > 0 ? pct(share(p), { digits: 0 }) : "—")}
+            </b>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- waterfall */
+
+const WF = { t: 24, r: 6, b: 36, l: 6 };
+const WF_H = 176;
+
+/**
+ * A waterfall: what was added, what was taken away, what is left.
+ *
+ * THE FORM EXISTS BECAUSE "+$358 NEW, −$5 CHURNED, +$354 NET" IS A
+ * SUBTRACTION, and three bars from a common baseline would draw it as three
+ * unrelated quantities. Here each step hangs off the end of the one before
+ * it and a connector carries the eye across, so the arithmetic is the
+ * picture; the `total` step at the end is drawn from the baseline, which is
+ * the only bar allowed to be.
+ *
+ * COLOUR IS THE REINFORCEMENT, NEVER THE MESSAGE. Green-add against red-drop
+ * is the one pairing colour-blind readers cannot separate, so every bar
+ * carries its signed figure above it and its own word below it: strip the
+ * colour and the chart still reads. There is no value axis for the reason
+ * the ranked bars have none — the figure is already on the mark.
+ *
+ * CAPPED AT 420 PIXELS WIDE. Three bars across a four-column card are three
+ * very lonely columns; the chart sits at the left of its card and the rows
+ * under it take the full width.
+ */
+export function Waterfall({ steps }: { steps: WaterfallStep[] }) {
+  const [host, measured] = useMeasuredWidth<HTMLDivElement>();
+  const { tip, show, hide } = useTip();
+  const w = Math.min(measured, 420);
+
+  /* Each step starts where the one before it ended; a total starts at zero. */
+  const bars = steps.reduce<(WaterfallStep & { from: number; to: number })[]>((acc, s) => {
+    const running = acc.length ? acc[acc.length - 1]!.to : 0;
+    const from = s.total ? 0 : running;
+    const to = s.total ? s.value : running + s.value;
+    return [...acc, { ...s, from, to }];
+  }, []);
+  const top = Math.max(1, ...bars.flatMap((b) => [b.from, b.to]));
+  const floor = Math.min(0, ...bars.flatMap((b) => [b.from, b.to]));
+  const iw = Math.max(1, w - WF.l - WF.r);
+  const ih = WF_H - WF.t - WF.b;
+  const Y = (v: number) => WF.t + ih - ((v - floor) / (top - floor)) * ih;
+  const slot = iw / Math.max(1, bars.length);
+  const bw = Math.min(40, slot * 0.5);
+  const cx = (i: number) => WF.l + slot * i + slot / 2;
+  const colour = (b: (typeof bars)[number]) =>
+    b.total ? (b.value < 0 ? TONE_COLOR.bad : seriesColour(0)) : b.value < 0 ? TONE_COLOR.bad : TONE_COLOR.ok;
+  const sign = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "");
+
+  return (
+    <div ref={host} className="relative mt-1" style={{ height: WF_H }}>
+      {w > 0 && (
+        <svg
+          width={w}
+          height={WF_H}
+          viewBox={`0 0 ${w} ${WF_H}`}
+          role="img"
+          aria-label={steps.map((s) => `${s.label} ${sign(s.value)}${s.text}`).join(", ")}
+          className="block overflow-visible"
+        >
+          <line
+            x1={WF.l}
+            x2={WF.l + iw}
+            y1={Y(0)}
+            y2={Y(0)}
+            stroke="currentColor"
+            strokeWidth={1}
+            opacity={0.25}
+            shapeRendering="crispEdges"
+          />
+          {bars.map((b, i) => {
+            if (i === bars.length - 1) return null;
+            /* The connector leaves at the height this step ENDS on, which is
+               where the next one picks the total up. */
+            const y = Y(b.to);
+            return (
+              <line
+                key={`c-${b.label}`}
+                x1={cx(i) + bw / 2}
+                x2={cx(i + 1) - bw / 2}
+                y1={y}
+                y2={y}
+                stroke="currentColor"
+                strokeWidth={1}
+                strokeDasharray="2 3"
+                opacity={0.4}
+              />
+            );
+          })}
+          {bars.map((b, i) => {
+            const yTop = Y(Math.max(b.from, b.to));
+            const yBot = Y(Math.min(b.from, b.to));
+            const h = Math.max(2, yBot - yTop);
+            const dim = tip !== null && tip.title !== b.label;
+            return (
+              <g
+                key={b.label}
+                onPointerEnter={() => show({ x: cx(i), y: yTop, title: b.label, rows: `${sign(b.value)}${b.text}${b.sub ? ` · ${b.sub}` : ""}` })}
+                onPointerLeave={hide}
+              >
+                <rect
+                  x={cx(i) - bw / 2}
+                  y={yTop}
+                  width={bw}
+                  height={h}
+                  rx={2}
+                  fill={colour(b)}
+                  opacity={dim ? 0.35 : 0.9}
+                  className="transition-opacity duration-150"
+                />
+                <PlotLabel x={cx(i)} y={yTop - 6} anchor="middle">
+                  {`${sign(b.value)}${b.text}`}
+                </PlotLabel>
+                <text x={cx(i)} y={WF.t + ih + 15} textAnchor="middle" fontSize={11.5} fontWeight={500} fill="var(--foreground)">
+                  {b.label}
+                </text>
+                {b.sub && (
+                  <text x={cx(i)} y={WF.t + ih + 29} textAnchor="middle" fontSize={10.5} fill="var(--muted-foreground)">
+                    {b.sub}
+                  </text>
+                )}
+                {/* The hit target is the whole column, not the bar. */}
+                <rect x={cx(i) - slot / 2} y={WF.t} width={slot} height={ih} fill="transparent" />
+              </g>
+            );
+          })}
+        </svg>
+      )}
+      <ChartTip tip={tip} width={w} />
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ table */
 
 /** The figures behind the pictures. Scrolled sideways rather than wrapped —
@@ -1514,11 +1716,15 @@ export function Figures({
   headers,
   rows,
   marks,
+  tones,
 }: {
   headers: string[];
   rows: string[][];
   /** A model name per row, for the mark before the first cell. */
   marks?: (string | null)[];
+  /** A judgement per row, as a dot before the first cell; null is a row
+   *  that is not judged and gets the muted dot, so the column lines up. */
+  tones?: (StatusTone | null)[];
 }) {
   return (
     <div className="-mx-1 mt-1 overflow-x-auto px-1">
@@ -1553,6 +1759,15 @@ export function Figures({
                   {i === 0 && marks?.[ri] ? (
                     <span className="inline-flex items-center gap-1.5">
                       <ModelMark name={marks[ri]!} size={13} />
+                      {cell}
+                    </span>
+                  ) : i === 0 && tones ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <i
+                        aria-hidden="true"
+                        className="size-1.5 shrink-0 rounded-full"
+                        style={{ background: tones[ri] ? TONE_COLOR[tones[ri]!] : "var(--border)" }}
+                      />
                       {cell}
                     </span>
                   ) : (

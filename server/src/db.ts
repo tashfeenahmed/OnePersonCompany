@@ -2598,6 +2598,49 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
          strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now'));
     `,
   },
+  {
+    name: "022_stripe_charges",
+    sql: `
+      -- INDIVIDUAL CHARGES, AND ONLY THE LAST NINETY DAYS OF THEM.
+      --
+      -- Every other Stripe table here is a DAY: the charge walk was folded
+      -- into stripe_charge_days on the way in, so "who paid $19 on Tuesday
+      -- and whose card was declined an hour later" was a question this box
+      -- could not answer at all. This table keeps the rows the same walk
+      -- already reads, one per charge, so the Payments board can list them.
+      --
+      -- NINETY DAYS BECAUSE THAT IS WHAT THE WALK REWALKS. The rolling window
+      -- rewrites every charge it sees on every run — a refund landing today
+      -- changes a July row — and a charge outside it is never read again, so
+      -- keeping it would freeze a version nothing could correct. The
+      -- collector prunes past that edge after every write; the aggregates
+      -- above keep the whole history and are unaffected.
+      --
+      -- THE ADDRESS IS MASKED BEFORE IT IS WRITTEN, never after. "t***@gmail.com"
+      -- is enough to recognise a customer in a list and not enough to write
+      -- to, and the full address is on the subscription row for the areas
+      -- that have a reason to hold it. failure_code and failure_message are
+      -- Stripe's own words for a decline; the bank's reason is readable one
+      -- charge at a time here and nowhere else on this box.
+      CREATE TABLE stripe_charges (
+        id              TEXT PRIMARY KEY,
+        account_id      INTEGER NOT NULL REFERENCES plugin_accounts(id) ON DELETE CASCADE,
+        amount          REAL NOT NULL,
+        currency        TEXT NOT NULL,
+        status          TEXT NOT NULL,
+        paid            INTEGER NOT NULL,
+        refunded        INTEGER NOT NULL,
+        created_at      TEXT NOT NULL,
+        description     TEXT,
+        email_masked    TEXT,
+        failure_code    TEXT,
+        failure_message TEXT,
+        outcome_type    TEXT,
+        seen_at         TEXT NOT NULL
+      );
+      CREATE INDEX stripe_charges_created ON stripe_charges(created_at);
+    `,
+  },
   /* The integration areas' own migrations — see integrations/manifest.ts. */
   ...INTEGRATION_MIGRATIONS,
 
@@ -4000,6 +4043,101 @@ export function stripeChargeDays(sinceDay: string): StripeChargeDayRecord[] {
   return db
     .prepare("SELECT * FROM stripe_charge_days WHERE day >= ? ORDER BY day ASC")
     .all(sinceDay) as unknown as StripeChargeDayRecord[];
+}
+
+/* ---------------------------------------------------- individual charges */
+
+export type StripeChargeRecord = {
+  id: string;
+  account_id: number;
+  amount: number;
+  currency: string;
+  status: string;
+  paid: number;
+  refunded: number;
+  created_at: string;
+  description: string | null;
+  email_masked: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  outcome_type: string | null;
+  seen_at: string;
+};
+
+/**
+ * The charges one walk saw, replaced by id.
+ *
+ * INSERT OR REPLACE for the reason the day table gives: the ninety-day walk
+ * is authoritative over every charge it covers, and a refund that lands today
+ * flips `refunded` on a row written weeks ago. The address arrives ALREADY
+ * MASKED — see providers/stripe.ts `maskEmail` — and this function has no way
+ * to tell a masked address from a full one, which is why the masking is not
+ * its job.
+ */
+export function writeStripeCharges(
+  rows: {
+    id: string;
+    accountId: number;
+    amount: number;
+    currency: string;
+    status: string;
+    paid: boolean;
+    refunded: boolean;
+    createdAt: string;
+    description: string | null;
+    emailMasked: string | null;
+    failureCode: string | null;
+    failureMessage: string | null;
+    outcomeType: string | null;
+  }[],
+) {
+  if (!rows.length) return 0;
+  const seen = now();
+  const stmt = db.prepare(
+    `INSERT OR REPLACE INTO stripe_charges
+       (id, account_id, amount, currency, status, paid, refunded, created_at,
+        description, email_masked, failure_code, failure_message, outcome_type, seen_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  db.exec("BEGIN");
+  try {
+    for (const r of rows)
+      stmt.run(
+        r.id, r.accountId, r.amount, r.currency, r.status, r.paid ? 1 : 0, r.refunded ? 1 : 0,
+        r.createdAt, r.description, r.emailMasked, r.failureCode, r.failureMessage,
+        r.outcomeType, seen,
+      );
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return rows.length;
+}
+
+/** Charges older than the walk's edge are gone for good — nothing will read
+ *  them again, so a row kept past it is a row nothing could ever correct. */
+export function pruneStripeCharges(beforeIso: string): number {
+  return Number(
+    db.prepare("DELETE FROM stripe_charges WHERE created_at < ?").run(beforeIso).changes,
+  );
+}
+
+/** The newest `limit` charges, how many the table holds, and the day the
+ *  oldest held one was made — so a route can say "this is ninety days, not
+ *  the year you asked for" rather than let a short list read as a quiet one. */
+export function stripeRecentCharges(limit: number): {
+  rows: StripeChargeRecord[];
+  total: number;
+  oldest: string | null;
+} {
+  const rows = db
+    .prepare("SELECT * FROM stripe_charges ORDER BY created_at DESC, id DESC LIMIT ?")
+    .all(limit) as unknown as StripeChargeRecord[];
+  const agg = db
+    .prepare("SELECT COUNT(*) AS total, MIN(created_at) AS oldest FROM stripe_charges")
+    .get() as unknown as { total: number; oldest: string | null };
+  return { rows, total: agg.total, oldest: agg.oldest };
 }
 
 /** Same replacement rule as the charge days above, for the same reason. */
