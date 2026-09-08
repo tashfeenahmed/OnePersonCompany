@@ -170,8 +170,12 @@ export type AdsCheck = {
   /** Null is "not evaluated" and is out of the denominator — never a pass. */
   result: "pass" | "warn" | "fail" | null;
   title: string;
+  what: string;
   detail: string;
   fix: string;
+  /** The rubric's own estimate of how long the fix takes. Not a measurement,
+   *  and it is what decides whether a finding is a quick win. */
+  minutes: number;
 };
 
 export type AdsHealth = {
@@ -200,7 +204,11 @@ export type AdsHealth = {
   killTable: { minDays: number; minClicks: number; minImpressionsToKill: number };
   target: { costPerLead: number | null; basis: string };
   checks: AdsCheck[];
-  failing: { id: string; category: string; severity: string; result: string; title: string; what: string; fix: string; detail: string }[];
+  failing: AdsCheck[];
+  /** A `high`-or-worse failure whose fix is under `quickWin.minutes`.
+   *  Computed out of `failing` on every read, never a curated list. */
+  quickWins: AdsCheck[];
+  quickWin: { minutes: number; severity: string; means: string };
   campaigns: {
     id: string;
     name: string | null;

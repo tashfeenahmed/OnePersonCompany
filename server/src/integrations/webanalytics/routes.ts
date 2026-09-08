@@ -9,7 +9,7 @@
  *   GET  /campaigns/:ventureKey          one venture's joined performance
  *   POST /campaigns/link                 file a campaign to a venture
  *   POST /campaigns/unlink               un-file one
- *   GET  /creatives                      ad-level rows, fatigue and status
+ *   GET  /creatives                      ad-level rows, their creatives, fatigue and status
  *
  * THE RULES EVERY ONE OF THEM KEEPS, and each is a way to produce a confident
  * number that is wrong:
@@ -50,9 +50,11 @@ import {
 } from "./attribution.ts";
 import {
   adCreatives,
+  adDaysSince,
   adSets,
   adWindows,
   campaignVentures,
+  type AdDayRow,
   clockAt,
   eventPropsOf,
   eventsOf,
@@ -350,20 +352,102 @@ webAnalyticsRoutes.post("/campaigns/unlink", async (c) => {
 
 /* -------------------------------------------------------------- creatives */
 
+/**
+ * ONE ADVERTISEMENT'S WINDOW, SUMMED FROM ITS OWN DAILY ROWS.
+ *
+ * WHAT MAY BE ADDED AND WHAT MAY NOT, and the split is the whole function.
+ * Spend, impressions and clicks are quantities a day merely bounds, so thirty
+ * of them add to a month's. Click-through and cost per thousand are then
+ * DERIVED from those sums rather than averaged out of the daily rates, because
+ * a mean of thirty percentages weights a day with nine impressions the same as
+ * a day with nine thousand. REACH AND FREQUENCY ARE ABSENT AND WILL STAY
+ * ABSENT: Meta de-duplicates both over each row's own window, so no arithmetic
+ * over daily rows recovers a window figure — `ad_windows` holds Meta's own
+ * answer for the two matched weeks and is the only place either may be read.
+ *
+ * `days` IS THE DAYS THAT CARRIED A ROW, never the days in the window. Meta
+ * writes no row for a day an advertisement did not deliver, and counting the
+ * silent ones would turn "it ran for four days" into "it ran for thirty and
+ * mostly earned nothing".
+ */
+function adWindowTotals(rows: AdDayRow[]) {
+  const sum = (pick: (r: AdDayRow) => number | null) => {
+    const seen = rows.map(pick).filter((v): v is number => v !== null);
+    return seen.length ? seen.reduce((a, b) => a + b, 0) : null;
+  };
+  const spend = sum((r) => r.spend);
+  const impressions = sum((r) => r.impressions);
+  const clicks = sum((r) => r.clicks);
+  /* The lead action, under the same first-found-wins list the account-level
+     read uses — Meta reports one lead under several names and adding the
+     spellings would treble it. Null is "no row carried an actions map at all",
+     which is not a day that produced no lead. */
+  let leads: number | null = null;
+  for (const r of rows) {
+    if (!r.actions) continue;
+    let map: Record<string, unknown>;
+    try {
+      map = JSON.parse(r.actions) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const name = meta.LEAD_ACTIONS.find((n) => typeof map[n] === "number");
+    leads = (leads ?? 0) + (name ? (map[name] as number) : 0);
+  }
+  return {
+    days: rows.length,
+    firstDay: rows.map((r) => r.day).sort()[0] ?? null,
+    lastDay: rows.map((r) => r.day).sort().at(-1) ?? null,
+    spend,
+    impressions,
+    clicks,
+    leads,
+    /* Derived from the sums above, never averaged from the daily rates. CTR is
+       a PERCENTAGE, the unit Meta reports it in on every other row of this
+       API — a ratio here would be the same figure a hundred times smaller
+       sitting in a column beside Meta's own. */
+    ctr: impressions ? Math.round((100 * 10_000 * (clicks ?? 0)) / impressions) / 10_000 : null,
+    cpm: impressions ? Math.round((1000 * (spend ?? 0) * 100) / impressions) / 100 : null,
+    cpc: clicks ? Math.round(((spend ?? 0) / clicks) * 10_000) / 10_000 : null,
+    costPerLead: leads ? Math.round(((spend ?? 0) / leads) * 100) / 100 : null,
+  };
+}
+
 webAnalyticsRoutes.get("/creatives", (c) => {
   const adAccountId = c.req.query("account");
+  /* The same clamp `/campaigns/:ventureKey` keeps, and for its reason: the
+     ad-level daily table is retained on the day-grained schedule and a request
+     for a year would be answered with whatever survived, captioned as a year. */
+  const days = clamp(Number(c.req.query("days") ?? 30) || 30, 1, 90);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
   const ads = adCreatives(adAccountId ?? undefined);
   const sets = adSets(adAccountId ?? undefined);
   const rows = fatigueRows(ads, adWindows(), sets, meta.AD_COMPARE_DAYS);
   const statuses = statusRows(ads);
   const mapped = new Map(campaignVentures().map((l) => [l.campaign_id, l.venture_id]));
   const names = new Map(ventureRows().map((v) => [v.id, v.name]));
+  /* The daily rows once, grouped by advertisement, rather than a query per ad
+     — twenty-one advertisements is twenty-one round trips for a table this
+     size, and the read is on the request path. */
+  const byAd = new Map<string, AdDayRow[]>();
+  for (const r of adDaysSince(since)) {
+    if (adAccountId && r.ad_account_id !== adAccountId) continue;
+    byAd.set(r.ad_id, [...(byAd.get(r.ad_id) ?? []), r]);
+  }
+  /* THE CREATIVE ITSELF, KEYED BY AD. `ad_creatives` carries the headline, the
+     body, the button and the destination, and until now the route published
+     none of them — an ad-level view with no words and no picture is a list of
+     ids, which is the reason the columns were collected. */
+  const creative = new Map(ads.map((a) => [a.ad_id, a]));
 
   const counts = { fatigued: 0, tiring: 0, steady: 0, "no-verdict": 0 } as Record<string, number>;
   for (const r of rows) counts[r.verdict] = (counts[r.verdict] ?? 0) + 1;
 
   return c.json({
     compareDays: meta.AD_COMPARE_DAYS,
+    /** The span the per-advertisement `window` totals below were summed over.
+     *  The fatigue verdict beside them is `compareDays` and does not move. */
+    windowDays: days,
     minImpressions: MIN_IMPRESSIONS,
     counts,
     adSets: sets.map((s) => ({
@@ -383,13 +467,58 @@ webAnalyticsRoutes.get("/creatives", (c) => {
       endTime: s.end_time,
       ads: ads.filter((a) => a.adset_id === s.adset_id).length,
     })),
-    ads: rows.map((r) => ({
-      ...r,
-      venture:
-        r.campaignId && mapped.has(r.campaignId)
-          ? { id: mapped.get(r.campaignId)!, name: names.get(mapped.get(r.campaignId)!) ?? null }
-          : null,
-    })),
+    ads: rows.map((r) => {
+      const ad = creative.get(r.adId);
+      return {
+        ...r,
+        /* THE WORDS AND THE PICTURE PEOPLE ACTUALLY SAW. `imageUrl` above is
+           already the full image with the 64px thumbnail behind it; `thumbUrl`
+           is published beside it so a renderer can fall back when the signed
+           full-size url expires first, which is the failure this account
+           actually has. Both are SIGNED and expire within days. */
+        thumbUrl: ad?.thumbnail_url ?? null,
+        title: ad?.title ?? null,
+        body: ad?.body ?? null,
+        /** The button as a person read it, not the enum — "APPLY_NOW". */
+        callToAction: ad?.call_to_action ?? null,
+        /** Where the advertisement sent people. Not a link to the ad itself:
+         *  Meta publishes no permalink for an advertisement, and the only
+         *  address that reaches one is an Ads Manager deep link built from the
+         *  account and the ad id, which a reader can be handed but which is
+         *  not a measurement and is not stored here. */
+        link: ad?.link_url ?? null,
+        creativeName: ad?.creative_name ?? null,
+        configuredStatus: ad?.configured_status ?? null,
+        createdTime: ad?.created_time ?? null,
+        /** Summed from this advertisement's own daily rows — see
+         *  `adWindowTotals`. Null figures are "no row reported it". */
+        window: adWindowTotals(byAd.get(r.adId) ?? []),
+        /**
+         * THE DAYS THEMSELVES, AND ONLY THE DAYS THAT EXIST.
+         *
+         * Published so a per-advertisement or per-campaign SHAPE can be drawn
+         * without a second request per row, and published as rows rather than
+         * as a padded series for `meta_ad_days`' reason: Meta writes no row for
+         * a day an advertisement did not deliver, and an invented zero turns
+         * "it stopped on the 16th" into a measured collapse. Reach and
+         * frequency are on the row and are deliberately not here — they are
+         * per-day figures that no reader may add or average into a span.
+         */
+        daily: (byAd.get(r.adId) ?? [])
+          .slice()
+          .sort((a, b) => a.day.localeCompare(b.day))
+          .map((d) => ({
+            day: d.day,
+            spend: d.spend,
+            impressions: d.impressions,
+            clicks: d.clicks,
+          })),
+        venture:
+          r.campaignId && mapped.has(r.campaignId)
+            ? { id: mapped.get(r.campaignId)!, name: names.get(mapped.get(r.campaignId)!) ?? null }
+            : null,
+      };
+    }),
     statuses: statuses.filter((s) => s.issues.length || s.mismatched),
     rules: [
       "FATIGUE IS ONE SHAPE: frequency rising while click-through falls, over two matched weeks Meta answered separately. A rising frequency alone is a small audience and a falling click-through alone is an auction.",
@@ -401,6 +530,10 @@ webAnalyticsRoutes.get("/creatives", (c) => {
       "`mismatched` means configured ACTIVE and effectively not delivering: it reads as live in the interface it was set up in.",
       "Budgets are in MINOR UNITS of the account's own currency, as Meta sends them. Nothing is added across accounts.",
       "Image URLs are SIGNED AND EXPIRE within days. Do not cache one and expect a 403 eventually.",
+      "`window` IS SUMMED FROM THIS ADVERTISEMENT'S OWN DAILY ROWS and carries no reach and no frequency, because neither can be recovered from daily rows at any grain. Click-through, cost per thousand and cost per click on it are derived from the sums, never averaged from the daily rates.",
+      "`window.days` is the days that carried a row, not the days in the window. Meta writes no row for a day an advertisement did not deliver.",
+      "The ad-level daily read is capped at a row limit and does not page, so every `window` figure is a FLOOR. `/api/meta` publishes the shortfall against the account-level read.",
+      "There is no permalink to an advertisement. `link` is where the advertisement SENT people, which is a different thing and is labelled as one.",
     ],
   });
 });

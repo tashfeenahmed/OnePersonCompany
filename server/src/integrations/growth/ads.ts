@@ -49,7 +49,10 @@ import {
   CTR_DROP_WARN,
   FREQ_HIGH,
   MIN_IMPRESSIONS,
+  statusRows,
+  type StatusRow,
 } from "../webanalytics/fatigue.ts";
+import { adCreatives } from "../webanalytics/store.ts";
 
 /* -------------------------------------------------------------- constants */
 
@@ -102,15 +105,32 @@ const BUDGET_ADEQUACY_MULTIPLE = 5;
  *  table's impressions, is not being clicked. */
 const DEAD_CTR_SHARE = 0.5;
 
+/**
+ * A QUICK WIN IS A REAL PROBLEM WITH A SMALL FIX, and both halves are
+ * measured rather than hand-marked: severity at least `high`, and a
+ * remediation this rubric estimates at under a quarter of an hour.
+ *
+ * COMPUTED, NOT CURATED. A check whose fix gets cheaper — because the thing it
+ * asks for moved into this app, say — becomes a quick win the next time the
+ * account is scored, and nobody has to remember to move it onto a list. The
+ * minutes are the rubric's own estimate of the fix in `CHECKS`, not a
+ * measurement of anything, and they are published beside every finding so a
+ * reader can disagree with the estimate rather than with the ordering.
+ */
+const QUICK_WIN_MINUTES = 15;
+
 /* ------------------------------------------------------------- the checks */
 
 type Sev = "critical" | "high" | "medium" | "low";
-type CheckDef = { cat: string; sev: Sev; title: string; what: string; fix: string };
+/** `mins` is this rubric's own estimate of how long the fix takes, in
+ *  minutes. It orders the quick wins and is never a measurement. */
+type CheckDef = { cat: string; sev: Sev; title: string; what: string; fix: string; mins: number };
 
 const CHECKS: Record<string, CheckDef> = {
   "ctr-trend": {
     cat: "creative",
     sev: "critical",
+    mins: 30,
     title: "Click-through is falling week on week",
     what: `Click-through over the last 7 days against the 7 before it. A fall past ${CTR_DROP_FAIL * 100}% is creative wearing out.`,
     fix: "Replace the image and the headline. Keep the offer; it is the creative that is spent, not the audience.",
@@ -118,6 +138,7 @@ const CHECKS: Record<string, CheckDef> = {
   "cpm-trend": {
     cat: "creative",
     sev: "medium",
+    mins: 20,
     title: "It costs more to be seen than it did last week",
     what: `Cost per thousand impressions over the last 7 days against the 7 before it. A rise past ${CPM_RISE_FAIL * 100}% is the auction moving against this account.`,
     fix: "Check what changed in targeting or budget. A rising CPM with a flat CTR is competition; a rising CPM with a falling CTR is the creative.",
@@ -125,6 +146,7 @@ const CHECKS: Record<string, CheckDef> = {
   "campaign-not-clicked": {
     cat: "creative",
     sev: "high",
+    mins: 5,
     title: "A campaign is not being clicked",
     what: `Click-through under ${DEAD_CTR_SHARE * 100}% of this account's own median campaign CTR, over at least ${MIN_IMPRESSIONS} impressions.`,
     fix: "Turn it off. That many impressions is enough to know, and the budget is being spent proving it again.",
@@ -132,6 +154,7 @@ const CHECKS: Record<string, CheckDef> = {
   "lead-action-reported": {
     cat: "tracking",
     sev: "critical",
+    mins: 45,
     title: "No lead is being reported",
     what: "Not one delivering campaign in the window reported a lead action, so nothing in this account can be judged on outcome.",
     fix: "Check the instant form or the pixel's lead event. Until this reports, every other figure here is a cost with no result beside it.",
@@ -139,6 +162,7 @@ const CHECKS: Record<string, CheckDef> = {
   "cpl-reported": {
     cat: "tracking",
     sev: "high",
+    mins: 15,
     title: "Meta is not costing the leads",
     what: "The cost-per-action field came back empty, so any cost per lead is this app's own division rather than the platform's figure.",
     fix: "Nothing to fix if the lead count is right — but check the two agree in Ads Manager before acting on a cost per lead from here.",
@@ -146,6 +170,7 @@ const CHECKS: Record<string, CheckDef> = {
   "zero-lead-spend": {
     cat: "tracking",
     sev: "critical",
+    mins: 2,
     title: "Spending with nothing to show",
     what: `A campaign has spent more than ${ZERO_LEAD_MULTIPLE}× this account's own cost per lead and produced none.`,
     fix: "Pause it. Three times the target with no result is past the point where the next lead makes it worth it.",
@@ -153,6 +178,7 @@ const CHECKS: Record<string, CheckDef> = {
   "budget-adequacy": {
     cat: "structure",
     sev: "high",
+    mins: 5,
     title: "A campaign is too small to learn",
     what: `Daily spend under ${BUDGET_ADEQUACY_MULTIPLE}× this account's own cost per lead, which is below what delivery needs to leave the learning phase.`,
     fix: "Consolidate campaigns or raise this one. Several starved campaigns buy fewer leads than one fed one.",
@@ -160,6 +186,7 @@ const CHECKS: Record<string, CheckDef> = {
   "objective-matches-leads": {
     cat: "structure",
     sev: "medium",
+    mins: 20,
     title: "A campaign is not optimising for leads",
     what: "This account reports lead actions, and a campaign's objective asks Meta for something else — link clicks or messages.",
     fix: "Rebuild it under a leads objective, or accept that its cost per lead is an accident rather than a target.",
@@ -167,6 +194,7 @@ const CHECKS: Record<string, CheckDef> = {
   "something-delivering": {
     cat: "structure",
     sev: "medium",
+    mins: 2,
     title: "Nothing is running",
     what: "Every campaign in the window is paused or inactive.",
     fix: "Nothing to fix if this is deliberate. If it is not, the account is spending nothing and learning nothing.",
@@ -174,6 +202,7 @@ const CHECKS: Record<string, CheckDef> = {
   "account-frequency": {
     cat: "audience",
     sev: "high",
+    mins: 10,
     title: "The same people are seeing this too often",
     what: `The account's frequency over the window. Past ${FREQ_HIGH} the spend is going to people who have already decided.`,
     fix: "Broaden the targeting or cap the frequency. At this level the extra budget is buying repeats, not reach.",
@@ -181,6 +210,7 @@ const CHECKS: Record<string, CheckDef> = {
   "campaign-overlap-signal": {
     cat: "audience",
     sev: "medium",
+    mins: 20,
     title: "Two campaigns may be bidding against each other",
     what: `More than one delivering campaign above a frequency of ${FREQ_OVERLAP} — the shape overlap makes, though nothing here can prove it.`,
     fix: "Check the audience definitions for overlap in Audience Manager, or merge them.",
@@ -188,6 +218,7 @@ const CHECKS: Record<string, CheckDef> = {
   "audience-spec-visible": {
     cat: "audience",
     sev: "low",
+    mins: 0,
     title: "Targeting cannot be read from here",
     what: "Nothing this box collects carries an audience specification, so overlap, exclusions and lookalike ratios cannot be measured at all.",
     fix: "Nothing to do. This check exists so the audience subscore says what it is missing rather than scoring around it.",
@@ -195,16 +226,18 @@ const CHECKS: Record<string, CheckDef> = {
   "adset-learning-state": {
     cat: "structure",
     sev: "medium",
+    mins: 5,
     title: "Learning-limited ad sets cannot be seen",
-    what: "The Meta collector stores accounts, campaigns and daily totals. There is no AD SET row anywhere, and 'learning limited' is an ad-set state, so it cannot be detected from here.",
+    what: "Ad sets ARE collected now — id, name, optimisation goal, bid strategy and budget — but 'learning limited' is a delivery-insights field this token has never been asked for, so the state itself still cannot be read.",
     fix: "Read it in Ads Manager. This check is null on purpose so the structure subscore is not a claim about something nobody looked at.",
   },
   "ads-review-status": {
     cat: "creative",
     sev: "medium",
-    title: "Disapproved ads cannot be seen",
-    what: "There is no AD row in what the collector stores, so an ad rejected in review is invisible to this box.",
-    fix: "Read it in Ads Manager. Null here rather than a pass by silence.",
+    mins: 10,
+    title: "An advertisement is not running as it was set up",
+    what: "Meta's own issues_info on each advertisement, and the gap between what somebody configured ACTIVE and what is effectively delivering. An ad that reads as live in Ads Manager and delivers nothing is spending nothing and teaching nothing.",
+    fix: "Open the advertisement. A disapproval carries Meta's own sentence; a mismatch is almost always a paused parent above an ad nobody paused.",
   },
 };
 
@@ -307,7 +340,7 @@ function medianOf(values: number[]): number | null {
 
 /* --------------------------------------------------------------- the checks */
 
-function evaluate(account: AccountRow, campaigns: CampaignRow[], days: DayRow[]) {
+function evaluate(account: AccountRow, campaigns: CampaignRow[], days: DayRow[], ads: StatusRow[]) {
   const rows: CheckRow[] = [];
   const add = (id: string, result: Result, detail: string, scope = "account") =>
     rows.push({ id, cat: CHECKS[id]!.cat, sev: CHECKS[id]!.sev, result, detail, scope });
@@ -375,7 +408,43 @@ function evaluate(account: AccountRow, campaigns: CampaignRow[], days: DayRow[])
     );
   }
 
-  add("ads-review-status", null, CHECKS["ads-review-status"]!.what);
+  /*
+    THE ADVERTISEMENTS THEMSELVES, WHICH THIS CHECK USED TO REFUSE TO LOOK AT.
+
+    It was hard-wired to null with "there is no AD row in what the collector
+    stores", and that sentence stopped being true when the ad-level read
+    landed: `ad_creatives` carries every advertisement's effective status, its
+    configured status and Meta's own issues_info. So the check now answers off
+    those rows, and the creative subscore stops being refused for want of
+    coverage on an account whose creatives ARE readable.
+
+    TWO DIFFERENT FAULTS, ONE CHECK, AND THE SEVERE ONE WINS. A disapproval is
+    Meta refusing to run something; a mismatch is somebody's ACTIVE ad sitting
+    under a paused parent. Both mean an advertisement that reads as live and is
+    not, which is the one thing worth a row here. The detail names them apart
+    and quotes Meta's count rather than Meta's words — the words are on
+    /api/webanalytics/creatives, unedited.
+  */
+  const disapproved = ads.filter((a) => a.issues.length);
+  const mismatched = ads.filter((a) => a.mismatched);
+  add(
+    "ads-review-status",
+    ads.length === 0
+      ? null
+      : disapproved.length
+        ? "fail"
+        : mismatched.length
+          ? "warn"
+          : "pass",
+    ads.length === 0
+      ? "No advertisement has been collected for this account yet, so there is nothing to read a review status off."
+      : disapproved.length
+        ? `${disapproved.length} of ${ads.length} advertisements carry an issue Meta reported: ${disapproved.map((a) => a.name ?? a.adId).join("; ")}. Meta's own wording is on /api/webanalytics/creatives and is never paraphrased here.`
+        : mismatched.length
+          ? `Nothing is disapproved. ${mismatched.length} of ${ads.length} advertisements are configured ACTIVE and effectively are not: ${mismatched.map((a) => `${a.name ?? a.adId} (${a.status ?? "no effective status"})`).slice(0, 6).join("; ")}${mismatched.length > 6 ? `, and ${mismatched.length - 6} more` : ""}. That is almost always a paused parent, and it reads as live where it was set up.`
+          : `All ${ads.length} advertisements carry no issue Meta chose to report, and every one configured ACTIVE is effectively active. An advertisement with no issue is not the same as one in good standing — Meta reports what it chooses to.`,
+    "ad",
+  );
 
   /* ---- tracking ---- */
   const leads = account.leads ?? 0;
@@ -554,21 +623,50 @@ export function adsHealthFor(accountId: string) {
     .prepare("SELECT day, spend, impressions, clicks, leads FROM meta_ad_days WHERE ad_account_id = ? ORDER BY day")
     .all(accountId) as unknown as DayRow[];
 
-  const rows = evaluate(account, campaigns, days);
+  /* The advertisements, through the same reader the creatives route uses, so
+     one rubric decides what "disapproved" and "mismatched" mean. */
+  const ads = statusRows(adCreatives(accountId));
+  const rows = evaluate(account, campaigns, days, ads);
   const scored = score(rows);
+  const shape = (r: CheckRow) => ({
+    id: r.id,
+    category: r.cat,
+    severity: r.sev,
+    scope: r.scope,
+    result: r.result,
+    title: CHECKS[r.id]!.title,
+    what: CHECKS[r.id]!.what,
+    fix: CHECKS[r.id]!.fix,
+    detail: r.detail,
+    /** This rubric's estimate of the fix, in minutes. Not a measurement. */
+    minutes: CHECKS[r.id]!.mins,
+  });
+
+  /* WORST FIRST, AND A FAILURE BEFORE A WARNING AT THE SAME SEVERITY — the
+     order somebody working through a list actually works in. The id breaks
+     the remaining ties so the same account produces the same order twice. */
   const failing = rows
     .filter((r) => r.result === "fail" || r.result === "warn")
-    .sort((a, b) => WEIGHT[b.sev]! - WEIGHT[a.sev]!)
-    .map((r) => ({
-      id: r.id,
-      category: r.cat,
-      severity: r.sev,
-      result: r.result,
-      title: CHECKS[r.id]!.title,
-      what: CHECKS[r.id]!.what,
-      fix: CHECKS[r.id]!.fix,
-      detail: r.detail,
-    }));
+    .sort(
+      (a, b) =>
+        WEIGHT[b.sev]! - WEIGHT[a.sev]! ||
+        (a.result === b.result ? 0 : a.result === "fail" ? -1 : 1) ||
+        a.id.localeCompare(b.id),
+    )
+    .map(shape);
+
+  /**
+   * THE QUICK WINS, COMPUTED OUT OF THE SAME LIST rather than kept beside it.
+   *
+   * A real problem — `high` severity or worse — with a fix this rubric puts
+   * under a quarter of an hour. Both halves matter: without the severity it is
+   * a list of small things, and without the minutes it is the failing list
+   * again in a different order. Nothing is hand-marked, so a check whose fix
+   * gets cheaper joins this list the next time the account is read.
+   */
+  const quickWins = failing.filter(
+    (f) => WEIGHT[f.severity]! >= WEIGHT.high! && f.minutes < QUICK_WIN_MINUTES,
+  );
 
   return {
     account: {
@@ -603,17 +701,14 @@ export function adsHealthFor(accountId: string) {
       basis:
         "This account's OWN cost per lead over its own window. No benchmark is ever substituted — where the account has none, every check that needs a target is null.",
     },
-    checks: rows.map((r) => ({
-      id: r.id,
-      category: r.cat,
-      severity: r.sev,
-      scope: r.scope,
-      result: r.result,
-      title: CHECKS[r.id]!.title,
-      detail: r.detail,
-      fix: CHECKS[r.id]!.fix,
-    })),
+    checks: rows.map(shape),
     failing,
+    quickWins,
+    quickWin: {
+      minutes: QUICK_WIN_MINUTES,
+      severity: "high",
+      means: `A finding of ${"high"} severity or worse whose fix this rubric estimates at under ${QUICK_WIN_MINUTES} minutes. Computed from the failing list on every read, never curated — and the minutes are an ESTIMATE OF THE FIX, not a measurement of anything.`,
+    },
     campaigns: campaigns.map((c) => ({
       id: c.campaign_id,
       name: c.name,
@@ -628,8 +723,8 @@ export function adsHealthFor(accountId: string) {
       costPerLead: c.cost_per_lead,
     })),
     limitations: [
-      "There is no AD SET anywhere in what the Meta collector stores, so a learning-limited ad set cannot be detected here. That check is null, not passing.",
-      "There is no AD row either, so an ad rejected in review is invisible to this box.",
+      "Ad sets are collected, but 'learning limited' is a delivery-insights field this token has never been asked for, so a learning-limited ad set still cannot be detected. That check is null, not passing.",
+      "Advertisements are collected, so a disapproval and a configured/effective mismatch ARE read — but Meta reports the issues it chooses to, and an advertisement with no issue is not the same as one in good standing.",
       "There is no audience specification, so overlap is inferred from frequency and is named as an inference rather than measured.",
       "There is no budget field. What would be a budget check is a check on DAILY SPEND, which is what actually happened rather than what was asked for.",
       "Reach and frequency are de-duplicated by Meta over the window on the row and can never be summed or averaged with another window's.",

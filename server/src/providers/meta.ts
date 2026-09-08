@@ -106,7 +106,11 @@ export const ATTRIBUTION_LABEL = "7-day click, 1-day view";
  * `offsite_complete_registration_add_meta_leads` all reading 12 — so adding
  * them would treble the only outcome this account buys.
  */
-const LEAD_ACTIONS = [
+/* EXPORTED SO ONE LIST NAMES THE LEAD EVERYWHERE. The ad-level read in
+   webanalytics/routes.ts stores Meta's `actions` map verbatim and has to pick
+   the same spelling out of it; a second list there would be a second lead
+   count, and the day the two disagreed nothing would say which was right. */
+export const LEAD_ACTIONS = [
   "onsite_conversion.lead_grouped",
   "lead",
   "onsite_conversion.lead",

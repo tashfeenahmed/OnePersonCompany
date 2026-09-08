@@ -57,6 +57,7 @@ import type { SeoOpsDocs } from "@/lib/api/seoboard";
 import type { SocialBoardDocs } from "@/lib/api/socialboard";
 import type { SocialPost } from "@/areas/socialfeed/api";
 import type { FeedItem } from "@/data/widgets";
+import type { AdRow, AdsBoardDocs } from "@/lib/api/adsboard";
 import { rateBetween } from "./fx.ts";
 import {
   TRAILING_MIN_DAYS,
@@ -282,6 +283,11 @@ export type LiveInputs = {
    * and a timeline figure in the same total. One fetch, one clock, two blocks.
    */
   social?: SocialBoardDocs | null;
+  /** The three ads documents this box computes over Meta's own rows: the
+   *  health rubric, the advertisements with their creatives, and the
+   *  campaign → venture map. Three fields, no sums — a score, a cost per
+   *  click and a venture's spend are three kinds of thing. */
+  ads?: AdsBoardDocs | null;
   /*
     THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
     is placed with a venture id (`PlacedWidget.param`); the card resolves it
@@ -9876,5 +9882,916 @@ Object.assign(LIVE_BUILDERS, {
         : [[t.measured ? "No post here drew a view in this window" : "Nothing measured in this window", DASH]],
       caption: `${VIEWS_NOTE} ${FLOOR_NOTE} Followers have no history and do not follow the window.`,
     };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+
+/* ==========================================================================
+   ADS BOARD PARITY (Workdash /ads) — workstream "ads-board", 2026-09-08.
+
+   THE THREE DOCUMENTS THESE READ ARE NOT /api/meta. `meta` publishes what Meta
+   SAID; `ads` carries what this box worked out from those same rows — the
+   health rubric, the advertisements with their creatives, and the campaign →
+   venture map. See lib/api/adsboard.
+
+   FOUR RULES EVERY BUILDER BELOW KEEPS, and each is a way to draw a confident
+   figure that is wrong:
+
+     ONE CURRENCY OR NO FIGURE. Every money card runs through `oneCurrency`
+     and refuses rather than adds two accounts billing in two currencies.
+
+     REACH AND FREQUENCY ARE NEVER SUMMED AND NEVER AVERAGED. They appear only
+     as Meta's own answer for a window Meta was asked about, with the dates.
+
+     A WINDOW FIGURE IS THE SPAN META MEASURED, not the span the picker asked
+     for. Meta's account window ends on its last complete day and the ad-level
+     rows only exist for days that delivered, so every card here says the days
+     it actually has.
+
+     NO RETURN ON AD SPEND. Nothing joins a euro of income to a click, and the
+     one card that carries the word says why there is no number — see
+     `meta.roas`, which stays on the board for exactly that reason.
+   ========================================================================== */
+
+/** The band a score out of a hundred falls in, and the word for it. The
+ *  server grades A–F; the board says it in the language the rest of this
+ *  dashboard judges things in, so a colour never has to travel alone. */
+function adBand(score: number | null): { word: string; tone: StatusTone } | null {
+  if (score === null) return null;
+  if (score >= 75) return { word: "good", tone: "ok" };
+  if (score >= 60) return { word: "fair", tone: "warn" };
+  return { word: "poor", tone: "bad" };
+}
+
+/** The health reading this board draws. ONE ACCOUNT, NEVER A BLEND: each
+ *  account's rubric is scored against its own history and two scores share a
+ *  scale and nothing else, so the busiest account is named and the rest are
+ *  counted rather than averaged in. */
+function oneHealth(A: AdsBoardDocs | null | undefined) {
+  const accounts = A?.health?.accounts ?? [];
+  if (!accounts.length) return null;
+  const ranked = [...accounts].sort((a, b) => (b.account.spend ?? 0) - (a.account.spend ?? 0));
+  return { health: ranked[0]!, others: ranked.length - 1 };
+}
+
+/** Money at the precision the figure deserves. A cost per click of €0.0119
+ *  rounded to two places is €0.01, which is 16% smaller than the number. */
+const adMoney = (n: number | null, currency: string) =>
+  n === null ? DASH : inCurrency(n, currency, Math.abs(n) < 1 ? 4 : 2);
+
+/** An advertisement's name for a card: the headline people read, then the
+ *  creative's name, then the ad's own. Meta's ad names are administrative
+ *  ("Promoting website: https://…") and the headline is what ran. */
+const adLabel = (ad: AdRow) => ad.title ?? ad.name ?? ad.creativeName ?? ad.adId;
+
+/** effective_status in the words a person reads. "CAMPAIGN_PAUSED" and
+ *  "PAUSED" are the same fact to somebody looking at a row. */
+const adStatusWord = (s: string | null) =>
+  (s ?? "—").replace(/^(CAMPAIGN|ADSET)_/, "").toLowerCase().replaceAll("_", " ");
+
+/**
+ * WHICH VENTURE EACH CAMPAIGN IS FOR, filed rows first and suggestions after.
+ *
+ * A SUGGESTION IS NOT A LINK and the difference is on every row that uses this:
+ * a link is something the owner pressed and a suggestion is arithmetic over a
+ * URL in a campaign's own name, recomputed on every read. Both are shown,
+ * because a board that drew only the filed ones would report a portfolio's ad
+ * spend as mostly unattributed while the answer sat one press away — and a
+ * board that drew them alike would let a guess harden into a fact.
+ *
+ * A CONTESTED CAMPAIGN IS LEFT OUT of the suggestions half: it matched two
+ * ventures and nothing may pick one for it.
+ */
+function campaignVentureMap(A: AdsBoardDocs | null | undefined) {
+  const map = new Map<string, { id: string; name: string | null; filed: boolean; evidence: string | null }>();
+  for (const s of A?.map?.suggestions ?? []) {
+    if (A?.map?.contested.includes(s.campaignId)) continue;
+    map.set(s.campaignId, { id: s.venture.id, name: s.venture.name, filed: false, evidence: s.evidence });
+  }
+  for (const l of A?.map?.links ?? [])
+    map.set(l.campaignId, { id: l.venture.id, name: l.venture.name, filed: true, evidence: l.evidence });
+  return map;
+}
+
+Object.assign(LIVE_BUILDERS, {
+  /* ---------------------------------------- the account, over the window */
+
+  "meta.clicks": ({ meta: M }: LiveInputs) => {
+    if (!M) return null;
+    const one = oneCurrency(M);
+    const rows = (one?.accounts ?? []).filter((a) => a.window?.clicks != null);
+    if (!rows.length) return null;
+    const clicks = rows.reduce((n, a) => n + (a.window!.clicks ?? 0), 0);
+    const impressions = rows.reduce((n, a) => n + (a.window!.impressions ?? 0), 0);
+    const w = rows[0]!.window!;
+    /* Meta's own rate for a single account; a clicks-over-impressions division
+       when several have to be pooled — which is the right weighting and is
+       still our arithmetic rather than Meta's, so the caption says whose. */
+    const ctr = rows.length === 1 ? w.ctr : impressions ? (100 * clicks) / impressions : null;
+    return {
+      tag: "metered",
+      value: count(clicks),
+      sub: also(
+        ctr === null ? "" : `${percent(ctr, 2)} click-through${rows.length > 1 ? ", divided here" : ""}`,
+        windowSpan(w.from, w.to),
+      ),
+    };
+  },
+
+  "meta.cpc": ({ meta: M }: LiveInputs) => {
+    if (!M) return null;
+    const one = oneCurrency(M);
+    const rows = (one?.accounts ?? []).filter((a) => a.window);
+    if (!one || !rows.length) return null;
+    const clicks = rows.reduce((n, a) => n + (a.window!.clicks ?? 0), 0);
+    const spend = rows.reduce((n, a) => n + (a.window!.spend ?? 0), 0);
+    const own = rows.length === 1 ? rows[0]!.window!.cpc : null;
+    const cpc = own ?? (clicks ? spend / clicks : null);
+    if (cpc === null) return null;
+    const w = rows[0]!.window!;
+    return {
+      tag: "metered",
+      value: adMoney(cpc, one.currency),
+      sub: also(
+        own === null ? "spend over clicks, divided here" : "the account's own average, Meta's figure",
+        windowSpan(w.from, w.to),
+      ),
+    };
+  },
+
+  "ads.delivering": ({ ads: A }: LiveInputs) => {
+    const C = A?.creatives;
+    if (!C) return null;
+    const delivered = C.ads.filter((a) => a.window.days > 0);
+    const live = C.ads.filter((a) => a.status === "ACTIVE");
+    return {
+      /* NO TAG. "measured" beside a name and its window overflows a
+         one-column tile, and the two lines under the figure already say
+         exactly what was counted and out of what. */
+      value: count(delivered.length),
+      sub: also(
+        `of ${count(C.ads.length)} advertisement${C.ads.length === 1 ? "" : "s"} in the account`,
+        /* Delivering and ELIGIBLE are different states and the gap is the
+           finding: an advertisement Meta will run that has been shown to
+           nobody is not the same as one somebody paused. */
+        live.length
+          ? `${count(live.length)} eligible to deliver`
+          : "none is eligible to deliver — every parent is paused",
+      ),
+    };
+  },
+
+  /* --------------------------------------------------- is the spend working */
+
+  /*
+    THE SCORE, AND EVERYTHING A SCORE ALONE WOULD HIDE.
+
+    Three of these figures exist because the number cannot tell two different
+    accounts apart on its own. COVERAGE, because a 100 drawn from 40% of the
+    check weight and a 100 drawn from 95% of it are different claims. THE
+    REFUSAL, in place of a score, when too little of the account could be
+    measured to put a number on it. THE TARGET COST PER LEAD, because a reader
+    who does not know what every verdict was measured against cannot check one.
+
+    Nothing here does arithmetic on the score. It is computed on this box by
+    `growth/ads.ts`, which prints its own working, so the figure on this card,
+    the figure on the Growth page and the figure a skill quotes cannot drift.
+  */
+  "ads.health": ({ ads: A }: LiveInputs) => {
+    const one = oneHealth(A);
+    if (!one) return null;
+    const h = one.health;
+    const cur = h.account.currency ?? "EUR";
+    const band = adBand(h.score);
+    const critical = h.failing.filter((f) => f.severity === "critical").length;
+    const rows: [string, string][] = [];
+    if (h.refusal) rows.push(["No score", h.refusal]);
+    rows.push(["Target came from", h.target.costPerLead === null ? "nothing — no lead has been costed" : "this account's own cost per lead, never a benchmark"]);
+    rows.push(["Kill table", `${h.killTable.minDays} days of delivery and ${h.killTable.minClicks} clicks before any verdict`]);
+    rows.push(["Not a Meta figure", "this box's own rubric; the arithmetic is printed on the Growth page"]);
+    if (one.others > 0)
+      rows.push([`${one.others} other ad account${one.others === 1 ? "" : "s"}`, "scored separately — two scores share a scale and nothing else"]);
+    return {
+      tag: "rubric",
+      name: `Account health · ${h.account.name ?? h.account.id}`,
+      figures: [
+        {
+          label: "Score",
+          value: h.score === null ? DASH : String(h.score),
+          sub: h.grade ? `grade ${h.grade}${band ? ` · ${band.word}` : ""}` : "refused",
+        },
+        {
+          label: "Coverage",
+          value: percent(h.coverage * 100, 0),
+          sub: "of the check weight",
+        },
+        {
+          label: "Failing",
+          value: count(h.failing.length),
+          sub: critical ? `${count(critical)} critical` : "none critical",
+        },
+        {
+          label: "Target cost per lead",
+          value: h.account.costPerLead === null ? DASH : adMoney(h.account.costPerLead, cur),
+          sub: "the account's own",
+        },
+      ],
+      rows,
+      caption:
+        "A check that could not be evaluated is out of both sides of the division — never counted as a failure.",
+    };
+  },
+
+  /*
+    THE CATEGORIES, AGAINST A FIXED AXIS OF A HUNDRED.
+
+    `rankedMax: 100` and not the biggest bar: these are scores out of a
+    hundred, so a length has to mean "how much of the available credit was
+    earned" rather than "how does this compare with the best row here".
+    Relative scaling would draw an account failing every category as four full
+    bars.
+
+    A CATEGORY THAT COULD NOT BE SCORED IS A REASON, NOT A ZERO. It sits at the
+    bottom with an empty bar and its own sentence, because a refused subscore
+    and a subscore of nought are opposite findings.
+  */
+  "ads.categories": ({ ads: A }: LiveInputs) => {
+    const one = oneHealth(A);
+    if (!one) return null;
+    const cats = Object.entries(one.health.categories);
+    if (!cats.length) return null;
+    const rows = cats
+      .sort((a, b) => (b[1].score ?? -1) - (a[1].score ?? -1))
+      .map(([name, c]) => {
+        const band = adBand(c.score);
+        return {
+          label: name[0]!.toUpperCase() + name.slice(1),
+          value: c.score ?? 0,
+          text: c.score === null ? DASH : String(c.score),
+          sub: also(band ? band.word : "not scored", `weight ${c.weight} · ${percent(c.coverage * 100, 0)} evaluated`),
+        };
+      });
+    return {
+      tag: "rubric",
+      ranked: rows,
+      rankedMax: 100,
+      caption:
+        "each out of 100 against a fixed axis, so a short bar is a low score rather than a small one · a category under the 40% coverage floor is refused and draws its reason instead",
+    };
+  },
+
+  /*
+    THE QUICK WINS — a real problem with a small fix, and both halves are
+    measured. `high` severity or worse, and a remediation the rubric puts under
+    a quarter of an hour. COMPUTED ON THE SERVER out of the failing list rather
+    than curated here, so a check whose fix gets cheaper joins the list the
+    next time the account is scored and nobody has to remember to move it.
+  */
+  "ads.quickWins": ({ ads: A }: LiveInputs) => {
+    const one = oneHealth(A);
+    if (!one) return null;
+    const h = one.health;
+    if (!h.quickWins.length)
+      return {
+        tag: "rubric",
+        table: [],
+        caption: h.failing.length
+          ? `Nothing quick: none of the ${count(h.failing.length)} failing checks is ${h.quickWin.severity} or worse with a fix under ${h.quickWin.minutes} minutes.`
+          : "Nothing is failing on this account, so there is nothing quick to win.",
+      };
+    return {
+      tag: "rubric",
+      headers: ["Quick win", "Severity", "Fix takes", "What to do"],
+      table: h.quickWins.map((q) => [q.title, q.severity, `${q.minutes} min`, q.fix]),
+      rowTones: h.quickWins.map((q): StatusTone => (q.result === "fail" ? "bad" : "warn")),
+      caption: `${h.quickWin.severity} or worse, under ${h.quickWin.minutes} minutes each · the minutes are the rubric's estimate of the fix, not a measurement`,
+    };
+  },
+
+  "ads.failing": ({ ads: A }: LiveInputs) => {
+    const one = oneHealth(A);
+    if (!one) return null;
+    const h = one.health;
+    if (!h.failing.length)
+      return {
+        tag: "rubric",
+        table: [],
+        caption: `Nothing failed. ${count(h.checks.filter((c) => c.result === null).length)} of ${count(h.checks.length)} checks could not be evaluated at all, which is not the same as passing.`,
+      };
+    return {
+      tag: "rubric",
+      headers: ["Check", "Result", "Severity", "Fix takes", "What it found"],
+      table: h.failing.map((f) => [
+        f.title,
+        f.result ?? DASH,
+        f.severity,
+        `${f.minutes} min`,
+        /* Clipped rather than wrapped: the detail names every campaign it
+           found and one of them runs past three hundred characters. The whole
+           sentence is on the Growth page, where the card is a page. */
+        f.detail.length > 120 ? `${f.detail.slice(0, 119).replace(/[\s,.;:-]+$/, "")}…` : f.detail,
+      ]),
+      rowTones: h.failing.map((f): StatusTone => (f.result === "fail" ? "bad" : "warn")),
+      caption: "worst first, a failure before a warning at the same severity — the order somebody fixing things works in",
+    };
+  },
+
+  "ads.categoryTable": ({ ads: A }: LiveInputs) => {
+    const one = oneHealth(A);
+    if (!one) return null;
+    const cats = Object.entries(one.health.categories);
+    if (!cats.length) return null;
+    return {
+      tag: "rubric",
+      headers: ["Category", "Score", "Band", "Weight", "Evaluated", "Why there is no score"],
+      table: cats.map(([name, c]) => [
+        name[0]!.toUpperCase() + name.slice(1),
+        c.score === null ? DASH : String(c.score),
+        adBand(c.score)?.word ?? "not scored",
+        String(c.weight),
+        percent(c.coverage * 100, 0),
+        c.reason ?? DASH,
+      ]),
+      caption: `the score is the weighted mean of the categories that could be scored — a refused one is out of both sides of that division · ${one.health.coverage < 1 ? `${percent(one.health.coverage * 100, 0)} of the whole check weight was evaluated` : "every check was evaluated"}`,
+    };
+  },
+
+  /* ------------------------------------------------ what it bought, by venture */
+
+  /*
+    AD SPEND PER VENTURE, THROUGH A JOIN THAT IS NAMED ON THE CARD.
+
+    Meta ties nothing to a business. What it gives us is a campaign called
+    "[8/4/2026] Promoting https://freellmapi.co/…", and the map behind this
+    card reads the host out of that name. So a row here is as good as the
+    campaign naming was, and a rename at Meta empties a venture rather than
+    quietly moving its money — which is the right way for it to fail.
+
+    THE UNMAPPED ROW IS DRAWN, NOT HIDDEN. Spend that matched no venture is the
+    largest single row on this account, and a card that left it out would
+    report a portfolio's advertising as fully attributed.
+  */
+  "ads.ventures": ({ ads: A, meta: M }: LiveInputs) => {
+    if (!M) return null;
+    const one = oneCurrency(M);
+    if (!one) return null;
+    const map = campaignVentureMap(A);
+    const campaigns = one.accounts.flatMap((a) => a.campaigns).filter((c) => (c.window?.spend ?? 0) > 0);
+    if (!campaigns.length) return null;
+    const buckets = new Map<string, { name: string; spend: number; clicks: number; campaigns: number; filed: number }>();
+    for (const c of campaigns) {
+      const v = map.get(c.id);
+      const key = v?.id ?? "";
+      const row = buckets.get(key) ?? {
+        name: v?.name ?? "Not filed to a venture",
+        spend: 0,
+        clicks: 0,
+        campaigns: 0,
+        filed: 0,
+      };
+      row.spend += c.window?.spend ?? 0;
+      row.clicks += c.window?.clicks ?? 0;
+      row.campaigns += 1;
+      row.filed += v?.filed ? 1 : 0;
+      buckets.set(key, row);
+    }
+    const rows = [...buckets.entries()].sort((a, b) => b[1].spend - a[1].spend);
+    return {
+      tag: "metered",
+      ranked: rows.map(([key, r]) => ({
+        label: r.name,
+        value: r.spend,
+        text: inCurrency(r.spend, one.currency),
+        sub: also(
+          `${count(r.campaigns)} campaign${r.campaigns === 1 ? "" : "s"} · ${count(r.clicks)} clicks`,
+          key === ""
+            ? "no host matched"
+            : r.filed === r.campaigns
+              ? "filed"
+              : `${count(r.filed)} filed, ${count(r.campaigns - r.filed)} suggested`,
+        ),
+      })),
+      caption:
+        "spend is joined to a business by CAMPAIGN, and a campaign is matched by the host in its own name · a suggestion is not a link and nothing is filed until somebody presses it, on the venture's page",
+    };
+  },
+
+  "ads.venture": ({ ads: A, meta: M, project }: LiveInputs) => {
+    if (!project || !M) return null;
+    const one = oneCurrency(M);
+    if (!one) return null;
+    const map = campaignVentureMap(A);
+    const mine = one.accounts
+      .flatMap((a) => a.campaigns)
+      .filter((c) => map.get(c.id)?.id === project.id);
+    if (!mine.length)
+      return {
+        figures: [
+          { label: "Ad spend", value: DASH },
+          { label: "Clicks", value: DASH },
+          { label: "Campaigns", value: "0" },
+          { label: "Per click", value: DASH },
+        ],
+        rows: [
+          ["No campaign names this venture", "campaigns are matched by the host in their own name"],
+          ["Which is a finding either way", "nothing is running for it, or a campaign was renamed and the match broke"],
+        ] as [string, string][],
+        caption: "this card will not guess: an empty venture invites the question, a card showing somebody else's spend does not",
+      };
+    const spend = mine.reduce((n, c) => n + (c.window?.spend ?? 0), 0);
+    const clicks = mine.reduce((n, c) => n + (c.window?.clicks ?? 0), 0);
+    const impressions = mine.reduce((n, c) => n + (c.window?.impressions ?? 0), 0);
+    /* Leads add where reach does not: a lead is one form submission and two
+       campaigns cannot submit the same one. Null stays null. */
+    const counted = mine.filter((c) => c.window?.leads !== null && c.window?.leads !== undefined);
+    const leads = counted.length ? counted.reduce((n, c) => n + (c.window!.leads ?? 0), 0) : null;
+    const w = mine[0]!.window;
+    const filed = mine.filter((c) => map.get(c.id)?.filed).length;
+    return {
+      tag: "metered",
+      figures: [
+        { label: "Ad spend", value: inCurrency(spend, one.currency), sub: windowSpan(w?.from, w?.to) },
+        { label: "Clicks", value: count(clicks), sub: impressions ? `${percent((100 * clicks) / impressions, 2)} of ${count(impressions)} impressions` : "no impressions reported" },
+        { label: "Leads", value: leads === null ? DASH : count(leads), sub: leads ? adMoney(spend / leads, one.currency) + " each" : "the only conversion this account buys" },
+        { label: "Per click", value: clicks ? adMoney(spend / clicks, one.currency) : DASH, sub: "divided here" },
+      ],
+      rows: [
+        ...mine
+          .slice(0, 5)
+          .map((c): [string, string] => [
+            campaignName(c.name),
+            also(inCurrency(c.window?.spend ?? 0, one.currency), adStatusWord(c.status)),
+          ]),
+        [
+          "How they were matched",
+          filed === mine.length ? "all filed by hand or accepted" : `${count(filed)} filed, ${count(mine.length - filed)} suggested by name`,
+        ],
+      ] as [string, string][],
+      caption:
+        "REACH IS ABSENT ON PURPOSE: it is de-duplicated per campaign and summing it here would count the same person once per campaign they were in. There is no return on ad spend either — nothing joins a euro of this venture's income to a click.",
+    };
+  },
+
+  "ads.mapping": ({ ads: A, meta: M }: LiveInputs) => {
+    if (!M) return null;
+    const map = campaignVentureMap(A);
+    const contested = new Set(A?.map?.contested ?? []);
+    const campaigns = M.adAccounts
+      .filter((a) => a.active)
+      .flatMap((a) => a.campaigns)
+      .sort((a, b) => (b.window?.spend ?? 0) - (a.window?.spend ?? 0));
+    if (!campaigns.length) return null;
+    const spending = campaigns.filter((c) => (c.window?.spend ?? 0) > 0);
+    const shown = (spending.length ? spending : campaigns).slice(0, 10);
+    return {
+      headers: ["Campaign", "Venture", "How", "Why"],
+      table: shown.map((c) => {
+        const v = map.get(c.id);
+        return [
+          campaignName(c.name),
+          v?.name ?? DASH,
+          contested.has(c.id) ? "contested" : v ? (v.filed ? "filed" : "suggested") : "nothing matched",
+          contested.has(c.id)
+            ? "matched more than one venture, so nothing is applied"
+            : (v?.evidence ?? "no host in this campaign's name matches a venture"),
+        ];
+      }),
+      rowTones: shown.map((c): StatusTone | null =>
+        contested.has(c.id) ? "warn" : map.get(c.id)?.filed ? "ok" : null,
+      ),
+      caption:
+        "a SUGGESTION is recomputed on every read and files nothing; a LINK is a row somebody wrote, and it keeps the sentence that produced it. Accept one on the venture's page.",
+    };
+  },
+
+  /* ------------------------------------------- what ran: the advertisements */
+
+  /*
+    THE CREATIVES. THE REASON THIS BOARD EXISTS.
+
+    Everything above this card is a number about an advertisement; this is the
+    advertisement. You cannot decide what to change from a row of figures about
+    a thing you cannot look at, which is the whole argument for the `feed` kind
+    and for putting it above the campaign tables rather than under them.
+
+    THE PICTURE IS A CHAIN AND NOT A SINGLE TRY. Meta signs `image_url` and
+    `thumbnail_url` independently and they expire independently — in this
+    account the lead-generation ads' full-size urls 403 while their 64px
+    thumbnails load — so the builder hands over the full image with the thumb
+    behind it and the card hides a frame that fails rather than drawing it
+    broken. A broken frame reads as "this advertisement had no picture", which
+    is a claim about the advertisement.
+
+    THE CHEAPEST AND DEAREST CLICK ARE NAMED. In this account the spread runs
+    twenty-fold on one budget, and the two ends are the only rows with a
+    decision on them today. The word is in the label as well as the tone,
+    because the status palette never travels alone.
+
+    THE LINK IS THE DESTINATION, NOT A PERMALINK. Meta publishes no address for
+    an advertisement; what an ad has is the page it sent people to, and the
+    figure strip says which.
+  */
+  "ads.creatives": ({ ads: A, meta: M }: LiveInputs) => {
+    const C = A?.creatives;
+    if (!C) return null;
+    const currency = M ? (oneCurrency(M)?.currency ?? null) : null;
+    const cur = currency ?? C.adSets.find((s) => s.currency)?.currency ?? null;
+    const delivered = C.ads
+      .filter((a) => a.window.days > 0)
+      .sort((a, b) => (b.window.spend ?? 0) - (a.window.spend ?? 0));
+    const idle = C.ads.length - delivered.length;
+    if (!delivered.length)
+      return {
+        feed: [],
+        caption: `No advertisement delivered in the last ${C.windowDays} days. ${count(C.ads.length)} are in the account and ${count(C.ads.filter((a) => a.status === "ACTIVE").length)} are eligible to run.`,
+      };
+    const priced = delivered.filter((a) => a.window.cpc !== null);
+    const sorted = [...priced].sort((a, b) => (a.window.cpc ?? 0) - (b.window.cpc ?? 0));
+    const best = sorted.length > 1 ? sorted[0] : null;
+    const worst = sorted.length > 1 ? sorted.at(-1) : null;
+    return {
+      tag: "metered",
+      feed: delivered.map((ad) => {
+        const w = ad.window;
+        const extreme = best && ad.adId === best.adId ? " · cheapest" : worst && ad.adId === worst.adId ? " · dearest" : "";
+        const figures: [string, string][] = [];
+        if (w.spend !== null && cur) figures.push(["spent", inCurrency(w.spend, cur)]);
+        figures.push(["clicks", count(w.clicks)]);
+        if (w.cpc !== null && cur) figures.push([`per click${extreme}`, adMoney(w.cpc, cur)]);
+        if (w.ctr !== null) figures.push(["click-through", percent(w.ctr, 2)]);
+        figures.push(["impressions", count(w.impressions)]);
+        if (w.leads) figures.push(["leads", count(w.leads)]);
+        figures.push([`day${w.days === 1 ? "" : "s"} delivered`, count(w.days)]);
+        if (ad.callToAction) figures.push(["button", ad.callToAction.replaceAll("_", " ").toLowerCase()]);
+        figures.push(["status", adStatusWord(ad.status)]);
+        /* WHEN IT LAST RAN, as a figure rather than as the row's timestamp:
+           the date in the corner is when the advertisement was MADE, and a
+           card that put "last delivered" there would date every creative to
+           the day the account stopped spending. */
+        if (w.lastDay) figures.push(["last delivered", dayShort(w.lastDay)]);
+        if (ad.venture?.name) figures.push(["", `for ${ad.venture.name}`]);
+        return {
+          title: adLabel(ad),
+          text: ad.body ?? undefined,
+          image: ad.imageUrl ?? ad.thumbUrl ?? undefined,
+          href: ad.link ?? undefined,
+          at: ad.createdTime ?? undefined,
+          meta: figures,
+          tone:
+            best && ad.adId === best.adId
+              ? ("ok" as StatusTone)
+              : worst && ad.adId === worst.adId
+                ? ("bad" as StatusTone)
+                : undefined,
+        };
+      }),
+      caption: also(
+        also(
+          `${count(delivered.length)} delivered over the last ${C.windowDays} days${idle ? `; ${count(idle)} more ran nothing` : ""}`,
+          "the link is where the advertisement SENT people — Meta publishes no permalink to an advertisement",
+        ),
+        "creative images are signed and expire within days; a frame that fails is hidden rather than drawn broken",
+      ),
+    };
+  },
+
+  "ads.cpc": ({ ads: A, meta: M }: LiveInputs) => {
+    const C = A?.creatives;
+    if (!C) return null;
+    const cur = (M ? oneCurrency(M)?.currency : null) ?? C.adSets.find((s) => s.currency)?.currency;
+    if (!cur) return null;
+    const delivered = C.ads.filter((a) => a.window.days > 0);
+    const priced = delivered
+      .filter((a) => a.window.cpc !== null)
+      .sort((a, b) => (b.window.cpc ?? 0) - (a.window.cpc ?? 0));
+    if (priced.length < 2) return null;
+    return {
+      tag: "metered",
+      ranked: priced.map((ad) => ({
+        label: adLabel(ad),
+        value: ad.window.cpc!,
+        text: adMoney(ad.window.cpc, cur),
+        sub: `${count(ad.window.clicks)} clicks · ${inCurrency(ad.window.spend ?? 0, cur)}`,
+      })),
+      caption: `dearest first — the long bars are where the money goes furthest from a click · ${count(priced.length)} of ${count(delivered.length)} delivering advertisements carry a priced click, and one whose clicks carry no price is left out rather than drawn at zero`,
+    };
+  },
+
+  "ads.table": ({ ads: A, meta: M }: LiveInputs) => {
+    const C = A?.creatives;
+    if (!C) return null;
+    const cur = (M ? oneCurrency(M)?.currency : null) ?? C.adSets.find((s) => s.currency)?.currency;
+    if (!cur) return null;
+    const delivered = C.ads
+      .filter((a) => a.window.days > 0)
+      .sort((a, b) => (b.window.spend ?? 0) - (a.window.spend ?? 0));
+    if (!delivered.length)
+      return { table: [], caption: `No advertisement delivered in the last ${C.windowDays} days.` };
+    return {
+      tag: "metered",
+      headers: ["Advertisement", "Spend", "Clicks", "Per click", "CTR", "CPM", "Impressions", "Leads", "Days"],
+      table: delivered.map((ad) => {
+        const w = ad.window;
+        return [
+          adLabel(ad),
+          w.spend === null ? DASH : inCurrency(w.spend, cur),
+          count(w.clicks),
+          adMoney(w.cpc, cur),
+          w.ctr === null ? DASH : percent(w.ctr, 2),
+          adMoney(w.cpm, cur),
+          count(w.impressions),
+          w.leads === null ? DASH : count(w.leads),
+          `${count(w.days)}`,
+        ];
+      }),
+      caption:
+        "summed from each advertisement's own daily rows · REACH AND FREQUENCY ARE NOT COLUMNS HERE: both are de-duplicated over the window Meta was asked about and neither can be recovered from daily rows. The ad-level read is capped and does not page, so every figure is a floor.",
+    };
+  },
+
+  /*
+    FATIGUE IS ONE SHAPE AND ONLY ONE: frequency RISING while click-through
+    FALLS, over two matched weeks Meta answered as two separate questions. A
+    rising frequency alone is a small audience; a falling click-through alone is
+    an auction or a season. Only the two together say the same people are seeing
+    the same picture and have stopped responding to it.
+
+    "NO VERDICT" IS THE ANSWER, NOT A GAP. Under the impressions floor in either
+    week there is no verdict — not a cautious one, none — and the card prints
+    the reason rather than a quiet "steady".
+  */
+  "ads.fatigue": ({ ads: A }: LiveInputs) => {
+    const C = A?.creatives;
+    if (!C) return null;
+    const rows: [string, string][] = [];
+    const named = (verdict: string) =>
+      C.ads
+        .filter((a) => a.verdict === verdict)
+        .slice(0, 3)
+        .map((a) => adLabel(a))
+        .join(", ");
+    rows.push([
+      "Fatigued",
+      C.counts.fatigued
+        ? `${count(C.counts.fatigued)} — ${named("fatigued")}`
+        : "none — no advertisement shows both halves of the shape",
+    ]);
+    rows.push([
+      "Tiring",
+      C.counts.tiring ? `${count(C.counts.tiring)} — ${named("tiring")}` : "none — one more week would decide it",
+    ]);
+    rows.push(["Steady", C.counts.steady ? count(C.counts.steady) : "none with enough delivery to say"]);
+    const none = C.counts["no-verdict"] ?? 0;
+    /* THE VALUES STAY SHORT. A rows card truncates the LABEL when the value
+       is long, so a full sentence on the right turns "No verdict" into "N…" —
+       the reason belongs in the caption, where it has the width. */
+    rows.push(["No verdict", none ? `${count(none)} of ${count(C.ads.length)}` : "none — every advertisement could be judged"]);
+    rows.push(["The two weeks", `${C.compareDays}d against the ${C.compareDays}d before`]);
+    rows.push(["The floor", `${count(C.minImpressions)} impressions in both`]);
+    return {
+      tag: "rubric",
+      rows,
+      caption: also(
+        "fatigue is ONE shape — frequency rising while click-through falls, over two weeks Meta answered separately. A rising frequency alone is a small audience; a falling click-through alone is an auction.",
+        none
+          ? (C.ads.find((a) => a.verdict === "no-verdict")?.why ??
+            "under the impressions floor in one of the two weeks there is no verdict — not a cautious one, none")
+          : "",
+      ),
+    };
+  },
+
+  "ads.issues": ({ ads: A }: LiveInputs) => {
+    const C = A?.creatives;
+    if (!C) return null;
+    const mismatched = C.statuses.filter((s) => s.mismatched);
+    const flagged = C.statuses.filter((s) => s.issues.length);
+    const statuses: [string, StatusTone][] = [
+      [
+        flagged.length
+          ? `${count(flagged.length)} carry an issue Meta reported`
+          : "no advertisement carries an issue Meta reported",
+        flagged.length ? "bad" : "ok",
+      ],
+      [
+        mismatched.length
+          ? `${count(mismatched.length)} are configured ACTIVE and are not delivering`
+          : "every advertisement configured ACTIVE is delivering",
+        mismatched.length ? "warn" : "ok",
+      ],
+      [
+        /* NOT A CLEAN BILL. Meta reports the issues it chooses to, so silence
+           is silence — this line is here so nobody reads the green dot above
+           as an audit. */
+        "an advertisement with no issue is not an advertisement in good standing",
+        "ok",
+      ],
+    ];
+    /* ONE ROW PER NAME. This account has six advertisements called "Ongoing
+       lead generation ad", and three identical warn lines read as a rendering
+       fault rather than as six copies of one ad. */
+    const named = new Map<string, number>();
+    for (const s of mismatched) {
+      const key = `${s.name ?? s.adId} · ${adStatusWord(s.status)}`;
+      named.set(key, (named.get(key) ?? 0) + 1);
+    }
+    for (const [key, n] of [...named.entries()].slice(0, 3))
+      statuses.push([n > 1 ? `${key} · ${count(n)} of them` : key, "warn"]);
+    return { tag: "measured", statuses };
+  },
+
+  "ads.sets": ({ ads: A }: LiveInputs) => {
+    const C = A?.creatives;
+    if (!C?.adSets.length) return null;
+    const sets = [...C.adSets].sort((a, b) => (b.dailyBudgetMinor ?? 0) - (a.dailyBudgetMinor ?? 0));
+    return {
+      headers: ["Ad set", "Status", "Optimising for", "Budget", "Bid strategy", "Ads"],
+      table: sets.map((s) => {
+        /* MINOR UNITS, DIVIDED HERE AND SAID SO. Meta sends a budget as a
+           quoted string of cents; the caption carries the division rather than
+           a card quietly rendering 500 as five euro with no working.
+
+           ONE COLUMN AND NOT TWO. An ad set carries a daily budget or a
+           lifetime one, never both, so a second column is empty on every row
+           and pushes the ad count off the card — the word says which kind
+           this figure is. */
+        const budget = (v: number | null) =>
+          v === null || v === 0 || !s.currency ? null : inCurrency(v / 100, s.currency);
+        const daily = budget(s.dailyBudgetMinor);
+        const lifetime = budget(s.lifetimeBudgetMinor);
+        return [
+          s.name ?? s.adsetId,
+          adStatusWord(s.status),
+          (s.optimizationGoal ?? DASH).replaceAll("_", " ").toLowerCase(),
+          daily ? `${daily} a day` : lifetime ? `${lifetime} lifetime` : DASH,
+          (s.bidStrategy ?? DASH).replaceAll("_", " ").toLowerCase(),
+          count(s.ads),
+        ];
+      }),
+      caption:
+        "budgets arrive from Meta in MINOR UNITS of the account's own currency and are divided by a hundred here · an ad set id does not establish a learning state and does not establish audience overlap: neither the delivery-insights call nor the targeting specification is read by this box",
+    };
+  },
+
+  /* ------------------------------------------------- the accounting view */
+
+  /*
+    CAMPAIGNS BY SPEND, EACH WITH ITS OWN SHAPE.
+
+    THE BAR AND THE LINE COME FROM DIFFERENT GRAINS AND THE CAPTION SAYS SO.
+    The bar is the campaign's window spend from the account-level read, which
+    is authoritative; the line is the same campaign's ad-level daily rows,
+    which are capped and do not page. So the line is a SHAPE — when the money
+    went out — and never a total, and the two are not read as one figure.
+  */
+  "ads.campaignTrend": ({ ads: A, meta: M }: LiveInputs) => {
+    if (!M) return null;
+    const one = oneCurrency(M);
+    if (!one) return null;
+    const spending = one.accounts
+      .flatMap((a) => a.campaigns)
+      .filter((c) => (c.window?.spend ?? 0) > 0)
+      .sort((a, b) => (b.window?.spend ?? 0) - (a.window?.spend ?? 0));
+    if (!spending.length) return null;
+    /* Every advertisement's daily rows, folded onto its campaign. A campaign
+       with no ad-level row draws no line rather than a flat one. */
+    const byCampaign = new Map<string, Map<string, number>>();
+    for (const ad of A?.creatives?.ads ?? []) {
+      if (!ad.campaignId) continue;
+      const days = byCampaign.get(ad.campaignId) ?? new Map<string, number>();
+      for (const d of ad.daily) if (d.spend !== null) days.set(d.day, (days.get(d.day) ?? 0) + d.spend);
+      byCampaign.set(ad.campaignId, days);
+    }
+    return {
+      tag: "metered",
+      ranked: spending.slice(0, 8).map((c) => {
+        const days = [...(byCampaign.get(c.id) ?? new Map<string, number>()).entries()].sort((a, b) =>
+          a[0].localeCompare(b[0]),
+        );
+        return {
+          label: campaignName(c.name),
+          value: c.window?.spend ?? 0,
+          text: inCurrency(c.window?.spend ?? 0, one.currency),
+          sub: also(
+            `${count(c.window?.clicks ?? null)} clicks · ${adMoney(c.window?.clicks ? (c.window.spend ?? 0) / c.window.clicks : null, one.currency)}`,
+            days.length ? `${days.length} delivering day${days.length === 1 ? "" : "s"}` : "no ad-level day",
+          ),
+          spark: days.length > 1 ? days.map(([, v]) => v) : undefined,
+        };
+      }),
+      caption:
+        "the bar is the campaign's window spend from the account-level read; the line beside the name is the SHAPE of its advertisements' daily spend, which is capped and is never read as a total",
+    };
+  },
+
+  /*
+    WHAT THE MONEY BOUGHT, DAY BY DAY — and deliberately not the money itself.
+
+    Spend is EUR and this chart's axis is a count, so putting the two on one
+    picture would caption a euro series in a unit nobody measured. The spend by
+    day is the bars card beside this one, over the same days.
+
+    LEADS AND CLICKS SHARE A COUNT AXIS AND THAT IS THE POINT: eight leads
+    against nine hundred clicks is the shape of the account, and drawn on two
+    axes it would look like two similar lines.
+  */
+  "meta.results": ({ meta: M }: LiveInputs) => {
+    if (!M) return null;
+    const one = oneCurrency(M);
+    if (!one) return null;
+    const clicks = new Map<string, number>();
+    const leads = new Map<string, number>();
+    let anyLead = false;
+    for (const a of one.accounts)
+      for (const d of a.daily) {
+        if (d.clicks !== null) clicks.set(d.day, (clicks.get(d.day) ?? 0) + d.clicks);
+        if (d.leads !== null) {
+          anyLead = true;
+          leads.set(d.day, (leads.get(d.day) ?? 0) + d.leads);
+        }
+      }
+    const days = [...clicks.keys()].sort();
+    if (days.length < 2) return null;
+    const series = [
+      { label: "clicks", points: days.map((d) => ({ ts: at(d), value: clicks.get(d) ?? 0 })) },
+    ];
+    if (anyLead)
+      series.push({ label: "leads", points: days.map((d) => ({ ts: at(d), value: leads.get(d) ?? 0 })) });
+    return {
+      tag: "metered",
+      chart: series,
+      unit: "count" as const,
+      caption: also(
+        `${days.length} delivering day${days.length === 1 ? "" : "s"} of ${M.windowDays} · ${dayShort(days[0]!)} to ${dayShort(days.at(-1)!)} — a day Meta reported no row is absent rather than drawn at zero`,
+        anyLead ? `leads over ${M.attribution}` : "no lead action reported in this window",
+      ),
+    };
+  },
+
+  /* ------------------- AdSense, on the same board and never crossed with Meta */
+
+  "adsense.daily": ({ adsense: S }: LiveInputs) => {
+    if (S?.state !== "authorised" || S.days.length < 2) return null;
+    const cur = S.currency ?? "USD";
+    const total = S.days.reduce((n, d) => n + d.usd, 0);
+    return {
+      tag: "est.",
+      chart: [{ label: `estimated ${cur}`, points: S.days.map((d) => ({ ts: at(d.day), value: d.usd })) }],
+      unit: "usd" as const,
+      caption: also(
+        `${inCurrency(total, cur, total < 10 ? 2 : 0)} over ${S.days.length} days · ${dayShort(S.days[0]!.day)} to ${dayShort(S.days.at(-1)!.day)}`,
+        "Google's ESTIMATE — recent days are revised for some time and none of this is settled money",
+      ),
+    };
+  },
+
+  "adsense.sites": ({ adsense: S }: LiveInputs) => {
+    if (S?.state !== "authorised" || !S.sites.length) return null;
+    const cur = S.currency ?? "USD";
+    const sites = [...S.sites].sort((a, b) => b.usd - a.usd);
+    return {
+      tag: "est.",
+      headers: ["Site", "Earnings", "Last 7d", "RPM", "Page views", "Impressions", "Clicks", "Click rate"],
+      table: sites.map((s) => [
+        s.site,
+        inCurrency(s.usd, cur, s.usd < 10 ? 2 : 0),
+        inCurrency(s.last7Usd, cur, s.last7Usd < 10 ? 2 : 0),
+        /* RPM is divided out of each site's OWN earnings and impressions. A
+           site that served nothing has no RPM — which is not an RPM of zero. */
+        s.rpm === null ? DASH : inCurrency(s.rpm, cur),
+        count(s.pageViews),
+        count(s.impressions),
+        count(s.clicks),
+        s.impressions ? percent((100 * s.clicks) / s.impressions, 2) : DASH,
+      ]),
+      caption:
+        "estimated earnings per site, never added to Stripe's settled money — one is an ad network's estimate and the other is a bank settlement, and a total of the two would describe neither",
+    };
+  },
+
+  "adsense.months": ({ adsense: S }: LiveInputs) => {
+    if (S?.state !== "authorised" || !S.months.length) return null;
+    const cur = S.currency ?? "USD";
+    const rows: [string, string][] = [...S.months]
+      .sort((a, b) => b.month.localeCompare(a.month))
+      .slice(0, 8)
+      .map((m) => [
+        m.month,
+        also(
+          inCurrency(m.usd, cur, m.usd < 10 ? 2 : 0),
+          m.complete
+            ? m.rpm === null
+              ? ""
+              : `${inCurrency(m.rpm, cur)} RPM`
+            : "month to date — not a full month",
+        ),
+      ]);
+    /* THE FIGURE THAT ENTERS ANYTHING MONTHLY IS THE NEWEST COMPLETE MONTH.
+       A month-to-date printed as a monthly figure halves it. */
+    rows.push([
+      "Newest complete month",
+      S.latestMonth ? `${S.latestMonth.month} · ${inCurrency(S.latestMonth.usd, cur, S.latestMonth.usd < 10 ? 2 : 0)}` : "none yet",
+    ]);
+    return { tag: "est.", rows };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

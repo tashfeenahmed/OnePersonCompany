@@ -72,6 +72,7 @@ function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<Live
     queue: live.queue,
     seo: live.seo,
     social: live.social,
+    ads: live.ads,
     window: live.window,
     ...extra,
   };
@@ -493,7 +494,7 @@ export function WidgetCard({
 
         {!empty && def.kind === "ranked" &&
           (def.ranked?.length ? (
-            <Ranked rows={def.ranked} caption={def.caption} />
+            <Ranked rows={def.ranked} caption={def.caption} max={def.rankedMax} />
           ) : (
             <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing measured yet.</p>
           ))}
@@ -614,6 +615,17 @@ export function WidgetCard({
             </>
           ) : (
             <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing moved yet.</p>
+          ))}
+
+        {!empty && def.kind === "feed" &&
+          (def.feed?.length ? (
+            <Feed items={def.feed} caption={def.caption} />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[12.5px]">
+              {/* A builder that measured an EMPTY feed says what it found
+                  ("nothing has run in this window") rather than the default. */}
+              {def.caption ?? "Nothing published in this window."}
+            </p>
           ))}
 
         {!empty && def.kind === "table" &&

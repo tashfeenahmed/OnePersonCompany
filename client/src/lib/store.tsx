@@ -272,7 +272,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 19;
+export const SEED_VERSION = 20;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -1013,18 +1013,80 @@ const SEED: StoreState = {
       still in Testing the token dies in a week, and this is the card that says
       so rather than the earnings quietly going flat.
     */
+    /*
+      RE-SEEDED IN SEED_VERSION 20 TO FOLLOW WORKDASH'S /ads TOP TO BOTTOM.
+
+      Its order is an argument and this board keeps it: the account's own
+      window, then the VERDICT on whether any of that spend is working, then
+      who the money was for, then THE ADVERTISEMENTS THEMSELVES — the picture
+      and the words people actually saw — and only then the accounting view of
+      campaigns and days. AdSense closes the board because it is the other
+      direction of trade and nothing crosses between them.
+
+      THE CREATIVES ARE NOT AT THE BOTTOM. Eight cards of figures about
+      advertisements nobody can look at is a board you cannot act on: the
+      decision is "change this picture, keep that one", and it is made by
+      looking. `ads.creatives` is a `feed` — image, headline, body, the button,
+      the figures and where it sent people — and it sits above the campaign
+      tables rather than under them for that reason.
+
+      NOTHING LEFT. All eight of the original cards are still here in the new
+      order; the twenty-three that joined them are the rest of Workdash's page,
+      plus the three AdSense cards that page has no equivalent for because
+      Workdash draws AdSense on its money page.
+
+      ONE PER-PROJECT CARD, `ads.venture`, seeded with no venture chosen — the
+      seed cannot know which business the owner reads first, and a card only
+      reachable through the palette is a card nobody finds.
+    */
     {
       id: "d-ads",
       slug: "ads",
       name: "Ads",
       widgets: [
+        /* The account, over the window Meta measured. */
         { id: "ad1", type: "meta.spend", w: 1 },
+        { id: "ad9", type: "meta.clicks", w: 1 },
+        { id: "ad10", type: "meta.cpc", w: 1 },
+        { id: "ad11", type: "meta.reach", w: 1 },
         { id: "ad2", type: "meta.leads", w: 1 },
+        { id: "ad12", type: "ads.delivering", w: 1 },
+        /* Is the spend working. The verdict before the evidence, because it is
+           the only thing on this board that says whether any of the money
+           below it is doing anything. */
+        { id: "ad13", type: "ads.health", w: 2 },
+        { id: "ad14", type: "ads.categories", w: 2 },
+        { id: "ad15", type: "ads.quickWins", w: 4 },
+        { id: "ad16", type: "ads.failing", w: 4 },
+        { id: "ad17", type: "ads.categoryTable", w: 4 },
+        /* What it bought, and for which business. */
+        { id: "ad18", type: "ads.ventures", w: 2 },
         { id: "ad3", type: "meta.roas", w: 2 },
-        { id: "ad4", type: "adsense.earnings", w: 1 },
-        { id: "ad5", type: "meta.daily", w: 2 },
+        { id: "ad19", type: "ads.mapping", w: 4 },
+        /* What ran. The reason this board exists. */
+        { id: "ad20", type: "ads.creatives", w: 4 },
+        { id: "ad21", type: "ads.cpc", w: 4 },
+        { id: "ad22", type: "ads.table", w: 4 },
+        { id: "ad23", type: "ads.fatigue", w: 2 },
+        { id: "ad24", type: "ads.issues", w: 2 },
+        { id: "ad25", type: "ads.sets", w: 4 },
+        /* The accounting view. An advertisement is what a person saw; a
+           campaign is a folder the money sat in, and a day is a row. */
         { id: "ad6", type: "meta.campaigns", w: 4 },
+        { id: "ad26", type: "ads.campaignTrend", w: 4 },
+        { id: "ad5", type: "meta.daily", w: 2 },
+        { id: "ad27", type: "meta.results", w: 4 },
+        /* One venture at a time, with no venture chosen. */
+        { id: "ad28", type: "ads.venture", w: 2 },
+        /* AdSense: the other direction of trade, kept apart. The access card
+           stays last even now the earnings are live — if the consent screen is
+           still in Testing the token dies in a week, and this is the card that
+           says so rather than the earnings quietly going flat. */
+        { id: "ad4", type: "adsense.earnings", w: 1 },
+        { id: "ad29", type: "adsense.daily", w: 4 },
         { id: "ad7", type: "adsense.rpm", w: 2 },
+        { id: "ad30", type: "adsense.sites", w: 4 },
+        { id: "ad31", type: "adsense.months", w: 2 },
         { id: "ad8", type: "adsense.access", w: 2 },
       ],
     },
@@ -1228,6 +1290,9 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
+  /* A feed carries a picture, three lines of copy and a strip of figures per
+     row: at two columns the copy wraps to six lines and the figures stack. */
+  if (kind === "feed") return 4;
   /* A dumbbell has an axis and a label gutter to fit, like a table. */
   if (kind === "dumbbell") return 4;
   /* A proportion is a metric tile with a bar under the figure: one column,
@@ -1236,8 +1301,6 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   /* A feed is a picture beside three lines of somebody's writing. One column
      leaves the text four words wide; four columns leave a fifty-six-pixel
      thumbnail adrift in a field of white. Two is the width a post reads at,
-     which is the width Workdash's post cards take. */
-  if (kind === "feed") return 2;
   /* Everything else — and a profile is among them on purpose: four tiles, a
      line and a list fit two columns, like the property cards on Workdash's
      Search page it is modelled on. */
@@ -1755,10 +1818,53 @@ const TOP_UPS: Record<string, string[]> = {
     "social.project",
     "social.projectStats",
   ],
+  /*
+    ADS GAINED WORKDASH'S WHOLE PAGE IN SEED_VERSION 20. The board that
+    shipped was eight cards — the spend, the leads, the daily line, the
+    campaigns and AdSense — and none of them said whether any of that spend
+    was working or showed a single advertisement. All eight are kept; these
+    twenty-three are the rest of Workdash's /ads.
+
+    THEY LEAD (see TOP_UP_LEADS), and the order below is the order they
+    arrive in: the four missing tiles of the account's own window, then the
+    verdict, then the creatives, then the accounting view, then AdSense's
+    three. On a board somebody has already arranged, the tiles landing in
+    front is right — they are the row the page is read from — and the cards
+    already there keep their places under them.
+
+    `ads.venture` IS IN THE LIST AND STILL TRAILS. It is per-project, arrives
+    with no venture chosen, and a "pick a venture" prompt is not a headline —
+    `migrate()` sorts that out on its own.
+  */
+  "d-ads": [
+    "meta.clicks",
+    "meta.cpc",
+    "meta.reach",
+    "ads.delivering",
+    "ads.health",
+    "ads.categories",
+    "ads.quickWins",
+    "ads.failing",
+    "ads.categoryTable",
+    "ads.ventures",
+    "ads.mapping",
+    "ads.creatives",
+    "ads.cpc",
+    "ads.table",
+    "ads.fatigue",
+    "ads.issues",
+    "ads.sets",
+    "ads.campaignTrend",
+    "meta.results",
+    "adsense.daily",
+    "adsense.sites",
+    "adsense.months",
+    "ads.venture",
+  ],
 };
 
 /** The boards whose top-up leads rather than trails — see `migrate()`. */
-const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search", "d-payments", "d-social"]);
+const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search", "d-payments", "d-social", "d-ads"]);
 
 /** The addresses already taken inside one scope — a venture's boards, or the
  *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is

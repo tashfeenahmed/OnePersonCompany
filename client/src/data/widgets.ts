@@ -27,6 +27,49 @@ export type WidgetKind =
 
 export type StatusTone = "ok" | "warn" | "bad";
 
+/**
+ * ONE PUBLISHED THING, DRAWN AS ITSELF — an advertisement, a post, a video.
+ *
+ * THE FORM EXISTS BECAUSE A ROW OF NUMBERS ABOUT A PICTURE IS NOT A PICTURE.
+ * Every other kind in this file draws a quantity: a bar is how much, a table
+ * is which, a ranked list is which is biggest. None of them can answer "what
+ * did people actually see", and that is the question a creative or a post is
+ * on a board to answer — you cannot decide what to change about an
+ * advertisement from five figures about a thing you cannot look at.
+ *
+ * `meta` IS THE NUMBERS AND IT IS ALREADY FORMATTED, for `DonutSlice.text`'s
+ * reason: the card does not decide what a euro or a click-through looks like,
+ * and a creative's cost per click is quoted in the ad account's own currency
+ * which only the builder knows.
+ *
+ * A MISSING IMAGE IS A FIXED EMPTY BOX, never a collapsed row. Meta's creative
+ * urls are signed and expire within days, so a frame that 403s is the normal
+ * failure here rather than the exceptional one; a card that reflowed around it
+ * would redraw itself as the pictures dropped out, and a broken frame reads as
+ * "this advertisement had no picture", which is a claim about the advertisement.
+ */
+export type FeedItem = {
+  /** The headline, or who published it — a Page, a handle, a destination. */
+  title: string;
+  /** What it said. Null is a post with no words, drawn as such; wrapped and
+   *  clamped by the card, not by the builder. */
+  text?: string | null;
+  /** An image URL. Rendered as a plain lazy `<img>` in a fixed box, with an
+   *  alt, and hidden rather than drawn broken when it fails. Never a script,
+   *  never an embed. */
+  image?: string | null;
+  /** Where this thing lives, or where it pointed. Null is an item with no
+   *  public address, which the card says rather than drawing a dead link. */
+  href?: string | null;
+  /** Label/value pairs under the text, already formatted. */
+  meta?: [string, string][];
+  /** When it was published or last changed — ISO, or already in words. */
+  at?: string;
+  /** A judgement on the item, drawn as a dot before the title. Absent for an
+   *  item nobody is judging — a post is just a post. */
+  tone?: StatusTone;
+};
+
 /** A line on a chart. Timestamps rather than bare numbers, because the axis
  *  labels and the "is this window long enough to call a trend" question both
  *  need to know when a point was taken. */
@@ -183,50 +226,6 @@ export type WaterfallStep = {
   total?: boolean;
 };
 
-/**
- * ONE PUBLISHED THING, DRAWN AS ITSELF.
- *
- * Every other kind on this board turns work into a magnitude — a bar, a
- * slice, a line. A post is not a magnitude: "43 views" says nothing about
- * what to make more of, and the answer to "which post worked" is the post.
- * So this is the one kind that carries CONTENT rather than a number, and the
- * numbers ride along in `meta` as label/value pairs the builder already
- * formatted.
- *
- * `title` is who published it — a Page name, a handle, a destination — and
- * `at` is when, already written ("6 Sep"). `text` is what was actually
- * written, whole; the card clamps it rather than the builder truncating it,
- * so a hover and a copy still get the sentence. `href` is the PERMALINK and
- * is the reason this kind exists: a board that shows a post and cannot open
- * it is a screenshot.
- *
- * `image` IS A URL AND IS NEVER DOWNLOADED. Meta signs its CDN addresses with
- * an expiry a few days out, so a document that has gone stale starts serving
- * 403s — which is why the card draws the picture in a FIXED box behind an
- * error handler that hides the frame. A broken-image icon is a claim about
- * the post; an absent one is the honest render of "could not fetch it just
- * now". Nothing here embeds a third-party script or an oEmbed iframe.
- *
- * `tone` is set only where an item is being JUDGED — a failed publish, a
- * draft nobody approved — and is absent on a post, which is just a post.
- */
-export type FeedItem = {
-  /** Who published it: a Page, a handle, a destination. */
-  title: string;
-  /** When, already written by the builder — "6 Sep" or "6 Sep 2025". */
-  at: string;
-  /** What was written. Null draws "no text on this post", never an empty row. */
-  text: string | null;
-  /** A picture's URL — never bytes, never cached. See above. */
-  image?: string | null;
-  /** Where to read it. Null is a post with no public address, which the card
-   *  says rather than drawing a dead link. */
-  href?: string | null;
-  /** The figures, already formatted: [["views", "43"], ["engagement", "1"]]. */
-  meta?: [string, string][];
-  /** A judgement, for an item that is being judged. Absent on a post. */
-  tone?: StatusTone;
-};
 
 export type WidgetSource = {
   name: string;
@@ -412,6 +411,20 @@ export type Widget = {
      *  routes because it is one fetch and one question; nothing in it adds a
      *  queued draft to a published post. See lib/api/socialboard. */
     social?: boolean;
+    /**
+     * The three ads documents this box computes over Meta's own rows: the
+     * health rubric, the advertisements with their creatives, and the
+     * campaign → venture map. One bundle, three fields, nothing summed
+     * across them.
+     *
+     * ITS OWN FLAG BESIDE `meta`, not a widening of it, and the reason is the
+     * fetch rather than the subject. `/api/meta` is one request; this is three
+     * more against three different routers, and a board carrying only the
+     * spend tile must not pay for a rubric it does not draw. Both are gated on
+     * the same Meta plugin in live.tsx, because all four documents come off
+     * rows the same collector wrote.
+     */
+    ads?: boolean;
   };
   /**
    * A WORD ABOUT WHAT KIND OF NUMBER THIS IS, worn as a small mono pill after
@@ -494,6 +507,12 @@ export type Widget = {
   center?: { value: string; note: string };
   /** ranked — horizontal bars, largest first, the figure at each bar's tip. */
   ranked?: RankedRow[];
+  /** ranked — the furthest the axis goes, whatever the rows say. Set it ONLY
+   *  for a figure that is already out of something (a score out of 100): with
+   *  it, a bar's length is the share of the available credit earned; without
+   *  it, the longest row is simply the biggest and four mediocre scores would
+   *  draw as one full bar and three nearly-full ones. See charts `Ranked`. */
+  rankedMax?: number;
   /**
    * proportion — a figure and the whole it is part of. The hero is `value`
    * and `sub` as on a metric; `parts` is the split bar under it with a key
@@ -510,6 +529,9 @@ export type Widget = {
   /** waterfall — signed steps from a baseline, the last one a total. `rows`
    *  under it are the lines the picture does not carry. */
   steps?: WaterfallStep[];
+  /** feed — the published things themselves, with their pictures and their
+   *  words. `caption` closes the card as it does everywhere else. */
+  feed?: FeedItem[];
   /**
    * table — a judgement per row, drawn as a dot before the first cell. Null
    * for a row that is not judged; absent when no row on the table is. A
@@ -536,12 +558,6 @@ export type Widget = {
   /** runway — deadlines on one axis, with the two lines they are judged by. */
   runway?: RunwayRow[];
   thresholds?: { warn: number; crit: number };
-  /**
-   * feed — the posts themselves, newest or best first. See `FeedItem`: this
-   * is the one kind that draws CONTENT rather than a magnitude, and `caption`
-   * under it says what the list is a cut of and on what basis it was cut.
-   */
-  feed?: FeedItem[];
   /**
    * The furthest the axis will go, whatever the rows say. A pair of names
    * bought until 2029 pushes the axis past six hundred days and collapses
@@ -3753,6 +3769,221 @@ export const WIDGETS: Record<string, Widget> = {
     window: "selected",
     perProject: true,
     live: { social: true, meta: true },
+  },
+  /* ======================================================================
+     ADS BOARD PARITY (Workdash /ads) — workstream "ads-board", 2026-09-08.
+
+     WORKDASH'S ADS PAGE, TOP TO BOTTOM, AS CARDS. Its shape is an argument
+     and the board keeps it: the account's window first, then the VERDICT on
+     whether any of that spend is working, then who it was for, then THE
+     ADVERTISEMENTS THEMSELVES — the picture and the words people actually
+     saw — and only then the accounting view of campaigns and days. The
+     creatives are not decoration at the bottom of a board of figures; they
+     are the thing every figure above them is about, and a page that shows
+     five numbers about an advertisement nobody can look at cannot be acted
+     on.
+
+     THREE DOCUMENTS BEHIND THEM, none of which is /api/meta: the health
+     rubric (`/growth/ads`), the advertisements with their creatives
+     (`/webanalytics/creatives`) and the campaign → venture map
+     (`/webanalytics/campaigns`). See lib/api/adsboard for why they are one
+     bundle and three fields.
+
+     WHAT NOTHING HERE DOES. It never adds two ad accounts' money, never sums
+     reach across anything, never averages a frequency, and never divides ad
+     spend into revenue and calls the answer a return on ad spend — Meta
+     reports no purchase on this account and this box attributes no euro of
+     income to a click. `meta.roas` says that in as many words and stays on
+     the board for it.
+     ====================================================================== */
+
+  /* --- the account, over the window ---------------------------------- */
+
+  "meta.clicks": {
+    src: "meta",
+    name: "Ad clicks",
+    window: "selected",
+    kind: "metric",
+    live: { meta: true },
+  },
+  "meta.cpc": {
+    src: "meta",
+    name: "Cost per click",
+    window: "selected",
+    kind: "metric",
+    live: { meta: true },
+  },
+  "ads.delivering": {
+    src: "meta",
+    name: "Ads delivering",
+    window: "selected",
+    kind: "metric",
+    live: { ads: true },
+  },
+
+  /* --- is the spend working ------------------------------------------ */
+
+  "ads.health": {
+    src: "meta",
+    name: "Account health",
+    /* A LEVEL, NOT A WINDOW. The rubric is a verdict on the account as it is
+       set up now; its inputs carry their own spans and say them. */
+    window: "now",
+    kind: "profile",
+    live: { ads: true },
+  },
+  "ads.categories": {
+    src: "meta",
+    name: "Health by category",
+    window: "now",
+    kind: "ranked",
+    live: { ads: true },
+  },
+  /* THE QUICK WINS ARE A TABLE AND NOT A ROWS LIST, because the FIX is the
+     point of the card and a fix is a sentence. A two-column row would carry
+     the title and the minutes and drop the only part somebody can act on. */
+  "ads.quickWins": {
+    src: "meta",
+    name: "Quick wins",
+    window: "now",
+    kind: "table",
+    live: { ads: true },
+    headers: ["Quick win", "Severity", "Fix takes", "What to do"],
+  },
+  "ads.failing": {
+    src: "meta",
+    name: "What failed, worst first",
+    window: "now",
+    kind: "table",
+    live: { ads: true },
+    headers: ["Check", "Result", "Severity", "Fix takes", "What it found"],
+  },
+  "ads.categoryTable": {
+    src: "meta",
+    name: "How the score was reached",
+    window: "now",
+    kind: "table",
+    live: { ads: true },
+    headers: ["Category", "Score", "Weight", "Evaluated", "Why"],
+  },
+
+  /* --- what it bought, per venture ------------------------------------ */
+
+  "ads.ventures": {
+    src: "meta",
+    name: "Ad spend by venture",
+    window: "selected",
+    kind: "ranked",
+    live: { ads: true, meta: true },
+  },
+  "ads.venture": {
+    src: "meta",
+    name: "Ad spend",
+    window: "selected",
+    kind: "profile",
+    perProject: true,
+    live: { ads: true, meta: true },
+  },
+  "ads.mapping": {
+    src: "meta",
+    name: "Which venture each campaign is for",
+    window: "now",
+    kind: "table",
+    live: { ads: true, meta: true },
+    headers: ["Campaign", "Venture", "How", "Evidence"],
+  },
+
+  /* --- what ran: the advertisements themselves ------------------------ */
+
+  "ads.creatives": {
+    src: "meta",
+    name: "What ran",
+    window: "selected",
+    kind: "feed",
+    live: { ads: true, meta: true },
+  },
+  "ads.cpc": {
+    src: "meta",
+    name: "Cost per click, ad against ad",
+    window: "selected",
+    kind: "ranked",
+    live: { ads: true },
+  },
+  "ads.table": {
+    src: "meta",
+    name: "Every advertisement that delivered",
+    window: "selected",
+    kind: "table",
+    live: { ads: true },
+    headers: ["Advertisement", "Spend", "Clicks", "Per click", "CTR", "CPM", "Impressions", "Days"],
+  },
+  "ads.fatigue": {
+    src: "meta",
+    name: "Creative fatigue",
+    window: "now",
+    kind: "rows",
+    live: { ads: true },
+  },
+  "ads.issues": {
+    src: "meta",
+    name: "Advertisements not running as set up",
+    window: "now",
+    kind: "statuses",
+    live: { ads: true },
+  },
+  "ads.sets": {
+    src: "meta",
+    name: "Ad sets",
+    window: "now",
+    kind: "table",
+    live: { ads: true },
+    headers: ["Ad set", "Status", "Optimising for", "Budget", "Bid strategy", "Ads"],
+  },
+
+  /* --- the accounting view -------------------------------------------- */
+
+  "ads.campaignTrend": {
+    src: "meta",
+    name: "Campaigns, and how each spent",
+    window: "selected",
+    kind: "ranked",
+    live: { ads: true, meta: true },
+  },
+  /* ACCOUNT-LEVEL DAILY, so `meta` and not `ads`: /api/meta's own day rows are
+     authoritative for delivery — the ad-level table is capped and does not
+     page — and they are the only place a per-day LEAD count exists. */
+  "meta.results": {
+    src: "meta",
+    name: "What the money bought, a day",
+    window: "selected",
+    kind: "chart",
+    live: { meta: true },
+    unit: "count",
+  },
+
+  /* --- AdSense, on the same board and never crossed with the above ---- */
+
+  "adsense.daily": {
+    src: "adsense",
+    name: "AdSense earnings a day",
+    window: "selected",
+    kind: "chart",
+    live: { adsense: true },
+    unit: "usd",
+  },
+  "adsense.sites": {
+    src: "adsense",
+    name: "AdSense by site",
+    window: "selected",
+    kind: "table",
+    live: { adsense: true },
+    headers: ["Site", "Earnings", "RPM", "Page views", "Impressions", "Clicks", "CTR"],
+  },
+  "adsense.months": {
+    src: "adsense",
+    name: "AdSense by month",
+    kind: "rows",
+    live: { adsense: true },
   },
 };
 

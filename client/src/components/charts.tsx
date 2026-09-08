@@ -1267,9 +1267,26 @@ export function Donut({
  * and `sub` — the row's recent daily values — for a list where the bar says
  * how much and the reader's next question is which way. Workdash's search
  * rail is the model. No axis, no hover: the figures are already printed.
+ *
+ * `max` FIXES THE AXIS, AND ONLY A SCORE SHOULD USE IT. The default scale is
+ * relative — the longest bar is the biggest row — which is right whenever the
+ * question is "which of these is largest". It is wrong for a figure that is
+ * already out of something: four category scores of 55, 52, 50 and 48 drawn
+ * relatively are one full bar and three nearly-full ones, which says the
+ * account is doing well at everything. Passing `max={100}` makes the length
+ * mean "how much of the available credit was earned", and four mediocre scores
+ * look mediocre.
  */
-export function Ranked({ rows, caption }: { rows: RankedRow[]; caption?: string }) {
-  const top = Math.max(1, ...rows.map((r) => Math.max(r.value, 0)));
+export function Ranked({
+  rows,
+  caption,
+  max,
+}: {
+  rows: RankedRow[];
+  caption?: string;
+  max?: number;
+}) {
+  const top = max ?? Math.max(1, ...rows.map((r) => Math.max(r.value, 0)));
   return (
     <div className="mt-1 flex flex-col gap-2">
       {rows.map((r) => {
@@ -1831,8 +1848,13 @@ export function Figures({
                 key={h}
                 scope="col"
                 className={cn(
+                  /* THE SAME GUTTER THE CELLS UNDER IT HAVE. Without `pl-3`
+                     two narrow right-aligned headers touch — "Bid strategy"
+                     and "Ads" render as one word — while the figures below
+                     them are correctly spaced, which reads as a typo in the
+                     header rather than as missing padding. */
                   "border-line-soft border-b pb-1 font-normal",
-                  i === 0 ? "text-left" : "text-right",
+                  i === 0 ? "text-left" : "pl-3 text-right",
                 )}
               >
                 {h}
@@ -1842,7 +1864,10 @@ export function Figures({
         </thead>
         <tbody>
           {rows.map((r, ri) => (
-            <tr key={r[0]} className="hover:bg-muted/40 transition-colors">
+            /* KEYED BY POSITION AS WELL AS BY NAME. Two rows may legitimately
+               share a first cell — an account with two ad sets called the same
+               thing — and a duplicate key drops one of them silently. */
+            <tr key={`${r[0]}-${ri}`} className="hover:bg-muted/40 transition-colors">
               {r.map((cell, i) => (
                 <td
                   key={i}
