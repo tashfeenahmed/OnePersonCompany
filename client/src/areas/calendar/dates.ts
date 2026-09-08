@@ -340,7 +340,9 @@ export const eventKey = (e: CalendarEvent): string => `${e.calendarId}:${e.event
  */
 export function tint(color: string | null, dark: boolean): string | undefined {
   if (!color || !/^#[0-9a-f]{6}$/i.test(color)) return undefined;
-  return `${color}${dark ? "3d" : "2e"}`;
+  /* A third on the dark theme and a fifth on the light: enough for a block
+     to read as its calendar at a glance, still under the text. */
+  return `${color}${dark ? "55" : "36"}`;
 }
 
 /** The same colour at full strength, for a 6px rule or a legend dot. */
