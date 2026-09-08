@@ -463,6 +463,20 @@ export type Widget = {
      * rows the same collector wrote.
      */
     ads?: boolean;
+    /**
+     * THE USERS ROLL-UP — one row per product endpoint publishing the users
+     * contract, with its daily signup line, its paid split and its lastSeenAt
+     * level. Gated on the `users` plugin, which holds a credential per product.
+     *
+     * ITS OWN FLAG BESIDE `products`, and the two must never be merged. The
+     * product-stats endpoints publish whatever figures the owner mapped out of
+     * each product's own admin JSON — one of them is literally called "total
+     * users" — and those are not comparable with these: this document counts
+     * PEOPLE by one definition for every product, that one quotes each
+     * product's own. A card that added them would be adding two different
+     * words. The Users board draws both and says which is which.
+     */
+    users?: boolean;
   };
   /**
    * A WORD ABOUT WHAT KIND OF NUMBER THIS IS, worn as a small mono pill after
@@ -824,6 +838,30 @@ export const SOURCES: Record<string, WidgetSource> = {
     mono: "Pr",
     tint: "#8a6a3f",
     connected: true,
+  },
+  /*
+    WHO SIGNED UP — A SOURCE OF ITS OWN, NOT A CORNER OF `products`.
+
+    Both read a JSON document each product publishes about itself, and they
+    are still two sources for the reason `gsc` and `bing` are two: the figures
+    are not comparable and one field holding both is one field away from a
+    card that adds them. A product-stats metric called "total users" is
+    whatever that product's admin page means by the phrase; a row on this
+    document is a PERSON, counted the same way for every product, with a
+    signup date and a paid flag that mean the same thing everywhere.
+
+    NOT CONNECTED BY DEFAULT, unlike its neighbours: there is a credential per
+    product behind it — a URL, sometimes a token — and until one is pasted the
+    honest state of every card here is a sample with no live dot.
+  */
+  users: {
+    name: "App users",
+    icon: null,
+    /* "Us" rather than "U", which the uptime probe already holds — the same
+       collision the second wave's two-letter monograms were introduced for. */
+    mono: "Us",
+    tint: "#5a8f6e",
+    connected: false,
   },
   backlinks: {
     name: "Backlinks",
@@ -4197,6 +4235,240 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "donut",
     window: "now",
     live: { boxes: true, fleet: true },
+  },
+
+  /* ================================================ USERS BOARD PARITY ==
+     WORKDASH'S /users, AS CARDS — workstream "users-board", 2026-09-08.
+
+     That page reads the applications' OWN DATABASES over ssh. This box cannot
+     and will not: the same figures arrive because each product PUBLISHES them,
+     as a JSON document against a contract (see server integrations/activity/
+     users.ts). The consequence for every card below is that a product can be
+     absent from a figure in three different ways, and the three look nothing
+     alike:
+
+       · NEVER COLLECTED — nobody has asked yet. Not a failure.
+       · UNREACHABLE — asked and refused. Its users are excluded from every
+         total rather than counted as zero, and the total is then a floor.
+       · COUNTS-ONLY — it answered with a total and cannot list anybody, so it
+         has a user count and NO WINDOWS AT ALL. It is in `totalUsers` and in
+         neither signup window, and every card that quotes a window says how
+         many products are missing from it.
+
+     WHAT IS COMPARABLE ACROSS PRODUCTS AND WHAT IS NOT, because this board's
+     whole job is to keep the two apart:
+       · A PERSON ADDS. Two products' users are two disjoint sets of people, so
+         a portfolio user count is a count of people — the one total on this
+         board that is real. Populations and countries add for the same reason.
+       · A PLAN DOES NOT. One product's "pro" and another's are two words two
+         people chose, so the plans card names its product on every row and
+         never sums.
+       · A PRODUCT-STATS FIGURE DOES NOT COMPARE WITH EITHER. `users.products`
+         draws the mapped metrics off /api/products — "signups", "total users",
+         "active paid users" — and they are each product's own definition of a
+         word. That card is the reason the board has something to say while the
+         users plugin is unconnected, and it says whose figure each row is.
+
+     WHAT THE CONTRACT CANNOT SAY, stated on `users.cannot` rather than left as
+     an absence: there is no session history, so no daily-active line and no
+     cohort curve; `lastSeenAt` is a LEVEL, so "active" is that level inside the
+     window and `users.returned` is the first point of a retention curve and no
+     other point of it. And there is no address anywhere on this board — the
+     collector stores a salted hash and the mail domain, and "gmail.com"
+     identifies nobody.
+  */
+
+  /* ---- what is wrong, and what is connected --------------------------- */
+  "users.worth": {
+    src: "users",
+    name: "Worth a look",
+    kind: "statuses",
+    window: "now",
+    live: { users: true },
+  },
+  "users.sources": {
+    src: "users",
+    name: "Product endpoints",
+    kind: "statuses",
+    window: "now",
+    live: { users: true },
+  },
+
+  /* ---- the tiles ------------------------------------------------------
+     Workdash opens on four: total users, new in the window, how many no
+     window can account for, and how many have an address. The middle one is
+     split here — new against active — because this contract carries a
+     lastSeenAt that Workdash's probes did not, and "how many came" and "how
+     many stayed" are the two halves of the question. */
+  "users.total": {
+    src: "users",
+    name: "Users",
+    kind: "proportion",
+    window: "now",
+    live: { users: true },
+  },
+  "users.new": {
+    src: "users",
+    name: "New signups",
+    kind: "metric",
+    window: "selected",
+    live: { users: true },
+  },
+  "users.active": {
+    src: "users",
+    name: "Active",
+    kind: "metric",
+    window: "selected",
+    live: { users: true },
+  },
+  "users.paying": {
+    src: "users",
+    name: "Paying",
+    kind: "proportion",
+    window: "now",
+    live: { users: true },
+  },
+  /* PAID SHARE AND NOT "CONVERSION". Conversion is a rate out of everyone who
+     could have paid, and this denominator is everyone the product SAID
+     something about — a product that publishes no `paid` field is not in it at
+     all. The card names the size of that silence. */
+  "users.conversion": {
+    src: "users",
+    name: "Paid share",
+    kind: "metric",
+    window: "now",
+    live: { users: true },
+  },
+  /* "With email" AND NOT "With an email", which is the wording Workdash uses:
+     this tile is one column wide and shares its line with the window suffix
+     and the "measured" pill, and the longer name truncated to an ellipsis in
+     the one place a reader is working out what the figure is. */
+  "users.email": {
+    src: "users",
+    name: "With email",
+    kind: "metric",
+    window: "now",
+    live: { users: true },
+  },
+  /* THE FIRST POINT OF A RETENTION CURVE, and the card says so rather than
+     calling itself retention — see `users.cannot`. */
+  "users.returned": {
+    src: "users",
+    name: "Came back",
+    kind: "metric",
+    window: "selected",
+    live: { users: true },
+  },
+
+  /* ---- the line -------------------------------------------------------
+     ONE LINE PER PRODUCT rather than Workdash's single merged one, because
+     this box knows which products can date a signup and can therefore draw
+     them apart instead of summing them into a figure whose composition is
+     invisible. The chart cycles four colours, so the four largest are drawn
+     and any others are NAMED in the caption — never silently dropped.
+
+     THE LEVEL IS NOT A SECOND CHART. "How many users are there" over time is a
+     LEVEL, and `Chart` quotes its mean per sampling grain — "mean 600/day",
+     which is true of a rate and false of a level. So the base rides as the
+     SPARKLINE on `users.total`, which is where Workdash puts it too: a stat
+     card with the figure, and the shape it arrived at underneath. */
+  "users.signups": {
+    src: "users",
+    name: "Signups per day",
+    kind: "chart",
+    window: "selected",
+    live: { users: true },
+    unit: "count",
+  },
+
+  /* ---- who they are ---------------------------------------------------- */
+  "users.share": {
+    src: "users",
+    name: "Share of the user base",
+    kind: "ranked",
+    window: "now",
+    live: { users: true },
+  },
+  "users.populations": {
+    src: "users",
+    name: "Who these people are",
+    kind: "ranked",
+    window: "now",
+    live: { users: true },
+  },
+  /* EVERY ROW NAMES ITS PRODUCT AND NOTHING IS SUMMED. Two products' "pro"
+     plans are two words two people chose independently. */
+  "users.plans": {
+    src: "users",
+    name: "Plans",
+    kind: "ranked",
+    window: "now",
+    live: { users: true },
+  },
+  /* THE ONE PER-ROW FACT THAT DOES ADD ACROSS PRODUCTS: a person in IE is in
+     IE whoever they signed up with. */
+  "users.countries": {
+    src: "users",
+    name: "Where they are",
+    kind: "ranked",
+    window: "now",
+    live: { users: true },
+  },
+
+  /* ---- the tables ------------------------------------------------------ */
+  "users.table": {
+    src: "users",
+    name: "Every product",
+    kind: "table",
+    window: "now",
+    live: { users: true },
+    headers: ["Product", "Users", "New · 30d", "Active", "Paying", "Last signup", "State"],
+  },
+  /* THE NEWEST SIGNUPS, MERGED BY THE ROUTE. Five from each of four products
+     is not the newest twenty overall, so this cannot be assembled here. The
+     mail DOMAIN and nothing more: there is no address on the document. */
+  "users.recent": {
+    src: "users",
+    name: "Recent signups",
+    kind: "table",
+    window: "now",
+    live: { users: true },
+    headers: ["When", "Product", "Mail domain", "Plan", "Paying", "Country"],
+  },
+
+  /* ---- one venture's users --------------------------------------------
+     THE ROUTE HAS ALREADY DECIDED WHICH VENTURE EACH PRODUCT BELONGS TO — the
+     setting the owner typed, then the link on the venture map, then a
+     hostname that looked alike, in that order (server .../activity/link.ts).
+     This card reads that decision rather than re-deriving one from hostnames
+     here, which would silently drop a product the owner mapped BY NAME. */
+  "users.project": {
+    src: "users",
+    name: "Users",
+    kind: "profile",
+    window: "selected",
+    perProject: true,
+    live: { users: true },
+  },
+
+  /* ---- the two closing cards ------------------------------------------ */
+  /* THE PRODUCTS' OWN FIGURES, WHICH ARE NOT THESE FIGURES. Read off
+     /api/products, so this card answers while the users plugin is unconnected
+     — and every row is one product's own definition of a word. Nothing on it
+     is added to anything. */
+  "users.products": {
+    src: "products",
+    name: "Each product's own figure",
+    kind: "rows",
+    window: "now",
+    live: { products: true },
+  },
+  "users.cannot": {
+    src: "users",
+    name: "What this cannot say",
+    kind: "rows",
+    window: "now",
+    live: { users: true },
   },
 };
 

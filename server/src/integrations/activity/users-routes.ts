@@ -23,6 +23,18 @@
  * paid count, not a zero one, and `paidUnknown` counts the rows that could not
  * answer.
  *
+ * ACTIVE IS A LEVEL INSIDE A WINDOW AND IS NOT A DAILY ACTIVE COUNT. The
+ * contract publishes one `lastSeenAt` per person — the latest moment their
+ * product knew of them — so what can be counted is how many of those moments
+ * fall inside the window. Nothing here records that somebody was present on a
+ * particular Tuesday, so nothing here can produce a DAU line, and `returned`
+ * is the first point of a retention curve rather than the curve.
+ *
+ * AN ADDRESS ON FILE IS NOT AN AUDIENCE. `withEmail` counts rows carrying a
+ * hash; `contactPermitted` counts the ones whose own product recorded somebody
+ * agreeing. They are two figures and never one, because the difference between
+ * them is the difference between a table and a lawful mailing list.
+ *
  * ADDRESSES ARE NOT HERE AND CANNOT BE ASKED FOR. They are stored as a salted
  * hash (see 130_activity_users) and there is no filter, no query parameter and
  * no field below that takes or returns one. The domain is returned because
@@ -73,6 +85,197 @@ function paidCounts(): Map<number, { paid: number; free: number; unknown: number
   return new Map(rows.map((r) => [r.account_id, { paid: r.paid, free: r.free, unknown: r.unknown }]));
 }
 
+/**
+ * WHO CAN BE REACHED, AND WHO SAID SO — two counts from one scan.
+ *
+ * They answer the same question at two strengths and must never be printed as
+ * one. An address on file is a FACT ABOUT THE TABLE; `contact_permitted` is a
+ * product's record of somebody agreeing, and it is the only one of the two that
+ * makes a mailing list lawful. See users.ts: nothing here infers the second
+ * from the first, and a card that quoted "with an email" as an audience size
+ * would be doing exactly that inference on the reader's behalf.
+ */
+function reachCounts(): Map<number, { withEmail: number; permitted: number }> {
+  const rows = db
+    .prepare(
+      `SELECT account_id,
+              SUM(CASE WHEN email_hash IS NOT NULL THEN 1 ELSE 0 END) AS with_email,
+              SUM(CASE WHEN contact_permitted = 1 THEN 1 ELSE 0 END) AS permitted
+         FROM activity_users GROUP BY account_id`,
+    )
+    .all() as unknown as { account_id: number; with_email: number; permitted: number }[];
+  return new Map(rows.map((r) => [r.account_id, { withEmail: r.with_email, permitted: r.permitted }]));
+}
+
+/**
+ * SEEN INSIDE THE WINDOW, AND NEVER SEEN AT ALL — the two halves of "active".
+ *
+ * `lastSeenAt` IS A LEVEL AND NOT A SESSION LOG. The contract publishes the
+ * latest moment a product knew of a person; nothing anywhere records that they
+ * were here on Tuesday. So "active" here is exactly "that level falls inside
+ * the window" — which is the first thing anyone means by the word and is not
+ * the same as a daily active count, a figure this box cannot produce and does
+ * not pretend to.
+ *
+ * `unknown` IS WHY THE ROUTE RETURNS NULL RATHER THAN ZERO. A product that
+ * publishes no `lastSeenAt` on any row has not said nobody came back; it has
+ * said nothing, and a 0 under "active" would be the most misleading figure on
+ * the whole document.
+ */
+function seenCounts(iso: string): Map<number, { active: number; unknown: number }> {
+  const rows = db
+    .prepare(
+      `SELECT account_id,
+              SUM(CASE WHEN last_seen IS NOT NULL AND last_seen >= ? THEN 1 ELSE 0 END) AS active,
+              SUM(CASE WHEN last_seen IS NULL THEN 1 ELSE 0 END) AS unknown
+         FROM activity_users GROUP BY account_id`,
+    )
+    .all(iso) as unknown as { account_id: number; active: number; unknown: number }[];
+  return new Map(rows.map((r) => [r.account_id, { active: r.active, unknown: r.unknown }]));
+}
+
+/**
+ * CAME BACK — signups inside the window that were seen again a day or more
+ * after they joined.
+ *
+ * THIS IS THE CLOSEST THING TO RETENTION THIS CONTRACT CAN SUPPORT, and it is
+ * deliberately not called that on any card. A retention curve needs to know
+ * whether somebody was present in week two AND in week three; the contract
+ * publishes ONE `lastSeenAt` per person, so week two and week three are the
+ * same field. What can be said honestly is whether a new signup ever came back
+ * at all — the first point of that curve, and no other point of it.
+ *
+ * A DAY IS THE THRESHOLD because a fresh signup's `lastSeenAt` is normally the
+ * signup itself: without it every product would report that everybody returned.
+ * `julianday` rather than a string compare, because the two timestamps are
+ * being subtracted rather than ordered.
+ */
+function returnedCounts(iso: string): Map<number, number> {
+  const rows = db
+    .prepare(
+      `SELECT account_id, COUNT(*) AS n
+         FROM activity_users
+        WHERE created_at >= ? AND last_seen IS NOT NULL
+          AND julianday(last_seen) >= julianday(created_at) + 1
+        GROUP BY account_id`,
+    )
+    .all(iso) as unknown as CountRow[];
+  return new Map(rows.map((r) => [r.account_id, r.n]));
+}
+
+/**
+ * WHO THESE PEOPLE ARE TO THE BUSINESS, per product — see `POPULATIONS` in
+ * users.ts for why the field exists at all.
+ *
+ * A NULL POPULATION IS `customer`, resolved here rather than by every reader,
+ * because that is what the contract always implied and what every row written
+ * before the field existed means. It is the one place the default lives on the
+ * read side, matching the one place it lives on the write side.
+ */
+function populationCounts(): Map<number, Record<string, number>> {
+  const rows = db
+    .prepare(
+      `SELECT account_id, COALESCE(population, 'customer') AS population, COUNT(*) AS n
+         FROM activity_users GROUP BY account_id, COALESCE(population, 'customer')`,
+    )
+    .all() as unknown as { account_id: number; population: string; n: number }[];
+  const out = new Map<number, Record<string, number>>();
+  for (const r of rows) out.set(r.account_id, { ...(out.get(r.account_id) ?? {}), [r.population]: r.n });
+  return out;
+}
+
+/**
+ * The plans, or the countries, a product's rows carry — largest first.
+ *
+ * THE COLUMN IS A UNION AND NOT A STRING, so there is no way to reach this
+ * with a caller's text: the two names below are the only two values the type
+ * admits and neither comes off a request.
+ *
+ * A PLAN IS NEVER COMPARABLE ACROSS PRODUCTS and a country always is. One
+ * product's "pro" and another's are two words somebody chose; IE is IE. That
+ * is why these come back per product and the route adds neither — the reader
+ * that may sum countries is the one that knows it is allowed to.
+ */
+function facetCounts(column: "plan" | "country", cap: number): Map<number, { value: string; n: number }[]> {
+  const rows = db
+    .prepare(
+      `SELECT account_id, ${column} AS value, COUNT(*) AS n
+         FROM activity_users WHERE ${column} IS NOT NULL AND ${column} <> ''
+        GROUP BY account_id, ${column} ORDER BY n DESC, value ASC`,
+    )
+    .all() as unknown as { account_id: number; value: string; n: number }[];
+  const out = new Map<number, { value: string; n: number }[]>();
+  for (const r of rows) {
+    const held = out.get(r.account_id) ?? [];
+    if (held.length < cap) out.set(r.account_id, [...held, { value: r.value, n: r.n }]);
+  }
+  return out;
+}
+
+/** The oldest and newest signup this box holds for each product. Both are a
+ *  floor: an endpoint that lists its newest hundred has an older first signup
+ *  than anything here can see. */
+function signupSpans(): Map<number, { first: string; last: string }> {
+  const rows = db
+    .prepare("SELECT account_id, MIN(created_at) AS first, MAX(created_at) AS last FROM activity_users GROUP BY account_id")
+    .all() as unknown as { account_id: number; first: string; last: string }[];
+  return new Map(rows.map((r) => [r.account_id, { first: r.first, last: r.last }]));
+}
+
+/** How many newest signups the roll-up carries. Small on purpose: this is the
+ *  "who just arrived" list, and the full page-through is `/api/users/:product`. */
+const RECENT = 25;
+
+/**
+ * THE NEWEST SIGNUPS ACROSS EVERY PRODUCT, merged and re-sorted here.
+ *
+ * IT CANNOT BE ASSEMBLED FROM THE PER-PRODUCT ROWS by a reader: five from each
+ * of four products is not the newest twenty overall, and a page that merged
+ * them would be showing "recent" with a quiet bias towards whichever product
+ * signs people up slowest.
+ *
+ * THERE IS NO ADDRESS ON IT AND THERE CANNOT BE. The domain is what is stored
+ * (see users.ts) and "gmail.com" identifies nobody; the product's own id is
+ * opaque to this box. A list of who signed up that could be used to write to
+ * them is the capability this whole area declines.
+ */
+function recentSignups(): {
+  accountId: number;
+  product: string;
+  id: string;
+  emailDomain: string | null;
+  createdAt: string;
+  plan: string | null;
+  paid: boolean | null;
+  country: string | null;
+}[] {
+  const rows = db
+    .prepare(
+      `SELECT account_id, product, user_id, email_domain, created_at, plan, paid, country
+         FROM activity_users ORDER BY created_at DESC, user_id DESC LIMIT ?`,
+    )
+    .all(RECENT) as unknown as {
+    account_id: number;
+    product: string;
+    user_id: string;
+    email_domain: string | null;
+    created_at: string;
+    plan: string | null;
+    paid: number | null;
+    country: string | null;
+  }[];
+  return rows.map((r) => ({
+    accountId: r.account_id,
+    product: r.product,
+    id: r.user_id,
+    emailDomain: r.email_domain,
+    createdAt: r.created_at,
+    plan: r.plan,
+    paid: r.paid === null ? null : r.paid === 1,
+    country: r.country,
+  }));
+}
+
 type DayRow = { account_id: number; day: string; signups: number | null; total: number | null; source: string };
 
 function dayRows(fromDay: string): Map<number, DayRow[]> {
@@ -106,6 +309,17 @@ userRoutes.get("/", (c) => {
   const new7 = countsSince(since(7));
   const new30 = countsSince(since(30));
   const paid = paidCounts();
+  /* THE THREE THAT FOLLOW THE PICKER. `new7d`/`new30d` above are fixed windows
+     the contract's own vocabulary named; these are measured over whatever
+     `days` was asked for, and the document says which is which so a card can
+     never caption one with the other's span. */
+  const seen = seenCounts(since(days));
+  const returned = returnedCounts(since(days));
+  const reach = reachCounts();
+  const populations = populationCounts();
+  const plans = facetCounts("plan", 8);
+  const countries = facetCounts("country", 12);
+  const spans = signupSpans();
   const series = dayRows(fromDay);
   const ventures = ventureFor(
     list.map((a) => ({ id: a.id, label: a.label })),
@@ -117,6 +331,17 @@ userRoutes.get("/", (c) => {
     const shape = doc?.shape ?? null;
     const rowsHeld = held.get(account.id) ?? 0;
     const p = paid.get(account.id) ?? { paid: 0, free: 0, unknown: 0 };
+    /*
+      WHETHER THIS PRODUCT HAS EVER LISTED ANYBODY, which is the gate on every
+      per-row figure below — and it is `shape === "users"` rather than "not
+      counts-only". A product nobody has collected yet, and one whose first
+      document was refused, have NO SHAPE AT ALL: they have said nothing about
+      windows, plans or who pays, and a 0 in those columns would be this box
+      answering on their behalf. (A product that listed users once and failed
+      this morning keeps its shape — see writeDoc's COALESCE — so it goes on
+      reporting what it last said, dated, which is the true picture.)
+    */
+    const lists = shape === "users";
     const countsOnly = shape === "counts";
 
     return {
@@ -150,8 +375,8 @@ userRoutes.get("/", (c) => {
 
       /* THE TWO WINDOWS. Never added: the 7 is inside the 30. Null for a
          counts-only product, which has no rows to bucket. */
-      new7d: countsOnly ? null : (new7.get(account.id) ?? 0),
-      new30d: countsOnly ? null : (new30.get(account.id) ?? 0),
+      new7d: lists ? (new7.get(account.id) ?? 0) : null,
+      new30d: lists ? (new30.get(account.id) ?? 0) : null,
       /** What a counts-only product said about new users, in ITS window, in
          its own words. Null for everything else. */
       newWindow:
@@ -169,10 +394,43 @@ userRoutes.get("/", (c) => {
             })()
           : null,
 
-      paid: countsOnly ? null : p.paid,
-      free: countsOnly ? null : p.free,
+      paid: lists ? p.paid : null,
+      free: lists ? p.free : null,
       /** Rows whose product did not say whether they pay. Not free. */
-      paidUnknown: countsOnly ? null : p.unknown,
+      paidUnknown: lists ? p.unknown : null,
+
+      /** An address on file. NOT an audience: see `reachCounts`. */
+      withEmail: lists ? (reach.get(account.id)?.withEmail ?? 0) : null,
+      /** Rows whose product records this person agreeing to be written to.
+       *  The only one of the two figures that sizes a campaign. */
+      contactPermitted: lists ? (reach.get(account.id)?.permitted ?? 0) : null,
+
+      /* ACTIVE, OVER `days`, AND NULL WHERE THE PRODUCT CANNOT SAY. A product
+         that publishes no lastSeenAt on any row has said nothing about who
+         came back, and a zero here would read as "nobody did". */
+      active: lists && (seen.get(account.id)?.unknown ?? 0) !== rowsHeld ? (seen.get(account.id)?.active ?? 0) : null,
+      /** Rows carrying no lastSeenAt at all — absent from `active` rather than
+       *  counted as inactive. */
+      lastSeenUnknown: lists ? (seen.get(account.id)?.unknown ?? 0) : null,
+      /** Signups inside the window that were seen again a day or more later.
+       *  The first point of a retention curve and NOT the curve — see
+       *  `returnedCounts`. Null on a product with no lastSeenAt. */
+      returned: lists && (seen.get(account.id)?.unknown ?? 0) !== rowsHeld ? (returned.get(account.id) ?? 0) : null,
+
+      /** Who these people are to the business — a missing population is
+       *  `customer`, resolved on the way out. */
+      populations: lists ? (populations.get(account.id) ?? {}) : null,
+      /** This product's plans, largest first. NEVER comparable with another
+       *  product's: two owners chose the word "pro" independently. */
+      plans: lists ? (plans.get(account.id) ?? []) : [],
+      /** Countries, largest first. These DO compare across products — IE is
+       *  IE — and this route still does not add them; the reader that may is
+       *  the one that knows it. */
+      countries: lists ? (countries.get(account.id) ?? []) : [],
+      /** The oldest and newest signup held. Both are floors: an endpoint that
+       *  lists its newest hundred has an older first signup than this sees. */
+      firstSignupAt: spans.get(account.id)?.first ?? null,
+      lastSignupAt: spans.get(account.id)?.last ?? null,
 
       /** Signups per day from the rows we hold, or the observed level for a
        *  counts-only product. The two are on different rows and never mixed —
@@ -187,9 +445,24 @@ userRoutes.get("/", (c) => {
   });
 
   const listing = products.filter((p) => p.shape !== "counts");
+  /* PRODUCTS THAT CAN ANSWER "ACTIVE" AT ALL — the denominator every active
+     figure below is out of, and it is not the product count. A product with no
+     lastSeenAt is ABSENT from the active total, exactly as a counts-only
+     product is absent from the two new windows. */
+  const seenAble = products.filter((p) => p.active !== null);
+  const populationTotals: Record<string, number> = {};
+  for (const p of products)
+    for (const [name, n] of Object.entries(p.populations ?? {}))
+      populationTotals[name] = (populationTotals[name] ?? 0) + n;
   return c.json({
-    window: { days, of: "the daily series; the new counts are fixed at 7 and 30 days" },
+    window: {
+      days,
+      of: "the daily series, the active count and the returned count; the new counts are fixed at 7 and 30 days",
+    },
     products,
+    /** The newest signups across every product, merged here because five from
+     *  each of four products is not the newest twenty overall. No address. */
+    recentSignups: recentSignups(),
     summary: {
       configured: products.length,
       answering: products.filter((p) => p.reachable === true).length,
@@ -215,11 +488,40 @@ userRoutes.get("/", (c) => {
       new7d: listing.reduce((n, p) => n + (p.new7d ?? 0), 0),
       new30d: listing.reduce((n, p) => n + (p.new30d ?? 0), 0),
       windowsMissing: products.filter((p) => p.new7d === null).length,
+
+      /* THE PAID SPLIT, PORTFOLIO-WIDE AND THREE-VALUED. `paidUnknown` is the
+         reason there is no conversion rate on this document: a rate over a
+         denominator that is partly guesswork is a rate about nothing, and the
+         reader that draws one has to see the size of the guess first. */
+      paid: listing.reduce((n, p) => n + (p.paid ?? 0), 0),
+      free: listing.reduce((n, p) => n + (p.free ?? 0), 0),
+      paidUnknown: listing.reduce((n, p) => n + (p.paidUnknown ?? 0), 0),
+
+      /** An address on file. Not an audience — see `contactPermitted`. */
+      withEmail: listing.reduce((n, p) => n + (p.withEmail ?? 0), 0),
+      /** People whose own product records them agreeing to be written to. */
+      contactPermitted: listing.reduce((n, p) => n + (p.contactPermitted ?? 0), 0),
+
+      /* ACTIVE AND RETURNED, over `window.days`, summed only across the
+         products that can answer. `activeMissing` is how many are absent from
+         them rather than counted as zero — the same rule `windowsMissing`
+         states for the two new windows. */
+      active: seenAble.reduce((n, p) => n + (p.active ?? 0), 0),
+      returned: seenAble.reduce((n, p) => n + (p.returned ?? 0), 0),
+      activeMissing: products.length - seenAble.length,
+
+      /** Who the portfolio's users are to the business. Added across products
+       *  because a customer of one and a customer of another are two people —
+       *  which is the same argument `totalUsers` rests on. */
+      populations: populationTotals,
+
       lastFetchedAt: products.map((p) => p.lastFetchedAt).filter(Boolean).sort().at(-1) ?? null,
       note:
         "A product's own `total` beats a count of the rows held here; the rows are a floor. " +
         "new7d and new30d are separate windows and are never added together. A counts-only " +
-        "product contributes to totalUsers and to neither window.",
+        "product contributes to totalUsers and to neither window. `active` is a lastSeenAt " +
+        "level inside the window and is not a daily active count; a product that publishes no " +
+        "lastSeenAt is absent from it rather than counted as zero.",
     },
   });
 });

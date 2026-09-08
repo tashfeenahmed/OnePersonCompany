@@ -74,6 +74,7 @@ function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<Live
     seo: live.seo,
     social: live.social,
     ads: live.ads,
+    users: live.users,
     window: live.window,
     ...extra,
   };

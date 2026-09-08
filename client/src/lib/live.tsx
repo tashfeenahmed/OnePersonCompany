@@ -46,7 +46,7 @@ import {
 } from "@/lib/api/reports";
 import { WIDGETS } from "@/data/widgets";
 import { finance as financeApi, type FinanceReport } from "@/lib/api/finance";
-import { activityApi, type LeakageReport } from "@/lib/api/activity";
+import { activityApi, type LeakageReport, type UsersReport } from "@/lib/api/activity";
 import { customersApi, type DisputeDoc, type RecoveryQueue } from "@/lib/api/customers";
 import { seoboard, type SeoOpsDocs } from "@/lib/api/seoboard";
 import { socialboard, type SocialBoardDocs } from "@/lib/api/socialboard";
@@ -229,6 +229,22 @@ export type LiveData = {
    *  the Meta collector wrote. See lib/api/adsboard. */
   ads: AdsBoardDocs | null;
   /**
+   * WHO SIGNED UP — one row per product endpoint publishing the users
+   * contract, with the daily signup line, the paid split and the lastSeenAt
+   * level beside each. Gated on the `users` plugin: there is a credential per
+   * product behind it and asking with none connected returns an empty list,
+   * which a board would draw as a portfolio with no users in it.
+   *
+   * ITS OWN FIELD BESIDE `products`, WHICH IS THE `gsc`/`bing` DECISION. The
+   * product-stats endpoints publish figures the owner mapped out of their own
+   * JSON — one of which is often called "total users" — and those are never
+   * comparable with these: this document counts PEOPLE the same way for every
+   * product, that one quotes whatever each product's admin page happens to
+   * mean by the phrase. One field holding both would be one field away from a
+   * card that added them.
+   */
+  users: UsersReport | null;
+  /**
    * THE WINDOW EVERY DOCUMENT ABOVE WAS ASKED FOR — the picker's, from the
    * store. Carried here so a card can label itself and a builder can tell
    * "all" from ninety without a second path to the store. What each route
@@ -286,6 +302,7 @@ const LiveContext = createContext<LiveData>({
   seo: null,
   social: null,
   ads: null,
+  users: null,
   window: DEFAULT_WINDOW,
   sourceStates: {}, sourceErrors: {},
   loading: true,
@@ -364,6 +381,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [seo, setSeo] = useState<SeoOpsDocs | null>(null);
   const [social, setSocial] = useState<SocialBoardDocs | null>(null);
   const [ads, setAds] = useState<AdsBoardDocs | null>(null);
+  const [users, setUsers] = useState<UsersReport | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
@@ -417,6 +435,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsSeo = false;
     let needsSocial = false;
     let needsAds = false;
+    let needsUsers = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -457,6 +476,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.seo) needsSeo = true;
       if (w.live?.social) needsSocial = true;
       if (w.live?.ads) needsAds = true;
+      if (w.live?.users) needsUsers = true;
     }
     return {
       series: [...series],
@@ -498,6 +518,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsSeo,
       needsSocial,
       needsAds,
+      needsUsers,
     };
   }, []);
 
@@ -882,6 +903,22 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         setAds,
         "ads",
       );
+      /*
+        THE USERS ROLL-UP, GATED ON ITS OWN PLUGIN. One account per product
+        endpoint, each with a URL the owner pasted, so with nothing connected
+        the route answers an empty product list — which every card on the Users
+        board would draw as a portfolio nobody has signed up to. The route
+        clamps at 400 days and measures the daily signup line, the active count
+        and the returned count over whatever it is asked for; the two `new`
+        windows inside it are fixed at 7 and 30 by the contract's own
+        vocabulary and the cards that read them say so.
+      */
+      tryFetch(
+        connected.has("users") && wanted.needsUsers,
+        () => activityApi.users(daysFor(selected, 400)),
+        setUsers,
+        "users",
+      );
 
       await Promise.all(tasks);
       const pairs = await Promise.all(
@@ -962,6 +999,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         seo,
         social,
         ads,
+        users,
         window: selected,
       });
       if (patch) liveTypes.add(type);
@@ -1007,6 +1045,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       seo,
       social,
       ads,
+      users,
       window: selected,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
@@ -1054,6 +1093,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     seo,
     social,
     ads,
+    users,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
@@ -1319,6 +1359,13 @@ export function collectedAt(src: string, live: LiveData): string | null {
       return live.boxes?.totals.seenAt ?? null;
     case "products":
       return live.products?.summary.lastFetchedAt ?? null;
+    /* WHEN A PRODUCT ENDPOINT WAS LAST FETCHED, not when the route added the
+       figures up — it recomputes every window per request, so its own clock
+       would say "just now" over a document a product served this morning. The
+       newest fetch across the endpoints, because one stale product does not
+       make the whole roll-up stale and the per-product cards say which. */
+    case "users":
+      return live.users?.summary.lastFetchedAt ?? null;
     case "backlinks":
       return live.backlinks?.summary.seenAt ?? null;
     case "presence":

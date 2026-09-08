@@ -56,12 +56,64 @@ export type UserProduct = {
   paid: number | null;
   free: number | null;
   paidUnknown: number | null;
+  /** An address on file. NOT an audience — see `contactPermitted`. */
+  withEmail: number | null;
+  /** People whose own product recorded them agreeing to be written to. The
+   *  only one of the two that sizes a campaign; nothing infers it from the
+   *  other. */
+  contactPermitted: number | null;
+  /**
+   * Rows whose `lastSeenAt` falls inside `window.days`.
+   *
+   * NULL IS "THIS PRODUCT PUBLISHES NO lastSeenAt" and is the reason the field
+   * is three-valued rather than a number: a product that has said nothing
+   * about who came back has not said nobody did, and a `?? 0` here would draw
+   * the most misleading tile on the board.
+   */
+  active: number | null;
+  /** Rows carrying no `lastSeenAt` — absent from `active`, not inactive. */
+  lastSeenUnknown: number | null;
+  /** Signups inside the window seen again a day or more later. The FIRST
+   *  POINT of a retention curve and not the curve: the contract publishes one
+   *  `lastSeenAt` per person, so week two and week three are one field. */
+  returned: number | null;
+  /** Who these people are to the business — customer, participant, admin,
+   *  trial, internal. A missing population is `customer`, resolved by the
+   *  route. Null for a counts-only product. */
+  populations: Record<string, number> | null;
+  /** This product's plans, largest first. NEVER comparable across products:
+   *  two owners chose the word "pro" independently. */
+  plans: { value: string; n: number }[];
+  /** Countries, largest first. These DO compare — IE is IE — and the route
+   *  still does not add them. */
+  countries: { value: string; n: number }[];
+  /** The oldest and newest signup this box holds. Both floors: an endpoint
+   *  that lists its newest hundred has an older first signup than this sees. */
+  firstSignupAt: string | null;
+  lastSignupAt: string | null;
   days: { day: string; signups: number | null; total: number | null; source: string }[];
+};
+
+/** One of the newest signups anywhere in the portfolio. THERE IS NO ADDRESS
+ *  ON IT and there cannot be: the domain is what is stored, and the product's
+ *  own id is opaque to this box. */
+export type RecentSignup = {
+  accountId: number;
+  product: string;
+  id: string;
+  emailDomain: string | null;
+  createdAt: string;
+  plan: string | null;
+  paid: boolean | null;
+  country: string | null;
 };
 
 export type UsersReport = {
   window: { days: number; of: string };
   products: UserProduct[];
+  /** The newest signups across every product, merged by the route: five from
+   *  each of four products is not the newest twenty overall. */
+  recentSignups: RecentSignup[];
   summary: {
     configured: number;
     answering: number;
@@ -76,6 +128,22 @@ export type UsersReport = {
     /** How many products have no window at all and are absent from the two
      *  above rather than counted as zero. */
     windowsMissing: number;
+    /* THE PAID SPLIT, THREE-VALUED PORTFOLIO-WIDE TOO. There is deliberately
+       no conversion rate on this document: `paidUnknown` is the size of the
+       guess, and a reader that wants a rate has to see it first. */
+    paid: number;
+    free: number;
+    paidUnknown: number;
+    withEmail: number;
+    contactPermitted: number;
+    /** Summed only across the products that can answer — see
+     *  `activeMissing`, which is how many are absent rather than zero. */
+    active: number;
+    returned: number;
+    activeMissing: number;
+    /** Added across products because a customer of one and a customer of
+     *  another are two people — the argument `totalUsers` rests on. */
+    populations: Record<string, number>;
     lastFetchedAt: string | null;
     note: string;
   };

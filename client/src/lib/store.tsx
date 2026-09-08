@@ -278,7 +278,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 21;
+export const SEED_VERSION = 24;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -1222,6 +1222,87 @@ const SEED: StoreState = {
         { id: "ap10", type: "play.apps", w: 4 },
         { id: "ap11", type: "appstore.limits", w: 2 },
         { id: "ap12", type: "play.limits", w: 2 },
+      ],
+    },
+    /*
+      USERS (SEED_VERSION 24). Workdash's /users, top to bottom.
+
+      THE ONE PAGE ON WORKDASH WHOSE DATA COMES FROM THE APPLICATIONS' OWN
+      DATABASES rather than from a vendor, and the reason it exists is that no
+      third party knows who SIGNED UP: Stripe knows who paid and Umami knows
+      who visited. This box does not reach into anybody's database either —
+      each product PUBLISHES a users document against a contract — and the
+      consequence shapes the board: a product can be absent from a figure in
+      three ways that look nothing alike, and never as a zero.
+
+        · NEVER COLLECTED — nobody has asked yet. Work, not a fault.
+        · UNREACHABLE — asked and refused. Excluded from every total, which is
+          then a floor rather than a count.
+        · COUNTS-ONLY — a total and no rows, so it has a user count and NO
+          WINDOWS AT ALL. It is in the base and in neither signup figure.
+
+      WHAT IS WRONG, THEN THE BASE, THEN THE WINDOW. `users.worth` leads for
+      the reason `fleet.alerts` leads the Servers board: a board whose first
+      card is a chart is a board somebody reads after the outage. Then the
+      whole user base beside it, then the four figures the picker moves, then
+      whether the endpoints behind them are answering at all.
+
+      ONE LINE PER PRODUCT ON `users.signups`, because this box knows which
+      products can date a signup and can therefore draw them apart rather than
+      merging them into a figure whose composition is invisible. The LEVEL is
+      not a second chart: "how many users are there" over time is a level, and
+      the chart kit quotes its mean per sampling grain — true of a rate, false
+      of a level — so the base rides as the sparkline under `users.total`,
+      which is where Workdash's stat card puts it too.
+
+      THEN WHO THEY ARE, IN FOUR CUTS, and the pairs are deliberate: share and
+      population add across products (two products' users are two sets of
+      people), plans do not (two owners chose the word "pro" independently) and
+      countries do (a person in IE is in IE whoever they signed up with). The
+      two tables carry the detail; the recent list carries a mail DOMAIN and
+      never an address, because none is stored.
+
+      IT ENDS ON THE TWO CARDS THAT ARE NOT THE USERS DOCUMENT AT ALL.
+      `users.products` is each product's own mapped figure off /api/products —
+      the only thing on this board that answers while the users plugin is
+      unconnected, and quoted in each product's own words because a "total
+      users" there is whatever that admin page means by it. `users.cannot` is
+      the refusals: no daily-active line, no retention curve, no sessions, no
+      addresses — each with the reason there will never be one.
+    */
+    {
+      id: "d-users",
+      slug: "users",
+      name: "Users",
+      widgets: [
+        /* `users.total` is placed at two columns rather than at its
+           `defaultWidth` of one: it is a proportion whose bar splits the base
+           across up to five products, and five keys under a one-column tile
+           wrap to five lines. Nothing tops this board up, so there is no
+           second layout for it to disagree with. */
+        { id: "us1", type: "users.worth", w: 2 },
+        { id: "us2", type: "users.total", w: 2 },
+        { id: "us3", type: "users.new", w: 1 },
+        { id: "us4", type: "users.active", w: 1 },
+        { id: "us5", type: "users.paying", w: 1 },
+        { id: "us6", type: "users.conversion", w: 1 },
+        { id: "us7", type: "users.email", w: 1 },
+        { id: "us8", type: "users.returned", w: 1 },
+        { id: "us9", type: "users.sources", w: 2 },
+        { id: "us10", type: "users.signups", w: 4 },
+        { id: "us12", type: "users.share", w: 2 },
+        { id: "us13", type: "users.populations", w: 2 },
+        { id: "us14", type: "users.plans", w: 2 },
+        { id: "us15", type: "users.countries", w: 2 },
+        { id: "us16", type: "users.table", w: 4 },
+        { id: "us17", type: "users.recent", w: 4 },
+        /* PER PROJECT, with no venture chosen — the Search board's rule. The
+           seed cannot know which venture the owner reads first, and a card
+           that has to be found in the palette is a card nobody finds. */
+        { id: "us18", type: "users.project", w: 2 },
+        { id: "us19", type: "users.products", w: 2 },
+        /* The refusals close the board, the way `gsc.cannot` closes SEO. */
+        { id: "us20", type: "users.cannot", w: 2 },
       ],
     },
     /*
