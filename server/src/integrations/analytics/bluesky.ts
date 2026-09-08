@@ -70,7 +70,35 @@ export type FeedPost = {
   /** A repost BY this handle of somebody else's post. Excluded from every
    *  engagement figure — see the header. */
   isRepostByAuthor: boolean;
+  /**
+   * WHAT WAS ACTUALLY WRITTEN, and where it can be read.
+   *
+   * The three fields below carry no arithmetic and are here for one reason:
+   * a board that quotes "seven likes" without the words that earned them is
+   * a board nobody can act on. `text` is the record's own, whole; `image` is
+   * the CDN thumbnail of the first picture in the embed, a URL and never a
+   * download; `url` is the https address a person can open, derived from the
+   * at:// uri rather than fetched — see `postUrl`.
+   */
+  text: string | null;
+  image: string | null;
+  url: string | null;
 };
+
+/**
+ * The web address of a post, from its at:// uri.
+ *
+ * DERIVED, NEVER FETCHED. An at:// uri is `at://<did>/app.bsky.feed.post/<rkey>`
+ * and bsky.app addresses the same post as `/profile/<handle-or-did>/post/<rkey>`,
+ * so the record key is the whole join and no second request is needed to get a
+ * link. The handle is preferred over the did because it is what a person
+ * recognises; a renamed handle breaks the link, which is a broken link rather
+ * than a wrong post.
+ */
+export function postUrl(handle: string, uri: string): string | null {
+  const rkey = /\/app\.bsky\.feed\.post\/([^/]+)$/.exec(uri)?.[1];
+  return rkey ? `https://bsky.app/profile/${handle}/post/${rkey}` : null;
+}
 
 export type WindowTotals = {
   days: number;
@@ -181,7 +209,15 @@ export async function authorFeed(handle: string): Promise<FeedPost[]> {
       post?: {
         uri?: string;
         author?: { did?: string; handle?: string };
-        record?: { createdAt?: string; reply?: unknown };
+        record?: { createdAt?: string; reply?: unknown; text?: string };
+        /* The embed as the AppView already resolved it. Only the thumbnail is
+           read: `images[].thumb` is a CDN url that renders at card size, and
+           an external link card's `thumb` is the same thing for a link post. */
+        embed?: {
+          images?: { thumb?: string }[];
+          external?: { thumb?: string };
+          media?: { images?: { thumb?: string }[] };
+        };
         likeCount?: number;
         repostCount?: number;
         replyCount?: number;
@@ -215,6 +251,13 @@ export async function authorFeed(handle: string): Promise<FeedPost[]> {
       quotes: num(post.quoteCount) ?? 0,
       isReply: !!post.record?.reply,
       isRepostByAuthor: repost,
+      text: post.record?.text?.trim() || null,
+      image:
+        post.embed?.images?.[0]?.thumb ??
+        post.embed?.media?.images?.[0]?.thumb ??
+        post.embed?.external?.thumb ??
+        null,
+      url: postUrl(post.author?.handle ?? handle, post.uri),
     });
   }
   return out;

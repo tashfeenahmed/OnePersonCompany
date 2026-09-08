@@ -49,6 +49,7 @@ import { finance as financeApi, type FinanceReport } from "@/lib/api/finance";
 import { activityApi, type LeakageReport } from "@/lib/api/activity";
 import { customersApi, type DisputeDoc, type RecoveryQueue } from "@/lib/api/customers";
 import { seoboard, type SeoOpsDocs } from "@/lib/api/seoboard";
+import { socialboard, type SocialBoardDocs } from "@/lib/api/socialboard";
 import {
   LIVE_BUILDERS,
 } from "@/lib/liveWidgets";
@@ -217,6 +218,10 @@ export type LiveData = {
    *  visibility, follow-ups, IndexNow — fetched unconditionally like the
    *  ledger, each null on its own failure. See lib/api/seoboard. */
   seo: SeoOpsDocs | null;
+  /** THE POSTS: the timeline read back from Meta, and the publishing queue
+   *  beside it. Fetched unconditionally like the SEO bundle — both routes
+   *  read tables this box writes. See lib/api/socialboard. */
+  social: SocialBoardDocs | null;
   /**
    * THE WINDOW EVERY DOCUMENT ABOVE WAS ASKED FOR — the picker's, from the
    * store. Carried here so a card can label itself and a builder can tell
@@ -273,6 +278,7 @@ const LiveContext = createContext<LiveData>({
   disputes: null,
   queue: null,
   seo: null,
+  social: null,
   window: DEFAULT_WINDOW,
   sourceStates: {}, sourceErrors: {},
   loading: true,
@@ -339,6 +345,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [disputes, setDisputes] = useState<DisputeDoc | null>(null);
   const [queue, setQueue] = useState<RecoveryQueue | null>(null);
   const [seo, setSeo] = useState<SeoOpsDocs | null>(null);
+  const [social, setSocial] = useState<SocialBoardDocs | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
@@ -390,6 +397,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsDisputes = false;
     let needsQueue = false;
     let needsSeo = false;
+    let needsSocial = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -428,6 +436,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.disputes) needsDisputes = true;
       if (w.live?.queue) needsQueue = true;
       if (w.live?.seo) needsSeo = true;
+      if (w.live?.social) needsSocial = true;
     }
     return {
       series: [...series],
@@ -467,6 +476,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsDisputes,
       needsQueue,
       needsSeo,
+      needsSocial,
     };
   }, []);
 
@@ -823,6 +833,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       /* This box's own SEO arithmetic, receipts and verdicts: no plugin gates
          it, and a route of the four failing leaves its field null alone. */
       tryFetch(wanted.needsSeo, () => seoboard.docs(), setSeo, "seo");
+      /* The posts and the publishing queue. Ungated for the reason the SEO
+         bundle is: both routes read tables this box writes, so there is no
+         plugin id in front of them and an empty answer is a real answer —
+         "no Page has been mapped to a venture yet", which the cards say in
+         those words. */
+      tryFetch(wanted.needsSocial, () => socialboard.docs(), setSocial, "social");
 
       await Promise.all(tasks);
       const pairs = await Promise.all(
@@ -901,6 +917,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         disputes,
         queue,
         seo,
+        social,
         window: selected,
       });
       if (patch) liveTypes.add(type);
@@ -944,6 +961,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       disputes,
       queue,
       seo,
+      social,
       window: selected,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
@@ -989,6 +1007,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     disputes,
     queue,
     seo,
+    social,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
@@ -1304,6 +1323,15 @@ export function collectedAt(src: string, live: LiveData): string | null {
       );
     case "indexing":
       return live.seo?.indexing?.hosts.map((h) => h.last?.at ?? "").filter(Boolean).sort().at(-1) ?? null;
+    /*
+      THE POSTS, DATED BY WHEN META WAS LAST ASKED — never by when this bundle
+      was assembled, which is always "just now". The timeline collector runs on
+      its own six-hourly clock, so `lastReadAt` is the honest age of every
+      figure on the Social board; a board fetched a second ago over a read from
+      this morning is a board from this morning.
+    */
+    case "social":
+      return live.social?.posts?.lastReadAt ?? null;
     default:
       return null;
   }

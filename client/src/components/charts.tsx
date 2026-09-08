@@ -20,6 +20,7 @@ import type {
   ChartSeries,
   DonutSlice,
   DumbbellRow,
+  FeedItem,
   Meter,
   ProfileFigure,
   ProportionPart,
@@ -2119,4 +2120,126 @@ function niceCeiling(n: number): number {
     if (candidate >= n) return Math.round(candidate);
   }
   return Math.round(10 * power);
+}
+
+/* -------------------------------------------------------------------- feed */
+
+/**
+ * THE POSTS THEMSELVES — the one form on this board that draws content.
+ *
+ * Every other kind here turns work into a magnitude. That is the right move
+ * for money and for traffic and the wrong one for publishing: "43 views"
+ * cannot answer "what should I make more of", and the answer to that question
+ * is the post. So a feed row is the picture, the words, the date, the figures
+ * and — the reason the kind exists at all — the LINK. A board that shows a
+ * post and cannot open it is a screenshot of a social network.
+ *
+ * THE PICTURE SITS IN A FIXED BOX AND MAY VANISH WITHOUT MOVING ANYTHING.
+ * Meta signs its CDN addresses with an expiry a few days out, so a stale
+ * document serves 403s; a broken-image frame would read as "this post lost
+ * its picture", which is a claim about the post rather than about the fetch.
+ * The box keeps its width whether or not the image loads, so a card does not
+ * reflow row by row as pictures resolve — see `FeedImage`.
+ *
+ * THE TEXT IS CLAMPED HERE AND NOT TRUNCATED BY THE BUILDER. Three lines is
+ * what a two-column card holds; the whole sentence stays in the DOM, so a
+ * hover, a copy and a find-in-page all still get it. `whitespace-pre-line`
+ * because the author's own line breaks are most of the shape of a post.
+ *
+ * NOTHING THIRD-PARTY IS EMBEDDED. No oEmbed iframe, no platform script: a
+ * dashboard that loads Meta's JavaScript to draw a thumbnail has handed the
+ * page to Meta.
+ */
+export function Feed({ items, caption }: { items: FeedItem[]; caption?: string }) {
+  return (
+    <div className="mt-1 flex flex-col">
+      {items.map((item, i) => (
+        <article
+          key={`${item.href ?? item.title}-${item.at}-${i}`}
+          className="border-line-soft flex gap-3 border-b py-3 first:pt-0 last:border-0 last:pb-0"
+        >
+          {item.image && <FeedImage src={item.image} alt={`Picture on ${item.title}'s post`} href={item.href} />}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2 text-[12.5px]">
+              {item.tone && (
+                <i
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 shrink-0 translate-y-[-1px] rounded-full",
+                    item.tone === "ok" && "bg-ok",
+                    item.tone === "warn" && "bg-warn",
+                    item.tone === "bad" && "bg-destructive",
+                  )}
+                />
+              )}
+              <span className="truncate font-medium">{item.title}</span>
+              <span className="text-muted-foreground ml-auto shrink-0 text-[11.5px] tabular-nums">
+                {item.at}
+              </span>
+            </div>
+            <p className="mt-1 line-clamp-3 text-[12.5px] leading-snug whitespace-pre-line">
+              {item.text ?? (
+                <span className="text-muted-foreground italic">no text on this post</span>
+              )}
+            </p>
+            {(item.meta?.length || item.href) && (
+              <div className="text-muted-foreground mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[11.5px]">
+                {item.meta?.map(([label, value]) => (
+                  <span key={label}>
+                    <span className="text-foreground tabular-nums">{value}</span> {label}
+                  </span>
+                ))}
+                {item.href && (
+                  <a
+                    className="ml-auto shrink-0 underline underline-offset-2 hover:text-foreground"
+                    href={item.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    open ↗
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        </article>
+      ))}
+      {caption && <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{caption}</p>}
+    </div>
+  );
+}
+
+/**
+ * A post's picture, in a box that does not move when it fails.
+ *
+ * The frame is hidden rather than replaced on error, because the alternative
+ * — a broken-image glyph, or an alt string in a border — states that the post
+ * has no picture, and what actually happened is that a signed URL expired.
+ * The reserved width goes with it: a row with no picture is a row of text,
+ * which is what a post with no picture looks like anyway.
+ */
+function FeedImage({ src, alt, href }: { src: string; alt: string; href?: string | null }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+  const img = (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={() => setBroken(true)}
+      className="border-line-soft size-14 rounded-[10px] border object-cover"
+    />
+  );
+  return (
+    <div className="size-14 shrink-0">
+      {href ? (
+        <a href={href} target="_blank" rel="noreferrer" onPointerDown={(e) => e.stopPropagation()}>
+          {img}
+        </a>
+      ) : (
+        img
+      )}
+    </div>
+  );
 }

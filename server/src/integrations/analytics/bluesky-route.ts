@@ -32,7 +32,7 @@
 import { Hono } from "hono";
 import { configValue, series } from "../../db.ts";
 import { parseHandles, FEED_LIMIT, WINDOWS } from "./bluesky.ts";
-import { blueskyProfiles, blueskyWindows, clockAt } from "./store.ts";
+import { blueskyPosts, blueskyProfiles, blueskyWindows, clockAt } from "./store.ts";
 
 export const blueskyRoutes = new Hono();
 
@@ -48,6 +48,10 @@ blueskyRoutes.get("/", (c) => {
   const configured = parseHandles(configValue("bluesky", "handles"));
   const profiles = blueskyProfiles();
   const windows = blueskyWindows();
+  /* THE POSTS BEHIND THE WINDOW FIGURES. Bounded here rather than per handle:
+     the cap is a cap on the answer, and a portfolio of one busy handle and
+     four quiet ones should spend it on the handle that has posts. */
+  const posts = blueskyPosts(200);
 
   const handles = configured.map((handle) => {
     const p = profiles.find((x) => x.handle === handle);
@@ -116,6 +120,32 @@ blueskyRoutes.get("/", (c) => {
           seenAt: w.seen_at,
         };
       }),
+      /*
+        THE POSTS THEMSELVES, newest first — the words behind the totals above.
+
+        EVERY COUNT HERE IS CURRENT AND NOT EARNED-IN-WINDOW, exactly as the
+        window figures are: a like arriving today on a post from June is in
+        this row today and was not yesterday. `url` is derived from the at://
+        uri and costs no request; `image` is a CDN thumbnail and nothing on
+        this box downloads it. Replies BY the handle are marked rather than
+        dropped, because a reply is still something the handle published.
+      */
+      posts: posts
+        .filter((x) => x.handle === handle)
+        .map((x) => ({
+          uri: x.uri,
+          url: x.url,
+          at: x.created_at,
+          text: x.text,
+          image: x.image,
+          likes: x.likes,
+          reposts: x.reposts,
+          replies: x.replies,
+          quotes: x.quotes,
+          engagement: x.likes + x.reposts + x.replies + x.quotes,
+          isReply: x.is_reply === 1,
+          seenAt: x.seen_at,
+        })),
       lastOkAt: p?.last_ok_at ?? null,
       lastError: p?.last_error ?? null,
       lastReadAt: clockAt("bluesky", handle),
@@ -175,6 +205,12 @@ blueskyRoutes.get("/", (c) => {
       followers:
         "Follower counts are Bluesky's own totals as of the last read. The " +
         "history behind them is this box's own, one reading per collection.",
+      posts:
+        "`handles[].posts` is the SAME page the windows were computed from, " +
+        "kept rather than only counted, newest first. `url` is derived from " +
+        "the at:// uri and `image` is a CDN thumbnail — nothing here is " +
+        "downloaded. A post the author has deleted leaves this list on the " +
+        "next collection, because each handle's rows are replaced whole.",
       auth: "The public AppView, unauthenticated. No credential is held and none is needed.",
     },
   });

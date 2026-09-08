@@ -651,10 +651,82 @@ export function blueskyWindows(): BlueskyWindowRow[] {
     .all() as unknown as BlueskyWindowRow[];
 }
 
+export type BlueskyPostRow = {
+  handle: string;
+  uri: string;
+  created_at: string | null;
+  text: string | null;
+  image: string | null;
+  url: string | null;
+  likes: number;
+  reposts: number;
+  replies: number;
+  quotes: number;
+  is_reply: number;
+  seen_at: string;
+};
+
+/**
+ * The handle's own posts, as the last read found them.
+ *
+ * REPLACE RATHER THAN MERGE, and the delete is the reason: a post the author
+ * has since taken down would otherwise sit in this table for ever, drawn on a
+ * board with a link that 404s. What the feed returned IS the handle's recent
+ * timeline, so the table is made to say exactly that. The counts move on every
+ * write because they are current state — see the migration.
+ */
+export function writeBlueskyPosts(
+  handle: string,
+  posts: {
+    uri: string;
+    createdAt: string | null;
+    text: string | null;
+    image: string | null;
+    url: string | null;
+    likes: number;
+    reposts: number;
+    replies: number;
+    quotes: number;
+    isReply: boolean;
+  }[],
+) {
+  const ts = now();
+  /* One transaction, for the reason the domain portfolio takes one: a handle
+     whose posts were deleted and not re-inserted is a timeline that reads as
+     empty, which is worse than one reading of it being stale. */
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM bluesky_posts WHERE handle = ?").run(handle);
+    const insert = db.prepare(
+      `INSERT INTO bluesky_posts
+         (handle, uri, created_at, text, image, url, likes, reposts, replies, quotes, is_reply, seen_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    );
+    for (const p of posts)
+      insert.run(
+        handle, p.uri, p.createdAt, p.text, p.image, p.url,
+        p.likes, p.reposts, p.replies, p.quotes, p.isReply ? 1 : 0, ts,
+      );
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+/** Every stored post, newest first. Bounded, because a route that returns a
+ *  whole timeline is a route that grows without anybody noticing. */
+export function blueskyPosts(limit = 100): BlueskyPostRow[] {
+  return db
+    .prepare("SELECT * FROM bluesky_posts ORDER BY created_at DESC LIMIT ?")
+    .all(Math.max(1, Math.min(300, Math.floor(limit)))) as unknown as BlueskyPostRow[];
+}
+
 export function forgetBlueskyHandles(keep: string[]) {
   pruneClocks("bluesky", keep);
   for (const row of blueskyProfiles()) {
     if (keep.includes(row.handle)) continue;
+    db.prepare("DELETE FROM bluesky_posts WHERE handle = ?").run(row.handle);
     db.prepare("DELETE FROM bluesky_windows WHERE handle = ?").run(row.handle);
     db.prepare("DELETE FROM bluesky_profiles WHERE handle = ?").run(row.handle);
   }

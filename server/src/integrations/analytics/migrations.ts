@@ -304,4 +304,43 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       );
     `,
   },
+
+  {
+    name: "035_bluesky_posts",
+    sql: `
+      -- THE POSTS THEMSELVES, so a figure can be read beside the words that
+      -- earned it.
+      --
+      -- \`bluesky_windows\` above already holds what the last fifty posts add
+      -- up to. It cannot answer "which post was that" — and a likes total
+      -- without the post behind it is a number nobody can act on, which is the
+      -- gap this table closes. One row per post per handle, rewritten on every
+      -- collection because THE COUNTS ARE CURRENT STATE: an old post gathering
+      -- new likes moves them, exactly as the window figures move.
+      --
+      -- \`url\` IS DERIVED AND NOT FETCHED. bsky.app addresses a post by the
+      -- record key already inside the at:// uri, so the link costs no request.
+      -- \`image\` is a CDN thumbnail URL and nothing here downloads it.
+      --
+      -- Reposts BY the handle never reach this table: they are somebody else's
+      -- post, the same rule the window totals keep.
+      CREATE TABLE bluesky_posts (
+        handle      TEXT NOT NULL,
+        uri         TEXT NOT NULL,
+        created_at  TEXT,
+        text        TEXT,
+        image       TEXT,
+        url         TEXT,
+        likes       INTEGER NOT NULL DEFAULT 0,
+        reposts     INTEGER NOT NULL DEFAULT 0,
+        replies     INTEGER NOT NULL DEFAULT 0,
+        quotes      INTEGER NOT NULL DEFAULT 0,
+        is_reply    INTEGER NOT NULL DEFAULT 0,
+        seen_at     TEXT NOT NULL,
+        PRIMARY KEY (handle, uri)
+      );
+
+      CREATE INDEX bluesky_posts_at ON bluesky_posts (created_at DESC);
+    `,
+  },
 ];

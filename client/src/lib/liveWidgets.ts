@@ -54,6 +54,9 @@ import type { Expense, FinanceReport } from "@/lib/api/finance";
 import type { LeakageReport } from "@/lib/api/activity";
 import type { DisputeDoc, RecoveryCase, RecoveryQueue } from "@/lib/api/customers";
 import type { SeoOpsDocs } from "@/lib/api/seoboard";
+import type { SocialBoardDocs } from "@/lib/api/socialboard";
+import type { SocialPost } from "@/areas/socialfeed/api";
+import type { FeedItem } from "@/data/widgets";
 import { rateBetween } from "./fx.ts";
 import {
   TRAILING_MIN_DAYS,
@@ -78,7 +81,7 @@ import {
    to join the widget catalog to its builders, and node resolves the specifier
    itself with no bundler and no tsconfig paths in front of it. Everything else
    this file imports is a type and is stripped; this one is real code. */
-import { DASH, ago, bytes, clock, compact, count, day, duration, inDays, money, pct } from "./format.ts";
+import { DASH, ago, bytes, clock, compact, count, day, duration, inDays, money, pct, when } from "./format.ts";
 /* The same relative-with-extension rule as `./format.ts` above: the window
    labels are real code and the catalog check runs this file under bare node. */
 import { windowLabel, type WindowValue } from "./window.ts";
@@ -267,6 +270,18 @@ export type LiveInputs = {
   /** The four SEO documents this box computes itself: authority, AI
    *  visibility, follow-ups and the IndexNow log. Four fields, no sums. */
   seo?: SeoOpsDocs | null;
+  /**
+   * THE POSTS. The timeline the socialfeed area reads back from Meta, and the
+   * publishing area's queue beside it.
+   *
+   * ONE FIELD FOR TWO ROUTES, which is the `demand` decision rather than the
+   * `gsc`/`bing` one, and it passes the test from the same side `mail` does:
+   * a queued draft and a published post are two ENDS OF ONE LOOP and are
+   * joined by Meta's own post id, so the temptation is not to add them — it
+   * is to double-count them, and the builders below never put a queue figure
+   * and a timeline figure in the same total. One fetch, one clock, two blocks.
+   */
+  social?: SocialBoardDocs | null;
   /*
     THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
     is placed with a venture id (`PlacedWidget.param`); the card resolves it
@@ -8821,5 +8836,1045 @@ Object.assign(LIVE_BUILDERS, {
     if (F.baselines.length > rows.length) rows.push([`+${F.baselines.length - rows.length} more`, "tracked"]);
     rows.push(["Verdicts are arithmetic", "correlation, not cause"]);
     return { tag: "measured", rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================== SOCIAL BOARD
+
+   WHAT WAS ACTUALLY PUBLISHED, AND WHETHER ANYBODY SAW IT.
+
+   The Social board was seven cards of counts — followers per Page, a paid
+   reach figure, and the list of what the token will not read — because that
+   was everything `/api/meta` could answer. It was not everything this box
+   holds. The socialfeed area reads each mapped Page's TIMELINE back from Meta
+   every six hours and stores the words, the picture's address, the permalink
+   and Meta's own per-post metrics; the publishing area holds the other end of
+   the loop. Neither had a card. These builders are that gap.
+
+   THE FIVE RULES EVERY BUILDER BELOW KEEPS.
+
+   1. "VIEWS", NEVER "REACH", ON A FACEBOOK POST. What Meta returns is
+      `post_media_view`, which counts RENDERS — one person scrolling past
+      twice is two. The `post_impressions` family, which counted people, was
+      retired on 15 November 2025 and answers 400. Instagram's `reach` DOES
+      count unique accounts, which is why it is never added to a Facebook
+      view: two different quantities under one word is the failure this whole
+      file is arranged around not committing.
+
+   2. A METRIC THAT IS NOT A KEY WAS NOT REPORTED. The collector writes what
+      came back and nothing else, so an absent key is "Meta did not say" and
+      draws a dash. A post Meta measured at zero views is a different fact
+      from a post Meta never measured, and they never share a figure.
+
+   3. A WIDE WINDOW IS A FLOOR. Twenty-five posts are read per Page per
+      collection, so a Page that published more than that between two reads
+      had the rest truncated before any card saw it. Every total over a window
+      wider than the collection interval says so.
+
+   4. THE WINDOW IS MEASURED AGAINST TODAY, never against the newest post.
+      This is the one arithmetic decision that makes or breaks the board: cut
+      relative to the last post and "nothing went out this month" — the
+      finding this board exists for — becomes unsayable, because the newest
+      post is always inside a window that starts at it.
+
+   5. NOTHING ADDS ACROSS NETWORKS. A Facebook follower, a Bluesky follower
+      and an Instagram follower are three people, or one person three times,
+      and nothing here can tell which. Followers add across PAGES — a follower
+      follows exactly one Page — and stop there.
+*/
+
+/** Meta's own metric names. Never renamed here: the key IS the claim. */
+const FB_VIEWS = "post_media_view";
+const FB_CLICKS = "post_clicks";
+const FB_REACTIONS = "reactions.summary.total_count";
+const FB_COMMENTS = "comments.summary.total_count";
+
+/** A metric, or null when Meta did not report it. See rule 2: an absent key
+ *  is never a zero, and `?? 0` anywhere in this section would be the bug. */
+function metricOf(p: SocialPost, key: string): number | null {
+  const v = p.metrics[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Views on the platform's OWN terms, or null.
+ *
+ * Facebook counts renders and Instagram counts unique accounts. The two are
+ * read from different keys and are summed only WITHIN a platform — see the
+ * per-network splits below, which is why this returns the number and never
+ * the word for it.
+ */
+function postViews(p: SocialPost): number | null {
+  return metricOf(p, p.platform === "instagram" ? "reach" : FB_VIEWS);
+}
+
+/**
+ * Reactions plus comments, or null when neither was reported.
+ *
+ * NOT "ENGAGEMENT" IN META'S SENSE, AND THE MISSING PIECE IS SHARES. Workdash
+ * says "reactions, comments and shares" because its collector read the
+ * retired `post_activity` family; what survives on v21.0 is the reaction and
+ * comment summaries, which need no insights permission at all, and there is
+ * no share count in them. So every card below words it "reactions + comments"
+ * rather than borrowing a wider word for a narrower number.
+ */
+function postEngagement(p: SocialPost): number | null {
+  const reactions = metricOf(p, p.platform === "instagram" ? "like_count" : FB_REACTIONS);
+  const comments = metricOf(p, p.platform === "instagram" ? "comments_count" : FB_COMMENTS);
+  if (reactions === null && comments === null) return null;
+  return (reactions ?? 0) + (comments ?? 0);
+}
+
+/** Whole days between an ISO stamp and now, or null. */
+function daysAgo(at: string | null): number | null {
+  if (!at) return null;
+  const ms = Date.parse(at);
+  if (Number.isNaN(ms)) return null;
+  return Math.max(0, Math.floor((Date.now() - ms) / 86_400_000));
+}
+
+/**
+ * THE WINDOW, AS A PREDICATE OVER A POST'S OWN DATE — see rule 4.
+ *
+ * Measured against TODAY and not against the newest post the collector holds.
+ * The difference is the whole board: a window cut relative to the last post
+ * always contains it, so "nothing published in the last 7 days" could never
+ * be said, and a Page silent since June would read as freshly active.
+ */
+function within(W: WindowValue | undefined): (p: SocialPost) => boolean {
+  const days = W ?? 30;
+  return (p) => {
+    if (days === "all") return true;
+    const d = daysAgo(p.createdTime);
+    return d !== null && d <= days;
+  };
+}
+
+/** A post's date, with the year on it once the post is not from this one. */
+function postDay(at: string | null): string {
+  if (!at) return DASH;
+  const ms = Date.parse(at);
+  if (Number.isNaN(ms)) return DASH;
+  const sameYear = new Date(ms).getFullYear() === new Date().getFullYear();
+  return day(at, { year: sameYear ? false : "2-digit" });
+}
+
+/** The network a post was published on, in the words a person uses. */
+const networkWord = (platform: string): string =>
+  platform === "instagram" ? "Instagram" : platform === "facebook" ? "Facebook" : platform;
+
+/** The posts the socialfeed collector holds, or an empty list. */
+const allPosts = (S: SocialBoardDocs | null | undefined): SocialPost[] => S?.posts?.posts ?? [];
+
+/** One post as a feed row. The figures are formatted here so the card never
+ *  decides what a view count looks like — the `DonutSlice.text` contract. */
+function feedItem(p: SocialPost): FeedItem {
+  const views = postViews(p);
+  const engagement = postEngagement(p);
+  const meta: [string, string][] = [
+    /* "1 views" is the kind of small wrongness that makes a reader stop
+       trusting the big figures. One view is a view. */
+    [
+      p.platform === "instagram" ? (views === 1 ? "account reached" : "accounts reached") : views === 1 ? "view" : "views",
+      count(views),
+    ],
+    ["reactions + comments", count(engagement)],
+  ];
+  const clicks = metricOf(p, FB_CLICKS);
+  if (clicks !== null && clicks > 0) meta.push(["clicks", count(clicks)]);
+  return {
+    title: p.pageName ?? p.pageId,
+    at: postDay(p.createdTime),
+    text: p.text,
+    image: p.imageUrl,
+    href: p.permalink,
+    meta,
+  };
+}
+
+/** What a card says when the window holds nothing but the record does. */
+function nothingInWindow(posts: SocialPost[], W: WindowValue | undefined): string {
+  const newest = posts
+    .map((p) => p.createdTime)
+    .filter((at): at is string => !!at)
+    .sort()
+    .at(-1);
+  const words = W === "all" ? "the whole record" : `the last ${W ?? 30} days`;
+  return newest
+    ? `Nothing published in ${words} — the newest collected post is ${postDay(newest)}. Widen the window to read it.`
+    : "No posts collected yet. A Page is read only once it is mapped to a venture under Publishing.";
+}
+
+/** Every page that has posts in the document, with its own totals. */
+function byPage(posts: SocialPost[]) {
+  const pages = new Map<
+    string,
+    { id: string; name: string; platform: string; posts: SocialPost[] }
+  >();
+  for (const p of posts) {
+    const row = pages.get(p.pageId) ?? {
+      id: p.pageId,
+      name: p.pageName ?? p.pageId,
+      platform: p.platform,
+      posts: [],
+    };
+    row.posts.push(p);
+    pages.set(p.pageId, row);
+  }
+  return [...pages.values()];
+}
+
+/** Views summed over the posts Meta actually measured, and the two counts
+ *  that qualify it. Null views where nothing was measured — never zero. */
+function totals(posts: SocialPost[]) {
+  const measured = posts.filter((p) => postViews(p) !== null);
+  const engaged = posts.filter((p) => postEngagement(p) !== null);
+  return {
+    posts: posts.length,
+    measured: measured.length,
+    views: measured.length ? measured.reduce((n, p) => n + (postViews(p) ?? 0), 0) : null,
+    engagement: engaged.length ? engaged.reduce((n, p) => n + (postEngagement(p) ?? 0), 0) : null,
+    latest: posts
+      .map((p) => p.createdTime)
+      .filter((at): at is string => !!at)
+      .sort()
+      .at(-1) ?? null,
+  };
+}
+
+/** The floor caveat, in the words every card that sums over a window uses. */
+const FLOOR_NOTE =
+  "Twenty-five posts are read per Page per collection, so a wide window is a FLOOR rather than a count.";
+
+/** The views caveat, likewise. */
+const VIEWS_NOTE =
+  "A view is a render, not a person — Meta retired the impressions family in Nov 2025 and what is left is post_media_view.";
+
+/**
+ * The buckets a cadence line is drawn over: a day each inside a month, a week
+ * each beyond it.
+ *
+ * A ninety-day line at daily grain is ninety points of which eighty are zero,
+ * which draws as noise around an axis; a seven-day line at weekly grain is one
+ * point, which is not a line at all. So the grain follows the window and the
+ * caption says which one it took.
+ */
+function buckets(W: WindowValue | undefined, posts: SocialPost[]) {
+  const days = W === "all" || W === undefined ? null : W;
+  const daily = days !== null && days <= 31;
+  const dated = posts.filter((p) => p.createdTime);
+  if (!dated.length) return null;
+  const key = (at: string) => {
+    const d = new Date(at);
+    if (daily) return `${d.toISOString().slice(0, 10)}T00:00:00Z`;
+    /* The Monday of the post's week, in UTC — one bucket a week, and the
+       stamp is a real date the chart's axis can label. */
+    const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+    return `${monday.toISOString().slice(0, 10)}T00:00:00Z`;
+  };
+  const oldest = dated
+    .map((p) => p.createdTime!)
+    .sort()[0]!;
+  /* THE EMPTY BUCKETS ARE DRAWN, and that is the point of this card: a week
+     nobody published in is a measured zero, not a gap. The span runs from the
+     window's start (or the oldest post, over "all") to today, so a line that
+     stops is a habit that stopped rather than a collector that did. */
+  const from = days === null ? Date.parse(oldest) : Date.now() - days * 86_400_000;
+  const stamps: string[] = [];
+  const step = daily ? 86_400_000 : 7 * 86_400_000;
+  /* WRITTEN THROUGH `key` AND NOT THROUGH `toISOString`, because the two do
+     not agree: one ends "T00:00:00Z" and the other "T00:00:00.000Z", and a
+     bucket looked up by a stamp of the second shape misses every time — which
+     draws a line of measured zeroes over posts that exist. */
+  for (let t = Date.parse(key(new Date(from).toISOString())); t <= Date.now(); t += step)
+    stamps.push(key(new Date(t).toISOString()));
+  return { stamps, key, grain: daily ? "a day" : "a week" };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  /*
+    FOLLOWERS, AND THE PAGES THEY ARE SPREAD ACROSS.
+
+    Workdash leads its Social page with this and it leads here for the same
+    reason: a follower total means nothing without knowing how many accounts
+    it is spread over, and three Pages with 350, 9 and 2 followers is a
+    different business from one Page with 361.
+
+    THE FIGURE HAS NO WINDOW AND SAYS SO. Meta publishes a follower count and
+    no history of it, so this is the audience as it stands whatever the picker
+    is set to — the one card on this board the control cannot move.
+  */
+  "social.followers": ({ meta: M, social: S }: LiveInputs) => {
+    if (!M?.pages.length) return null;
+    /* Only the Pages whose timelines are actually read: a token can
+       administer Pages belonging to businesses this box has never heard of,
+       and a follower total over those is a total of somebody else's audience. */
+    const read = new Set((S?.posts?.accounts ?? []).map((a) => a.pageId));
+    const pages = M.pages.filter((p) => (read.size ? read.has(p.id) : true));
+    const known = pages.filter((p) => p.followers !== null);
+    if (!known.length) return null;
+    const total = known.reduce((n, p) => n + (p.followers ?? 0), 0);
+    return {
+      tag: "measured",
+      value: count(total),
+      sub: also(
+        `across ${known.length} Facebook Page${known.length === 1 ? "" : "s"}`,
+        pages.length > known.length
+          ? `${pages.length - known.length} reported no count`
+          : "",
+      ),
+      parts: known
+        .filter((p) => (p.followers ?? 0) > 0)
+        .sort((a, b) => (b.followers ?? 0) - (a.followers ?? 0))
+        .map((p) => ({
+          label: p.name ?? p.id,
+          value: p.followers ?? 0,
+          text: count(p.followers),
+        })),
+      partsLabel: "Followers by Page",
+      /* Short, because this is a one-column tile: the argument for why the
+         window cannot move this figure belongs on the card that has room for
+         it, and `social.accounts` carries it. */
+      caption: "No history is published for these, so the window cannot move them. Never added across networks.",
+    };
+  },
+
+  /*
+    VIEWS OVER THE WINDOW, AND THE THREE COUNTS THAT QUALIFY THEM.
+
+    Workdash's second hero, with its denominators kept where it put them —
+    under the figure rather than beside it, because "1,204 views" means one
+    thing across ten posts and another across one.
+
+    FACEBOOK ONLY, AND THAT IS NOT AN OVERSIGHT. Instagram's `reach` counts
+    unique accounts where `post_media_view` counts renders; adding them would
+    produce a number in no unit at all. Instagram has its own card.
+  */
+  "social.views": ({ social: S, window: W }: LiveInputs) => {
+    const posts = allPosts(S).filter((p) => p.platform === "facebook");
+    if (!S?.posts) return null;
+    const inWindow = posts.filter(within(W));
+    const t = totals(inWindow);
+    const pages = byPage(inWindow)
+      .map((g) => ({ ...g, t: totals(g.posts) }))
+      .filter((g) => g.t.views !== null)
+      .sort((a, b) => (b.t.views ?? 0) - (a.t.views ?? 0));
+    return {
+      tag: t.measured ? "metered" : "measured",
+      value: count(t.views),
+      sub: t.posts
+        ? `${count(t.measured)} of ${count(t.posts)} post${t.posts === 1 ? "" : "s"} measured`
+        : "nothing published in this window",
+      parts: pages.map((g) => ({
+        label: g.name,
+        value: g.t.views ?? 0,
+        text: count(g.t.views),
+      })),
+      partsLabel: "Views by Page",
+      rows: [
+        ["Posts published", count(t.posts)],
+        ["Meta measured", count(t.measured)],
+        ["Reactions + comments", count(t.engagement)],
+      ],
+      caption: `${VIEWS_NOTE} ${FLOOR_NOTE}`,
+    };
+  },
+
+  /*
+    HOW LONG SINCE ANYBODY PUBLISHED — the one number on this board that has
+    to be blunt.
+
+    A dormant channel costs nothing visible. There is no figure that goes red
+    when you stop posting, which is exactly why this one does: past a
+    fortnight it is drawn as a warning.
+
+    IT IGNORES THE WINDOW ON PURPOSE and wears "now" for saying so. Recomputing
+    it inside a seven-day window would answer "quiet for 7 days" about a Page
+    silent since June, which is the worst answer this board could give.
+  */
+  "social.quiet": ({ social: S }: LiveInputs) => {
+    const posts = allPosts(S);
+    if (!S?.posts) return null;
+    const t = totals(posts);
+    const quiet = daysAgo(t.latest);
+    const pages = byPage(posts);
+    const cold = pages.filter((g) => {
+      const d = daysAgo(totals(g.posts).latest);
+      return d !== null && d > 14;
+    }).length;
+    return {
+      tag: "measured",
+      value: quiet === null ? DASH : quiet === 0 ? "today" : `${quiet}d ago`,
+      tone: quiet !== null && quiet > 14 ? "warn" : undefined,
+      sub: also(
+        t.latest ? `last post ${postDay(t.latest)}` : "nothing collected",
+        pages.length
+          ? cold > 0
+            ? `${cold} of ${pages.length} Page${pages.length === 1 ? "" : "s"} quiet a fortnight or more`
+            : `every Page has published within the fortnight`
+          : "",
+      ),
+    };
+  },
+
+  /*
+    VIEWS A POST — the rate Workdash puts in a chip, as a tile.
+
+    OUR ARITHMETIC AND NOT META'S, over the posts Meta measured rather than
+    over every post published: dividing by the unmeasured ones would quietly
+    treat "not reported" as "nobody saw it", which is rule 2 in reverse.
+  */
+  "social.perPost": ({ social: S, window: W }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const inWindow = allPosts(S).filter((p) => p.platform === "facebook").filter(within(W));
+    const t = totals(inWindow);
+    if (!t.measured || t.views === null) return null;
+    const each = t.views / t.measured;
+    return {
+      tag: "computed",
+      /* A DECIMAL BELOW TEN. Seven posts sharing one view round to "0", which
+         reads as a measurement of nobody and is the opposite of what happened
+         — somebody saw one of them. */
+      value: each >= 10 ? count(Math.round(each)) : each.toFixed(1),
+      sub: `${count(t.views)} view${t.views === 1 ? "" : "s"} across the ${count(t.measured)} post${t.measured === 1 ? "" : "s"} Meta measured`,
+      caption: VIEWS_NOTE,
+    };
+  },
+
+  /*
+    THE PUBLISHING HABIT, DRAWN — one line per network, never one line for all
+    of them.
+
+    A NETWORK IS A SERIES AND NOT A COLOUR ON A STACK. Two posts on Facebook
+    and two on Bluesky are four posts and the sum says nothing: the question
+    this card answers is "which channel am I actually feeding", and a total
+    hides exactly that. The lines are kept apart for the reason no follower
+    count on this board is added to another.
+
+    AN EMPTY BUCKET IS A MEASURED ZERO. A week nobody published in is a fact
+    about the week, so the line runs flat along the axis rather than skipping
+    to the next post — which is the difference between "the habit stopped" and
+    "the collector stopped".
+  */
+  "social.cadence": ({ social: S, bluesky: B, window: W }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const posts = allPosts(S).filter(within(W));
+    const bskyPosts = (B?.handles ?? []).flatMap((h) =>
+      (h.posts ?? []).map((p) => ({ at: p.at, network: "Bluesky" })),
+    );
+    const rows = [
+      ...posts.map((p) => ({ at: p.createdTime, network: networkWord(p.platform) })),
+      ...bskyPosts,
+    ];
+    const shape = buckets(W, posts);
+    if (!shape || !rows.length) return null;
+    const networks = [...new Set(rows.map((r) => r.network))].sort();
+    return {
+      tag: "metered",
+      unit: "count",
+      chart: networks.map((network) => {
+        const own = new Map<string, number>();
+        for (const r of rows)
+          if (r.network === network && r.at)
+            own.set(shape.key(r.at), (own.get(shape.key(r.at)) ?? 0) + 1);
+        return {
+          label: network,
+          points: shape.stamps.map((ts) => ({ ts, value: own.get(ts) ?? 0 })),
+        };
+      }),
+      caption:
+        `Posts published, ${shape.grain} at a time, one line per network and never a total — two posts on ` +
+        `two networks are two habits. A flat stretch is a stretch nobody published in. ${FLOOR_NOTE}`,
+    };
+  },
+
+  /*
+    VIEWS OVER TIME, CREDITED TO THE DAY A POST WENT OUT.
+
+    THIS IS NOT A DAILY VIEW COUNT AND MUST NOT BE READ AS ONE. Meta reports a
+    post's views as a running total and publishes no history of them, so there
+    is no per-day series to draw. What this line is: the views each week's
+    posts have accumulated BY NOW, plotted at the week they were published.
+    A tall bar late in the line is not a good week yet — it is a week whose
+    posts have had less time to gather what they have.
+
+    One line per network, for `social.cadence`'s reason and one stronger: a
+    Facebook render and an Instagram unique account cannot be added at all.
+  */
+  "social.viewsTrend": ({ social: S, window: W }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const posts = allPosts(S).filter(within(W)).filter((p) => postViews(p) !== null);
+    const shape = buckets(W, posts);
+    if (!shape || !posts.length) return null;
+    const networks = [...new Set(posts.map((p) => networkWord(p.platform)))].sort();
+    return {
+      tag: "measured",
+      unit: "count",
+      chart: networks.map((network) => {
+        const own = new Map<string, number>();
+        for (const p of posts)
+          if (networkWord(p.platform) === network && p.createdTime)
+            own.set(
+              shape.key(p.createdTime),
+              (own.get(shape.key(p.createdTime)) ?? 0) + (postViews(p) ?? 0),
+            );
+        return {
+          label: `${network} · views`,
+          points: shape.stamps.map((ts) => ({ ts, value: own.get(ts) ?? 0 })),
+        };
+      }),
+      caption:
+        `Views as they stand NOW, plotted at the ${shape.grain === "a day" ? "day" : "week"} each post went ` +
+        `out — not a daily view count, which Meta publishes no history for. A recent point is low partly ` +
+        `because its posts are young. ${VIEWS_NOTE}`,
+    };
+  },
+
+  /*
+    WHICH PAGE WAS SEEN — Workdash's "Views by page", as ranked bars.
+
+    A PAGE WITH NO MEASURED POST IS LEFT OFF RATHER THAN DRAWN AT ZERO, and
+    the caption counts the ones that were. A bar of length nothing is a claim
+    that nobody saw it; the truth is that nobody measured it.
+  */
+  "social.viewsByPage": ({ social: S, meta: M, window: W }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const inWindow = allPosts(S).filter(within(W));
+    const groups = byPage(inWindow)
+      .map((g) => ({ ...g, t: totals(g.posts) }))
+      .sort((a, b) => (b.t.views ?? -1) - (a.t.views ?? -1));
+    const drawn = groups.filter((g) => g.t.views !== null);
+    if (!drawn.length) return null;
+    const followers = (id: string) => M?.pages.find((p) => p.id === id)?.followers ?? null;
+    const silent = groups.length - drawn.length;
+    return {
+      tag: "metered",
+      ranked: drawn.map((g) => ({
+        label: g.name,
+        value: g.t.views ?? 0,
+        text: count(g.t.views),
+        sub: `${count(g.t.posts)} post${g.t.posts === 1 ? "" : "s"} · ${count(followers(g.id))} followers`,
+      })),
+      caption: also(
+        `${VIEWS_NOTE} ${FLOOR_NOTE}`,
+        silent > 0
+          ? `${silent} more Page${silent === 1 ? " published and was" : "s published and were"} not measured on any post, so ${silent === 1 ? "it is" : "they are"} not drawn`
+          : "",
+      ),
+    };
+  },
+
+  /*
+    WHICH PAGE WAS ANSWERED — the same shape over the other half of a post.
+
+    REACTIONS PLUS COMMENTS, AND THE WORD "ENGAGEMENT" IS AVOIDED ON PURPOSE.
+    Meta's engagement family included shares and was retired; what is left are
+    the two summaries that need no insights permission. Calling two things by
+    the name of three is how a number gets read as bigger than it is.
+  */
+  "social.engagementByPage": ({ social: S, window: W }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const inWindow = allPosts(S).filter(within(W));
+    const groups = byPage(inWindow)
+      .map((g) => ({ ...g, t: totals(g.posts) }))
+      .filter((g) => g.t.engagement !== null)
+      .sort((a, b) => (b.t.engagement ?? 0) - (a.t.engagement ?? 0));
+    if (!groups.length) return null;
+    const answered = inWindow.filter((p) => (postEngagement(p) ?? 0) > 0).length;
+    return {
+      tag: "metered",
+      ranked: groups.map((g) => ({
+        label: g.name,
+        value: g.t.engagement ?? 0,
+        text: count(g.t.engagement),
+        sub: `${count(g.t.posts)} post${g.t.posts === 1 ? "" : "s"}`,
+      })),
+      caption:
+        `Reactions and comments as those posts carry them now — an old post gathering a new like moves ` +
+        `this. SHARES ARE NOT IN IT: the metric that counted them was retired with the impressions family. ` +
+        `${answered} post${answered === 1 ? "" : "s"} in this window got any response at all.`,
+    };
+  },
+
+  /*
+    EVERY ACCOUNT, AS A TABLE — Workdash's page tiles and its archive fold,
+    both of which are reference rather than a call to act, and a table is what
+    reference looks like on a board.
+
+    THE LAST TWO COLUMNS ARE THE COLLECTOR'S OWN STATE. A Page whose read is
+    failing keeps the date it last worked, and a dead token therefore reads as
+    a dead token rather than as a quiet month — the single most valuable thing
+    this table says.
+  */
+  "social.accounts": ({ social: S, meta: M, window: W }: LiveInputs) => {
+    const accounts = S?.posts?.accounts ?? [];
+    if (!accounts.length) return null;
+    const posts = allPosts(S);
+    const table = accounts
+      .map((a) => {
+        const own = posts.filter((p) => p.pageId === a.pageId);
+        const t = totals(own.filter(within(W)));
+        const all = totals(own);
+        return {
+          followers: M?.pages.find((p) => p.id === a.pageId)?.followers ?? null,
+          row: [
+            a.pageName ?? a.pageId,
+            networkWord(a.platform),
+            count(M?.pages.find((p) => p.id === a.pageId)?.followers ?? null),
+            count(t.posts),
+            count(t.views),
+            count(t.engagement),
+            all.latest ? postDay(all.latest) : DASH,
+            a.error ?? a.insightsError ?? (a.lastOkAt ? `read ${ago(a.lastOkAt)}` : "never read"),
+          ],
+          bad: !!(a.error ?? a.insightsError),
+        };
+      })
+      .sort((a, b) => (b.followers ?? -1) - (a.followers ?? -1));
+    return {
+      tag: "measured",
+      headers: [
+        "Page",
+        "Network",
+        "Followers now",
+        `Posts ${windowLabel(W ?? 30)}`,
+        "Views",
+        "Reactions + comments",
+        "Last post any age",
+        "Collector",
+      ],
+      table: table.map((r) => r.row),
+      rowTones: table.map((r) => (r.bad ? ("bad" as const) : null)),
+      caption:
+        `Followers and the last post ignore the window — one has no history and the other is a fact about ` +
+        `today. Everything between them follows it. ${FLOOR_NOTE}`,
+    };
+  },
+
+  /*
+    WHAT WORKED — the posts to make more of, as the posts themselves.
+
+    TWO LISTS AND NOT ONE, which is the shape Workdash argues for and the
+    argument holds: "what worked" is what to make more of and "what went out"
+    is whether the habit is alive, and a single reverse-chronological feed
+    answers the second while hiding the first.
+
+    THE BASIS IS WHICHEVER ONE THIS PORTFOLIO ACTUALLY HAS, AND IT IS NAMED.
+    Ranking by reactions is the right measure and is useless on a portfolio
+    where almost every post has none — every tie would be broken by the order
+    the rows came back in, which is a ranking of nothing. So the card ranks by
+    response where any post got one and by views otherwise, and the caption
+    says which it did. A card that silently swapped its measure would be worse
+    than either.
+  */
+  "social.top": ({ social: S, window: W }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const all = allPosts(S);
+    const inWindow = all.filter(within(W));
+    const responded = inWindow.filter((p) => (postEngagement(p) ?? 0) > 0);
+    const byResponse = responded.length > 0;
+    const ranked = (byResponse ? responded : inWindow.filter((p) => (postViews(p) ?? 0) > 0))
+      .slice()
+      .sort((a, b) =>
+        byResponse
+          ? (postEngagement(b) ?? 0) - (postEngagement(a) ?? 0)
+          : (postViews(b) ?? 0) - (postViews(a) ?? 0),
+      )
+      .slice(0, 4);
+    if (!ranked.length)
+      return {
+        tag: "metered",
+        feed: [],
+        caption: inWindow.length
+          ? `${inWindow.length} post${inWindow.length === 1 ? "" : "s"} went out in this window and Meta measured none of them, so none can be ranked.`
+          : nothingInWindow(all, W),
+      };
+    return {
+      tag: "metered",
+      feed: ranked.map(feedItem),
+      caption:
+        `Ranked by ${byResponse ? "reactions and comments" : "views"}${
+          byResponse
+            ? ""
+            : " — no post in this window drew a reaction or a comment, so views are the only measure left"
+        }. An older post has had longer to gather what it has, so this is a total and not a rate. ${VIEWS_NOTE}`,
+    };
+  },
+
+  /*
+    WHAT WENT OUT LATELY — the habit, in reverse chronological order.
+
+    An empty list here is a fact about the WINDOW and not about the Pages, and
+    the two must not read the same: the caption names the newest post there
+    actually is rather than leaving a reader to conclude the collector broke.
+  */
+  "social.latest": ({ social: S, window: W }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const all = allPosts(S);
+    const inWindow = all
+      .filter(within(W))
+      .slice()
+      .sort((a, b) => String(b.createdTime).localeCompare(String(a.createdTime)))
+      .slice(0, 5);
+    if (!inWindow.length) return { tag: "measured", feed: [], caption: nothingInWindow(all, W) };
+    const older = all.filter(within(W)).length - inWindow.length;
+    return {
+      tag: "measured",
+      feed: inWindow.map(feedItem),
+      caption: also(
+        older > 0 ? `${older} more in this window` : "Everything published in this window",
+        `${VIEWS_NOTE} A post generated on this box carries the draft it came from; most were made elsewhere.`,
+      ),
+    };
+  },
+
+  /*
+    ONE NETWORK'S FEED — Facebook.
+
+    A per-network card rather than a filter on the card above, because "is
+    Facebook alive" and "is anything alive" are different questions and the
+    second one hides the first the moment a second network starts publishing.
+  */
+  "social.facebook": ({ social: S, window: W }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const all = allPosts(S).filter((p) => p.platform === "facebook");
+    const inWindow = all
+      .filter(within(W))
+      .slice()
+      .sort((a, b) => String(b.createdTime).localeCompare(String(a.createdTime)))
+      .slice(0, 5);
+    if (!all.length) return null;
+    if (!inWindow.length) return { tag: "measured", feed: [], caption: nothingInWindow(all, W) };
+    const pages = byPage(all.filter(within(W))).length;
+    return {
+      tag: "measured",
+      feed: inWindow.map(feedItem),
+      caption: `Across ${pages} Page${pages === 1 ? "" : "s"} in this window. ${VIEWS_NOTE}`,
+    };
+  },
+
+  /*
+    ONE NETWORK'S FEED — Instagram, which on this account is the empty one.
+
+    THE EMPTY STATE IS THE CARD. Instagram is not an API this box talks to: it
+    is a FIELD on a Facebook Page, read with the same token in the same call,
+    and every Page here answers that nothing is linked. That is a third state —
+    not a missing credential, not a refused one — and the caption says which
+    step changes it rather than leaving somebody to re-paste a token that
+    works perfectly.
+  */
+  "social.instagram": ({ social: S, meta: M, window: W }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const all = allPosts(S).filter((p) => p.platform === "instagram");
+    const inWindow = all
+      .filter(within(W))
+      .slice()
+      .sort((a, b) => String(b.createdTime).localeCompare(String(a.createdTime)))
+      .slice(0, 5);
+    if (inWindow.length)
+      return {
+        tag: "measured",
+        feed: inWindow.map(feedItem),
+        caption:
+          "Instagram's `reach` counts unique ACCOUNTS where a Facebook view counts renders. The two are " +
+          "never added, which is why this feed is its own card.",
+      };
+    const linked = S.posts.coverage.instagramLinked;
+    const checked = M?.instagram.pagesChecked ?? S.posts.coverage.pagesMapped;
+    return {
+      tag: "measured",
+      feed: [],
+      caption:
+        linked === null
+          ? "The timelines have never been read, so no Page has been asked whether it has an Instagram account yet."
+          : linked === 0
+            ? `No Instagram Business account is linked to any of the ${checked} Page${checked === 1 ? "" : "s"} this box reads — every one was asked and every one answered no. That is not an audience of zero and not a broken token. Link one to a Page in Meta Business Suite → Settings → Instagram accounts, and the same credential reads it on the next collection.`
+            : `${linked} Instagram account${linked === 1 ? " is" : "s are"} linked and ${nothingInWindow(all, W).toLowerCase()}`,
+    };
+  },
+
+  /*
+    ONE NETWORK'S FEED — Bluesky.
+
+    THE POSTS ARE THE SAME PAGE OF THE AUTHOR FEED THE WINDOW TOTALS ARE
+    COMPUTED FROM, kept rather than only counted (see the analytics area's
+    migration 035). Every count on them is CURRENT and not earned-in-window,
+    exactly as `bluesky.engagement` says of its own figures.
+  */
+  "social.bluesky": ({ social: S, bluesky: B, window: W }: LiveInputs) => {
+    /*
+      THE CARD ANSWERS EVEN WITH NO BLUESKY DOCUMENT, and it has to. The
+      Bluesky plugin marks itself unconnected when no handle has been typed —
+      which is the ordinary state here — so the fetch layer never asks and `B`
+      is null. Returning null then would fall back to the catalog's sample
+      caption, which claims nothing was collected from the POSTS source; the
+      truth is narrower and more useful, so it is said. The board's own
+      document is what makes this card live at all.
+    */
+    if (!S?.posts) return null;
+    const days = W ?? 30;
+    const rows = (B?.handles ?? [])
+      .flatMap((h) => (h.posts ?? []).map((p) => ({ ...p, handle: h.handle })))
+      .filter((p) => {
+        if (days === "all") return true;
+        const d = daysAgo(p.at);
+        return d !== null && d <= days;
+      })
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+      .slice(0, 5);
+    if (!rows.length)
+      return {
+        tag: "measured",
+        feed: [],
+        caption: B?.portfolio.handles
+          ? `Nothing from ${B.portfolio.handles} watched handle${B.portfolio.handles === 1 ? "" : "s"} in this window.`
+          : "No Bluesky handle is reaching this board. The public AppView needs no key and holds no credential — a list of handles under the Bluesky plugin IS the whole configuration, and with one the author feed is read on the next collection.",
+      };
+    return {
+      tag: "measured",
+      feed: rows.map((p) => ({
+        title: `@${p.handle}`,
+        at: postDay(p.at),
+        text: p.text,
+        image: p.image,
+        href: p.url,
+        meta: [
+          ["likes", count(p.likes)],
+          ["reposts", count(p.reposts)],
+          ["replies", count(p.replies)],
+        ] as [string, string][],
+      })),
+      caption:
+        "Likes and reposts are what these posts carry NOW, not what they earned inside the window — an old " +
+        "post gathering a new like moves them. One page of the author feed is read, so a busy handle's " +
+        "window is a floor.",
+    };
+  },
+
+  /*
+    WHAT THIS BOX PUBLISHED, AND WHERE IT LANDED.
+
+    THE ONLY PLACE A LINKEDIN OR TIKTOK URL EXISTS HERE. The timeline reader
+    above reads Meta and nothing else, so a post sent to LinkedIn is invisible
+    to it; the publishing area recorded the permalink the network handed back
+    when it accepted the post, and this card is that record.
+
+    NOTHING ON IT IS ADDED TO A TIMELINE FIGURE. A published item and the post
+    it became are the same post seen from two ends, joined by Meta's own id.
+  */
+  "social.published": ({ social: S }: LiveInputs) => {
+    const items = S?.publishing?.items ?? [];
+    if (!S?.publishing) return null;
+    const sent = items
+      .filter((i) => i.status === "published")
+      .sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)))
+      .slice(0, 5);
+    if (!sent.length)
+      return {
+        tag: "measured",
+        feed: [],
+        caption:
+          "Nothing has been published from this box yet. Everything on the feeds above was posted somewhere " +
+          "else and read back — which is most posts, and is why the timeline reader exists.",
+      };
+    const withLink = sent.filter((i) => i.permalink).length;
+    return {
+      tag: "measured",
+      feed: sent.map((i) => ({
+        title: i.destination
+          ? `${i.destination.label}${i.destination.handle ? ` · ${i.destination.handle}` : ""}`
+          : "no destination",
+        at: postDay(i.publishedAt),
+        text: i.caption,
+        image: i.media.url,
+        href: i.permalink,
+        meta: [
+          ["venture", i.venture?.name ?? DASH],
+          ["attempt", count(i.attempts)],
+        ] as [string, string][],
+        tone: "ok" as const,
+      })),
+      caption: `${withLink} of ${sent.length} carry the address the network handed back. Nothing here is added to the figures above: a published item and the post it became are one post seen from two ends.`,
+    };
+  },
+
+  /*
+    WHAT IS WAITING — the half of the loop no timeline can see.
+
+    A draft, an approval and a schedule are work IN FLIGHT: they exist only on
+    this box, they are the reason the feeds above will or will not have
+    anything next week, and a board about publishing that showed only what has
+    already gone out would be a board that can never warn anybody.
+
+    A DRAFT WITH A PROBLEM IS THE ROW THAT MATTERS. It cannot be approved and
+    therefore cannot be sent, and it will sit there silently for ever.
+  */
+  "social.queue": ({ social: S }: LiveInputs) => {
+    const doc = S?.publishing;
+    if (!doc) return null;
+    const c = doc.counts;
+    const blocked = doc.items.filter((i) => i.status === "draft" && i.problems.length > 0);
+    const next = doc.items
+      .filter((i) => i.status === "scheduled" && i.scheduledFor)
+      .sort((a, b) => String(a.scheduledFor).localeCompare(String(b.scheduledFor)))[0];
+    const rows: [string, string][] = [
+      ["Drafts", count(c.draft)],
+      ["Approved, not scheduled", count(c.approved)],
+      ["Scheduled", next ? `${count(c.scheduled)} · next ${when(next.scheduledFor)}` : count(c.scheduled)],
+      ["Published", count(c.published)],
+    ];
+    if (c.failed > 0) rows.push(["Failed", count(c.failed)]);
+    if (blocked.length)
+      rows.push([
+        `${blocked.length} draft${blocked.length === 1 ? "" : "s"} cannot be approved`,
+        blocked[0]!.problems[0]?.message ?? "a limit is not met",
+      ]);
+    return {
+      tag: "measured",
+      rows,
+      caption:
+        "Nothing is published that the owner did not approve first. A draft with a problem cannot be " +
+        "approved and will wait indefinitely — which is why it is a row here rather than a count.",
+    };
+  },
+
+  /*
+    WHAT IS AND IS NOT BEING READ — the card that keeps the rest honest, the
+    same shape `meta.cannot` has and for a different half of the same question.
+
+    `meta.cannot` says what the TOKEN will not answer. This says what this box
+    is even ASKING: only Pages the owner has mapped to a venture are read,
+    because a token can administer Pages belonging to businesses this box has
+    never heard of and reading those would be collecting somebody else's data.
+    An unmapped Page is silence, and silence that is a choice must say so.
+  */
+  "social.coverage": ({ social: S, meta: M, bluesky: B }: LiveInputs) => {
+    if (!S?.posts) return null;
+    const accounts = S.posts.accounts;
+    const failing = accounts.filter((a) => a.error ?? a.insightsError);
+    const granted = M?.pages.length ?? null;
+    const statuses: [string, StatusTone][] = [];
+    statuses.push([
+      `${S.posts.coverage.pagesMapped} Page${S.posts.coverage.pagesMapped === 1 ? "" : "s"} mapped to a venture and read${
+        granted !== null && granted > S.posts.coverage.pagesMapped
+          ? ` · ${granted - S.posts.coverage.pagesMapped} in the grant left alone`
+          : ""
+      }`,
+      S.posts.coverage.pagesMapped > 0 ? "ok" : "warn",
+    ]);
+    statuses.push([
+      S.posts.lastReadAt ? `Timelines last read ${ago(S.posts.lastReadAt)}` : "Timelines have never been read",
+      S.posts.lastReadAt ? "ok" : "warn",
+    ]);
+    statuses.push([
+      failing.length ? `${failing.length} Page read is failing` : "Every mapped Page answered",
+      failing.length ? "bad" : "ok",
+    ]);
+    statuses.push([
+      S.posts.coverage.instagramLinked === null
+        ? "Instagram not yet asked"
+        : S.posts.coverage.instagramLinked === 0
+          ? "No Page has an Instagram Business account linked"
+          : `${S.posts.coverage.instagramLinked} Instagram account${S.posts.coverage.instagramLinked === 1 ? "" : "s"} linked`,
+      S.posts.coverage.instagramLinked ? "ok" : "warn",
+    ]);
+    statuses.push([
+      B?.portfolio.handles
+        ? `${B.portfolio.handles} Bluesky handle${B.portfolio.handles === 1 ? "" : "s"} watched`
+        : "No Bluesky handle configured — a list of handles is the whole configuration",
+      B?.portfolio.handles ? "ok" : "warn",
+    ]);
+    statuses.push(["Shares: no surviving metric reports them", "warn"]);
+    return { tag: "measured", statuses };
+  },
+
+  /*
+    ONE VENTURE'S POSTS.
+
+    THE JOIN IS THE OWNER'S OWN AND NOT A GUESS. Workdash matches a Page to a
+    project by testing the Page's NAME against a regular expression, and says
+    so wherever it shows — a rename breaks it. This box has a better answer
+    already: the publishing area's destination row carries the venture the
+    owner TYPED, the timeline collector writes it onto every post it stores,
+    and this card reads it. A Page named nothing like its business still lands
+    on the right venture.
+
+    So this is per-project by `param` rather than by host: the posts carry a
+    venture id, not a hostname, and narrowing the document by the venture's
+    domain would throw away the stronger join. See lib/scope.
+  */
+  "social.project": ({ social: S, project, window: W }: LiveInputs) => {
+    if (!project || !S?.posts) return null;
+    const own = allPosts(S).filter((p) => p.ventureId === project.id);
+    const inWindow = own
+      .filter(within(W))
+      .slice()
+      .sort((a, b) => String(b.createdTime).localeCompare(String(a.createdTime)))
+      .slice(0, 5);
+    if (!own.length)
+      return {
+        tag: "measured",
+        feed: [],
+        caption: `No Page is mapped to ${project.name} under Publishing, so nothing is read for it. The mapping is the owner's own — a Page is never matched to a venture by its name.`,
+      };
+    if (!inWindow.length) return { tag: "measured", feed: [], caption: nothingInWindow(own, W) };
+    return {
+      tag: "measured",
+      feed: inWindow.map(feedItem),
+      caption: `${own.filter(within(W)).length} post${own.filter(within(W)).length === 1 ? "" : "s"} published in this window · joined to ${project.name} by the mapping the owner typed, not by matching a Page name. ${VIEWS_NOTE}`,
+    };
+  },
+
+  /*
+    ONE VENTURE'S FIGURES, in the shape Workdash's per-account page opens with:
+    the tiles, then what landed, in one card rather than a page.
+  */
+  "social.projectStats": ({ social: S, meta: M, project, window: W }: LiveInputs) => {
+    if (!project || !S?.posts) return null;
+    const own = allPosts(S).filter((p) => p.ventureId === project.id);
+    if (!own.length) return null;
+    const pageIds = new Set(own.map((p) => p.pageId));
+    const followers = (M?.pages ?? [])
+      .filter((p) => pageIds.has(p.id))
+      .map((p) => p.followers)
+      .filter((n): n is number => n !== null);
+    const t = totals(own.filter(within(W)));
+    const all = totals(own);
+    const quiet = daysAgo(all.latest);
+    const best = own
+      .filter(within(W))
+      .filter((p) => (postViews(p) ?? 0) > 0)
+      .sort((a, b) => (postViews(b) ?? 0) - (postViews(a) ?? 0))
+      .slice(0, 3);
+    return {
+      tag: "measured",
+      figures: [
+        {
+          label: "Followers now",
+          value: followers.length ? count(followers.reduce((n, v) => n + v, 0)) : DASH,
+          sub: `${pageIds.size} Page${pageIds.size === 1 ? "" : "s"}`,
+        },
+        { label: "Posts", value: count(t.posts), sub: windowLabel(W ?? 30) },
+        { label: "Views", value: count(t.views), sub: `${count(t.measured)} measured` },
+        {
+          label: "Last post",
+          value: quiet === null ? DASH : quiet === 0 ? "today" : `${quiet}d ago`,
+          sub: "any age",
+        },
+      ],
+      rows: best.length
+        ? best.map(
+            (p) =>
+              [
+                `${postDay(p.createdTime)} · ${(p.text ?? "no text").replace(/\s+/g, " ").slice(0, 44)}`,
+                `${count(postViews(p))} views`,
+              ] as [string, string],
+          )
+        /* "Nothing measured" would be wrong: a post Meta measured at zero
+           views WAS measured. What there is not, is a post anybody saw. */
+        : [[t.measured ? "No post here drew a view in this window" : "Nothing measured in this window", DASH]],
+      caption: `${VIEWS_NOTE} ${FLOOR_NOTE} Followers have no history and do not follow the window.`,
+    };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

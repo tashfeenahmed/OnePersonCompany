@@ -703,6 +703,22 @@ export function scopeLive(
       disputes: scoped.disputes,
       queue: scoped.queue,
       seo: scoped.seo,
+      /*
+        THE POSTS GO IN UNNARROWED, AND THE PER-PROJECT CARDS ARE THE CUT.
+
+        Every post in this document carries a `ventureId` the OWNER typed —
+        the Page-to-venture mapping under Publishing — so it could be narrowed
+        exactly, and it is the one document here that could be narrowed by
+        something better than a hostname guess. What it cannot be narrowed by
+        is what this function is given: a scope is a set of HOSTS and a set of
+        linked entities, and a Facebook Page is neither. Rather than match a
+        Page name against a domain — the weak join Workdash lives with and
+        this box already has a stronger answer to — the social source stays
+        out of SCOPABLE_SOURCES, its cards wear the "portfolio" tag inside a
+        venture, and `social.project` / `social.projectStats` give the exact
+        per-venture cut wherever they are placed. See lib/liveWidgets.
+      */
+      social: scoped.social,
     });
     if (patch) liveTypes.add(type);
   }

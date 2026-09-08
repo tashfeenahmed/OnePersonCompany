@@ -272,7 +272,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 18;
+export const SEED_VERSION = 19;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -937,12 +937,63 @@ const SEED: StoreState = {
       slug: "social",
       name: "Social",
       widgets: [
+        /*
+          RE-SEEDED IN SEED_VERSION 19 TO FOLLOW WORKDASH'S SOCIAL PAGE TOP TO
+          BOTTOM, AND THE THING IT FOLLOWS IS THE POSTS.
+
+          The seven cards below kept their ids and their places relative to
+          each other; what changed is that a board about publishing now shows
+          what was published. The timeline reader has been storing the words,
+          the pictures and the permalinks for every mapped Page since the
+          socialfeed area shipped, and nothing on any board read them.
+
+          THE ORDER IS WORKDASH'S QUESTION ORDER. How many people could see
+          it, how many did, and how long since anybody was given the chance —
+          then the rate that qualifies the middle one. Then the Pages: which
+          was seen, which was answered, the habit over time, and the table
+          with the collector's own state on the end. Then WHAT WORKED and WHAT
+          WENT OUT LATELY, which are two lists on purpose: one is what to make
+          more of and the other is whether the habit is alive, and a single
+          reverse-chronological feed answers the second while hiding the
+          first. Then a feed per network, because "is Facebook alive" and "is
+          anything alive" stop being the same question the moment a second
+          network starts publishing.
+
+          THE PIPELINE COMES AFTER THE PUBLISHED WORK and before the per-
+          project pair, because it is the only part of this board that is
+          about the future: a draft nobody approved is why next fortnight's
+          feeds will be empty.
+
+          IT STILL ENDS ON THE REFUSALS. `social.coverage` says what this box
+          is even asking for — only Pages the owner mapped — and `meta.cannot`
+          says what the token will not answer. A social board that quietly
+          omitted organic Page reach would be read as the whole picture.
+        */
+        { id: "so8", type: "social.followers", w: 1 },
+        { id: "so9", type: "social.views", w: 1 },
+        { id: "so10", type: "social.quiet", w: 1 },
+        { id: "so11", type: "social.perPost", w: 1 },
         { id: "so1", type: "meta.pages", w: 2 },
+        { id: "so12", type: "social.viewsByPage", w: 2 },
+        { id: "so13", type: "social.engagementByPage", w: 2 },
+        { id: "so14", type: "social.cadence", w: 4 },
+        { id: "so15", type: "social.viewsTrend", w: 4 },
+        { id: "so16", type: "social.accounts", w: 4 },
+        { id: "so17", type: "social.top", w: 2 },
+        { id: "so18", type: "social.latest", w: 2 },
+        { id: "so19", type: "social.facebook", w: 2 },
         { id: "so2", type: "instagram.followers", w: 2 },
+        { id: "so20", type: "social.instagram", w: 2 },
         { id: "so3", type: "bluesky.followers", w: 1 },
         { id: "so4", type: "meta.reach", w: 1 },
         { id: "so5", type: "bluesky.engagement", w: 2 },
+        { id: "so21", type: "social.bluesky", w: 2 },
         { id: "so6", type: "bluesky.handles", w: 4 },
+        { id: "so22", type: "social.published", w: 2 },
+        { id: "so23", type: "social.queue", w: 2 },
+        { id: "so24", type: "social.project", w: 2 },
+        { id: "so25", type: "social.projectStats", w: 2 },
+        { id: "so26", type: "social.coverage", w: 2 },
         { id: "so7", type: "meta.cannot", w: 2 },
       ],
     },
@@ -1182,6 +1233,11 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   /* A proportion is a metric tile with a bar under the figure: one column,
      the way the hero row of the Payments board places three of them. */
   if (kind === "proportion") return 1;
+  /* A feed is a picture beside three lines of somebody's writing. One column
+     leaves the text four words wide; four columns leave a fifty-six-pixel
+     thumbnail adrift in a field of white. Two is the width a post reads at,
+     which is the width Workdash's post cards take. */
+  if (kind === "feed") return 2;
   /* Everything else — and a profile is among them on purpose: four tiles, a
      line and a list fit two columns, like the property cards on Workdash's
      Search page it is modelled on. */
@@ -1664,10 +1720,45 @@ const TOP_UPS: Record<string, string[]> = {
     the owner has them: a top-up never removes.
   */
   "d-payments": ["payments.mrr", "payments.subs", "payments.attempts", "payments.recent"],
+  /*
+    Social gained the POSTS in SEED_VERSION 19. The board shipped as seven
+    cards of counts because that was everything `/api/meta` could answer; the
+    socialfeed area has been reading each mapped Page's timeline back from
+    Meta ever since, and the publishing area has been holding the queue, and
+    nothing on any board read either.
+
+    THEY LEAD — see TOP_UP_LEADS — because the first four are the tiles the
+    whole board is read from, and tiles appended under seven cards are tiles
+    nobody scrolls to. The two per-project cards trail whatever this says,
+    because they arrive with no venture chosen and a "pick a venture" prompt
+    is not a headline; `migrate()` enforces that. The seven cards already on
+    the board keep their ids and their places: a top-up never removes.
+  */
+  "d-social": [
+    "social.followers",
+    "social.views",
+    "social.quiet",
+    "social.perPost",
+    "social.viewsByPage",
+    "social.engagementByPage",
+    "social.cadence",
+    "social.viewsTrend",
+    "social.accounts",
+    "social.top",
+    "social.latest",
+    "social.facebook",
+    "social.instagram",
+    "social.bluesky",
+    "social.published",
+    "social.queue",
+    "social.coverage",
+    "social.project",
+    "social.projectStats",
+  ],
 };
 
 /** The boards whose top-up leads rather than trails — see `migrate()`. */
-const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search", "d-payments"]);
+const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search", "d-payments", "d-social"]);
 
 /** The addresses already taken inside one scope — a venture's boards, or the
  *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is

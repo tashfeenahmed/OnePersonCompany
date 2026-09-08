@@ -22,7 +22,8 @@ export type WidgetKind =
   | "dumbbell"
   | "profile"
   | "proportion"
-  | "waterfall";
+  | "waterfall"
+  | "feed";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -180,6 +181,51 @@ export type WaterfallStep = {
   value: number;
   text: string;
   total?: boolean;
+};
+
+/**
+ * ONE PUBLISHED THING, DRAWN AS ITSELF.
+ *
+ * Every other kind on this board turns work into a magnitude — a bar, a
+ * slice, a line. A post is not a magnitude: "43 views" says nothing about
+ * what to make more of, and the answer to "which post worked" is the post.
+ * So this is the one kind that carries CONTENT rather than a number, and the
+ * numbers ride along in `meta` as label/value pairs the builder already
+ * formatted.
+ *
+ * `title` is who published it — a Page name, a handle, a destination — and
+ * `at` is when, already written ("6 Sep"). `text` is what was actually
+ * written, whole; the card clamps it rather than the builder truncating it,
+ * so a hover and a copy still get the sentence. `href` is the PERMALINK and
+ * is the reason this kind exists: a board that shows a post and cannot open
+ * it is a screenshot.
+ *
+ * `image` IS A URL AND IS NEVER DOWNLOADED. Meta signs its CDN addresses with
+ * an expiry a few days out, so a document that has gone stale starts serving
+ * 403s — which is why the card draws the picture in a FIXED box behind an
+ * error handler that hides the frame. A broken-image icon is a claim about
+ * the post; an absent one is the honest render of "could not fetch it just
+ * now". Nothing here embeds a third-party script or an oEmbed iframe.
+ *
+ * `tone` is set only where an item is being JUDGED — a failed publish, a
+ * draft nobody approved — and is absent on a post, which is just a post.
+ */
+export type FeedItem = {
+  /** Who published it: a Page, a handle, a destination. */
+  title: string;
+  /** When, already written by the builder — "6 Sep" or "6 Sep 2025". */
+  at: string;
+  /** What was written. Null draws "no text on this post", never an empty row. */
+  text: string | null;
+  /** A picture's URL — never bytes, never cached. See above. */
+  image?: string | null;
+  /** Where to read it. Null is a post with no public address, which the card
+   *  says rather than drawing a dead link. */
+  href?: string | null;
+  /** The figures, already formatted: [["views", "43"], ["engagement", "1"]]. */
+  meta?: [string, string][];
+  /** A judgement, for an item that is being judged. Absent on a post. */
+  tone?: StatusTone;
 };
 
 export type WidgetSource = {
@@ -360,6 +406,12 @@ export type Widget = {
     /** The four SEO documents this box computes itself — authority, AI
      *  visibility, follow-ups, IndexNow — asked for as one bundle. */
     seo?: boolean;
+    /** The POSTS. The timeline the socialfeed area reads back from Meta every
+     *  six hours, and the publishing area's queue beside it — what went out,
+     *  how it did, where it went, and what is still waiting. One flag for two
+     *  routes because it is one fetch and one question; nothing in it adds a
+     *  queued draft to a published post. See lib/api/socialboard. */
+    social?: boolean;
   };
   /**
    * A WORD ABOUT WHAT KIND OF NUMBER THIS IS, worn as a small mono pill after
@@ -484,6 +536,12 @@ export type Widget = {
   /** runway — deadlines on one axis, with the two lines they are judged by. */
   runway?: RunwayRow[];
   thresholds?: { warn: number; crit: number };
+  /**
+   * feed — the posts themselves, newest or best first. See `FeedItem`: this
+   * is the one kind that draws CONTENT rather than a magnitude, and `caption`
+   * under it says what the list is a cut of and on what basis it was cut.
+   */
+  feed?: FeedItem[];
   /**
    * The furthest the axis will go, whatever the rows say. A pair of names
    * bought until 2029 pushes the axis past six hundred days and collapses
@@ -674,6 +732,29 @@ export const SOURCES: Record<string, WidgetSource> = {
     icon: null,
     mono: "bs",
     tint: "#0085ff",
+    connected: true,
+  },
+  /*
+    THE POSTS, AS A SOURCE OF THEIR OWN.
+
+    Not `meta`, although the Facebook half is read with Meta's token, and the
+    reason is what a source NAMES on this board: `meta` is the ad account and
+    the Page identities, collected every six hours by the meta collector, and
+    its cards quote that clock. These cards quote a different one — the
+    timeline reader's — and they carry Bluesky and the publishing queue as
+    well, neither of which Meta has ever heard of. One source per clock is the
+    rule `collectedAt` in lib/live is built on.
+
+    CONNECTED, because there is nothing to connect: both routes read tables
+    this box writes, the way `audit` and `runs` do. An empty answer here means
+    no Page has been mapped to a venture yet, which is work rather than a
+    missing credential — and the coverage card says so in those words.
+  */
+  social: {
+    name: "Posts",
+    icon: null,
+    mono: "Po",
+    tint: "#7a5cc4",
     connected: true,
   },
   fleet: {
@@ -3501,6 +3582,177 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     perProject: true,
     live: { seo: true },
+  },
+
+  /* ======================================================================
+     SOCIAL BOARD PARITY (Workdash /social and /social/<id>) — workstream
+     "social-board", 2026-09-08.
+
+     WHAT WORKDASH DRAWS THAT THIS BOARD DID NOT: the posts. All of them —
+     the picture, the words, the date, the figures and the link — as the two
+     lists it argues for (what worked, and what went out lately), the
+     followers hero with its split bar, the views hero with its three
+     denominators, the quiet-for tile, views ranked by page, and the page
+     table with the collector's own state on the end.
+
+     AND WHAT IT DOES NOT DRAW, ADDED HERE. Workdash matches a Page to a
+     project by testing the Page's NAME against a regular expression and
+     admits the weakness wherever it shows. This box has the owner's own
+     mapping — a destination row under Publishing, typed by a person, written
+     onto every post the timeline reader stores — so the per-project cards
+     here are exact rather than approximate. There is also a publishing
+     QUEUE, which no Workdash page has at all: what has been drafted,
+     approved and scheduled is the half of the loop a timeline can never see.
+
+     FOUR RULES CARRIED ACROSS EVERY CARD. "Views" and never "reach" on a
+     Facebook post, because `post_media_view` counts renders. A metric that
+     is not a key was not reported and draws a dash. A window wider than the
+     collection interval is a FLOOR, because twenty-five posts are read per
+     Page per pass. And nothing adds across networks — not followers, not
+     views, not a Facebook render to an Instagram unique account.
+     ====================================================================== */
+  "social.followers": {
+    src: "social",
+    name: "Followers",
+    kind: "proportion",
+    window: "now",
+    live: { social: true, meta: true },
+  },
+  "social.views": {
+    src: "social",
+    name: "Views",
+    kind: "proportion",
+    window: "selected",
+    live: { social: true },
+  },
+  "social.quiet": {
+    src: "social",
+    name: "Last post",
+    kind: "metric",
+    window: "now",
+    live: { social: true },
+  },
+  "social.perPost": {
+    src: "social",
+    name: "Views a post",
+    kind: "metric",
+    window: "selected",
+    live: { social: true },
+  },
+  "social.cadence": {
+    src: "social",
+    name: "Posts published",
+    kind: "chart",
+    window: "selected",
+    live: { social: true },
+    unit: "count",
+  },
+  "social.viewsTrend": {
+    src: "social",
+    name: "Views on what went out",
+    kind: "chart",
+    window: "selected",
+    live: { social: true },
+    unit: "count",
+  },
+  "social.viewsByPage": {
+    src: "social",
+    name: "Views by Page",
+    kind: "ranked",
+    window: "selected",
+    live: { social: true },
+  },
+  "social.engagementByPage": {
+    src: "social",
+    name: "Reactions + comments by Page",
+    kind: "ranked",
+    window: "selected",
+    live: { social: true },
+  },
+  "social.accounts": {
+    src: "social",
+    name: "Every account",
+    kind: "table",
+    live: { social: true, meta: true },
+    headers: [
+      "Page",
+      "Network",
+      "Followers now",
+      "Posts",
+      "Views",
+      "Reactions + comments",
+      "Last post any age",
+      "Collector",
+    ],
+  },
+  "social.top": {
+    src: "social",
+    name: "Top posts",
+    kind: "feed",
+    window: "selected",
+    live: { social: true },
+  },
+  "social.latest": {
+    src: "social",
+    name: "Latest posts",
+    kind: "feed",
+    window: "selected",
+    live: { social: true },
+  },
+  "social.facebook": {
+    src: "social",
+    name: "Facebook Pages · latest",
+    kind: "feed",
+    window: "selected",
+    live: { social: true },
+  },
+  "social.instagram": {
+    src: "social",
+    name: "Instagram · latest",
+    kind: "feed",
+    window: "selected",
+    live: { social: true, meta: true },
+  },
+  "social.bluesky": {
+    src: "social",
+    name: "Bluesky · latest",
+    kind: "feed",
+    window: "selected",
+    live: { social: true, bluesky: true },
+  },
+  "social.published": {
+    src: "social",
+    name: "Published from here",
+    kind: "feed",
+    live: { social: true },
+  },
+  "social.queue": {
+    src: "social",
+    name: "Waiting to go out",
+    kind: "rows",
+    live: { social: true },
+  },
+  "social.coverage": {
+    src: "social",
+    name: "What is being read",
+    kind: "statuses",
+    live: { social: true, meta: true, bluesky: true },
+  },
+  "social.project": {
+    src: "social",
+    name: "Posts",
+    kind: "feed",
+    window: "selected",
+    perProject: true,
+    live: { social: true },
+  },
+  "social.projectStats": {
+    src: "social",
+    name: "Social",
+    kind: "profile",
+    window: "selected",
+    perProject: true,
+    live: { social: true, meta: true },
   },
 };
 

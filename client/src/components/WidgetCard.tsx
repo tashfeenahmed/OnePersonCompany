@@ -7,6 +7,7 @@ import {
   Chart,
   Donut,
   Dumbbell,
+  Feed,
   Figures,
   MeterRow,
   Profile,
@@ -70,6 +71,7 @@ function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<Live
     disputes: live.disputes,
     queue: live.queue,
     seo: live.seo,
+    social: live.social,
     window: live.window,
     ...extra,
   };
@@ -627,6 +629,18 @@ export function WidgetCard({
               {/* A builder that measured an EMPTY table says what it found
                   ("No charges in this window") rather than the default. */}
               {def.caption ?? "Nothing measured yet."}
+            </p>
+          ))}
+
+        {!empty && def.kind === "feed" &&
+          (def.feed?.length ? (
+            <Feed items={def.feed} caption={def.caption} />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[12.5px]">
+              {/* A builder that LOOKED and found nothing says what it looked
+                  for ("Nothing published in the last 7 days") — the same
+                  contract the table kind keeps. */}
+              {def.caption ?? "Nothing published yet."}
             </p>
           ))}
 

@@ -288,6 +288,30 @@ export type BlueskyHandle = {
   };
   history: { ts: string; followers: number }[];
   windows: BlueskyWindow[];
+  /**
+   * THE POSTS THE WINDOWS ABOVE WERE COMPUTED FROM, newest first.
+   *
+   * Same page of the author feed, kept rather than only counted, so a board
+   * can show which post earned the likes. EVERY COUNT IS CURRENT AND NOT
+   * EARNED-IN-WINDOW, exactly as the window totals are. `url` is derived from
+   * the at:// uri and costs no request; `image` is a CDN thumbnail address and
+   * nothing on this client downloads it. Optional, because a server that has
+   * not collected since the field was added sends handles without it.
+   */
+  posts?: {
+    uri: string;
+    url: string | null;
+    at: string | null;
+    text: string | null;
+    image: string | null;
+    likes: number;
+    reposts: number;
+    replies: number;
+    quotes: number;
+    engagement: number;
+    isReply: boolean;
+    seenAt: string;
+  }[];
   lastOkAt: string | null;
   lastError: string | null;
   lastReadAt: string | null;

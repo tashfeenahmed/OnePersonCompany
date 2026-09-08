@@ -51,6 +51,7 @@ import {
   replaceCalendars,
   replaceUmamiTop,
   replaceUmamiWebsites,
+  writeBlueskyPosts,
   writeBlueskyProfile,
   writeBlueskyWindow,
   writePypiDays,
@@ -482,6 +483,16 @@ export async function collectBluesky(): Promise<CollectResult & { handles: numbe
         const feed = await bluesky.authorFeed(handle);
         for (const days of bluesky.WINDOWS)
           writeBlueskyWindow(handle, days, bluesky.windowTotals(feed, days));
+        /* THE SAME PAGE, KEPT RATHER THAN ONLY COUNTED. The request has
+           already been made and its posts are already parsed; storing them
+           costs nothing more and is what lets a board show which post earned
+           the likes the windows above total. Reposts by the handle are
+           dropped for the reason the windows drop them: somebody else's post,
+           somebody else's likes. */
+        writeBlueskyPosts(
+          handle,
+          feed.filter((p) => !p.isRepostByAuthor),
+        );
       } catch (err) {
         /* The profile answered and the feed did not. That is a handle with
            counts and no engagement figures, which is a smaller failure than
