@@ -31,6 +31,9 @@ import {
   WEEKDAYS,
 } from "./dates";
 
+/** Eight hues for calendars Google gave none — see `colors` in the page. */
+const FALLBACK_HUES = ["#4f86f7", "#e2725b", "#33a06f", "#c98a1f", "#8b6bd1", "#2aa7b8", "#d95fa0", "#7f8c3a"];
+
 /**
  * CALENDAR — the hours already spoken for, as a week.
  *
@@ -249,10 +252,24 @@ export function Calendar() {
     return out;
   }, [data, hidden]);
 
-  const colors = useMemo(
-    () => new Map((data?.calendars ?? []).map((k) => [k.calendarId, k.color])),
-    [data],
-  );
+  /*
+    A CALENDAR ALWAYS HAS A COLOUR, GOOGLE'S OR ONE OF OURS. Google publishes
+    one per calendar and the collector keeps it; until it has read one — the
+    column is new — and for any calendar it never sends one for, the
+    calendar takes a hue from a fixed ring by its position in the list, so
+    the same calendar wears the same hue on every visit and two calendars
+    never share one until the ring runs out. The ring is a set of eight
+    distinct, mid-saturation hues that read on both themes at the 18–24%
+    alpha the blocks are tinted at.
+  */
+  const colors = useMemo(() => {
+    const out = new Map<string, string | null>();
+    let i = 0;
+    for (const k of data?.calendars ?? []) {
+      out.set(k.calendarId, k.color ?? FALLBACK_HUES[i++ % FALLBACK_HUES.length]!);
+    }
+    return out;
+  }, [data]);
 
   const columns: DayColumn[] = useMemo(
     () =>
@@ -474,7 +491,7 @@ export function Calendar() {
                     ? `Show ${k.summary ?? k.calendarId}`
                     : `Hide ${k.summary ?? k.calendarId} — ${k.accessRole ?? "unknown role"}, ${k.timezone ?? "no timezone"}`
                 }
-                style={off ? undefined : { backgroundColor: tint(k.color, dark) }}
+                style={off ? undefined : { backgroundColor: tint(colors.get(k.calendarId) ?? null, dark), borderLeftColor: dot(colors.get(k.calendarId) ?? null) }}
                 className={cn(
                   "hover:bg-accent flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[12.5px]",
                   off && "text-muted-foreground line-through opacity-60",
