@@ -7240,7 +7240,7 @@ function leavingInterval(c: RecoveryCase): string {
 }
 
 Object.assign(LIVE_BUILDERS, {
-  "payments.gross": ({ stripe: S }: LiveInputs) => {
+  "payments.gross": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     if (!c) return null;
     const r = firstCurrency(S?.revenue);
@@ -7253,7 +7253,7 @@ Object.assign(LIVE_BUILDERS, {
       Stripe's cut EX-TAX over gross, the only blended rate this box quotes.
     */
     return {
-      name: `Gross · ${c.days}d`,
+      name: `Gross · ${windowLabel(W ?? c.days)}`,
       tag: "metered",
       value: inCurrency(c.gross, c.currency, 0),
       sub: also(
@@ -7339,11 +7339,11 @@ Object.assign(LIVE_BUILDERS, {
     return { tag: "floor", rows };
   },
 
-  "payments.failRate": ({ stripe: S }: LiveInputs) => {
+  "payments.failRate": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     if (!c) return null;
     const rate = failRate(c.succeeded, c.failed);
-    const name = `Fail rate · ${c.days}d`;
+    const name = `Fail rate · ${windowLabel(W ?? c.days)}`;
     if (rate === null) return { name, tag: "metered", value: DASH, sub: "no payment attempts in this window, so there is no rate" };
     const d = drift(c.series);
     /*
@@ -7369,7 +7369,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "payments.daily": ({ stripe: S }: LiveInputs) => {
+  "payments.daily": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     const r = firstCurrency(S?.revenue);
     if (!c?.series.length && !r?.series.length) return null;
@@ -7394,7 +7394,7 @@ Object.assign(LIVE_BUILDERS, {
       },
     ].filter((s): s is { label: string; points: { ts: string; value: number }[] } => !!s);
     return {
-      name: `Daily revenue · ${days}d`,
+      name: `Daily revenue · ${windowLabel(W ?? days)}`,
       tag: "metered",
       chart,
       unit: "usd" as const,
@@ -7404,8 +7404,8 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "payments.movement": ({ stripe: S }: LiveInputs) => {
-    const c = churnRow(S, 30);
+  "payments.movement": ({ stripe: S, window: W }: LiveInputs) => {
+    const c = churnRow(S, churnDays(W));
     const p = S?.subscriptions.pendingCancellation;
     if (!c || !p) return null;
     const m = (n: number) => inCurrency(n, c.currency);
@@ -7519,7 +7519,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "payments.disputes": ({ disputes: D }: LiveInputs) => {
+  "payments.disputes": ({ disputes: D, window: W }: LiveInputs) => {
     if (!D) return null;
     const c = firstCurrency(D.currencies);
     const cur = c?.currency ?? "USD";
@@ -7536,36 +7536,36 @@ Object.assign(LIVE_BUILDERS, {
       rows.push(["Open now", `${count(openNow)} · ${inCurrency(c?.cases.openNowAmount ?? 0, cur)} at stake`]);
       if (c?.cases.nextEvidenceDueBy) rows.push(["Next evidence due", dayShort(c.cases.nextEvidenceDueBy.slice(0, 10))]);
     } else rows.push(["Needing a response now", "none"]);
-    rows.push([`Opened · ${days}d`, `${count(c?.cases.opened ?? 0)} · ${inCurrency(c?.cases.openedAmount ?? 0, cur)}`]);
+    rows.push([`Opened · ${windowLabel(W ?? days)}`, `${count(c?.cases.opened ?? 0)} · ${inCurrency(c?.cases.openedAmount ?? 0, cur)}`]);
     if (c)
       rows.push([
-        `Left the ledger · ${days}d`,
+        `Left the ledger · ${windowLabel(W ?? days)}`,
         `${inCurrency(c.ledger.moneyOut, cur)} · ${inCurrency(c.ledger.disputes, cur)} disputed + ${inCurrency(c.ledger.disputeFees, cur)} in fees`,
       ]);
     const o = D.counts.byOutcome;
     rows.push(["All time", `${count(o.lost)} lost · ${count(o.won)} won · ${count(o.undecided)} undecided`]);
     rows.push(["Cases and the ledger", "two populations, dated apart, never added"]);
-    return { name: `Disputes · ${days}d`, tag: "metered", rows };
+    return { name: `Disputes · ${windowLabel(W ?? days)}`, tag: "metered", rows };
   },
 
-  "payments.attemptDays": ({ stripe: S }: LiveInputs) => {
+  "payments.attemptDays": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     if (!c?.series.length) return null;
     const shown = c.series.slice(-14).reverse();
     return {
-      name: `Attempts by day · last ${count(shown.length)} of ${c.days}`,
+      name: `Attempts by day · last ${count(shown.length)} of ${windowLabel(W ?? c.days)}`,
       tag: "metered",
       headers: ["Day", "Succeeded", "Blocked", "Declined", "Gross"],
       table: shown.map((d) => [dayShort(d.day), count(d.succeeded), count(d.blocked), count(d.declined), inCurrency(d.gross, c.currency)]),
     };
   },
 
-  "payments.ledgerDays": ({ stripe: S }: LiveInputs) => {
+  "payments.ledgerDays": ({ stripe: S, window: W }: LiveInputs) => {
     const r = firstCurrency(S?.revenue);
     if (!r?.series.length) return null;
     const shown = r.series.slice(-14).reverse();
     return {
-      name: `Settled by day · last ${count(shown.length)} of ${r.days}`,
+      name: `Settled by day · last ${count(shown.length)} of ${windowLabel(W ?? r.days)}`,
       tag: "metered",
       headers: ["Day", "Gross", "Fees", "Net"],
       table: shown.map((d) => [dayShort(d.day), inCurrency(d.gross, r.currency), inCurrency(d.fees, r.currency), inCurrency(d.net, r.currency)]),

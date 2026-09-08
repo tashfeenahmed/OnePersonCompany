@@ -633,11 +633,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       */
       tryFetch(
         connected.has("stripe") && wanted.needsLeakage,
-        () => activityApi.leakage(),
+        () => activityApi.leakage(daysFor(selected, 400)),
         setLeakage, "leakage");
       tryFetch(
         connected.has("stripe") && wanted.needsDisputes,
-        () => customersApi.disputes(30),
+        () => customersApi.disputes(daysFor(selected, 400)),
         setDisputes, "disputes");
       tryFetch(
         connected.has("stripe") && wanted.needsQueue,
