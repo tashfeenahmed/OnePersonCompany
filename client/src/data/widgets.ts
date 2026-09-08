@@ -20,7 +20,9 @@ export type WidgetKind =
   | "donut"
   | "ranked"
   | "dumbbell"
-  | "profile";
+  | "profile"
+  | "proportion"
+  | "waterfall";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -142,6 +144,42 @@ export type DumbbellRow = {
   b: number;
   text: string;
   sub?: string;
+};
+
+/**
+ * One part of a whole, for the proportion bar — the form for two or three
+ * parts of something whose size is already on the card: attempts that
+ * settled against attempts that failed, the book by state, MRR by plan.
+ *
+ * `tone` is set only where a part is being JUDGED — "failed" is bad, "past
+ * due" is a warning — and a part without one takes the next series colour,
+ * so a bar of four plans is four hues and a bar of succeeded-against-failed
+ * is green against red. `text` is what the key prints beside the label,
+ * already formatted; absent, the key prints the share.
+ */
+export type ProportionPart = {
+  label: string;
+  value: number;
+  text?: string;
+  tone?: StatusTone;
+};
+
+/**
+ * One step of a waterfall: what was added, what was taken away, what is left.
+ *
+ * `value` is SIGNED and is the geometry; `text` is what the bar prints above
+ * itself, already formatted, because the builder knows the currency and the
+ * chart must not decide what a euro looks like. A `total` step is drawn from
+ * the baseline to the running sum rather than hanging off the previous bar —
+ * the "Net" at the end — and its own `value` is that sum.
+ */
+export type WaterfallStep = {
+  label: string;
+  /** The quiet line under the word — "226 subs", "over 30 days". */
+  sub?: string;
+  value: number;
+  text: string;
+  total?: boolean;
 };
 
 export type WidgetSource = {
@@ -404,6 +442,29 @@ export type Widget = {
   center?: { value: string; note: string };
   /** ranked — horizontal bars, largest first, the figure at each bar's tip. */
   ranked?: RankedRow[];
+  /**
+   * proportion — a figure and the whole it is part of. The hero is `value`
+   * and `sub` as on a metric; `parts` is the split bar under it with a key
+   * per part; `partsLabel` is the sentence the bar is read as ("Payment
+   * attempts over 30d"). A `series` under that is a sparkline with
+   * `seriesLabel` naming what it is; `ranked` rows and `rows` after it are
+   * the card's detail, and `caption` closes it. Every field but `parts` is
+   * optional, so the same kind draws a hero tile with one bar and a card
+   * with a bar, a trend and a table of buckets.
+   */
+  parts?: ProportionPart[];
+  partsLabel?: string;
+  seriesLabel?: string;
+  /** waterfall — signed steps from a baseline, the last one a total. `rows`
+   *  under it are the lines the picture does not carry. */
+  steps?: WaterfallStep[];
+  /**
+   * table — a judgement per row, drawn as a dot before the first cell. Null
+   * for a row that is not judged; absent when no row on the table is. A
+   * charge list is the case: settled, failed and refunded are three words
+   * that are read faster as three colours, and the word stays in its cell.
+   */
+  rowTones?: (StatusTone | null)[];
   /** dumbbell — two magnitudes per row on one shared axis. `names` labels
    *  the two ends for the legend; `log` puts the axis on decades, which is
    *  the only way a click count and an impression count forty times its size
@@ -3028,10 +3089,24 @@ export const WIDGETS: Record<string, Widget> = {
     EVERY WINDOWED NAME IS REWRITTEN BY ITS BUILDER from the document's own
     `days`, so "· 30d" here is the sample's window and not a promise.
   */
+  "payments.mrr": {
+    src: "stripe",
+    name: "MRR",
+    window: "now",
+    kind: "proportion",
+    live: { stripe: true },
+  },
   "payments.gross": {
     src: "stripe",
     name: "Gross · 30d",
-    kind: "metric",
+    kind: "proportion",
+    live: { stripe: true },
+  },
+  "payments.subs": {
+    src: "stripe",
+    name: "Active subscriptions",
+    window: "now",
+    kind: "proportion",
     live: { stripe: true },
   },
   "payments.alerts": {
@@ -3043,15 +3118,16 @@ export const WIDGETS: Record<string, Widget> = {
   "payments.floor": {
     src: "stripe",
     name: "Money on the floor",
-    kind: "rows",
+    kind: "proportion",
     live: { leakage: true, stripe: true },
   },
   "payments.failRate": {
     src: "stripe",
-    name: "Fail rate · 30d",
-    kind: "metric",
+    name: "Why payments fail · 30d",
+    kind: "proportion",
     live: { stripe: true },
     invert: true,
+    unit: "percent",
   },
   "payments.daily": {
     src: "stripe",
@@ -3063,7 +3139,7 @@ export const WIDGETS: Record<string, Widget> = {
   "payments.movement": {
     src: "stripe",
     name: "MRR movement · 30d",
-    kind: "rows",
+    kind: "waterfall",
     live: { stripe: true },
   },
   "payments.leaving": {
@@ -3097,6 +3173,19 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "table",
     live: { stripe: true },
     headers: ["Day", "Gross", "Fees", "Net"],
+  },
+  "payments.attempts": {
+    src: "stripe",
+    name: "Payment attempts · 30d",
+    kind: "proportion",
+    live: { stripe: true },
+  },
+  "payments.recent": {
+    src: "stripe",
+    name: "Payments · 30d",
+    kind: "table",
+    live: { stripe: true },
+    headers: ["When", "Amount", "Who", "Status"],
   },
   "payments.cannot": {
     src: "stripe",

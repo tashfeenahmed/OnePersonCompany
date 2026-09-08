@@ -49,13 +49,25 @@ import type {
   UmamiWebsite,
   UptimeReport,
 } from "@/lib/api/reports";
-import type { Meter, RunwayRow, StatusTone, Widget } from "@/data/widgets";
+import type { Meter, ProportionPart, RunwayRow, StatusTone, WaterfallStep, Widget } from "@/data/widgets";
 import type { Expense, FinanceReport } from "@/lib/api/finance";
 import type { LeakageReport } from "@/lib/api/activity";
 import type { DisputeDoc, RecoveryCase, RecoveryQueue } from "@/lib/api/customers";
 import type { SeoOpsDocs } from "@/lib/api/seoboard";
 import { rateBetween } from "./fx.ts";
-import { drift, failRate, planSplit, splitLeaving, sumMonthly, worthALook } from "./payments.ts";
+import {
+  TRAILING_MIN_DAYS,
+  attemptBuckets,
+  bucketDays,
+  chargesInWindow,
+  drift,
+  failRate,
+  planSplit,
+  splitLeaving,
+  sumMonthly,
+  trailingFailRate,
+  worthALook,
+} from "./payments.ts";
 /* EVERY FIGURE ON THESE CARDS IS DRAWN BY `@/lib/format`. A private formatter
    here drifts from the panel showing the same number — 1.5M on this card, 1.5m
    on that one, 1,500,000 on a third — and nothing catches it. The adapters
@@ -66,7 +78,7 @@ import { drift, failRate, planSplit, splitLeaving, sumMonthly, worthALook } from
    to join the widget catalog to its builders, and node resolves the specifier
    itself with no bundler and no tsconfig paths in front of it. Everything else
    this file imports is a type and is stripped; this one is real code. */
-import { DASH, ago, bytes, compact, count, day, duration, inDays, money, pct } from "./format.ts";
+import { DASH, ago, bytes, clock, compact, count, day, duration, inDays, money, pct } from "./format.ts";
 /* The same relative-with-extension rule as `./format.ts` above: the window
    labels are real code and the catalog check runs this file under bare node. */
 import { windowLabel, type WindowValue } from "./window.ts";
@@ -7266,7 +7278,89 @@ function leavingInterval(c: RecoveryCase): string {
   return i.interval === "year" ? "yearly" : i.interval === "month" ? "monthly" : (i.interval ?? "");
 }
 
+/** "2–8 Sept" inside one month, "26 Aug – 1 Sept" across two, or the one
+ *  day when a bucket is a day. Short because the row's other words — the
+ *  counts — are the long ones, and the date is what must not truncate. */
+function bucketLabel(b: { from: string; to: string }): string {
+  if (b.from === b.to) return dayShort(b.from);
+  const sameMonth = b.from.slice(0, 7) === b.to.slice(0, 7);
+  return sameMonth ? `${Number(b.from.slice(8, 10))}–${dayShort(b.to)}` : `${dayShort(b.from)} – ${dayShort(b.to)}`;
+}
+
+/** Succeeded against failed, the split every attempts bar draws. */
+const attemptParts = (succeeded: number, failed: number): ProportionPart[] => [
+  { label: "succeeded", value: succeeded, text: count(succeeded), tone: "ok" },
+  { label: "failed", value: failed, text: count(failed), tone: "bad" },
+];
+
 Object.assign(LIVE_BUILDERS, {
+  "payments.mrr": ({ stripe: S }: LiveInputs) => {
+    const m = firstCurrency(S?.mrr);
+    if (!m) return null;
+    const { top, more } = planSplit(S?.plans ?? [], 4);
+    /*
+      THE BAR IS THE WHOLE MRR, NOT THE TOP FOUR PLANS. Workdash draws the
+      four biggest plans and writes "+N more" beside them, which makes the
+      bar a split of a number nobody can see; here the remainder is a
+      segment of its own, so the four shares are shares of the figure above
+      the bar. A one-off payment has no plan and is on the gross tile.
+    */
+    const drawn = top.reduce((n, p) => n + p.mrr, 0);
+    const rest = Math.max(0, m.amount - drawn);
+    const parts: ProportionPart[] = top.map((p) => ({
+      label: p.name,
+      value: p.mrr,
+      text: inCurrency(p.mrr, p.currency, 0),
+    }));
+    if (more && rest > 0.005)
+      parts.push({ label: `${count(more)} more plan${more === 1 ? "" : "s"}`, value: rest, text: inCurrency(rest, m.currency, 0) });
+    return {
+      value: inCurrency(m.amount, m.currency, 0),
+      sub: also(
+        also(
+          `ARR ${inCurrency(m.arr, m.currency, 0)}/yr — this × 12, not a forecast`,
+          `${count(m.subscriptions)} billing subscription${m.subscriptions === 1 ? "" : "s"}`,
+        ),
+        also(
+          m.discountedAway > 0.005
+            ? `net of ${inCurrency(m.discountedAway, m.currency)}/mo in coupons on ${count(m.discounted)} sub${m.discounted === 1 ? "" : "s"}`
+            : "",
+          across(S?.accounts.length),
+        ),
+      ),
+      partsLabel: "MRR by plan",
+      parts,
+    };
+  },
+
+  "payments.subs": ({ stripe: S }: LiveInputs) => {
+    const s = S?.subscriptions;
+    if (!s) return null;
+    /*
+      THE BOOK BY STATE, AND ONLY THE LIVE STATES. Cancelled and expired
+      checkouts are deliberately not in the bar: it is what is billing, what
+      is about to, and what is failing to — the three a person can act on.
+      "Active" is BILLING, as on the stripe.subs tile: a trial is live and
+      has never sent a cent, so it is its own segment rather than folded in.
+    */
+    const parts: ProportionPart[] = [{ label: "active", value: s.billing, text: count(s.billing), tone: "ok" }];
+    if (s.trialing) parts.push({ label: "trialing", value: s.trialing, text: count(s.trialing) });
+    if (s.pastDue) parts.push({ label: "past due", value: s.pastDue, text: count(s.pastDue), tone: "warn" });
+    const aside = [
+      s.trialing ? `${count(s.trialing)} trialing` : "",
+      s.pastDue ? `${count(s.pastDue)} past due` : "",
+    ].filter(Boolean);
+    return {
+      value: count(s.billing),
+      sub: also(
+        aside.length ? `billing now · ${aside.join(" · ")}, counted apart` : "billing now · none trialing, none past due",
+        across(S?.accounts.length),
+      ),
+      partsLabel: "The live subscription book by state",
+      parts,
+    };
+  },
+
   "payments.gross": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     if (!c) return null;
@@ -7293,6 +7387,8 @@ Object.assign(LIVE_BUILDERS, {
               (r.feeRatePct === null ? "" : ` · Stripe's cut ${r.feeRatePct.toFixed(1)}% of gross`)
           : "",
       ),
+      partsLabel: `Payment attempts over ${windowLabel(W ?? c.days)}`,
+      parts: attemptParts(c.succeeded, c.failed),
     };
   },
 
@@ -7341,38 +7437,98 @@ Object.assign(LIVE_BUILDERS, {
       only arithmetic performed here, and it divides a rate by a rate.
     */
     const months = m && m.amount > 0 && m.currency.toLowerCase() === cur.toLowerCase() ? t.perMonth / m.amount : null;
-    const rows: [string, string][] = [
-      [`Left in ${t.windowLabel} · refunds, disputes and their fees, off the ledger`, inCurrency(t.window, cur)],
-      [
-        "Not arriving, per month · past-due MRR + coupons",
-        also(`${inCurrency(t.perMonth, cur)}/mo`, months === null ? "" : `${pct(months)} of MRR`),
-      ],
-    ];
+    /*
+      THE BAR DIVIDES ONE TOTAL ONLY. The buckets that make up the window
+      figure — refunds, disputes and their fees, all money that moved off the
+      ledger — share a unit and a window and can be drawn as parts of it; the
+      per-month buckets are rates and the count-only buckets have no money,
+      and neither can be a segment of a sum of dollars. They are in the grid
+      under the bar, each with its own window written on the row.
+    */
+    const parts: ProportionPart[] = leak.buckets
+      .filter((b) => b.window === t.windowLabel && b.amount !== null)
+      .map((b) => ({ label: b.label, value: b.amount!, text: `${inCurrency(b.amount!, cur)}${b.floor ? "+" : ""}` }));
     /*
       A DASH IS A COUNT WITH NO PRICE. A declined card and an abandoned
       checkout are recorded as attempts, never as amounts, so those buckets
-      carry a count and no money — and are in neither total above, which is
-      why both totals are floors. A "+" after a bucket is the bucket's own
-      word for being a lower bound.
+      carry a count and no money — and are in neither total, which is why
+      both totals are floors. A "+" after a bucket is the bucket's own word
+      for being a lower bound, and "floor" on the row is the same word.
     */
-    for (const b of leak.buckets)
-      rows.push([
-        `${b.label} · ${b.window}`,
+    const rows: [string, string][] = leak.buckets.map((b) => [
+      b.floor ? `${b.label} · floor` : b.label,
+      also(
         also(
           b.amount === null ? DASH : `${inCurrency(b.amount, cur)}${b.floor ? "+" : ""}`,
           b.count === null ? "" : count(b.count),
         ),
-      ]);
-    return { tag: "floor", rows };
+        b.window,
+      ),
+    ]);
+    return {
+      tag: "floor",
+      value: inCurrency(t.window, cur),
+      sub: also(
+        `at least · left in ${t.windowLabel} — ${t.windowIs}`,
+        `and ${inCurrency(t.perMonth, cur)}/mo not arriving${months === null ? "" : ` (${pct(months)} of MRR)`} — ${t.perMonthIs}, kept apart`,
+      ),
+      partsLabel: `Left in ${t.windowLabel}, by bucket`,
+      parts,
+      rows,
+      caption:
+        "Two windows in one card: the money that moved is the last " + t.windowLabel +
+        ", the rates are per month, and the abandoned checkouts are lifetime. A dash is a count " +
+        "Stripe records no price for and is in neither total; a + is a lower bound.",
+    };
   },
 
   "payments.failRate": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     if (!c) return null;
     const rate = failRate(c.succeeded, c.failed);
-    const name = `Fail rate · ${windowLabel(W ?? c.days)}`;
-    if (rate === null) return { name, tag: "metered", value: DASH, sub: "no payment attempts in this window, so there is no rate" };
+    const wl = windowLabel(W ?? c.days);
+    const name = `Why payments fail · ${wl}`;
+    if (rate === null)
+      return { name, tag: "metered", value: DASH, sub: "no payment attempts in this window, so there is no rate", parts: [] };
     const d = drift(c.series);
+    /*
+      THREE PARTS, NOT TWO, because the two words for a failure are not the
+      same event: a block is Radar stopping card testing before a bank saw
+      it, a decline is a bank saying no to a real customer. An attempt that
+      failed with neither word is drawn as its own part rather than guessed
+      into one of them. The bucket rows under the bar are the same split by
+      week or fortnight, NEWEST FIRST — a time axis is not a ranking, so the
+      bar lengths (failed attempts) are not sorted.
+    */
+    const neither = c.failed - c.blocked - c.declined;
+    const parts: ProportionPart[] = [
+      { label: "succeeded", value: c.succeeded, text: count(c.succeeded), tone: "ok" },
+      { label: "blocked by Stripe's checks", value: c.blocked, text: count(c.blocked), tone: "warn" },
+      { label: "declined by the bank", value: c.declined, text: count(c.declined), tone: "bad" },
+    ];
+    if (neither > 0) parts.push({ label: "failed, no outcome given", value: neither, text: count(neither) });
+    const buckets = attemptBuckets(c.series, bucketDays(c.series.length));
+    const shown = buckets.slice(0, 8);
+    const ranked = shown.map((b) => {
+      const r = failRate(b.succeeded, b.failed);
+      /* The rate alone at the bar's tip, where the room is short; the
+         counts on the label's line, where a short date leaves the width. */
+      return {
+        label: bucketLabel(b),
+        value: b.failed,
+        text: r === null ? DASH : pct(r / 100, { digits: 0 }),
+        sub: `${count(b.failed)} of ${count(b.succeeded + b.failed)} failed · ${count(b.blocked)} blocked · ${count(b.declined)} declined`,
+      };
+    });
+    /*
+      THE TRAILING LINE IS ONLY DRAWN WHERE IT HAS ROOM. Thirty-seven days
+      is a thirty-day window plus a week of movement; under 7d and 30d the
+      series is shorter than that and the card says which window would show
+      it rather than drawing a dot as a trend.
+    */
+    const trend = trailingFailRate(c.series);
+    const first = trend?.[0];
+    const last = trend?.[trend.length - 1];
     /*
       THE DRIFT IS A FIXED PAIR. Seven days against thirty, whatever the
       board's window, because the point of the comparison is that it does
@@ -7388,10 +7544,28 @@ Object.assign(LIVE_BUILDERS, {
       value: pct(rate / 100, { digits: 0 }),
       tone: rate >= 25 ? ("bad" as StatusTone) : undefined,
       sub: also(
-        `${count(c.failed)} of ${count(c.succeeded + c.failed)} attempts failed · ${count(c.blocked)} blocked by Stripe's own checks, ${count(c.declined)} declined by the bank`,
+        `of ${count(c.succeeded + c.failed)} attempts failed in the last ${wl}`,
         d
           ? `7d ${pct(d.short / 100, { digits: 0 })} against 30d ${pct(d.long / 100, { digits: 0 })} — ${d.verdict}, a fixed pair`
           : "",
+      ),
+      partsLabel: `Payment attempts over ${wl}`,
+      parts,
+      series: trend ? trend.map((p) => p.rate) : undefined,
+      seriesAt: trend ? trend.map((p) => at(p.day)) : undefined,
+      seriesLabel:
+        trend && first && last
+          ? `share of attempts failing, trailing 30 days, over ${count(trend.length)} days · ${pct(first.rate / 100, { digits: 0 })} → ${pct(last.rate / 100, { digits: 0 })}`
+          : undefined,
+      ranked,
+      caption: also(
+        also(
+          `blocked and declined never share a denominator — a block is Radar stopping card testing before a bank saw it, a decline is a bank saying no`,
+          buckets.length > shown.length ? `${count(buckets.length - shown.length)} older bucket${buckets.length - shown.length === 1 ? "" : "s"} not drawn` : "",
+        ),
+        trend
+          ? ""
+          : `the trailing-30-day line needs ${TRAILING_MIN_DAYS} days of attempts and this window holds ${count(c.series.length)} — pick 90d or all time to see it`,
       ),
     };
   },
@@ -7436,11 +7610,20 @@ Object.assign(LIVE_BUILDERS, {
     const p = S?.subscriptions.pendingCancellation;
     if (!c || !p) return null;
     const m = (n: number) => inCurrency(n, c.currency);
-    const rows: [string, string][] = [
-      [`New · ${count(c.newSubs)} sub${c.newSubs === 1 ? "" : "s"}`, `+${m(c.newMrr)}`],
-      [`Churned · ${count(c.churnedSubs)} sub${c.churnedSubs === 1 ? "" : "s"}`, `−${m(c.churnedMrr)}`],
+    /*
+      THE WATERFALL IS THE SUBTRACTION. New hangs from the baseline, churned
+      hangs from the top of new, and net is drawn from the baseline again:
+      "+$358 new, −$5 churned, +$354 net" as one picture rather than three
+      rows a reader has to add. The rows under it are what the picture does
+      not carry — what never started, who has asked to leave, the rate.
+    */
+    const steps: WaterfallStep[] = [
+      { label: "New", sub: `${count(c.newSubs)} sub${c.newSubs === 1 ? "" : "s"}`, value: c.newMrr, text: m(c.newMrr) },
+      { label: "Churned", sub: `${count(c.churnedSubs)} sub${c.churnedSubs === 1 ? "" : "s"}`, value: -c.churnedMrr, text: m(c.churnedMrr) },
+      { label: "Net", sub: `over ${c.days} days`, value: c.netMrr, text: m(Math.abs(c.netMrr)), total: true },
     ];
-    if (c.involuntary) rows.push(["of which a card failed or was disputed", count(c.involuntary)]);
+    const rows: [string, string][] = [];
+    if (c.involuntary) rows.push(["Churned because a card failed or was disputed", count(c.involuntary)]);
     const lost = c.byProduct.slice(0, 2);
     if (lost.length)
       rows.push([
@@ -7448,7 +7631,6 @@ Object.assign(LIVE_BUILDERS, {
         lost.map((x) => `${x.product} (${m(x.mrr)})`).join(", ") +
           (c.byProduct.length > lost.length ? ` and ${c.byProduct.length - lost.length} more` : ""),
       ]);
-    rows.push(["Net", `${c.netMrr >= 0 ? "+" : "−"}${m(Math.abs(c.netMrr))}`]);
     /*
       WHAT NEVER STARTED IS NOT CHURN AND IS IN NO FIGURE ABOVE. A trial that
       ended without a payment and a checkout that expired before one are the
@@ -7481,7 +7663,7 @@ Object.assign(LIVE_BUILDERS, {
         c.subRatePct === null ? "" : `${pct(c.subRatePct / 100)} of subscriptions`,
       ),
     ]);
-    return { name: `MRR movement · ${c.days}d`, tag: "approx", rows };
+    return { name: `MRR movement · ${c.days}d`, tag: "approx", steps, rows };
   },
 
   "payments.leaving": ({ queue: Q }: LiveInputs) => {
@@ -7542,6 +7724,83 @@ Object.assign(LIVE_BUILDERS, {
       caption: also(
         `shares of the whole MRR, ${inCurrency(m.amount, m.currency)}/mo`,
         more ? `${count(more)} more plan${more === 1 ? "" : "s"} not drawn` : "subscriptions only",
+      ),
+    };
+  },
+
+  "payments.attempts": ({ stripe: S, window: W }: LiveInputs) => {
+    const c = firstCurrency(S?.charges);
+    if (!c) return null;
+    const attempts = c.succeeded + c.failed;
+    const wl = windowLabel(W ?? c.days);
+    /*
+      THE SAME BAR AS THE GROSS TILE, ON PURPOSE. Workdash draws it twice —
+      under the money at the top and beside the counts down here — because
+      the two cards are read at different moments: one when asking how much
+      came in, the other when asking how many tried. The blocked-against-
+      declined split is on "Why payments fail", not here; this card is the
+      count and the refunds.
+    */
+    return {
+      name: `Payment attempts · ${wl}`,
+      tag: "metered",
+      value: count(attempts),
+      sub: attempts
+        ? also(
+            `${count(c.succeeded)} succeeded · ${count(c.failed)} failed`,
+            c.refunds ? `${count(c.refunds)} refund${c.refunds === 1 ? "" : "s"}, ${inCurrency(c.refunded, c.currency)} refunded` : "no refunds",
+          )
+        : "no payment attempts in this window",
+      partsLabel: `Payment attempts over ${wl}`,
+      parts: attemptParts(c.succeeded, c.failed),
+    };
+  },
+
+  "payments.recent": ({ stripe: S, window: W }: LiveInputs) => {
+    /*
+      A ROUTE OLDER THAN THIS FIELD HAS NO LIST, and the card must then say
+      "nothing collected" rather than draw an empty month: null here is the
+      difference between "no charges" and "this server does not keep them".
+    */
+    const list = S?.recent;
+    if (!S || !list) return null;
+    const days = W ?? S.window.days;
+    const wl = windowLabel(days);
+    const name = `Payments · ${wl}`;
+    const inWindow = chargesInWindow(list, days, Date.now());
+    if (!inWindow.length)
+      return { name, tag: "metered", headers: ["When", "Amount", "Who", "Status"], table: [], caption: `No charges in the last ${wl}.` };
+    /*
+      NEWEST FIRST, FORTY AT MOST, AND THE ADDRESS AS IT ARRIVED — masked in
+      the collector, never here, so there is no fuller form on this page to
+      leak. The status column carries Stripe's own sentence for a decline
+      where it gave one; the dot before the row is the same word as a colour,
+      and a refund is the muted dot because it is neither a success nor a
+      failure of the attempt.
+    */
+    const shown = inWindow.slice(0, 40);
+    const table = shown.map((c) => [
+      `${dayShort(c.createdAt.slice(0, 10))} ${clock(c.createdAt)}`,
+      inCurrency(c.amount, c.currency),
+      c.email ?? c.description ?? DASH,
+      c.refunded ? "refunded" : (c.failure ?? c.status),
+    ]);
+    const rowTones = shown.map((c): StatusTone | null =>
+      c.refunded ? null : c.paid && c.status === "succeeded" ? "ok" : c.status === "failed" ? "bad" : null,
+    );
+    const held = S.recentHeld;
+    const short = held && (days === "all" || days > held.days);
+    return {
+      name,
+      tag: "metered",
+      headers: ["When", "Amount", "Who", "Status"],
+      table,
+      rowTones,
+      caption: also(
+        `showing ${count(shown.length)} of ${count(inWindow.length)}${S.recentTruncated ? "+" : ""} charge${inWindow.length === 1 ? "" : "s"} in the last ${wl} · emails masked`,
+        short
+          ? `the collector keeps ${held.days} days of individual charges${held.from ? `, from ${dayShort(held.from)}` : ""}, so this list is that span and not the ${wl} asked for — the aggregates above are counted over every charge in their window`
+          : "",
       ),
     };
   },
@@ -7610,8 +7869,8 @@ Object.assign(LIVE_BUILDERS, {
       before they go looking for a figure that is not there.
     */
     const rows: [string, string][] = [
-      ["A list of individual charges", "the collector stores days, not charges"],
-      ["Decline codes", "blocked and declined are kept, the bank's reason is not"],
+      ["Charges older than 90 days", "the collector keeps ninety days of them"],
+      ["Decline codes as a breakdown", "each listed charge carries its reason; nothing counts them"],
       [
         "How far back the days go",
         also(S.history.from ? `to ${dayShort(S.history.from)}` : "the first collection", S.history.complete ? "complete" : "still being filled in"),

@@ -33,6 +33,7 @@ import {
   stripeBalances,
   stripeChargeDays,
   stripePayouts,
+  stripeRecentCharges,
   stripeState,
   stripeSubscriptions,
   type StripeSubscriptionRecord,
@@ -60,6 +61,11 @@ export const WINDOWS = [7, 30, 90] as const;
  *  months; calling that "leaving" beside a monthly one that ends on Thursday
  *  is the lie every pending-churn figure tells until somebody fences it. */
 const ENDING_SOON_DAYS = 60;
+
+/** How many individual charges the document carries, newest first. The table
+ *  holds ninety days of them, which on this account is nearer twelve hundred;
+ *  a board lists a few dozen, and `recentTruncated` says when this cut bit. */
+const RECENT_CAP = 200;
 
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -391,6 +397,51 @@ function chargeSection(days: number, nowMs: number) {
   });
 }
 
+/* ------------------------------------------------------------------ recent */
+
+/**
+ * The charges themselves, newest first — the rows the day table above was
+ * folded from, for the ninety days the walk keeps them.
+ *
+ * NOT CUT TO THE ROUTE'S WINDOW. The card slices by the window it is drawn
+ * over, and `held` says how far back the rows go, so a ninety-day list under
+ * a year-long window is labelled as ninety days rather than read as a quiet
+ * year. The address is already masked in the table and is passed through as
+ * it is; `failure` is Stripe's sentence for a decline, falling back to its
+ * code when there is no sentence.
+ */
+function recentSection() {
+  const { rows, total, oldest } = stripeRecentCharges(RECENT_CAP);
+  return {
+    recent: rows.map((r) => ({
+      id: r.id,
+      amount: r.amount,
+      currency: currencyCode(r.currency),
+      status: r.status,
+      paid: r.paid === 1,
+      refunded: r.refunded === 1,
+      createdAt: r.created_at,
+      description: r.description,
+      email: r.email_masked,
+      failure: r.failure_message ?? r.failure_code,
+      failureCode: r.failure_code,
+      outcomeType: r.outcome_type,
+    })),
+    recentTruncated: total > rows.length,
+    recentHeld: {
+      /** The collector keeps this many days of individual charges. */
+      days: WALK_DAYS,
+      /** The day of the oldest charge actually held, or null before any. */
+      from: oldest ? oldest.slice(0, 10) : null,
+      total,
+      note:
+        "Individual charges are kept for the " + WALK_DAYS + " days the collector rewalks " +
+        "and pruned past that edge, so a list under a wider window is that span and not " +
+        "the window. The day aggregates above keep the whole history.",
+    },
+  };
+}
+
 /* ------------------------------------------------------------------- route */
 
 stripeRoutes.get("/", (c) => {
@@ -500,6 +551,7 @@ stripeRoutes.get("/", (c) => {
     churn: churnSection(subs, nowMs),
     revenue: revenueSection(days, nowMs),
     charges: chargeSection(days, nowMs),
+    ...recentSection(),
     products: [...byProduct.entries()]
       .map(([name, v]) => ({
         name,

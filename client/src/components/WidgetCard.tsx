@@ -10,9 +10,11 @@ import {
   Figures,
   MeterRow,
   Profile,
+  Proportion,
   Ranked,
   Runway,
   Sparkline,
+  Waterfall,
 } from "@/components/charts";
 import { ago, splitMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -529,12 +531,102 @@ export function WidgetCard({
             </p>
           ))}
 
+        {!empty && def.kind === "proportion" && (
+          <>
+            {/* The hero, when the builder gave one, at the metric's own
+                sizes: a proportion tile IS a metric tile with the whole the
+                figure divides drawn under it. */}
+            {def.value && (
+              <div
+                className={cn(
+                  "leading-tight tracking-[-0.03em] tabular-nums",
+                  splitMoney(def.value)
+                    ? "text-[36px] font-semibold tracking-[-0.035em]"
+                    : "text-[28px] font-normal",
+                )}
+              >
+                <Figure text={def.value} />
+              </div>
+            )}
+            {def.tone && def.tone !== "ok" && (
+              <div className={cn("mt-1 text-[12.5px] font-medium", def.tone === "warn" ? "text-warn" : "text-destructive")}>
+                {def.tone === "bad" ? "act" : "watch"}
+              </div>
+            )}
+            {def.sub && (
+              <div className="text-muted-foreground mt-0.5 text-[12.5px] leading-snug">{def.sub}</div>
+            )}
+            {def.parts?.length ? (
+              <Proportion parts={def.parts} label={def.partsLabel} />
+            ) : (
+              <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing to divide yet.</p>
+            )}
+            {def.series && def.series.length > 1 && (
+              <div className="mt-2.5">
+                {def.seriesLabel && (
+                  <p className="text-muted-foreground text-[11.5px] leading-snug">{def.seriesLabel}</p>
+                )}
+                <Sparkline series={def.series} at={def.seriesAt} unit={def.unit} />
+              </div>
+            )}
+            {!!def.ranked?.length && (
+              <div className="mt-2.5">
+                <Ranked rows={def.ranked} />
+              </div>
+            )}
+            {/* Two columns only on a card wide enough to hold them: a
+                narrow tile folds a pair of columns into unreadable halves. */}
+            {!!def.rows?.length && (
+              <div className={cn("mt-3 grid gap-x-6 gap-y-1.5", placed.w === 4 && "sm:grid-cols-2")}>
+                {def.rows.map(([k, v]) => (
+                  <div key={k} className="flex items-baseline gap-2 text-[13px]">
+                    <span className="truncate">{k}</span>
+                    <span className="text-muted-foreground ml-auto text-[12.5px] whitespace-nowrap tabular-nums">{v}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {def.caption && (
+              <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{def.caption}</p>
+            )}
+          </>
+        )}
+
+        {!empty && def.kind === "waterfall" &&
+          (def.steps?.length ? (
+            <>
+              <Waterfall steps={def.steps} />
+              {!!def.rows?.length && (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {def.rows.map(([k, v]) => (
+                    <div key={k} className="flex items-baseline gap-2 text-[13px]">
+                      <span className="truncate">{k}</span>
+                      <span className="text-muted-foreground ml-auto text-[12.5px] whitespace-nowrap tabular-nums">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {def.caption && (
+                <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{def.caption}</p>
+              )}
+            </>
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing moved yet.</p>
+          ))}
+
         {!empty && def.kind === "table" &&
           (def.table?.length ? (
-            <Figures headers={def.headers ?? []} rows={def.table} marks={def.marks} />
+            <>
+              <Figures headers={def.headers ?? []} rows={def.table} marks={def.marks} tones={def.rowTones} />
+              {def.caption && (
+                <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{def.caption}</p>
+              )}
+            </>
           ) : (
             <p className="text-muted-foreground mt-2 text-[12.5px]">
-              Nothing measured yet.
+              {/* A builder that measured an EMPTY table says what it found
+                  ("No charges in this window") rather than the default. */}
+              {def.caption ?? "Nothing measured yet."}
             </p>
           ))}
 

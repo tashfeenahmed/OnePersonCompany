@@ -149,8 +149,10 @@ import {
   stripeSubscriptions,
   writeAdSenseDays,
   writeAdSenseMonths,
+  pruneStripeCharges,
   writeStripeBalance,
   writeStripeChargeDays,
+  writeStripeCharges,
   writeStripeLedgerDays,
   writeStripePayouts,
   writeStripeState,
@@ -1433,6 +1435,14 @@ export async function collectStripe(): Promise<StripeSummary> {
     }
 
     writeStripeChargeDays(result.chargeDays);
+    /*
+      THE CHARGE LIST IS WRITTEN AND THEN CUT TO THE WALK'S OWN EDGE. A row
+      older than the rolling window will never be reread, so a refund against
+      it would never reach this table; pruning to the same ninety days the
+      walk covers is what keeps every row here one the next run can correct.
+    */
+    writeStripeCharges(result.charges);
+    pruneStripeCharges(new Date(Date.now() - stripe.WALK_DAYS * 86_400_000).toISOString());
     writeStripeLedgerDays(result.ledgerDays);
     writeStripeSubscriptions(result.subscriptions);
     writeStripeBalance(result.balances);
