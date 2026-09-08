@@ -719,6 +719,23 @@ export function scopeLive(
         per-venture cut wherever they are placed. See lib/liveWidgets.
       */
       social: scoped.social,
+      /*
+        THE OVERVIEW BOARD'S THREE GO IN UNNARROWED, and the cards that read
+        them are portfolio-wide by nature — none of `inbox`, `ventures` or
+        `finance` is in SCOPABLE_SOURCES, so WidgetCard already hands them
+        the unnarrowed document and puts the "portfolio" tag on the header.
+        This pass has to agree with that or the same card would lose its live
+        dot inside a venture while still drawing real numbers.
+
+        THEY COULD NOT BE NARROWED HONESTLY ANYWAY. A waiting alert about the
+        Stripe account belongs to the box; a portfolio P&L is a list of every
+        venture and narrowing it to one leaves a portfolio of one; and the
+        picture card is the whole set of front pages, which is what makes it
+        worth looking at.
+      */
+      inbox: scoped.inbox,
+      profit: scoped.profit,
+      capture: scoped.capture,
     });
     if (patch) liveTypes.add(type);
   }

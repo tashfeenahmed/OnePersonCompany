@@ -74,6 +74,9 @@ function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<Live
     seo: live.seo,
     social: live.social,
     ads: live.ads,
+    inbox: live.inbox,
+    profit: live.profit,
+    capture: live.capture,
     window: live.window,
     ...extra,
   };
@@ -672,14 +675,22 @@ export function WidgetCard({
             <p className="text-muted-foreground mt-2 text-[12.5px]">Nothing moved yet.</p>
           ))}
 
+        {/* ONE BRANCH PER KIND, and this one was two. The feed case was added
+            here and again below the table case — one merge, two identical
+            blocks — and because a kind check is not exclusive of itself, every
+            feed card on every board drew its whole list, its caption, and then
+            its whole list again. Deleting the duplicate is the fix; the
+            surviving block is the one whose empty state matched the table's
+            contract. */}
         {!empty && def.kind === "feed" &&
           (def.feed?.length ? (
             <Feed items={def.feed} caption={def.caption} />
           ) : (
             <p className="text-muted-foreground mt-2 text-[12.5px]">
-              {/* A builder that measured an EMPTY feed says what it found
-                  ("nothing has run in this window") rather than the default. */}
-              {def.caption ?? "Nothing published in this window."}
+              {/* A builder that LOOKED and found nothing says what it looked
+                  for ("Nothing published in the last 7 days") — the same
+                  contract the table kind keeps. */}
+              {def.caption ?? "Nothing published yet."}
             </p>
           ))}
 
@@ -696,18 +707,6 @@ export function WidgetCard({
               {/* A builder that measured an EMPTY table says what it found
                   ("No charges in this window") rather than the default. */}
               {def.caption ?? "Nothing measured yet."}
-            </p>
-          ))}
-
-        {!empty && def.kind === "feed" &&
-          (def.feed?.length ? (
-            <Feed items={def.feed} caption={def.caption} />
-          ) : (
-            <p className="text-muted-foreground mt-2 text-[12.5px]">
-              {/* A builder that LOOKED and found nothing says what it looked
-                  for ("Nothing published in the last 7 days") — the same
-                  contract the table kind keeps. */}
-              {def.caption ?? "Nothing published yet."}
             </p>
           ))}
 

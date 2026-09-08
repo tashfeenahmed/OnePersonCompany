@@ -50,7 +50,9 @@ import type {
   UptimeReport,
 } from "@/lib/api/reports";
 import type { Meter, ProfileFigure, ProportionPart, RunwayRow, StatusTone, WaterfallStep, Widget } from "@/data/widgets";
-import type { Expense, FinanceReport } from "@/lib/api/finance";
+import type { Expense, FinanceReport, PortfolioPnl } from "@/lib/api/finance";
+import type { InboxDoc, InboxItem } from "@/lib/api/inbox";
+import type { CaptureReport } from "@/lib/api/ventures";
 import type { LeakageReport } from "@/lib/api/activity";
 import type { DisputeDoc, RecoveryCase, RecoveryQueue } from "@/lib/api/customers";
 import type { SeoOpsDocs } from "@/lib/api/seoboard";
@@ -288,6 +290,24 @@ export type LiveInputs = {
    *  campaign → venture map. Three fields, no sums — a score, a cost per
    *  click and a venture's spend are three kinds of thing. */
   ads?: AdsBoardDocs | null;
+
+  /*
+    THE OVERVIEW BOARD'S THREE, AS THREE FIELDS.
+
+    Nothing is merged. `profit` is one calendar month of arithmetic over
+    collected rows, `finance` above it is the rate card those rows are priced
+    against, and the two disagree on purpose — a field holding both would be a
+    field away from a card that treated a bill as a measurement. `inbox` is a
+    list of unanswered things and `capture` is a set of photographs; neither
+    has a figure anything could add to the other.
+  */
+  /** What is waiting: alerts, commitments, mail, failed runs and payment
+   *  failures, joined and already filtered by the route — see lib/api/inbox. */
+  inbox?: InboxDoc | null;
+  /** The portfolio P&L for the current month, per currency. */
+  profit?: PortfolioPnl | null;
+  /** The newest good photograph of each venture's front page. */
+  capture?: CaptureReport | null;
   /*
     THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
     is placed with a venture id (`PlacedWidget.param`); the card resolves it
@@ -11435,6 +11455,412 @@ Object.assign(LIVE_BUILDERS, {
       center: { value: String(boxes.length), note: boxes.length === 1 ? "box" : "boxes" },
       caption:
         "Whose hardware each box is, joined on the address the probe logs in to. “Another provider” is every machine Hetzner did not sell and that is not on the local network — this dashboard has no vendor list to name them from, and a guess would be worse than the vaguer true answer.",
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ==========================================================================
+   OVERVIEW BOARD (Workdash /overview) — the four builders for the four cards
+   nothing else on this dashboard draws.
+
+   EVERY OTHER CARD ON THAT BOARD IS AN EXISTING BUILDER, PLACED. That is the
+   whole shape of the work: Workdash's Overview asks for MRR, the net, the
+   pageviews, the movement waterfall, the cost donut, the traffic table, the
+   fleet meters and the renewal horizon, and this file already had all of them.
+   What it did not have is any card that JOINS documents — the inbox is five
+   areas in one list, the P&L is revenue against the ledger, the venture table
+   is four documents on one host, and the pictures are a document nothing else
+   reads at all.
+   ========================================================================== */
+
+/** How many waiting things reach the card before it says "and N more". A cap
+ *  rather than a scroll: this is the second card on the page the owner opens
+ *  first, and a list that fills a screen is a list read as a wall. */
+const ATTENTION_ROWS = 12;
+
+/**
+ * How much of a waiting thing's own sentence fits on one table row.
+ *
+ * A TABLE CELL DOES NOT WRAP — that is the form, and it is right for the
+ * figures every other table here draws. An alert's message is prose written by
+ * whichever rule tripped, and one four-line one would push the three columns
+ * beside it off the card for every row under it. So it is cut with an ellipsis
+ * and the whole sentence is one click away on the page the row's source names,
+ * which is where it is answered anyway.
+ */
+const ATTENTION_CHARS = 84;
+const clip = (text: string) =>
+  text.length > ATTENTION_CHARS ? `${text.slice(0, ATTENTION_CHARS - 1).trimEnd()}…` : text;
+
+/** How many front pages the picture card draws before it says how many more.
+ *  Nineteen thumbnails is a scroll rather than a glance, and the point of the
+ *  card is the glance. */
+const SHOT_ITEMS = 9;
+
+/** "3 days", "under a day" — the age of a photograph as the half of a phrase
+ *  a feed's meta needs, since it prints the value and then the word for it. */
+function ageWords(days: number | null): string {
+  if (days === null) return "unknown age";
+  const n = Math.round(days);
+  return n < 1 ? "under a day" : `${n} day${n === 1 ? "" : "s"}`;
+}
+
+/** Sum a per-currency list into a map, so two documents' rows can be added
+ *  WITHIN a currency and never across one. */
+function byCurrency(rows: readonly { currency: string; amount: number }[] | undefined): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rows ?? []) {
+    const key = r.currency.toUpperCase();
+    out.set(key, (out.get(key) ?? 0) + r.amount);
+  }
+  return out;
+}
+
+/**
+ * WHICH CURRENCY THE HERO FIGURE IS IN.
+ *
+ * The largest revenue, and where nothing was earned the largest cost — a
+ * portfolio that has not billed anybody this month still has a bill, and a
+ * card that picked the currency by revenue alone would draw a dash over a
+ * ledger with real numbers in it. Never a total across the two maps.
+ */
+function pnlCurrency(revenue: Map<string, number>, cost: Map<string, number>): string | null {
+  const pick = (m: Map<string, number>) =>
+    [...m.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0]?.[0] ?? null;
+  return pick(revenue) ?? pick(cost);
+}
+
+/** "September 2026" out of the P&L's own "2026-09". Built from the key rather
+ *  than from today, because a document can answer for a month that has closed. */
+function monthName(month: string): string {
+  const d = new Date(`${month}-01T00:00:00Z`);
+  return Number.isNaN(d.getTime())
+    ? month
+    : d.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+Object.assign(LIVE_BUILDERS, {
+  /*
+    WHAT IS WAITING — and nothing here decides what that means.
+
+    `/api/action-inbox` has already read the five areas through their own
+    readers and dropped everything resolved or snoozed, so this builder does
+    no filtering: a copy of that rule here would be a second definition of
+    "still open" for the two surfaces to disagree about, which is the exact
+    bug the route's own header says it was written to end.
+
+    THE ORDER IS THE ROUTE'S TOO — priority, then recency — which is what
+    "actionable first" means on a document whose two priority bands are
+    "answer this" and "when you get to it". The dot is that band; a row
+    without one is not urgent rather than not important, and twelve dots would
+    say neither.
+  */
+  "overview.attention": ({ inbox: I }: LiveInputs) => {
+    if (!I) return null;
+    const shown = I.items.slice(0, ATTENTION_ROWS);
+    const more = I.items.length - shown.length;
+    const urgent = I.items.filter((i) => i.priority === 1).length;
+    return {
+      tag: "measured",
+      /* THE SENTENCE IS THE FIRST COLUMN because the first column is the only
+         one this table draws left-aligned, and a right-aligned paragraph
+         beside three short figures reads as a mistake. It also puts the
+         urgency dot on the words rather than on the word "Alert". */
+      headers: ["What", "Source", "When", "To close it"],
+      table: shown.map((i: InboxItem) => [
+        clip(i.title),
+        i.source,
+        when(i.at),
+        i.resolution,
+      ]),
+      rowTones: shown.map((i): StatusTone | null => (i.priority === 1 ? "bad" : null)),
+      caption: I.items.length
+        ? also(
+            `${count(I.items.length)} open${urgent ? `, ${count(urgent)} of them dotted as actionable now` : " — none of them urgent"}${more > 0 ? `; ${count(more)} not shown` : ""}.`,
+            "Alerts, commitments, mail scored as needing a reply, failed runs and payment " +
+              "failures, in one list. Anything resolved or snoozed was dropped before this " +
+              "browser saw it, so a row here is a decision nobody has made yet. Each row is " +
+              "answered on the page its source names — Alerts, People, Mail, Runs, Activity.",
+          )
+        : "Nothing is waiting. Alerts, commitments, mail needing a reply, failed runs and " +
+          "payment failures were all asked, and every one of them answered empty — which is " +
+          "a measurement rather than a source that failed to load.",
+    };
+  },
+
+  /*
+    WHAT THE MONTH EARNED AGAINST WHAT IT COST.
+
+    TWO MAPS AND NO TOTAL. Revenue and cost are each summed per currency and
+    the hero is the difference within ONE of them; a euro server bill is not
+    subtracted from a dollar subscription anywhere in here, and the currencies
+    that are not the lead one get their own rows rather than being folded in.
+
+    THE COST SIDE IS TWO THINGS AND THE CARD SAYS SO. Every venture's margin
+    row already carries its allocated ledger cost with its model spend folded
+    in — that is the P&L's own arithmetic — but the SHARED lines nobody has
+    allocated are outside every venture, so they are added here and named on
+    their own row. Leaving them out would make the portfolio look cheaper than
+    the ledger it is built from.
+
+    AND THERE IS NO RUNWAY. A runway is a cash balance divided by a burn, and
+    nothing on this box holds a balance: the finance area has a rate card and
+    a month of margin. The row says "not computed" rather than dividing two
+    numbers that do not answer the question.
+  */
+  "overview.margin": ({ profit: P, finance: F }: LiveInputs) => {
+    if (!P) return null;
+    const revenue = new Map<string, number>();
+    const allocated = new Map<string, number>();
+    for (const v of P.ventures)
+      for (const m of v.margin) {
+        const key = m.currency.toUpperCase();
+        revenue.set(key, (revenue.get(key) ?? 0) + m.revenue);
+        allocated.set(key, (allocated.get(key) ?? 0) + m.cost);
+      }
+    const shared = byCurrency(P.ledger.unallocatedShared.amounts);
+    const cost = new Map(allocated);
+    for (const [cur, amount] of shared) cost.set(cur, (cost.get(cur) ?? 0) + amount);
+    const lead = pnlCurrency(revenue, cost);
+    if (!lead) return null;
+
+    const earned = revenue.get(lead) ?? 0;
+    const spent = cost.get(lead) ?? 0;
+    const kept = earned - spent;
+    const month = monthName(P.month);
+
+    /* THE BAR IS THE TWO QUANTITIES SIDE BY SIDE, not a share of one of them.
+       At zero revenue it is one segment, which is the honest picture of a
+       month that has cost money and made none — and the same bar with a
+       "kept" slice would be inventing a proportion of nothing. */
+    const parts: ProportionPart[] = [
+      { label: "Earned", value: earned, text: inCurrency(earned, lead) },
+      { label: "Spent", value: spent, text: inCurrency(spent, lead) },
+    ];
+
+    const rows: [string, string][] = [
+      ["Net revenue", inCurrency(earned, lead)],
+      ["Cost, allocated to a venture", inCurrency(allocated.get(lead) ?? 0, lead)],
+    ];
+    if ((shared.get(lead) ?? 0) > 0)
+      rows.push([
+        "Cost, shared and unallocated",
+        also(
+          inCurrency(shared.get(lead)!, lead),
+          `${count(P.ledger.unallocatedLines.length)} line${P.ledger.unallocatedLines.length === 1 ? "" : "s"}`,
+        ),
+      ]);
+    /* MODEL SPEND IS ALREADY INSIDE THE COST ABOVE — it is quoted again only
+       because it is the one cost line that moves daily, and the row says so
+       rather than reading as a second charge. Null is tokens with no price
+       configured, which is never $0. */
+    rows.push([
+      "of which model spend · in the cost above",
+      P.modelSpend.usd === null
+        ? also(DASH, `${compact(P.modelSpend.tokens)} tokens, no price configured`)
+        : also(inCurrency(P.modelSpend.usd, "USD"), `${compact(P.modelSpend.tokens)} tokens`),
+    ]);
+    for (const cur of [...new Set([...revenue.keys(), ...cost.keys()])].filter((c) => c !== lead))
+      rows.push([
+        `Also in ${cur} · not added to the figure above`,
+        `${inCurrency(revenue.get(cur) ?? 0, cur)} earned · ${inCurrency(cost.get(cur) ?? 0, cur)} spent`,
+      ]);
+    if (F?.summary)
+      rows.push([
+        "Ledger, per month · rate card",
+        also(
+          F.summary.monthly.amounts.map((a) => inCurrency(a.amount, a.currency)).join(" · ") || DASH,
+          F.summary.monthly.unpriced > 0 ? `${count(F.summary.monthly.unpriced)} unpriced` : "",
+        ),
+      ]);
+    rows.push([
+      "Runway",
+      "not computed — this box holds no cash balance",
+    ]);
+
+    return {
+      tag: "metered",
+      value: inCurrency(kept, lead),
+      sub: also(
+        `${kept < 0 ? "short" : "kept"} over ${month}${P.actual ? "" : ", a month still being written"}`,
+        `${inCurrency(earned, lead)} earned against ${inCurrency(spent, lead)} spent`,
+      ),
+      partsLabel: `${month}, earned against spent · ${lead}`,
+      parts,
+      rows,
+      caption:
+        `Summed over ${month} from the rows that were actually collected, per currency and never across ` +
+        `two of them — ${lead} is the largest of ${new Set([...revenue.keys(), ...cost.keys()]).size} here and the rest have their own rows. ` +
+        "The cost half is part measurement and part rate card: metered model spend and " +
+        "collected provider bills sit beside ledger lines whose price the owner typed, and a " +
+        "line nobody has priced is absent rather than free. " +
+        (P.actual
+          ? "The month has closed, so this is what it did."
+          : "The month is still open, so this is what it has done so far and not what it will do.") +
+        " There is no runway on this card because nothing here holds a cash balance to divide by a burn.",
+    };
+  },
+
+  /*
+    EVERY VENTURE ON ONE ROW — Workdash's project grid, as a table.
+
+    FOUR DOCUMENTS JOINED ON THE HOST, and the join is the reason this is one
+    card. The P&L names the ventures and carries their money; `/api/capture`
+    carries the website and the date of its last photograph; Umami answers
+    that host's pageviews; the uptime probe answers whether it is answering.
+    A venture that is missing from three of the four still gets a row with its
+    money in it, because a dash per column says which source is silent and a
+    dropped row says nothing at all.
+
+    DOWN FIRST, THEN BY WHAT IT EARNS. Workdash's rule exactly: attention
+    floats and inside each band the revenue order stands. Nothing else
+    reorders — a table that resorted itself as a probe flapped would be a
+    table nobody can find a row in twice.
+
+    THERE IS NO DEPLOY COLUMN. Workdash has one; this box records no
+    deployment against a venture anywhere, so the last column is the date of
+    the last front-page PHOTOGRAPH and is labelled as that. It is a weaker
+    fact and it is a true one.
+  */
+  "overview.health": ({ profit: P, capture: C, umami: U, uptime: Up }: LiveInputs) => {
+    if (!P?.ventures.length) return null;
+    const shots = new Map((C?.ventures ?? []).map((v) => [v.id, v]));
+    const rows = P.ventures.map((v) => {
+      const shot = shots.get(v.venture.id) ?? null;
+      const host = hostOf(shot?.website ?? null);
+      const site = host ? (U?.websites ?? []).find((w) => hostOf(w.domain) === host) ?? null : null;
+      const probe = host ? (Up?.hosts ?? []).find((h) => hostOf(h.host) === host) ?? null : null;
+      /* The currency the venture EARNED in where it earned anything, and the
+         one it spent the most in where it did not — so a venture with no
+         revenue still quotes its cost rather than two dashes. */
+      const earnedIn = v.revenueNet[0]?.currency.toUpperCase() ?? null;
+      const line =
+        (earnedIn ? v.margin.find((m) => m.currency.toUpperCase() === earnedIn) : null) ??
+        [...v.margin].sort((a, b) => b.cost - a.cost)[0] ??
+        null;
+      return {
+        venture: v.venture,
+        down: probe?.current ? !probe.current.ok : false,
+        probed: !!probe?.current,
+        revenue: line ? line.revenue : null,
+        currency: line?.currency ?? null,
+        cost: line ? line.cost : null,
+        views: site?.window?.pageviews ?? null,
+        siteKnown: !!site,
+        hostKnown: !!host,
+        shotAt: shot?.picture?.ts ?? null,
+        shotWhy: shot?.last?.error ?? null,
+      };
+    });
+    rows.sort((a, b) => Number(b.down) - Number(a.down) || (b.revenue ?? 0) - (a.revenue ?? 0));
+    const measured = rows.filter((r) => r.views !== null).length;
+    /* UMAMI'S OWN SPAN IN THE COLUMN HEAD, read off the document rather than
+       written here. The route follows the picker up to the ninety days the
+       instance keeps, so a header that said "30d" would be wrong at every
+       other setting — and this is the one column on the table that has a
+       window at all. */
+    const viewDays = U?.portfolio.window.days ?? null;
+    return {
+      tag: "measured",
+      headers: [
+        "Venture",
+        "Net revenue",
+        "Cost",
+        viewDays === null ? "Pageviews" : `Pageviews · ${viewDays}d`,
+        "Answering",
+        "Last picture",
+      ],
+      table: rows.map((r) => [
+        r.venture.name,
+        r.currency && r.revenue !== null ? inCurrency(r.revenue, r.currency) : DASH,
+        r.currency && r.cost !== null ? inCurrency(r.cost, r.currency) : DASH,
+        r.views === null ? DASH : count(r.views),
+        r.probed ? (r.down ? "down" : "up") : DASH,
+        r.shotAt ? ago(r.shotAt) : DASH,
+      ]),
+      rowTones: rows.map((r): StatusTone | null => (r.down ? "bad" : null)),
+      caption: also(
+        `${count(rows.length)} venture${rows.length === 1 ? "" : "s"} from the ${monthName(P.month)} P&L, joined to Umami, the uptime probe and the screenshot run on each venture's own host; ${count(measured)} of them had traffic to report.`,
+        "Money is the venture's own currency and is never added across rows. A dash is a " +
+          "source that has nothing for this host — no Umami site, no probe, no photograph " +
+          "yet — and never a zero. THE LAST COLUMN IS NOT A DEPLOY: nothing on this box " +
+          "records a deployment against a venture, so it is the date of the last front-page " +
+          "picture, which is a weaker claim and a true one.",
+      ),
+    };
+  },
+
+  /*
+    THE FRONT PAGES THEMSELVES.
+
+    The only card anywhere on this dashboard that answers "what does this
+    thing look like" — which is the question a column of figures about a
+    website cannot be made to answer, and the reason the `feed` kind exists.
+
+    THE NEWEST GOOD PICTURE, NOT THE NEWEST ATTEMPT. `picture` is the last row
+    that actually produced a file and `last` is the last row of any kind, so a
+    venture whose site was down on Monday shows last week's photograph with
+    last week's date under it rather than an empty frame. The age is on the
+    item because the run is weekly: a fortnight means a run was missed or the
+    captures are failing, and either way a month-old front page passed off as
+    today's is a picture that lies.
+  */
+  "overview.shots": ({ capture: C }: LiveInputs) => {
+    if (!C) return null;
+    const withSites = C.ventures.filter((v) => v.website);
+    if (!withSites.length) return null;
+    const stale = (ts: string | null) =>
+      ts !== null && Date.now() - Date.parse(ts) > 2 * C.refreshEveryDays * 86_400_000;
+    const shot = withSites.filter((v) => v.picture).length;
+    /* PHOTOGRAPHED FIRST, AND INSIDE EACH BAND THE OWNER'S OWN ORDER STANDS.
+       The card is capped, and a cap that cut off the pictures in favour of the
+       ventures that have none would be a picture card with no pictures on it.
+       Nothing else reorders: within each band this is the order the ventures
+       are in everywhere else in the app. */
+    const ordered = [...withSites.filter((v) => v.picture), ...withSites.filter((v) => !v.picture)];
+    const drawn = ordered.slice(0, SHOT_ITEMS);
+    const more = ordered.length - drawn.length;
+    return {
+      tag: "measured",
+      feed: drawn.map((v): FeedItem => ({
+        title: v.name,
+        text: v.picture
+          ? v.website
+          : (v.last?.error ??
+            (C.browser.found
+              ? "No picture yet — the weekly run has not reached this one."
+              : `No picture: ${C.browser.error ?? "no browser was found on this box"}.`)),
+        image: v.picture?.url ?? null,
+        href: v.website,
+        /* A FEED'S META PRINTS THE VALUE AND THEN THE LABEL — "1,204 views" —
+           so the pair here has to read as a phrase in that order rather than
+           as a field name with a date after it. */
+        meta: v.picture
+          ? [
+              ["old", ageWords(v.picture.ageDays)] as [string, string],
+              ...(v.picture.onDisk
+                ? []
+                : [["missing from disk", "file"] as [string, string]]),
+            ]
+          : [],
+        /* ALREADY IN WORDS, like every other feed's. The item prints this
+           verbatim, so an ISO stamp here would put "2026-09-05T13:48:45.378Z"
+           at the top of nine rows — a machine's way of writing a date on a
+           card whose whole point is that a person can look at it. */
+        at: v.picture ? day(v.picture.ts) : undefined,
+        /* Judged only where there is something to judge: a picture older than
+           two refresh cycles, or a file the disk no longer has. A venture that
+           has simply never been photographed is not a fault of the site's. */
+        tone: v.picture && (stale(v.picture.ts) || !v.picture.onDisk) ? "warn" : undefined,
+      })),
+      caption: also(
+        `${count(shot)} of ${count(withSites.length)} site${withSites.length === 1 ? "" : "s"} photographed, at ${C.browser.windowSize}, on a ${count(C.refreshEveryDays)}-day refresh${more > 0 ? `; ${count(more)} not drawn here` : ""}.`,
+        "Each frame is the newest picture that actually came out, which is not always the " +
+          "newest attempt: a failed run does not delete last week's photograph, so a date " +
+          "older than the refresh means a run was missed rather than that the page has not " +
+          "changed. Nothing here judges the picture — that is the screenshot QA pass, on the " +
+          "Ops page.",
+      ),
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

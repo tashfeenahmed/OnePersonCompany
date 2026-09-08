@@ -45,7 +45,9 @@ import {
   type UptimeReport,
 } from "@/lib/api/reports";
 import { WIDGETS } from "@/data/widgets";
-import { finance as financeApi, type FinanceReport } from "@/lib/api/finance";
+import { finance as financeApi, type FinanceReport, type PortfolioPnl } from "@/lib/api/finance";
+import { inboxApi, type InboxDoc } from "@/lib/api/inbox";
+import { ventureApi, type CaptureReport } from "@/lib/api/ventures";
 import { activityApi, type LeakageReport } from "@/lib/api/activity";
 import { customersApi, type DisputeDoc, type RecoveryQueue } from "@/lib/api/customers";
 import { seoboard, type SeoOpsDocs } from "@/lib/api/seoboard";
@@ -228,6 +230,25 @@ export type LiveData = {
    *  → venture map. Gated on the Meta plugin, because all three read tables
    *  the Meta collector wrote. See lib/api/adsboard. */
   ads: AdsBoardDocs | null;
+  /*
+    THE OVERVIEW BOARD'S THREE, EACH ITS OWN FIELD AND EACH THIS BOX'S OWN.
+
+    No plugin gates any of them, for the reason the audit, the runs and the
+    ledger above are ungated: there is no credential behind a join over five
+    of this box's tables, a month of its own arithmetic, or a folder of
+    photographs it took. An empty answer is a real answer on all three —
+    nothing is waiting, nothing has been billed, nothing has been captured —
+    and the cards say so in those words.
+  */
+  /** What is waiting for the owner, actionable first, already filtered of
+   *  everything resolved or snoozed. See lib/api/inbox. */
+  inbox: InboxDoc | null;
+  /** This month's portfolio P&L: every venture's revenue, cost and margin per
+   *  currency, and the ledger's unallocated share beside them. */
+  profit: PortfolioPnl | null;
+  /** The newest photograph of each venture's front page, and the browser that
+   *  did or did not take it. */
+  capture: CaptureReport | null;
   /**
    * THE WINDOW EVERY DOCUMENT ABOVE WAS ASKED FOR — the picker's, from the
    * store. Carried here so a card can label itself and a builder can tell
@@ -286,6 +307,9 @@ const LiveContext = createContext<LiveData>({
   seo: null,
   social: null,
   ads: null,
+  inbox: null,
+  profit: null,
+  capture: null,
   window: DEFAULT_WINDOW,
   sourceStates: {}, sourceErrors: {},
   loading: true,
@@ -364,6 +388,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [seo, setSeo] = useState<SeoOpsDocs | null>(null);
   const [social, setSocial] = useState<SocialBoardDocs | null>(null);
   const [ads, setAds] = useState<AdsBoardDocs | null>(null);
+  const [inbox, setInbox] = useState<InboxDoc | null>(null);
+  const [profit, setProfit] = useState<PortfolioPnl | null>(null);
+  const [capture, setCapture] = useState<CaptureReport | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
@@ -417,6 +444,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsSeo = false;
     let needsSocial = false;
     let needsAds = false;
+    let needsInbox = false;
+    let needsProfit = false;
+    let needsCapture = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -457,6 +487,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.seo) needsSeo = true;
       if (w.live?.social) needsSocial = true;
       if (w.live?.ads) needsAds = true;
+      if (w.live?.inbox) needsInbox = true;
+      if (w.live?.profit) needsProfit = true;
+      if (w.live?.capture) needsCapture = true;
     }
     return {
       series: [...series],
@@ -498,6 +531,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsSeo,
       needsSocial,
       needsAds,
+      needsInbox,
+      needsProfit,
+      needsCapture,
     };
   }, []);
 
@@ -544,6 +580,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setQueue(null);
       setSeo(null);
       setAds(null);
+      setInbox(null);
+      setProfit(null);
+      setCapture(null);
     void (async () => {
       /*
         WHICH PROVIDERS ARE ACTUALLY CONNECTED, asked once for the page.
@@ -882,6 +921,25 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         setAds,
         "ads",
       );
+      /*
+        THE OVERVIEW BOARD'S THREE, ASKED FOR UNCONDITIONALLY.
+
+        No plugin gates any of them, for the reason the audit, the run ledger
+        and the finance ledger above are ungated: the inbox is a join over
+        five of this box's own tables, the P&L is arithmetic over rows it
+        already holds, and the captures are pictures it took itself. There is
+        no credential to be missing and therefore no "not connected" state to
+        draw — an empty answer means nothing is waiting, nothing has been
+        billed or nothing has been photographed, which the cards say in words.
+
+        NONE OF THE THREE TAKES A WINDOW, so none is asked for one. The inbox
+        is a list of things nobody has answered yet, the P&L answers for one
+        calendar month, and a photograph has a date rather than a span; all
+        three wear "now" in the catalog and say why.
+      */
+      tryFetch(wanted.needsInbox, () => inboxApi.open(), setInbox, "inbox");
+      tryFetch(wanted.needsProfit, () => financeApi.portfolio(), setProfit, "profit");
+      tryFetch(wanted.needsCapture, () => ventureApi.capture(), setCapture, "capture");
 
       await Promise.all(tasks);
       const pairs = await Promise.all(
@@ -962,6 +1020,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         seo,
         social,
         ads,
+        inbox,
+        profit,
+        capture,
         window: selected,
       });
       if (patch) liveTypes.add(type);
@@ -1007,6 +1068,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       seo,
       social,
       ads,
+      inbox,
+      profit,
+      capture,
       window: selected,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
@@ -1054,6 +1118,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     seo,
     social,
     ads,
+    inbox,
+    profit,
+    capture,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
