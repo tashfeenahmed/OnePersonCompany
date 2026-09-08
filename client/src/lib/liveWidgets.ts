@@ -7293,6 +7293,15 @@ const attemptParts = (succeeded: number, failed: number): ProportionPart[] => [
   { label: "failed", value: failed, text: count(failed), tone: "bad" },
 ];
 
+/** THE BANK'S SENTENCE, CUT TO A CLAUSE. Stripe's failure messages run to a
+ *  paragraph ("Provide a new payment method to attempt to fulfill this
+ *  PaymentIntent…"); a table column holds the first clause and the full text
+ *  is on the row's hover, which `Figures` draws from the cell itself. */
+function shortReason(text: string): string {
+  const clause = text.split(/[.;:—]\s/)[0]!.trim();
+  return clause.length > 56 ? `${clause.slice(0, 55).trimEnd()}…` : clause;
+}
+
 Object.assign(LIVE_BUILDERS, {
   "payments.mrr": ({ stripe: S }: LiveInputs) => {
     const m = firstCurrency(S?.mrr);
@@ -7783,7 +7792,7 @@ Object.assign(LIVE_BUILDERS, {
       `${dayShort(c.createdAt.slice(0, 10))} ${clock(c.createdAt)}`,
       inCurrency(c.amount, c.currency),
       c.email ?? c.description ?? DASH,
-      c.refunded ? "refunded" : (c.failure ?? c.status),
+      c.refunded ? "refunded" : (c.failure ? shortReason(c.failure) : c.status),
     ]);
     const rowTones = shown.map((c): StatusTone | null =>
       c.refunded ? null : c.paid && c.status === "succeeded" ? "ok" : c.status === "failed" ? "bad" : null,
