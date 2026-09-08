@@ -48,6 +48,16 @@ export const manifest: IntegrationManifest = {
       own users is usually either behind a secret in the URL or on a host only
       you can reach; when there is one it goes out as a bearer.
 
+      AND ONE PRODUCT IS READ ONE OF THREE WAYS. Most of this owner's products
+      will never publish an endpoint — their user tables are Postgres, SQLite,
+      MySQL and MongoDB on four machines he owns — so an account may instead
+      name a `fleet` box and the application on it, and the collector runs the
+      same read-only probe over the ssh credential that plugin already holds.
+      A third kind names a Stripe product prefix, for the one product whose own
+      users table holds nothing but an admin login. NO SECOND CREDENTIAL STORE
+      IS INVOLVED in either: the box's key stays on the fleet account, and the
+      Stripe figures come from tables this box already collects.
+
       `verify` VALIDATES THE CONTRACT AND NOT MERELY THE CONNECTION. The owner
       is standing at the form with the endpoint's code open, which is the one
       moment "users[0].createdAt is missing" costs a minute instead of half a
@@ -55,8 +65,20 @@ export const manifest: IntegrationManifest = {
     */
     [USERS]: {
       secret: "users",
-      fields: ["url", "token"],
-      optional: ["token"],
+      fields: ["url", "token", "box", "product", "stripe"],
+      /*
+        EVERY FIELD IS OPTIONAL AND `verify` IS THE GATE, because three kinds of
+        account need three different sets of them: an endpoint takes `url`, a
+        product on one of the owner's own machines takes `box` + `product`, and
+        a product whose customers are Stripe subscribers takes `stripe`. A
+        `required` list here could only name the union, which would refuse every
+        account, or the empty set, which is what this is — and `kindOf` in
+        users.ts then says which combination is missing, by name, at the form.
+        An account naming two kinds is refused rather than resolved by
+        precedence: the wrong pick is a product quietly reporting another's
+        figures.
+      */
+      optional: ["url", "token", "box", "product", "stripe"],
       verify: verifyUsers,
     },
   },

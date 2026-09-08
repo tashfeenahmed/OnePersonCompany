@@ -228,4 +228,38 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX activity_events_venture_ts ON activity_events(venture_id, ts DESC);
     `,
   },
+
+  {
+    name: "135_activity_user_source",
+    sql: `
+      -- WHICH DOOR A PRODUCT'S USERS CAME THROUGH.
+      --
+      -- 133 assumed one: the product publishes a JSON document at a URL, and
+      -- \`url\` was both the locator and the proof of it. Two more doors exist
+      -- now — a read-only probe run over the \`fleet\` account's own ssh
+      -- credential on the box the application lives on, and a derivation from
+      -- the Stripe tables this box already collects for a product whose
+      -- customers are subscribers. See integrations/activity/users-boxes.ts.
+      --
+      -- \`source\` IS NOT DERIVABLE FROM \`url\` AND MUST NOT BE GUESSED FROM IT.
+      -- Both new doors write a locator into \`url\` too, because "where did this
+      -- come from" is a question the panel has to answer for every product; but
+      -- \`ssh://Apps box#example-app-8\` parsing as a URL scheme nobody serves is not
+      -- the same fact as an account being box-backed, and a reader that
+      -- inferred one from the other would be one string format change from
+      -- mislabelling every product. NULL means 'endpoint': it is the only door
+      -- that existed when a row was written without this column.
+      --
+      -- \`site\` IS THE PRODUCT'S OWN HOST, and it exists because the venture
+      -- guess used to read the endpoint's hostname — an endpoint at
+      -- api.example.com finds the venture at example.com. A box-backed product
+      -- has no endpoint and would therefore have lost its venture, so the
+      -- source table names the product's site and the guess reads this instead.
+      -- It is NULL for an endpoint account, whose \`url\` already carries one:
+      -- two columns that could disagree about the same host would be a venture
+      -- that changes depending on which was read.
+      ALTER TABLE activity_user_docs ADD COLUMN source TEXT;
+      ALTER TABLE activity_user_docs ADD COLUMN site TEXT;
+    `,
+  },
 ];
