@@ -158,4 +158,85 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
           ALTER TABLE mailflow_outbox ADD COLUMN delivery_checked_at TEXT;
           UPDATE mailflow_outbox SET status = 'draft', approved_at = NULL WHERE status = 'approved';`,
   },
+
+  {
+    name: "123_mailflow_triage_threads",
+    sql: `
+      -- THE ROW THE TRIAGE PAGE DRAWS, CACHED. THIS TABLE REVERSES THE RULE
+      -- 120 ABOVE ARGUES FOR, AND THE REVERSAL IS THE POINT OF THE STEP, SO
+      -- IT IS WRITTEN OUT RATHER THAN LEFT TO BE DISCOVERED.
+      --
+      -- WHAT CHANGED, PLAINLY: A SUBJECT, A SENDER AND GMAIL'S OWN SNIPPET
+      -- ARE NOW STORED ON THIS BOX. Migration 120 said "there is no subject
+      -- column and that absence is the whole privacy claim of this table",
+      -- and for the judgement table that is still true — nothing was added to
+      -- it. This is a second table, beside it, and it holds the three fields
+      -- the list shows.
+      --
+      -- WHY THE RULE MOVED. The claim it bought was real but small, and the
+      -- price was paid on every page load: with nothing mail-shaped stored,
+      -- GET /api/triage had to buy the mail again each time it was opened —
+      -- one threads.list plus a threads.get PER ROW, fifty rows, ~510 Gmail
+      -- quota units and about four and a half seconds of spinner, for a list
+      -- whose contents had not changed since the last pass half an hour
+      -- earlier. A page nobody waits for is a page nobody opens. So the mail
+      -- the page draws is cached here, the background pass keeps it current,
+      -- and the read is a SELECT.
+      --
+      -- WHAT IS STILL NOT STORED, AND THIS HALF IS UNCHANGED: no message
+      -- BODY, ever. There is no readThread call anywhere in this area's pass;
+      -- the hydration asks Gmail for format=metadata, so what exists to be
+      -- stored is a subject line, a From header, the snippet Gmail itself
+      -- computes (~180 characters of the newest message) and counters. No
+      -- recipient ADDRESS is stored either — see the domains column below.
+      --
+      -- WHERE IT SITS. The same SQLite file as mailflow_triage next door,
+      -- which already holds a model's judgement of every conversation in the
+      -- mailbox, under the same 0600 data directory as the vault and the
+      -- refresh token that could fetch all of it again. This adds a row's
+      -- worth of text to a file whose compromise was already total.
+      CREATE TABLE IF NOT EXISTS mailflow_triage_threads (
+        account_id   INTEGER NOT NULL,
+        thread_id    TEXT    NOT NULL,
+        subject      TEXT    NOT NULL,
+        from_address TEXT    NOT NULL,
+        from_name    TEXT    NOT NULL,
+        -- Gmail's snippet, as Gmail computed it. Never a body, and never
+        -- more than the listing itself hands over.
+        snippet      TEXT    NOT NULL,
+        -- The thread's last-message time, in unix milliseconds. The same
+        -- fact mailflow_triage.at_ms holds; here it is the ORDER of the page
+        -- and there it is what invalidates a score.
+        at_ms        INTEGER,
+        messages     INTEGER NOT NULL,
+        unread       INTEGER NOT NULL,
+        -- THE DOMAINS OF THE THREAD'S ADDRESSES, AND NOT THE ADDRESSES. A
+        -- JSON array of hosts taken from every To, Cc, Delivered-To and the
+        -- From. The venture tag is re-derived from these on every read, so a
+        -- venture whose host is typed in after the last pass still tags its
+        -- mail immediately — which is the one thing the live read did that a
+        -- cache could otherwise lose. A host is not a person: keeping
+        -- "acme.ie" rather than "sarah@acme.ie" is the smallest thing that
+        -- answers the question this column exists for.
+        domains      TEXT    NOT NULL,
+        -- Gmail's history id for the thread as of the last hydration. The
+        -- incremental pass compares it against the listing and buys a
+        -- threads.get only where it MOVED; a null one falls back to the
+        -- snippet, which changes when a message arrives.
+        history_id   TEXT,
+        -- When the last pass saw this thread in the window, and when it
+        -- stopped seeing it. gone_at is not "deleted in Gmail" — it is "no
+        -- longer inside the window we ask about", which is what archiving,
+        -- and simply ageing out of three days, both look like from here. The
+        -- read hides these; a thread that comes back clears it.
+        seen_at      TEXT    NOT NULL,
+        gone_at      TEXT,
+        PRIMARY KEY (account_id, thread_id)
+      ) WITHOUT ROWID;
+
+      -- The read's own order: one mailbox, still in the window, newest first.
+      CREATE INDEX IF NOT EXISTS mailflow_triage_threads_at
+        ON mailflow_triage_threads(account_id, gone_at, at_ms DESC);
+    `,
+  },
 ];

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Clock, Loader2, RefreshCw } from "lucide-react";
-import { ago, when } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
@@ -35,10 +35,75 @@ import {
  * that looks like this one — in Gmail, in every mail client — archives
  * something.
  *
- * THE PAGE COSTS A GMAIL ROUND TRIP PER THREAD, which is why it loads fifty
- * and says so. The mail itself is never stored on this box: only the
- * judgement is, and the subject lines below arrive live and are forgotten.
+ * THE PAGE IS DRAWN FROM A CACHE AND SAYS HOW OLD IT IS. It used to cost a
+ * Gmail round trip per thread — fifty threads, four and a half seconds of
+ * spinner, on every single open — and the mail was never stored. Now a
+ * background pass keeps the rows in the server's own table and this page is a
+ * database read, which means it paints at once and means it can be WRONG in a
+ * way the old one could not: a thread archived since the last pass is still
+ * here. That trade is only acceptable if the age is on the screen, so the line
+ * under the header says when it was last read and when it is read next, the
+ * way Workdash's inbox does. Subject lines and snippets are now stored;
+ * message bodies are still never fetched.
+ *
+ * IT POLLS ONLY WHILE A PASS IS RUNNING. `pass.running` comes back with every
+ * document; while it is true the page re-reads every few seconds so the rows
+ * fill in as the model answers, and when it goes false the polling stops. A
+ * page that polled a mailbox nothing was happening to would be a timer nobody
+ * asked for.
  */
+
+/** How often the page re-reads WHILE a pass is in flight. Four seconds is
+ *  about one model batch, so rows appear in the groups roughly as they are
+ *  scored. */
+const POLL_MS = 4_000;
+
+/**
+ * THE LAST DOCUMENT, FOR AN INSTANT FIRST PAINT.
+ *
+ * The fetch is fast now, but "fast" over a network is still a frame of empty
+ * page, and this list is the first thing the owner reads in the morning. So
+ * the last one is kept in this browser and drawn immediately, then replaced
+ * the moment the real answer lands.
+ *
+ * ONE KEY, NOT ONE PER MAILBOX: this page always asks for the default
+ * account, and the document names which one it got, so a second mailbox would
+ * replace the entry rather than be confused with it. Every access is wrapped —
+ * private windows, blocked storage and a half-written entry all have to end as
+ * "no cache" rather than as a page that will not render.
+ */
+const REMEMBERED = "opc.triage.document";
+
+function remembered(): TriageDoc | null {
+  try {
+    const raw = localStorage.getItem(REMEMBERED);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as TriageDoc;
+    return parsed && typeof parsed === "object" && parsed.groups ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function remember(doc: TriageDoc): void {
+  try {
+    localStorage.setItem(REMEMBERED, JSON.stringify(doc));
+  } catch {
+    /* Full, blocked, or a private window. The page is fine without it. */
+  }
+}
+
+/** "in 26 min" for the next pass. Null where there is no timer to describe —
+ *  which is honest rather than a guess at when it might run. */
+function until(iso: string | null): string | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso) - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  if (ms <= 0) return "due now";
+  const mins = Math.round(ms / 60_000);
+  if (mins < 1) return "in under a minute";
+  return mins < 60 ? `in ${mins} min` : `in ${Math.round(mins / 60)}h`;
+}
 
 const GROUPS: { key: string; label: string; hint: string; tone: string }[] = [
   {
@@ -164,6 +229,25 @@ export function Triage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
+  /* Read once, at mount, so the first frame has a list on it. */
+  const [last] = useState<TriageDoc | null>(() => remembered());
+
+  const d = doc.data ?? last;
+  const running = d?.pass.running ?? false;
+
+  useEffect(() => {
+    if (doc.data) remember(doc.data);
+  }, [doc.data]);
+
+  /* Poll ONLY while a pass is in flight — see the header. `reload` is pulled
+     out because it is the stable half of `doc`; depending on the object would
+     restart the interval on every answer. */
+  const reload = doc.reload;
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => reload(), POLL_MS);
+    return () => clearInterval(id);
+  }, [running, reload]);
 
   async function act(threadId: string, what: "done" | "snooze") {
     setBusy(threadId);
@@ -171,8 +255,9 @@ export function Triage() {
     try {
       if (what === "done") await mailflowApi.done(threadId, { account: doc.data?.account.id });
       else await mailflowApi.snooze(threadId, { days: 1, account: doc.data?.account.id });
-      /* The row leaves the list without a refetch: a refetch is fifty Gmail
-         round trips to redraw a list that lost one row. */
+      /* The row leaves the list without a refetch. The refetch is cheap now,
+         but it is still a round trip and a repaint to redraw a list that lost
+         exactly one row, and the server already knows what happened. */
       doc.setData((d) => {
         if (!d) return d;
         const groups = Object.fromEntries(
@@ -187,6 +272,9 @@ export function Triage() {
     }
   }
 
+  /* The owner's own pass, and it is the same incremental one the timer runs:
+     the window is listed, only threads that moved are read, and whatever has
+     no category is scored. On a quiet inbox it is one request. */
   async function scan() {
     setScanning(true);
     setRefused(null);
@@ -201,8 +289,6 @@ export function Triage() {
     }
   }
 
-  const d = doc.data;
-
   return (
     <PageShell
       title="Triage"
@@ -214,9 +300,9 @@ export function Triage() {
         </>
       }
       action={
-        <Button size="sm" variant="outline" onClick={scan} disabled={scanning}>
-          {scanning ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-          {scanning ? "Scoring…" : "Score new mail"}
+        <Button size="sm" variant="outline" onClick={scan} disabled={scanning || running}>
+          {scanning || running ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+          {scanning || running ? "Reading…" : "Run triage now"}
         </Button>
       }
     >
@@ -233,22 +319,25 @@ export function Triage() {
       {doc.loading && !d && (
         <p className="text-muted-foreground text-[14px]">
           <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
-          Reading the inbox. Every thread is its own Gmail request, so fifty of
-          them take a few seconds.
+          Opening the list the last pass left.
         </p>
       )}
 
       {d && (
         <>
-          {/* The last pass, stated. Figures of unknown age are worse than no
-              figures: a category made an hour ago describes an hour-old
-              inbox. */}
+          {/* WHEN THIS WAS READ AND WHEN IT IS READ NEXT. The list comes out
+              of a cache, so its age is part of it: a category made an hour ago
+              describes an hour-old inbox, and a page that hid that would be
+              passing off a stored list as a live one. */}
           <p className="text-muted-foreground mb-5 text-[12.5px]">
-            {d.lastRun
-              ? `Last scored ${when(d.lastRun.ranAt, { year: true })} — ${d.lastRun.note ?? ""}${d.lastRun.error ? ` · ${d.lastRun.error}` : ""}`
-              : "Nothing has been scored yet. The pass runs by itself every half hour, or press Score new mail."}
-            {d.counts.unscored > 0 &&
-              ` · ${d.counts.unscored} thread${d.counts.unscored === 1 ? "" : "s"} on this page ${d.counts.unscored === 1 ? "has" : "have"} not been read by the model.`}
+            {d.pass.ranAt
+              ? `Read ${ago(d.pass.ranAt)}${until(d.pass.nextRunAt) ? ` · next ${until(d.pass.nextRunAt)}` : ""}`
+              : "Not read yet. The pass runs by itself every half hour, or press Run triage now."}
+            {running && " · reading now"}
+            {d.lastRun?.note ? ` — ${d.lastRun.note}` : ""}
+            {d.lastRun?.error ? ` · ${d.lastRun.error}` : ""}
+            {d.pass.unscored > 0 &&
+              ` · ${d.pass.unscored} thread${d.pass.unscored === 1 ? "" : "s"} in this window ${d.pass.unscored === 1 ? "has" : "have"} not been read by the model.`}
           </p>
 
           {GROUPS.map((g) => {

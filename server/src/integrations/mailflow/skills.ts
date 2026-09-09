@@ -47,13 +47,20 @@ export const SKILLS: Skill[] = [
         "matched that venture's own host. `ventureBy: \"model\"` is a guess. " +
         "`venture: null` means nothing settled it; it does not mean personal.",
       "NOTHING HERE READS OR STORES A MESSAGE BODY, and there is no route in " +
-        "this skill that could. Subjects and snippets are shown live and never " +
-        "written to the database.",
+        "this skill that could. Subjects, senders and Gmail's own snippets ARE " +
+        "stored, in the cache the background pass fills — this list is drawn " +
+        "from that cache rather than from Gmail, so it is as fresh as `pass." +
+        "ranAt` says and no fresher. Recipient addresses are kept only as " +
+        "their domains.",
+      "`pass` says when the last pass ran, when the next one is due and " +
+        "whether one is running now. Quote its age when you report this list; " +
+        "a thread archived since then is still on it.",
       "`done` and `snooze` change THIS BOX'S list and nothing in Gmail. A " +
         "thread you mark done is still in the inbox, still unread if it was. " +
         "Never tell the owner you have archived, read or filed anything.",
-      "`window.threads` is how many the listing returned inside the cap, not " +
-        "how much mail exists. A count at the cap is a floor.",
+      "`window.threads` is how many cached rows this read drew, capped by " +
+        "`max`; `window.cached` is how many the window holds. Neither is how " +
+        "much mail exists — a count at the cap is a floor.",
     ],
     views: [
       {
@@ -75,7 +82,7 @@ export const SKILLS: Skill[] = [
             required: false,
             fallback: 50,
             about:
-              "How many threads to fetch from Gmail for this read. Clamped to 1–200; each costs a round trip, so 200 takes about fourteen seconds.",
+              "How many cached rows to draw. Clamped to 1–200. It no longer costs a Gmail round trip — this read is a database query.",
           },
           {
             name: "account",
@@ -149,7 +156,7 @@ export const SKILLS: Skill[] = [
         method: "POST",
         path: "/api/triage/run",
         about:
-          "Score the threads the last pass has not seen. Costs a Gmail round trip per thread and one model call per ten; the pass also runs on its own every half hour.",
+          "Refresh the cache and score what has no category yet. The pass is incremental: it lists the window for ten quota units and buys a thread read only for threads that are new or have moved, then one model call per ten unscored threads. It also runs on its own every half hour and shortly after the server starts.",
         params: [
           {
             name: "days",

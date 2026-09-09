@@ -32,7 +32,9 @@ export type TriageThread = {
   fromName: string;
   /** Unix milliseconds, or null when Gmail gave no date. Never zero. */
   at: number | null;
-  /** Gmail's own snippet, fetched live. It is never stored on the server. */
+  /** Gmail's own snippet. It IS stored on the server now — see the note on
+   *  TriageDoc — but it is still only what Gmail itself computes, never a
+   *  message body. */
   snippet: string;
   unread: boolean;
   messages: number;
@@ -52,11 +54,37 @@ export type TriageThread = {
   snoozedUntil: string | null;
   snoozed: boolean;
   doneAt: string | null;
+  /** When the background pass last saw this row in Gmail. */
+  seenAt: string;
 };
 
+/**
+ * THIS DOCUMENT IS A CACHE, NOT A LIVE READ, AND `pass` IS WHERE IT SAYS SO.
+ *
+ * The server draws these rows from its own table — subject, sender and
+ * Gmail's snippet are stored there; bodies never are — and a background pass
+ * keeps it current every half hour. So the page is fast and it is as fresh as
+ * `pass.ranAt`, which is why the page prints that line rather than leaving the
+ * age to be guessed.
+ */
 export type TriageDoc = {
   account: { id: number; label: string | null };
-  window: { days: number; threads: number; max: number };
+  /** `threads` is how many rows this read drew (capped by `max`); `cached` is
+   *  how many the window holds. */
+  window: { days: number; threads: number; max: number; cached: number };
+  pass: {
+    /** When the last pass ran, or null on a mailbox never passed over. */
+    ranAt: string | null;
+    /** When the timer next fires. Null before the server's timer has started
+     *  — a CLI or a test process, not the running box. */
+    nextRunAt: string | null;
+    /** A pass is in flight right now. The page polls while this is true and
+     *  stops when it is not. */
+    running: boolean;
+    /** Threads in the window with no category yet, over the whole window
+     *  rather than the drawn page. NOT a verdict of noise. */
+    unscored: number;
+  };
   lastRun: {
     ranAt: string;
     ok: boolean;
@@ -86,6 +114,12 @@ export type TriageRun = {
   accountLabel: string;
   ok: boolean;
   threads: number;
+  /** Threads this pass bought from Gmail. The rest were unchanged since the
+   *  last one and cost nothing. */
+  fetched: number;
+  unchanged: number;
+  /** Cached rows the listing no longer carries: archived, or aged out. */
+  gone: number;
   scored: number;
   unscored: number;
   model: string | null;

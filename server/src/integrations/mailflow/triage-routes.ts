@@ -1,19 +1,27 @@
 /**
  * /api/triage — today's inbox, sorted by what the mail is.
  *
- * THE READ IS A LIVE GMAIL CALL JOINED TO STORED JUDGEMENTS, and that split is
- * the whole design. The judgement half comes out of `mailflow_triage`, which
- * has no column for a subject; the mail half is fetched from Gmail on every
- * request and forgotten when the response is written, exactly as
- * routes/mailbox.ts does. So the page can show a subject line without this box
- * ever having stored one, and a thread that was archived in Gmail two minutes
- * ago is simply not in the answer.
+ * THE READ TALKS TO SQLITE AND NOT TO GMAIL, AND THAT REVERSES WHAT THIS FILE
+ * USED TO SAY. It used to describe a live Gmail listing joined to stored
+ * judgements, and it was honest about the price: a `threads.get` per row, fifty
+ * rows, four and a half seconds of spinner. That price was paid on every open,
+ * to redraw a list the background pass had already settled half an hour
+ * earlier. Now the pass caches the row (`mailflow_triage_threads`, migration
+ * 123 — subject, sender, snippet, time, counts) and this route is two SELECTs.
+ * It is typically a few milliseconds.
  *
- * THAT COSTS A ROUND TRIP AND THE CAP IS WHY. Every row is a `threads.get` at
- * ten quota units, so the default read is fifty threads — about four seconds
- * through the provider's rate gate — and the ceiling is the scan's own 200.
- * A page that read two hundred every time would be fourteen seconds of
- * spinner to draw a list whose top ten are the point.
+ * WHAT THAT COSTS IN HONESTY, STATED HERE RATHER THAN DISCOVERED. The page is
+ * as fresh as the last pass, not as fresh as Gmail: a thread archived two
+ * minutes ago is still drawn until the next pass drops it. So the document
+ * carries `pass` — when it last ran, when it runs next, whether one is running
+ * right now — and the page prints it, because a list of unknown age is worse
+ * than a list that says its age.
+ *
+ * THE READ NEVER FETCHES MAIL, WITH ONE NARROW EXCEPTION THAT STILL DOES NOT
+ * BLOCK IT: a mailbox with an empty cache and no pass ever recorded gets a
+ * pass KICKED OFF in the background (`kickPass`), and this request is answered
+ * immediately from the empty cache with `pass.running` true. Otherwise a box
+ * that has just connected Gmail would show a blank page until a timer fired.
  *
  * FIVE GROUPS AND THE FIFTH IS THE IMPORTANT ONE. `unscored` holds threads the
  * model has not read: too new for the last pass, or a pass that failed. They
@@ -24,17 +32,22 @@
 import { Hono } from "hono";
 import * as accounts from "../../accounts.ts";
 import { now, ventureRows } from "../../db.ts";
-import { GmailError, NoMailbox, listThreads, open } from "../../providers/gmail.ts";
 import {
   MAX_WINDOW_DAYS,
   READ_MAX_DEFAULT,
   SCAN_MAX,
   WINDOW_DAYS,
+  cachedCount,
+  cachedPage,
+  domainsOf,
+  kickPass,
   lastRun,
   markThread,
+  passState,
   scanAccount,
   storedFor,
-  ventureByHost,
+  unscoredCount,
+  ventureByDomains,
   ventureKeys,
 } from "./triage.ts";
 
@@ -82,16 +95,11 @@ triageRoutes.get("/", async (c) => {
   const days = intParam(c.req.query("days"), WINDOW_DAYS, 1, MAX_WINDOW_DAYS);
   const max = intParam(c.req.query("max"), READ_MAX_DEFAULT, 1, SCAN_MAX);
 
-  let threads;
-  try {
-    const session = await open("triage_read", accountId);
-    threads = (await listThreads(session, { q: `in:inbox newer_than:${days}d`, max })).threads;
-  } catch (err) {
-    if (err instanceof NoMailbox) return c.json({ error: err.message }, 404);
-    if (err instanceof GmailError)
-      return c.json({ error: `Gmail refused the listing: ${err.body}` }, 502);
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
-  }
+  const run = lastRun(accountId);
+  const threads = cachedPage(accountId, { days, max });
+  /* A mailbox nobody has ever passed over. See the header: the pass is started
+     and NOT waited for, so this request still answers now. */
+  if (!threads.length && !run) kickPass(accountId);
 
   const stored = storedFor(accountId);
   const keys = ventureKeys();
@@ -99,55 +107,82 @@ triageRoutes.get("/", async (c) => {
   const nowMs = Date.now();
 
   const shaped = threads.map((t) => {
-    const row = stored.get(t.id);
+    const row = stored.get(t.thread_id);
     /* STALE IS A FIRST-CLASS ANSWER. The score was made against a thread whose
        last message was at `at_ms`; a reply since then means the sentence
        beside it describes a conversation that has moved on. The score is still
        shown — it is the last thing anybody read — and it is flagged, rather
-       than deleted or silently re-used. */
-    const stale = !!row?.score && row.at_ms !== (t.at ?? null);
+       than deleted or silently re-used. Both halves now come from this box, so
+       what this compares is the judgement against the cached row the last pass
+       wrote: a reply that arrives between passes is caught by the pass that
+       re-reads the thread, not by the page. */
+    const stale = !!row?.score && row.at_ms !== t.at_ms;
     const snoozed = row?.snoozed_until ? Date.parse(row.snoozed_until) > nowMs : false;
+    /* The venture is re-derived from the thread's DOMAINS on every read, so a
+       venture whose host was typed in after the last pass tags its mail
+       immediately — the one live-read behaviour worth keeping, and the reason
+       the cache stores hosts at all. The stored guess only stands where the
+       addresses say nothing. */
+    const byHost = ventureByDomains(domainsOf(t), keys);
     return {
-      id: t.id,
+      id: t.thread_id,
       accountId,
       subject: t.subject,
-      from: t.from,
-      fromName: t.fromName,
-      at: t.at,
+      from: t.from_address,
+      fromName: t.from_name,
+      at: t.at_ms,
       snippet: t.snippet,
-      unread: t.unread,
+      unread: t.unread === 1,
       messages: t.messages,
       score: row?.score ?? null,
       reason: row?.reason ?? null,
       urgency: row?.urgency ?? null,
-      /* The venture is re-derived from the LIVE addresses when they settle it,
-         so a venture whose host was typed in after the last pass tags its mail
-         immediately. The stored guess only stands where the addresses say
-         nothing. */
-      venture: ventureByHost(t, keys) ?? row?.venture ?? null,
-      ventureName:
-        names.get(ventureByHost(t, keys) ?? row?.venture ?? "") ?? null,
-      ventureBy: ventureByHost(t, keys) ? "host" : (row?.venture ? row.venture_by : null),
+      venture: byHost ?? row?.venture ?? null,
+      ventureName: names.get(byHost ?? row?.venture ?? "") ?? null,
+      ventureBy: byHost ? "host" : (row?.venture ? row.venture_by : null),
       stale,
       scoredAt: row?.scored_at ?? null,
       model: row?.model ?? null,
       snoozedUntil: row?.snoozed_until ?? null,
       snoozed,
       doneAt: row?.done_at ?? null,
+      /* When the pass last saw this row in Gmail. The page's freshness line is
+         about the pass rather than the row, but a single row's age is the
+         thing somebody asks about when one looks wrong. */
+      seenAt: t.seen_at,
     };
   });
 
   const active = shaped.filter((t) => !t.doneAt && !t.snoozed);
   const group = (key: string) => active.filter((t) => t.score === key);
 
-  const run = lastRun(accountId);
+  const state = passState();
 
   return c.json({
     account: {
       id: accountId,
       label: accounts.list("gmail").find((a) => a.id === accountId)?.label ?? null,
     },
-    window: { days, threads: threads.length, max },
+    window: { days, threads: threads.length, max, cached: cachedCount(accountId, days) },
+    /**
+     * WHEN THIS WAS READ, WHEN IT IS READ NEXT, AND WHETHER IT IS BEING READ
+     * NOW. The page is drawn from a cache, so these three are not decoration:
+     * they are the difference between "your inbox" and "your inbox as of some
+     * time nobody will tell you". `running` is what the page polls on — it
+     * asks every few seconds while a pass is in flight and stops when it is
+     * not, rather than polling a mailbox nothing is happening to.
+     *
+     * `ranAt` repeats `lastRun.ranAt` because this is the object the page's
+     * one-line header reads; `lastRun` keeps the whole run row beside it.
+     */
+    pass: {
+      ranAt: run?.ran_at ?? null,
+      nextRunAt: state.nextRunAt,
+      running: state.running,
+      /* Over the whole window rather than the drawn page — asking for fewer
+         rows must not make unread mail disappear from the count. */
+      unscored: unscoredCount(accountId, days),
+    },
     lastRun: run
       ? {
           ranAt: run.ran_at,
@@ -181,8 +216,10 @@ triageRoutes.get("/", async (c) => {
     note:
       "Categories are a model's reading of a subject line and Gmail's own " +
       "snippet, shown with its reason. `unscored` means the model has not read " +
-      "that thread — it is not a verdict of noise. Nothing here reads or " +
-      "stores a message body.",
+      "that thread — it is not a verdict of noise. This list is drawn from a " +
+      "cache the background pass fills, so subject lines, senders and Gmail's " +
+      "snippets are stored on this box; message bodies are never fetched or " +
+      "stored, and recipient addresses are kept only as their domains.",
   });
 });
 

@@ -20,7 +20,21 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { db, now, upsertPlugin } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
-import { markThread, parseBatch, storedFor, ventureByHost } from "./triage.ts";
+import {
+  cachedFor,
+  cachedPage,
+  decide,
+  domainsOf,
+  markThread,
+  parseBatch,
+  planPass,
+  storedFor,
+  unscoredCount,
+  ventureByDomains,
+  ventureByHost,
+} from "./triage.ts";
+import type { CachedThread } from "./triage.ts";
+import type { ThreadStub } from "../../providers/gmail.ts";
 import { validAddress } from "./gmail-send.ts";
 import { approveDraft, prepareDraft, row as outboxRow, SendRefused, sendApproved } from "./outbox.ts";
 import { optOut } from "../nurture/sequences.ts";
@@ -218,4 +232,162 @@ test("a verb keeps the column it did not name, and invents no score", () => {
   const third = storedFor(account).get(thread)!;
   assert.equal(third.done_at, null);
   assert.equal(third.snoozed_until, "2026-09-13T10:00:00.000Z");
+});
+
+/* ------------------------------------------------- the incremental decision
+
+   THE PROPERTY: a pass must buy a `threads.get` for exactly the threads that
+   are new or have moved, and for nothing else. Getting this wrong is silent
+   in both directions and expensive in both — too eager and every half hour
+   costs two thousand quota units to re-read mail nobody touched; too lazy and
+   the page shows yesterday's subject line under today's reply.
+   ========================================================================= */
+
+const stub = (over: Partial<ThreadStub> = {}): ThreadStub => ({
+  id: "t1",
+  snippet: "hello there",
+  historyId: "100",
+  ...over,
+});
+
+const cachedRow = (over: Partial<CachedThread> = {}): CachedThread => ({
+  account_id: 7,
+  thread_id: "t1",
+  subject: "A subject",
+  from_address: "someone@elsewhere.com",
+  from_name: "Someone",
+  snippet: "hello there",
+  at_ms: 1_000,
+  messages: 1,
+  unread: 0,
+  domains: JSON.stringify(["elsewhere.com"]),
+  history_id: "100",
+  seen_at: "2026-09-09T09:00:00.000Z",
+  gone_at: null,
+  ...over,
+});
+
+test("a thread with no cached row is new", () => {
+  assert.equal(decide(stub(), undefined), "new");
+});
+
+test("the history id decides, and it decides alone", () => {
+  assert.equal(decide(stub({ historyId: "100" }), cachedRow({ history_id: "100" })), "unchanged");
+  assert.equal(decide(stub({ historyId: "101" }), cachedRow({ history_id: "100" })), "changed");
+  /* Gmail moves the history id for anything that happens to a thread, so a
+     snippet that looks the same is not evidence against it. */
+  assert.equal(
+    decide(stub({ historyId: "101", snippet: "hello there" }), cachedRow({ history_id: "100" })),
+    "changed",
+  );
+});
+
+test("without a history id the snippet stands in", () => {
+  assert.equal(
+    decide(stub({ historyId: null, snippet: "hello there" }), cachedRow({ history_id: null })),
+    "unchanged",
+  );
+  assert.equal(
+    decide(stub({ historyId: null, snippet: "a reply" }), cachedRow({ history_id: null })),
+    "changed",
+  );
+});
+
+test("a thread that had left the window and came back is always re-read", () => {
+  assert.equal(
+    decide(stub({ historyId: "100" }), cachedRow({ history_id: "100", gone_at: "2026-09-08T09:00:00.000Z" })),
+    "changed",
+  );
+});
+
+test("a pass buys the new and the moved, keeps the unchanged, and marks the absent gone", () => {
+  const cache = new Map<string, CachedThread>([
+    ["same", cachedRow({ thread_id: "same", history_id: "1" })],
+    ["moved", cachedRow({ thread_id: "moved", history_id: "1" })],
+    ["absent", cachedRow({ thread_id: "absent", history_id: "1" })],
+  ]);
+  const plan = planPass(
+    [
+      stub({ id: "same", historyId: "1" }),
+      stub({ id: "moved", historyId: "2" }),
+      stub({ id: "fresh", historyId: "9" }),
+    ],
+    cache,
+  );
+  assert.deepEqual(plan.fetch.map((s) => s.id), ["moved", "fresh"]);
+  assert.deepEqual(plan.unchanged, ["same"]);
+  assert.deepEqual(plan.gone, ["absent"]);
+});
+
+test("a row already marked gone is not marked gone twice", () => {
+  const cache = new Map<string, CachedThread>([
+    ["old", cachedRow({ thread_id: "old", gone_at: "2026-09-01T00:00:00.000Z" })],
+  ]);
+  assert.deepEqual(planPass([], cache).gone, []);
+});
+
+/* The failure this prevents: a busy mailbox whose window holds more threads
+   than the listing cap returns a PAGE, and every cached thread past the cut
+   would look archived. A page that hides mail because a limit was reached is
+   the one thing this area is built not to do. */
+test("a listing that filled the cap marks nothing gone", () => {
+  const cache = new Map<string, CachedThread>([
+    ["a", cachedRow({ thread_id: "a", history_id: "1" })],
+    ["b", cachedRow({ thread_id: "b", history_id: "1" })],
+  ]);
+  const plan = planPass([stub({ id: "a", historyId: "1" })], cache, { truncated: true });
+  assert.deepEqual(plan.unchanged, ["a"]);
+  assert.deepEqual(plan.gone, []);
+});
+
+/* ----------------------------------------------------------- the row cache */
+
+const ACCOUNT = 9191;
+
+function cache(row: Partial<CachedThread>): void {
+  const r = cachedRow({ account_id: ACCOUNT, ...row });
+  db.prepare(
+    `INSERT OR REPLACE INTO mailflow_triage_threads
+       (account_id, thread_id, subject, from_address, from_name, snippet, at_ms,
+        messages, unread, domains, history_id, seen_at, gone_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    r.account_id, r.thread_id, r.subject, r.from_address, r.from_name, r.snippet,
+    r.at_ms, r.messages, r.unread, r.domains, r.history_id, r.seen_at, r.gone_at,
+  );
+}
+
+test("the page reads the cache: in the window, not gone, newest first", () => {
+  const day = 86_400_000;
+  cache({ thread_id: "now", at_ms: Date.now() - 60_000 });
+  cache({ thread_id: "yesterday", at_ms: Date.now() - day });
+  cache({ thread_id: "old", at_ms: Date.now() - 9 * day });
+  cache({ thread_id: "archived", at_ms: Date.now() - 60_000, gone_at: "2026-09-09T09:00:00.000Z" });
+
+  const page = cachedPage(ACCOUNT, { days: 3, max: 50 });
+  assert.deepEqual(page.map((r) => r.thread_id), ["now", "yesterday"]);
+  /* A wider window reaches the older row WITHOUT a Gmail call — which is the
+     whole reason a row that ages out is kept rather than deleted. */
+  assert.equal(cachedPage(ACCOUNT, { days: 14, max: 50 }).length, 3);
+  assert.equal(cachedPage(ACCOUNT, { days: 3, max: 1 }).length, 1);
+  assert.equal(cachedFor(ACCOUNT).size, 4);
+});
+
+test("unscored counts rows with no category, and a verb is not a category", () => {
+  assert.equal(unscoredCount(ACCOUNT, 3), 2);
+  /* Marking one done leaves a judgement row with score NULL. It is still
+     unscored — the model has not read it — and that is the count that must
+     not quietly become zero. */
+  markThread(ACCOUNT, "now", { doneAt: "2026-09-09T10:00:00.000Z" });
+  assert.equal(unscoredCount(ACCOUNT, 3), 2);
+});
+
+test("a cached row carries domains rather than addresses, and still tags a venture", () => {
+  cache({ thread_id: "tagged", domains: JSON.stringify(["mail.acme.ie"]) });
+  const row = cachedFor(ACCOUNT).get("tagged")!;
+  assert.deepEqual(domainsOf(row), ["mail.acme.ie"]);
+  assert.equal(ventureByDomains(domainsOf(row), KEYS), "v-acme");
+  /* Unreadable JSON costs a venture tag and never invents one. */
+  assert.deepEqual(domainsOf(cachedRow({ domains: "not json" })), []);
+  assert.equal(ventureByDomains([], KEYS), null);
 });

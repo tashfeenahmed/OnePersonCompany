@@ -1352,25 +1352,65 @@ type MetaMessage = {
  * nothing because one conversation moved to the bin mid-request. It is dropped
  * and the rest arrive — the same trade the collector makes per label and per
  * repo everywhere else on this box.
+ *
+ * THE TWO STEPS ARE ALSO AVAILABLE SEPARATELY, and that is not a refactor for
+ * its own sake. A caller that already holds yesterday's rows does not need to
+ * buy them again: `listThreadStubs` costs ten units for the whole window and
+ * says which threads have MOVED, and `hydrateThreads` is then bought only for
+ * those. `integrations/mailflow/triage.ts` is that caller. Everything that
+ * wants the whole page — the mailbox reader, the collectors — still calls
+ * `listThreads` and gets exactly what it always did.
  */
-export async function listThreads(
+export type ThreadStub = {
+  id: string;
+  /** Gmail's own snippet for the thread, from the LISTING — the same string
+   *  the hydrated row carries, at no extra cost. */
+  snippet: string;
+  /**
+   * The mailbox history id as of the thread's last change, or null where
+   * Gmail omitted it. It moves when anything about the conversation does — a
+   * new message, a label, a read — which is what makes it usable as "has this
+   * thread changed since I last looked" without paying for the thread.
+   */
+  historyId: string | null;
+};
+
+/** The listing on its own: ten quota units for up to `max` threads, and no
+ *  subject, sender or date. See `hydrateThreads` for the expensive half. */
+export async function listThreadStubs(
   session: Session,
   opts: { q: string; max: number; pageToken?: string },
-): Promise<{ threads: ThreadRow[]; nextPageToken: string | null; dropped: number }> {
+): Promise<{ stubs: ThreadStub[]; nextPageToken: string | null }> {
   const { token } = session;
-  const list = await get<{ threads?: { id?: string; snippet?: string }[]; nextPageToken?: string }>(
+  const list = await get<{
+    threads?: { id?: string; snippet?: string; historyId?: string }[];
+    nextPageToken?: string;
+  }>(
     "threads",
     token,
     [
       ["maxResults", String(opts.max)],
       ...(opts.q ? ([["q", opts.q]] as [string, string][]) : []),
       ...(opts.pageToken ? ([["pageToken", opts.pageToken]] as [string, string][]) : []),
-      ["fields", "threads(id,snippet),nextPageToken"],
+      ["fields", "threads(id,snippet,historyId),nextPageToken"],
     ],
     COST.threadList,
   );
+  return {
+    stubs: (list.threads ?? [])
+      .filter((t): t is { id: string; snippet?: string; historyId?: string } => !!t.id)
+      .map((t) => ({ id: t.id, snippet: t.snippet ?? "", historyId: t.historyId ?? null })),
+    nextPageToken: list.nextPageToken ?? null,
+  };
+}
 
-  const stubs = (list.threads ?? []).filter((t): t is { id: string; snippet?: string } => !!t.id);
+/** The hydration on its own: ten quota units PER STUB. Pass only the threads
+ *  you actually need drawn. */
+export async function hydrateThreads(
+  session: Session,
+  stubs: ThreadStub[],
+): Promise<{ threads: ThreadRow[]; dropped: number }> {
+  const { token } = session;
 
   const hydrated = await pooled(stubs, CONCURRENCY, async (stub) => {
     try {
@@ -1439,7 +1479,7 @@ export async function listThreads(
       fromName: from.name,
       to: header(lastHeaders, "To"),
       at: whenMs(last.internalDate),
-      snippet: entry.stub.snippet ?? last.snippet ?? "",
+      snippet: entry.stub.snippet || last.snippet || "",
       /* A thread is unread if ANY message in it is, which is what makes the
          row bold in Gmail itself. */
       unread: messages.some((m) => (m.labelIds ?? []).includes("UNREAD")),
@@ -1453,7 +1493,17 @@ export async function listThreads(
      pooled and a dropped row would otherwise leave a hole in the order. */
   threads.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
 
-  return { threads, nextPageToken: list.nextPageToken ?? null, dropped };
+  return { threads, dropped };
+}
+
+/** The listing and the hydration, as every caller but triage wants them. */
+export async function listThreads(
+  session: Session,
+  opts: { q: string; max: number; pageToken?: string },
+): Promise<{ threads: ThreadRow[]; nextPageToken: string | null; dropped: number }> {
+  const page = await listThreadStubs(session, opts);
+  const { threads, dropped } = await hydrateThreads(session, page.stubs);
+  return { threads, nextPageToken: page.nextPageToken, dropped };
 }
 
 /* ---------------------------------------------------------------- reading */

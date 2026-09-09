@@ -25,12 +25,43 @@
  * BECAUSE it had not been read. They come back in their own `unscored` group,
  * counted, with the reason the pass gives.
  *
- * NOTHING HERE READS OR STORES A BODY. The scan asks Gmail for
- * `format=metadata` and gets headers plus the snippet Gmail itself computes;
- * there is no `readThread` call in this file and no column in the table for a
- * subject, a sender or a snippet. What is stored is the judgement — a
- * category, a reason, an urgency, a venture guess — and the page fetches the
- * mail itself live on every read, exactly as routes/mailbox.ts does.
+ * WHAT IS STORED, AND IT CHANGED — SAY IT PLAINLY. This file used to end this
+ * paragraph with "the page fetches the mail itself live on every read", and
+ * that sentence is no longer true. SUBJECT LINES, SENDER ADDRESSES AND
+ * GMAIL'S OWN SNIPPETS ARE NOW KEPT ON THIS BOX, in `mailflow_triage_threads`
+ * (migration 123), which is the row the page draws. The judgement table beside
+ * it is unchanged and still has nowhere to put a subject; the two are separate
+ * tables so that the older claim stays exactly as true as it was.
+ *
+ * WHY THE RULE MOVED, WHICH IS WORKDASH'S ARGUMENT WITH DIFFERENT NUMBERS.
+ * Workdash moved its triage cache to disk because pm2 restarted the process
+ * several times a day and every night's scores were gone by morning; what
+ * lands there is "a score and a line per thread, never the mail". Here the
+ * pressure was the read rather than the restart: with nothing mail-shaped
+ * stored, GET /api/triage had to buy the mail again on every open — one
+ * `threads.list` plus a `threads.get` PER ROW, fifty rows, ~510 quota units,
+ * about four and a half seconds — to redraw a list that had not changed since
+ * the pass half an hour earlier. The privacy claim was real and small; the
+ * price was paid every single time the page was opened. So the cache holds the
+ * row now, and Workdash's line has to be corrected for this box: what lands is
+ * a score, a line per thread, AND the subject, sender and snippet the list
+ * shows.
+ *
+ * WHAT STILL NEVER LANDS, AND THIS HALF IS UNCHANGED: A BODY. There is no
+ * `readThread` call in this file. The hydration asks Gmail for
+ * `format=metadata`, so a body is not fetched at all, let alone kept — the
+ * snippet is the ~180 characters Gmail itself computes and hands over in the
+ * listing. Recipient ADDRESSES are not kept either, only their domains, which
+ * is all the venture match reads. And what does land lands in the same SQLite
+ * file as the judgement table — the same 0600 data directory as the vault and
+ * the Google refresh token that could fetch every word of it again.
+ *
+ * THE PASS IS INCREMENTAL, WHICH IS WHAT MAKES THE CACHE AFFORDABLE. See
+ * `planPass`: the listing is ten quota units for the whole window and carries
+ * each thread's history id, so the pass pays the ten-unit `threads.get` only
+ * for threads that are new or have MOVED. A quiet half hour costs ten units
+ * instead of two thousand, and an unchanged thread is neither re-read nor
+ * re-scored.
  *
  * WHERE THE MAIL GOES. Subjects and snippets travel to one place: the model
  * provider the owner has chosen under Integrations → Models. On this install
@@ -52,10 +83,12 @@ import { NoProviderError, complete } from "../../models/provider.ts";
 import {
   GmailError,
   NoMailbox,
-  listThreads,
+  hydrateThreads,
+  listThreadStubs,
   open,
   type Session,
   type ThreadRow,
+  type ThreadStub,
 } from "../../providers/gmail.ts";
 
 /* ------------------------------------------------------------------ knobs */
@@ -75,14 +108,41 @@ export const MAX_WINDOW_DAYS = 14;
 /**
  * THE CAP, AND IT IS A QUOTA RATHER THAN A TASTE.
  *
- * Every row costs a `threads.get` at ten Gmail quota units — the listing
- * itself is ten for all of them — so 200 threads is about 2,000 units and
- * roughly fourteen seconds through providers/gmail.ts's rate gate. That is
- * fine for a background pass and much too slow for a page load, which is why
- * the READ below has its own, smaller default.
+ * The listing is ten Gmail quota units for all 200 of them; each thread the
+ * pass has to HYDRATE is ten more. So the arithmetic now depends entirely on
+ * how much moved:
+ *
+ *     a cold cache      200 gets    ~2,010 units   ~14s through the rate gate
+ *     a normal half hour  0-15 gets    10-160 units   under two seconds
+ *     nothing moved       0 gets           10 units   one request
+ *
+ * The first line is the one that used to run on every page load, and it is
+ * why the READ no longer talks to Gmail at all: it reads the cache these
+ * passes fill. READ_MAX_DEFAULT is now how many cached rows a page draws,
+ * which costs a SELECT.
  */
 export const SCAN_MAX = 200;
 export const READ_MAX_DEFAULT = 50;
+
+/**
+ * HOW LONG AFTER BOOT THE FIRST PASS RUNS, AND WHY THERE IS ONE AT ALL.
+ *
+ * This used to be "no pass at boot", on the grounds that the dev server
+ * restarts on every saved file and a boot pass would spend fourteen seconds of
+ * Gmail quota each time. Incremental passes take that argument away: a restart
+ * now costs one `threads.list` — ten units — plus whatever genuinely arrived
+ * while the process was down, which is what the page needs anyway. Twenty
+ * seconds is late enough that nothing competes with the server actually coming
+ * up, and early enough that a mailbox is current before anybody has clicked
+ * through to it.
+ */
+const BOOT_DELAY_MS = 20_000;
+
+/** How long a thread that has left the window is kept before its cached row is
+ *  deleted. Longer than MAX_WINDOW_DAYS on purpose: a row that ages out of a
+ *  three-day window is still inside a fourteen-day one, and re-buying it
+ *  because somebody widened `?days=` is the cost this table exists to avoid. */
+const KEEP_GONE_DAYS = 30;
 
 /** How many threads go to the model in one completion. Ten keeps a prompt
  *  under a couple of thousand tokens and a failure to a tenth of a pass; one
@@ -174,6 +234,190 @@ export function lastRun(accountId: number): TriageRunRow | undefined {
   return db.prepare("SELECT * FROM mailflow_triage_runs WHERE account_id = ?").get(accountId) as
     | TriageRunRow
     | undefined;
+}
+
+/* ------------------------------------------------------------- the row cache */
+
+/** One cached triage row, as migration 123 stores it. Mail-shaped, and the
+ *  header says so. */
+export type CachedThread = {
+  account_id: number;
+  thread_id: string;
+  subject: string;
+  from_address: string;
+  from_name: string;
+  snippet: string;
+  at_ms: number | null;
+  messages: number;
+  unread: number;
+  /** JSON array of hosts — see `domainsOf`. Never addresses. */
+  domains: string;
+  history_id: string | null;
+  seen_at: string;
+  gone_at: string | null;
+};
+
+/** Every cached row for a mailbox, gone ones included — the pass needs those
+ *  to notice a thread coming BACK, and the read filters them out itself. */
+export function cachedFor(accountId: number): Map<string, CachedThread> {
+  const rows = db
+    .prepare("SELECT * FROM mailflow_triage_threads WHERE account_id = ?")
+    .all(accountId) as unknown as CachedThread[];
+  return new Map(rows.map((r) => [r.thread_id, r]));
+}
+
+/**
+ * The rows a page draws: one mailbox, still in the window, newest first.
+ *
+ * `days` is applied HERE rather than at the pass, because the pass fills one
+ * cache and different readers ask different questions of it — a page asking
+ * for a day and a page asking for a fortnight both read rows the same pass
+ * wrote.
+ */
+export function cachedPage(
+  accountId: number,
+  opts: { days: number; max: number },
+): CachedThread[] {
+  const since = Date.now() - opts.days * 86_400_000;
+  return db
+    .prepare(
+      `SELECT * FROM mailflow_triage_threads
+        WHERE account_id = ? AND gone_at IS NULL AND (at_ms IS NULL OR at_ms >= ?)
+        ORDER BY at_ms DESC
+        LIMIT ?`,
+    )
+    .all(accountId, since, opts.max) as unknown as CachedThread[];
+}
+
+/** How many rows the cache holds for a mailbox inside a window, ignoring any
+ *  page limit — the "of 84" a page's "showing 50" is a share of. */
+export function cachedCount(accountId: number, days: number): number {
+  const since = Date.now() - days * 86_400_000;
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM mailflow_triage_threads
+        WHERE account_id = ? AND gone_at IS NULL AND (at_ms IS NULL OR at_ms >= ?)`,
+    )
+    .get(accountId, since) as { n: number } | undefined;
+  return row?.n ?? 0;
+}
+
+/** How many cached rows in the window carry no category yet — the number the
+ *  page turns into "the model has not read these". Counted over the whole
+ *  cache rather than the drawn page, so it does not shrink because a reader
+ *  asked for fewer rows. */
+export function unscoredCount(accountId: number, days: number): number {
+  const since = Date.now() - days * 86_400_000;
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM mailflow_triage_threads t
+         LEFT JOIN mailflow_triage j
+           ON j.account_id = t.account_id AND j.thread_id = t.thread_id
+        WHERE t.account_id = ? AND t.gone_at IS NULL
+          AND (t.at_ms IS NULL OR t.at_ms >= ?)
+          AND j.score IS NULL`,
+    )
+    .get(accountId, since) as { n: number } | undefined;
+  return row?.n ?? 0;
+}
+
+/** The hosts a cached row's addresses belonged to. A row written before this
+ *  column meant anything, or one whose JSON is somehow unreadable, answers
+ *  "no domains" — which costs a venture tag and never a wrong one. */
+export function domainsOf(row: CachedThread): string[] {
+  try {
+    const parsed: unknown = JSON.parse(row.domains);
+    return Array.isArray(parsed) ? parsed.filter((d): d is string => typeof d === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A cached row in the shape the scorer and the route already speak.
+ *
+ * `to`, `labels` and `recipients` come back EMPTY, because those three are the
+ * fields this box deliberately does not keep. Nothing that reads a cached row
+ * uses them: the prompt wants a subject, a sender and a snippet, and the
+ * venture match reads `domainsOf` instead.
+ */
+export function rowOf(row: CachedThread): ThreadRow {
+  return {
+    id: row.thread_id,
+    subject: row.subject,
+    from: row.from_address,
+    fromName: row.from_name,
+    to: "",
+    at: row.at_ms,
+    snippet: row.snippet,
+    unread: row.unread === 1,
+    labels: [],
+    messages: row.messages,
+    recipients: [],
+  };
+}
+
+/* --------------------------------------------------- the incremental decision */
+
+/** What a pass has to do about one thread in the listing. */
+export type Decision = "new" | "changed" | "unchanged";
+
+/**
+ * WHETHER THIS THREAD IS WORTH TEN QUOTA UNITS.
+ *
+ * The history id is Gmail's own answer to "has anything about this
+ * conversation moved", it arrives free with the listing, and where both sides
+ * have one it decides alone. Where Gmail omitted it the snippet stands in: it
+ * is the newest message's opening, so a reply changes it. Both wrong in the
+ * same direction — an edge that reads `unchanged` costs a stale row for half
+ * an hour, and one that reads `changed` costs ten units.
+ *
+ * A ROW THAT HAD GONE AND CAME BACK IS ALWAYS `changed`. Its cached copy is by
+ * definition older than the window it left, and a thread returning to the
+ * inbox is exactly the case where something happened.
+ */
+export function decide(stub: ThreadStub, cached: CachedThread | undefined): Decision {
+  if (!cached) return "new";
+  if (cached.gone_at) return "changed";
+  if (stub.historyId && cached.history_id)
+    return stub.historyId === cached.history_id ? "unchanged" : "changed";
+  return stub.snippet === cached.snippet ? "unchanged" : "changed";
+}
+
+export type Plan = {
+  /** Threads to buy a `threads.get` for. */
+  fetch: ThreadStub[];
+  /** Threads already cached and unmoved: no fetch, no re-score. */
+  unchanged: string[];
+  /** Cached threads the listing no longer carries. */
+  gone: string[];
+};
+
+/**
+ * ONE PASS'S SHOPPING LIST.
+ *
+ * `truncated` is the guard that keeps `gone` honest. The listing is capped, so
+ * a mailbox with more threads in the window than the cap returns a PAGE rather
+ * than the window — and every cached thread past the cut would then look
+ * absent. When the listing came back full, nothing is marked gone: a page that
+ * hides mail because a limit was reached is the failure this area is built
+ * around.
+ */
+export function planPass(
+  stubs: ThreadStub[],
+  cached: Map<string, CachedThread>,
+  opts: { truncated: boolean } = { truncated: false },
+): Plan {
+  const plan: Plan = { fetch: [], unchanged: [], gone: [] };
+  const seen = new Set<string>();
+  for (const stub of stubs) {
+    seen.add(stub.id);
+    if (decide(stub, cached.get(stub.id)) === "unchanged") plan.unchanged.push(stub.id);
+    else plan.fetch.push(stub);
+  }
+  if (!opts.truncated)
+    for (const [id, row] of cached) if (!seen.has(id) && !row.gone_at) plan.gone.push(id);
+  return plan;
 }
 
 /* ------------------------------------------------------- venture matching */
@@ -288,15 +532,42 @@ export function ventureForThread(
   from: string | null,
   hosts: ThreadHost[] = threadHosts(),
 ): ThreadHost | null {
-  const seen: string[] = [];
+  return ventureForDomains(threadDomains(recipients, from), hosts);
+}
+
+/**
+ * THE DOMAINS OF A THREAD'S ADDRESSES, WHICH IS ALL THE MATCH EVER READS.
+ *
+ * This is the function that lets the cache store `["acme.ie"]` where the
+ * thread carried `sarah@acme.ie`: the answer above never looks at a local
+ * part, so keeping one would be storing a person to answer a question about a
+ * business.
+ */
+export function threadDomains(recipients: readonly string[], from: string | null): string[] {
+  const seen = new Set<string>();
   for (const r of recipients) {
     const d = domainOf(r);
-    if (d) seen.push(d);
+    if (d) seen.add(d);
   }
   const f = from ? domainOf(from) : null;
-  if (f) seen.push(f);
-  for (const h of hosts) for (const d of seen) if (hostMatch(h.host, d)) return h;
+  if (f) seen.add(f);
+  return [...seen];
+}
+
+/** The authority-major loop itself. See `ventureForThread` for why the order
+ *  is what it is. */
+export function ventureForDomains(
+  domains: readonly string[],
+  hosts: ThreadHost[] = threadHosts(),
+): ThreadHost | null {
+  for (const h of hosts) for (const d of domains) if (hostMatch(h.host, d)) return h;
   return null;
+}
+
+/** `ventureByHost` for a cached row, which has domains rather than addresses.
+ *  Same authority list, same answer. */
+export function ventureByDomains(domains: readonly string[], keys: VentureKey[]): string | null {
+  return ventureForDomains(domains, hostsOfKeys(keys))?.ventureId ?? null;
 }
 
 /* --------------------------------------------------------------- the model */
@@ -419,6 +690,15 @@ export type ScanResult = {
   ok: boolean;
   /** Threads the listing returned inside the window. */
   threads: number;
+  /** Threads this pass actually bought from Gmail, at ten quota units each.
+   *  On a quiet half hour it is zero and the pass cost one request. */
+  fetched: number;
+  /** Threads the listing carried that had not moved since the last pass:
+   *  neither re-read nor re-scored. */
+  unchanged: number;
+  /** Cached rows the listing no longer carries — archived, or simply aged out
+   *  of the window. Marked, not deleted. */
+  gone: number;
   /** Threads sent to the model this pass. The rest were already scored at the
    *  same last-message time and were not re-read — a score is invalidated by a
    *  REPLY, not by the clock. */
@@ -432,58 +712,115 @@ export type ScanResult = {
 };
 
 /**
- * One pass over one mailbox.
+ * One pass over one mailbox, and it is the only thing on this box that talks
+ * to Gmail for the Triage page.
+ *
+ * FOUR STEPS. List the window (ten units, and it carries a history id per
+ * thread). Decide what moved (`planPass`). Buy only that (`hydrateThreads`,
+ * ten units each). Score whatever still has no category — including threads
+ * that were cached but left unscored by a pass with no model behind it, which
+ * cost nothing to pick up because their row is already here.
  *
  * FAILURE IS PER BATCH. A provider that dies on the third batch leaves the
  * first two scored and the rest unscored, and the run row says so — the same
  * trade every collector on this box makes per account. The one failure that is
  * fatal to a pass is Gmail refusing the listing, because then there is nothing
- * to sort.
+ * to sort. Note the order: THE CACHE IS WRITTEN BEFORE THE MODEL IS ASKED, so
+ * a scorer that is down still leaves the page with today's mail on it, in the
+ * unscored group where it belongs.
  */
 export async function scanAccount(
   accountId: number,
   opts: { days?: number; max?: number } = {},
+): Promise<ScanResult> {
+  passes += 1;
+  try {
+    return await scanOnce(accountId, opts);
+  } finally {
+    passes -= 1;
+  }
+}
+
+async function scanOnce(
+  accountId: number,
+  opts: { days?: number; max?: number },
 ): Promise<ScanResult> {
   const account = accounts.list("gmail").find((a) => a.id === accountId);
   const label = account?.label ?? `account ${accountId}`;
   const days = Math.min(Math.max(Math.trunc(opts.days ?? WINDOW_DAYS), 1), MAX_WINDOW_DAYS);
   const max = Math.min(Math.max(Math.trunc(opts.max ?? SCAN_MAX), 1), SCAN_MAX);
 
+  const failed = (error: string): ScanResult => {
+    writeRun(accountId, false, 0, 0, null, error);
+    return {
+      accountId, accountLabel: label, ok: false,
+      threads: 0, fetched: 0, unchanged: 0, gone: 0, scored: 0, unscored: 0,
+      model: null, note: null, error,
+    };
+  };
+  const gmailError = (err: unknown, what: string): string =>
+    err instanceof GmailError
+      ? `Gmail refused ${what}: ${err.body}`
+      : err instanceof Error
+        ? err.message
+        : String(err);
+
   let session: Session;
   try {
     session = await open("triage_scan", accountId);
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    writeRun(accountId, false, 0, 0, null, error);
-    return { accountId, accountLabel: label, ok: false, threads: 0, scored: 0, unscored: 0, model: null, note: null, error };
+    return failed(err instanceof Error ? err.message : String(err));
   }
 
-  let threads: ThreadRow[];
+  let stubs: ThreadStub[];
   try {
-    const page = await listThreads(session, { q: `in:inbox newer_than:${days}d`, max });
-    threads = page.threads;
+    stubs = (await listThreadStubs(session, { q: `in:inbox newer_than:${days}d`, max })).stubs;
   } catch (err) {
-    const error =
-      err instanceof GmailError
-        ? `Gmail refused the thread listing: ${err.body}`
-        : err instanceof Error
-          ? err.message
-          : String(err);
-    writeRun(accountId, false, 0, 0, null, error);
-    return { accountId, accountLabel: label, ok: false, threads: 0, scored: 0, unscored: 0, model: null, note: null, error };
+    return failed(gmailError(err, "the thread listing"));
   }
+
+  const cached = cachedFor(accountId);
+  /* A listing that came back FULL may have been cut short by the cap, and
+     `planPass` must not read that as "the rest were archived". */
+  const plan = planPass(stubs, cached, { truncated: stubs.length >= max });
+
+  let fresh: ThreadRow[] = [];
+  let dropped = 0;
+  if (plan.fetch.length) {
+    try {
+      const got = await hydrateThreads(session, plan.fetch);
+      fresh = got.threads;
+      dropped = got.dropped;
+    } catch (err) {
+      /* The listing succeeded, so there IS something to sort — but the rows
+         would be half of one window and half of the last, in an order neither
+         of them agreed on. Fail the pass and keep yesterday's cache intact. */
+      return failed(gmailError(err, "the thread reads"));
+    }
+  }
+
+  writeCache(accountId, fresh, plan);
 
   const keys = ventureKeys();
   const bySlug = new Map(keys.map((k) => [k.slug.toLowerCase(), k.id]));
   const byName = new Map(keys.map((k) => [k.name.toLowerCase(), k.id]));
   const stored = storedFor(accountId);
 
+  /* THE SCORING SET IS READ BACK OUT OF THE CACHE, not out of what Gmail just
+     answered, and that is what lets a pass finish somebody else's work: a
+     thread cached last week that no model was up to read is still unscored
+     today, is still in the window, and costs nothing to hand over now. */
+  const listed = new Set(stubs.map((s) => s.id));
+  const current = [...cachedFor(accountId).values()].filter(
+    (c) => listed.has(c.thread_id) && !c.gone_at,
+  );
+
   /* Only what is new or has MOVED. A thread whose last-message time is
      unchanged since it was scored is the same conversation and does not need
      reading again; a reply changes `at`, which is what invalidates it. */
-  const todo = threads.filter((t) => {
-    const row = stored.get(t.id);
-    return !row || row.score === null || row.at_ms !== (t.at ?? null);
+  const todo = current.filter((c) => {
+    const row = stored.get(c.thread_id);
+    return !row || row.score === null || row.at_ms !== c.at_ms;
   });
 
   const upsert = db.prepare(
@@ -514,7 +851,7 @@ export async function scanAccount(
     try {
       const reply = await complete([
         { role: "system", content: systemTurn(keys) },
-        { role: "user", content: userTurn(batch) },
+        { role: "user", content: userTurn(batch.map(rowOf)) },
       ]);
       model = reply.model ?? model;
       judgements = parseBatch(reply.text, batch.length);
@@ -535,7 +872,7 @@ export async function scanAccount(
         unscored += 1;
         continue;
       }
-      const hostVenture = ventureByHost(t, keys);
+      const hostVenture = ventureByDomains(domainsOf(t), keys);
       const guess = judged.venture
         ? (bySlug.get(judged.venture.toLowerCase()) ??
           byName.get(judged.venture.toLowerCase()) ??
@@ -544,13 +881,13 @@ export async function scanAccount(
       const venture = hostVenture ?? guess;
       upsert.run(
         accountId,
-        t.id,
+        t.thread_id,
         judged.score,
         judged.reason,
         judged.urgency,
         venture,
         venture === null ? null : hostVenture ? "host" : "model",
-        t.at ?? null,
+        t.at_ms,
         stamp,
         model,
       );
@@ -558,23 +895,94 @@ export async function scanAccount(
     }
   }
 
+  /* The note is what the page prints under the header, so it says where the
+     quota went as well as what the model did. */
   const note =
-    `${threads.length} threads in ${days}d · ${scored} scored` +
-    (todo.length < threads.length ? `, ${threads.length - todo.length} already current` : "") +
+    `${stubs.length} threads in ${days}d · ${plan.fetch.length} read from Gmail, ` +
+    `${plan.unchanged.length} unchanged` +
+    (plan.gone.length ? `, ${plan.gone.length} left the window` : "") +
+    (dropped ? `, ${dropped} vanished mid-read` : "") +
+    ` · ${scored} scored` +
     (unscored ? `, ${unscored} unscored` : "");
-  writeRun(accountId, error === null, threads.length, scored, note, error);
+  writeRun(accountId, error === null, stubs.length, scored, note, error);
 
   return {
     accountId,
     accountLabel: label,
     ok: error === null,
-    threads: threads.length,
+    threads: stubs.length,
+    fetched: plan.fetch.length,
+    unchanged: plan.unchanged.length,
+    gone: plan.gone.length,
     scored,
     unscored,
     model,
     note,
     error,
   };
+}
+
+/**
+ * THE CACHE WRITE, AND IT IS ONE TRANSACTION.
+ *
+ * Fresh rows land whole; unchanged rows are only touched (`seen_at`, and
+ * `gone_at` cleared, for a thread that came back); rows the listing dropped
+ * are MARKED rather than deleted, because "not in the last three days" is not
+ * "gone from Gmail" and the owner's Done and Snooze verbs next door are keyed
+ * to threads this table describes. The delete is a separate, much older
+ * cutoff — see KEEP_GONE_DAYS.
+ */
+function writeCache(accountId: number, fresh: ThreadRow[], plan: Plan): void {
+  const stamp = now();
+  const historyOf = new Map(plan.fetch.map((s) => [s.id, s.historyId]));
+
+  const upsert = db.prepare(
+    `INSERT INTO mailflow_triage_threads
+       (account_id, thread_id, subject, from_address, from_name, snippet, at_ms,
+        messages, unread, domains, history_id, seen_at, gone_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+     ON CONFLICT(account_id, thread_id) DO UPDATE SET
+       subject = excluded.subject, from_address = excluded.from_address,
+       from_name = excluded.from_name, snippet = excluded.snippet,
+       at_ms = excluded.at_ms, messages = excluded.messages,
+       unread = excluded.unread, domains = excluded.domains,
+       history_id = excluded.history_id, seen_at = excluded.seen_at,
+       gone_at = NULL`,
+  );
+  const touch = db.prepare(
+    "UPDATE mailflow_triage_threads SET seen_at = ?, gone_at = NULL WHERE account_id = ? AND thread_id = ?",
+  );
+  const leave = db.prepare(
+    "UPDATE mailflow_triage_threads SET gone_at = ? WHERE account_id = ? AND thread_id = ? AND gone_at IS NULL",
+  );
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const t of fresh)
+      upsert.run(
+        accountId,
+        t.id,
+        t.subject,
+        t.from,
+        t.fromName,
+        t.snippet,
+        t.at,
+        t.messages,
+        t.unread ? 1 : 0,
+        JSON.stringify(threadDomains(t.recipients, t.from)),
+        historyOf.get(t.id) ?? null,
+        stamp,
+      );
+    for (const id of plan.unchanged) touch.run(stamp, accountId, id);
+    for (const id of plan.gone) leave.run(stamp, accountId, id);
+    db.prepare(
+      "DELETE FROM mailflow_triage_threads WHERE account_id = ? AND gone_at IS NOT NULL AND gone_at < ?",
+    ).run(accountId, new Date(Date.now() - KEEP_GONE_DAYS * 86_400_000).toISOString());
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
 }
 
 function writeRun(
@@ -608,35 +1016,87 @@ export async function scanAll(opts: { days?: number; max?: number } = {}): Promi
 /* --------------------------------------------------------------- the timer */
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let boot: ReturnType<typeof setTimeout> | null = null;
+
+/** How many passes are in flight, over every mailbox and every caller — the
+ *  timer, the owner's button, the read's own cold-start kick. The page polls
+ *  while this is above zero and stops when it is not, which is the whole of
+ *  "is it still reading?". */
+let passes = 0;
+let nextRunAtMs: number | null = null;
+
+/** What the page needs to say "read 4 minutes ago · next in 26". `nextRunAt`
+ *  is null before the timer has been started at all, which is the test process
+ *  and the CLI rather than the server. */
+export function passState(): { running: boolean; nextRunAt: string | null } {
+  return {
+    running: passes > 0,
+    nextRunAt: nextRunAtMs === null ? null : new Date(nextRunAtMs).toISOString(),
+  };
+}
 
 /**
- * The half-hour pass.
+ * A pass, started and not waited for.
  *
- * IT WRITES SCORES AND NOTHING ELSE. There is no import of the outbox in this
- * file and no path from here to a send — the only thing a timer in this area
- * can do is decide that a thread looks like it needs a reply, which is a
- * sentence on a page.
+ * The one caller is the READ, and only when the cache for a mailbox is empty
+ * and no pass has ever run — a box that has just been set up, where the
+ * alternative is a permanently blank page waiting for a timer. It returns
+ * immediately either way: the request that triggers it is answered from the
+ * cache it is about to fill, and the page's poll picks the rows up.
+ */
+export function kickPass(accountId: number): void {
+  if (passes > 0) return;
+  void scanAccount(accountId).catch((err: unknown) => {
+    console.error("[mailflow] triage kick failed:", err instanceof Error ? err.message : err);
+  });
+}
+
+async function runPass(): Promise<void> {
+  try {
+    if (!accounts.list("gmail").some((a) => a.connected)) return;
+    await scanAll();
+  } catch (err) {
+    /* A pass that throws must not take the process with it. The run row
+       already carries anything worth reading. */
+    console.error("[mailflow] triage pass failed:", err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * The half-hour pass, plus one shortly after boot.
  *
- * It skips entirely when no Gmail account is connected, and it does not run at
- * boot: the first pass is half an hour in, so a restart during a working day
- * does not spend fourteen seconds of Gmail quota the moment the file is saved
- * — and this server restarts on every edit.
+ * IT WRITES SCORES AND A CACHE OF THE ROWS, AND NOTHING ELSE. There is no
+ * import of the outbox in this file and no path from here to a send — the only
+ * thing a timer in this area can do is decide that a thread looks like it
+ * needs a reply, which is a sentence on a page.
+ *
+ * IT DOES NOW RUN AT BOOT, TWENTY SECONDS IN, AND THAT REVERSES WHAT THIS
+ * COMMENT USED TO SAY. The old rule — first pass half an hour in — existed
+ * because a boot pass cost fourteen seconds of Gmail quota and this server
+ * restarts on every saved file. An incremental pass costs one `threads.list`
+ * plus whatever actually arrived while the process was down, so the reason is
+ * gone, and the thing it was protecting has flipped: the page now DRAWS from
+ * what a pass wrote, so a box that never passed is a box with a blank Triage
+ * page. Twenty seconds keeps it off the critical path of coming up.
+ *
+ * It skips entirely when no Gmail account is connected.
  */
 export function startTriageTimer() {
   if (timer) clearInterval(timer);
-  timer = setInterval(() => {
+  if (boot) clearTimeout(boot);
+  nextRunAtMs = Date.now() + BOOT_DELAY_MS;
+  boot = setTimeout(() => {
     void (async () => {
-      try {
-        if (!accounts.list("gmail").some((a) => a.connected)) return;
-        await scanAll();
-      } catch (err) {
-        /* A pass that throws must not take the process with it. The run row
-           already carries anything worth reading. */
-        console.error("[mailflow] triage pass failed:", err instanceof Error ? err.message : err);
-      }
+      await runPass();
+      nextRunAtMs = Date.now() + HALF_HOUR_MS;
+      timer = setInterval(() => {
+        nextRunAtMs = Date.now() + HALF_HOUR_MS;
+        void runPass();
+      }, HALF_HOUR_MS);
+      timer.unref?.();
     })();
-  }, HALF_HOUR_MS);
-  timer.unref?.();
+  }, BOOT_DELAY_MS);
+  boot.unref?.();
 }
 
 export { NoMailbox };
