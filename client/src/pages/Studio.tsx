@@ -1,156 +1,464 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { Clapperboard, Loader2, Sparkles } from "lucide-react";
-import { PageShell } from "@/components/PageShell";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  Clapperboard,
+  Film,
+  Image as ImageIcon,
+  Loader2,
+  Scissors,
+  Send,
+  Shapes,
+  Sparkles,
+  Timer,
+  Video as VideoIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { StagePill, VentureMark } from "@/components/VentureChrome";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { VentureSelect } from "@/components/VentureSelect";
 import { PostCard } from "@/components/studio/PostCard";
 import { ReadinessBanner } from "@/components/studio/ReadinessBanner";
+import { RunSteps } from "@/components/runs/RunSteps";
+import { VideoResult } from "@/areas/video/VideoResult";
 import { useApi } from "@/hooks/useApi";
 import { publishingApi } from "@/areas/publishing/api";
-import { useStore } from "@/lib/store";
-import { cn } from "@/lib/utils";
-import {
-  studioApi,
-  type StudioFormat,
-  type StudioPost,
-} from "@/lib/api/studio";
-/* THE UGC DOOR, added by the socialfeed area. It is a button rather than a
-   second form because a UGC job is not a variation on a post: it is a video
-   run, it goes on the run queue, and it belongs on the page that shows runs.
-   The button only exists when the venture has reference pictures, because a
-   UGC shot is a picture of a real product and there is no substitute. */
 import { socialfeedApi } from "@/areas/socialfeed/api";
+import { useStore, type Venture } from "@/lib/store";
+import { cn } from "@/lib/utils";
+import { ago, when } from "@/lib/format";
+import { appPage } from "../../../shared/navigation";
+import { studioApi, type StudioFormat, type StudioPost, type StudioReadiness } from "@/lib/api/studio";
+import { autopilotApi, videoApi, type VideoJob } from "@/lib/api/video";
+import { motionApi } from "@/lib/api/motion";
+import { isLive, runsApi, type RunDetail, type RunSummary } from "@/lib/api/runs";
 
 /**
- * THE STUDIO — a caption and a picture for one venture, in that venture's own
- * brand.
+ * THE STUDIO — every way this box makes a post or a video, on one page.
  *
- * WHY IT IS AN APP AND NOT A VENTURE TAB. Everything else about a venture is a
- * reading OF that venture; this makes something new, and the thing it makes is
- * the same thing for every venture. Sitting it beside the board and the
- * mailbox — the other two places in here that produce rather than report —
- * puts it where the eye already goes to do work, and lets the venture be a
- * picker rather than the address.
+ * It was a still-post page with a UGC button on it, and the five video
+ * pipelines each had a page of their own: the Video run form, the Motion
+ * editor, Autopilot, Publishing. Those pages still exist and still work — a
+ * run's own page is still where its steps, its retries and its note live —
+ * but the DOOR to all of them is here now, because the owner reaching for
+ * "make something" should not first have to know which of six pages makes
+ * it.
  *
- * THE VIDEO TABS ARE NOT HERE, not even greyed out. Faceless video, motion,
- * reels and shorts are things this box cannot do: there is no renderer, no
- * voice track and no timeline anywhere in the server. A row of disabled tabs
- * would be a promise made by a layout, and the owner would remember the
- * promise long after forgetting it was greyed. What exists is a still post,
- * so a still post is the whole page.
+ * THE SHAPE. A title, one row of tabs — Image post, UGC clip, Faceless,
+ * Shorts, Reel, Motion — and under the chosen tab the fewest fields that
+ * pipeline needs. Everything ever made, of every kind, sits in the rail on
+ * the left, newest first, with Autopilot and Publishing at the top of it:
+ * the thing that fills the rail on a schedule, and the place a finished
+ * piece goes next. Choosing a row opens it under the form.
  *
- * NOTHING HERE POSTS ANYTHING ANYWHERE, and that is still true of this page
- * after publishing arrived. What changed is that a finished post can now be
- * FILED — "Send to publishing" puts it in the queue as a DRAFT, where the
- * owner reads it against a real account, approves it and schedules it. This
- * page still cannot publish and still cannot approve; Copy is still here for
- * the platforms this box has no publisher for.
+ * WHAT EACH TAB ACTUALLY CALLS, because the six are three different things
+ * on the server. An image post is one request that holds the line until the
+ * picture exists (`studioApi.create`). A UGC clip is queued through the
+ * socialfeed area's own route, which names what will be spent before the
+ * run starts. The other four are `video` RUNS on the shared queue — one
+ * `runsApi.start` with a `format` — and they finish in the background, so
+ * the rail polls while anything is moving and stops when nothing is.
  *
- * "Platform" remains a hint to the model about length and register. It is not
- * a destination: which account a post goes to is decided in the queue, with
- * that destination's capabilities and the platform's limits on screen.
- *
- * MAKING ONE COSTS MONEY AND TAKES ABOUT TWENTY SECONDS. Both facts are on
- * screen before the button is pressed: the readiness banner carries Replicate's
- * state, and the button says how long it will sit there. The wait is real —
- * Replicate is called with `Prefer: wait`, so the request is held open until
- * the picture exists — and a spinner with no sentence beside it would read as
- * a hung page.
+ * NOTHING HERE POSTS ANYTHING ANYWHERE. A finished post is sent to
+ * Publishing as a draft from its card, and a finished video lands on its run
+ * page; the queue is where somebody approves a thing against a real account.
  */
 
-/**
- * The platforms the caption can be written for.
- *
- * A CLOSED LIST OF FIVE, AND FREE TEXT WOULD BE WORSE. The server takes any
- * string up to forty characters and passes it into the prompt, so "for
- * Threads" would work — but a picker of the five that matter is one click
- * instead of a spelling, and the sixth is not worth a text field that mostly
- * collects typos. "None" is first because a brief that is already written for
- * a place does not want a second instruction about register.
- */
+type Make = "image" | "ugc" | "faceless" | "shorts" | "reel" | "motion";
+
+const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[] = [
+  { key: "image", label: "Image post", icon: ImageIcon, about: "A caption and a picture in the venture's own brand." },
+  { key: "ugc", label: "UGC clip", icon: Clapperboard, about: "The product, from its own reference pictures, put in a scene and animated." },
+  { key: "faceless", label: "Faceless video", icon: VideoIcon, about: "A script from the venture over stock footage, captions burned in." },
+  { key: "shorts", label: "Shorts", icon: Scissors, about: "Two to four vertical clips cut out of a long video." },
+  { key: "reel", label: "Reel", icon: Film, about: "Two voices walking through the venture's own pages, scrolling." },
+  { key: "motion", label: "Motion", icon: Shapes, about: "Animated typography from a scene list, in the venture's colours." },
+];
+
 const PLATFORMS = ["Instagram", "LinkedIn", "X", "Facebook", "TikTok"];
+const SHAPES: { key: StudioFormat; ratio: string }[] = [
+  { key: "square", ratio: "1:1" },
+  { key: "story", ratio: "9:16" },
+  { key: "landscape", ratio: "16:9" },
+];
+const ASPECTS = ["9:16", "1:1", "16:9"];
 
 /** The venture's palette as it reads today, for the posts whose own prompt
  *  named no colours. The order matches the prompt's: the three roles, then
  *  the background. */
-function palette(v: {
-  brand: {
-    palette: {
-      primary: string | null;
-      secondary: string | null;
-      accent: string | null;
-      background: string | null;
-    };
-  };
-  color: string;
-}): string[] {
+function palette(v: Venture): string[] {
   const p = v.brand.palette;
-  const hexes = [p.primary, p.secondary, p.accent, p.background].filter(
-    (h): h is string => !!h,
-  );
+  const hexes = [p.primary, p.secondary, p.accent, p.background].filter((h): h is string => !!h);
   return hexes.length ? hexes : [v.color];
+}
+
+/** One row of the rail, whichever kind of thing it is. A run row carries what
+ *  is known about the video beside it: the finished job's row for a settled
+ *  run, the typed inputs for one still moving — the run row itself is titled
+ *  after the venture and says nothing about the format. */
+type Generation =
+  | { key: string; kind: "post"; ts: string; post: StudioPost }
+  | { key: string; kind: "run"; ts: string; run: RunSummary; job: (VideoJob & { clipCount: number }) | null; input: Record<string, string> | null };
+
+const FORMAT_LABEL: Record<string, string> = { image: "Image post", ugc: "UGC clip", faceless: "Faceless video", shorts: "Shorts", reel: "Reel", motion: "Motion" };
+
+function isMake(v: string | null): v is Make {
+  return MAKES.some((m) => m.key === v);
 }
 
 export function Studio() {
   const { state } = useStore();
   const ventures = state.ventures;
+  const [params, setParams] = useSearchParams();
+
+  /* WHICH TAB AND WHICH ROW ARE IN THE ADDRESS, so a link to "make a reel"
+     or to one finished post is a link. */
+  const make: Make = isMake(params.get("make")) ? (params.get("make") as Make) : "image";
+  const openKey = params.get("open");
+  const setParam = (key: string, value: string | null) => {
+    const next = new URLSearchParams(params);
+    if (value === null) next.delete(key); else next.set(key, value);
+    setParams(next, { replace: true });
+  };
 
   /* WHICH VENTURE, BY ID — so the choice survives a rename, and falls back to
      the first venture when the one it held was deleted. The workspace's own
      default is the opening choice, which is the same venture the composer
      starts a chat against. */
-  const [chosen, setChosen] = useState<string | null>(
-    state.workspace.defaultVentureId,
-  );
-  const venture =
-    ventures.find((v) => v.id === chosen) ?? ventures[0] ?? null;
+  const [chosen, setChosen] = useState<string | null>(state.workspace.defaultVentureId);
+  const venture = ventures.find((v) => v.id === chosen) ?? ventures[0] ?? null;
 
+  /* The rail can show one venture's work or everyone's. Null is everyone. */
+  const [railVenture, setRailVenture] = useState<string | null>(null);
+
+  const posts = useApi(() => studioApi.posts(railVenture), [railVenture]);
+  const runs = useApi(() => runsApi.list({ kind: "video", venture: railVenture, limit: 60 }), [railVenture]);
+
+  /* Anything moving anywhere means keep asking; nothing moving means stop. */
+  const anyLive = (runs.data?.runs ?? []).some((r) => isLive(r.status)) || (runs.data?.queued ?? 0) > 0;
+  const reloadRuns = runs.reload;
+  useEffect(() => {
+    if (!anyLive) return;
+    const t = setInterval(() => reloadRuns(), 2000);
+    return () => clearInterval(t);
+  }, [anyLive, reloadRuns]);
+
+  /* The finished jobs, re-read whenever the count of settled runs changes —
+     which is the moment a new file exists — and the inputs of the live ones,
+     fetched once per set of live ids. Neither is polled on its own. */
+  const runRows = runs.data?.runs ?? [];
+  const settledCount = runRows.filter((r) => !isLive(r.status)).length;
+  const videos = useApi(() => videoApi.list(railVenture).catch(() => null), [railVenture, settledCount]);
+  const liveIds = runRows.filter((r) => isLive(r.status)).map((r) => r.id).join(",");
+  const liveDetails = useApi(
+    () => Promise.all(liveIds.split(",").filter(Boolean).map((id) => runsApi.get(id).catch(() => null))),
+    [liveIds],
+  );
+
+  const generations = useMemo<Generation[]>(() => {
+    const jobs = new Map((videos.data?.videos ?? []).map((v) => [v.runId, v]));
+    const inputs = new Map((liveDetails.data ?? []).filter((d): d is RunDetail => !!d).map((d) => [d.id, d.input]));
+    const rows: Generation[] = [
+      ...(posts.data?.posts ?? []).map((post) => ({ key: `post:${post.id}`, kind: "post" as const, ts: post.ts, post })),
+      ...(runs.data?.runs ?? []).map((run) => ({ key: `run:${run.id}`, kind: "run" as const, ts: run.queuedAt, run, job: jobs.get(run.id) ?? null, input: inputs.get(run.id) ?? null })),
+    ];
+    return rows.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
+  }, [posts.data, runs.data, videos.data, liveDetails.data]);
+  const open = generations.find((g) => g.key === openKey) ?? null;
+
+  function replacePost(post: StudioPost) {
+    posts.setData((d) => (d ? { ...d, posts: d.posts.map((p) => (p.id === post.id ? post : p)) } : d));
+  }
+  function forgetPost(id: string) {
+    posts.setData((d) => (d ? { ...d, posts: d.posts.filter((p) => p.id !== id) } : d));
+    if (openKey === `post:${id}`) setParam("open", null);
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1">
+      <Rail
+        ventures={ventures}
+        railVenture={railVenture}
+        onRailVenture={setRailVenture}
+        generations={generations}
+        loading={posts.loading || runs.loading}
+        openKey={openKey}
+        onOpen={(key) => setParam("open", key)}
+      />
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-3 pb-20">
+        <div className="mx-auto w-full max-w-[760px]">
+          <h1 className="mt-10 mb-6 text-center text-[30px] font-normal tracking-[-0.025em]">
+            Create anything with AI
+          </h1>
+
+          <Tabs value={make} onValueChange={(v) => setParam("make", v)} className="items-center">
+            <TabsList variant="line" className="flex-wrap justify-center">
+              {MAKES.map((m) => (
+                <TabsTrigger key={m.key} value={m.key} className="flex-none px-2.5">
+                  <m.icon data-icon="inline-start" className="size-3.5" strokeWidth={1.8} />
+                  {m.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <p className="text-muted-foreground mt-3 mb-5 text-center text-[13.5px]">
+            {MAKES.find((m) => m.key === make)?.about}
+          </p>
+
+          {ventures.length === 0 ? (
+            <p className="text-muted-foreground text-center text-[14px]">
+              There are no ventures yet, and everything here is made out of one — the name,
+              the sentence you wrote, the stage and the colours read off the site. Add a
+              venture first.
+            </p>
+          ) : (
+            <Composer
+              key={make}
+              make={make}
+              ventures={ventures}
+              venture={venture}
+              onVenture={setChosen}
+              readiness={posts.data?.readiness ?? null}
+              onPost={(post) => {
+                posts.setData((d) => (d ? { ...d, posts: [post, ...d.posts] } : d));
+                setParam("open", `post:${post.id}`);
+              }}
+              onRun={(id) => {
+                reloadRuns();
+                setParam("open", `run:${id}`);
+              }}
+            />
+          )}
+
+          {open && (
+            <div className="mt-8">
+              {open.kind === "post" ? (
+                <PostCard
+                  post={open.post}
+                  palette={(() => { const v = ventures.find((x) => x.id === open.post.ventureId); return v ? palette(v) : undefined; })()}
+                  onChanged={replacePost}
+                  onDeleted={forgetPost}
+                />
+              ) : (
+                <RunPanel run={open.run} />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ rail */
+
+function Rail({ ventures, railVenture, onRailVenture, generations, loading, openKey, onOpen }: {
+  ventures: Venture[];
+  railVenture: string | null;
+  onRailVenture: (id: string | null) => void;
+  generations: Generation[];
+  loading: boolean;
+  openKey: string | null;
+  onOpen: (key: string) => void;
+}) {
+  /* The two doors at the top: what fills this rail on its own, and where a
+     finished piece goes next. Each carries one fact so the row says whether
+     it needs looking at. */
+  const autopilot = useApi(() => autopilotApi.read().catch(() => null), []);
+  const queue = useApi(() => publishingApi.items({ status: "draft" }).catch(() => null), []);
+  const drafts = queue.data?.counts?.draft;
+
+  return (
+    <aside className="bg-sidebar/40 border-line-soft flex w-[272px] shrink-0 flex-col border-r">
+      <div className="border-line-soft grid gap-0.5 border-b p-2.5">
+        <Link to="/social/autopilot" className="hover:bg-accent flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors">
+          <Timer className="size-4 shrink-0" strokeWidth={1.7} />
+          <span className="text-[13.5px]">Autopilot</span>
+          <span className="text-muted-foreground ml-auto truncate text-[12px]">
+            {autopilot.data
+              ? autopilot.data.schedule.enabled
+                ? `on · next ${when(autopilot.data.nextRunAt)}`
+                : "off"
+              : ""}
+          </span>
+        </Link>
+        <Link to="/social/publishing" className="hover:bg-accent flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors">
+          <Send className="size-4 shrink-0" strokeWidth={1.7} />
+          <span className="text-[13.5px]">Publishing</span>
+          <span className="text-muted-foreground ml-auto text-[12px]">
+            {drafts ? `${drafts} draft${drafts === 1 ? "" : "s"}` : ""}
+          </span>
+        </Link>
+      </div>
+
+      <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
+        <span className="text-muted-foreground text-[11.5px] font-medium tracking-[0.08em] uppercase">Generations</span>
+        <span className="text-muted-foreground ml-auto text-[12px]">{loading ? "loading…" : generations.length || ""}</span>
+      </div>
+      <div className="px-2.5 pb-2">
+        <VentureSelect ventures={ventures} value={railVenture} onChange={onRailVenture} none="Every venture" className="h-8 w-full text-[13px]" />
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {!loading && generations.length === 0 && (
+          <p className="text-muted-foreground px-2 py-2 text-[12.5px] leading-relaxed">
+            Nothing made yet. Whatever you make above lands here, and Autopilot adds to it on a schedule.
+          </p>
+        )}
+        <div className="grid gap-px">
+          {generations.map((g) => (
+            <GenerationRow key={g.key} generation={g} active={g.key === openKey} onClick={() => onOpen(g.key)} />
+          ))}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+const FORMAT_ICON: Record<string, typeof Film> = { ugc: Clapperboard, faceless: VideoIcon, shorts: Scissors, reel: Film, motion: Shapes };
+
+function GenerationRow({ generation: g, active, onClick }: { generation: Generation; active: boolean; onClick: () => void }) {
+  if (g.kind === "post") {
+    const p = g.post;
+    return (
+      <button onClick={onClick} className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors", active ? "bg-accent" : "hover:bg-accent/60")}>
+        {p.image && p.imageOnDisk ? (
+          <img src={p.image} alt="" className="size-9 shrink-0 rounded-md object-cover" />
+        ) : (
+          <span className="bg-muted grid size-9 shrink-0 place-items-center rounded-md"><ImageIcon className="text-muted-foreground size-4" strokeWidth={1.6} /></span>
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px]">{p.caption?.split("\n")[0] || p.brief}</span>
+          <span className="text-muted-foreground block truncate text-[11.5px]">
+            Image post · {p.format}{p.error ? " · problem" : ""} · {ago(p.ts)}
+          </span>
+        </span>
+      </button>
+    );
+  }
+  const r = g.run;
+  const format = g.job?.format ?? g.input?.format ?? "";
+  const Icon = FORMAT_ICON[format] ?? VideoIcon;
+  const live = isLive(r.status);
+  const title =
+    g.job?.script?.title ?? g.job?.script?.brief ?? g.input?.brief ?? g.input?.url ?? r.ventureName ?? "Video";
+  const what = FORMAT_LABEL[format] ?? "Video";
+  const clips = g.job && g.job.clipCount > 0 ? ` · ${g.job.clipCount} clips` : "";
+  return (
+    <button onClick={onClick} className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors", active ? "bg-accent" : "hover:bg-accent/60")}>
+      <span className="bg-muted grid size-9 shrink-0 place-items-center rounded-md">
+        {live ? <Loader2 className="text-muted-foreground size-4 animate-spin" strokeWidth={1.6} /> : <Icon className="text-muted-foreground size-4" strokeWidth={1.6} />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px]">{title}</span>
+        <span className={cn("block truncate text-[11.5px]", r.status === "failed" ? "text-destructive" : "text-muted-foreground")}>
+          {what}{clips} · {live ? r.status : r.status === "done" ? (g.job?.onDisk === false ? "file gone" : "done") : r.status} · {ago(r.queuedAt)}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------- composer */
+
+function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+  return (
+    <div className="grid gap-1.5">
+      <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">{label}</div>
+      {children}
+      {hint && <p className="text-muted-foreground text-[12.5px]">{hint}</p>}
+    </div>
+  );
+}
+
+function Chips<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { key: T; label: string; sub?: string; title?: string }[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          title={o.title}
+          onClick={() => onChange(o.key)}
+          className={cn("rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors", value === o.key ? "border-foreground" : "hover:border-line-strong")}
+        >
+          {o.label}
+          {o.sub && <span className="text-muted-foreground ml-1.5">{o.sub}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun }: {
+  make: Make;
+  ventures: Venture[];
+  venture: Venture | null;
+  onVenture: (id: string | null) => void;
+  readiness: StudioReadiness | null;
+  onPost: (post: StudioPost) => void;
+  onRun: (id: string) => void;
+}) {
   const [brief, setBrief] = useState("");
-  const [format, setFormat] = useState<StudioFormat>("square");
+  const [shape, setShape] = useState<StudioFormat>("square");
   const [platform, setPlatform] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [ugcBusy, setUgcBusy] = useState(false);
-  const [ugcSaid, setUgcSaid] = useState<string | null>(null);
-  const [refused, setRefused] = useState<string | null>(null);
-  /* WHICH OF THE VENTURE'S OWN PICTURES THIS POST SHOULD LOOK LIKE. Cleared
-     when the venture changes, because an asset belongs to one business. */
   const [assetIds, setAssetIds] = useState<string[]>([]);
+  const [aspect, setAspect] = useState("9:16");
+  const [fit, setFit] = useState("cover");
+  const [seconds, setSeconds] = useState(make === "shorts" ? "45" : "30");
+  const [clips, setClips] = useState("3");
+  const [url, setUrl] = useState("");
+  const [spec, setSpec] = useState("");
+  const [voiceover, setVoiceover] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
 
-  const doc = useApi(
-    () => studioApi.posts(venture?.id ?? null),
-    [venture?.id ?? null],
-  );
-
-  /* The venture's asset library, and — the part that decides whether a
-     selection does anything at all — whether the CURRENT image model has an
-     input a picture can go in. Read off that model's own schema by the
-     server; `checked: false` means it could not be asked. */
+  const wantsAssets = make === "image" || make === "ugc";
   const library = useApi(
-    () => publishingApi.assets({ venture: venture?.id ?? null }),
-    [venture?.id ?? null],
+    () => (wantsAssets && venture ? publishingApi.assets({ venture: venture.id }) : Promise.resolve(null)),
+    [wantsAssets, venture?.id ?? null],
+  );
+  const assets = library.data?.assets ?? [];
+  const specs = useApi(
+    () => (make === "motion" ? motionApi.list(venture?.id ?? null).catch(() => null) : Promise.resolve(null)),
+    [make, venture?.id ?? null],
   );
 
-  async function make() {
-    if (!venture || !brief.trim()) return;
+  const needsVenture = make !== "shorts";
+  const ready =
+    !busy &&
+    (!needsVenture || !!venture) &&
+    (make === "image" ? brief.trim().length > 0 : true) &&
+    (make === "ugc" ? assets.length > 0 : true) &&
+    (make === "shorts" ? url.trim().length > 0 : true);
+
+  async function go() {
+    if (!ready) return;
     setBusy(true);
     setRefused(null);
+    setSaid(null);
     try {
-      const res = await studioApi.create({
-        ventureId: venture.id,
-        brief: brief.trim(),
-        format,
-        platform,
-        assetIds,
-      });
-      /* The new post goes straight on the front of the list this page is
-         already holding rather than triggering a refetch — the reply IS the
-         post, and a second round trip would only redraw what is on screen. */
-      doc.setData((d) =>
-        d ? { ...d, posts: [res.post, ...d.posts] } : d,
-      );
-      setBrief("");
+      if (make === "image") {
+        const res = await studioApi.create({ ventureId: venture!.id, brief: brief.trim(), format: shape, platform, assetIds });
+        onPost(res.post);
+        setBrief("");
+      } else if (make === "ugc") {
+        const res = await socialfeedApi.startUgc({ venture: venture!.slug, brief: brief.trim(), assets: assetIds, aspect });
+        setSaid(`Queued. Image: ${res.spend.image}. Video: ${res.spend.video}.`);
+        onRun(res.run.id);
+      } else {
+        const input: Record<string, string> = { format: make, brief: brief.trim(), aspect };
+        if (make === "faceless") Object.assign(input, { seconds, fit });
+        if (make === "shorts") Object.assign(input, { url: url.trim(), seconds, clips, fit });
+        if (make === "reel") Object.assign(input, { url: url.trim(), seconds });
+        if (make === "motion") Object.assign(input, { spec, voiceover: voiceover ? "true" : "false" });
+        const run = await runsApi.start({ kind: "video", ventureId: venture?.id ?? null, input });
+        setSaid(run.status === "running" ? "Started. It shows in the rail while it works." : "Queued behind the runs ahead of it.");
+        onRun(run.id);
+      }
     } catch (err) {
       setRefused(err instanceof Error ? err.message : String(err));
     } finally {
@@ -158,353 +466,189 @@ export function Studio() {
     }
   }
 
-  function replace(post: StudioPost) {
-    doc.setData((d) =>
-      d ? { ...d, posts: d.posts.map((p) => (p.id === post.id ? post : p)) } : d,
-    );
-  }
-
-  function forget(id: string) {
-    doc.setData((d) =>
-      d ? { ...d, posts: d.posts.filter((p) => p.id !== id) } : d,
-    );
-  }
-
-  const readiness = doc.data?.readiness ?? null;
-  const posts = doc.data?.posts ?? [];
-
-  /* Queued through the socialfeed area's own route rather than through the
-     Studio's: a UGC job is a run, and the run queue is not this page's. The
-     answer names what will be spent, which is what goes on screen. */
-  async function startUgc() {
-    if (!venture) return;
-    setUgcBusy(true);
-    setUgcSaid(null);
-    try {
-      const res = await socialfeedApi.startUgc({
-        venture: venture.slug,
-        brief: brief.trim(),
-        assets: assetIds,
-      });
-      setUgcSaid(
-        `Queued as run ${res.run.id}. Image: ${res.spend.image}. Video: ${res.spend.video}. It lands on the Video page as a draft.`,
-      );
-    } catch (err) {
-      setUgcSaid(err instanceof Error ? err.message : String(err));
-    } finally {
-      setUgcBusy(false);
-    }
-  }
+  const cost = {
+    image: readiness?.image.ready
+      ? "About twenty seconds, and a fraction of a cent on Replicate."
+      : "About five seconds. Without Replicate the post is stored with its words and no picture.",
+    ugc: "One image prediction always, and one image-to-video prediction if a model is set under Integrations → Social feed. With none set it makes a still and spends nothing on video.",
+    faceless: "A model turn for the script, Pexels for the footage, ffmpeg on this machine. A minute or two.",
+    shorts: "yt-dlp fetches the source, a model picks the moments where it can, ffmpeg cuts. A few minutes for a long source.",
+    reel: "Headless Chrome captures each page, a model writes the two voices, the voice plugin speaks them if it is on.",
+    motion: "A model drafts the scene list unless you pick a saved one; Chrome renders the frames. Silent unless the voice plugin is on.",
+  }[make];
 
   return (
-    <PageShell
-      title="Studio"
-      sub={
-        <>
-          A caption and a picture for one venture, from what this box already
-          knows about it. Nothing is published from here — a finished post is
-          sent to{" "}
-          <Link to="/social/publishing" className="underline decoration-dotted">
-            Publishing
-          </Link>{" "}
-          as a draft, where you approve it.{" "}
-          {/* THE TWO THINGS THAT FILL THIS GALLERY WITHOUT SOMEBODY TYPING
-              A BRIEF. Autopilot queues posts here on a schedule; Video makes
-              the moving half. Both are links rather than tabs because this
-              page is where somebody already is when they want either. */}
-          <Link to="/social/autopilot" className="underline decoration-dotted">
-            Autopilot
-          </Link>{" "}
-          fills this on a schedule, and{" "}
-          <Link to="/social/video" className="underline decoration-dotted">
-            Video
-          </Link>{" "}
-          makes the moving kind.
-        </>
-      }
-    >
-      {doc.error && (
-        <p className="text-muted-foreground mb-4 text-[14px]">
-          The API did not answer, so nothing can be made here right now.{" "}
-          <span className="text-destructive">{doc.error}</span>
-        </p>
+    <div className="bg-card grid gap-3.5 rounded-[14px] p-4.5">
+      {(make === "image" || make === "ugc") && readiness && <ReadinessBanner readiness={readiness} />}
+
+      <Field label={needsVenture ? "For which venture" : "For which venture (optional)"}>
+        <VentureSelect ventures={ventures} value={venture?.id ?? null} onChange={(id) => { onVenture(id); setAssetIds([]); setSpec(""); }} none={needsVenture ? null : "No venture"} />
+      </Field>
+
+      {make === "shorts" && (
+        <Field label="Source video" hint="A YouTube address or a direct link to a video file.">
+          <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" className="text-[14px]" />
+        </Field>
       )}
 
-      {readiness && (
-        <div className="mb-5">
-          <ReadinessBanner readiness={readiness} />
-        </div>
+      {make === "reel" && (
+        <Field label="Pages to walk through" hint="One address per line. Empty uses the venture's own website.">
+          <Textarea value={url} onChange={(e) => setUrl(e.target.value)} rows={2} placeholder="https://…" className="text-[14px]" />
+        </Field>
       )}
 
-      {ventures.length === 0 ? (
-        <p className="text-muted-foreground text-[14px]">
-          There are no ventures yet, and a post here is made out of one — the
-          name, the sentence you wrote, the stage and the colours read off the
-          site. Add a venture first.
-        </p>
-      ) : (
-        <>
-          {/* ------------------------------------------------ the brief */}
-          <div className="bg-card grid gap-3.5 rounded-[14px] p-4.5">
-            <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-                For which venture
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {ventures.map((v) => (
-                  <button
-                    key={v.id}
-                    onClick={() => {
-                      setChosen(v.id);
-                      setAssetIds([]);
-                    }}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
-                      venture?.id === v.id
-                        ? "border-foreground"
-                        : "hover:border-line-strong",
-                    )}
-                  >
-                    <VentureMark venture={v} size={15} />
-                    {v.name}
-                    <StagePill stage={v.stage} />
-                  </button>
-                ))}
-              </div>
-              {venture && (
-                <p className="text-muted-foreground text-[12.5px]">
-                  {/* WHAT THE MODEL IS ACTUALLY TOLD, named here so the
-                      caption is never a surprise. The stage is the half
-                      that changes what a post is allowed to say. */}
-                  The model is given {venture.name}
-                  {venture.description ? ", your own description" : ""}, the
-                  stage, and the colours read off the site — and is told not
-                  to invent a feature, a price or a launch date.
-                </p>
-              )}
-            </div>
+      {make === "motion" && (specs.data?.specs.length ?? 0) > 0 && (
+        <Field label="Scene list" hint="A saved list renders as written. Drafting one from the brief is a model call, and its numbers are claims to read before you publish.">
+          <select value={spec} onChange={(e) => setSpec(e.target.value)} className="border-line-soft h-9 rounded-[12px] border bg-transparent px-2.5 text-[13.5px]">
+            <option value="">Draft one from the brief</option>
+            {specs.data!.specs.map((s) => (
+              <option key={s.id} value={s.id}>{s.name} · {s.scenes} scenes · {s.aspect}</option>
+            ))}
+          </select>
+        </Field>
+      )}
 
-            <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-                What the post is about
-              </div>
-              <Textarea
-                value={brief}
-                onChange={(e) => setBrief(e.target.value)}
-                rows={3}
-                maxLength={2000}
-                placeholder="One line. “We shipped weekly digests” — not the post itself."
-                className="text-[14.5px]"
-              />
-            </div>
+      {!(make === "motion" && spec) && (
+        <Field
+          label={make === "image" ? "What the post is about" : make === "shorts" ? "What to look for (optional)" : "What it is about"}
+          hint={make === "image" ? undefined : "Empty makes the general case for the venture."}
+        >
+          <Textarea
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            rows={make === "image" ? 3 : 2}
+            maxLength={2000}
+            placeholder={make === "image" ? "One line. “We shipped weekly digests” — not the post itself." : make === "shorts" ? "The moments worth keeping." : "One or two lines."}
+            className="text-[14.5px]"
+          />
+        </Field>
+      )}
 
-            <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-                Shape
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {(readiness?.formats ?? []).map((f) => (
-                  <button
-                    key={f.key}
-                    title={f.about}
-                    onClick={() => setFormat(f.key as StudioFormat)}
-                    className={cn(
-                      "rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
-                      format === f.key
-                        ? "border-foreground"
-                        : "hover:border-line-strong",
-                    )}
-                  >
-                    {f.key}
-                    <span className="text-muted-foreground ml-1.5">
-                      {f.ratio}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* ------------------------------------------- the references */}
-            <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-                Take visual direction from
-              </div>
-              {(library.data?.assets ?? []).length === 0 ? (
-                <p className="text-muted-foreground text-[12.5px]">
-                  {venture?.name} has no assets yet. Upload a logo, a reference picture or a
-                  screenshot under{" "}
-                  <Link to="/social/publishing?tab=assets" className="underline decoration-dotted">
-                    Publishing → Assets
-                  </Link>
-                  .
-                </p>
-              ) : (
-                <>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(library.data?.assets ?? []).slice(0, 12).map((a) => (
-                      <button
-                        key={a.id}
-                        title={a.prompt ?? a.name ?? a.kind}
-                        onClick={() =>
-                          setAssetIds((prev) =>
-                            prev.includes(a.id)
-                              ? prev.filter((x) => x !== a.id)
-                              : [...prev, a.id].slice(0, 4),
-                          )
-                        }
-                        className={cn(
-                          "overflow-hidden rounded-[11px] border transition-colors",
-                          assetIds.includes(a.id)
-                            ? "border-foreground"
-                            : "hover:border-line-strong",
-                        )}
-                      >
-                        {a.onDisk ? (
-                          <img src={a.url} alt="" className="size-12 object-cover" />
-                        ) : (
-                          <span className="text-muted-foreground flex size-12 items-center justify-center text-[11px]">
-                            missing
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                  {/* THE SENTENCE THAT DECIDES WHETHER THIS DOES ANYTHING.
-                      A model with no image input gets the pictures described
-                      in words instead, which is much weaker — so it is said
-                      before the button is pressed rather than after. */}
-                  <p className="text-muted-foreground text-[12.5px]">
-                    {library.data?.imageModel.note}
-                  </p>
-                </>
-              )}
-            </div>
-
-            <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-                Written for
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  onClick={() => setPlatform(null)}
-                  className={cn(
-                    "rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
-                    platform === null
-                      ? "border-foreground"
-                      : "hover:border-line-strong",
-                  )}
-                >
-                  No platform
-                </button>
-                {PLATFORMS.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setPlatform(p)}
-                    className={cn(
-                      "rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
-                      platform === p
-                        ? "border-foreground"
-                        : "hover:border-line-strong",
-                    )}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-              <p className="text-muted-foreground text-[12.5px]">
-                A hint about length and register. Nothing here logs into
-                anything.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5">
-              <Button
-                disabled={busy || !venture || !brief.trim()}
-                onClick={() => void make()}
-              >
-                {busy ? (
-                  <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} />
-                ) : (
-                  <Sparkles className="size-[15px]" strokeWidth={1.8} />
-                )}
-                {busy ? "Making it…" : "Make a post"}
-              </Button>
-              <span className="text-muted-foreground text-[13px]">
-                {busy
-                  ? "The caption first, then Replicate holds the line until the picture exists. About twenty seconds."
-                  : readiness?.image.ready
-                    ? "About twenty seconds, and a fraction of a cent on Replicate."
-                    : "About five seconds. Without Replicate the post is stored with its words and no picture."}
-              </span>
-            </div>
-
-            {refused && (
-              <p className="text-destructive text-[13.5px] leading-relaxed">
-                {refused}
-              </p>
-            )}
-
-            {/* ------------------------------------------------ the UGC job */}
-            {venture && (library.data?.assets ?? []).length > 0 && (
-              <div className="border-line-soft flex flex-wrap items-center gap-2.5 border-t pt-3">
-                <Button
-                  variant="outline"
-                  disabled={ugcBusy}
-                  onClick={() => void startUgc()}
-                >
-                  {ugcBusy ? (
-                    <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} />
-                  ) : (
-                    <Clapperboard className="size-[15px]" strokeWidth={1.8} />
-                  )}
-                  Make a UGC clip instead
-                </Button>
-                <span className="text-muted-foreground text-[13px]">
-                  A product shot from {venture.name}'s own pictures, animated. It is queued as a
-                  video run and it SPENDS MONEY — one image prediction always, and one
-                  image-to-video prediction if a model is configured under Integrations → Social
-                  feed. With none configured it makes a still and spends nothing on video.
-                </span>
-                {ugcSaid && <p className="w-full text-[13.5px]">{ugcSaid}</p>}
-              </div>
-            )}
-          </div>
-
-          {/* ---------------------------------------------- the gallery */}
-          <div className="mt-7 mb-3 flex items-baseline gap-2">
-            <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-              Made for {venture?.name}
-            </div>
-            <span className="text-muted-foreground ml-auto text-[12.5px]">
-              {doc.loading
-                ? "loading…"
-                : posts.length === 0
-                  ? "nothing yet"
-                  : `${posts.length} ${posts.length === 1 ? "post" : "posts"}, newest first`}
-            </span>
-          </div>
-
-          {posts.length === 0 && !doc.loading ? (
-            <p className="text-muted-foreground text-[14px]">
-              Nothing has been made for {venture?.name} yet. A post is kept
-              until you delete it, and deleting one deletes its picture off
-              the disk with it.
+      {wantsAssets && venture && (
+        <Field
+          label={make === "ugc" ? "Product pictures" : "Take visual direction from"}
+          hint={assets.length ? (make === "ugc" ? "The clip is made from these. Empty uses the library, up to four." : library.data?.imageModel.note) : undefined}
+        >
+          {assets.length === 0 ? (
+            <p className="text-muted-foreground text-[12.5px]">
+              {venture.name} has no assets yet{make === "ugc" ? ", and a UGC clip is a picture of a real product" : ""}. Upload one under{" "}
+              <Link to="/social/publishing?tab=assets" className="underline decoration-dotted">Publishing → Assets</Link>.
             </p>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {posts.map((p) => (
-                <PostCard
-                  key={p.id}
-                  post={p}
-                  palette={venture ? palette(venture) : undefined}
-                  onChanged={replace}
-                  onDeleted={forget}
-                />
+            <div className="flex flex-wrap gap-1.5">
+              {assets.slice(0, 12).map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  title={a.prompt ?? a.name ?? a.kind}
+                  onClick={() => setAssetIds((prev) => (prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id].slice(0, 4)))}
+                  className={cn("overflow-hidden rounded-[11px] border transition-colors", assetIds.includes(a.id) ? "border-foreground" : "hover:border-line-strong")}
+                >
+                  {a.onDisk ? <img src={a.url} alt="" className="size-12 object-cover" /> : <span className="text-muted-foreground flex size-12 items-center justify-center text-[11px]">missing</span>}
+                </button>
               ))}
             </div>
           )}
-        </>
+        </Field>
       )}
-    </PageShell>
+
+      {make === "image" ? (
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <Field label="Shape">
+            <Chips value={shape} onChange={setShape} options={SHAPES.map((s) => ({ key: s.key, label: s.key, sub: s.ratio }))} />
+          </Field>
+          <Field label="Written for">
+            <Chips
+              value={platform ?? ""}
+              onChange={(v) => setPlatform(v || null)}
+              options={[{ key: "", label: "Any" }, ...PLATFORMS.map((p) => ({ key: p, label: p }))]}
+            />
+          </Field>
+        </div>
+      ) : (
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <Field label="Shape">
+            <Chips value={aspect} onChange={setAspect} options={ASPECTS.map((a) => ({ key: a, label: a }))} />
+          </Field>
+          {(make === "faceless" || make === "reel") && (
+            <Field label="Length in seconds" hint={make === "faceless" ? "10 to 120." : "10 to 120; decides how many lines of dialogue there are."}>
+              <Input type="number" min={10} max={120} value={seconds} onChange={(e) => setSeconds(e.target.value)} className="w-28" />
+            </Field>
+          )}
+          {make === "shorts" && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Clips" hint="Two to four.">
+                <Input type="number" min={2} max={4} value={clips} onChange={(e) => setClips(e.target.value)} className="w-20" />
+              </Field>
+              <Field label="Max seconds" hint="15 to 90 each.">
+                <Input type="number" min={15} max={90} value={seconds} onChange={(e) => setSeconds(e.target.value)} className="w-24" />
+              </Field>
+            </div>
+          )}
+          {make === "motion" && (
+            <Field label="Narration">
+              <label className="flex h-9 items-center gap-2.5 text-[13.5px]">
+                <Switch checked={voiceover} onCheckedChange={setVoiceover} />
+                {voiceover ? "Spoken, if the voice plugin has speech on" : "Silent"}
+              </label>
+            </Field>
+          )}
+          {(make === "faceless" || make === "shorts") && (
+            <Field label="Fit">
+              <Chips value={fit} onChange={setFit} options={[{ key: "cover", label: "Centre crop" }, { key: "letterbox", label: "Letterbox" }]} />
+            </Field>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2.5">
+        <Button disabled={!ready} onClick={() => void go()}>
+          {busy ? <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} /> : <Sparkles className="size-[15px]" strokeWidth={1.8} />}
+          {busy ? (make === "image" ? "Making it…" : "Queueing…") : `Make ${MAKES.find((m) => m.key === make)!.label.toLowerCase()}`}
+        </Button>
+        <span className="text-muted-foreground text-[13px]">{cost}</span>
+      </div>
+      {said && <p className="text-[13.5px]">{said}</p>}
+      {refused && <p className="text-destructive text-[13.5px] leading-relaxed">{refused}</p>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- run panel */
+
+/** A video run under the form: its state while it moves, the file once it
+ *  has stopped, and the door to its own page for everything else. */
+function RunPanel({ run }: { run: RunSummary }) {
+  const live = isLive(run.status);
+  const detail = useApi(() => runsApi.get(run.id).catch(() => null), [run.id, run.status]);
+  const reload = detail.reload;
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => reload(), 2000);
+    return () => clearInterval(t);
+  }, [live, reload]);
+  const d = detail.data;
+  return (
+    <div className="bg-card grid gap-3 rounded-[14px] p-4.5">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-[15px] font-medium">{run.title}</span>
+        <span className={cn("text-[12.5px]", run.status === "failed" ? "text-destructive" : "text-muted-foreground")}>
+          {run.status}
+          {d?.queuePosition ? ` · ${d.queuePosition} in the queue` : ""}
+          {run.ventureName ? ` · ${run.ventureName}` : ""} · {ago(run.queuedAt)}
+        </span>
+        <Link to={appPage("video", run.id)} className="text-muted-foreground ml-auto text-[12.5px] underline decoration-dotted">
+          Open the run
+        </Link>
+      </div>
+      {run.error && <p className="text-destructive text-[13.5px] leading-relaxed">{run.error}</p>}
+      {live && d && d.steps.length > 0 && <RunSteps steps={d.steps} />}
+      {live && (!d || d.steps.length === 0) && (
+        <p className="text-muted-foreground text-[13px]">
+          {run.status === "queued" ? "Waiting its turn. The queue runs one at a time." : "Working. The steps appear here as it goes."}
+        </p>
+      )}
+      {!live && <VideoResult runId={run.id} />}
+    </div>
   );
 }
