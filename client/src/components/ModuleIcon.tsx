@@ -24,7 +24,6 @@ const icons: Record<string, string> = {
      for whatever names those paths again. */
   "/social/studio": "studio",
   "/activity": "activity",
-  "/customers": "customers",
   "/alerts": "alerts",
   /* THE ONE ROW WEARING SOMEBODY ELSE'S ARTWORK. Every icon in this set was
      generated to order — see design/module-icons/prompts.json — and there is

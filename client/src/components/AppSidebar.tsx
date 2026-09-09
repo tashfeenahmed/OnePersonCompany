@@ -68,7 +68,6 @@ import { sidebarPath } from "../../../shared/navigation";
  * below the list.
  */
 const NAV = [
-  { to: "/action-inbox", label: "Action inbox" },
   { to: "/board", label: "Board" },
   { to: "/ventures", label: "Ventures" },
   { to: "/calendar", label: "Calendar" },
@@ -77,7 +76,6 @@ const NAV = [
      sits above the mail pages and above the fold. */
   ...SOCIAL_PAGES,
   ...MAIL_PAGES,
-  { to: "/customers", label: "Customers" },
   { to: "/dashboards", label: "Dashboards" },
   /* `also`: addresses that are this page under another name — the outputs
      tab lives at /outputs so a report keeps its address. */
@@ -85,16 +83,19 @@ const NAV = [
 ];
 
 /**
- * THE MACHINERY LIVES IN THE OWNER'S MENU, not the rail. Activity, Alerts,
- * Integrations and Ops are about the box rather than the business — what it
- * did, what tripped, what it is connected to, what it is running on — and
- * the owner reaches for them the way he reaches for Settings: seldom, and
- * from the bottom. They sit between Settings and Appearance in the menu on
- * his name, in the order a check-up runs. Their addresses still resolve; a
+ * THE MACHINERY LIVES IN THE OWNER'S MENU, not the rail. The action inbox,
+ * Activity, Alerts, Integrations and Ops are about the box rather than the
+ * business — what it wants of him, what it did, what tripped, what it is
+ * connected to, what it is running on — and the owner reaches for them the
+ * way he reaches for Settings: seldom, and from the bottom. They sit between
+ * Settings and Appearance in the menu on his name, in the order a check-up
+ * runs. Customers stopped being a page altogether; its readings live on the
+ * dashboards. Their addresses still resolve; a
  * saved order or a pin naming one is dropped, as for every other row that
  * stopped being a row.
  */
 const MENU = [
+  { to: "/action-inbox", label: "Action inbox" },
   { to: "/activity", label: "Activity" },
   { to: "/alerts", label: "Alerts" },
   { to: "/integrations", label: "Integrations" },
@@ -102,9 +103,9 @@ const MENU = [
 ];
 const NAV_PATHS = NAV.map(item => item.to);
 
-/** Rows above the fold. Enough for the day's pages without a scroll; the
- *  rest are one press away, and a page dragged above the line stays there. */
-const VISIBLE = 8;
+/** Rows above the fold: five, the owner's number. The rest are one press
+ *  away, and a page dragged above the line stays there. */
+const VISIBLE = 5;
 
 export function AppSidebar() {
   const { state, renameSession, removeSession, streamingSessions, togglePinned, reorderPinned, setNavOrder } = useStore();

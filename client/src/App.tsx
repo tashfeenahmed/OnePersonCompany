@@ -36,7 +36,6 @@ const Login = lazy(() => import("@/areas/security/Login").then(m => ({ default: 
 const Workflows = lazy(() => import("@/areas/chief/Workflows").then(m => ({ default: m.Workflows })));
 const Finance = lazy(() => import("@/areas/finance/Finance").then(m => ({ default: m.Finance })));
 const ActivityPage = lazy(() => import("@/areas/activity/ActivityPage").then(m => ({ default: m.ActivityPage })));
-const Customers = lazy(() => import("@/areas/customers/Customers").then(m => ({ default: m.Customers })));
 const Calendar = lazy(() => import("@/areas/calendar/Calendar").then(m => ({ default: m.Calendar })));
 const Studio = lazy(() => import("@/pages/Studio").then(m => ({ default: m.Studio })));
 
@@ -214,8 +213,6 @@ export default function App() {
                         the event feed. Three tabs on one address for the
                         reason Activity has three: they are the same question
                         at three distances, and the URL is the selection. */}
-                    <Route path="/customers" element={<Customers />} />
-                    <Route path="/customers/:tab" element={<Customers />} />
                     {/* CALENDAR — one week at a time, and the day IS the
                         address: /calendar/2026-09-08 opens the week containing
                         that day and selects it, so one parameter carries both
