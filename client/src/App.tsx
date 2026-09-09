@@ -39,6 +39,7 @@ const Finance = lazy(() => import("@/areas/finance/Finance").then(m => ({ defaul
 const ActivityPage = lazy(() => import("@/areas/activity/ActivityPage").then(m => ({ default: m.ActivityPage })));
 const Customers = lazy(() => import("@/areas/customers/Customers").then(m => ({ default: m.Customers })));
 const Calendar = lazy(() => import("@/areas/calendar/Calendar").then(m => ({ default: m.Calendar })));
+const References = lazy(() => import("@/pages/References").then(m => ({ default: m.References })));
 
 export default function App() {
   return (
@@ -221,6 +222,18 @@ export default function App() {
                         /calendar is this week. */}
                     <Route path="/calendar" element={<Calendar />} />
                     <Route path="/calendar/:day" element={<Calendar />} />
+                    {/* THE REFERENCE MATERIAL, one page per business: the
+                        brand as measured, the style guide the owner writes and
+                        the pictures the generators can be handed. The VENTURE
+                        IS A QUERY PARAMETER rather than a path segment, and
+                        that is the one decision here worth stating: with no
+                        venture this page is a gap list over ALL of them —
+                        which product has no logo, which has no guide — so the
+                        bare /references is a real screen and not a redirect to
+                        somebody's first venture. It is not in the sidebar; it
+                        is reached from the Studio's left rail, beside the two
+                        other doors that lead out of the Studio. */}
+                    <Route path="/references" element={<References />} />
                     <Route path="/integrations" element={<Plugins />} />
                     <Route path="/integrations/:id" element={<PluginDetail />} />
                     {/* "Plugin" was the wrong word: these are connections to

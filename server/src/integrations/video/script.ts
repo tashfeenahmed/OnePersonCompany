@@ -41,6 +41,7 @@
 import { complete } from "../../models/provider.ts";
 import { fencedJson } from "../runs/kinds.ts";
 import type { VentureRow } from "../../db.ts";
+import { guidePrompt } from "../references/guide.ts";
 
 export type BeatRole = "hook" | "beat" | "cta";
 
@@ -139,9 +140,18 @@ export async function writeScript(opts: {
     `- Plain words. No "unlock", no "revolutionise", no "game-changer", no "in today's fast-paced world".`,
   ].join("\n");
 
+  /* THE OWNER'S OWN STYLE GUIDE, IN ITS OWN BLOCK — see
+     integrations/references/guide.ts. The four facts above are things that are
+     true about the business; this is how he wants it spoken about, and the two
+     are kept apart because the rule directly above forbids inventing a fact
+     and a tone of voice must not read as an exemption from it. Null when
+     nothing has been written, and then the prompt is exactly what it was. */
+  const guide = guidePrompt(opts.venture.id);
+
   const user = [
     `THE BUSINESS`,
     ...ventureFacts(opts.venture),
+    ...(guide ? [``, guide] : []),
     ``,
     `WHAT THIS VIDEO IS ABOUT`,
     opts.brief.trim() || `Nothing in particular was singled out — make the case for ${opts.venture.name} to somebody who has never heard of it.`,

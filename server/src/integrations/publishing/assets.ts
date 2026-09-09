@@ -104,6 +104,29 @@ export function assetRows(ventureId?: string | null, kind?: string | null): Asse
     .all(...args) as unknown as AssetRow[];
 }
 
+/**
+ * HOW MANY, PER VENTURE, PER KIND — counted in SQL rather than in JavaScript.
+ *
+ * `assetRows` is capped at 300 rows, which is right for a list somebody scrolls
+ * and wrong for a count: an overview built by tallying that list would start
+ * quietly under-reporting the moment the library outgrew one page, and a count
+ * that is sometimes correct is worse than no count. The References overview is
+ * the caller.
+ */
+export function assetCounts(): Map<string, Record<string, number>> {
+  const rows = db
+    .prepare("SELECT venture_id, kind, COUNT(*) AS n FROM venture_assets GROUP BY venture_id, kind")
+    .all() as unknown as { venture_id: string; kind: string; n: number }[];
+  const out = new Map<string, Record<string, number>>();
+  for (const row of rows) {
+    const per = out.get(row.venture_id) ?? { total: 0 };
+    per[row.kind] = (per[row.kind] ?? 0) + row.n;
+    per.total = (per.total ?? 0) + row.n;
+    out.set(row.venture_id, per);
+  }
+  return out;
+}
+
 export function shapeAsset(r: AssetRow) {
   return {
     id: r.id,

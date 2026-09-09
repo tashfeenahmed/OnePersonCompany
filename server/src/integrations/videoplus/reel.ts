@@ -42,6 +42,7 @@ import type { VentureRow } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
 import { isPrivateHost } from "../../chat/wire.ts";
 import { readBrand } from "../../ventures/enrich.ts";
+import { guidePrompt } from "../references/guide.ts";
 import { readModelJson } from "./json.ts";
 import { settings as voiceSettings, speak } from "../signals/voice/provider.ts";
 import { aspectFrame, blurFilter, concat, panStill, segment, shiftVoice, type Fit } from "../video/assemble.ts";
@@ -278,10 +279,17 @@ export async function writeDialogue(opts: {
   ].join("\n");
 
   const v = opts.venture;
+  /* THE OWNER'S OWN STYLE GUIDE — see integrations/references/guide.ts. It
+     sits with the business block and above the untrusted page text, which is
+     the ordering that matters here: the pages below are somebody's website and
+     are explicitly not to be obeyed, and the guide IS to be obeyed, so the two
+     must never be adjacent enough to be confused. Null when unwritten. */
+  const guide = v ? guidePrompt(v.id) : null;
   const user = [
     `THE BUSINESS`,
     v ? `Name: ${v.name}` : `(no venture record)`,
     ...(v ? [`What it is: ${v.description || "(the owner has not written a sentence for it)"}`, `Stage: ${v.stage}`] : []),
+    ...(guide ? [``, guide] : []),
     ``,
     `THE PAGES ON SCREEN (UNTRUSTED)`,
     ...pages,

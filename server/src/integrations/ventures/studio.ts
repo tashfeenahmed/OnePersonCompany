@@ -45,6 +45,7 @@ import { DATA_DIR } from "../../config.ts";
 import { configValue, db, now, ventureRow, ventureRowById, type VentureRow } from "../../db.ts";
 import { readBrand } from "../../ventures/enrich.ts";
 import { factsForPrompt } from "../knowledge/store.ts";
+import { guidePrompt, guideVisuals } from "../references/guide.ts";
 import { tokenAccounts } from "../../providers/replicate.ts";
 import { download, firstUrl, predict } from "../../tools/replicate-run.ts";
 import { ASPECTS } from "../video/assemble.ts";
@@ -306,9 +307,21 @@ function captionTurns(v: VentureRow, brief: string, platform: string | null, for
      or four of them — and a caption written from four facts about a product
      with twenty is a caption that reaches for the marketing page instead. */
   const known = factsForPrompt(v.id, ["capability", "pricing", "integration", "limitation"], 1_400);
+
+  /* THE OWNER'S OWN STYLE GUIDE, LAST AND LABELLED — see
+     integrations/references/guide.ts. It goes AFTER the facts rather than
+     among them because it is a different kind of sentence: everything above is
+     something that is true about the business, and this is an instruction
+     about how to write. Its own header says so, and says that it never
+     licenses a claim the facts did not carry — otherwise "warm, confident"
+     reads as permission to be warm and confident about a feature nobody
+     shipped. Null when nothing has been written, which costs the prompt
+     nothing at all. */
+  const guide = guidePrompt(v.id);
   const user =
     `The business:\n${brandFacts(v).map((f) => `- ${f}`).join("\n")}\n\n` +
     (known ? `${known}\n\n` : "") +
+    (guide ? `${guide}\n\n` : "") +
     `The brief: ${brief}`;
 
   return [
@@ -386,8 +399,18 @@ function imagePrompt(v: VentureRow, brief: string, format: Format): string {
     .filter(Boolean)
     .join(". ");
 
+  /* THE OWNER'S OWN WORD ON COLOUR, AFTER THE MEASURED PALETTE AND NOT
+     INSTEAD OF IT. The palette above is what a browser saw on the site, which
+     is right until the site is out of date — "the green is the old logo, use
+     the navy" is a sentence with no column shape and no hex, and it is the
+     only thing that can correct a measurement here. The fonts note is
+     deliberately NOT passed: this prompt forbids lettering outright, so a
+     typeface is an instruction with nothing to act on. */
+  const owner = guideVisuals(v.id).colours;
+
   return (
     `A clean, modern editorial illustration about: ${subject}. ${palette} ` +
+    (owner ? `The owner's own instruction about colour, which overrides the palette above: ${owner} ` : "") +
     "Flat vector style, generous negative space, soft even lighting. " +
     "Absolutely no text, no words, no letters, no numbers, no captions, no " +
     "logos, no signage, no watermark, no user interface screenshots — the " +
