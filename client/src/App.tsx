@@ -39,7 +39,7 @@ const Finance = lazy(() => import("@/areas/finance/Finance").then(m => ({ defaul
 const ActivityPage = lazy(() => import("@/areas/activity/ActivityPage").then(m => ({ default: m.ActivityPage })));
 const Customers = lazy(() => import("@/areas/customers/Customers").then(m => ({ default: m.Customers })));
 const Calendar = lazy(() => import("@/areas/calendar/Calendar").then(m => ({ default: m.Calendar })));
-const References = lazy(() => import("@/pages/References").then(m => ({ default: m.References })));
+const Studio = lazy(() => import("@/pages/Studio").then(m => ({ default: m.Studio })));
 
 export default function App() {
   return (
@@ -222,19 +222,16 @@ export default function App() {
                         /calendar is this week. */}
                     <Route path="/calendar" element={<Calendar />} />
                     <Route path="/calendar/:day" element={<Calendar />} />
-                    {/* THE REFERENCE MATERIAL, one page per business: the
-                        brand as measured, the style guide the owner writes and
-                        the pictures the generators can be handed. The VENTURE
-                        IS A QUERY PARAMETER rather than a path segment, and
-                        that is the one decision here worth stating: with no
-                        venture this page is a gap list over ALL of them —
-                        which product has no logo, which has no guide — so the
-                        bare /references is a real screen and not a redirect to
-                        somebody's first venture. It is not in the sidebar; it
-                        is reached from the Studio's left rail, beside the two
-                        other doors that lead out of the Studio. */}
-                    <Route path="/references" element={<References />} />
-                    <Route path="/references/:tab" element={<References />} />
+                    {/* THE REFERENCE MATERIAL — the brand as measured, the
+                        style guide the owner writes and the pictures the
+                        generators can be handed — is not a page of its own any
+                        more. It is a row in the Studio's rail and draws in the
+                        Studio's column, because what it holds is what the
+                        thing being made on that screen is made out of. Its own
+                        two addresses stay as redirects: they have been in the
+                        rail's links, and one of them carries a tab. */}
+                    <Route path="/references" element={<Navigate to="/social/studio/references" replace />} />
+                    <Route path="/references/:tab" element={<LegacyReference />} />
                     <Route path="/integrations" element={<Plugins />} />
                     <Route path="/integrations/:id" element={<PluginDetail />} />
                     {/* "Plugin" was the wrong word: these are connections to
@@ -258,12 +255,37 @@ export default function App() {
                     <Route path="/board" element={<Board />} />
                     <Route path="/mail" element={<MailSection />} />
                     <Route path="/mail/:page" element={<MailSection />} />
+                    {/*
+                      THE STUDIO IS ITS OWN ROUTE, AND IT ENDS IN A SPLAT.
+
+                      Its own, because every other page under /social is drawn
+                      by SectionPages inside the slim top bar and the Studio is
+                      the one page the owner asked to start at the top of the
+                      viewport. Going through SectionPages is what put that
+                      strip there, so this route goes around it.
+
+                      A splat, because the Studio holds a nested `Routes` for
+                      the three pages that open in its column beside its rail —
+                      Autopilot, Publishing and References — and a parent whose
+                      path does not end in `/*` matches nothing below itself.
+                      React Router ranks these static segments above
+                      `/social/:page` whatever the order here, so the order is
+                      for reading.
+                    */}
+                    <Route path="/social/studio/*" element={<Studio />} />
                     <Route path="/social" element={<SocialSection />} />
                     <Route path="/social/:page" element={<SocialSection />} />
                     <Route path="/social/video/:runId" element={<SocialSection page="video" />} />
-                    {/* A campaign run is read on the Publishing page, the way a
-                        video run is read on the Video page. */}
-                    <Route path="/social/publishing/:runId" element={<SocialSection page="publishing" />} />
+                    {/* WHERE AUTOPILOT AND PUBLISHING USED TO BE. They are
+                        rows in the Studio's rail now and draw in its column,
+                        so their old addresses — in a bookmark, in an old
+                        report, in a link somebody sent — land on the same
+                        page in its new frame rather than drawing it twice.
+                        A campaign run is still read on the Publishing page,
+                        the way a video run is read on the Video page. */}
+                    <Route path="/social/autopilot" element={<Navigate to="/social/studio/autopilot" replace />} />
+                    <Route path="/social/publishing" element={<Navigate to="/social/studio/publishing" replace />} />
+                    <Route path="/social/publishing/:runId" element={<LegacyPublishingRun />} />
                     {/* The SEO & growth section is gone: its three run apps
                         are sub-agents' work at /outputs, and its three
                         readings are reports on the Dashboards page. The old
@@ -321,6 +343,22 @@ export default function App() {
       </StoreProvider>
     </ThemeProvider>
   );
+}
+
+/** The old /references/<tab>, carried into the Studio's column with the tab
+ *  intact. The bare /references needs no component: it has no parameter. */
+function LegacyReference() {
+  const { tab } = useParams();
+  const location = useLocation();
+  return <Navigate to={`/social/studio/references/${tab}${location.search}${location.hash}`} state={location.state} replace />;
+}
+
+/** The old /social/publishing/<runId>, carried to the same page inside the
+ *  Studio with the run it was opened for. */
+function LegacyPublishingRun() {
+  const { runId } = useParams();
+  const location = useLocation();
+  return <Navigate to={`/social/studio/publishing/${runId}${location.search}${location.hash}`} state={location.state} replace />;
 }
 
 /** The old /plugins/:id, carried across to its new address with the id intact. */

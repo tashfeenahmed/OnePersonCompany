@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
@@ -57,7 +57,15 @@ function readFile(file: File): Promise<File | null> {
 export function References() {
   const { tab: raw } = useParams();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const tab: Tab = raw === "brands" ? "brands" : "photos";
+  /* THE TABS MOVE WITHIN WHATEVER ADDRESS THIS PAGE WAS REACHED AT. It is
+     drawn inside the Studio's column now (/social/studio/references), and a
+     hard-coded /references here would bounce out through that address's
+     redirect and back on every tab click — losing the rail for a frame. The
+     base is this path with the `:tab` segment taken off, which is exact
+     because the tab is the only segment the route adds. */
+  const base = raw ? pathname.slice(0, -(raw.length + 1)) : pathname;
   const { state } = useStore();
   const ventures = state.ventures;
 
@@ -67,7 +75,7 @@ export function References() {
       wide
       sub="What the generators are handed before they make anything: the pictures, and the brand. Nothing here posts anywhere."
     >
-      <Tabs value={tab} onValueChange={(v) => navigate(v === "brands" ? "/references/brands" : "/references")} className="mb-5">
+      <Tabs value={tab} onValueChange={(v) => navigate(v === "brands" ? `${base}/brands` : base)} className="mb-5">
         <TabsList variant="line">
           {TABS.map((t) => (
             <TabsTrigger key={t.key} value={t.key} className="flex-none px-2.5">

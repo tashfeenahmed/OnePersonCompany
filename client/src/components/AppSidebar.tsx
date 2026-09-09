@@ -37,6 +37,7 @@ import { SidebarSessionRow } from "@/components/SidebarSessionRow";
 import { ModuleIcon } from "@/components/ModuleIcon";
 import { pinKey, sidebarPins, type SidebarPin } from "../../../shared/sidebarPins";
 import { orderNav } from "../../../shared/sidebarNav";
+import { sidebarPath } from "../../../shared/navigation";
 
 /**
  * ONE LIST, IN THE BUILD'S DEFAULT ORDER. This was five headed groups once —
@@ -88,7 +89,13 @@ export function AppSidebar() {
   const here = (p: string) => pathname === p || pathname.startsWith(`${p}/`);
   const isHere = (path: string) => {
     const item = NAV.find(item => item.to === path);
-    return here(path) || (!!item && "also" in item && (item.also ?? []).some(here));
+    const mine = here(path) || (!!item && "also" in item && (item.also ?? []).some(here));
+    /* THE DEEPEST ROW WINS. A row is "here" for everything under it, which is
+       what keeps a run page lighting the page it belongs to — but Publishing
+       lives at /social/studio/publishing now, so the Studio's own row matched
+       it too and two rows lit at once. A row whose path is the PREFIX of
+       another row that also matches is not the one you are on. */
+    return mine && !NAV_PATHS.some(other => other !== path && other.startsWith(`${path}/`) && here(other));
   };
 
   /* THE FOLD. The owner's order, the first VISIBLE rows showing, and the
@@ -96,7 +103,10 @@ export function AppSidebar() {
      a rail that hides the page you are on is not a rail — and a manual
      toggle is kept until the next navigation, which is the same rule the
      old groups followed. */
-  const ordered = orderNav(NAV_PATHS, state.navOrder);
+  /* Through `sidebarPath` because the order is stored as paths and a page
+     that changed address would otherwise fall out of the owner's order and
+     reappear at the bottom of the list. */
+  const ordered = orderNav(NAV_PATHS, state.navOrder?.map(sidebarPath));
   const below = ordered.slice(VISIBLE);
   const [more, setMore] = useState({ pathname, open: below.some(isHere) });
   if (more.pathname !== pathname) setMore({ pathname, open: more.open || below.some(isHere) });

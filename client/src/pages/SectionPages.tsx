@@ -7,13 +7,14 @@ const Mailbox = lazy(() => import("@/pages/Mailbox").then(m => ({ default: m.Mai
 const Triage = lazy(() => import("@/areas/mailflow/Triage").then(m => ({ default: m.Triage })));
 const Outbox = lazy(() => import("@/areas/mailflow/Outbox").then(m => ({ default: m.Outbox })));
 const Nurture = lazy(() => import("@/areas/nurture/Nurture").then(m => ({ default: m.Nurture })));
-const Studio = lazy(() => import("@/pages/Studio").then(m => ({ default: m.Studio })));
-const Autopilot = lazy(() => import("@/areas/video/Autopilot").then(m => ({ default: m.Autopilot })));
 const Video = lazy(() => import("@/areas/video/Video").then(m => ({ default: m.Video })));
 const Motion = lazy(() => import("@/areas/video/Motion").then(m => ({ default: m.Motion })));
-const Publishing = lazy(() => import("@/areas/publishing/Publishing").then(m => ({ default: m.Publishing })));
 const Posts = lazy(() => import("@/areas/socialfeed/Posts").then(m => ({ default: m.Posts })));
-const PAGES = { email: Mailbox, triage: Triage, outbox: Outbox, nurture: Nurture, studio: Studio, autopilot: Autopilot, video: Video, motion: Motion, publishing: Publishing, posts: Posts };
+/* NO STUDIO AND NO AUTOPILOT OR PUBLISHING HERE, though all three are still
+   rows in the sidebar's social list. The Studio is routed on its own in
+   App.tsx because it is the one page that wants no top bar, and the other two
+   are drawn inside its column now; their slugs never reach this map. */
+const PAGES = { email: Mailbox, triage: Triage, outbox: Outbox, nurture: Nurture, video: Video, motion: Motion, posts: Posts };
 const SECTIONS = {
   mail: { pages: MAIL_PAGES, label: "Mail" },
   social: { pages: SOCIAL_PAGES, label: "Social media" },

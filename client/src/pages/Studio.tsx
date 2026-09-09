@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Suspense, lazy, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { Link, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Clapperboard,
   Film,
@@ -38,6 +38,14 @@ import { autopilotApi, stewieApi, videoApi, youtubeApi, type VideoJob, type Yout
 import { motionApi } from "@/lib/api/motion";
 import { isLive, runsApi, type RunDetail, type RunSummary } from "@/lib/api/runs";
 
+/* THE THREE PAGES THE RAIL OPENS BESIDE ITSELF, loaded when one is asked for
+   rather than with the Studio: somebody who came here to make a picture
+   should not wait for the publishing queue's code. Each is the same component
+   its own address used to render — nothing was forked. */
+const Autopilot = lazy(() => import("@/areas/video/Autopilot").then((m) => ({ default: m.Autopilot })));
+const Publishing = lazy(() => import("@/areas/publishing/Publishing").then((m) => ({ default: m.Publishing })));
+const References = lazy(() => import("@/pages/References").then((m) => ({ default: m.References })));
+
 /**
  * THE STUDIO — every way this box makes a post or a video, on one page.
  *
@@ -55,6 +63,21 @@ import { isLive, runsApi, type RunDetail, type RunSummary } from "@/lib/api/runs
  * the left, newest first, with Autopilot and Publishing at the top of it:
  * the thing that fills the rail on a schedule, and the place a finished
  * piece goes next. Choosing a row opens it under the form.
+ *
+ * THE RAIL IS THIS PAGE'S OWN NAVIGATION, AND IT NEVER MOVES. Create,
+ * Autopilot, Publishing and References are four addresses under
+ * /social/studio, and the last three draw INSIDE the column to the right of
+ * the rail rather than replacing the screen — so the list of everything ever
+ * made stays where it was, still polling the runs that are moving, while the
+ * schedule or the queue is read beside it. That is what the nested `Routes`
+ * below are: one mounted rail, four things that can be to the right of it.
+ * The pages themselves are untouched and still carry their own PageShell
+ * header; their old addresses redirect here (see App.tsx).
+ *
+ * NO TOP BAR. Every other section page gets the slim strip with its name on
+ * it — see pages/SectionPages.tsx — and this one is routed on its own,
+ * outside that wrapper, because the rail already says where you are and a
+ * strip above it would push the whole page down by its height for nothing.
  *
  * WHAT EACH TAB ACTUALLY CALLS, because the six are three different things
  * on the server. An image post is one request that holds the line until the
@@ -128,10 +151,16 @@ function isMake(v: string | null): v is Make {
   return MAKES.some((m) => m.key === v);
 }
 
+/** Where the Studio lives, spelled once: the rail's four rows, the address a
+ *  generation is opened at, and the parent of the three nested pages. */
+const STUDIO = "/social/studio";
+
 export function Studio() {
   const { state } = useStore();
   const ventures = state.ventures;
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
 
   /* WHICH TAB AND WHICH ROW ARE IN THE ADDRESS, so a link to "make a reel"
      or to one finished post is a link. */
@@ -196,6 +225,44 @@ export function Studio() {
     if (openKey === `post:${id}`) setParam("open", null);
   }
 
+  /* OPENING A GENERATION IS A TRIP BACK TO CREATE. The row can be clicked
+     while Publishing is in the column, so it names the address as well as the
+     row rather than only editing the query — and it carries nothing across
+     but the tab, because a `?tab=assets` left over from the publishing page
+     would land on Create as somebody else's parameter. Replacing rather than
+     pushing only when Create is already showing: from a sub-page the back
+     button should return to that page. */
+  function openGeneration(key: string) {
+    const search = new URLSearchParams();
+    const m = params.get("make");
+    if (m) search.set("make", m);
+    search.set("open", key);
+    const onCreate = pathname === STUDIO;
+    navigate({ pathname: STUDIO, search: search.toString() }, { replace: onCreate });
+  }
+
+  const create = (
+    <CreateColumn
+      make={make}
+      onMake={(v) => setParam("make", v)}
+      ventures={ventures}
+      venture={venture}
+      onVenture={setChosen}
+      readiness={posts.data?.readiness ?? null}
+      open={open}
+      onPost={(post) => {
+        posts.setData((d) => (d ? { ...d, posts: [post, ...d.posts] } : d));
+        setParam("open", `post:${post.id}`);
+      }}
+      onRun={(id) => {
+        reloadRuns();
+        setParam("open", `run:${id}`);
+      }}
+      onChangedPost={replacePost}
+      onDeletedPost={forgetPost}
+    />
+  );
+
   return (
     <div className="flex min-h-0 flex-1">
       <Rail
@@ -204,73 +271,114 @@ export function Studio() {
         onRailVenture={setRailVenture}
         generations={generations}
         loading={posts.loading || runs.loading}
-        openKey={openKey}
-        onOpen={(key) => setParam("open", key)}
+        openKey={pathname === STUDIO ? openKey : null}
+        onOpen={openGeneration}
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-3 pb-20">
-        <div className="mx-auto w-full max-w-[820px]">
-          <h1 className="mt-10 mb-6 text-center text-[30px] font-normal tracking-[-0.025em]">
-            Create anything with AI
-          </h1>
+      {/*
+        THE COLUMN, AND THE FOUR THINGS THAT CAN BE IN IT. Relative paths,
+        because this component is mounted at /social/studio/* — see App.tsx.
 
-          <Tabs value={make} onValueChange={(v) => setParam("make", v)} className="items-center">
-            {/* `h-auto`: the primitive fixes a horizontal list at one row's
-                height, and eight tabs wrap at this width — a wrapped row
-                inside a fixed-height list overflows onto the sentence below. */}
-            <TabsList variant="line" className="h-auto! flex-wrap justify-center gap-x-0.5 gap-y-1.5">
-              {MAKES.map((m) => (
-                <TabsTrigger key={m.key} value={m.key} className="flex-none px-2.5">
-                  <m.icon data-icon="inline-start" className="size-3.5" strokeWidth={1.8} />
-                  {m.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-          <p className="text-muted-foreground mt-3 mb-5 text-center text-[13.5px]">
-            {MAKES.find((m) => m.key === make)?.about}
+        Each element brings its own scrolling box: Create's is written below
+        and the other three get PageShell's, which is the same `min-h-0 flex-1
+        overflow-y-auto`. That is what keeps the rail full height and still
+        while the column scrolls under it.
+
+        `references` is declared twice rather than as an optional segment so
+        the page keeps reading its tab out of `:tab` exactly as it does at its
+        own address, and `publishing/:runId` is here because a campaign run is
+        read on that page.
+      */}
+      <Suspense fallback={<p role="status" className="p-6">Loading page…</p>}>
+        <Routes>
+          <Route index element={create} />
+          <Route path="autopilot" element={<Autopilot />} />
+          <Route path="publishing" element={<Publishing />} />
+          <Route path="publishing/:runId" element={<Publishing />} />
+          <Route path="references" element={<References />} />
+          <Route path="references/:tab" element={<References />} />
+          {/* Anything else under the Studio is the Studio. */}
+          <Route path="*" element={create} />
+        </Routes>
+      </Suspense>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- create */
+
+/** The Studio's own screen: the title, the tabs, the composer for whichever
+ *  tab is chosen, and the one generation being read under it. */
+function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, open, onPost, onRun, onChangedPost, onDeletedPost }: {
+  make: Make;
+  onMake: (v: string) => void;
+  ventures: Venture[];
+  venture: Venture | null;
+  onVenture: (id: string | null) => void;
+  readiness: StudioReadiness | null;
+  open: Generation | null;
+  onPost: (post: StudioPost) => void;
+  onRun: (id: string) => void;
+  onChangedPost: (post: StudioPost) => void;
+  onDeletedPost: (id: string) => void;
+}) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-3 pb-20">
+      <div className="mx-auto w-full max-w-[820px]">
+        <h1 className="mt-10 mb-6 text-center text-[30px] font-normal tracking-[-0.025em]">
+          Create anything with AI
+        </h1>
+
+        <Tabs value={make} onValueChange={onMake} className="items-center">
+          {/* `h-auto`: the primitive fixes a horizontal list at one row's
+              height, and eight tabs wrap at this width — a wrapped row
+              inside a fixed-height list overflows onto the sentence below. */}
+          <TabsList variant="line" className="h-auto! flex-wrap justify-center gap-x-0.5 gap-y-1.5">
+            {MAKES.map((m) => (
+              <TabsTrigger key={m.key} value={m.key} className="flex-none px-2.5">
+                <m.icon data-icon="inline-start" className="size-3.5" strokeWidth={1.8} />
+                {m.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <p className="text-muted-foreground mt-3 mb-5 text-center text-[13.5px]">
+          {MAKES.find((m) => m.key === make)?.about}
+        </p>
+
+        {ventures.length === 0 ? (
+          <p className="text-muted-foreground text-center text-[14px]">
+            There are no ventures yet, and everything here is made out of one — the name,
+            the sentence you wrote, the stage and the colours read off the site. Add a
+            venture first.
           </p>
+        ) : (
+          <Composer
+            key={make}
+            make={make}
+            ventures={ventures}
+            venture={venture}
+            onVenture={onVenture}
+            readiness={readiness}
+            onPost={onPost}
+            onRun={onRun}
+          />
+        )}
 
-          {ventures.length === 0 ? (
-            <p className="text-muted-foreground text-center text-[14px]">
-              There are no ventures yet, and everything here is made out of one — the name,
-              the sentence you wrote, the stage and the colours read off the site. Add a
-              venture first.
-            </p>
-          ) : (
-            <Composer
-              key={make}
-              make={make}
-              ventures={ventures}
-              venture={venture}
-              onVenture={setChosen}
-              readiness={posts.data?.readiness ?? null}
-              onPost={(post) => {
-                posts.setData((d) => (d ? { ...d, posts: [post, ...d.posts] } : d));
-                setParam("open", `post:${post.id}`);
-              }}
-              onRun={(id) => {
-                reloadRuns();
-                setParam("open", `run:${id}`);
-              }}
-            />
-          )}
-
-          {open && (
-            <div className="mt-8">
-              {open.kind === "post" ? (
-                <PostCard
-                  post={open.post}
-                  palette={(() => { const v = ventures.find((x) => x.id === open.post.ventureId); return v ? palette(v) : undefined; })()}
-                  onChanged={replacePost}
-                  onDeleted={forgetPost}
-                />
-              ) : (
-                <RunPanel run={open.run} />
-              )}
-            </div>
-          )}
-        </div>
+        {open && (
+          <div className="mt-8">
+            {open.kind === "post" ? (
+              <PostCard
+                post={open.post}
+                palette={(() => { const v = ventures.find((x) => x.id === open.post.ventureId); return v ? palette(v) : undefined; })()}
+                onChanged={onChangedPost}
+                onDeleted={onDeletedPost}
+              />
+            ) : (
+              <RunPanel run={open.run} />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -287,41 +395,60 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
   openKey: string | null;
   onOpen: (key: string) => void;
 }) {
-  /* The two doors at the top: what fills this rail on its own, and where a
-     finished piece goes next. Each carries one fact so the row says whether
-     it needs looking at. */
+  /* The doors at the top: the screen this page opens on, what fills the rail
+     on its own, where a finished piece goes next, and what every generator is
+     handed before it draws. Each carries one fact so the row says whether it
+     needs looking at. */
   const autopilot = useApi(() => autopilotApi.read().catch(() => null), []);
   const queue = useApi(() => publishingApi.items({ status: "draft" }).catch(() => null), []);
   const drafts = queue.data?.counts?.draft;
 
+  const doors: { to: string; end?: boolean; label: string; icon: typeof Timer; note: string }[] = [
+    /* `end`, so Create stops being the lit row the moment one of the other
+       three is open — every path below is a path under this one. */
+    { to: STUDIO, end: true, label: "Create", icon: Sparkles, note: "" },
+    {
+      to: `${STUDIO}/autopilot`,
+      label: "Autopilot",
+      icon: Timer,
+      note: autopilot.data ? (autopilot.data.schedule.enabled ? `on · next ${when(autopilot.data.nextRunAt)}` : "off") : "",
+    },
+    {
+      to: `${STUDIO}/publishing`,
+      label: "Publishing",
+      icon: Send,
+      note: drafts ? `${drafts} draft${drafts === 1 ? "" : "s"}` : "",
+    },
+    /* What every generator draws on: the logos, reference pictures and
+       the written style guide, per venture. */
+    { to: `${STUDIO}/references`, label: "References", icon: Palette, note: "logos · photos · style" },
+  ];
+
   return (
-    <aside className="bg-sidebar/40 border-line-soft flex w-[272px] shrink-0 flex-col border-r">
+    /* A SOLID PANEL RATHER THAN A WASH. This was `bg-sidebar/40`, which let
+       the page through and read as a tint on the column beside it; the rail
+       is a place you navigate from, so it gets a surface of its own — white
+       in the light theme, and the card token in the dark one, because a rail
+       painted literal white in the dark is a lamp. */
+    <aside className="border-line-soft dark:bg-card flex w-[272px] shrink-0 flex-col border-r bg-white">
       <div className="border-line-soft grid gap-0.5 border-b p-2.5">
-        <Link to="/social/autopilot" className="hover:bg-accent flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors">
-          <Timer className="size-4 shrink-0" strokeWidth={1.7} />
-          <span className="text-[13.5px]">Autopilot</span>
-          <span className="text-muted-foreground ml-auto truncate text-[12px]">
-            {autopilot.data
-              ? autopilot.data.schedule.enabled
-                ? `on · next ${when(autopilot.data.nextRunAt)}`
-                : "off"
-              : ""}
-          </span>
-        </Link>
-        <Link to="/social/publishing" className="hover:bg-accent flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors">
-          <Send className="size-4 shrink-0" strokeWidth={1.7} />
-          <span className="text-[13.5px]">Publishing</span>
-          <span className="text-muted-foreground ml-auto text-[12px]">
-            {drafts ? `${drafts} draft${drafts === 1 ? "" : "s"}` : ""}
-          </span>
-        </Link>
-        {/* What every generator draws on: the logos, reference pictures and
-            the written style guide, per venture. */}
-        <Link to="/references" className="hover:bg-accent flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors">
-          <Palette className="size-4 shrink-0" strokeWidth={1.7} />
-          <span className="text-[13.5px]">References</span>
-          <span className="text-muted-foreground ml-auto text-[12px]">logos · photos · style</span>
-        </Link>
+        {doors.map((d) => (
+          <NavLink
+            key={d.to}
+            to={d.to}
+            end={d.end}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
+                isActive ? "bg-accent font-medium" : "hover:bg-accent",
+              )
+            }
+          >
+            <d.icon className="size-4 shrink-0" strokeWidth={1.7} />
+            <span className="text-[13.5px]">{d.label}</span>
+            <span className="text-muted-foreground ml-auto truncate text-[12px] font-normal">{d.note}</span>
+          </NavLink>
+        ))}
       </div>
 
       <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
@@ -650,7 +777,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
           {assets.length === 0 ? (
             <p className="text-muted-foreground text-[12.5px]">
               {venture.name} has no assets yet{make === "ugc" ? ", and a UGC clip is a picture of a real product" : ""}. Upload one under{" "}
-              <Link to="/social/publishing?tab=assets" className="underline decoration-dotted">Publishing → Assets</Link>.
+              <Link to={`${STUDIO}/publishing?tab=assets`} className="underline decoration-dotted">Publishing → Assets</Link>.
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">

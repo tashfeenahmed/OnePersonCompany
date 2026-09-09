@@ -14,10 +14,14 @@ const icons: Record<string, string> = {
   "/mail/outbox": "outbox",
   "/mail/nurture": "nurture",
   "/social/studio": "studio",
-  "/social/autopilot": "autopilot",
+  /* Two rows that moved INTO the Studio, so the key is the address they have
+     now: this map is keyed by the path the sidebar row links to, and a row
+     whose path is not in it draws no artwork at all. Their old addresses are
+     redirects and are never a row. */
+  "/social/studio/autopilot": "autopilot",
   "/social/video": "video",
   "/social/motion": "motion",
-  "/social/publishing": "publishing",
+  "/social/studio/publishing": "publishing",
   "/social/posts": "posts",
   "/activity": "activity",
   "/customers": "customers",
