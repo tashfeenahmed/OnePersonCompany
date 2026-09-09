@@ -1032,6 +1032,29 @@ export const SOURCES: Record<string, WidgetSource> = {
     tint: "#4a6b5a",
     connected: true,
   },
+  /*
+    THE MONEY, ADDED UP ACROSS THE PLACES IT ARRIVES FROM.
+
+    NOT A PROVIDER, AND FILED HERE FOR THE REASON "App stores" IS. Stripe,
+    Google Play, the App Store and AdSense each have a source of their own
+    above and each answers for itself; the two cards under this one answer a
+    question none of them can — what does the portfolio bill in a month, and
+    which of the four is it. A card that crosses four providers cannot wear
+    one provider's mark without claiming to be that provider's figure, so it
+    wears its own and its clock is the OLDEST of the four (see `collectedAt`):
+    a roll-up is exactly as fresh as its stalest input.
+
+    Always connected, because there is no credential behind the addition
+    itself. A source that is not connected is a line in the breakdown saying
+    so, which is the whole point of drawing them side by side.
+  */
+  revenue: {
+    name: "Revenue",
+    icon: null,
+    mono: "Rv",
+    tint: "#3f6b5f",
+    connected: true,
+  },
 };
 
 export const WIDGETS: Record<string, Widget> = {
@@ -4417,6 +4440,77 @@ export const WIDGETS: Record<string, Widget> = {
     window: "now",
     live: { capture: true },
   },
+
+  /* ===================================== COMBINED REVENUE, BY SOURCE ==
+     THE HEADLINE WORKDASH'S /overview LEADS WITH, AND THE ONE FIGURE ON
+     THIS BOX THAT NO PROVIDER CAN ANSWER ON ITS OWN.
+
+     Workdash's first tile is combined ARR with a stacked bar under it and
+     one line per stream — Stripe, Google Play, App Store, AdSense — each
+     with its monthly figure, that × 12, and the month a store figure is
+     FOR. Every one of those four documents is already fetched here for a
+     card of its own; what was missing is the addition, and the addition is
+     the thing the owner asked to see.
+
+     THE FOUR STREAMS ARE FOUR DIFFERENT KINDS OF NUMBER and the cards say
+     so on every row rather than in a footnote:
+
+       · STRIPE is a run rate computed from the live book. It is not money
+         that arrived, and it does not belong to a month.
+       · GOOGLE PLAY is the newest COMPLETE month of the earnings report,
+         net of Google's cut, read as a monthly rate. Google publishes one
+         figure per month and nothing finer.
+       · THE APP STORE is Apple's finance report for its newest month where
+         one has been issued, and the sales report's ESTIMATE where it has
+         not — marked as an estimate, never silently swapped in.
+       · ADSENSE is the newest complete calendar month of earnings.
+
+     A month still being written is never used as a monthly rate: a part
+     month drawn as a run rate halves the tile overnight, so the newest
+     COMPLETE month is what each store contributes and the row names it.
+
+     CURRENCIES ARE CONVERTED, MARKED AND NAMED — never quietly added. The
+     ledger's own FX (a rate the owner typed on the Finance page first, the
+     ECB's cross rate otherwise) does the arithmetic, the total wears "≈",
+     and the caption says which rate and when it was stamped. A stream in a
+     currency neither can price keeps its own figure, is left OUT of the
+     total, and says so on its row — because a stream that cannot be added
+     and a stream that earned nothing are different findings.
+
+     A STREAM WITH NOTHING ON FILE STILL PRINTS, as a dash with the reason.
+     The reader has to be able to tell "AdSense is not authorised" from
+     "AdSense earned nothing", and only one of those is about the money.
+  */
+  "revenue.combined": {
+    src: "revenue",
+    name: "Combined ARR",
+    kind: "proportion",
+    /* A RUN RATE IS A LEVEL. It is what the book and the stores bill as
+       things stand, × 12 — it has no window, and the picker must not look
+       as though it broke the card. */
+    window: "now",
+    live: { stripe: true, mobile: true, adsense: true, finance: true },
+  },
+
+  /*
+    THE SAME FOUR STREAMS AS A TABLE, because the bar answers "which is
+    biggest" and only a table answers "how much, out of how much, as of
+    when". Workdash prints the share in the sentence under the tile; a
+    column is where a share belongs when there are four of them.
+
+    ITS OWN CARD RATHER THAN MORE ROWS ON THE ONE ABOVE, so either can be
+    placed alone: the tile is what a narrow column wants and the table is
+    what a wide one does, and a board that only has room for one should not
+    have to take both.
+  */
+  "revenue.sources": {
+    src: "revenue",
+    name: "Revenue by source",
+    kind: "table",
+    window: "now",
+    live: { stripe: true, mobile: true, adsense: true, finance: true },
+    headers: ["Source", "Per month", "Share", "As of", "Basis"],
+  },
   /* ================================================ USERS BOARD PARITY ==
      WORKDASH'S /users, AS CARDS — workstream "users-board", 2026-09-08.
 
@@ -4668,8 +4762,14 @@ export const DASHBOARD_PRESETS: {
   {
     id: "money",
     label: "Money",
-    note: "Stripe, AdSense, App Store, infra spend",
+    note: "combined revenue by source, Stripe, AdSense, App Store, infra spend",
     widgets: [
+      /* THE ADDITION LEADS, because a Money board that opens on one
+         provider's half of the money is answering a narrower question than
+         its own name. The per-provider cards are still under it, and they are
+         where a figure gets checked against its own console. */
+      "revenue.combined",
+      "revenue.sources",
       "stripe.mrr",
       "stripe.churn",
       "adsense.earnings",

@@ -281,7 +281,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 24;
+export const SEED_VERSION = 26;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -356,102 +356,94 @@ const SEED: StoreState = {
     /*
       THE OVERVIEW IS FIRST, AND ITS POSITION IS THE ARGUMENT.
 
-      SEEDED IN SEED_VERSION 23, FOLLOWING WORKDASH'S /overview TOP TO BOTTOM.
-      It is the page the owner opens first, so it is the first tab and the one
-      a bare /dashboards lands on — see Dashboards.tsx. Every other board here
-      is a subject; this one is the answer to "how is the whole thing doing",
-      and a board that has to be scrolled to is a board that is read second.
+      SEEDED IN SEED_VERSION 23 AND REBUILT IN 25, both times following
+      Workdash's /overview top to bottom. It is the page the owner opens
+      first, so it is the first tab and the one a bare /dashboards lands on —
+      see Dashboards.tsx.
 
-      ALMOST EVERY CARD ON IT ALREADY EXISTED. Workdash's Overview asks for
-      MRR and ARR, what the window left, whether anybody showed up, the daily
-      charge line, the movement waterfall, the cost donut, the search figures,
-      the traffic table, the fleet meters and the renewal horizon — and this
-      catalog draws all of them for the boards those subjects live on. Placing
-      them here rather than writing `overview.*` copies is the whole point: two
-      cards drawing MRR two ways is two numbers to reconcile.
+      WHAT CHANGED IN 25, IN THE OWNER'S WORDS: "combined ARR should also have
+      where it is coming from — Stripe, Google Play, App Store, AdSense, those
+      sort of things. It currently has too many details, which are all great,
+      but I want the overview page to be just like Workdash."
 
-      THE FOUR NEW ONES ARE THE FOUR JOINS. `overview.attention` is five areas
-      in one list, `overview.margin` is revenue against the ledger,
-      `overview.health` is four documents on one host, and `overview.shots` is
-      the only card anywhere that shows what the sites look like.
+      So two things. The headline is now the ADDITION rather than Stripe's
+      half of it — `revenue.combined` and `revenue.sources` are the run rate
+      across all four places money arrives, as a stacked bar and as a table of
+      shares — where the board used to lead with `payments.mrr` and
+      `stripe.arr`, both of which are Stripe alone and neither of which says
+      so loudly enough to sit under the word "combined".
 
-      THE ORDER IS WORKDASH'S, WITH ONE ADDITION. The headline strip, then what
-      is waiting (which Workdash keeps for the agent digest and the owner asked
-      to see), then the nine figures behind the headline, then revenue, then
-      every venture, then traffic, then the fleet and the names.
+      And it is THIRTY CARDS DOWN TO SIXTEEN. What went were the eight small
+      Stripe/Search tiles Workdash itself keeps folded behind a chevron, the
+      two leakage/failure proportion cards (the Payments board is where those
+      belong and it draws them larger), and the whole quiet domains band at
+      the foot — four one-column registrar tiles and a runway, which is the
+      Domains board's opening in miniature. Every one of them is still one
+      click away in the palette; none of them is the answer to "how is the
+      whole thing doing".
+
+      NOTHING HERE IS A SECOND DRAWING OF A NUMBER. The cost donut, the
+      movement waterfall, the daily charge line, the venture table and the
+      fleet meters are the same widgets their own boards place; only the two
+      revenue roll-ups are new, and they exist because no provider can answer
+      across four providers.
     */
     {
       id: "d-overview",
       slug: "overview",
       name: "Overview",
       widgets: [
-        /* THE HEADLINE. Four one-column tiles on one row: what recurs, that
-           annualised, what the window actually left, and whether anybody
-           showed up. Workdash's funnel read upwards, in its order. */
-        { id: "ov1", type: "payments.mrr", w: 1 },
-        { id: "ov2", type: "stripe.arr", w: 1 },
+        /*
+          THE HEADLINE, AND IT IS THE ADDITION.
+
+          Workdash's first tile is combined ARR with a stacked bar under it
+          and one line per stream. That is `revenue.combined`, at two columns
+          because the bar and its four lines are the card — a one-column
+          version would be the figure with its own explanation cropped off.
+          The table beside it is the same four streams with the share column
+          Workdash writes into prose, and the pair fills the row.
+        */
+        { id: "ov1", type: "revenue.combined", w: 2 },
+        { id: "ov2", type: "revenue.sources", w: 2 },
+        /*
+          THE OTHER THREE THINGS WORKDASH LEADS WITH, plus the one it folds:
+          what the window actually left, whether anybody showed up, how many
+          are paying, and how many arrived.
+
+          ALL FOUR ARE `metric` AND THAT IS THE WHOLE RULE OF THIS ROW. A row
+          stretches every card to the tallest one, so a proportion tile with a
+          split bar and a five-line key beside three plain figures leaves three
+          boxes two-thirds empty — which is what `users.total` did here, and
+          why the count of PEOPLE is on the Users board and the count of
+          ARRIVALS is the tile that stands in the row.
+        */
         { id: "ov3", type: "stripe.net30", w: 1 },
         { id: "ov4", type: "umami.pageviews", w: 1 },
-        /* WHAT IS WAITING, full width and second. Above the money on purpose:
-           a figure is a thing to know and this is a thing to do. */
-        { id: "ov5", type: "overview.attention", w: 4 },
-        /*
-          THE EIGHT FIGURES BEHIND THE HEADLINE, two rows of four.
-
-          Workdash folds these behind a chevron; a dashboard of cards has no
-          fold, and a card is already the size of the thing it says.
-
-          ALL EIGHT ARE PLAIN `metric` TILES AND THAT IS THE POINT. The board
-          first placed the Payments board's richer forms here — the proportion
-          cards with a split bar and a table of buckets under the figure — and
-          a row of four cards where one carries nine rows and the next carries
-          "0.3%" stretches all four to the tall one's height, leaving three
-          boxes mostly empty. A row is a row when its cards are the same KIND
-          of card; the rich forms are downstairs where they have a partner
-          their own size.
-        */
-        { id: "ov6", type: "stripe.subs", w: 1 },
-        { id: "ov7", type: "stripe.churn", w: 1 },
-        { id: "ov8", type: "stripe.pending", w: 1 },
-        { id: "ov9", type: "stripe.payouts", w: 1 },
-        { id: "ov10", type: "gsc.clicks", w: 1 },
-        { id: "ov11", type: "gsc.impressions", w: 1 },
-        { id: "ov12", type: "gsc.ctr", w: 1 },
-        { id: "ov13", type: "gsc.position", w: 1 },
+        { id: "ov5", type: "stripe.subs", w: 1 },
+        { id: "ov6", type: "users.new", w: 1 },
+        /* WHAT IS WAITING, full width. Above the money on purpose: a figure
+           is a thing to know and this is a thing to do. */
+        { id: "ov7", type: "overview.attention", w: 4 },
         /* REVENUE, in Workdash's order: the daily line, then the movement
-           against the cost donut, then the two proportion cards that answer
-           "what went wrong with the money" — each pair matched in kind so the
-           two halves of a row end level. */
-        { id: "ov14", type: "payments.daily", w: 4 },
-        { id: "ov15", type: "payments.movement", w: 2 },
-        { id: "ov16", type: "finance.groups", w: 2 },
-        { id: "ov17", type: "payments.failRate", w: 2 },
-        { id: "ov18", type: "payments.floor", w: 2 },
-        /* And the subtraction those cards imply, spelled out — the one card
-           on the board that puts revenue and the ledger in one sentence. */
-        { id: "ov19", type: "overview.margin", w: 4 },
-        /* EVERY VENTURE: the figures, then the pictures. The table first
-           because it is the one you read; the photographs under it because
-           they are the one you recognise. */
-        { id: "ov20", type: "overview.health", w: 4 },
-        { id: "ov21", type: "overview.shots", w: 4 },
-        /* PORTFOLIO TRAFFIC — Workdash's views-against-visitors panel, in this
-           board's vocabulary. */
-        { id: "ov22", type: "umami.sites", w: 4 },
-        /* THE FLEET. The alert strip runs the full width because that is what
-           a strip is — one line on a good morning, and a two-column card
-           holding one line beside nine meters is a half-empty box the height
-           of the fleet. The two meter cards under it are the matched pair. */
-        { id: "ov23", type: "fleet.alerts", w: 4 },
-        { id: "ov24", type: "fleet.disk", w: 2 },
-        { id: "ov25", type: "fleet.memory", w: 2 },
-        /* THE QUIET BAND at the bottom, which is where Workdash puts it: what
-           is answering, and what expires. */
-        { id: "ov26", type: "uptime.up", w: 1 },
-        { id: "ov27", type: "registrars.expiring", w: 1 },
-        { id: "ov28", type: "registrars.lapsed", w: 1 },
-        { id: "ov29", type: "registrars.autoRenewOff", w: 1 },
-        { id: "ov30", type: "registrars.runway", w: 4 },
+           waterfall against the cost donut — the same matched pair its
+           "MRR movement" and "Where the money goes" cards make. */
+        { id: "ov8", type: "payments.daily", w: 4 },
+        { id: "ov9", type: "payments.movement", w: 2 },
+        { id: "ov10", type: "finance.groups", w: 2 },
+        /* And the subtraction those two imply, spelled out — Workdash's
+           "recurring revenue less the bill", with the margin on it. */
+        { id: "ov11", type: "overview.margin", w: 4 },
+        /* EVERY VENTURE: the figures, then the pictures. Workdash's project
+           grid, which is a table you read and photographs you recognise. */
+        { id: "ov12", type: "overview.health", w: 4 },
+        { id: "ov13", type: "overview.shots", w: 4 },
+        /* PORTFOLIO TRAFFIC — Workdash's views-against-visitors panel. */
+        { id: "ov14", type: "umami.sites", w: 4 },
+        /* THE FLEET, as Workdash's "Fleet health" meters: a matched pair,
+           and the last thing on the page because it is the half that is
+           usually fine. */
+        { id: "ov15", type: "fleet.disk", w: 2 },
+        { id: "ov16", type: "fleet.memory", w: 2 },
       ],
     },
     {
@@ -1757,6 +1749,50 @@ function migrate(state: StoreState): StoreState {
   }, dashboards);
 
   /*
+    A SEEDED BOARD THE OWNER NEVER TOUCHED, REBUILT RATHER THAN APPENDED TO.
+
+    The two steps above can only ADD — a board whose id is absent, or a widget
+    a board is missing — and that is right for almost everything. It is wrong
+    for a board that was RESTRUCTURED: the owner asked for the Overview to have
+    fewer, larger cards and to lead with combined revenue rather than Stripe's
+    half of it, and neither a gift (the id is already there) nor a top-up
+    (append-only) can take a card away. Appending the two new revenue cards to
+    the thirty that are there would deliver the opposite of what was asked.
+
+    SO THE REBUILD IS GATED ON THE BOARD BEING UNTOUCHED, and the gate is a
+    fingerprint: the exact SET of widget types the previous seed handed out.
+    Order, width and the widgets' own ids are all ignored, because rearranging
+    and resizing are the two things this board is FOR and neither of them is a
+    decision about which cards belong on it. Add, delete or pin a card and the
+    set no longer matches — the board is then the owner's, it is left exactly
+    as it is, and the additive top-up below brings the new cards to it instead.
+
+    THE FINGERPRINT IS DATA, NOT A READ OF THE CURRENT SEED, for the reason
+    `SEEDED_SESSION_TITLES` is: it has to recognise what an OLDER build wrote
+    long after this build stopped writing it, so it cannot be derived from a
+    seed that has already changed.
+
+    It runs once, under the same `seedVersion` gate as everything else here, so
+    a board rebuilt today and reshaped tomorrow is never rebuilt again.
+  */
+  const rebuilt = gifted.map((d) => {
+    const shapes = REBUILDS[d.id];
+    if (!shapes) return d;
+    const seed = SEED.dashboards.find((b) => b.id === d.id);
+    if (!seed) return d;
+    const have = d.widgets.map((w) => w.type).sort();
+    const untouched = shapes.some((shape) => {
+      const then = [...shape].sort();
+      return have.length === then.length && have.every((t, i) => t === then[i]);
+    });
+    if (!untouched) return d;
+    /* The board's own identity is the owner's — a renamed Overview stays
+       renamed, and its address stays the address anything linking to it used.
+       Only the cards on it are the seed's. */
+    return { ...d, widgets: structuredClone(seed.widgets) };
+  });
+
+  /*
     TOPPING UP A BOARD THE OWNER ALREADY HAS.
 
     The gift above only adds boards whose id is ABSENT, which is right — it is
@@ -1771,7 +1807,7 @@ function migrate(state: StoreState): StoreState {
     that they are free to delete. It is gated by the same seedVersion, so it
     runs once and a card removed on purpose stays removed.
   */
-  const topped = gifted.map((d) => {
+  const topped = rebuilt.map((d) => {
     const wanted = TOP_UPS[d.id];
     if (!wanted) return d;
     const have = new Set(d.widgets.map((w) => w.type));
@@ -1835,6 +1871,86 @@ const SEEDED_SESSION_TITLES = new Map<string, string>([
   ["s-12", "Hero copy rewrite"],
 ]);
 
+
+/**
+ * WHAT A SEEDED BOARD LOOKED LIKE WHEN IT WAS HANDED OUT, by board id.
+ *
+ * The fingerprint `migrate()` compares against before it rebuilds a board from
+ * the current seed: match it exactly (as a set — order and width are the
+ * owner's, and changing them is what a dashboard is for) and the board has
+ * never had a card added or removed, so replacing its cards takes nothing away
+ * from anybody. Miss by one and the board is left alone.
+ *
+ * KEPT AS DATA AND NOT DERIVED FROM `SEED`, for the reason `SEEDED_SESSION_TITLES`
+ * is: this has to recognise what an older build wrote, and the seed it wrote it
+ * from is the thing that changed.
+ */
+const REBUILDS: Record<string, string[][]> = {
+  /*
+    Overview, in each shape a build has handed it out — 23's thirty cards and
+    25's sixteen. A LIST AND NOT ONE ENTRY, because a rebuild can happen twice:
+    25 restructured the board and 26 corrected one tile on it, and a workspace
+    that took the first is as untouched as one that never left 23. Matching any
+    of them means the board is still the seed's, whichever seed's it is.
+
+    They are only ever APPENDED to. Deleting an old fingerprint does not
+    simplify anything — it strands the workspaces that are still on that shape.
+  */
+  "d-overview": [
+    [
+      "payments.mrr",
+      "stripe.arr",
+      "stripe.net30",
+      "umami.pageviews",
+      "overview.attention",
+      "stripe.subs",
+      "stripe.churn",
+      "stripe.pending",
+      "stripe.payouts",
+      "gsc.clicks",
+      "gsc.impressions",
+      "gsc.ctr",
+      "gsc.position",
+      "payments.daily",
+      "payments.movement",
+      "finance.groups",
+      "payments.failRate",
+      "payments.floor",
+      "overview.margin",
+      "overview.health",
+      "overview.shots",
+      "umami.sites",
+      "fleet.alerts",
+      "fleet.disk",
+      "fleet.memory",
+      "uptime.up",
+      "registrars.expiring",
+      "registrars.lapsed",
+      "registrars.autoRenewOff",
+      "registrars.runway",
+    ],
+    /* SEED_VERSION 25: the sixteen-card rebuild, before 26 swapped the
+       proportion tile in the metric row for a metric one. */
+    [
+      "revenue.combined",
+      "revenue.sources",
+      "stripe.net30",
+      "umami.pageviews",
+      "stripe.subs",
+      "users.total",
+      "overview.attention",
+      "payments.daily",
+      "payments.movement",
+      "finance.groups",
+      "overview.margin",
+      "overview.health",
+      "overview.shots",
+      "umami.sites",
+      "fleet.disk",
+      "fleet.memory",
+    ],
+  ],
+};
 
 /**
  * Widgets a seeded board should have gained since it was first handed out.
@@ -2102,10 +2218,26 @@ const TOP_UPS: Record<string, string[]> = {
     "adsense.months",
     "ads.venture",
   ],
+  /*
+    THE OVERVIEW'S TWO REVENUE ROLL-UPS, for a board the rebuild above would
+    not touch — one the owner has added a card to, or taken one from.
+
+    The rebuild is the path almost every workspace takes; this is the fallback,
+    and it is deliberately the SMALLEST thing that answers the request. The
+    owner asked for combined ARR with its sources on it, and these two cards
+    are that; the rest of what changed in SEED_VERSION 25 was cards being
+    REMOVED, which a top-up cannot do and must not try to — a board somebody
+    has arranged is theirs, and the worst this can do is put two cards at the
+    top that they are free to move or delete.
+
+    THEY LEAD (see TOP_UP_LEADS) because they are the headline. A combined
+    run rate appended under thirty cards is a headline nobody scrolls to.
+  */
+  "d-overview": ["revenue.combined", "revenue.sources"],
 };
 
 /** The boards whose top-up leads rather than trails — see `migrate()`. */
-const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search", "d-payments", "d-social", "d-ads", "d-servers"]);
+const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search", "d-payments", "d-social", "d-ads", "d-servers", "d-overview"]);
 
 /** The addresses already taken inside one scope — a venture's boards, or the
  *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is

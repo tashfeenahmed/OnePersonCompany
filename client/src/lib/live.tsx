@@ -1317,6 +1317,26 @@ export function collectedAt(src: string, live: LiveData): string | null {
       return live.stripe?.seenAt ?? null;
     case "adsense":
       return live.adsense?.seenAt ?? null;
+    /*
+      THE ROLL-UP IS AS FRESH AS ITS STALEST INPUT.
+
+      `revenue` is not a provider — it is Stripe plus both stores plus AdSense
+      added up (see the source note in data/widgets), so there is no single
+      collector to quote. The OLDEST of the clocks behind it is the honest
+      age: a combined figure carrying yesterday's Play export is a figure from
+      yesterday however recently Stripe was read, and quoting the newest of
+      the four would date the addition to its freshest part.
+
+      Only the sources that actually answered are considered — a store nobody
+      has connected is a line in the breakdown saying so, not an infinitely
+      old reading that would peg this to the epoch.
+    */
+    case "revenue":
+      return (
+        [live.stripe?.seenAt, live.mobile?.generatedAt, live.adsense?.seenAt]
+          .filter((at): at is string => !!at)
+          .sort()[0] ?? null
+      );
     case "cf":
     case "cloudflare":
       /* When the ZONES were last collected, not when this document was built.

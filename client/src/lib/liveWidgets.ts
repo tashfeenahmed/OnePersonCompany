@@ -11877,6 +11877,371 @@ Object.assign(LIVE_BUILDERS, {
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 
+/* ==================================== COMBINED REVENUE, BY SOURCE ========
+   WORKDASH'S /overview HEADLINE, AS TWO CARDS — the run rate the portfolio
+   bills, and which of the four places it bills through.
+
+   THE FOUR STREAMS ARE FOUR DIFFERENT KINDS OF NUMBER, and every row below
+   carries which kind it is rather than leaving it to a footnote. Stripe is a
+   run rate off the live book and belongs to no month; Google Play and the
+   App Store publish ONE FIGURE PER MONTH and nothing finer, so each
+   contributes its newest COMPLETE month read as a monthly rate; AdSense the
+   same. A month still being written is never used — a part month drawn as a
+   run rate halves the tile overnight, and the fix is to name the month.
+
+   THE ADDITION IS THE WHOLE POINT AND IT IS THE DANGEROUS PART. Nothing else
+   on this box adds two currencies, and these cards only do it through the
+   ledger's own FX — a rate the owner typed on the Finance page first, the
+   ECB's cross rate otherwise — with the total marked "≈" and the rate named
+   in the caption. A stream in a currency neither can price is drawn with its
+   own figure, LEFT OUT of the total, and says so on its row: a stream that
+   cannot be added and a stream that earned nothing are different findings.
+*/
+
+/** One place the portfolio takes money through, as both cards read it. */
+type RevenueStream = {
+  key: string;
+  label: string;
+  /** Per currency, in the source's own units. Empty is "did not answer" —
+   *  never a zero, which is why `absent` travels beside it. */
+  amounts: { currency: string; amount: number }[];
+  /** What the figure IS, in the source's own words. The tile has room for
+   *  the sentence; the table has a column, so `word` is the same fact in two
+   *  or three words and the two must never disagree. */
+  basis: string;
+  word: string;
+  /** The month a store figure is FOR. Null for a run rate, which has none. */
+  when: string | null;
+  /** The source's own estimate ahead of a settlement — Apple's sales-report
+   *  preview before the finance report lands. Not a fault, and not settled. */
+  estimated: boolean;
+  /** Why there is no figure. Read only when `amounts` is empty. */
+  absent: string;
+  /** The same reason, short enough for a table cell. */
+  absentWord: string;
+};
+
+/** The newest month of a per-month list, by the month key itself rather than
+ *  by list order — a collector that appends out of order must not decide
+ *  which month is current. */
+function newestMonth<T extends { month: string }>(months: readonly T[]): T | null {
+  return [...months].sort((a, b) => a.month.localeCompare(b.month)).at(-1) ?? null;
+}
+
+/** "September 2026" out of "2026-09", or the key itself when it is not one. */
+const streamMonth = (month: string | null) => (month ? monthName(month) : null);
+
+/**
+ * THE FOUR STREAMS, ALWAYS FOUR, whatever answered.
+ *
+ * A stream with nothing on file keeps its place and carries the reason,
+ * because the reader has to be able to tell "AdSense is not authorised" from
+ * "AdSense earned nothing" and only one of those is about the money.
+ */
+function revenueStreams(
+  S: StripeReport | null | undefined,
+  M: MobileReport | null | undefined,
+  A: AdSenseReport | null | undefined,
+): RevenueStream[] {
+  /* ---- Stripe: a level off the live book, in every currency it bills --- */
+  const stripe: RevenueStream = {
+    key: "stripe",
+    label: "Stripe",
+    amounts: (S?.mrr ?? []).map((m) => ({ currency: m.currency, amount: m.amount })),
+    basis: "the live book, as it bills",
+    word: "live book",
+    when: null,
+    estimated: false,
+    absent: !S
+      ? "Stripe has not been read on this box yet."
+      : S.mrr === null
+        ? "Nothing has been collected from Stripe — asked and not told, which is not an empty book."
+        : "The subscription book bills nothing at all right now.",
+    absentWord: !S ? "never read" : S.mrr === null ? "not told" : "empty book",
+  };
+
+  /* ---- Google Play: the newest COMPLETE month of the earnings report --- */
+  const playMonth = M?.play.connected
+    ? (M.play.payout.months.find((m) => m.month === M.play.payout.latestMonth) ??
+      newestMonth(M.play.payout.months))
+    : null;
+  const play: RevenueStream = {
+    key: "play",
+    label: "Google Play",
+    /* `net` and never `charged`: Google's cut is already out of it, which is
+       what makes it comparable with an Apple payout and with Stripe's MRR. */
+    amounts: (playMonth?.currencies ?? []).map((c) => ({ currency: c.currency, amount: c.net })),
+    basis: "net of Google's cut",
+    word: "net of Google",
+    when: streamMonth(playMonth?.month ?? null),
+    estimated: false,
+    absent: !M
+      ? "The app stores have not been read on this box yet."
+      : !M.play.connected
+        ? "Google Play is not connected."
+        : "Google has not closed a month of earnings yet — it writes the export only once a month ends.",
+    absentWord: !M ? "never read" : !M.play.connected ? "not connected" : "no closed month",
+  };
+
+  /* ---- The App Store: the payout where Apple issued one, its own
+          ESTIMATE where it has not, and never the two silently swapped --- */
+  const applyPayout = M?.appstore.connected ? newestMonth(M.appstore.payout.months) : null;
+  const appleGuess =
+    M?.appstore.connected && !applyPayout ? newestMonth(M.appstore.estimated.months) : null;
+  const appleMonth = applyPayout ?? appleGuess;
+  const app: RevenueStream = {
+    key: "app",
+    label: "App Store",
+    amounts: (appleMonth?.currencies ?? []).map((c) => ({ currency: c.currency, amount: c.amount })),
+    basis: applyPayout
+      ? "after Apple's commission"
+      : "sales-report estimate",
+    word: applyPayout ? "Apple payout" : "Apple estimate",
+    when: streamMonth(appleMonth?.month ?? null),
+    estimated: !applyPayout && !!appleGuess,
+    absent: !M
+      ? "The app stores have not been read on this box yet."
+      : !M.appstore.connected
+        ? "App Store Connect is not connected."
+        : "Apple has issued no finance report — the same 404 covers a settled month and one in the future, so this is not a zero.",
+    absentWord: !M ? "never read" : !M.appstore.connected ? "not connected" : "no report",
+  };
+
+  /* ---- AdSense: the newest complete calendar month ------------------- */
+  const ads: RevenueStream = {
+    key: "adsense",
+    label: "AdSense",
+    amounts:
+      A?.state === "authorised" && A.latestMonth
+        ? [{ currency: A.currency ?? "USD", amount: A.latestMonth.usd }]
+        : [],
+    basis: "ad earnings",
+    word: "ad earnings",
+    when: streamMonth(A?.latestMonth?.month ?? null),
+    /* Google revises recent days, so even a closed month is a reading it can
+       restate — which is an estimate in the sense this column means. */
+    estimated: true,
+    absent:
+      !A || A.state === "not-connected"
+        ? "AdSense is not connected."
+        : A.state === "refused"
+          ? "AdSense refused — nobody has granted consent in a browser yet."
+          : "AdSense is authorised and no complete calendar month has earned anything.",
+    absentWord:
+      !A || A.state === "not-connected"
+        ? "not connected"
+        : A.state === "refused"
+          ? "not authorised"
+          : "no closed month",
+  };
+
+  return [stripe, play, app, ads];
+}
+
+/** The currency the roll-up is drawn in: the one the owner set on the Finance
+ *  page, and otherwise the one carrying the largest single stream. */
+function revenueRing(streams: RevenueStream[], F: FinanceReport | null | undefined): string | null {
+  const set = F?.summary.fx.displayCurrency;
+  if (set) return set.toUpperCase();
+  const totals = new Map<string, number>();
+  for (const s of streams)
+    for (const a of s.amounts) {
+      const key = a.currency.toUpperCase();
+      totals.set(key, (totals.get(key) ?? 0) + a.amount);
+    }
+  return [...totals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+/** One stream in the ring currency, or the reason it could not be put there.
+ *  `rate` is null on a same-currency stream, which needs no rate and no "≈". */
+type Converted = {
+  stream: RevenueStream;
+  monthly: number | null;
+  /** Currencies on this stream that neither the typed rates nor the ECB file
+   *  can price. Left out of `monthly` and named on the row. */
+  unpriced: string[];
+  rate: { source: "typed" | "ecb"; asOf: string | null } | null;
+};
+
+function convertStreams(
+  streams: RevenueStream[],
+  ring: string,
+  F: FinanceReport | null | undefined,
+): Converted[] {
+  const rates = F?.summary.fx.rates ?? [];
+  const reference = F?.summary.fx.reference ?? null;
+  return streams.map((stream) => {
+    let monthly: number | null = null;
+    const unpriced: string[] = [];
+    let rate: Converted["rate"] = null;
+    for (const a of stream.amounts) {
+      const r = rateBetween(a.currency, ring, rates, reference);
+      if (!r) {
+        unpriced.push(a.currency.toUpperCase());
+        continue;
+      }
+      if (r.rate !== 1) rate = { source: r.source, asOf: r.asOf };
+      monthly = (monthly ?? 0) + a.amount * r.rate;
+    }
+    return { stream, monthly, unpriced, rate };
+  });
+}
+
+/** A stream's own figure, in its own units, however many it has. */
+const ownAmounts = (s: RevenueStream) =>
+  s.amounts.map((a) => inCurrency(a.amount, a.currency, a.amount < 10 ? 2 : 0)).join(" + ");
+
+Object.assign(LIVE_BUILDERS, {
+  "revenue.combined": ({ stripe: S, mobile: M, adsense: A, finance: F }: LiveInputs) => {
+    const streams = revenueStreams(S, M, A);
+    const ring = revenueRing(streams, F);
+    /* NOT ONE STREAM ANSWERED — the card keeps its sample and wears no live
+       dot, which is the honest picture of a box with nothing connected. */
+    if (!ring) return null;
+    const converted = convertStreams(streams, ring, F);
+    const answered = converted.filter((c) => c.monthly !== null && c.monthly > 0);
+    if (!answered.length) return null;
+
+    const monthlyTotal = answered.reduce((n, c) => n + c.monthly!, 0);
+    const rateUsed = converted.map((c) => c.rate).find((r): r is NonNullable<typeof r> => !!r) ?? null;
+    /* "≈" IS EARNED, NOT DECORATIVE. It appears when a figure crossed a
+       currency at somebody's rate, or when a store's own estimate is in it. */
+    const approx = !!rateUsed || answered.some((c) => c.stream.estimated);
+    const tilde = approx ? "≈" : "";
+
+    const parts: ProportionPart[] = answered
+      .slice()
+      .sort((a, b) => b.monthly! - a.monthly!)
+      .map((c) => ({
+        label: c.stream.label,
+        value: c.monthly!,
+        text: inCurrency(c.monthly!, ring, c.monthly! < 10 ? 2 : 0),
+      }));
+
+    const rows: [string, string][] = converted.map((c) => [
+      c.stream.label,
+      c.monthly === null || c.monthly <= 0
+        ? c.stream.amounts.length
+          ? also(ownAmounts(c.stream), `not in the total — no rate for ${c.unpriced.join(", ")}`)
+          : also(DASH, c.stream.absent)
+        : also(
+            also(
+              `${c.stream.estimated ? "≈" : ""}${inCurrency(c.monthly, ring, c.monthly < 10 ? 2 : 0)}/mo`,
+              `${inCurrency(c.monthly * 12, ring, 0)}/yr`,
+            ),
+            also(
+              c.stream.when ?? "as it stands",
+              c.stream.estimated ? "estimated" : "",
+            ),
+          ),
+    ]);
+
+    const unpriced = [...new Set(converted.flatMap((c) => c.unpriced))];
+    return {
+      tag: "run rate",
+      value: `${tilde}${inCurrency(monthlyTotal * 12, ring, 0)}`,
+      sub: also(
+        `MRR ${tilde}${inCurrency(monthlyTotal, ring, 0)}/mo — this × 12, not a forecast`,
+        `${count(answered.length)} of ${count(streams.length)} stream${streams.length === 1 ? "" : "s"} answering`,
+      ),
+      partsLabel: `The run rate by stream · ${ring}`,
+      parts,
+      rows,
+      /* SHORT ON PURPOSE. The tile's job is the figure and the split; the
+         table beside it carries the shares, the months and the reasons, and a
+         paragraph repeated on both cards is the "too many details" this board
+         was rebuilt to lose. What stays is the two things a reader can get
+         WRONG from the figure alone: that it is a level rather than a window,
+         and that it crossed a currency to exist. */
+      caption: [
+        "A level, not a window: what the book and the stores bill as things stand, × 12 — not money collected, and the picker does not move it.",
+        rateUsed
+          ? `Converted into ${ring} ${rateWords(rateUsed)}, which is what the ≈ is.`
+          : "",
+        unpriced.length
+          ? `${unpriced.join(", ")} could be priced by neither a rate you typed nor the ECB file, so ${unpriced.length === 1 ? "that stream is" : "those streams are"} left OUT of the total.`
+          : "",
+        "Each store contributes its newest COMPLETE month; a month still being written is never read as a rate.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  },
+
+  "revenue.sources": ({ stripe: S, mobile: M, adsense: A, finance: F }: LiveInputs) => {
+    const streams = revenueStreams(S, M, A);
+    const ring = revenueRing(streams, F);
+    if (!ring) return null;
+    const converted = convertStreams(streams, ring, F);
+    const answered = converted.filter((c) => c.monthly !== null && c.monthly > 0);
+    if (!answered.length) return null;
+    const monthlyTotal = answered.reduce((n, c) => n + c.monthly!, 0);
+    const rateUsed = converted.map((c) => c.rate).find((r): r is NonNullable<typeof r> => !!r) ?? null;
+    const approx = !!rateUsed || answered.some((c) => c.stream.estimated);
+    const tilde = approx ? "≈" : "";
+
+    /* WORST FIRST WOULD BE WRONG HERE — this is not a list of problems. The
+       order is what it is a share OF: biggest stream first, and a stream with
+       no figure at the bottom keeping its row and its reason. */
+    const order = [...converted].sort((a, b) => (b.monthly ?? -1) - (a.monthly ?? -1));
+    const table = order.map((c) => {
+      const has = c.monthly !== null && c.monthly > 0;
+      return [
+        c.stream.label,
+        has
+          ? `${c.stream.estimated ? "≈" : ""}${inCurrency(c.monthly!, ring, c.monthly! < 10 ? 2 : 0)}`
+          : c.stream.amounts.length
+            ? ownAmounts(c.stream)
+            : DASH,
+        has ? pct(c.monthly! / monthlyTotal, { digits: 0 }) : DASH,
+        c.stream.when ?? (has ? "as it stands" : DASH),
+        has
+          ? c.stream.word
+          : c.stream.amounts.length
+            ? `${c.unpriced.join(", ")} · no rate`
+            : c.stream.absentWord,
+      ];
+    });
+    /* THE TOTAL IS A ROW OF THE TABLE AND IS LABELLED AS ONE, because a
+       column of shares that does not show what they are shares of is a
+       column of numbers nobody can check. */
+    table.push([
+      `Combined · ${ring}`,
+      `${tilde}${inCurrency(monthlyTotal, ring, 0)}`,
+      "100%",
+      "as it stands",
+      `${tilde}${inCurrency(monthlyTotal * 12, ring, 0)}/yr`,
+    ]);
+
+    return {
+      tag: "run rate",
+      /* FIVE SHORT COLUMNS. The annualised figure is on the tile beside this
+         one, per stream, so it is not repeated here — and the last column is
+         two or three WORDS rather than the tile's sentence, because a column
+         that has to be scrolled to is a column nobody reads. It is still the
+         one column that stops a settled payout and a store's own guess from
+         looking like the same kind of number, which is why it stays. */
+      headers: ["Source", "Per month", "Share", "As of", "Basis"],
+      table,
+      rowTones: [
+        ...order.map((c): StatusTone | null =>
+          c.monthly !== null && c.monthly > 0 ? (c.stream.estimated ? "warn" : "ok") : null,
+        ),
+        null,
+      ],
+      caption: [
+        `Shares are of the ${tilde}${inCurrency(monthlyTotal, ring, 0)}/mo on the last row and of nothing else.`,
+        rateUsed
+          ? `Converted into ${ring} ${rateWords(rateUsed)}; the ≈ is that conversion, not a rounding.`
+          : `Every stream here already bills in ${ring}.`,
+        "An amber row is the source's own estimate rather than a settlement — Apple's sales report before its finance report, or an AdSense month Google can still restate. A row with a dash is a source that did not answer, and the last column says which kind of silence it is — never a zero.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
 
 /* ================================================== USERS BOARD PARITY ====
    WORKDASH'S /users, AS BUILDERS — workstream "users-board", 2026-09-08.
