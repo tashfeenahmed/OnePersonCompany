@@ -7,13 +7,13 @@ const icons: Record<string, string> = {
   "/action-inbox": "action-inbox",
   "/board": "board",
   "/ventures": "ventures",
-  "/people": "people",
   "/workflows": "workflows",
-  /* THE ONLY MAIL ROW. Triage, Outbox and Nurture each had a key here and
-     each of them is a tab of the Email page now. This map is keyed by the path
-     a SIDEBAR ROW links to and a path that is not in it draws no artwork at
-     all, so a key with no row is dead weight; triage.webp and the other two
-     are still in assets/modules, ready for whatever names those paths again. */
+  /* THE ONLY MAIL ROW. Triage, Outbox, Nurture and People each had a key here
+     and every one of them is a tab of the Email page now. This map is keyed by
+     the path a SIDEBAR ROW links to and a path that is not in it draws no
+     artwork at all, so a key with no row is dead weight; triage.webp,
+     people.webp and the rest are still in assets/modules, ready for whatever
+     names those paths again. */
   "/mail": "email",
   /* THE ONLY SOCIAL ROW. Autopilot, Video, Motion, Publishing and Posts each
      had a key here and each of them is inside the Studio now — two in its

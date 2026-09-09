@@ -48,7 +48,7 @@ export function inboxItems(): Item[] {
   for (const e of openEvents({ limit: PER_KIND }))
     items.push({ id: `alert:${e.id}`, source: "Alert", title: e.message, detail: e.narration ?? "", priority: 1, at: e.ts, href: "/alerts", venture: null, resolution: "Acknowledge" });
   for (const r of commitmentRows("open").slice(0, PER_KIND))
-    items.push({ id: `commitment:${r.id}`, source: "Commitment", title: r.what, detail: `To ${r.to_name || r.to_address}${r.due ? ` · Due ${r.due}` : ""}`, priority: r.due && r.due < now() ? 1 : 2, at: r.found_at, href: "/people/commitments", venture: null, resolution: "Mark done" });
+    items.push({ id: `commitment:${r.id}`, source: "Commitment", title: r.what, detail: `To ${r.to_name || r.to_address}${r.due ? ` · Due ${r.due}` : ""}`, priority: r.due && r.due < now() ? 1 : 2, at: r.found_at, href: "/mail/commitments", venture: null, resolution: "Mark done" });
   for (const r of select("SELECT * FROM mailflow_triage WHERE score = 'needs_reply' AND done_at IS NULL AND (snoozed_until IS NULL OR snoozed_until <= strftime('%Y-%m-%dT%H:%M:%fZ','now')) ORDER BY scored_at DESC LIMIT 500"))
     items.push({ id: `triage:${r.account_id}:${r.thread_id}`, source: "Email", title: "Reply needed", detail: String(r.reason ?? "Review the conversation"), priority: r.urgency === "high" ? 1 : 2, at: String(r.scored_at), href: `/mail/email?thread=${encodeURIComponent(String(r.thread_id))}&account=${r.account_id}`, venture: r.venture as string | null, resolution: "Mark handled" });
   for (const r of select("SELECT * FROM agent_runs WHERE status = 'failed' ORDER BY finished_at DESC LIMIT 500"))

@@ -11,10 +11,11 @@ import { CommitmentRow } from "./parts";
 /**
  * WHAT THE OWNER SAID THEY WOULD DO — lifted out of their own sent mail.
  *
- * ITS OWN FILE BECAUSE IT HAS TWO HOMES. It is People's fourth tab, where the
- * question is about a correspondence, and it is a tab of the Email page, where
- * the question is about the mailbox. One component, both places: a copy would
- * be two Scan buttons that drifted apart.
+ * ITS OWN FILE BECAUSE IT ONCE HAD TWO HOMES. It was People's fourth tab and
+ * a tab of the Email page at the same time — one component in both, because a
+ * copy would have been two Scan buttons that drifted apart. People is gone
+ * now and all four of its tabs are the Email page's, so there is one home; the
+ * file stays its own because the Email shell lazy-loads a tab at a time.
  */
 export function Commitments() {
   const [status, setStatus] = useState<"open" | "done" | "dismissed" | "all">("open");

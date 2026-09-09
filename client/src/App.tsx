@@ -31,7 +31,6 @@ const Board = lazy(() => import("@/pages/Board").then(m => ({ default: m.Board }
 const Email = lazy(() => import("@/pages/Email").then(m => ({ default: m.Email })));
 const SocialSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.SocialSection })));
 const Subagents = lazy(() => import("@/pages/Subagents").then(m => ({ default: m.Subagents })));
-const People = lazy(() => import("@/areas/people/People").then(m => ({ default: m.People })));
 const Alerts = lazy(() => import("@/areas/proactive/Alerts").then(m => ({ default: m.Alerts })));
 const Login = lazy(() => import("@/areas/security/Login").then(m => ({ default: m.Login })));
 const Workflows = lazy(() => import("@/areas/chief/Workflows").then(m => ({ default: m.Workflows })));
@@ -194,13 +193,15 @@ export default function App() {
                       element={<Venture />}
                     />
                     <Route path="/subagents" element={<Subagents />} />
-                    {/* PEOPLE'S FOUR TABS ARE FOUR ADDRESSES, the rule every
-                        tabbed page here follows: /people/stale is a place
-                        somebody sends a link to, not a piece of state. All
-                        four render the same element, so moving between them
-                        reconciles rather than remounting the page. */}
-                    <Route path="/people" element={<People />} />
-                    <Route path="/people/:tab" element={<People />} />
+                    {/* WHERE PEOPLE USED TO BE. Its four tabs — Contacts,
+                        Stale, Brief, Commitments — were four questions about
+                        mail, so they are four tabs of the Email page now and
+                        the page itself is gone. All four addresses have been
+                        in links and bookmarks; each one lands on the tab that
+                        holds the thing it named, and an unknown tab lands on
+                        Contacts. */}
+                    <Route path="/people" element={<Navigate to="/mail/contacts" replace />} />
+                    <Route path="/people/:tab" element={<LegacyPeople />} />
                     {/* ACTIVITY — one page, three tabs, the URL as the
                         selection: what happened, who arrived, what it cost.
                         The product route under /users is the one deep link,
@@ -378,6 +379,17 @@ function LegacyPublishingRun() {
   const { runId } = useParams();
   const location = useLocation();
   return <Navigate to={`/social/studio/publishing/${runId}${location.search}${location.hash}`} state={location.state} replace />;
+}
+
+/** The old /people/<tab>, carried onto the Email page's tab of the same name.
+ *  The four People had are all tabs there; anything else is the Contacts tab,
+ *  which is what /people opened on. */
+function LegacyPeople() {
+  const { tab } = useParams();
+  const location = useLocation();
+  const known = ["contacts", "stale", "brief", "commitments"];
+  const to = tab && known.includes(tab) ? tab : "contacts";
+  return <Navigate to={`/mail/${to}${location.search}${location.hash}`} state={location.state} replace />;
 }
 
 /** The old /plugins/:id, carried across to its new address with the id intact. */

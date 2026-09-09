@@ -58,15 +58,16 @@ import { sidebarPath } from "../../../shared/navigation";
  *
  * MAIL IS ONE ROW, for the same reason and by the same move. It was four —
  * Email, Triage, Outbox, Nurture — and all four are tabs of one page at /mail
- * now, along with the mailbox's Sent mode and People's Commitments tab. The
- * row is "here" for every address under it, which is what `isHere` below
- * already does for a prefix.
+ * now, along with the mailbox's Sent mode and every tab People had: Contacts,
+ * Stale, Brief and Commitments are questions about mail, so People stopped
+ * being a row too and /people redirects onto them (see App.tsx). The row is
+ * "here" for every address under it, which is what `isHere` below already does
+ * for a prefix.
  */
 const NAV = [
   { to: "/action-inbox", label: "Action inbox" },
   { to: "/board", label: "Board" },
   { to: "/ventures", label: "Ventures" },
-  { to: "/people", label: "People" },
   { to: "/calendar", label: "Calendar" },
   { to: "/workflows", label: "Workflows" },
   /* Social is one row now — the Studio — and it is the day's making, so it

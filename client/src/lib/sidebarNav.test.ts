@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { orderNav } from "../../../shared/sidebarNav.ts";
 import { isWorkspacePreferences } from "../../../shared/workspace.ts";
 
-const defaults = ["/board", "/ventures", "/people", "/mail"];
+const defaults = ["/board", "/ventures", "/calendar", "/mail"];
 
 test("no saved order is the build's order", () => {
   assert.deepEqual(orderNav(defaults), defaults);
@@ -11,11 +11,11 @@ test("no saved order is the build's order", () => {
 });
 
 test("the owner's order leads; unplaced and new pages follow in the build's order", () => {
-  assert.deepEqual(orderNav(defaults, ["/mail", "/people"]), ["/mail", "/people", "/board", "/ventures"]);
+  assert.deepEqual(orderNav(defaults, ["/mail", "/calendar"]), ["/mail", "/calendar", "/board", "/ventures"]);
 });
 
 test("paths that no longer exist and repeats are dropped at read time", () => {
-  assert.deepEqual(orderNav(defaults, ["/apps", "/people", "/people", "/gone"]), ["/people", "/board", "/ventures", "/mail"]);
+  assert.deepEqual(orderNav(defaults, ["/apps", "/calendar", "/calendar", "/gone"]), ["/calendar", "/board", "/ventures", "/mail"]);
 });
 
 test("navOrder is validated as a unique list of paths", () => {

@@ -1,9 +1,9 @@
 // Canonical destinations for tools moved out of the Apps area.
 export const MOVED_APPS: Readonly<Record<string, string>> = {
   board: "/board",
-  /* MAIL IS ONE PAGE WITH SIX TABS. The mailbox is what /mail opens on, and
-     Triage, the Outbox and Nurture are tabs of the same header rather than
-     pages of their own — the addresses are unchanged, so a tool named here
+  /* MAIL IS ONE PAGE WITH NINE TABS. The mailbox is what /mail opens on, and
+     Triage, the Outbox, Nurture and everything People used to hold are tabs of
+     the same header rather than pages of their own — the addresses are unchanged, so a tool named here
      still resolves to the view somebody meant. */
   email: "/mail",
   mailbox: "/mail",
@@ -58,6 +58,13 @@ const RENAMED: Readonly<Record<string, string>> = {
      made for Triage on the Inbox tab, which is not where that pin was
      pointing. */
   "/mail/email": "/mail",
+  /* PEOPLE MOVED INTO THE MAIL PAGE — its Contacts tab is what /people opened
+     on, so that is where a saved order or a pin naming it now points. THIS ONE
+     IS A RENAME AND NOT A DROP, unlike Motion and Posts below: the page the
+     owner pinned still exists at an address of its own, and pointing at the
+     mail row instead would land it on the Inbox, which is not what they
+     pinned. */
+  "/people": "/mail/contacts",
   /* NOTHING FOR VIDEO, MOTION OR POSTS. Those three did not move — they
      STOPPED BEING ROWS. A rename here would put a pin the owner made for
      Motion onto the Studio, which is a different row they may already have

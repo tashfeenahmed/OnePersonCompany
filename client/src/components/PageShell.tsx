@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 /**
  * WHETHER THIS PAGE IS BEING DRAWN UNDER SOMEBODY ELSE'S HEADER.
  *
- * The Email shell (pages/Email.tsx) mounts five pages that each carry their
+ * The Email shell (pages/Email.tsx) mounts seven pages that each carry their
  * own PageShell title under a header that already says "Email" and which tab
  * you are on — two titles, an inch apart, saying nearly the same thing. A prop
  * would mean editing every embedded page and every page that might one day be
