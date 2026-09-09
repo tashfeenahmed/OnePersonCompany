@@ -234,6 +234,7 @@ export default function App() {
                         is reached from the Studio's left rail, beside the two
                         other doors that lead out of the Studio. */}
                     <Route path="/references" element={<References />} />
+                    <Route path="/references/:tab" element={<References />} />
                     <Route path="/integrations" element={<Plugins />} />
                     <Route path="/integrations/:id" element={<PluginDetail />} />
                     {/* "Plugin" was the wrong word: these are connections to

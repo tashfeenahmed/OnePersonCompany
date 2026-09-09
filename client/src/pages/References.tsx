@@ -1,748 +1,627 @@
-/**
- * REFERENCES — everything the generators are given about one business, on one
- * page, before any of them writes a word.
- *
- * WHY THIS PAGE EXISTS. Four things on this box make something for a venture:
- * the Studio writes a caption and draws a picture, the faceless pipeline
- * writes a script, the reel writes a dialogue. Between them they read three
- * sources, and until this page each source was visible somewhere else and for
- * a different reason — the palette on the venture's own Brand card, where it
- * is evidence that a site was read; the pictures behind the fifth tab of the
- * Publishing page, where they are inputs to a queue; and the tone of voice
- * NOWHERE, because there was no field for it. So the honest answer to "what
- * does the Studio know about this business" was "open three pages and infer
- * it". This is that answer at one address.
- *
- * THE THREE BLOCKS ARE IN ORDER OF HOW MUCH THEY CAN BE TRUSTED, and the page
- * says which is which rather than styling them the same:
- *
- *   MEASURED    the palette and the font stacks, read off the live site by
- *               the venture enricher. Nobody chose these. An empty one means
- *               NOT MEASURED — the site has never been read — and it is drawn
- *               as that sentence, never as an absence of colour.
- *   WRITTEN     the style guide. Pure opinion, the owner's, and the only part
- *               of this page that is saved from here.
- *   COLLECTED   the pictures. The publishing area's library, shown here in
- *               shelves by kind because a logo, a look to imitate and a
- *               screenshot of the product are three different things to hand
- *               a model and the newest-first list flattened them.
- *
- * NOTHING ON THIS PAGE UPLOADS THROUGH A ROUTE OF ITS OWN. Every file goes to
- * `/api/publishing/assets` — the same multipart handler with the same 12 MB
- * cap, the same magic-number sniff and the same refusal to fetch a URL that
- * resolves onto a private address. A second uploader here would be a second
- * place to get all three wrong. The one write this page owns is the guide.
- *
- * A SHELF CARRIES THE KIND, SO NOTHING HAS TO BE PICKED TWICE. The Assets tab
- * has a row of kind buttons above one uploader; here the uploader is IN the
- * shelf, so dropping a logo onto the Logos shelf files it as a logo. Same
- * routes, one fewer thing to get wrong.
- *
- * WITH NO VENTURE CHOSEN THIS IS A GAP LIST. Not an empty state and not the
- * first venture's page: one row per business saying what it has and what it
- * has not, because "which of my nineteen products has no logo and no guide" is
- * a question this page is uniquely able to answer and none of the three
- * sources could.
- */
-import { useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { ExternalLink, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
-import { StagePill, VentureMark } from "@/components/VentureChrome";
-import { VentureSelect } from "@/components/VentureSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Failed, Loading, SectionCard } from "@/components/ui/state";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StagePill, VentureMark } from "@/components/VentureChrome";
 import { useApi } from "@/hooks/useApi";
+import { api, type VentureBrand } from "@/lib/api";
 import { publishingApi, type Asset } from "@/areas/publishing/api";
-import {
-  referencesApi,
-  type GuideLimits,
-  type ReferencesDoc,
-  type StyleGuide,
-} from "@/lib/api/references";
-import { bytes, when } from "@/lib/format";
+import { referencesApi, type GuidePatch, type ReferencesRow, type StyleGuide } from "@/lib/api/references";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { ago } from "@/lib/format";
 
-/** The shelves, in the order they are useful: the mark, the look, the product,
- *  and everything that is none of those. The `kind` is the asset library's own
- *  and is what an upload from that shelf is filed as. */
-const SHELVES = [
-  {
-    kind: "logo",
-    title: "Logos",
-    about:
-      "The mark itself. Usually the wrong thing to hand a generative model, which will redraw it slightly wrong — it is here to be looked at and to be placed by hand.",
-  },
-  {
-    kind: "reference",
-    title: "Reference photos",
-    about: "A look to imitate. This is the shelf the image model is actually meant to be given.",
-  },
-  {
-    kind: "screenshot",
-    title: "Screenshots",
-    about: "The product as it really appears. What a walkthrough or a UGC shot is built from.",
-  },
-  { kind: "other", title: "Other", about: "Everything that is none of the three above." },
+/**
+ * REFERENCES — the two tabs Workdash's Studio kept for what a generator is
+ * handed before it draws: the pictures, and the brand.
+ *
+ * "Reference photos" is ONE LIBRARY across every venture, the way Workdash
+ * had it: tick the venture, drop pictures in — the picker, a URL, or Ctrl+V
+ * anywhere on the tab — and write each picture's instruction on its own card
+ * afterwards, because uploading ten pictures and captioning ten pictures are
+ * different jobs. A card's prompt is forwarded verbatim to the image model
+ * whenever the picture is used; a picture can change hands by clicking
+ * another venture's chip on it.
+ *
+ * "Logos & branding" is one card per venture, and every card is the same
+ * card: the logo strip with the active mark, four colours, the look and feel
+ * the model gets verbatim, the audience and the language, with what was read
+ * off the site under a fold. A colour shows the MEASUREMENT until the owner
+ * types over it; the tag beside it says which is in force, and clearing the
+ * field hands it back to the measurement. That is the whole model: nothing
+ * here is merged into the venture record, which the next site read would
+ * overwrite — see the references area's migrations for why.
+ *
+ * ONE ASSET BELONGS TO ONE VENTURE here, where Workdash let a photo belong
+ * to several pages. The library underneath is the publishing area's, and it
+ * files a picture under one business; a photo that fits two is uploaded
+ * twice. The chips on a card are therefore a move, not a set of ticks.
+ */
+
+const TABS = [
+  { key: "photos", label: "Reference photos" },
+  { key: "brands", label: "Logos & branding" },
 ] as const;
+type Tab = (typeof TABS)[number]["key"];
 
-/** The style guide's fields, in the order somebody writing one would think of
- *  them, with what each is for. The long ones get a textarea. */
-const FIELDS: {
-  key: keyof GuideLimits;
-  label: string;
-  hint: string;
-  rows: number;
-  ph: string;
-  /**
-   * WHERE THIS FIELD ACTUALLY ENDS UP, said on the field rather than implied
-   * over the whole form. Six go into the three writers' prompts, one into the
-   * image prompt, and two go nowhere near a model — and a form that let the
-   * reader assume all nine were read by something would be lying about the two
-   * that are not.
-   */
-  goes: "writers" | "image" | "nowhere";
-}[] = [
-  {
-    key: "summary",
-    label: "What this business is",
-    hint: "In your own words, at more length than the one line on the venture record.",
-    rows: 3,
-    ph: "A support chatbot small sites drop into their own page in one tag…",
-    goes: "writers",
-  },
-  {
-    key: "tone",
-    label: "Tone of voice",
-    hint: "How it talks, and how it does not.",
-    rows: 3,
-    ph: "Plain and unhurried. Explains, never sells. No exclamation marks.",
-    goes: "writers",
-  },
-  {
-    key: "audience",
-    label: "Who it is for",
-    hint: "The person on the other end of a post, as specifically as you can put it.",
-    rows: 3,
-    ph: "Owners of small shops who already have traffic and answer their own email.",
-    goes: "writers",
-  },
-  {
-    key: "dos",
-    label: "Do",
-    hint: "One rule per line reads best.",
-    rows: 4,
-    ph: "Name the problem before the product.\nUse the second person.",
-    goes: "writers",
-  },
-  {
-    key: "donts",
-    label: "Never",
-    hint: "The words and moves that are out of bounds. This is the field that earns its keep.",
-    rows: 4,
-    ph: "Never say “revolutionise”.\nNever call them users — they are shop owners.",
-    goes: "writers",
-  },
-  {
-    key: "language",
-    label: "Language",
-    hint: "Which language the posts are written in, and for whom.",
-    rows: 1,
-    ph: "English, British spelling.",
-    goes: "writers",
-  },
-  {
-    key: "colours",
-    label: "Colour, in words",
-    hint: "For where the measured palette is wrong or out of date. Prose, not hexes — the hexes are measured above.",
-    rows: 2,
-    ph: "The green is the old logo. Use the navy and the warm grey.",
-    goes: "image",
-  },
-  {
-    key: "fonts",
-    label: "Type, in words",
-    hint: "Anything about typography a font stack cannot say.",
-    rows: 2,
-    ph: "Headings are set tight and lowercase.",
-    goes: "nowhere",
-  },
-  {
-    key: "notes",
-    label: "Notes",
-    hint: "Anything else worth keeping here. NOT put in any prompt — this one is a note to yourself.",
-    rows: 3,
-    ph: "The old tagline is still on two landing pages; do not reuse it.",
-    goes: "nowhere",
-  },
-];
+const IMAGE = /^image\/(png|jpe?g|webp)$/i;
 
-/** What the note beside a field's label says, for the three that do not go to
- *  the writers. The six that do say nothing: the paragraph above the form
- *  already does, and repeating it six times would bury the two exceptions. */
-const GOES_NOTE: Record<string, string> = {
-  image: "goes to the image prompt only",
-  nowhere: "kept here only — no prompt reads it",
-};
+function readFile(file: File): Promise<File | null> {
+  return Promise.resolve(IMAGE.test(file.type) ? file : null);
+}
 
 export function References() {
+  const { tab: raw } = useParams();
+  const navigate = useNavigate();
+  const tab: Tab = raw === "brands" ? "brands" : "photos";
   const { state } = useStore();
   const ventures = state.ventures;
-  const [params, setParams] = useSearchParams();
-
-  /* THE VENTURE IS IN THE URL, the rule every venture-scoped page here
-     follows: a reference sheet somebody is looking at is one they will link
-     to, and half an address is not an address. A SLUG rather than an id,
-     because a slug survives being read out loud. Absent is the overview, on
-     purpose — see the header. */
-  const slug = params.get("venture");
-  const venture = ventures.find((v) => v.slug === slug) ?? null;
-
-  function pick(id: string | null) {
-    const next = new URLSearchParams(params);
-    const chosen = id ? ventures.find((v) => v.id === id) : null;
-    if (chosen) next.set("venture", chosen.slug);
-    else next.delete("venture");
-    setParams(next, { replace: true });
-  }
 
   return (
     <PageShell
       title="References"
-      sub={
-        <>
-          What the generators are given before they make anything: the brand as measured off the
-          site, the style guide you write, and the pictures they can be handed.
-        </>
-      }
       wide
+      sub="What the generators are handed before they make anything: the pictures, and the brand. Nothing here posts anywhere."
     >
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        <VentureSelect
-          ventures={ventures}
-          value={venture?.id ?? null}
-          onChange={pick}
-          none="Every venture"
-        />
-        {venture && (
-          <Link
-            to={`/ventures/${venture.slug}`}
-            className="text-muted-foreground hover:text-foreground text-[13px] underline decoration-dotted"
-          >
-            the venture record
-          </Link>
-        )}
-      </div>
+      <Tabs value={tab} onValueChange={(v) => navigate(v === "brands" ? "/references/brands" : "/references")} className="mb-5">
+        <TabsList variant="line">
+          {TABS.map((t) => (
+            <TabsTrigger key={t.key} value={t.key} className="flex-none px-2.5">
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
-      {slug && !venture ? (
-        <Failed error={`There is no venture “${slug}” in this workspace.`} />
-      ) : venture ? (
-        <OneVenture slug={venture.slug} />
+      {ventures.length === 0 ? (
+        <p className="text-muted-foreground text-[14px]">
+          There are no ventures yet. A reference belongs to one, and a brand is one. Add a venture first.
+        </p>
+      ) : tab === "photos" ? (
+        <RefLibrary ventures={ventures} />
       ) : (
-        <Overview />
+        <Brands ventures={ventures} />
       )}
     </PageShell>
   );
 }
 
-/* ----------------------------------------------------------- the gap list */
+/* ------------------------------------------------------------ photos */
 
-function Overview() {
-  const doc = useApi(() => referencesApi.overview(), []);
-  if (doc.loading && !doc.data) return <Loading what="the reference material" />;
-  if (doc.error) return <Failed error={doc.error} />;
-  const rows = doc.data?.ventures ?? [];
+type Venture = ReturnType<typeof useStore>["state"]["ventures"][number];
 
+function VentureChips({ ventures, value, onChange }: { ventures: Venture[]; value: string | null; onChange: (id: string) => void }) {
   return (
-    <SectionCard
-      title="Every venture"
-      meta={`${rows.filter((r) => r.guide).length} of ${rows.length} have a style guide`}
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full text-[13.5px]">
-          <thead className="text-muted-foreground text-[12px]">
-            <tr className="border-line-soft border-b">
-              <th className="py-2 pr-3 text-left font-normal">Venture</th>
-              <th className="px-2 py-2 text-right font-normal">Logos</th>
-              <th className="px-2 py-2 text-right font-normal">References</th>
-              <th className="px-2 py-2 text-right font-normal">Screenshots</th>
-              <th className="px-2 py-2 text-right font-normal">Other</th>
-              <th className="py-2 pl-3 text-left font-normal">Style guide</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-line-soft border-b last:border-0">
-                <td className="py-2.5 pr-3">
-                  <Link
-                    to={`/references?venture=${encodeURIComponent(r.slug)}`}
-                    className="flex min-w-0 items-center gap-2 hover:underline"
-                  >
-                    <span className="min-w-0 truncate">{r.name}</span>
-                    <StagePill stage={r.stage} />
-                  </Link>
-                </td>
-                {["logo", "reference", "screenshot", "other"].map((k) => (
-                  <td
-                    key={k}
-                    className={cn(
-                      "px-2 py-2.5 text-right tabular-nums",
-                      (r.assets[k] ?? 0) === 0 && "text-muted-foreground",
-                    )}
-                  >
-                    {r.assets[k] ?? 0}
-                  </td>
-                ))}
-                <td className="py-2.5 pl-3">
-                  {r.guide ? (
-                    <span className="text-ok">written {when(r.guideUpdatedAt)}</span>
-                  ) : (
-                    <span className="text-muted-foreground">not written</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!rows.length && (
-        <p className="text-muted-foreground text-[14px]">
-          No ventures yet. A reference sheet belongs to one.
-        </p>
-      )}
-      <p className="text-muted-foreground mt-4 text-[12.5px] leading-relaxed">{doc.data?.note}</p>
-    </SectionCard>
-  );
-}
-
-/* ------------------------------------------------------------ one venture */
-
-function OneVenture({ slug }: { slug: string }) {
-  const doc = useApi(() => referencesApi.read(slug), [slug]);
-  if (doc.loading && !doc.data) return <Loading what={`the references for ${slug}`} />;
-  if (doc.error) return <Failed error={doc.error} />;
-  if (!doc.data) return null;
-  const d = doc.data;
-  return (
-    <>
-      <Measured doc={d} />
-      <GuideForm
-        key={d.venture.id}
-        ventureSlug={d.venture.slug}
-        guide={d.guide}
-        limits={d.limits}
-        note={d.note}
-        onSaved={doc.reload}
-      />
-      {SHELVES.map((shelf) => (
-        <Shelf
-          key={shelf.kind}
-          shelf={shelf}
-          ventureId={d.venture.id}
-          uploadCap={d.uploadCap}
-          assets={d.assets.filter((a) => a.kind === shelf.kind)}
-          onChanged={doc.reload}
-        />
+    <div className="flex flex-wrap gap-1.5">
+      {ventures.map((v) => (
+        <button
+          key={v.id}
+          type="button"
+          onClick={() => onChange(v.id)}
+          className={cn(
+            "rounded-full border px-2.5 py-1 text-[12.5px] transition-colors",
+            value === v.id ? "border-foreground bg-foreground/5" : "text-muted-foreground hover:border-line-strong",
+          )}
+        >
+          {v.name}
+        </button>
       ))}
-    </>
-  );
-}
-
-/** One measured hex, with the name of the role it was assigned to. A null is
- *  drawn as a ruled empty square rather than skipped: "no accent was found" is
- *  a reading and it belongs on the page. */
-function Swatch({ role, hex }: { role: string; hex: string | null }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className="border-line-soft size-7 shrink-0 rounded-[9px] border"
-        style={hex ? { background: hex } : undefined}
-      />
-      <span className="min-w-0">
-        <span className="block text-[12.5px] capitalize">{role}</span>
-        <span className="text-muted-foreground block font-mono text-[11.5px]">
-          {hex ?? "not found"}
-        </span>
-      </span>
     </div>
   );
 }
 
-function Measured({ doc }: { doc: ReferencesDoc }) {
-  const { brand, venture } = doc;
-  const read = !!brand.enrichedAt;
-  return (
-    <SectionCard
-      title="The brand, as measured"
-      meta={
-        read
-          ? `read off the site ${when(brand.enrichedAt)}`
-          : "the site has never been read — nothing below was measured"
+function RefLibrary({ ventures }: { ventures: Venture[] }) {
+  const lib = useApi(() => publishingApi.assets({}), []);
+  const [ventureId, setVentureId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [urlText, setUrlText] = useState("");
+
+  /* The photos: everything but the logos, which live on the other tab. */
+  const refs = useMemo(() => (lib.data?.assets ?? []).filter((a) => a.kind !== "logo"), [lib.data]);
+  const reload = lib.reload;
+
+  /*
+    Many at once, one request each, in order. Sequential because each is
+    megabytes into the same process and ten at once would fight for the same
+    socket for no gain. A failure part-way keeps what already landed and names
+    what did not: the alternative is discarding six good uploads because the
+    seventh was a HEIC.
+  */
+  async function onFiles(list: FileList | File[] | null) {
+    const files = Array.from(list ?? []);
+    if (!files.length) return;
+    if (!ventureId) { setError("Pick the venture these are for first."); return; }
+    setError(null);
+    const failed: string[] = [];
+    for (const [i, file] of files.entries()) {
+      setBusy(`${i + 1} of ${files.length}`);
+      const ok = await readFile(file);
+      if (!ok) { failed.push(`${file.name} (png, jpeg or webp only)`); continue; }
+      try {
+        await publishingApi.uploadAsset({ ventureId, kind: "reference", file, name: file.name });
+      } catch (err) {
+        failed.push(`${file.name} (${err instanceof Error ? err.message : String(err)})`);
       }
-    >
-      <div className="mb-4 flex flex-wrap items-center gap-2.5">
-        <VentureMark venture={{ name: venture.name, color: venture.color, brand }} size={22} />
-        <span className="text-[14.5px]">{venture.name}</span>
-        <StagePill stage={venture.stage} />
-        {venture.website && (
-          <a
-            href={venture.website}
-            target="_blank"
-            rel="noreferrer"
-            className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[13px]"
-          >
-            {venture.website.replace(/^https?:\/\//, "")}
-            <ExternalLink className="size-[12px]" strokeWidth={1.7} />
-          </a>
-        )}
-      </div>
+      reload();
+    }
+    setBusy(null);
+    if (failed.length) setError(`Could not add: ${failed.join(", ")}`);
+  }
 
-      <p className="mb-4 text-[13.5px] leading-relaxed">
-        {venture.description || (
-          <span className="text-muted-foreground">
-            No description on the venture record. The caption writer is handed this sentence, so it
-            is worth one.
-          </span>
-        )}
-      </p>
-
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <Swatch role="primary" hex={brand.palette.primary} />
-        <Swatch role="secondary" hex={brand.palette.secondary} />
-        <Swatch role="accent" hex={brand.palette.accent} />
-        <Swatch role="background" hex={brand.palette.background} />
-        <Swatch role="ink" hex={brand.palette.ink} />
-      </div>
-
-      <p className="text-muted-foreground text-[13px] leading-relaxed">
-        <span className="text-foreground">Fonts in the site's CSS: </span>
-        {brand.fonts.length ? `${brand.fonts.join(", ")}.` : "none were read."}
-      </p>
-      {venture.colorSource === "owner" && (
-        <p className="text-muted-foreground mt-1 text-[13px] leading-relaxed">
-          The venture's own colour, <span className="font-mono">{venture.color}</span>, was chosen
-          rather than measured — it is not part of the reading above.
-        </p>
-      )}
-
-      {brand.error && <p className="text-destructive mt-2 text-[13px]">{brand.error}</p>}
-      {brand.notes.length > 0 && (
-        <ul className="text-muted-foreground mt-2 grid gap-1 text-[12.5px] leading-relaxed">
-          {brand.notes.map((n) => (
-            <li key={n}>{n}</li>
-          ))}
-        </ul>
-      )}
-    </SectionCard>
-  );
-}
-
-/* ------------------------------------------------------------- the guide */
-
-function GuideForm({
-  ventureSlug,
-  guide,
-  limits,
-  note,
-  onSaved,
-}: {
-  ventureSlug: string;
-  guide: StyleGuide;
-  limits: GuideLimits;
-  note: string;
-  onSaved: () => void;
-}) {
-  /* SEEDED ONCE AND REMOUNTED PER VENTURE — the caller keys this component on
-     the venture id, so switching business replaces the form rather than
-     leaving half-typed prose over somebody else's brand. */
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    Object.fromEntries(FIELDS.map((f) => [f.key, guide[f.key] ?? ""])),
-  );
-  const [busy, setBusy] = useState(false);
-  const [said, setSaid] = useState<string | null>(null);
-  const [refused, setRefused] = useState<string | null>(null);
-
-  const dirty = FIELDS.some((f) => (draft[f.key] ?? "") !== (guide[f.key] ?? ""));
-  const over = FIELDS.find((f) => (draft[f.key] ?? "").trim().length > limits[f.key]);
-
-  async function save() {
-    setBusy(true);
-    setRefused(null);
-    setSaid(null);
+  /** A pasted URL: the server fetches it once and keeps the bytes, so the
+   *  reference outlives whatever site it came from. */
+  async function importUrl(url: string) {
+    if (!ventureId) { setError("Pick the venture this is for first."); return; }
+    setError(null);
+    setBusy("fetching the URL");
     try {
-      /* ALL NINE, EVERY TIME. The route merges, so sending only what changed
-         would work — and would mean that clearing a field by emptying it was
-         indistinguishable from not touching it. The form knows the whole
-         state; it says the whole state. */
-      await referencesApi.saveGuide(
-        ventureSlug,
-        Object.fromEntries(FIELDS.map((f) => [f.key, draft[f.key] ?? ""])) as Partial<
-          Record<keyof GuideLimits, string>
-        >,
-      );
-      setSaid("Saved.");
-      onSaved();
+      await publishingApi.importAsset({ ventureId, kind: "reference", url });
+      setUrlText("");
+      reload();
     } catch (err) {
-      setRefused(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  return (
-    <SectionCard
-      title="The style guide"
-      meta={
-        guide.written
-          ? `written by you, last saved ${when(guide.updatedAt)}`
-          : "nothing written yet — the generators are working from the venture record alone"
-      }
-    >
-      <p className="text-muted-foreground mb-4 text-[13px] leading-relaxed">
-        Used by the Studio's caption writer, the faceless script writer and the reel dialogue
-        writer. It is passed to them as your own instruction rather than as evidence: it decides
-        how something is said, and never licenses a fact nobody has established.
-      </p>
-
-      <div className="grid gap-4">
-        {FIELDS.map((f) => {
-          const value = draft[f.key] ?? "";
-          const long = value.trim().length > limits[f.key];
-          return (
-            <div key={f.key} className="grid gap-1.5">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <label htmlFor={`guide-${f.key}`} className="text-[13.5px]">
-                  {f.label}
-                </label>
-                {GOES_NOTE[f.goes] && (
-                  <span className="text-muted-foreground text-[11.5px]">{GOES_NOTE[f.goes]}</span>
-                )}
-                <span
-                  className={cn(
-                    "ml-auto text-[11.5px] tabular-nums",
-                    long ? "text-destructive" : "text-muted-foreground",
-                  )}
-                >
-                  {value.trim().length}/{limits[f.key]}
-                </span>
-              </div>
-              {f.rows > 1 ? (
-                <Textarea
-                  id={`guide-${f.key}`}
-                  rows={f.rows}
-                  value={value}
-                  placeholder={f.ph}
-                  onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-                  className="text-[13.5px] leading-relaxed"
-                />
-              ) : (
-                <Input
-                  id={`guide-${f.key}`}
-                  value={value}
-                  placeholder={f.ph}
-                  onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-                  className="h-8 text-[13.5px]"
-                />
-              )}
-              <p className="text-muted-foreground text-[12px] leading-relaxed">{f.hint}</p>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-2.5">
-        <Button size="sm" disabled={busy || !dirty || !!over} onClick={() => void save()}>
-          {busy && <Loader2 className="size-[14px] animate-spin" strokeWidth={1.8} />}
-          Save the guide
-        </Button>
-        {over && (
-          <span className="text-destructive text-[13px]">
-            {over.label} is over its {limits[over.key]}-character ceiling.
-          </span>
-        )}
-        {!dirty && !busy && <span className="text-muted-foreground text-[13px]">No changes.</span>}
-        {said && <span className="text-ok text-[13px]">{said}</span>}
-        {refused && <span className="text-destructive text-[13px]">{refused}</span>}
-      </div>
-
-      <p className="text-muted-foreground mt-4 text-[12.5px] leading-relaxed">{note}</p>
-    </SectionCard>
-  );
-}
-
-/* ------------------------------------------------------------- the shelves */
-
-function Shelf({
-  shelf,
-  ventureId,
-  uploadCap,
-  assets,
-  onChanged,
-}: {
-  shelf: (typeof SHELVES)[number];
-  ventureId: string;
-  uploadCap: number;
-  assets: Asset[];
-  onChanged: () => void;
-}) {
-  const [url, setUrl] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
-
-  async function add(fn: () => Promise<unknown>) {
-    setBusy(true);
-    setRefused(null);
-    try {
-      await fn();
-      setUrl("");
-      onChanged();
-    } catch (err) {
-      setRefused(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
+  /*
+    Ctrl+V anywhere on the tab. An image on the clipboard uploads it; a URL on
+    the clipboard fetches it — unless you are typing in a field, because
+    pasting a sentence into a prompt box must stay pasting a sentence.
+  */
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (busy !== null) return;
+      const files = Array.from(e.clipboardData?.items ?? [])
+        .filter((it) => it.kind === "file" && IMAGE.test(it.type))
+        .map((it) => it.getAsFile())
+        .filter((f): f is File => f !== null);
+      if (files.length) { e.preventDefault(); void onFiles(files); return; }
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
+      const text = e.clipboardData?.getData("text")?.trim() ?? "";
+      if (/^https?:\/\/\S+$/i.test(text)) { e.preventDefault(); void importUrl(text); }
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ventureId, busy]);
 
   return (
-    <SectionCard
-      title={shelf.title}
-      meta={assets.length ? `${assets.length} · ${bytes(assets.reduce((n, a) => n + (a.bytes ?? 0), 0))}` : "none yet"}
-    >
-      <p className="text-muted-foreground mb-4 text-[13px] leading-relaxed">{shelf.about}</p>
-
-      {assets.length > 0 && (
-        <div className="mb-4 grid gap-2.5 sm:grid-cols-2">
-          {assets.map((a) => (
-            <AssetTile key={a.id} asset={a} onChanged={onChanged} />
-          ))}
+    <div>
+      <div className="bg-card grid gap-3 rounded-[14px] p-4.5">
+        <div>
+          <div className="text-[14.5px] font-medium">Reference images</div>
+          <p className="text-muted-foreground text-[13px]">
+            The look you want, plus a prompt that travels with it. The image model sees the picture where it can take one, and is told about it in words where it cannot.
+          </p>
         </div>
-      )}
-
-      <div className="border-line-soft grid gap-2.5 rounded-[14px] border border-dashed p-3.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Upload className="text-muted-foreground size-[14px]" strokeWidth={1.8} />
+        <div className="border-line-soft grid gap-2.5 rounded-[12px] border border-dashed p-3.5">
+          <VentureChips ventures={ventures} value={ventureId} onChange={setVentureId} />
           <input
             type="file"
-            aria-label={`Upload to ${shelf.title}`}
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            disabled={busy}
-            className="max-w-full text-[13px]"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              void add(() => publishingApi.uploadAsset({ ventureId, kind: shelf.kind, file }));
-              e.target.value = "";
-            }}
+            multiple
+            accept="image/png,image/jpeg,image/webp"
+            disabled={busy !== null}
+            onChange={(e) => { void onFiles(e.target.files); e.target.value = ""; }}
+            className="text-muted-foreground file:border-line-soft file:bg-card file:text-foreground block w-full text-[12.5px] file:mr-3 file:rounded-md file:border file:px-3 file:py-1.5 file:text-[12.5px]"
           />
-          <span className="text-muted-foreground text-[12.5px]">
-            PNG, JPEG, WebP or GIF, up to {Math.round(uploadCap / 1024 / 1024)} MB
-          </span>
+          <div className="flex gap-2">
+            <Input
+              value={urlText}
+              onChange={(e) => setUrlText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && urlText.trim()) void importUrl(urlText.trim()); }}
+              placeholder="…or paste an image URL"
+              spellCheck={false}
+              disabled={busy !== null}
+              className="min-w-0 flex-1 font-mono text-[12px]"
+            />
+            <Button variant="outline" disabled={busy !== null || !urlText.trim()} onClick={() => void importUrl(urlText.trim())}>
+              Fetch
+            </Button>
+          </div>
+          <p className="text-muted-foreground text-[12.5px]">
+            {busy
+              ? busy.startsWith("fetching") ? "Fetching the URL…" : `Uploading ${busy}…`
+              : "Tick the venture first, then add pictures any way you like — the picker, a URL, or just Ctrl+V an image or an image link anywhere on this tab. png, jpeg or webp."}
+          </p>
+          {error && <p className="text-destructive text-[12.5px]">{error}</p>}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="…or paste an image URL — this box downloads it once and keeps the file"
-            className="h-8 max-w-[440px] text-[13.5px]"
-          />
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={!url.trim() || busy}
-            onClick={() =>
-              void add(() =>
-                publishingApi.importAsset({ ventureId, kind: shelf.kind, url: url.trim() }),
-              )
-            }
-          >
-            {busy ? (
-              <Loader2 className="size-[14px] animate-spin" strokeWidth={1.8} />
-            ) : (
-              <ImageIcon className="size-[14px]" strokeWidth={1.8} />
-            )}
-            Import
-          </Button>
-        </div>
-        {refused && <p className="text-destructive text-[13.5px]">{refused}</p>}
       </div>
-    </SectionCard>
+
+      {lib.error && <p className="text-destructive mt-4 text-[13px]">{lib.error}</p>}
+      {!lib.loading && refs.length === 0 && (
+        <p className="text-muted-foreground mt-4 text-[13.5px]">No reference pictures yet.</p>
+      )}
+      {refs.length > 0 && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {refs.map((r) => (
+            <RefCard key={r.id} refItem={r} ventures={ventures} onChanged={reload} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
 /**
- * One picture, with the two sentences that travel with it.
- *
- * EDITED IN PLACE AND SAVED ON BLUR. A dialog for two short strings is a
- * dialog nobody opens, and the prompt is the field that decides what the image
- * model is actually told about this picture — it has to be as easy to fix as
- * it was to get wrong. The save is a PATCH of the one field, so two people
- * typing in two shelves cannot overwrite each other's other field.
+ * One reference, editable in place. The instruction is written HERE rather
+ * than at upload, and saves on blur so there is no button to forget — with a
+ * "saved" that shows briefly, so a silent write is still visible.
  */
-function AssetTile({ asset: a, onChanged }: { asset: Asset; onChanged: () => void }) {
-  const [prompt, setPrompt] = useState(a.prompt ?? "");
-  const [notes, setNotes] = useState(a.notes ?? "");
-  const [saving, setSaving] = useState(false);
+function RefCard({ refItem, ventures, onChanged }: { refItem: Asset; ventures: Venture[]; onChanged: () => void }) {
+  const [prompt, setPrompt] = useState(refItem.prompt ?? "");
+  const [saved, setSaved] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
 
-  async function patch(field: "prompt" | "notes", value: string) {
-    if ((field === "prompt" ? (a.prompt ?? "") : (a.notes ?? "")) === value) return;
-    setSaving(true);
+  async function patch(p: { prompt?: string; ventureId?: string }) {
+    setProblem(null);
     try {
-      await publishingApi.patchAsset(a.id, field === "prompt" ? { prompt: value } : { notes: value });
+      await publishingApi.patchAsset(refItem.id, p);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
       onChanged();
-    } finally {
-      setSaving(false);
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : String(err));
     }
   }
 
   return (
-    <div className="bg-card border-line-soft flex gap-3 rounded-[14px] p-3.5">
-      {a.onDisk ? (
-        <img
-          src={a.url}
-          alt=""
-          className="border-line-soft size-20 shrink-0 rounded-[11px] border object-cover"
-        />
+    <div className="bg-card grid content-start gap-2 rounded-[14px] p-3">
+      {/* The whole picture, at its own shape. A reference is chosen for its
+          look, and a crop shows you a different look than the model will get. */}
+      {refItem.onDisk ? (
+        <img src={refItem.url} alt={refItem.name ?? ""} loading="lazy" className="border-line-soft w-full rounded-[11px] border" />
       ) : (
-        <div className="border-line-soft text-muted-foreground flex size-20 shrink-0 items-center justify-center rounded-[11px] border border-dashed text-center text-[11.5px] leading-tight">
-          file
-          <br />
-          gone
+        <div className="text-muted-foreground border-line-soft grid h-32 place-items-center rounded-[11px] border text-[12px]">file gone</div>
+      )}
+      <Textarea
+        value={prompt}
+        rows={3}
+        placeholder="Prompt — passed to the image model whenever this is used. “Focus on the hands, keep the palette cold, wide crop with lots of air.”"
+        onChange={(e) => setPrompt(e.target.value)}
+        onBlur={() => prompt !== (refItem.prompt ?? "") && void patch({ prompt })}
+        className="text-[12.5px]"
+      />
+      {/* Which venture this belongs to, and a way to move it. A select
+          rather than nineteen chips on every card. */}
+      <select
+        value={refItem.ventureId}
+        onChange={(e) => { if (e.target.value !== refItem.ventureId) void patch({ ventureId: e.target.value }); }}
+        className="border-line-soft h-7 rounded-[8px] border bg-transparent px-1.5 text-[12px]"
+      >
+        {ventures.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+      </select>
+      <div className="text-muted-foreground flex items-center justify-between text-[12px]">
+        <span>{saved ? "saved" : problem ? <span className="text-destructive">{problem}</span> : `used ${refItem.usedCount} time${refItem.usedCount === 1 ? "" : "s"}`}</span>
+        <button type="button" className="hover:text-foreground hover:underline" onClick={() => void publishingApi.removeAsset(refItem.id).then(onChanged)}>
+          Remove
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ brands */
+
+function Brands({ ventures }: { ventures: Venture[] }) {
+  const overview = useApi(() => referencesApi.overview(), []);
+  const logos = useApi(() => publishingApi.assets({ kind: "logo" }), []);
+  const reload = () => { overview.reload(); logos.reload(); };
+  const rows = overview.data?.ventures ?? [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+
+  return (
+    <div>
+      {overview.error && <p className="text-destructive mb-3 text-[13px]">{overview.error}</p>}
+      <p className="text-muted-foreground mb-4 text-[13px]">
+        One card per venture. A colour shows what was read off the site until you type over it; the tag beside it says which is in force, and an emptied field goes back to the measurement. The look and feel goes to the image model word for word.
+      </p>
+      <div className="grid gap-3 md:grid-cols-2">
+        {ventures.map((v) => {
+          const row = byId.get(v.id);
+          return row ? (
+            <BrandCard key={v.id} venture={v} row={row} logos={(logos.data?.assets ?? []).filter((a) => a.ventureId === v.id)} onSaved={reload} />
+          ) : (
+            <div key={v.id} className="bg-card text-muted-foreground rounded-[14px] p-4 text-[13px]">
+              {overview.loading ? <Loader2 className="size-4 animate-spin" /> : `${v.name} is not in the references document.`}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const COLOURS = [
+  ["primary", "Primary"],
+  ["secondary", "Secondary"],
+  ["background", "Background"],
+  ["ink", "Text"],
+] as const;
+type ColourKey = (typeof COLOURS)[number][0];
+
+function measuredOf(brand: VentureBrand, key: ColourKey): string | null {
+  return brand.palette[key] ?? null;
+}
+
+function Swatch({ hex }: { hex: string | null }) {
+  const ok = !!hex && /^#[0-9A-Fa-f]{6}$/.test(hex);
+  return <span className="border-line-soft inline-block size-4 shrink-0 rounded-[5px] border" style={{ background: ok ? hex! : "transparent" }} title={hex ?? "none"} />;
+}
+
+/** Which value is in force: the owner's, the site's, or nothing. */
+function Tag({ children, title }: { children: string; title: string }) {
+  return <span className="border-line-soft text-muted-foreground rounded-full border px-1.5 py-px text-[9.5px]" title={title}>{children}</span>;
+}
+
+type Draft = Record<ColourKey, string> & { style: string; audience: string; language: string; summary: string; tone: string; dos: string; donts: string; colours: string; fonts: string; notes: string };
+
+function draftOf(guide: StyleGuide, brand: VentureBrand): Draft {
+  return {
+    primary: guide.primary ?? measuredOf(brand, "primary") ?? "",
+    secondary: guide.secondary ?? measuredOf(brand, "secondary") ?? "",
+    background: guide.background ?? measuredOf(brand, "background") ?? "",
+    ink: guide.ink ?? measuredOf(brand, "ink") ?? "",
+    style: guide.style ?? "",
+    audience: guide.audience ?? "",
+    language: guide.language ?? brand.lang ?? "",
+    summary: guide.summary ?? "",
+    tone: guide.tone ?? "",
+    dos: guide.dos ?? "",
+    donts: guide.donts ?? "",
+    colours: guide.colours ?? "",
+    fonts: guide.fonts ?? "",
+    notes: guide.notes ?? "",
+  };
+}
+
+/** One brand, editable in place. Saves per venture, because the server
+ *  validates and stores per venture. */
+function BrandCard({ venture, row, logos, onSaved }: { venture: Venture; row: ReferencesRow; logos: Asset[]; onSaved: () => void }) {
+  const guide = row.style;
+  const brand = row.brand;
+  const [draft, setDraft] = useState<Draft>(() => draftOf(guide, brand));
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+
+  const base = draftOf(guide, brand);
+  const keys = Object.keys(base) as (keyof Draft)[];
+  const dirty = keys.some((k) => draft[k] !== base[k]);
+
+  /* The card follows the server after a save or a re-read, but only when
+     nothing is half-typed: a measured colour that landed while this card was
+     open should appear, and a sentence the owner is mid-way through must not
+     vanish under it. */
+  useEffect(() => {
+    if (!dirty) setDraft(draftOf(guide, brand));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guide.updatedAt, brand.enrichedAt, guide.logo]);
+
+  const field = (k: keyof Draft, value: string) => setDraft((d) => ({ ...d, [k]: value }));
+  const active = guide.logo && logos.some((l) => l.id === guide.logo) ? guide.logo : null;
+
+  async function save(patch: GuidePatch) {
+    setState("saving");
+    setMessage(null);
+    try {
+      await referencesApi.saveGuide(venture.slug, patch);
+      setState("saved");
+      onSaved();
+    } catch (err) {
+      setState("error");
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function saveAll() {
+    /* Only what changed. A colour typed back to the measurement is sent as
+       "" — the owner's word withdrawn, not a second copy of the reading. */
+    const patch: GuidePatch = {};
+    for (const [key] of COLOURS) {
+      if (draft[key] === base[key]) continue;
+      const measured = measuredOf(brand, key) ?? "";
+      patch[key] = draft[key].trim().toUpperCase() === measured.toUpperCase() ? "" : draft[key].trim();
+    }
+    for (const k of ["style", "audience", "language", "summary", "tone", "dos", "donts", "colours", "fonts", "notes"] as const) {
+      if (draft[k] !== base[k]) patch[k] = draft[k];
+    }
+    void save(patch);
+  }
+
+  async function onLogoFile(list: FileList | null) {
+    const file = list?.[0];
+    if (!file) return;
+    setUploading(true);
+    setMessage(null);
+    try {
+      const out = await publishingApi.uploadAsset({ ventureId: venture.id, kind: "logo", file, name: file.name });
+      /* Uploading IS choosing: the reason to upload a logo is to use it, so
+         it becomes the active mark in the same motion. */
+      await referencesApi.saveGuide(venture.slug, { logo: out.asset.id });
+      setState("idle");
+      onSaved();
+    } catch (err) {
+      setState("error");
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function reextract() {
+    setReading(true);
+    setMessage(null);
+    try {
+      await api.ventures.enrich(venture.slug);
+      onSaved();
+    } catch (err) {
+      setState("error");
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReading(false);
+    }
+  }
+
+  const source = (key: ColourKey) =>
+    guide[key] ? <Tag title="typed here — clear the field to go back to the measurement">yours</Tag>
+      : measuredOf(brand, key) ? <Tag title={`measured off ${venture.website ?? "the site"}${brand.enrichedAt ? ` on ${brand.enrichedAt.slice(0, 10)}` : ""}`}>site</Tag>
+        : null;
+
+  const bg = draft.background || "#F1F1F1";
+  const ink = draft.ink || "#111111";
+
+  return (
+    <div className="bg-card grid content-start gap-3 rounded-[14px] p-4">
+      <div className="flex items-center gap-2.5">
+        <span className="grid size-9 shrink-0 place-items-center rounded-[10px] text-[12px] font-semibold" style={{ background: bg, color: ink }}>
+          {venture.name.slice(0, 2)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 truncate text-[14px] font-medium"><VentureMark venture={venture} size={14} />{venture.name} <StagePill stage={venture.stage} /></div>
+          <div className="text-muted-foreground truncate text-[12px]">{venture.website ?? venture.slug}</div>
+        </div>
+        <Button size="sm" variant="ghost" disabled={reading || !venture.website} onClick={() => void reextract()} title={venture.website ? `read the colours, fonts and tone off ${venture.website} again` : "no website to read"}>
+          {reading ? "Reading…" : "Re-extract"}
+        </Button>
+      </div>
+
+      {!brand.enrichedAt && (
+        <p className="text-muted-foreground border-line-soft rounded-[10px] border px-3 py-2 text-[12px] leading-relaxed">
+          Never read from the site. Press Re-extract to measure the colours and fonts off {venture.website ?? "its website"}, or type the four colours in below.
+        </p>
+      )}
+
+      {/* The logo first — it is the brand, and the active one goes into
+          every post. Click a thumbnail to switch; + uploads and selects. */}
+      <div className="text-[12px]">
+        <span className="text-muted-foreground">Logo</span>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          {logos.map((l) => (
+            <div key={l.id} className={cn("relative rounded-[9px] border p-1", active === l.id ? "border-foreground" : "border-line-soft")}>
+              <button type="button" title={active === l.id ? "the active logo" : `use ${l.name ?? "this logo"}`} onClick={() => active !== l.id && void save({ logo: l.id })} className="block">
+                {l.onDisk ? <img src={l.url} alt={l.name ?? ""} loading="lazy" className="size-12 rounded object-contain" /> : <span className="text-muted-foreground grid size-12 place-items-center text-[10px]">gone</span>}
+              </button>
+              {active === l.id ? (
+                <span className="bg-foreground text-background absolute -top-1.5 -right-1.5 rounded-full px-1.5 text-[9px] font-medium">in use</span>
+              ) : (
+                <button
+                  type="button"
+                  title="remove this logo"
+                  onClick={() => void publishingApi.removeAsset(l.id).then(onSaved)}
+                  className="border-line-soft bg-card text-muted-foreground hover:text-destructive absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full border text-[10px]"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+          {!logos.length && brand.favicon && (
+            <div className="border-line-soft rounded-[9px] border p-1" title="the site's own icon, as measured — upload a logo to use one">
+              <img src={brand.favicon} alt="" className="size-12 rounded object-contain opacity-70" />
+            </div>
+          )}
+          <label title="upload a logo — it becomes the active one" className={cn("border-line-soft text-muted-foreground hover:text-foreground grid size-14 cursor-pointer place-items-center rounded-[10px] border border-dashed text-lg", uploading && "animate-pulse")}>
+            {uploading ? "…" : "+"}
+            <input type="file" accept="image/png,image/jpeg,image/webp" disabled={uploading} onChange={(e) => { void onLogoFile(e.target.files); e.target.value = ""; }} className="hidden" />
+          </label>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {COLOURS.map(([key, label]) => (
+          <label key={key} className="flex items-center gap-2 text-[12px]">
+            <Swatch hex={draft[key] || null} />
+            <span className="text-muted-foreground flex w-[6.2rem] shrink-0 items-center gap-1">
+              {label}
+              {source(key)}
+            </span>
+            <Input value={draft[key]} onChange={(e) => field(key, e.target.value.toUpperCase())} spellCheck={false} placeholder="#RRGGBB" className="h-7 px-1.5 font-mono text-[11.5px]" />
+          </label>
+        ))}
+      </div>
+
+      <label className="block text-[12px]">
+        <span className="text-muted-foreground">Look and feel — the model gets this verbatim</span>
+        <Textarea value={draft.style} onChange={(e) => field("style", e.target.value)} rows={3} placeholder="Flat vector, cold palette, lots of air. Photographic, warm, hands at work." className="mt-1 text-[12.5px]" />
+      </label>
+      <div className="grid gap-2 sm:grid-cols-[1fr_7rem]">
+        <label className="block text-[12px]">
+          <span className="text-muted-foreground">Audience</span>
+          <Input value={draft.audience} onChange={(e) => field("audience", e.target.value)} className="mt-1 text-[12.5px]" />
+        </label>
+        <label className="block text-[12px]">
+          <span className="text-muted-foreground flex items-center gap-1">Language {!guide.language && brand.lang && <Tag title="the site's own <html lang>">site</Tag>}</span>
+          <Input value={draft.language} onChange={(e) => field("language", e.target.value)} spellCheck={false} placeholder="en" className="mt-1 font-mono text-[12.5px]" />
+        </label>
+      </div>
+
+      <button type="button" onClick={() => setShowMore((v) => !v)} className="text-muted-foreground w-fit text-[11.5px] hover:underline">
+        {showMore ? "Hide the writers' guide" : "More for the writers — tone, dos and don'ts"}
+      </button>
+      {showMore && (
+        <div className="grid gap-2">
+          {([
+            ["summary", "What this business is, in your words", 2],
+            ["tone", "Tone of voice", 2],
+            ["dos", "Do", 3],
+            ["donts", "Never", 3],
+            ["colours", "About colour, in a sentence", 1],
+            ["fonts", "About type, in a sentence", 1],
+            ["notes", "Notes to yourself — not given to any model", 2],
+          ] as const).map(([k, label, rows]) => (
+            <label key={k} className="block text-[12px]">
+              <span className="text-muted-foreground">{label}</span>
+              <Textarea value={draft[k]} onChange={(e) => field(k, e.target.value)} rows={rows} className="mt-1 text-[12.5px]" />
+            </label>
+          ))}
         </div>
       )}
-      <div className="grid min-w-0 flex-1 gap-1.5">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className="min-w-0 truncate text-[13.5px]">{a.name ?? a.id}</span>
-          <button
-            aria-label={`Remove ${a.name ?? a.id}`}
-            onClick={() => void publishingApi.removeAsset(a.id).then(onChanged)}
-            className="text-muted-foreground hover:text-destructive ml-auto shrink-0"
-          >
-            <Trash2 className="size-[14px]" strokeWidth={1.8} />
+
+      {brand.enrichedAt && (
+        <>
+          <button type="button" onClick={() => setShowEvidence((v) => !v)} className="text-muted-foreground w-fit text-[11.5px] hover:underline">
+            {showEvidence ? "Hide what was read" : "What was read off the site"}
           </button>
-        </div>
-        <p className="text-muted-foreground text-[12px]">
-          {a.source} · {a.width && a.height ? `${a.width}×${a.height}` : "size not measured"} ·{" "}
-          {bytes(a.bytes)} · used {a.usedCount}×{saving ? " · saving…" : ""}
-        </p>
-        <Input
-          value={prompt}
-          aria-label="How the image model should use it"
-          placeholder="How the model should use it — “keep the palette cold”, not a description"
-          onChange={(e) => setPrompt(e.target.value)}
-          onBlur={() => void patch("prompt", prompt.trim())}
-          className="h-7 text-[12.5px]"
-        />
-        <Input
-          value={notes}
-          aria-label="A note to yourself"
-          placeholder="A note to yourself"
-          onChange={(e) => setNotes(e.target.value)}
-          onBlur={() => void patch("notes", notes.trim())}
-          className="h-7 text-[12.5px]"
-        />
+          {showEvidence && (
+            <div className="border-line-soft text-muted-foreground grid gap-1.5 rounded-[10px] border p-3 text-[11.5px]">
+              <p>Read from <span className="font-mono">{venture.website}</span> {ago(brand.enrichedAt)}.</p>
+              {brand.palette.ranked.length > 0 && (
+                <p className="flex flex-wrap items-center gap-1.5">
+                  <span>Colours it uses most:</span>
+                  {brand.palette.ranked.slice(0, 6).map((c) => (
+                    <span key={c.hex} className="flex items-center gap-1"><Swatch hex={c.hex} /><span className="font-mono">{c.hex}</span></span>
+                  ))}
+                </p>
+              )}
+              {brand.fonts.length > 0 && <p>Type: {brand.fonts.join(", ")}</p>}
+              {brand.title && <p>Title: {brand.title}</p>}
+              {brand.description && <p>Description: {brand.description}</p>}
+              {brand.lang && <p>Language: {brand.lang}</p>}
+              {brand.themeColor && <p className="flex items-center gap-1">Theme colour: <Swatch hex={brand.themeColor} /> <span className="font-mono">{brand.themeColor}</span></p>}
+              {brand.notes?.map((n) => <p key={n} className="opacity-80">{n}</p>)}
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="outline" onClick={saveAll} disabled={!dirty || state === "saving"}>
+          {state === "saving" ? "Saving…" : dirty ? "Save brand" : "Saved"}
+        </Button>
+        {state === "saved" && !dirty && <span className="text-muted-foreground text-[12px]">stored{guide.updatedAt ? ` · ${ago(guide.updatedAt)}` : ""}</span>}
+        {state === "error" && <span className="text-destructive text-[12px]">{message}</span>}
+        <Link to={`/ventures/${venture.slug}`} className="text-muted-foreground ml-auto text-[12px] underline decoration-dotted">the venture</Link>
       </div>
     </div>
   );

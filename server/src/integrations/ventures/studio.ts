@@ -45,7 +45,7 @@ import { DATA_DIR } from "../../config.ts";
 import { configValue, db, now, ventureRow, ventureRowById, type VentureRow } from "../../db.ts";
 import { readBrand } from "../../ventures/enrich.ts";
 import { factsForPrompt } from "../knowledge/store.ts";
-import { guidePrompt, guideVisuals } from "../references/guide.ts";
+import { brandOverrides, guidePrompt, guideVisuals } from "../references/guide.ts";
 import { tokenAccounts } from "../../providers/replicate.ts";
 import { download, firstUrl, predict } from "../../tools/replicate-run.ts";
 import { ASPECTS } from "../video/assemble.ts";
@@ -258,21 +258,39 @@ const STAGE_VOICE: Record<string, string> = {
   launched: "This is LAUNCHED and serving people. A post can point at the product, name what it does for someone, and invite them to use it.",
 };
 
+/**
+ * The palette a generator should draw with: the owner's hex where he typed
+ * one over the measurement, the measurement where he did not. `chosen` says
+ * whether any of it is his, so a prompt can say so rather than call his
+ * choice a reading.
+ */
+function effectivePalette(v: VentureRow) {
+  const measured = readBrand(v.brand).palette;
+  const own = brandOverrides(v.id);
+  return {
+    primary: own.primary ?? measured.primary,
+    secondary: own.secondary ?? measured.secondary,
+    accent: measured.accent,
+    background: own.background ?? measured.background,
+    ink: own.ink ?? measured.ink,
+    chosen: !!(own.primary || own.secondary || own.background || own.ink),
+  };
+}
+
 function brandFacts(v: VentureRow): string[] {
   const brand = readBrand(v.brand);
+  const palette = effectivePalette(v);
   const facts: string[] = [
     `Name (the owner's): ${v.name}`,
     `What it is (the owner's own words): ${v.description || "— he has not written one."}`,
     `Stage (the owner's declaration): ${v.stage}. ${STAGE_VOICE[v.stage] ?? ""}`,
     `Website: ${v.website ?? "none yet"}`,
   ];
-  const hexes = [brand.palette.primary, brand.palette.secondary, brand.palette.accent].filter(
-    (h): h is string => !!h,
-  );
+  const hexes = [palette.primary, palette.secondary, palette.accent].filter((h): h is string => !!h);
   if (hexes.length)
     facts.push(
-      `Colours MEASURED FROM THE SITE (not chosen by anyone): ${hexes.join(", ")}` +
-        (brand.palette.background ? `, on ${brand.palette.background}` : ""),
+      (palette.chosen ? `Colours the owner set for the brand: ${hexes.join(", ")}` : `Colours MEASURED FROM THE SITE (not chosen by anyone): ${hexes.join(", ")}`) +
+        (palette.background ? `, on ${palette.background}` : ""),
     );
   else if (v.color_source === "owner") facts.push(`Colour the owner chose: ${v.color}`);
   if (brand.fonts.length) facts.push(`Fonts seen in the site's CSS: ${brand.fonts.join(", ")}`);
@@ -377,12 +395,10 @@ export function splitCaption(text: string): { caption: string; hashtags: string[
  * name belongs in the caption, which is the half that can spell it.
  */
 function imagePrompt(v: VentureRow, brief: string, format: Format): string {
-  const brand = readBrand(v.brand);
-  const hexes = [brand.palette.primary, brand.palette.secondary, brand.palette.accent]
-    .filter((h): h is string => !!h)
-    .slice(0, 3);
+  const own = effectivePalette(v);
+  const hexes = [own.primary, own.secondary, own.accent].filter((h): h is string => !!h).slice(0, 3);
   const palette = hexes.length
-    ? `Colour palette ${hexes.join(", ")}${brand.palette.background ? ` on ${brand.palette.background}` : ""}.`
+    ? `Colour palette ${hexes.join(", ")}${own.background ? ` on ${own.background}` : ""}${own.ink ? `, accents in ${own.ink}` : ""}.`
     : `Colour palette ${v.color}.`;
 
   /* The subject, with the brand's own name stripped out of both halves it
@@ -406,12 +422,19 @@ function imagePrompt(v: VentureRow, brief: string, format: Format): string {
      only thing that can correct a measurement here. The fonts note is
      deliberately NOT passed: this prompt forbids lettering outright, so a
      typeface is an instruction with nothing to act on. */
-  const owner = guideVisuals(v.id).colours;
+  const visuals = guideVisuals(v.id);
+  const owner = visuals.colours;
+
+  /* THE LOOK AND FEEL, VERBATIM, IN PLACE OF THE HOUSE STYLE. With nothing
+     written every post is the same flat editorial vector; a brand whose owner
+     typed "photographic, warm, hands at work" gets that instead of a style
+     argued with by the sentence after it. */
+  const look = visuals.style ? `${visuals.style} ` : "Flat vector style, generous negative space, soft even lighting. ";
 
   return (
     `A clean, modern editorial illustration about: ${subject}. ${palette} ` +
     (owner ? `The owner's own instruction about colour, which overrides the palette above: ${owner} ` : "") +
-    "Flat vector style, generous negative space, soft even lighting. " +
+    look +
     "Absolutely no text, no words, no letters, no numbers, no captions, no " +
     "logos, no signage, no watermark, no user interface screenshots — the " +
     "picture must contain no writing of any kind. " +
@@ -635,7 +658,14 @@ export async function createPost(input: CreatePostInput): Promise<CreatePostResu
     return { ok: false, status: 400, error: `A format is one of ${Object.keys(FORMATS).join(", ")}.` };
 
   const platform = (input.platform ?? "").trim().slice(0, MAX_PLATFORM) || null;
-  const assetIds = (input.assetIds ?? []).slice(0, 4);
+  /* THE ACTIVE LOGO GOES INTO EVERY POST, first, when the owner has chosen
+     one on the brand card and it is not already among the references — the
+     logo IS the brand, and a post made without it is a post somebody has to
+     fix. The prompt still forbids lettering, so on a model that takes a
+     picture it shapes the mark; on one that does not it is described. */
+  const logo = brandOverrides(v.id).logo;
+  const chosen = (input.assetIds ?? []).slice(0, 4);
+  const assetIds = logo && !chosen.includes(logo) ? [logo, ...chosen].slice(0, 4) : chosen;
 
   const started = Date.now();
   const id = newId();

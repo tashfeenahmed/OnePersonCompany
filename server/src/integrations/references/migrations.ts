@@ -52,4 +52,27 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    name: "351_brand_overrides",
+    sql: `
+      -- THE FOUR COLOURS, THE ACTIVE LOGO AND THE LOOK, AS THE OWNER SETS THEM.
+      --
+      -- Workdash kept a brand as four hexes, a logo, a look-and-feel paragraph,
+      -- an audience and a language, each of which the owner could TYPE OVER
+      -- the measured value. The measured values live in ventures.brand and
+      -- are rewritten on every site read (see 350 above for why an owner's
+      -- word cannot live there); these columns are the owner's word, and a
+      -- NULL means "use the measurement". hex_ prefixes because PRIMARY is
+      -- a keyword and a column called that is a column somebody will quote
+      -- wrong. The logo is an asset id out of the publishing library, so the
+      -- bytes have one home and deleting the asset leaves a dangling id that
+      -- readers treat as "no logo" rather than a broken picture.
+      ALTER TABLE style_guides ADD COLUMN hex_primary    TEXT;
+      ALTER TABLE style_guides ADD COLUMN hex_secondary  TEXT;
+      ALTER TABLE style_guides ADD COLUMN hex_background TEXT;
+      ALTER TABLE style_guides ADD COLUMN hex_ink        TEXT;
+      ALTER TABLE style_guides ADD COLUMN logo_asset_id  TEXT;
+      ALTER TABLE style_guides ADD COLUMN style          TEXT;
+    `,
+  },
 ];

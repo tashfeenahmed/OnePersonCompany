@@ -7,10 +7,10 @@ import type { Asset } from "@/areas/publishing/api";
  *
  * TWO SHAPES BEHIND ONE PATH, and the types keep them apart rather than
  * merging them into one optional-everything object. `/api/references` with no
- * venture is an OVERVIEW — a row per business, counts and a boolean — and with
- * one it is the whole document for that business. A single type covering both
- * would make every field optional, and a page reading `guide.tone` off the
- * overview would compile.
+ * venture is the OVERVIEW — a row per business carrying its measured brand,
+ * its guide and its asset counts, which is everything the Logos & branding
+ * tab needs to draw every card from one request — and with one it is the
+ * whole document for that business, pictures included.
  *
  * THE ASSET TYPE IS THE PUBLISHING AREA'S, IMPORTED RATHER THAN RESTATED. The
  * pictures on this page are that library — same table, same route, same file
@@ -22,36 +22,37 @@ import type { Asset } from "@/areas/publishing/api";
  * because the route that accepts a file is the publishing area's and there is
  * only one of it. This module owns exactly one write: the style guide.
  *
- * `written: false` IS THE FIELD TO READ FIRST on a guide. Every field will be
- * null and that means UNWRITTEN, not "he decided this business has no tone".
+ * TWO KINDS OF FIELD ON THE GUIDE. The prose fields are opinion in sentences
+ * and null means unwritten. The brand fields — four hexes and a logo — are
+ * the owner's word OVER the measurement: null means "use what was read off
+ * the site", a hex means "no, this one". The card shows which is in force.
  */
 
-/** The nine fields, all optional, all prose. Null is unwritten. */
-export type StyleGuide = {
-  ventureId: string;
-  /** Whether anything at all has been typed. A saved blank form is not a
-   *  guide, and this is how the page tells the difference. */
-  written: boolean;
-  updatedAt: string | null;
-  summary: string | null;
-  tone: string | null;
-  audience: string | null;
-  dos: string | null;
-  donts: string | null;
-  /** Prose about colour, NOT hexes. The hexes are measured and live on
-   *  `brand.palette`; this is the sentence that says the measurement is out of
-   *  date. */
-  colours: string | null;
-  fonts: string | null;
-  language: string | null;
-  /** A note to a person. Deliberately not put in any prompt. */
-  notes: string | null;
-};
+export type GuideTextField =
+  | "summary"
+  | "tone"
+  | "audience"
+  | "dos"
+  | "donts"
+  | "colours"
+  | "fonts"
+  | "language"
+  | "notes"
+  | "style";
 
-/** The ceiling per field, in characters, as the server enforces it. Sent down
- *  so the form can show what it will be held to instead of finding out on a
- *  failed save. */
-export type GuideLimits = Record<keyof Omit<StyleGuide, "ventureId" | "written" | "updatedAt">, number>;
+export type GuideBrandField = "primary" | "secondary" | "background" | "ink" | "logo";
+
+export type StyleGuide = Record<GuideTextField, string | null> &
+  Record<GuideBrandField, string | null> & {
+    ventureId: string;
+    /** Whether anything at all has been typed or chosen. A saved blank form
+     *  is not a guide, and this is how the page tells the difference. */
+    written: boolean;
+    updatedAt: string | null;
+  };
+
+/** The ceiling per prose field, in characters, as the server enforces it. */
+export type GuideLimits = Record<GuideTextField, number>;
 
 export type ReferencesVenture = {
   id: string;
@@ -80,15 +81,18 @@ export type ReferencesDoc = {
   note: string;
 };
 
-/** One row of the overview: what this business has, without the contents. */
+/** One row of the overview: the brand card's worth, without the pictures. */
 export type ReferencesRow = {
   id: string;
   slug: string;
   name: string;
   stage: VentureStage;
   description: string;
+  website: string | null;
   guide: boolean;
   guideUpdatedAt: string | null;
+  brand: VentureBrand;
+  style: StyleGuide;
   /** Keyed by kind, plus `total`. */
   assets: Record<string, number>;
 };
@@ -97,8 +101,11 @@ export type ReferencesOverview = {
   venture: null;
   kinds: readonly string[];
   ventures: ReferencesRow[];
+  limits: GuideLimits;
   note: string;
 };
+
+export type GuidePatch = Partial<Record<GuideTextField | GuideBrandField, string>>;
 
 export const referencesApi = {
   overview: () => call<ReferencesOverview>("/references"),
@@ -109,12 +116,10 @@ export const referencesApi = {
    * Save the guide.
    *
    * A MERGE, NOT A REPLACEMENT: a field that is not in `patch` is left as it
-   * was on the server, and an empty string clears one. The form sends all nine
-   * every time, so for the page the distinction is invisible; it exists for
-   * the agent, which is handed one field to change and must not wipe the other
-   * eight to do it.
+   * was on the server, and an empty string clears one — which for a brand
+   * field means "back to the measurement". The card sends only what changed.
    */
-  saveGuide: (venture: string, patch: Partial<Record<keyof GuideLimits, string>>) =>
+  saveGuide: (venture: string, patch: GuidePatch) =>
     call<{ venture: { id: string; slug: string; name: string }; guide: StyleGuide; note: string }>(
       `/references/${encodeURIComponent(venture)}/guide`,
       { method: "PUT", body: JSON.stringify(patch) },

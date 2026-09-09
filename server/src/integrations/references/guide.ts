@@ -55,24 +55,54 @@ export const GUIDE_LIMITS = {
   fonts: 400,
   language: 160,
   notes: 2_000,
+  /** The look and feel, forwarded VERBATIM to the image model and given to
+   *  the writers as a line — "flat vector, cold palette, lots of air" is the
+   *  register Workdash's brand card asked for and the one an image prompt can
+   *  act on. */
+  style: 800,
 } as const;
 
 export type GuideField = keyof typeof GUIDE_LIMITS;
 
 export const GUIDE_FIELDS = Object.keys(GUIDE_LIMITS) as GuideField[];
 
+/**
+ * THE OWNER'S WORD OVER THE MEASUREMENT: four hexes and an active logo.
+ *
+ * Each is null for "use what was measured off the site", and each is typed
+ * rather than prose because the image prompt and the brand card both need a
+ * colour they can DRAW. They live in this table and not in `ventures.brand`
+ * for the reason in migrations.ts: that blob is rewritten by every site read.
+ */
+export const BRAND_FIELDS = ["primary", "secondary", "background", "ink", "logo"] as const;
+export type BrandField = (typeof BRAND_FIELDS)[number];
+const BRAND_COLUMN: Record<BrandField, string> = {
+  primary: "hex_primary",
+  secondary: "hex_secondary",
+  background: "hex_background",
+  ink: "hex_ink",
+  logo: "logo_asset_id",
+};
+const HEX = /^#[0-9A-F]{6}$/;
+
 export type GuideRow = Record<GuideField, string | null> & {
   venture_id: string;
   updated_at: string;
+  hex_primary: string | null;
+  hex_secondary: string | null;
+  hex_background: string | null;
+  hex_ink: string | null;
+  logo_asset_id: string | null;
 };
 
-export type Guide = Record<GuideField, string | null> & {
-  ventureId: string;
-  /** Whether anything has actually been written. A row of nine nulls is a row
-   *  somebody saved a blank form into, and it is not a guide. */
-  written: boolean;
-  updatedAt: string | null;
-};
+export type Guide = Record<GuideField, string | null> &
+  Record<BrandField, string | null> & {
+    ventureId: string;
+    /** Whether anything has actually been written. A row of nulls is a row
+     *  somebody saved a blank form into, and it is not a guide. */
+    written: boolean;
+    updatedAt: string | null;
+  };
 
 export function guideRow(ventureId: string): GuideRow | undefined {
   return db.prepare("SELECT * FROM style_guides WHERE venture_id = ?").get(ventureId) as
@@ -91,16 +121,24 @@ export function shapeGuide(ventureId: string, row: GuideRow | undefined): Guide 
     out[field] = value;
     if (value) out.written = true;
   }
+  for (const field of BRAND_FIELDS) {
+    const value = (row?.[BRAND_COLUMN[field] as keyof GuideRow] as string | null | undefined) ?? null;
+    out[field] = value;
+    if (value) out.written = true;
+  }
   return out;
 }
+
+const isWritten = (row: GuideRow) =>
+  GUIDE_FIELDS.some((f) => (row[f] ?? "").trim()) ||
+  BRAND_FIELDS.some((f) => ((row[BRAND_COLUMN[f] as keyof GuideRow] as string | null) ?? "").trim());
 
 /** Which ventures have written anything, as a set, for the overview. One
  *  statement rather than one per venture. */
 export function writtenGuides(): Map<string, string> {
   const rows = db.prepare("SELECT * FROM style_guides").all() as unknown as GuideRow[];
   const out = new Map<string, string>();
-  for (const row of rows)
-    if (GUIDE_FIELDS.some((f) => (row[f] ?? "").trim())) out.set(row.venture_id, row.updated_at);
+  for (const row of rows) if (isWritten(row)) out.set(row.venture_id, row.updated_at);
   return out;
 }
 
@@ -122,9 +160,28 @@ export type SaveResult = { ok: true; guide: Guide } | { ok: false; error: string
  */
 export function saveGuide(
   ventureId: string,
-  patch: Partial<Record<GuideField, unknown>>,
+  patch: Partial<Record<GuideField | BrandField, unknown>>,
 ): SaveResult {
   if (!ventureRowById(ventureId)) return { ok: false, error: `There is no venture ${ventureId}.` };
+
+  /* The brand fields first: a colour is a hex or nothing, and a logo is an
+     asset id or nothing. Upper-cased so two spellings of one colour are one
+     row value. */
+  const brand: Partial<Record<string, string | null>> = {};
+  for (const field of BRAND_FIELDS) {
+    if (!Object.hasOwn(patch, field)) continue;
+    const raw = patch[field];
+    if (raw === null || raw === "") {
+      brand[BRAND_COLUMN[field]] = null;
+      continue;
+    }
+    if (typeof raw !== "string") return { ok: false, error: `\`${field}\` is text — send a string, or null to clear it.` };
+    const value = field === "logo" ? raw.trim() : raw.trim().toUpperCase();
+    if (field !== "logo" && !HEX.test(value))
+      return { ok: false, error: `\`${field}\` is a colour and has to be a six-digit hex like #1A2B3C; “${raw.slice(0, 20)}” is not.` };
+    if (field === "logo" && value.length > 64) return { ok: false, error: "`logo` is an asset id." };
+    brand[BRAND_COLUMN[field]] = value;
+  }
 
   const clean: Partial<Record<GuideField, string | null>> = {};
   for (const field of GUIDE_FIELDS) {
@@ -148,22 +205,26 @@ export function saveGuide(
     clean[field] = trimmed || null;
   }
 
-  const fields = Object.keys(clean) as GuideField[];
-  if (!fields.length)
-    return { ok: false, error: `Send at least one of: ${GUIDE_FIELDS.join(", ")}.` };
+  const columns: string[] = [...(Object.keys(clean) as string[]), ...Object.keys(brand)];
+  const values: (string | null)[] = [
+    ...(Object.keys(clean) as GuideField[]).map((f) => clean[f] ?? null),
+    ...Object.keys(brand).map((c) => brand[c] ?? null),
+  ];
+  if (!columns.length)
+    return { ok: false, error: `Send at least one of: ${[...GUIDE_FIELDS, ...BRAND_FIELDS].join(", ")}.` };
 
   const ts = now();
   const existing = guideRow(ventureId);
   if (!existing) {
     db.prepare(
-      `INSERT INTO style_guides (venture_id, ${GUIDE_FIELDS.join(", ")}, updated_at)
-       VALUES (?, ${GUIDE_FIELDS.map(() => "?").join(", ")}, ?)`,
-    ).run(ventureId, ...GUIDE_FIELDS.map((f) => clean[f] ?? null), ts);
+      `INSERT INTO style_guides (venture_id, ${columns.join(", ")}, updated_at)
+       VALUES (?, ${columns.map(() => "?").join(", ")}, ?)`,
+    ).run(ventureId, ...values, ts);
   } else {
     db.prepare(
-      `UPDATE style_guides SET ${fields.map((f) => `${f} = ?`).join(", ")}, updated_at = ?
+      `UPDATE style_guides SET ${columns.map((c) => `${c} = ?`).join(", ")}, updated_at = ?
         WHERE venture_id = ?`,
-    ).run(...fields.map((f) => clean[f] ?? null), ts, ventureId);
+    ).run(...values, ts, ventureId);
   }
   return { ok: true, guide: shapeGuide(ventureId, guideRow(ventureId)) };
 }
@@ -207,6 +268,7 @@ export function guidePrompt(ventureId: string | null | undefined): string | null
     if (value?.trim()) lines.push(`- ${label}: ${value.trim()}`);
   };
   add("What this business is, in his words", row.summary);
+  add("How it should look and feel", row.style);
   add("Tone of voice", row.tone);
   add("Who it is for", row.audience);
   add("Do", row.dos);
@@ -221,12 +283,41 @@ export function guidePrompt(ventureId: string | null | undefined): string | null
 export function guideVisuals(ventureId: string | null | undefined): {
   colours: string | null;
   fonts: string | null;
+  /** The look and feel, verbatim, for the image prompt. */
+  style: string | null;
 } {
-  if (!ventureId) return { colours: null, fonts: null };
+  if (!ventureId) return { colours: null, fonts: null, style: null };
   try {
     const row = guideRow(ventureId);
-    return { colours: row?.colours?.trim() || null, fonts: row?.fonts?.trim() || null };
+    return { colours: row?.colours?.trim() || null, fonts: row?.fonts?.trim() || null, style: row?.style?.trim() || null };
   } catch {
-    return { colours: null, fonts: null };
+    return { colours: null, fonts: null, style: null };
+  }
+}
+
+/**
+ * The owner's colours and logo, where set, for anything that draws.
+ *
+ * The four hexes are what a brand card and an image prompt use IN PLACE OF the
+ * measured ones — the owner typed over the measurement on purpose — and the
+ * logo is the asset the Studio hands the image model on every post when the
+ * model can take a picture. Nulls throughout for a venture nobody has touched,
+ * so every caller falls through to the measurement with one `??`.
+ */
+export function brandOverrides(ventureId: string | null | undefined): Record<BrandField, string | null> {
+  const none = { primary: null, secondary: null, background: null, ink: null, logo: null };
+  if (!ventureId) return none;
+  try {
+    const row = guideRow(ventureId);
+    if (!row) return none;
+    return {
+      primary: row.hex_primary ?? null,
+      secondary: row.hex_secondary ?? null,
+      background: row.hex_background ?? null,
+      ink: row.hex_ink ?? null,
+      logo: row.logo_asset_id ?? null,
+    };
+  } catch {
+    return none;
   }
 }

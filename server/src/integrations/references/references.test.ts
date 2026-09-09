@@ -23,7 +23,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { db, now } from "../../db.ts";
-import { GUIDE_LIMITS, guidePrompt, guideVisuals, saveGuide, shapeGuide, guideRow } from "./guide.ts";
+import { GUIDE_LIMITS, brandOverrides, guidePrompt, guideVisuals, saveGuide, shapeGuide, guideRow } from "./guide.ts";
 
 function venture(id: string, slug: string) {
   const ts = now();
@@ -40,7 +40,7 @@ test("a guide nobody has written is unwritten rather than empty, and adds nothin
   assert.equal(guide.written, false);
   assert.equal(guide.tone, null);
   assert.equal(guidePrompt(id), null);
-  assert.deepEqual(guideVisuals(id), { colours: null, fonts: null });
+  assert.deepEqual(guideVisuals(id), { colours: null, fonts: null, style: null });
 });
 
 test("saving one field leaves the others exactly as they were", () => {
@@ -109,4 +109,21 @@ test("a guide cannot be written against a venture that does not exist", () => {
   const res = saveGuide("v-nobody", { tone: "Plain." });
   assert.equal(res.ok, false);
   assert.match((res as { error: string }).error, /no venture/);
+});
+
+test("the owner's colours are hexes or nothing, and an empty string hands a colour back to the measurement", () => {
+  const id = venture("v-ref-h", "ref-h");
+  const bad = saveGuide(id, { primary: "navy" });
+  assert.equal(bad.ok, false);
+  const ok = saveGuide(id, { primary: "#1a2b3c", logo: "asset-1", style: "Photographic, warm." });
+  assert.equal(ok.ok, true);
+  /* Stored upper-cased, so two spellings of one colour are one value; the
+     others are null, which every reader treats as "use the measurement". */
+  assert.deepEqual(brandOverrides(id), { primary: "#1A2B3C", secondary: null, background: null, ink: null, logo: "asset-1" });
+  assert.equal(shapeGuide(id, guideRow(id)).written, true);
+  assert.match(guidePrompt(id)!, /look and feel: Photographic, warm\./);
+  assert.equal(guideVisuals(id).style, "Photographic, warm.");
+  saveGuide(id, { primary: "" });
+  assert.equal(brandOverrides(id).primary, null);
+  assert.equal(brandOverrides("nobody").logo, null);
 });

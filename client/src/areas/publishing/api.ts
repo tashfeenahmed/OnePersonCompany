@@ -444,7 +444,7 @@ export const publishingApi = {
   importAsset: (body: { ventureId: string; kind: string; url: string; name?: string; prompt?: string }) =>
     call<{ asset: Asset }>("/publishing/assets", { method: "POST", body: JSON.stringify(body) }),
 
-  patchAsset: (id: string, patch: { kind?: string; name?: string; prompt?: string; notes?: string }) =>
+  patchAsset: (id: string, patch: { kind?: string; name?: string; prompt?: string; notes?: string; ventureId?: string }) =>
     call<{ asset: Asset }>(`/publishing/assets/${id}`, {
       method: "PATCH",
       body: JSON.stringify(patch),

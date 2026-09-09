@@ -732,13 +732,17 @@ publishingRoutes.patch("/assets/:id", async (c) => {
     name?: unknown;
     prompt?: unknown;
     notes?: unknown;
+    ventureId?: unknown;
   } | null;
   if (!body) return c.json(bad("Expected a JSON body."), 400);
+  const moveTo = typeof body.ventureId === "string" ? ventureFrom(body.ventureId) : null;
+  if (typeof body.ventureId === "string" && !moveTo) return c.json(bad("No venture by that id or slug to move it to."), 400);
   const res = updateAsset(c.req.param("id"), {
     kind: typeof body.kind === "string" ? body.kind : undefined,
     name: typeof body.name === "string" ? body.name : undefined,
     prompt: typeof body.prompt === "string" ? body.prompt : undefined,
     notes: typeof body.notes === "string" ? body.notes : undefined,
+    ventureId: moveTo?.id,
   });
   if (!res.ok) return c.json(bad(res.error), 400);
   return c.json({ asset: shapeAsset(res.asset) });

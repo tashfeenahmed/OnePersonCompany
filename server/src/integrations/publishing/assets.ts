@@ -394,22 +394,31 @@ export function removeAsset(id: string): { ok: boolean; error?: string } {
 
 export function updateAsset(
   id: string,
-  patch: { kind?: string; name?: string | null; prompt?: string | null; notes?: string | null },
+  patch: { kind?: string; name?: string | null; prompt?: string | null; notes?: string | null; ventureId?: string },
 ): AddResult {
   const row = assetRow(id);
   if (!row) return { ok: false, error: "No asset by that id." };
   if (patch.kind !== undefined && !(KINDS as readonly string[]).includes(patch.kind))
     return { ok: false, error: `A kind is one of ${KINDS.join(", ")}.` };
+  /* A picture can be MOVED to another venture — the References page's cards
+     let a photo change hands with one click — but only to one that exists;
+     a row pointing at nothing would vanish from every shelf. */
+  if (patch.ventureId !== undefined) {
+    const target = db.prepare("SELECT id FROM ventures WHERE id = ?").get(patch.ventureId) as { id: string } | undefined;
+    if (!target) return { ok: false, error: "No venture by that id to move it to." };
+  }
   db.prepare(
     `UPDATE venture_assets
         SET kind = COALESCE(?, kind), name = COALESCE(?, name),
-            prompt = COALESCE(?, prompt), notes = COALESCE(?, notes), updated_at = ?
+            prompt = COALESCE(?, prompt), notes = COALESCE(?, notes),
+            venture_id = COALESCE(?, venture_id), updated_at = ?
       WHERE id = ?`,
   ).run(
     patch.kind ?? null,
     patch.name === undefined ? null : (patch.name ?? "").slice(0, 120) || null,
     patch.prompt === undefined ? null : (patch.prompt ?? "").slice(0, 600) || null,
     patch.notes === undefined ? null : (patch.notes ?? "").slice(0, 600) || null,
+    patch.ventureId ?? null,
     now(),
     id,
   );

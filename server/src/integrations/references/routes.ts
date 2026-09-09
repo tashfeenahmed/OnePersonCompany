@@ -44,7 +44,7 @@ import {
   shapeAsset,
   UPLOAD_CAP,
 } from "../publishing/assets.ts";
-import { GUIDE_FIELDS, GUIDE_LIMITS, guideRow, saveGuide, shapeGuide, writtenGuides } from "./guide.ts";
+import { GUIDE_FIELDS, GUIDE_LIMITS, guideRow, saveGuide, shapeGuide, writtenGuides, BRAND_FIELDS } from "./guide.ts";
 
 export const referencesRoutes = new Hono();
 
@@ -84,12 +84,20 @@ referencesRoutes.get("/", (c) => {
            *  a guide — see shapeGuide's `written`. */
           guide: written.has(v.id),
           guideUpdatedAt: written.get(v.id) ?? null,
+          /* THE WHOLE BRAND CARD'S WORTH, per venture, so the Logos & branding
+             tab draws every venture from one request rather than nineteen.
+             The measurement and the owner's word are two fields, never
+             merged: the card shows which is which. */
+          brand: readBrand(v.brand),
+          style: shapeGuide(v.id, guideRow(v.id)),
+          website: v.website,
           assets: {
             total: per.total ?? 0,
             ...Object.fromEntries(ASSET_KINDS.map((k) => [k, per[k] ?? 0])),
           } as Record<string, number>,
         };
       }),
+      limits: GUIDE_LIMITS,
       note:
         "One row per venture: how many pictures of each kind it has, and whether a style " +
         `guide has been written for it. ${USED_BY}`,
@@ -141,12 +149,13 @@ async function writeGuide(c: Context) {
   if (!body || typeof body !== "object")
     return c.json(bad(`Expected a JSON body with any of: ${GUIDE_FIELDS.join(", ")}.`), 400);
 
-  const unknown = Object.keys(body).filter((k) => !(GUIDE_FIELDS as string[]).includes(k));
+  const allowed = [...GUIDE_FIELDS, ...BRAND_FIELDS] as string[];
+  const unknown = Object.keys(body).filter((k) => !allowed.includes(k));
   if (unknown.length)
     return c.json(
       bad(
         `${unknown.slice(0, 4).map((k) => `\`${k}\``).join(", ")} is not a guide field. ` +
-          `The fields are: ${GUIDE_FIELDS.join(", ")}.`,
+          `The fields are: ${allowed.join(", ")}.`,
       ),
       400,
     );
