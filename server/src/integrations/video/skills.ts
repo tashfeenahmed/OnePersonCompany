@@ -117,6 +117,13 @@ export const SKILLS: Skill[] = [
       "There is no view count, no watch time and no engagement here, and there " +
         "never will be: nothing on this box publishes a video, so nothing on " +
         "this box can measure how one performed.",
+      "A `shorts` RUN NEEDS AN ADDRESS AND YOU CAN FIND ONE: " +
+        "`GET /api/video/youtube?q=…` searches YouTube through yt-dlp, with no " +
+        "API key and no quota, and returns candidates with their lengths. It " +
+        "READS METADATA AND NOTHING ELSE — it downloads nothing, queues " +
+        "nothing and spends nothing — so never report a search as work having " +
+        "been started. Starting the work is a `shorts` run with one of those " +
+        "addresses, one run per video, through the runs skill.",
     ],
     views: [
       {
@@ -158,6 +165,27 @@ export const SKILLS: Skill[] = [
             required: true,
             in: "path",
             about: "The run that made it. A video is addressed by its run id, because the run IS the job.",
+          },
+        ],
+      },
+      {
+        key: "youtube",
+        path: "/api/video/youtube",
+        about:
+          "Candidate sources to cut a shorts run out of: a YouTube search run through yt-dlp, returning id, watch URL, title, channel, length, views and a thumbnail. Metadata only — 503 when this box has no yt-dlp, which is the same binary a shorts run needs.",
+        params: [
+          {
+            name: "q",
+            type: "string",
+            required: true,
+            about: "What to search for. Trimmed to 200 characters, and an empty one is refused rather than answered with whatever YouTube shows a blank query.",
+          },
+          {
+            name: "n",
+            type: "number",
+            required: false,
+            fallback: 12,
+            about: "How many results. Clamped to 5–30.",
           },
         ],
       },

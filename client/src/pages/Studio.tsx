@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Clapperboard,
   Film,
   Image as ImageIcon,
   Loader2,
+  Play,
   Scissors,
+  Search,
   Send,
   Shapes,
+  Palette,
   Sparkles,
   Timer,
   Tv,
@@ -31,7 +34,7 @@ import { cn } from "@/lib/utils";
 import { ago, when } from "@/lib/format";
 import { appPage } from "../../../shared/navigation";
 import { studioApi, type StudioFormat, type StudioPost, type StudioReadiness } from "@/lib/api/studio";
-import { autopilotApi, stewieApi, videoApi, type VideoJob } from "@/lib/api/video";
+import { autopilotApi, stewieApi, videoApi, youtubeApi, type VideoJob, type YoutubeHit } from "@/lib/api/video";
 import { motionApi } from "@/lib/api/motion";
 import { isLive, runsApi, type RunDetail, type RunSummary } from "@/lib/api/runs";
 
@@ -61,18 +64,34 @@ import { isLive, runsApi, type RunDetail, type RunSummary } from "@/lib/api/runs
  * `runsApi.start` with a `format` — and they finish in the background, so
  * the rail polls while anything is moving and stops when nothing is.
  *
+ * THE YOUTUBE TAB IS THE SHORTS TAB WITH THE SEARCH PUT BACK IN. Cutting
+ * clips has always taken a URL, which assumed the choosing had already
+ * happened somewhere this box could not see — in a YouTube tab, by eye, and
+ * then copied across one address at a time. So that half is here now: a search
+ * that costs nothing (yt-dlp reading metadata, no key, no quota), a wall of
+ * results with their lengths on them, and YouTube's own player for previewing
+ * one without downloading a byte. It starts NO new kind of work — ticking
+ * three videos starts three ordinary `shorts` runs on the same queue, which is
+ * why there is no `youtube` format on the server and nothing new on a run
+ * page. The split between the two tabs is the split between having an address
+ * and needing to find one.
+ *
  * NOTHING HERE POSTS ANYTHING ANYWHERE. A finished post is sent to
  * Publishing as a draft from its card, and a finished video lands on its run
  * page; the queue is where somebody approves a thing against a real account.
  */
 
-type Make = "image" | "ugc" | "faceless" | "shorts" | "reel" | "motion" | "stewie";
+type Make = "image" | "ugc" | "faceless" | "youtube" | "reel" | "motion" | "stewie";
 
 const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[] = [
   { key: "image", label: "Image post", icon: ImageIcon, about: "A caption and a picture in the venture's own brand." },
   { key: "ugc", label: "UGC clip", icon: Clapperboard, about: "The product, from its own reference pictures, put in a scene and animated." },
   { key: "faceless", label: "Faceless video", icon: VideoIcon, about: "A script from the venture over stock footage, captions burned in." },
-  { key: "shorts", label: "Shorts", icon: Scissors, about: "Two to four vertical clips cut out of a long video." },
+  /* Lucide has no YouTube mark in the version installed here, and drawing
+     somebody else's logo by hand is not a thing to do in a tab strip. A
+     magnifying glass is the honest icon anyway: what this tab adds is the
+     SEARCH — the cutting is the row above. */
+  { key: "youtube", label: "YouTube Shorts", icon: Scissors, about: "Two to four vertical clips cut out of a long video — search YouTube and tick the keepers, or paste a link." },
   { key: "reel", label: "Reel", icon: Film, about: "Two voices walking through the venture's own pages, scrolling." },
   { key: "motion", label: "Motion", icon: Shapes, about: "Animated typography from a scene list, in the venture's colours." },
   { key: "stewie", label: "Stewie", icon: Tv, about: "Peter explains, Stewie interrupts, over gameplay footage — cloned voices, rendered by Workdash on the Dell." },
@@ -103,7 +122,7 @@ type Generation =
   | { key: string; kind: "post"; ts: string; post: StudioPost }
   | { key: string; kind: "run"; ts: string; run: RunSummary; job: (VideoJob & { clipCount: number }) | null; input: Record<string, string> | null };
 
-const FORMAT_LABEL: Record<string, string> = { image: "Image post", ugc: "UGC clip", faceless: "Faceless video", shorts: "Shorts", reel: "Reel", motion: "Motion", stewie: "Stewie" };
+const FORMAT_LABEL: Record<string, string> = { image: "Image post", ugc: "UGC clip", faceless: "Faceless video", shorts: "YouTube Shorts", reel: "Reel", motion: "Motion", stewie: "Stewie" };
 
 function isMake(v: string | null): v is Make {
   return MAKES.some((m) => m.key === v);
@@ -190,13 +209,16 @@ export function Studio() {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-3 pb-20">
-        <div className="mx-auto w-full max-w-[760px]">
+        <div className="mx-auto w-full max-w-[820px]">
           <h1 className="mt-10 mb-6 text-center text-[30px] font-normal tracking-[-0.025em]">
             Create anything with AI
           </h1>
 
           <Tabs value={make} onValueChange={(v) => setParam("make", v)} className="items-center">
-            <TabsList variant="line" className="flex-wrap justify-center">
+            {/* `h-auto`: the primitive fixes a horizontal list at one row's
+                height, and eight tabs wrap at this width — a wrapped row
+                inside a fixed-height list overflows onto the sentence below. */}
+            <TabsList variant="line" className="h-auto! flex-wrap justify-center gap-x-0.5 gap-y-1.5">
               {MAKES.map((m) => (
                 <TabsTrigger key={m.key} value={m.key} className="flex-none px-2.5">
                   <m.icon data-icon="inline-start" className="size-3.5" strokeWidth={1.8} />
@@ -292,6 +314,13 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
           <span className="text-muted-foreground ml-auto text-[12px]">
             {drafts ? `${drafts} draft${drafts === 1 ? "" : "s"}` : ""}
           </span>
+        </Link>
+        {/* What every generator draws on: the logos, reference pictures and
+            the written style guide, per venture. */}
+        <Link to="/references" className="hover:bg-accent flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors">
+          <Palette className="size-4 shrink-0" strokeWidth={1.7} />
+          <span className="text-[13.5px]">References</span>
+          <span className="text-muted-foreground ml-auto text-[12px]">logos · photos · style</span>
         </Link>
       </div>
 
@@ -409,9 +438,15 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const [assetIds, setAssetIds] = useState<string[]>([]);
   const [aspect, setAspect] = useState("9:16");
   const [fit, setFit] = useState("cover");
-  const [seconds, setSeconds] = useState(make === "shorts" ? "45" : "30");
+  const [seconds, setSeconds] = useState(make === "youtube" ? "45" : "30");
   const [clips, setClips] = useState("3");
   const [url, setUrl] = useState("");
+  /* THE YOUTUBE TAB'S ONLY STATE UP HERE IS WHAT WAS TICKED. The query, the
+     results and which one is playing all belong to the picker below and are
+     none of this function's business; what the button needs is the addresses
+     and how many clips each should give. Keyed by video id so ticking the same
+     result twice cannot queue it twice. */
+  const [keeps, setKeeps] = useState<Record<string, Keep>>({});
   const [spec, setSpec] = useState("");
   const [voiceover, setVoiceover] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -433,13 +468,13 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const [stewieMode, setStewieMode] = useState<"images" | "pages">("images");
   const [background, setBackground] = useState("");
 
-  const needsVenture = make !== "shorts" && make !== "stewie";
+  const needsVenture = make !== "youtube" && make !== "stewie";
   const ready =
     !busy &&
     (!needsVenture || !!venture) &&
     (make === "image" ? brief.trim().length > 0 : true) &&
     (make === "ugc" ? assets.length > 0 : true) &&
-    (make === "shorts" ? url.trim().length > 0 : true) &&
+    (make === "youtube" ? Object.keys(keeps).length > 0 || url.trim().length > 0 : true) &&
     (make === "stewie" ? (stewie.data?.configured ?? false) && !stewie.data?.running && (stewieMode === "pages" ? url.trim().length > 0 : brief.trim().length > 0) : true);
 
   async function go() {
@@ -456,10 +491,45 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         const res = await socialfeedApi.startUgc({ venture: venture!.slug, brief: brief.trim(), assets: assetIds, aspect });
         setSaid(`Queued. Image: ${res.spend.image}. Video: ${res.spend.video}.`);
         onRun(res.run.id);
+      } else if (make === "youtube") {
+        /*
+          ONE RUN PER TICKED VIDEO, STARTED ONE AFTER THE OTHER.
+
+          There is no batch route and there should not be: a `shorts` run is
+          already the unit of work the queue, the rail and the run page all
+          understand, and a job that held five of them would need its own row,
+          its own page and its own idea of half-failing. Five runs is five
+          rows, each cancellable and retryable on its own.
+
+          SEQUENTIALLY, because the queue takes them one at a time anyway and
+          firing five POSTs at once only makes the ORDER they land in a race —
+          and the order is the one thing the owner expressed by ticking them.
+          The last one started is the one opened, so the rail lands on the
+          bottom of what was just queued rather than the top.
+        */
+        /* A pasted link is one more source beside the ticked ones — the same
+           run, with the clip count from its own field. */
+        const sources = [
+          ...Object.values(keeps).map((k) => ({ url: k.url, clips: k.clips })),
+          ...(url.trim() ? [{ url: url.trim(), clips: Number(clips) || 3 }] : []),
+        ];
+        let last: string | null = null;
+        for (const src of sources) {
+          const run = await runsApi.start({
+            kind: "video",
+            ventureId: venture?.id ?? null,
+            input: { format: "shorts", url: src.url, brief: brief.trim(), aspect, fit, seconds, clips: String(src.clips) },
+          });
+          last = run.id;
+        }
+        const n = sources.length;
+        setUrl("");
+        setSaid(`${n} shorts run${n === 1 ? "" : "s"} queued. They run one at a time and appear in the rail as they go.`);
+        setKeeps({});
+        if (last) onRun(last);
       } else {
         const input: Record<string, string> = { format: make, brief: brief.trim(), aspect };
         if (make === "faceless") Object.assign(input, { seconds, fit });
-        if (make === "shorts") Object.assign(input, { url: url.trim(), seconds, clips, fit });
         if (make === "reel") Object.assign(input, { url: url.trim(), seconds });
         if (make === "motion") Object.assign(input, { spec, voiceover: voiceover ? "true" : "false" });
         if (make === "stewie") Object.assign(input, { url: stewieMode === "pages" ? url.trim() : "", background });
@@ -480,7 +550,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
       : "About five seconds. Without Replicate the post is stored with its words and no picture.",
     ugc: "One image prediction always, and one image-to-video prediction if a model is set under Integrations → Social feed. With none set it makes a still and spends nothing on video.",
     faceless: "A model turn for the script, Pexels for the footage, ffmpeg on this machine. A minute or two.",
-    shorts: "yt-dlp fetches the source, a model picks the moments where it can, ffmpeg cuts. A few minutes for a long source.",
+    youtube: "Searching and previewing are free — metadata and YouTube's own player. Cutting is one shorts run per video you ticked, a few minutes each, one at a time.",
     reel: "Headless Chrome captures each page, a model writes the two voices, the voice plugin speaks them if it is on.",
     motion: "A model drafts the scene list unless you pick a saved one; Chrome renders the frames. Silent unless the voice plugin is on.",
     stewie: "Handed to Workdash's Pi, which wakes the Dell if it is asleep (about ninety seconds), writes the two-hander there, clones both voices and renders. A few minutes, and real power while the Dell is up.",
@@ -494,10 +564,17 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         <VentureSelect ventures={ventures} value={venture?.id ?? null} onChange={(id) => { onVenture(id); setAssetIds([]); setSpec(""); }} none={needsVenture ? null : "No venture"} />
       </Field>
 
-      {make === "shorts" && (
-        <Field label="Source video" hint="A YouTube address or a direct link to a video file.">
-          <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" className="text-[14px]" />
-        </Field>
+      {make === "youtube" && (
+        <>
+          <YoutubePicker keeps={keeps} onKeeps={setKeeps} />
+          <Field label="Or paste a link" hint="A YouTube address or a direct link to a video file, cut alongside anything ticked above.">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" className="min-w-56 flex-1 text-[14px]" />
+              <span className="text-muted-foreground text-[12.5px]">clips</span>
+              <Input type="number" min={2} max={4} value={clips} onChange={(e) => setClips(e.target.value)} className="w-16" />
+            </div>
+          </Field>
+        </>
       )}
 
       {make === "stewie" && (
@@ -551,15 +628,15 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
 
       {!(make === "motion" && spec) && (
         <Field
-          label={make === "image" ? "What the post is about" : make === "shorts" ? "What to look for (optional)" : make === "stewie" ? (stewieMode === "pages" ? "What they should explain (optional)" : "What they should explain") : "What it is about"}
-          hint={make === "image" ? undefined : make === "stewie" ? "One or two lines. In pages mode this can be a whole pitch pasted in for the script to lean on." : "Empty makes the general case for the venture."}
+          label={make === "image" ? "What the post is about" : make === "youtube" ? "What to look for (optional)" : make === "stewie" ? (stewieMode === "pages" ? "What they should explain (optional)" : "What they should explain") : "What it is about"}
+          hint={make === "image" ? undefined : make === "youtube" ? "The same steer is given to every video you ticked, so keep it about the subject rather than about one of them." : make === "stewie" ? "One or two lines. In pages mode this can be a whole pitch pasted in for the script to lean on." : "Empty makes the general case for the venture."}
         >
           <Textarea
             value={brief}
             onChange={(e) => setBrief(e.target.value)}
             rows={make === "image" ? 3 : 2}
             maxLength={2000}
-            placeholder={make === "image" ? "One line. “We shipped weekly digests” — not the post itself." : make === "shorts" ? "The moments worth keeping." : "One or two lines."}
+            placeholder={make === "image" ? "One line. “We shipped weekly digests” — not the post itself." : make === "youtube" ? "The moments worth keeping." : "One or two lines."}
             className="text-[14.5px]"
           />
         </Field>
@@ -616,15 +693,10 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
               <Input type="number" min={10} max={120} value={seconds} onChange={(e) => setSeconds(e.target.value)} className="w-28" />
             </Field>
           )}
-          {make === "shorts" && (
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Clips" hint="Two to four.">
-                <Input type="number" min={2} max={4} value={clips} onChange={(e) => setClips(e.target.value)} className="w-20" />
-              </Field>
-              <Field label="Max seconds" hint="15 to 90 each.">
-                <Input type="number" min={15} max={90} value={seconds} onChange={(e) => setSeconds(e.target.value)} className="w-24" />
-              </Field>
-            </div>
+          {make === "youtube" && (
+            <Field label="Max seconds" hint="15 to 90 for every clip. How many clips each video gives is set on its own card.">
+              <Input type="number" min={15} max={90} value={seconds} onChange={(e) => setSeconds(e.target.value)} className="w-24" />
+            </Field>
           )}
           {make === "motion" && (
             <Field label="Narration">
@@ -634,7 +706,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
               </label>
             </Field>
           )}
-          {(make === "faceless" || make === "shorts") && (
+          {(make === "faceless" || make === "youtube") && (
             <Field label="Fit">
               <Chips value={fit} onChange={setFit} options={[{ key: "cover", label: "Centre crop" }, { key: "letterbox", label: "Letterbox" }]} />
             </Field>
@@ -645,13 +717,211 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
       <div className="flex flex-wrap items-center gap-2.5">
         <Button disabled={!ready} onClick={() => void go()}>
           {busy ? <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} /> : <Sparkles className="size-[15px]" strokeWidth={1.8} />}
-          {busy ? (make === "image" ? "Making it…" : "Queueing…") : `Make ${MAKES.find((m) => m.key === make)!.label.toLowerCase()}`}
+          {busy
+            ? make === "image"
+              ? "Making it…"
+              : "Queueing…"
+            : make === "youtube"
+              ? (() => { const n = Object.keys(keeps).length + (url.trim() ? 1 : 0); return `Cut ${n || ""} video${n === 1 ? "" : "s"}`; })()
+              : `Make ${MAKES.find((m) => m.key === make)!.label.toLowerCase()}`}
         </Button>
         <span className="text-muted-foreground text-[13px]">{cost}</span>
       </div>
       {said && <p className="text-[13.5px]">{said}</p>}
       {refused && <p className="text-destructive text-[13.5px] leading-relaxed">{refused}</p>}
     </div>
+  );
+}
+
+/* --------------------------------------------------------- youtube picker */
+
+/** What one ticked result carries into `runsApi.start`. The URL is the
+ *  server's own spelling of it and is never rebuilt from the id here — one
+ *  speller of an address is the whole reason the search route returns it. */
+type Keep = { url: string; title: string; clips: number };
+
+/** mm:ss, or a dash. A null length is one yt-dlp did not report and is NOT a
+ *  zero-length video — the difference matters on a wall where length is most
+ *  of what you are choosing on. */
+function clock(seconds: number | null): string {
+  if (seconds === null) return "—";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+    : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Views, shortened. Null draws nothing at all rather than "0 views": a video
+ *  whose count was not reported is not a video nobody watched. */
+function views(n: number | null): string {
+  if (n === null) return "";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M views`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K views`;
+  return `${n} view${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * SEARCH, WATCH, TICK. The half of choosing a source that used to happen in
+ * another tab.
+ *
+ * THE TWO HALVES COST DIFFERENT THINGS AND THE PANEL SAYS SO. Searching is
+ * yt-dlp reading metadata with no key and no quota; previewing is YouTube's
+ * own player in this browser, and this box never sees the video. Neither
+ * downloads a byte. The button below the panel is the one that queues real
+ * work, and it belongs to the composer rather than to this.
+ *
+ * THE PLAYER IS BUILT ON CLICK AND THERE IS ONLY EVER ONE. Twelve mounted
+ * iframes would be twelve connections to YouTube on every search, for a wall
+ * that is meant to be cheap to browse; and two playing at once is two people
+ * talking. So the id being previewed is a single piece of state, and choosing
+ * another swaps it.
+ *
+ * A NEW SEARCH CLEARS WHAT WAS TICKED, on purpose. A tick means "this one",
+ * and a tick left over from a query whose results are no longer on the screen
+ * is a video about to be cut that nobody can see they chose.
+ */
+function YoutubePicker({ keeps, onKeeps }: { keeps: Record<string, Keep>; onKeeps: Dispatch<SetStateAction<Record<string, Keep>>> }) {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<YoutubeHit[] | null>(null);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  async function search() {
+    if (!q.trim() || searching) return;
+    setSearching(true);
+    setProblem(null);
+    setPlaying(null);
+    onKeeps({});
+    try {
+      const res = await youtubeApi.search(q.trim(), 12);
+      setHits(res.results);
+      if (res.results.length === 0) setProblem("Nothing came back for that.");
+    } catch (err) {
+      setHits(null);
+      setProblem(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  const total = Object.values(keeps).reduce((n, k) => n + k.clips, 0);
+
+  return (
+    <Field label="Search YouTube" hint="Free — this reads metadata and plays previews from YouTube. Nothing is downloaded until you press the button below.">
+      <div className="flex flex-wrap gap-2">
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
+          maxLength={200}
+          placeholder="What are you looking for? “why tokens matter for LLMs”"
+          className="min-w-56 flex-1 text-[14px]"
+        />
+        <Button variant="outline" disabled={searching || !q.trim()} onClick={() => void search()}>
+          {searching ? <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} /> : <Search className="size-[15px]" strokeWidth={1.8} />}
+          {searching ? "Searching…" : "Search"}
+        </Button>
+      </div>
+
+      {problem && <p className="text-destructive text-[12.5px] leading-relaxed">{problem}</p>}
+
+      {hits && hits.length > 0 && (
+        <div className="mt-1 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          {hits.map((h) => {
+            const keep = keeps[h.id];
+            /* The source-length limit lives in the Video settings and defaults
+               to ninety minutes; a run that is going to be refused for it
+               should say so on the card rather than three minutes into the
+               queue. */
+            const tooLong = (h.durationS ?? 0) > 5400;
+            return (
+              <div
+                key={h.id}
+                className={cn("rounded-[12px] border p-2 transition-colors", keep ? "border-foreground" : "border-line-soft")}
+              >
+                <div className="bg-muted relative aspect-video overflow-hidden rounded-[8px]">
+                  {playing === h.id ? (
+                    <iframe
+                      src={`https://www.youtube-nocookie.com/embed/${h.id}?autoplay=1`}
+                      title={h.title}
+                      allow="autoplay; encrypted-media"
+                      allowFullScreen
+                      className="size-full border-0"
+                    />
+                  ) : (
+                    <button type="button" onClick={() => setPlaying(h.id)} className="group size-full" title="Watch it here">
+                      <img src={h.thumbnail} alt="" loading="lazy" className="size-full object-cover" />
+                      <span className="absolute inset-0 grid place-items-center bg-black/25 opacity-80 transition-opacity group-hover:opacity-100">
+                        <Play className="size-6 text-white" strokeWidth={1.8} />
+                      </span>
+                    </button>
+                  )}
+                  <span className="absolute right-1 bottom-1 rounded-[5px] bg-black/70 px-1 text-[11px] tabular-nums text-white">
+                    {clock(h.durationS)}
+                  </span>
+                </div>
+
+                <p className="mt-1.5 line-clamp-2 text-[12.5px] leading-snug" title={h.title}>{h.title}</p>
+                <p className="text-muted-foreground truncate text-[11.5px]">
+                  {[h.channel, views(h.viewCount)].filter(Boolean).join(" · ") || "—"}
+                </p>
+                {tooLong && (
+                  <p className="text-muted-foreground text-[11.5px]">Over 90 minutes — a run refuses a source past the limit in the Video settings.</p>
+                )}
+
+                <div className="mt-1.5 flex items-center gap-2">
+                  <button
+                    type="button"
+                    /* THE UPDATE IS A FUNCTION OF WHAT WAS THERE and not of
+                       `keeps` as this render saw it. Two ticks inside one
+                       React batch — which is what a fast pair of clicks is —
+                       both read the same stale object, and the second one
+                       silently threw away the first. */
+                    onClick={() =>
+                      onKeeps((prev) => {
+                        const next = { ...prev };
+                        if (next[h.id]) delete next[h.id];
+                        else next[h.id] = { url: h.url, title: h.title, clips: 3 };
+                        return next;
+                      })
+                    }
+                    className={cn("rounded-[10px] border px-2 py-1 text-[12.5px] transition-colors", keep ? "border-foreground" : "hover:border-line-strong")}
+                  >
+                    {keep ? "Keeping" : "Keep"}
+                  </button>
+                  {keep && (
+                    <label className="text-muted-foreground ml-auto flex items-center gap-1.5 text-[11.5px]">
+                      clips
+                      <Input
+                        type="number"
+                        min={2}
+                        max={4}
+                        value={keep.clips}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          const clips = Number.isFinite(n) ? Math.max(2, Math.min(4, Math.round(n))) : 3;
+                          onKeeps((prev) => (prev[h.id] ? { ...prev, [h.id]: { ...prev[h.id]!, clips } } : prev));
+                        }}
+                        className="h-7 w-14 px-1.5 text-[12.5px] tabular-nums"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {total > 0 && (
+        <p className="text-muted-foreground text-[12.5px]">
+          {Object.keys(keeps).length} video{Object.keys(keeps).length === 1 ? "" : "s"} ticked · {total} clip{total === 1 ? "" : "s"} in total, cut one run at a time.
+        </p>
+      )}
+    </Field>
   );
 }
 

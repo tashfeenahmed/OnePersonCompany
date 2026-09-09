@@ -750,7 +750,11 @@ export function filterYtdlpArgs(args: string[]): string[] {
   return args.filter((a) => !banned.includes(a.split("=")[0]!.toLowerCase()));
 }
 
-const readExtraArgs = () =>
+/** EXPORTED because the YouTube search runs the same binary and has the same
+ *  reason to want the owner's flags: `--cookies-from-browser` is the fix for a
+ *  search that returns nothing as often as it is the fix for a download that
+ *  fails, and two readers of one setting would be two ideas of what it means. */
+export const readExtraArgs = () =>
   filterYtdlpArgs((configValue(VIDEO_PLUGIN, "ytdlpArgs") ?? "").trim().split(/\s+/).filter(Boolean)).slice(0, 20);
 
 const numberSetting = (key: string, fallback: number, lo: number, hi: number) => {

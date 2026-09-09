@@ -17,6 +17,7 @@ import { readVtt, groupCues, renderCues } from "./shorts.ts";
 import { wrap } from "./captions.ts";
 import { fitGraph, blurFilter } from "./assemble.ts";
 import { readFormat } from "./execute.ts";
+import { clampCount, readHit } from "./youtube.ts";
 import { wall, validZone } from "./autopilot.ts";
 
 /* ------------------------------------------------------------ the script */
@@ -225,4 +226,56 @@ test("the wall clock is read out of Intl so daylight saving is never modelled he
 test("a time zone this machine does not know is refused rather than silently ignored", () => {
   assert.equal(validZone("Europe/Dublin"), true);
   assert.equal(validZone("Mars/Olympus"), false);
+});
+
+/* ------------------------------------------------------- youtube search */
+
+/* yt-dlp's flat search output, which is one JSON object per LINE and not a
+   JSON array — the shape the parser has to survive, including the entries
+   that are not videos and the fields a flat search does not carry. */
+
+test("a search result is read into a hit, with the absences left absent", () => {
+  const hit = readHit(
+    JSON.stringify({ id: "dQw4w9WgXcQ", title: "A talk", channel: "Someone", duration: 612.4, view_count: 1234 }),
+  );
+  assert.ok(hit);
+  assert.equal(hit.url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  assert.equal(hit.thumbnail, "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg");
+  assert.equal(hit.durationS, 612);
+  assert.equal(hit.viewCount, 1234);
+  /* NULL AND NOT ZERO, AND NULL AND NOT "": a flat search does not carry an
+     upload date and rarely carries a channel for every entry. */
+  assert.equal(hit.uploadDate, null);
+
+  const bare = readHit(JSON.stringify({ id: "dQw4w9WgXcQ", title: "A talk" }));
+  assert.equal(bare?.channel, null);
+  assert.equal(bare?.durationS, null);
+  assert.equal(bare?.viewCount, null);
+});
+
+test("an upload date, when there is one, is a date and not eight digits", () => {
+  assert.equal(readHit(JSON.stringify({ id: "dQw4w9WgXcQ", upload_date: "20260901" }))?.uploadDate, "2026-09-01");
+  assert.equal(readHit(JSON.stringify({ id: "dQw4w9WgXcQ", upload_date: "soon" }))?.uploadDate, null);
+});
+
+test("anything that is not a YouTube video id is not a result", () => {
+  /* A search can return a channel or a playlist, whose ids are not eleven
+     characters — and the id is composed into a watch URL and an iframe src,
+     so this is the check that keeps both of those addressing YouTube. */
+  for (const bad of [
+    JSON.stringify({ id: "UCsomechannelid1234", title: "A channel" }),
+    JSON.stringify({ id: "../../etc/passwd", title: "Not an id" }),
+    JSON.stringify({ title: "No id at all" }),
+    "{ this is not json",
+    "",
+  ])
+    assert.equal(readHit(bad), null);
+});
+
+test("how many results is clamped rather than trusted", () => {
+  assert.equal(clampCount("12"), 12);
+  assert.equal(clampCount("1"), 5);
+  assert.equal(clampCount("900"), 30);
+  assert.equal(clampCount(null), 12);
+  assert.equal(clampCount("lots"), 12);
 });

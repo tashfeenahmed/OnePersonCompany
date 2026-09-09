@@ -141,6 +141,10 @@ export type VideoReadiness = {
   captions: VideoCapability & { renderer: string };
   narration: VideoCapability & { mode: string };
   shorts: VideoCapability & { ytdlp: string | null; transcription: string | null };
+  /** Searching and cutting turn on the same binary, and are reported apart
+   *  because they fail at different moments — a search box that answers
+   *  nothing, or a run that stops three minutes in. */
+  youtube: VideoCapability & { ytdlp: string | null };
   formats: { key: string; about: string }[];
   aspects: { key: string; width: number; height: number; about: string }[];
   note: string;
@@ -156,6 +160,42 @@ export const videoApi = {
   list: (venture?: string | null) =>
     call<VideoList>(`/video${venture ? `?venture=${encodeURIComponent(venture)}` : ""}`),
   get: (runId: string) => call<VideoJob>(`/video/${encodeURIComponent(runId)}`),
+};
+
+/* ---------------------------------------------------------------- youtube */
+
+/**
+ * A CANDIDATE SOURCE, NOT A VIDEO THIS BOX HAS. Nothing in this type exists on
+ * the disk: it is yt-dlp's metadata for something on YouTube, read so the
+ * Studio can put a wall of choices in front of somebody instead of asking them
+ * to go and paste an address.
+ *
+ * EVERY NULLABLE FIELD IS NULL BECAUSE IT WAS NOT KNOWN. A flat search does
+ * not carry an upload date and does not always carry a view count, and the
+ * page draws the absence rather than a zero — a video with "0 views" and a
+ * video whose views were not reported are different videos to choose between.
+ */
+export type YoutubeHit = {
+  id: string;
+  /** Already composed by the server, and the string to hand a shorts run as
+   *  its `url`. Never rebuilt here. */
+  url: string;
+  title: string;
+  channel: string | null;
+  durationS: number | null;
+  viewCount: number | null;
+  thumbnail: string;
+  uploadDate: string | null;
+};
+
+export type YoutubeSearch = { query: string; count: number; results: YoutubeHit[]; note: string };
+
+export const youtubeApi = {
+  /** Searching costs nothing and downloads nothing — it is yt-dlp reading
+   *  metadata. The spending starts at `runsApi.start`, with one of these
+   *  addresses. */
+  search: (q: string, n = 12) =>
+    call<YoutubeSearch>(`/video/youtube?q=${encodeURIComponent(q)}&n=${n}`),
 };
 
 /* ---------------------------------------------------------------- stewie */

@@ -38,6 +38,7 @@ import { pexelsKey } from "./footage.ts";
 import { FORMATS } from "./execute.ts";
 import { clipCounts, clipRows, jobRow, jobRows, shapeJob } from "./store.ts";
 import { findFfmpeg, findFfprobe, findYtDlp } from "./tools.ts";
+import { clampCount, searchYoutube, youtubeReadiness } from "./youtube.ts";
 
 export const videoRoutes = new Hono();
 
@@ -99,6 +100,7 @@ async function readiness() {
           "and from even spacing where there is neither — which is cutting, not choosing, and every clip row says which it was."
         : (ytdlp.error ?? "no yt-dlp"),
     },
+    youtube: youtubeReadiness(),
     formats: FORMATS.map((f) => ({
       key: f,
       about:
@@ -140,6 +142,31 @@ videoRoutes.get("/", async (c) => {
       clipCount: counts.get(r.run_id) ?? 0,
     })),
     readiness: await readiness(),
+  });
+});
+
+/**
+ * SEARCH YOUTUBE FOR SOMETHING TO CUT UP.
+ *
+ * BEFORE `/:runId` AND THAT ORDER IS LOAD BEARING. Hono matches in
+ * registration order, so a literal segment declared after a parameter one is
+ * never reached — `/youtube` would be read as a run id and answered with the
+ * paragraph about there being no video for it.
+ *
+ * A GET WITH NO SIDE EFFECTS, which is why it is a GET: it downloads nothing,
+ * queues nothing and spends nothing. The three failures are told apart on
+ * purpose — 400 is an empty query, 503 is a box without yt-dlp, and 502 is
+ * yt-dlp answering badly — because only the middle one is something the owner
+ * can go and fix.
+ */
+videoRoutes.get("/youtube", async (c) => {
+  const res = await searchYoutube(c.req.query("q") ?? "", clampCount(c.req.query("n")));
+  if (!res.ok) return c.json({ error: res.error }, res.status);
+  return c.json({
+    query: (c.req.query("q") ?? "").trim().slice(0, 200),
+    count: res.hits.length,
+    results: res.hits,
+    note: "Metadata only. Previewing one of these plays it from YouTube in your own browser; cutting one starts a shorts run, which is what actually downloads it.",
   });
 });
 
