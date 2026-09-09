@@ -1,12 +1,8 @@
 import { lazy } from "react";
 import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { TopBar } from "@/components/PageShell";
-import { MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
+import { SOCIAL_PAGES } from "@/data/navigation";
 
-const Mailbox = lazy(() => import("@/pages/Mailbox").then(m => ({ default: m.Mailbox })));
-const Triage = lazy(() => import("@/areas/mailflow/Triage").then(m => ({ default: m.Triage })));
-const Outbox = lazy(() => import("@/areas/mailflow/Outbox").then(m => ({ default: m.Outbox })));
-const Nurture = lazy(() => import("@/areas/nurture/Nurture").then(m => ({ default: m.Nurture })));
 const Video = lazy(() => import("@/areas/video/Video").then(m => ({ default: m.Video })));
 const Posts = lazy(() => import("@/areas/socialfeed/Posts").then(m => ({ default: m.Posts })));
 
@@ -21,16 +17,16 @@ const Posts = lazy(() => import("@/areas/socialfeed/Posts").then(m => ({ default
  * Publishing and Motion are drawn inside the Studio and their slugs never
  * reach this map at all.
  *
+ * MAIL LEFT THE SAME WAY THE STUDIO DID. Its four addresses were four pages
+ * under this strip; they are six tabs of one header now, routed at /mail/*
+ * by pages/Email.tsx. One section is left, and this file stays generic
+ * because the shape it holds — a section of addresses drawn under a strip
+ * that names them — is the shape any next section arrives in.
+ *
  * `labels` names the pages that are no longer rows, because the strip above
  * the page still has to say what you are looking at.
  */
 const SECTIONS = {
-  mail: {
-    pages: MAIL_PAGES,
-    label: "Mail",
-    routes: { email: Mailbox, triage: Triage, outbox: Outbox, nurture: Nurture },
-    labels: {} as Record<string, string>,
-  },
   social: {
     pages: SOCIAL_PAGES,
     label: "Social media",
@@ -58,5 +54,4 @@ function SectionPages({ section, selectedPage }: { section: keyof typeof SECTION
   </>;
 }
 
-export function MailSection() { return <SectionPages section="mail" />; }
 export function SocialSection({ page }: { page?: string }) { return <SectionPages section="social" selectedPage={page} />; }

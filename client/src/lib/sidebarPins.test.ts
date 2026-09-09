@@ -5,7 +5,7 @@ import { isWorkspacePreferences } from "../../../shared/workspace.ts";
 
 const board: SidebarPin = { type: "page", path: "/board" };
 const session: SidebarPin = { type: "session", sessionId: "chat / ü" };
-const email: SidebarPin = { type: "page", path: "/mail/email" };
+const email: SidebarPin = { type: "page", path: "/mail" };
 
 test("old favorites retain order and migrate aliases without duplicates or resurrecting cleared pins", () => {
   assert.deepEqual(sidebarPins({ favoritePaths: ["/apps", "/board", "/outputs"] }), [

@@ -55,6 +55,12 @@ import { sidebarPath } from "../../../shared/navigation";
  * menu that had stopped existing. Their paths still resolve as redirects (see
  * App.tsx); they are simply not rows, so a saved order or a pin naming one is
  * dropped rather than translated — see shared/navigation.ts.
+ *
+ * MAIL IS ONE ROW, for the same reason and by the same move. It was four —
+ * Email, Triage, Outbox, Nurture — and all four are tabs of one page at /mail
+ * now, along with the mailbox's Sent mode and People's Commitments tab. The
+ * row is "here" for every address under it, which is what `isHere` below
+ * already does for a prefix.
  */
 const NAV = [
   { to: "/action-inbox", label: "Action inbox" },

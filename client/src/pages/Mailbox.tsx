@@ -5,12 +5,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Image,
-  Inbox,
   Mail,
   MailOpen,
   Paperclip,
   Search,
-  Send,
 } from "lucide-react";
 import { bytes, day, when } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -63,14 +61,18 @@ import {
  * because a second mobile tree is a second place for the mark-read behaviour
  * to be subtly different.
  *
- * TWO MODES, AND THE OTHER TWO ARE HONESTLY ABSENT. A mail page of this shape
- * wants four: inbox, priority, sent by apps, and promises. The two built here
- * are the two that are a question about MAIL. Priority is a ranking and
- * promises is an extraction, and both need a model to read the prose — see
- * `Coming`, which says what they would take rather than showing an empty list
- * that would read as "nothing is urgent".
+ * TWO MODES, AND THE TAB STRIP IS NOT THIS PAGE'S ANY MORE. Inbox and Sent by
+ * apps are the first two tabs of the Email page's header (pages/Email.tsx),
+ * which is what mounts this one, so the mode arrives as a prop rather than as
+ * a strip drawn an inch under the strip that already offers it. The default is
+ * there for a caller that renders the mailbox on its own.
+ *
+ * A mail page of this shape wants four modes: the other two are priority and
+ * promises, both of which need a model to read the prose. Triage is the first
+ * of those and Commitments the second, and both are their own pages under the
+ * same header — which is why nothing here pretends they are missing.
  */
-export function Mailbox() {
+export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
   const [params, setParams] = useSearchParams();
   const { state } = useStore();
   const ventures = state.ventures;
@@ -90,7 +92,6 @@ export function Mailbox() {
     typo should not be able to make it. The server takes the same view and says
     so in `mailboxIgnored`.
   */
-  const mode: Mode = params.get("mode") === "sent" ? "sent" : "inbox";
   const chip = params.get("mailbox");
 
   const [typed, setTyped] = useState("");
@@ -223,26 +224,7 @@ export function Mailbox() {
       {/* The controls do not scroll with the rows. A search box that leaves
           the top of the list is a search box you scroll back up to reach. */}
       <div className="shrink-0 border-b px-3 pt-2.5 pb-2">
-        <div className="flex items-center gap-1">
-          {MODES.map((m) => (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => put("mode", m.key === "inbox" ? null : m.key)}
-              aria-current={mode === m.key ? "page" : undefined}
-              className={cn(
-                "text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-[6px] rounded-lg px-2.5 py-1.5 text-[13.5px] whitespace-nowrap",
-                mode === m.key && "bg-accent text-foreground font-medium",
-              )}
-            >
-              <m.icon className="size-3.5" strokeWidth={1.6} />
-              {m.name}
-            </button>
-          ))}
-          <Coming />
-        </div>
-
-        <div className="relative mt-2">
+        <div className="relative">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
           <Input
             value={typed}
@@ -450,31 +432,13 @@ export function Mailbox() {
 /*  Modes                                                                 */
 /* ====================================================================== */
 
-type Mode = "inbox" | "sent";
+/** Which list this page is: the inbox as Gmail has it, or what the apps sent
+ *  through Resend. The Email page's header picks it. */
+export type Mode = "inbox" | "sent";
 type Opened =
   | { kind: "thread"; id: string }
   | { kind: "sent"; id: string; domain: string }
   | null;
-
-const MODES: { key: Mode; name: string; icon: typeof Mail }[] = [
-  { key: "inbox", name: "Inbox", icon: Inbox },
-  { key: "sent", name: "Sent by apps", icon: Send },
-];
-
-/**
- * The place the other two modes would go.
- *
- * IT SAYS WHAT IS MISSING RATHER THAN PRETENDING NOTHING IS. Priority and
- * Promises would sit beside these two, and both are model features: one
- * ranks a thread by importance, the other lifts commitments out of the owner's
- * own sent prose. A tab wired to an empty list would be a promise this page
- * has no way to keep — the move `searxng.queries` and `replicate.gpu` made on
- * the dashboards, in a place where the cost of the alternative is somebody
- * trusting "nothing is urgent".
- */
-function Coming() {
-  return <span className="ml-auto flex gap-2 px-2 text-xs"><Link className="underline" to="/mail/triage">Triage</Link><Link className="underline" to="/people/commitments">Commitments</Link></span>;
-}
 
 /* ====================================================================== */
 /*  Naming a chip                                                         */
@@ -795,7 +759,7 @@ function ThreadReader({
   return (
     <>
       <header className="flex flex-wrap shrink-0 items-start gap-2 border-b px-3.5 py-2.5">
-        <Link className="border rounded px-2 py-1 text-xs" to="/mail/outbox" state={{ reply: { to: shown.messages.findLast(m => !m.labels.includes("SENT"))?.from ?? shown.messages.at(-1)?.to.split(",")[0] ?? "", subject: /^re:/i.test(shown.subject) ? shown.subject : `Re: ${shown.subject}`, account: shown.accountId, thread: id, back: `/mail/email?thread=${encodeURIComponent(id)}&account=${shown.accountId}` } }}>Draft reply</Link>
+        <Link className="border rounded px-2 py-1 text-xs" to="/mail/outbox" state={{ reply: { to: shown.messages.findLast(m => !m.labels.includes("SENT"))?.from ?? shown.messages.at(-1)?.to.split(",")[0] ?? "", subject: /^re:/i.test(shown.subject) ? shown.subject : `Re: ${shown.subject}`, account: shown.accountId, thread: id, back: `/mail/inbox?thread=${encodeURIComponent(id)}&account=${shown.accountId}` } }}>Draft reply</Link>
         <button
           type="button"
           onClick={onBack}

@@ -28,7 +28,7 @@ const Person = lazy(() => import("@/pages/Person").then(m => ({ default: m.Perso
 const Settings = lazy(() => import("@/pages/Settings").then(m => ({ default: m.Settings })));
 const Ops = lazy(() => import("@/areas/security/Ops").then(m => ({ default: m.Ops })));
 const Board = lazy(() => import("@/pages/Board").then(m => ({ default: m.Board })));
-const MailSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.MailSection })));
+const Email = lazy(() => import("@/pages/Email").then(m => ({ default: m.Email })));
 const SocialSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.SocialSection })));
 const Subagents = lazy(() => import("@/pages/Subagents").then(m => ({ default: m.Subagents })));
 const People = lazy(() => import("@/areas/people/People").then(m => ({ default: m.People })));
@@ -253,8 +253,23 @@ export default function App() {
                     <Route path="/dashboards/reports/:report" element={<Dashboards />} />
                     <Route path="/dashboards/:slug" element={<Dashboards />} />
                     <Route path="/board" element={<Board />} />
-                    <Route path="/mail" element={<MailSection />} />
-                    <Route path="/mail/:page" element={<MailSection />} />
+                    {/*
+                      MAIL IS ONE PAGE AND ENDS IN A SPLAT, for the same two
+                      reasons the Studio's route below does.
+
+                      Its own route rather than SectionPages', because the six
+                      mail views are tabs of one header now and the slim strip
+                      above it would name the section a second time.
+
+                      A splat, because pages/Email.tsx holds the nested
+                      `Routes` for the six — /mail/inbox, /mail/sent,
+                      /mail/triage, /mail/commitments, /mail/outbox,
+                      /mail/nurture — plus the redirect that carries the old
+                      /mail/email (and its `?mode=sent`) onto the right one. A
+                      parent whose path does not end in `/*` matches nothing
+                      below itself.
+                    */}
+                    <Route path="/mail/*" element={<Email />} />
                     {/*
                       THE STUDIO IS ITS OWN ROUTE, AND IT ENDS IN A SPLAT.
 

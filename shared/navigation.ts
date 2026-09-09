@@ -1,8 +1,12 @@
 // Canonical destinations for tools moved out of the Apps area.
 export const MOVED_APPS: Readonly<Record<string, string>> = {
   board: "/board",
-  email: "/mail/email",
-  mailbox: "/mail/email",
+  /* MAIL IS ONE PAGE WITH SIX TABS. The mailbox is what /mail opens on, and
+     Triage, the Outbox and Nurture are tabs of the same header rather than
+     pages of their own — the addresses are unchanged, so a tool named here
+     still resolves to the view somebody meant. */
+  email: "/mail",
+  mailbox: "/mail",
   "email-stats": "/dashboards/reports/email-stats",
   triage: "/mail/triage",
   outbox: "/mail/outbox",
@@ -47,6 +51,13 @@ const RENAMED: Readonly<Record<string, string>> = {
   "/apps": "/outputs",
   "/social/autopilot": "/social/studio/autopilot",
   "/social/publishing": "/social/studio/publishing",
+  /* The mail row moved from /mail/email to /mail when the four mail pages
+     became one, so an owner who dragged Email up their rail or pinned it keeps
+     both. NOTHING FOR TRIAGE, OUTBOX OR NURTURE, for the reason spelled out
+     below: they stopped being rows. Renaming them to /mail would land a pin
+     made for Triage on the Inbox tab, which is not where that pin was
+     pointing. */
+  "/mail/email": "/mail",
   /* NOTHING FOR VIDEO, MOTION OR POSTS. Those three did not move — they
      STOPPED BEING ROWS. A rename here would put a pin the owner made for
      Motion onto the Studio, which is a different row they may already have

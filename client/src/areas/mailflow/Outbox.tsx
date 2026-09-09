@@ -232,7 +232,7 @@ function Card({
             {item.inReplyTo && (
               <>
                 <span>·</span>
-                <Link className="underline" to={`/mail/email?thread=${encodeURIComponent(item.inReplyTo)}&account=${item.accountId}`}>Open conversation</Link>
+                <Link className="underline" to={`/mail/inbox?thread=${encodeURIComponent(item.inReplyTo)}&account=${item.accountId}`}>Open conversation</Link>
               </>
             )}
           </div>

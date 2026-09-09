@@ -1,11 +1,14 @@
-import { Inbox, Mail, SendHorizontal, Sparkles, Sprout } from "lucide-react";
+import { Mail, Sparkles } from "lucide-react";
 import { appPage } from "../../../shared/navigation";
 
+/* ONE MAIL ROW, BECAUSE THERE IS ONE MAIL PAGE. Triage, Outbox and Nurture
+   each had a row here and each of them is a TAB of the Email page now, beside
+   the mailbox's two modes and the commitments lifted out of People — see
+   pages/Email.tsx. Four rows for six views reached six ways was the rail
+   teaching a menu the page no longer had. Their addresses are unchanged;
+   they are simply not rows. */
 export const MAIL_PAGES = [
   { slug: "email", label: "Email", icon: Mail },
-  { slug: "triage", label: "Triage", icon: Inbox },
-  { slug: "outbox", label: "Outbox", icon: SendHorizontal },
-  { slug: "nurture", label: "Nurture", icon: Sprout },
 ].map(page => ({ ...page, to: appPage(page.slug) }));
 
 /* ONE SOCIAL ROW, BECAUSE THERE IS ONE SOCIAL PAGE. Autopilot, Video,
