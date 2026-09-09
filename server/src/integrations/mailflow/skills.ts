@@ -61,6 +61,13 @@ export const SKILLS: Skill[] = [
       "`window.threads` is how many cached rows this read drew, capped by " +
         "`max`; `window.cached` is how many the window holds. Neither is how " +
         "much mail exists — a count at the cap is a floor.",
+      "THERE IS A FOURTH ROUTE AND IT IS NOT AN ACTION HERE. " +
+        "`POST /api/triage/reply` opens a thread, reads its message bodies and " +
+        "has a model draft an answer; it is the owner's own button on the triage " +
+        "deck. It is absent from this list on purpose, so the proxy has no URL to " +
+        "compose, and the route refuses the proxy's header besides. Nothing you " +
+        "can reach through this skill reads a body. To write a reply, write an " +
+        "outbox draft — that reads nothing and still waits for his press.",
     ],
     views: [
       {

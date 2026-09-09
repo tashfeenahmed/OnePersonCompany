@@ -16,8 +16,15 @@
  * are called only from a button the owner presses, and the server refuses both
  * for anything arriving through the skills proxy. The agent's half of this
  * area is draft, edit and dismiss.
+ *
+ * `reply` AND `thread` ARE THE DECK'S TWO EXTRA CALLS, and neither of them
+ * sends anything. `reply` asks the server to draft an answer — the one call in
+ * this area that reads message bodies, which it drops with the request — and
+ * `thread` is the mailbox app's own reader, re-exported rather than
+ * reimplemented. A reply drafted here still leaves by the same road as
+ * everything else: `draft`, then the owner's press on `approve` and `send`.
  */
-import { call } from "@/lib/api";
+import { api, call, type MailThreadDoc } from "@/lib/api";
 
 /* ------------------------------------------------------------------ triage */
 
@@ -127,6 +134,35 @@ export type TriageRun = {
   error: string | null;
 };
 
+/**
+ * WHAT THE MODEL WROTE, AND NOTHING HAS HAPPENED YET.
+ *
+ * `POST /api/triage/reply` opens the thread, reads the last few message bodies
+ * to write this, and drops them with the request — it is the one call in this
+ * area that sees a body and it stores none of it. The answer is four fields and
+ * some prose; the deck holds them in a textarea until the owner does something
+ * with them.
+ *
+ * `inReplyTo` IS THE RFC 5322 Message-ID, or null for a thread carrying none.
+ * It is here to be SHOWN and not to be forwarded: `mailflowApi.draft` takes a
+ * Gmail THREAD id in its own `inReplyTo` field and the server derives the real
+ * header at send time. Two fields, one name, different things — passing this
+ * one to the outbox would be refused as "not a thread id", which is the good
+ * failure of the two.
+ */
+export type TriageDraft = {
+  threadId: string;
+  accountId: number;
+  to: string;
+  subject: string;
+  inReplyTo: string | null;
+  body: string;
+  /** Which model wrote it, or null where the provider names none. */
+  model: string | null;
+  venture: string | null;
+  note: string;
+};
+
 /* ------------------------------------------------------------------ outbox */
 
 export type OutboxStatus = "draft" | "approved" | "sent" | "dismissed" | "failed" | "sending" | "uncertain";
@@ -222,8 +258,41 @@ export const mailflowApi = {
       { method: "POST", body: JSON.stringify(body) },
     ),
 
-  outbox: (status?: OutboxStatus | null, offset = 0) =>
-    call<OutboxDoc>(`/outbox?limit=50&offset=${offset}${status ? `&status=${status}` : ""}`),
+  /**
+   * Have the model draft a reply to one thread. A DRAFT — this route has no
+   * send behind it and writes nothing to the queue; the deck decides what to do
+   * with the words.
+   *
+   * It is slow in the way a model is slow (seconds, sometimes tens of them) and
+   * it can refuse: no provider, no Gmail, an empty answer. Every refusal is one
+   * sentence in `error`, which `call` throws as an ApiError message — print it
+   * verbatim rather than "something went wrong".
+   */
+  reply: (threadId: string, body: { account?: number } = {}) =>
+    call<TriageDraft>("/triage/reply", {
+      method: "POST",
+      body: JSON.stringify({ threadId, ...body }),
+    }),
+
+  /**
+   * One thread, whole, for the card's "View thread".
+   *
+   * THIS IS THE MAILBOX APP'S OWN READER, not a second one. `/api/mailbox` is a
+   * live proxy onto Gmail that stores nothing — see its header — and the deck
+   * borrows it rather than growing a reader of its own, so there is one place
+   * where mail is fetched and one place where it is sanitised. Re-exported
+   * through this module only so the triage screen has one import; the call is
+   * `api.mailboxThread` and always was.
+   */
+  thread: (threadId: string, account?: number): Promise<MailThreadDoc> =>
+    api.mailboxThread(threadId, account === undefined ? {} : { account }),
+
+  /** `limit` exists for the callers that want ONE row rather than a page: the
+   *  triage deck reads the outbox purely to learn whether approval is required
+   *  before it draws a Send button, and fifty rows of somebody else's queue is
+   *  a lot of answer for one boolean. */
+  outbox: (status?: OutboxStatus | null, offset = 0, limit = 50) =>
+    call<OutboxDoc>(`/outbox?limit=${limit}&offset=${offset}${status ? `&status=${status}` : ""}`),
 
   draft: (body: {
     account?: number;
@@ -269,3 +338,9 @@ export const mailflowApi = {
       body: "{}",
     }),
 };
+
+/** The reader's own shapes, re-exported so a page drawing a thread inside a
+ *  triage card has one import rather than two. They are `lib/api.ts`'s and this
+ *  module does not redefine them — a second copy of a wire shape is how two
+ *  screens come to disagree about the same document. */
+export type { MailMessage, MailThreadDoc } from "@/lib/api";
