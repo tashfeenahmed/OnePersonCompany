@@ -221,7 +221,7 @@ export const KINDS: KindDef[] = [
         key: "spec",
         label: "Scene spec",
         hint:
-          "Motion only. The id of a saved scene list (see the Motion page). Empty asks the model for one from the brief — which is a draft with claims in it, so read it before you publish the video.",
+          "Motion only. The id of a saved scene list (see the Studio's Motion tab). Empty asks the model for one from the brief — which is a draft with claims in it, so read it before you publish the video.",
         kind: "text",
         required: false,
         default: "",

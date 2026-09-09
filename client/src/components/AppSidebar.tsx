@@ -47,6 +47,14 @@ import { sidebarPath } from "../../../shared/navigation";
  * work first, then mail, then social, then the readings about the business,
  * then the machinery. What is above the fold with nothing dragged is the
  * first `VISIBLE` of these.
+ *
+ * SOCIAL IS ONE ROW. It was six — Studio, Autopilot, Video, Motion,
+ * Publishing, Posts — and every one of the other five is now a place INSIDE
+ * the Studio: two draw in its column, two are tabs, and a video run is opened
+ * from its own rail. A rail listing six doors to one screen was teaching a
+ * menu that had stopped existing. Their paths still resolve as redirects (see
+ * App.tsx); they are simply not rows, so a saved order or a pin naming one is
+ * dropped rather than translated — see shared/navigation.ts.
  */
 const NAV = [
   { to: "/action-inbox", label: "Action inbox" },
@@ -55,8 +63,10 @@ const NAV = [
   { to: "/people", label: "People" },
   { to: "/calendar", label: "Calendar" },
   { to: "/workflows", label: "Workflows" },
-  ...MAIL_PAGES,
+  /* Social is one row now — the Studio — and it is the day's making, so it
+     sits above the mail pages and above the fold. */
   ...SOCIAL_PAGES,
+  ...MAIL_PAGES,
   { to: "/activity", label: "Activity" },
   { to: "/customers", label: "Customers" },
   { to: "/alerts", label: "Alerts" },

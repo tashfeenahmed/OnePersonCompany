@@ -2,10 +2,17 @@
  * PUBLISHING — the page where something the Studio made becomes a post, or
  * does not.
  *
- * FIVE TABS AND ONE ADDRESS EACH, via `?tab=`. They are five cuts of one list
- * and the URL is the selection, so a queue somebody is looking at can be sent
- * to somebody else. The venture picker sits above them, because every one of
- * the five is per venture and moving between tabs must not lose it.
+ * SIX TABS AND ONE ADDRESS EACH, via `?tab=`. Five are cuts of one list — the
+ * queue on its way out — and the URL is the selection, so a queue somebody is
+ * looking at can be sent to somebody else. The venture picker sits above them,
+ * because every one of the six is per venture and moving between tabs must not
+ * lose it.
+ *
+ * THE SIXTH TAB IS THE RETURN LEG. `?tab=published` is the timeline read back
+ * from Meta, which used to be a page of its own; it is here because the
+ * question it answers — what did the thing I approved actually do — is asked
+ * about the queue, and asking it should not mean leaving the queue. It is the
+ * one tab that shows the platform's account of things rather than this box's.
  *
  * THE APPROVE BUTTON IS THE POINT OF THE WHOLE SCREEN. Everything else here is
  * arranged to make the moment before pressing it informative: the caption as
@@ -43,6 +50,7 @@ import { VentureSelect } from "@/components/VentureSelect";
 import { useApi } from "@/hooks/useApi";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { PublishedTimeline } from "@/areas/socialfeed/PublishedTimeline";
 import {
   publishingApi,
   type Asset,
@@ -59,6 +67,7 @@ const TABS = [
   { key: "destinations", label: "Destinations" },
   { key: "campaigns", label: "Campaigns" },
   { key: "assets", label: "Assets" },
+  { key: "published", label: "Published" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -93,6 +102,25 @@ export function Publishing() {
 
   const ready = useApi(() => publishingApi.readiness(), []);
 
+  /* THE ONLY TAB WITH A FIGURE ON IT, and it is one the header already paid
+     for: the readiness call counts every status, so `published` costs nothing
+     extra here. Absent until that call answers — a tab that reads "Published 0"
+     while the number is still unknown would be stating a fact it does not
+     have. */
+  const tabs = useMemo(
+    () =>
+      TABS.map((t) =>
+        t.key === "published"
+          ? {
+              ...t,
+              count: ready.data?.counts.published,
+              title: "What actually went out, read back from the platform.",
+            }
+          : t,
+      ),
+    [ready.data],
+  );
+
   function go(next: TabKey) {
     const p = new URLSearchParams(params);
     p.set("tab", next);
@@ -120,7 +148,7 @@ export function Publishing() {
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <VentureSelect ventures={ventures} value={venture?.id ?? null} onChange={pick} none="Every venture" />
-        <SubTabs tabs={TABS} activeKey={tab} onSelect={(k) => go(k as TabKey)} className="mb-0" />
+        <SubTabs tabs={tabs} activeKey={tab} onSelect={(k) => go(k as TabKey)} className="mb-0" />
       </div>
 
       {ready.error && (
@@ -136,6 +164,10 @@ export function Publishing() {
       )}
       {tab === "campaigns" && <CampaignsTab ventureId={venture?.id ?? null} />}
       {tab === "assets" && <AssetsTab ventureId={venture?.id ?? null} />}
+      {/* THE VENTURE COMES FROM THE PAGE, not from a picker of its own: the
+          timeline is filtered by whatever the strip above already says, and
+          "every venture" when the URL says `all`. */}
+      {tab === "published" && <PublishedTimeline ventureId={venture?.id ?? null} />}
     </PageShell>
   );
 }

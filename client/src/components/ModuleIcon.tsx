@@ -13,16 +13,14 @@ const icons: Record<string, string> = {
   "/mail/triage": "triage",
   "/mail/outbox": "outbox",
   "/mail/nurture": "nurture",
+  /* THE ONLY SOCIAL ROW. Autopilot, Video, Motion, Publishing and Posts each
+     had a key here and each of them is inside the Studio now — two in its
+     column, two as tabs, and a video run opened from its rail. This map is
+     keyed by the path a SIDEBAR ROW links to and a path that is not in it
+     draws no artwork at all, so a key with no row is dead weight; their
+     artwork (autopilot.webp and the rest) is still in assets/modules, ready
+     for whatever names those paths again. */
   "/social/studio": "studio",
-  /* Two rows that moved INTO the Studio, so the key is the address they have
-     now: this map is keyed by the path the sidebar row links to, and a row
-     whose path is not in it draws no artwork at all. Their old addresses are
-     redirects and are never a row. */
-  "/social/studio/autopilot": "autopilot",
-  "/social/video": "video",
-  "/social/motion": "motion",
-  "/social/studio/publishing": "publishing",
-  "/social/posts": "posts",
   "/activity": "activity",
   "/customers": "customers",
   "/alerts": "alerts",

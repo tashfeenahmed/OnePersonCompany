@@ -24,6 +24,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VentureSelect } from "@/components/VentureSelect";
 import { PostCard } from "@/components/studio/PostCard";
 import { ReadinessBanner } from "@/components/studio/ReadinessBanner";
+import { MotionReadinessNote, NewSceneListButton, SceneListEditor } from "@/components/studio/SceneListEditor";
 import { RunSteps } from "@/components/runs/RunSteps";
 import { VideoResult } from "@/areas/video/VideoResult";
 import { useApi } from "@/hooks/useApi";
@@ -51,11 +52,13 @@ const References = lazy(() => import("@/pages/References").then((m) => ({ defaul
  *
  * It was a still-post page with a UGC button on it, and the five video
  * pipelines each had a page of their own: the Video run form, the Motion
- * editor, Autopilot, Publishing. Those pages still exist and still work — a
- * run's own page is still where its steps, its retries and its note live —
- * but the DOOR to all of them is here now, because the owner reaching for
- * "make something" should not first have to know which of six pages makes
- * it.
+ * editor, Autopilot, Publishing. A run's own page is still where its steps,
+ * its retries and its note live, and Autopilot and Publishing still draw as
+ * themselves — in this page's column now — but the DOOR to all of them is
+ * here, because the owner reaching for "make something" should not first have
+ * to know which of six pages makes it. The Motion editor has stopped being a
+ * page at all: it is drawn under this page's Motion tab and its address
+ * redirects here (see App.tsx).
  *
  * THE SHAPE. A title, one row of tabs — Image post, UGC clip, Faceless,
  * Shorts, Reel, Motion — and under the chosen tab the fewest fields that
@@ -244,7 +247,15 @@ export function Studio() {
   const create = (
     <CreateColumn
       make={make}
-      onMake={(v) => setParam("make", v)}
+      /* Changing tab drops the scene list with it: `?spec=` belongs to the
+         Motion tab, and leaving it on the address while an image post is
+         being written is a parameter nothing on screen accounts for. */
+      onMake={(v) => {
+        const next = new URLSearchParams(params);
+        next.set("make", v);
+        next.delete("spec");
+        setParams(next, { replace: true });
+      }}
       ventures={ventures}
       venture={venture}
       onVenture={setChosen}
@@ -574,7 +585,19 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
      and how many clips each should give. Keyed by video id so ticking the same
      result twice cannot queue it twice. */
   const [keeps, setKeeps] = useState<Record<string, Keep>>({});
-  const [spec, setSpec] = useState("");
+  /* THE OPEN SCENE LIST IS IN THE ADDRESS, as it was on the page this editor
+     came from: a spec somebody is editing is a place, the way a run and a
+     dashboard are, so `?spec=<id>` beside `?make=motion` is a link that opens
+     what they were looking at rather than the empty picker. It is the only
+     one of this form's fields that is, because it is the only one naming
+     something saved on the server. */
+  const [params, setParams] = useSearchParams();
+  const spec = make === "motion" ? (params.get("spec") ?? "") : "";
+  const setSpec = (id: string) => {
+    const next = new URLSearchParams(params);
+    if (id) next.set("spec", id); else next.delete("spec");
+    setParams(next, { replace: true });
+  };
   const [voiceover, setVoiceover] = useState(false);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
@@ -742,15 +765,47 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         </Field>
       )}
 
-      {make === "motion" && (specs.data?.specs.length ?? 0) > 0 && (
+      {/*
+        THE SCENE LIST, AND THE EDITOR FOR IT. Picking a saved list opens it
+        below — the whole of what used to be the Motion page, minus its own
+        Render button, because the one at the bottom of this composer is the
+        button that starts the run. Picking nothing keeps the composer as
+        small as every other tab's: a brief, a shape and a switch.
+
+        The list of saved specs is the venture's, so changing venture clears
+        the choice (see the venture field above) rather than leaving an id
+        selected that is no longer in the options.
+      */}
+      {make === "motion" && (
         <Field label="Scene list" hint="A saved list renders as written. Drafting one from the brief is a model call, and its numbers are claims to read before you publish.">
-          <select value={spec} onChange={(e) => setSpec(e.target.value)} className="border-line-soft h-9 rounded-[12px] border bg-transparent px-2.5 text-[13.5px]">
-            <option value="">Draft one from the brief</option>
-            {specs.data!.specs.map((s) => (
-              <option key={s.id} value={s.id}>{s.name} · {s.scenes} scenes · {s.aspect}</option>
-            ))}
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={spec} onChange={(e) => setSpec(e.target.value)} className="border-line-soft h-9 rounded-[12px] border bg-transparent px-2.5 text-[13.5px]">
+              <option value="">Draft one from the brief</option>
+              {(specs.data?.specs ?? []).map((s) => (
+                <option key={s.id} value={s.id}>{s.name} · {s.scenes} scenes · {s.aspect}</option>
+              ))}
+            </select>
+            <NewSceneListButton
+              ventureId={venture?.id ?? null}
+              onCreated={(id) => { setSpec(id); specs.reload(); }}
+            />
+          </div>
         </Field>
+      )}
+      {make === "motion" && specs.data && <MotionReadinessNote readiness={specs.data.readiness} />}
+
+      {/* Under the picker rather than inside the field, so the field's hint
+          stays next to the control it explains rather than under a text
+          editor sixteen rows tall. Keyed by the spec so switching lists
+          remounts the editor instead of showing one list's text over
+          another's document. */}
+      {make === "motion" && spec && (
+        <SceneListEditor
+          key={spec}
+          id={spec}
+          onChanged={() => specs.reload()}
+          onDeleted={() => { setSpec(""); specs.reload(); }}
+        />
       )}
 
       {!(make === "motion" && spec) && (

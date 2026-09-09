@@ -15,7 +15,11 @@ export const MOVED_APPS: Readonly<Record<string, string>> = {
      naming the new ones is only where the sidebar's own rows point. */
   autopilot: "/social/studio/autopilot",
   video: "/social/video",
-  motion: "/social/motion",
+  /* THE SCENE-LIST EDITOR IS A TAB IN THE STUDIO'S COMPOSER, so the tool
+     called "motion" resolves to that tab. The `runId` form of `appPage` means
+     nothing here and never did: a motion render is a `video` run and is read
+     at /social/video/<id> like every other one. */
+  motion: "/social/studio?make=motion",
   publishing: "/social/studio/publishing",
   /* A campaign run is read on the Publishing page's Campaigns tab, so the run
      kind resolves to the same address as the page. */
@@ -43,6 +47,11 @@ const RENAMED: Readonly<Record<string, string>> = {
   "/apps": "/outputs",
   "/social/autopilot": "/social/studio/autopilot",
   "/social/publishing": "/social/studio/publishing",
+  /* NOTHING FOR VIDEO, MOTION OR POSTS. Those three did not move — they
+     STOPPED BEING ROWS. A rename here would put a pin the owner made for
+     Motion onto the Studio, which is a different row they may already have
+     pinned; dropping it is the honest end for a pin whose page is gone, and
+     both readers drop what they cannot find. */
 };
 
 /** A stored path brought up to date. */

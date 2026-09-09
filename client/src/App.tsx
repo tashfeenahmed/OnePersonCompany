@@ -276,16 +276,20 @@ export default function App() {
                     <Route path="/social" element={<SocialSection />} />
                     <Route path="/social/:page" element={<SocialSection />} />
                     <Route path="/social/video/:runId" element={<SocialSection page="video" />} />
-                    {/* WHERE AUTOPILOT AND PUBLISHING USED TO BE. They are
-                        rows in the Studio's rail now and draw in its column,
-                        so their old addresses — in a bookmark, in an old
-                        report, in a link somebody sent — land on the same
-                        page in its new frame rather than drawing it twice.
-                        A campaign run is still read on the Publishing page,
-                        the way a video run is read on the Video page. */}
+                    {/* WHERE THE OTHER SOCIAL PAGES USED TO BE. Autopilot and
+                        Publishing are rows in the Studio's rail now and draw
+                        in its column; the Motion editor is a tab in its
+                        composer; the Posts timeline is a tab in Publishing.
+                        Their old addresses — in a bookmark, in an old report,
+                        in a link somebody sent — land where the thing is now
+                        rather than drawing it twice. A campaign run is still
+                        read on the Publishing page, the way a video run is
+                        read on the Video page. */}
                     <Route path="/social/autopilot" element={<Navigate to="/social/studio/autopilot" replace />} />
                     <Route path="/social/publishing" element={<Navigate to="/social/studio/publishing" replace />} />
                     <Route path="/social/publishing/:runId" element={<LegacyPublishingRun />} />
+                    <Route path="/social/motion" element={<Navigate to="/social/studio?make=motion" replace />} />
+                    <Route path="/social/posts" element={<Navigate to="/social/studio/publishing?tab=published" replace />} />
                     {/* The SEO & growth section is gone: its three run apps
                         are sub-agents' work at /outputs, and its three
                         readings are reports on the Dashboards page. The old
