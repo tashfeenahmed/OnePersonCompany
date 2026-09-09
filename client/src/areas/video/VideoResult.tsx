@@ -60,7 +60,9 @@ export function VideoPanel({ job }: { job: VideoJob }) {
       <div className="mb-3 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <Film className="size-[15px] shrink-0" strokeWidth={1.8} />
         <span className="text-[14.5px] font-medium tracking-tight">
-          {faceless ? (job.script?.title ?? "Faceless video") : `${job.clips.length} clips`}
+          {job.file
+            ? (job.script?.title ?? (faceless ? "Faceless video" : "Video"))
+            : `${job.clips.length} clips`}
         </span>
         <span className="text-muted-foreground text-[13px]">
           {job.width && job.height ? `${job.width}×${job.height}` : job.aspect}

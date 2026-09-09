@@ -809,6 +809,37 @@ export const PLUGINS: Plugin[] = [
     ],
   },
   {
+    id: "workdash",
+    name: "Workdash",
+    icon: null,
+    mono: "W",
+    tint: "#5B8DEF",
+    cat: "infra",
+    connected: false,
+    secret: "workdash",
+    desc: "The Workdash agent on the Pi, for the Peter & Stewie reel: it wakes the Dell, clones the voices, renders the video and hands the file back.",
+    help: "ONE ACCOUNT IS ONE AGENT. The address is where the Workdash agent listens — http://<pi>:3010 on the LAN — and the key is the contents of /opt/workdash/service-key on that Pi; from outside the Pi the agent answers nothing without it. The only thing this box asks of it is the reel routes: start a Peter & Stewie job, watch it, fetch the mp4. The Pi decides whether to wake the Dell and whether to power it off again — that logic stays in Workdash — and this box copies the finished file into its own video store so it sits beside every other video here. Connecting does not wake anything: the check reads the agent's reel document and nothing else.",
+    docs: null,
+    fields: [
+      {
+        key: "url",
+        label: "Agent address",
+        kind: "text",
+        ph: "http://192.0.2.17:3010",
+      },
+      {
+        key: "key",
+        label: "Service key",
+        kind: "secret",
+        ph: "the contents of /opt/workdash/service-key",
+      },
+    ],
+    usedBy: [
+      "video runs with format stewie (start, watch, fetch)",
+      "GET /api/stewie (what the worker can do right now)",
+    ],
+  },
+  {
     id: "fleet",
     name: "Fleet",
     icon: null,

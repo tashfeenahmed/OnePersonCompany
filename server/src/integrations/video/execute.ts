@@ -29,6 +29,7 @@ import { forgetJob } from "./store.ts";
 import * as leases from "../deploy/leases.ts";
 import { motionVideo } from "../videoplus/motion.ts";
 import { reelVideo } from "../videoplus/reel.ts";
+import { stewieVideo } from "../videoplus/stewie.ts";
 import { forgetFraming } from "../videoplus/store.ts";
 import { forgetSocialfeed } from "../socialfeed/forget.ts";
 
@@ -39,7 +40,7 @@ import { forgetSocialfeed } from "../socialfeed/forget.ts";
    three shared files. `reel` and `motion` were added by the videoplus area on
    the same argument and on the same day: all five produce one video_jobs row,
    under one lease, on one queue. */
-export const FORMATS = ["faceless", "shorts", "ugc", "reel", "motion"] as const;
+export const FORMATS = ["faceless", "shorts", "ugc", "reel", "motion", "stewie"] as const;
 export type Format = (typeof FORMATS)[number];
 
 export function readFormat(raw: string | undefined): Format {
@@ -200,6 +201,25 @@ async function renderVideo(opts: {
         /* NO `fit` — a reel is always letterboxed. reel.ts says why, and the
            short version is that a centre crop of a web page is a walkthrough
            of two thirds of a page. */
+      },
+      signal: opts.signal,
+    });
+  }
+
+  if (format === "stewie") {
+    /* Rendered by Workdash's reel worker on the Dell, through the Pi — see
+       videoplus/stewie.ts. `url` holds the pages in pages mode, as it does
+       for a reel; addresses present means pages, none means images. */
+    const urls = (opts.input.url ?? "").trim();
+    return stewieVideo({
+      runId: opts.runId,
+      session: opts.session,
+      venture: opts.venture,
+      input: {
+        prompt: brief,
+        mode: urls ? "pages" : "images",
+        urls,
+        background: (opts.input.background ?? "").trim(),
       },
       signal: opts.signal,
     });

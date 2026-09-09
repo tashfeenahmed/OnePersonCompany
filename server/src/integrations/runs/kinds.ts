@@ -198,13 +198,13 @@ export const KINDS: KindDef[] = [
     kind: "video",
     name: "Video",
     what:
-      "Makes a vertical video on this machine. `faceless` writes a script from the venture, finds stock footage on Pexels for every beat, burns captions in the venture's own colour and font, and adds an end card. `shorts` downloads a long video with yt-dlp and cuts two to four vertical clips out of it, choosing the windows from timed words and camera cuts where it can measure them and from even spacing where it cannot — which it says on every clip, and following the subject with the crop where there is something to follow. `reel` screenshots the venture's OWN pages and plays a two-voice walkthrough over them, scrolling. `motion` renders a scene list — a title card, a number, a before/after, a list, a call to action — as animated typography in the venture's own colours. `ugc` takes the venture's own reference pictures out of its asset library, puts the product into a scene with the image model, and animates that still with a Replicate image-to-video model — which is SKIPPED, with a sentence, when no such model is configured, so nothing is spent. It publishes nothing anywhere: the file lands on this page.",
+      "Makes a vertical video on this machine. `faceless` writes a script from the venture, finds stock footage on Pexels for every beat, burns captions in the venture's own colour and font, and adds an end card. `shorts` downloads a long video with yt-dlp and cuts two to four vertical clips out of it, choosing the windows from timed words and camera cuts where it can measure them and from even spacing where it cannot — which it says on every clip, and following the subject with the crop where there is something to follow. `reel` screenshots the venture's OWN pages and plays a two-voice walkthrough over them, scrolling. `motion` renders a scene list — a title card, a number, a before/after, a list, a call to action — as animated typography in the venture's own colours. `ugc` takes the venture's own reference pictures out of its asset library, puts the product into a scene with the image model, and animates that still with a Replicate image-to-video model — which is SKIPPED, with a sentence, when no such model is configured, so nothing is spent. `stewie` is the Peter & Stewie two-hander over mobile-game footage with cloned voices — rendered by Workdash's reel worker on the Dell through the Pi, so it needs a Workdash account under Integrations and a few minutes, and copies the mp4 back here. It publishes nothing anywhere: the file lands on this page.",
     needsVenture: false,
     inputs: [
       {
         key: "format",
         label: "What to make",
-        hint: "faceless or shorts",
+        hint: "faceless, shorts, ugc, reel, motion or stewie",
         kind: "select",
         required: true,
         default: "faceless",
@@ -214,6 +214,7 @@ export const KINDS: KindDef[] = [
           { value: "ugc", label: "UGC — a product shot, animated" },
           { value: "reel", label: "Reel — two voices over your own pages" },
           { value: "motion", label: "Motion — animated typography from a scene list" },
+          { value: "stewie", label: "Stewie — Peter & Stewie explain it over gameplay footage" },
         ],
       },
       {
@@ -279,6 +280,17 @@ export const KINDS: KindDef[] = [
         key: "assets",
         label: "Reference pictures",
         hint: "UGC only. Asset ids from the venture's library, comma separated. Empty uses whatever is in the library, up to four.",
+        kind: "text",
+        required: false,
+        default: "",
+      },
+      {
+        /* Stewie only. A gameplay clip the Workdash render worker holds, by
+           name; empty takes the worker's default. The names come from the
+           worker's own health answer (GET /api/stewie). */
+        key: "background",
+        label: "Gameplay footage",
+        hint: "Stewie only. The name of a background clip the render worker holds — see the Studio's Stewie tab for the list. Empty takes the worker's default.",
         kind: "text",
         required: false,
         default: "",

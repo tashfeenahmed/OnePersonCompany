@@ -158,6 +158,31 @@ export const videoApi = {
   get: (runId: string) => call<VideoJob>(`/video/${encodeURIComponent(runId)}`),
 };
 
+/* ---------------------------------------------------------------- stewie */
+
+/** What the Workdash Pi and, through it, the Dell can do right now. Read for
+ *  the Studio's Stewie tab; asking it wakes nothing. */
+export type StewieDoc = {
+  configured: boolean;
+  note: string;
+  agent: string | null;
+  running: boolean;
+  worker: {
+    reachable: boolean;
+    gpu?: string | null;
+    busy?: boolean;
+    backgrounds?: string[];
+    voices?: string[];
+    modes?: string[];
+    error?: string;
+  } | null;
+  recent: { id: string; status: string; prompt: string; at: number; mode: string }[];
+};
+
+export const stewieApi = {
+  read: () => call<StewieDoc>("/stewie"),
+};
+
 /* ------------------------------------------------------------- autopilot */
 
 export type AutopilotSchedule = {

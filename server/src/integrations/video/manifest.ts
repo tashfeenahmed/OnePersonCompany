@@ -288,7 +288,9 @@ export const manifest: IntegrationManifest = {
             `to have reference pictures in its asset library and is better ` +
             `started by hand, from the Studio. “reel” and “motion” also work ` +
             `unattended — a reel walks the venture's own website and a motion ` +
-            `video drafts its own scene list from the topic.`,
+            `video drafts its own scene list from the topic. “stewie” hands ` +
+            `the job to Workdash's Pi, which may wake the Dell — better ` +
+            `started by hand from the Studio.`,
           ph: "faceless",
           check(value) {
             const bad = value

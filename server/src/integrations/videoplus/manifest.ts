@@ -29,6 +29,8 @@
 import type { IntegrationManifest } from "../manifest.ts";
 import { upsertPlugin } from "../../db.ts";
 import { motionRoutes } from "./routes.ts";
+import { stewieRoutes } from "./stewie-routes.ts";
+import { WORKDASH_PLUGIN } from "./stewie.ts";
 import { VIDEOPLUS_PLUGIN } from "./settings.ts";
 import { SKILLS, PACKS } from "./skills.ts";
 
@@ -46,8 +48,40 @@ const number = (value: string, lo: number, hi: number, what: string, whole = tru
   return null;
 };
 
+/** The Workdash agent answers its reel document to a good key and 401 to a
+ *  bad one, which is the whole check: nothing is started and nothing woken. */
+async function verifyWorkdash(values: Record<string, string>): Promise<string | null> {
+  const url = (values.url ?? "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(url)) return "The address needs http:// or https:// in front of it — the agent usually listens on http://<pi>:3010.";
+  try {
+    const res = await fetch(`${url}/agent/reel`, {
+      headers: { Authorization: `Bearer ${(values.key ?? "").trim()}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (res.status === 401 || res.status === 403) return "The agent refused that key. It is the contents of /opt/workdash/service-key on the Pi.";
+    if (!res.ok) return `The agent answered ${res.status} rather than its reel document — is that the Workdash agent's address?`;
+    return null;
+  } catch (err) {
+    return `Nothing answered at ${url}: ${err instanceof Error ? err.message : String(err)}. The Pi has to be on the same network as this machine.`;
+  }
+}
+
 export const manifest: IntegrationManifest = {
   id: "videoplus",
+
+  /*
+    THE ONE CREDENTIAL THIS AREA HOLDS, and it is not a model's or a voice's:
+    it is the Workdash agent's service key, so the Stewie format can hand a
+    reel to the Pi and fetch the file back. One account is one agent; the
+    label is the Pi's name.
+  */
+  plugins: {
+    [WORKDASH_PLUGIN]: {
+      secret: "workdash",
+      fields: ["url", "key"],
+      verify: verifyWorkdash,
+    },
+  },
 
   config: {
     [VIDEOPLUS_PLUGIN]: {
@@ -214,5 +248,8 @@ export const manifest: IntegrationManifest = {
   skills: SKILLS,
   packs: PACKS,
 
-  routes: [{ path: "/api/motion", app: motionRoutes }],
+  routes: [
+    { path: "/api/motion", app: motionRoutes },
+    { path: "/api/stewie", app: stewieRoutes },
+  ],
 };

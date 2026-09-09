@@ -10,6 +10,7 @@ import {
   Shapes,
   Sparkles,
   Timer,
+  Tv,
   Video as VideoIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { ago, when } from "@/lib/format";
 import { appPage } from "../../../shared/navigation";
 import { studioApi, type StudioFormat, type StudioPost, type StudioReadiness } from "@/lib/api/studio";
-import { autopilotApi, videoApi, type VideoJob } from "@/lib/api/video";
+import { autopilotApi, stewieApi, videoApi, type VideoJob } from "@/lib/api/video";
 import { motionApi } from "@/lib/api/motion";
 import { isLive, runsApi, type RunDetail, type RunSummary } from "@/lib/api/runs";
 
@@ -65,7 +66,7 @@ import { isLive, runsApi, type RunDetail, type RunSummary } from "@/lib/api/runs
  * page; the queue is where somebody approves a thing against a real account.
  */
 
-type Make = "image" | "ugc" | "faceless" | "shorts" | "reel" | "motion";
+type Make = "image" | "ugc" | "faceless" | "shorts" | "reel" | "motion" | "stewie";
 
 const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[] = [
   { key: "image", label: "Image post", icon: ImageIcon, about: "A caption and a picture in the venture's own brand." },
@@ -74,6 +75,7 @@ const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[
   { key: "shorts", label: "Shorts", icon: Scissors, about: "Two to four vertical clips cut out of a long video." },
   { key: "reel", label: "Reel", icon: Film, about: "Two voices walking through the venture's own pages, scrolling." },
   { key: "motion", label: "Motion", icon: Shapes, about: "Animated typography from a scene list, in the venture's colours." },
+  { key: "stewie", label: "Stewie", icon: Tv, about: "Peter explains, Stewie interrupts, over gameplay footage — cloned voices, rendered by Workdash on the Dell." },
 ];
 
 const PLATFORMS = ["Instagram", "LinkedIn", "X", "Facebook", "TikTok"];
@@ -101,7 +103,7 @@ type Generation =
   | { key: string; kind: "post"; ts: string; post: StudioPost }
   | { key: string; kind: "run"; ts: string; run: RunSummary; job: (VideoJob & { clipCount: number }) | null; input: Record<string, string> | null };
 
-const FORMAT_LABEL: Record<string, string> = { image: "Image post", ugc: "UGC clip", faceless: "Faceless video", shorts: "Shorts", reel: "Reel", motion: "Motion" };
+const FORMAT_LABEL: Record<string, string> = { image: "Image post", ugc: "UGC clip", faceless: "Faceless video", shorts: "Shorts", reel: "Reel", motion: "Motion", stewie: "Stewie" };
 
 function isMake(v: string | null): v is Make {
   return MAKES.some((m) => m.key === v);
@@ -317,7 +319,7 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
   );
 }
 
-const FORMAT_ICON: Record<string, typeof Film> = { ugc: Clapperboard, faceless: VideoIcon, shorts: Scissors, reel: Film, motion: Shapes };
+const FORMAT_ICON: Record<string, typeof Film> = { ugc: Clapperboard, faceless: VideoIcon, shorts: Scissors, reel: Film, motion: Shapes, stewie: Tv };
 
 function GenerationRow({ generation: g, active, onClick }: { generation: Generation; active: boolean; onClick: () => void }) {
   if (g.kind === "post") {
@@ -426,14 +428,19 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     () => (make === "motion" ? motionApi.list(venture?.id ?? null).catch(() => null) : Promise.resolve(null)),
     [make, venture?.id ?? null],
   );
+  /* What the Pi and the Dell can do right now. Asking wakes nothing. */
+  const stewie = useApi(() => (make === "stewie" ? stewieApi.read().catch(() => null) : Promise.resolve(null)), [make]);
+  const [stewieMode, setStewieMode] = useState<"images" | "pages">("images");
+  const [background, setBackground] = useState("");
 
-  const needsVenture = make !== "shorts";
+  const needsVenture = make !== "shorts" && make !== "stewie";
   const ready =
     !busy &&
     (!needsVenture || !!venture) &&
     (make === "image" ? brief.trim().length > 0 : true) &&
     (make === "ugc" ? assets.length > 0 : true) &&
-    (make === "shorts" ? url.trim().length > 0 : true);
+    (make === "shorts" ? url.trim().length > 0 : true) &&
+    (make === "stewie" ? (stewie.data?.configured ?? false) && !stewie.data?.running && (stewieMode === "pages" ? url.trim().length > 0 : brief.trim().length > 0) : true);
 
   async function go() {
     if (!ready) return;
@@ -455,6 +462,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         if (make === "shorts") Object.assign(input, { url: url.trim(), seconds, clips, fit });
         if (make === "reel") Object.assign(input, { url: url.trim(), seconds });
         if (make === "motion") Object.assign(input, { spec, voiceover: voiceover ? "true" : "false" });
+        if (make === "stewie") Object.assign(input, { url: stewieMode === "pages" ? url.trim() : "", background });
         const run = await runsApi.start({ kind: "video", ventureId: venture?.id ?? null, input });
         setSaid(run.status === "running" ? "Started. It shows in the rail while it works." : "Queued behind the runs ahead of it.");
         onRun(run.id);
@@ -475,6 +483,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     shorts: "yt-dlp fetches the source, a model picks the moments where it can, ffmpeg cuts. A few minutes for a long source.",
     reel: "Headless Chrome captures each page, a model writes the two voices, the voice plugin speaks them if it is on.",
     motion: "A model drafts the scene list unless you pick a saved one; Chrome renders the frames. Silent unless the voice plugin is on.",
+    stewie: "Handed to Workdash's Pi, which wakes the Dell if it is asleep (about ninety seconds), writes the two-hander there, clones both voices and renders. A few minutes, and real power while the Dell is up.",
   }[make];
 
   return (
@@ -489,6 +498,38 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         <Field label="Source video" hint="A YouTube address or a direct link to a video file.">
           <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" className="text-[14px]" />
         </Field>
+      )}
+
+      {make === "stewie" && (
+        <div className="grid gap-3.5">
+          {stewie.data && (
+            <p className={cn("text-[12.5px]", stewie.data.configured ? "text-muted-foreground" : "text-destructive")}>
+              {stewie.data.configured ? stewie.data.note : <>{stewie.data.note} <Link to="/integrations/workdash" className="underline decoration-dotted">Connect it</Link>.</>}
+              {stewie.data.running ? " A reel is rendering on the Pi right now; it does one at a time." : ""}
+            </p>
+          )}
+          <Field label="Pictures behind them" hint={stewieMode === "pages" ? "Real screenshots of the pages you list, scrolling — the mode for showing a product." : "A searched picture per line — fine for explaining a concept, useless for showing a product."}>
+            <Chips value={stewieMode} onChange={setStewieMode} options={[{ key: "images", label: "Searched images" }, { key: "pages", label: "Your pages" }]} />
+          </Field>
+          {stewieMode === "pages" && (
+            <Field label="Pages to show" hint="One address per line, up to eight. The page titles become the topic when the brief is empty.">
+              <Textarea value={url} onChange={(e) => setUrl(e.target.value)} rows={3} placeholder="https://…" className="text-[14px]" />
+            </Field>
+          )}
+          {(stewie.data?.worker?.backgrounds?.length ?? 0) > 0 ? (
+            <Field label="Gameplay footage">
+              <Chips
+                value={background}
+                onChange={setBackground}
+                options={[{ key: "", label: "Worker's default" }, ...stewie.data!.worker!.backgrounds!.map((b) => ({ key: b, label: b.replace(/_/g, " ") }))]}
+              />
+            </Field>
+          ) : (
+            <Field label="Gameplay footage (optional)" hint="The worker is asleep, so its clip list is not known. Name one it holds, or leave it for the default.">
+              <Input value={background} onChange={(e) => setBackground(e.target.value)} placeholder="subway_surfers" className="w-64 text-[14px]" />
+            </Field>
+          )}
+        </div>
       )}
 
       {make === "reel" && (
@@ -510,8 +551,8 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
 
       {!(make === "motion" && spec) && (
         <Field
-          label={make === "image" ? "What the post is about" : make === "shorts" ? "What to look for (optional)" : "What it is about"}
-          hint={make === "image" ? undefined : "Empty makes the general case for the venture."}
+          label={make === "image" ? "What the post is about" : make === "shorts" ? "What to look for (optional)" : make === "stewie" ? (stewieMode === "pages" ? "What they should explain (optional)" : "What they should explain") : "What it is about"}
+          hint={make === "image" ? undefined : make === "stewie" ? "One or two lines. In pages mode this can be a whole pitch pasted in for the script to lean on." : "Empty makes the general case for the venture."}
         >
           <Textarea
             value={brief}
@@ -565,7 +606,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
             />
           </Field>
         </div>
-      ) : (
+      ) : make === "stewie" ? null : (
         <div className="grid gap-3.5 sm:grid-cols-2">
           <Field label="Shape">
             <Chips value={aspect} onChange={setAspect} options={ASPECTS.map((a) => ({ key: a, label: a }))} />
