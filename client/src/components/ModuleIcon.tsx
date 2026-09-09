@@ -18,7 +18,7 @@ const icons: Record<string, string> = {
   "/social/video": "video",
   "/social/motion": "motion",
   "/social/publishing": "publishing",
-  "/outputs/posts": "posts",
+  "/social/posts": "posts",
   "/activity": "activity",
   "/customers": "customers",
   "/alerts": "alerts",
