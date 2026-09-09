@@ -63,6 +63,9 @@ import { sidebarPath } from "../../../shared/navigation";
  * being a row too and /people redirects onto them (see App.tsx). The row is
  * "here" for every address under it, which is what `isHere` below already does
  * for a prefix.
+ *
+ * ACTIVITY, ALERTS, INTEGRATIONS AND OPS ARE NOT ROWS EITHER — see MENU
+ * below the list.
  */
 const NAV = [
   { to: "/action-inbox", label: "Action inbox" },
@@ -74,13 +77,26 @@ const NAV = [
      sits above the mail pages and above the fold. */
   ...SOCIAL_PAGES,
   ...MAIL_PAGES,
-  { to: "/activity", label: "Activity" },
   { to: "/customers", label: "Customers" },
-  { to: "/alerts", label: "Alerts" },
   { to: "/dashboards", label: "Dashboards" },
   /* `also`: addresses that are this page under another name — the outputs
      tab lives at /outputs so a report keeps its address. */
   { to: "/subagents", label: "Sub-agents", also: ["/outputs"] },
+];
+
+/**
+ * THE MACHINERY LIVES IN THE OWNER'S MENU, not the rail. Activity, Alerts,
+ * Integrations and Ops are about the box rather than the business — what it
+ * did, what tripped, what it is connected to, what it is running on — and
+ * the owner reaches for them the way he reaches for Settings: seldom, and
+ * from the bottom. They sit between Settings and Appearance in the menu on
+ * his name, in the order a check-up runs. Their addresses still resolve; a
+ * saved order or a pin naming one is dropped, as for every other row that
+ * stopped being a row.
+ */
+const MENU = [
+  { to: "/activity", label: "Activity" },
+  { to: "/alerts", label: "Alerts" },
   { to: "/integrations", label: "Integrations" },
   { to: "/ops", label: "Ops" },
 ];
@@ -372,6 +388,19 @@ export function AppSidebar() {
                 Settings
               </Link>
             </DropdownMenuItem>
+
+            {MENU.map(item => (
+              <DropdownMenuItem key={item.to} asChild>
+                <Link to={item.to}>
+                  <ModuleIcon path={item.to} className="size-4" />
+                  {item.label}
+                  {counts[item.to] !== undefined && (
+                    <span className="text-muted-foreground ml-auto text-xs">{counts[item.to]}</span>
+                  )}
+                </Link>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
 
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
