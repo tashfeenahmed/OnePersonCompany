@@ -26,6 +26,9 @@ export function isWorkspacePreferences(v: unknown): boolean {
      not an invalid document. An id this client cannot draw falls back to the
      default at read time. */
   if (v.palette !== undefined && !(typeof v.palette === "string" && /^[a-z][a-z0-9-]{0,30}$/.test(v.palette))) return false;
+  /* The sidebar's one list in the owner's order — see shared/sidebarNav.ts.
+     The same shape as favoritePaths: bounded, unique, paths only. */
+  if (v.navOrder !== undefined && (!Array.isArray(v.navOrder) || v.navOrder.length > 100 || !v.navOrder.every(x => typeof x === "string" && /^\/[a-z][a-z0-9/-]*$/.test(x)) || new Set(v.navOrder).size !== v.navOrder.length)) return false;
   if (v.appOrder !== undefined && (!Array.isArray(v.appOrder) || v.appOrder.length > 200 || !v.appOrder.every(x => text(x, 100)) || new Set(v.appOrder).size !== v.appOrder.length)) return false;
   if (!list(v.sessions, s => text(s.id, 200) && !!s.id && text(s.title, 2000) && ref(s.ventureId)
     && (s.seeded === undefined || typeof s.seeded === "boolean")

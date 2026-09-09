@@ -222,6 +222,9 @@ export type StoreState = {
    * code; only their order is the owner's.
    */
   appOrder?: string[];
+  /** The sidebar's one list, by path, in the owner's order. Optional, partial,
+   *  and absent on an older state — see shared/sidebarNav.ts. */
+  navOrder?: string[];
   favoritePaths?: string[];
   /** Pages and sessions in one shared, owner-ordered sidebar list. */
   pinnedItems?: SidebarPin[];
@@ -2264,6 +2267,8 @@ type StoreApi = {
   setWorkspace: (patch: Partial<Workspace>) => void;
   togglePinned: (pin: SidebarPin) => void;
   reorderPinned: (keys: string[]) => void;
+  /** The sidebar rows in the order the owner dragged them into. */
+  setNavOrder: (paths: string[]) => void;
   setPluginConnected: (id: string, connected: boolean) => void;
   /** Replace everything — the other half of the export on Settings → Data. */
   importState: (next: StoreState) => void;
@@ -2648,6 +2653,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       reorderPinned(keys) {
         setState(s => ({ ...s, pinnedItems: reorderPins(s, keys), favoritePaths: undefined }));
       },
+      setNavOrder(paths) {
+        setState(s => ({ ...s, navOrder: paths }));
+      },
       setWorkspace(patch) {
         setState((s) => ({ ...s, workspace: { ...s.workspace, ...patch } }));
       },
@@ -2664,7 +2672,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       reset() {
         saveRecovery(state);
-        setState(s => ({ ...s, workspace: structuredClone(SEED.workspace), dashboards: structuredClone(SEED.dashboards), appOrder: [], favoritePaths: [], pinnedItems: [], seedVersion: SEED_VERSION }));
+        setState(s => ({ ...s, workspace: structuredClone(SEED.workspace), dashboards: structuredClone(SEED.dashboards), appOrder: [], navOrder: [], favoritePaths: [], pinnedItems: [], seedVersion: SEED_VERSION }));
       },
     };
   }, [state, streamingSessions]);

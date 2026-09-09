@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -7,12 +7,11 @@ import { ModuleIcon } from "@/components/ModuleIcon";
 import { cn } from "@/lib/utils";
 import type { Session } from "@/lib/store";
 
-export function SidebarSessionRow({ session, openSessionId, streaming, pinned, handle, deleting, onTogglePin, onRename, onDelete }: {
+export function SidebarSessionRow({ session, openSessionId, streaming, pinned, deleting, onTogglePin, onRename, onDelete }: {
   session: Session;
   openSessionId: string | null;
   streaming: Set<string>;
   pinned: boolean;
-  handle?: ReactNode;
   deleting: boolean;
   onTogglePin: () => void;
   onRename: (title: string) => void;
@@ -34,9 +33,8 @@ export function SidebarSessionRow({ session, openSessionId, streaming, pinned, h
       }}
       className="bg-accent text-foreground focus:border-foreground w-full rounded-lg border border-transparent px-2 py-[5px] text-[13.5px] outline-none"
     /> : <div className={cn("sidebar-row relative flex min-w-0 items-center gap-0.5 rounded-lg pr-1 transition-colors focus-within:bg-accent focus-within:text-foreground", active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
-      {handle}
-      <Link to={`/chat/${encodeURIComponent(session.id)}`} aria-current={active ? "page" : undefined} title={session.title}
-        className={cn("flex min-w-0 flex-1 items-center gap-2 text-[13.5px] outline-none", pinned ? "py-1" : "py-1.5", handle ? "pl-0.5" : "pl-2")}
+      <Link to={`/chat/${encodeURIComponent(session.id)}`} aria-current={active ? "page" : undefined} title={session.title} draggable={false}
+        className={cn("flex min-w-0 flex-1 items-center gap-2 pl-2 text-[13.5px] outline-none", pinned ? "py-1" : "py-1.5")}
       >
         {pinned && <ModuleIcon path="/chat" />}
         <span className="truncate">{session.title}</span>

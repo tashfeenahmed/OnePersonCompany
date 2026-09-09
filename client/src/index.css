@@ -295,14 +295,6 @@
   }
 }
 
-/* Grid tracks animate intrinsic section height and reverse cleanly mid-toggle. */
-.sidebar-section-panel {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition: grid-template-rows 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
-}
-
 /* Actions sit inside the row tint. Focus and touch get the same controls as hover. */
 .sidebar-row-action { opacity: 0; }
 .module-icon {
@@ -317,19 +309,14 @@
 @media (hover: none) {
   .sidebar-row-action { opacity: 1; }
 }
-.sidebar-section[data-open="true"] > .sidebar-section-panel {
-  grid-template-rows: 1fr;
-  opacity: 1;
-}
-.sidebar-section-chevron {
+/* The See more chevron turns to point at what it will do next. */
+.sidebar-more-chevron {
   transform: rotate(0deg);
   transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.sidebar-section[data-open="true"] > button .sidebar-section-chevron {
-  transform: rotate(90deg);
-}
+.sidebar-more-chevron.open { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-section-panel, .sidebar-section-chevron, .module-icon { transition: none; }
+  .sidebar-more-chevron, .module-icon { transition: none; }
   .sidebar-row:hover .module-icon,
   .sidebar-row:focus-within .module-icon { transform: none; }
 }

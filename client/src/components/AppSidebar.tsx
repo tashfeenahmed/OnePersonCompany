@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
 import {
+  ChevronDown,
   ChevronsUpDown,
   Moon,
   Plus,
@@ -30,48 +31,49 @@ import { useOpenAlerts } from "@/hooks/useOpenAlerts";
 import { api } from "@/lib/api";
 import { MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
 
-import { SidebarSection } from "@/components/SidebarSection";
-import { PinnedSection } from "@/components/PinnedSection";
+import { SortableList } from "@/components/SortableList";
 import { SidebarPinButton } from "@/components/SidebarPinButton";
 import { SidebarSessionRow } from "@/components/SidebarSessionRow";
 import { ModuleIcon } from "@/components/ModuleIcon";
 import { pinKey, sidebarPins, type SidebarPin } from "../../../shared/sidebarPins";
+import { orderNav } from "../../../shared/sidebarNav";
 
+/**
+ * ONE LIST, IN THE BUILD'S DEFAULT ORDER. This was five headed groups once —
+ * Manage, Insights, Work, Mail, Social media — each folding on its own; see
+ * shared/sidebarNav.ts for why it is one list now. The order here is the
+ * default the owner's own order (state.navOrder) is laid over: the daily
+ * work first, then mail, then social, then the readings about the business,
+ * then the machinery. What is above the fold with nothing dragged is the
+ * first `VISIBLE` of these.
+ */
 const NAV = [
   { to: "/action-inbox", label: "Action inbox" },
   { to: "/board", label: "Board" },
-  /* The rail's order: the business (ventures, its workers, the org), what
-     is happening (activity, alerts, people), what runs on its own (workflows),
-     then the machinery (integrations, dashboards, apps). */
   { to: "/ventures", label: "Ventures" },
-  /* `also`: addresses that are this page under another name — the outputs
-     tab lives at /outputs so a report keeps its address. */
-  { to: "/subagents", label: "Sub-agents", also: ["/outputs"] },
-  { to: "/activity", label: "Activity" },
-  { to: "/customers", label: "Customers" },
-  { to: "/alerts", label: "Alerts" },
   { to: "/people", label: "People" },
   { to: "/calendar", label: "Calendar" },
   { to: "/workflows", label: "Workflows" },
-  { to: "/integrations", label: "Integrations" },
-  { to: "/dashboards", label: "Dashboards" },
-  { to: "/ops", label: "Ops" },
   ...MAIL_PAGES,
   ...SOCIAL_PAGES,
+  { to: "/activity", label: "Activity" },
+  { to: "/customers", label: "Customers" },
+  { to: "/alerts", label: "Alerts" },
+  { to: "/dashboards", label: "Dashboards" },
+  /* `also`: addresses that are this page under another name — the outputs
+     tab lives at /outputs so a report keeps its address. */
+  { to: "/subagents", label: "Sub-agents", also: ["/outputs"] },
+  { to: "/integrations", label: "Integrations" },
+  { to: "/ops", label: "Ops" },
 ];
+const NAV_PATHS = NAV.map(item => item.to);
 
-/* Manage and Insights first — the pages about the business as a whole — then
-   Work, then the three areas of doing. The order is the owner's. */
-const NAV_GROUPS = [
-  { name: "Manage", paths: ["/subagents", "/outputs", "/integrations", "/ops"], expanded: false },
-  { name: "Insights", paths: ["/activity", "/customers", "/alerts", "/dashboards"], expanded: false },
-  { name: "Work", paths: ["/action-inbox", "/board", "/ventures", "/people", "/calendar", "/workflows"], expanded: true },
-  { name: "Mail", paths: MAIL_PAGES.map(page => page.to), expanded: true },
-  { name: "Social media", paths: SOCIAL_PAGES.map(page => page.to), expanded: true },
-];
+/** Rows above the fold. Enough for the day's pages without a scroll; the
+ *  rest are one press away, and a page dragged above the line stays there. */
+const VISIBLE = 8;
 
 export function AppSidebar() {
-  const { state, renameSession, removeSession, streamingSessions, togglePinned, reorderPinned } = useStore();
+  const { state, renameSession, removeSession, streamingSessions, togglePinned, reorderPinned, setNavOrder } = useStore();
   const { theme, resolved, setTheme } = useTheme();
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -82,6 +84,23 @@ export function AppSidebar() {
       : state.sessions.find(session => session.id === pin.sessionId)?.title;
     return label ? [{ key: pinKey(pin), label, pin }] : [];
   });
+
+  const here = (p: string) => pathname === p || pathname.startsWith(`${p}/`);
+  const isHere = (path: string) => {
+    const item = NAV.find(item => item.to === path);
+    return here(path) || (!!item && "also" in item && (item.also ?? []).some(here));
+  };
+
+  /* THE FOLD. The owner's order, the first VISIBLE rows showing, and the
+     rest behind "See more". Arriving at a page below the fold reveals it —
+     a rail that hides the page you are on is not a rail — and a manual
+     toggle is kept until the next navigation, which is the same rule the
+     old groups followed. */
+  const ordered = orderNav(NAV_PATHS, state.navOrder);
+  const below = ordered.slice(VISIBLE);
+  const [more, setMore] = useState({ pathname, open: below.some(isHere) });
+  if (more.pathname !== pathname) setMore({ pathname, open: more.open || below.some(isHere) });
+  const navRows = (more.open ? ordered : ordered.slice(0, VISIBLE)).map(path => ({ key: path, label: NAV.find(item => item.to === path)?.label ?? path }));
 
   /** The chats with an answer arriving. A Set because this is looked up once
    *  per row and the rail is the one place that asks. */
@@ -189,17 +208,15 @@ export function AppSidebar() {
     return `${session.title} ${state.ventures.find(venture => venture.id === session.ventureId)?.name ?? ""}`.toLowerCase().includes(query);
   });
 
-  function renderPage(path: string, handle?: ReactNode) {
+  function renderPage(path: string) {
     const item = NAV.find(item => item.to === path);
     if (!item) return null;
     const { label } = item;
-    const here = (p: string) => pathname === p || pathname.startsWith(`${p}/`);
-    const active = here(path) || ("also" in item && (item.also ?? []).some(here));
+    const active = isHere(path);
     const pin: SidebarPin = { type: "page", path };
     return <div className={cn("sidebar-row flex min-w-0 items-center gap-0.5 rounded-lg pr-1 transition-colors focus-within:bg-accent", active ? "bg-accent font-medium" : "hover:bg-accent")}>
-      {handle}
-      <Link to={path} aria-current={active ? "page" : undefined} title={label}
-        className={cn("flex min-w-0 flex-1 items-center gap-2 py-1 text-[13.5px] outline-none", handle ? "pl-0.5" : "pl-1.5")}
+      <Link to={path} aria-current={active ? "page" : undefined} title={label} draggable={false}
+        className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-1.5 text-[13.5px] outline-none"
       >
         <ModuleIcon path={path} />
         <span className="truncate">{label}</span>
@@ -209,11 +226,11 @@ export function AppSidebar() {
     </div>;
   }
 
-  function renderSession(session: Session, handle?: ReactNode) {
+  function renderSession(session: Session) {
     const pin: SidebarPin = { type: "session", sessionId: session.id };
     return <SidebarSessionRow
       session={session} openSessionId={openSessionId} streaming={streaming}
-      pinned={pinnedKeys.has(pinKey(pin))} handle={handle} deleting={!!deleting}
+      pinned={pinnedKeys.has(pinKey(pin))} deleting={!!deleting}
       onTogglePin={() => togglePinned(pin)} onRename={title => renameSession(session.id, title)}
       onDelete={() => void deleteSession(session.id, session.title)}
     />;
@@ -240,22 +257,32 @@ export function AppSidebar() {
       </Button>
 
       <ScrollArea data-sidebar-scroll className="-mx-1 min-h-0 flex-1 px-1 [&_[data-slot=scroll-area-viewport]]:overscroll-contain">
-      <PinnedSection items={pinnedRows} onReorder={reorderPinned} renderItem={(item, handle) => {
-        if (item.pin.type === "page") return renderPage(item.pin.path, handle);
-        const session = state.sessions.find(session => item.pin.type === "session" && session.id === item.pin.sessionId);
-        return session ? renderSession(session, handle) : null;
-      }} />
+      {/* Only when there is something pinned: an empty heading with a hint
+          under it is a section asking to be used, and the pin on every row
+          already says how. */}
+      {pinnedRows.length > 0 && <section aria-label="Pinned" className="mb-2 border-b border-line-soft pb-2">
+        <h2 className="px-2 py-2 text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Pinned</h2>
+        <SortableList items={pinnedRows} onReorder={reorderPinned} describedAs="pin" renderItem={item => {
+          if (item.pin.type === "page") return renderPage(item.pin.path);
+          const session = state.sessions.find(session => item.pin.type === "session" && session.id === item.pin.sessionId);
+          return session ? renderSession(session) : null;
+        }} />
+      </section>}
       {deleteError && <p role="alert" className="p-2 text-xs text-destructive">Could not delete: {deleteError}</p>}
-      <nav aria-label="Workspace" className="space-y-0.5">
-        {NAV_GROUPS.map(group => <SidebarSection
-          key={group.name}
-          title={group.name}
-          pathname={pathname}
-          defaultOpen={group.expanded}
-          active={group.paths.some(path => pathname === path || pathname.startsWith(`${path}/`))}
+      <nav aria-label="Workspace">
+        {/* A reorder while folded only names the rows above the fold; the
+            ones below keep their order behind it. */}
+        <SortableList items={navRows} describedAs="page" renderItem={item => renderPage(item.key)}
+          onReorder={keys => setNavOrder([...keys, ...ordered.filter(path => !keys.includes(path))])} />
+        {below.length > 0 && <button
+          type="button"
+          aria-expanded={more.open}
+          className="mt-0.5 flex w-full items-center gap-2 rounded-lg py-1 pl-1.5 pr-2 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setMore({ pathname, open: !more.open })}
         >
-          {NAV.filter(item => group.paths.includes(item.to)).map(item => <div key={item.to}>{renderPage(item.to)}</div>)}
-        </SidebarSection>)}
+          <ChevronDown aria-hidden="true" className={cn("sidebar-more-chevron ml-1 size-3.5 shrink-0", more.open && "open")} strokeWidth={1.75} />
+          {more.open ? "See less" : `See more (${below.length})`}
+        </button>}
       </nav>
 
       <section aria-label="Sessions" className="border-line-soft mt-3.5 border-t pt-3 pb-3">
