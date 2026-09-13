@@ -161,7 +161,7 @@ export function serverFleet(input: LiveInputs, now = Date.now()): ServerFleetDat
   const reporting = guest.filter(c=>c.load.length>0).length;
   return {cards,points,cadenceMinutes,span,mean:values.length?values.reduce((a,b)=>a+b,0)/values.length:null,peak:values.length?Math.max(...values):null,
     thresholds:serverThresholds(input.boxes),
-    caption:`Guest CPU, averaged across reporting boxes in ${cadenceMinutes}-minute intervals · ${reporting}/${cards.length} boxes have CPU history · ${span}. Gaps mark periods without samples.`,
+    caption:`Guest CPU, averaged across reporting boxes in ${cadenceMinutes}-minute intervals · ${reporting}/${cards.length} boxes have CPU history · ${span}.`,
   };
 }
 
