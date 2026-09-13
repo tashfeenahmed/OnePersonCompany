@@ -1,6 +1,8 @@
 import { useRef, useState, type ComponentType } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { AlertBadge } from "@/components/AlertBadge";
+import type { AlertSummary } from "@/lib/dashboardAlerts";
 
 /**
  * A strip of tabs the owner can drag into their own order.
@@ -26,8 +28,10 @@ export type Tab = {
   key: string;
   to: string;
   label: string;
-  /** A small figure after the label — a dashboard's widget count. */
+  /** Optional ordinary count for non-dashboard tabs. */
   count?: number;
+  alerts?: AlertSummary;
+  alertsStale?: boolean;
   icon?: ComponentType<{ className?: string; strokeWidth?: number }>;
   fixed?: boolean;
 };
@@ -168,6 +172,7 @@ export function TabStrip({
           >
             {Icon && <Icon className="size-3.5" strokeWidth={1.6} />}
             {t.label}
+            {t.alerts && <AlertBadge summary={t.alerts} stale={t.alertsStale}/>}
             {t.count !== undefined && (
               <span className="text-muted-foreground text-[12px]">{t.count}</span>
             )}

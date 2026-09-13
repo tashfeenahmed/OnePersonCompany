@@ -15,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BrandTile } from "@/components/BrandTile";
 import { WidgetCard } from "@/components/WidgetCard";
+import { DashboardAlertList } from "@/components/DashboardAlertList";
+import { useDashboardAlerts } from "@/hooks/useDashboardAlerts";
 import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -70,6 +72,7 @@ export function BoardView({
   const { state, renameDashboard, deleteDashboard, copyDashboard, setWidgets } =
     useStore();
   const live = useLive();
+  const dashboardAlerts=useDashboardAlerts();
   const navigate = useNavigate();
   const { state: nav } = useLocation();
   /*
@@ -304,7 +307,7 @@ export function BoardView({
               </div>
               <div className="ml-auto flex items-center gap-1.5">
                 {board.id === "d-overview" && freshness && <span className="mr-3 hidden text-[11px] text-muted-foreground lg:inline">{freshness.replace(/^, /, "")}</span>}
-                <Button variant="ghost" onClick={live.reload} disabled={live.loading}>Refresh</Button>
+                <Button variant="ghost" onClick={()=>{live.reload();dashboardAlerts.refresh();}} disabled={live.loading}>Refresh</Button>
                 <Button variant="ghost" onClick={() => setRenaming(true)}>
                   Rename
                 </Button>
@@ -320,6 +323,7 @@ export function BoardView({
               </div>
             </div>
 
+            <DashboardAlertList boardId={board.id}/>
             <div ref={gridRef} className="grid grid-cols-12 gap-4">
               {!board.widgets.length && (
                 <div className="text-muted-foreground col-span-full rounded-[14px] border border-dashed px-5 py-11 text-center">

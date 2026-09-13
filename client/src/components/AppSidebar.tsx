@@ -28,6 +28,8 @@ import { useStore, type Session } from "@/lib/store";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useRunQueue } from "@/hooks/useRunQueue";
 import { useOpenAlerts } from "@/hooks/useOpenAlerts";
+import { useDashboardAlerts } from "@/hooks/useDashboardAlerts";
+import { AlertBadge } from "@/components/AlertBadge";
 import { api } from "@/lib/api";
 import { MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
 
@@ -238,10 +240,10 @@ export function AppSidebar() {
      report", where a 0 drawn because the fetch failed would be a claim that
      nothing is wrong made by a page that never found out. */
   const openAlerts = useOpenAlerts();
+  const dashboardAlerts=useDashboardAlerts();
 
   const counts: Record<string, number | undefined> = {
     "/ventures": state.ventures.length,
-    "/dashboards": state.dashboards.length + 1,
     "/subagents": queue.running + queue.queued || undefined,
     "/alerts": openAlerts,
   };
@@ -264,6 +266,7 @@ export function AppSidebar() {
       >
         <ModuleIcon path={path} />
         <span className="truncate">{label}</span>
+        {path==="/dashboards" && <AlertBadge summary={dashboardAlerts.total} stale={!!dashboardAlerts.error} className="ml-auto"/>}
         {counts[path] !== undefined && <span className="ml-auto text-xs text-muted-foreground">{counts[path]}</span>}
       </Link>
       <SidebarPinButton label={label} pinned={pinnedKeys.has(pinKey(pin))} onClick={() => togglePinned(pin)} />

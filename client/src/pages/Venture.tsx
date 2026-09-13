@@ -30,6 +30,7 @@ import { ventureApi, type VentureLinks } from "@/lib/api/ventures";
 import { subagentApi } from "@/lib/api/subagents";
 import { ScopeProvider } from "@/lib/live";
 import { useStore } from "@/lib/store";
+import { useDashboardAlerts } from "@/hooks/useDashboardAlerts";
 
 /**
  * ONE VENTURE: what it is, what is happening to it, and its own dashboards.
@@ -91,6 +92,7 @@ export function Venture() {
   const tab = useLocation().pathname.split("/")[3] ?? "";
   const bare = tab === "dashboards" && !boardSlug;
   const { state, dashboardsIn, reorderDashboards } = useStore();
+  const dashboardAlerts=useDashboardAlerts();
 
   const venture = state.ventures.find((v) => v.slug === slug);
   const boards = venture ? dashboardsIn(venture.id) : [];
@@ -230,7 +232,8 @@ export function Venture() {
               key: d.id,
               to: `${basePath}/${d.slug}`,
               label: d.name,
-              count: d.widgets.length,
+              alerts: dashboardAlerts.byBoard[d.id],
+              alertsStale: !!dashboardAlerts.error,
             })),
           ]}
           activeKey={board ? board.id : boardSlug ? null : tab || "overview"}

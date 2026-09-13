@@ -326,6 +326,14 @@ export const OPEN_KINDS: EventRow["kind"][] = ["trip", "unreadable"];
 export const openEvents = (opts: { limit?: number; ruleId?: number | null } = {}): EventRow[] =>
   events({ ...opts, openOnly: true, kinds: OPEN_KINDS, limit: opts.limit ?? 500 });
 
+/** One pending issue per rule, without an age or event-list limit. */
+export function openRuleEvents():EventRow[] {
+  return db.prepare(`SELECT * FROM (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY rule_id ORDER BY ts DESC, id DESC) AS position
+    FROM alert_events WHERE acknowledged_at IS NULL AND kind IN (${OPEN_KINDS.map(()=>"?").join(",")})
+  ) WHERE position = 1 ORDER BY ts DESC, id DESC`).all(...OPEN_KINDS) as unknown as EventRow[];
+}
+
 /**
  * One venture's open alerts, with the rule that raised each.
  *

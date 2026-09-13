@@ -26,6 +26,7 @@
  * Test cannot page anybody.
  */
 import { Hono } from "hono";
+import { dashboardAlerts } from "./dashboard-alerts.ts";
 import { ventureRows } from "../../db.ts";
 import { catalogueDoc, type Catalogue } from "./catalogue.ts";
 import { judge, readRule, ruleUrl, readParams, evaluateAll } from "./engine.ts";
@@ -52,6 +53,8 @@ import {
 } from "./store.ts";
 
 export const alertRoutes = new Hono();
+
+alertRoutes.get("/navigation", async (c) => c.json(await dashboardAlerts()));
 
 /* ------------------------------------------------------------------ shapes */
 

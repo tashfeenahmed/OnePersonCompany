@@ -1,4 +1,5 @@
 import { call } from "@/lib/api";
+import type { DashboardAlertsDoc } from "../../../../shared/dashboardAlerts";
 
 /**
  * ALERTS AND THE BRIEFING, FROM THIS SIDE.
@@ -223,6 +224,7 @@ export type BriefingSettings = {
 /* ------------------------------------------------------------------- calls */
 
 export const alertsApi = {
+  navigation: () => call<DashboardAlertsDoc>("/alerts/navigation"),
   catalogue: () => call<SkillCatalogue>("/skills"),
 
   summary: () => call<AlertsSummary>("/alerts"),

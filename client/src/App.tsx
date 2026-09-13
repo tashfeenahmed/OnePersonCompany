@@ -12,6 +12,7 @@ import {
 } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveProvider } from "@/lib/live";
+import { DashboardAlertsProvider } from "@/hooks/useDashboardAlerts";
 import { StoreProvider } from "@/lib/store";
 import { PaletteTokens, ThemeProvider } from "@/lib/theme";
 const Chat = lazy(() => import("@/pages/Chat").then(m => ({ default: m.Chat })));
@@ -48,6 +49,7 @@ export default function App() {
             Inside the store because that is where the choice is kept. */}
         <PaletteTokens />
         <LiveProvider>
+          <DashboardAlertsProvider>
           <TooltipProvider>
             {/* Real paths, not a hash. /dashboards/servers is the address a
                 board actually has — an address with a #/ in it is not a URL
@@ -364,6 +366,7 @@ export default function App() {
               </NavigationShell>
             </BrowserRouter>
           </TooltipProvider>
+          </DashboardAlertsProvider>
         </LiveProvider>
       </StoreProvider>
     </ThemeProvider>

@@ -4,6 +4,7 @@ import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NoBoard } from "@/components/BoardView";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
+import { useDashboardAlerts } from "@/hooks/useDashboardAlerts";
 import { WindowPicker } from "@/components/WindowPicker";
 import { DASHBOARD_WINDOWS, DEFAULT_WINDOW } from "@/lib/window";
 
@@ -60,6 +61,7 @@ export function LegacyReport() {
  */
 export function Dashboards() {
   const { state, reorderDashboards, setDashboardWindow } = useStore();
+  const alerts=useDashboardAlerts();
   const { slug } = useParams();
   const navigate = useNavigate();
 
@@ -110,7 +112,7 @@ export function Dashboards() {
           const next = boards.find(d => d.id === e.target.value);
           if (next) navigate(`/dashboards/${next.slug}`);
         }} className="h-8 min-w-0 flex-1 rounded-lg bg-accent px-2 text-xs sm:hidden">
-          {boards.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          {boards.map(d => <option key={d.id} value={d.id}>{d.name}{alerts.byBoard[d.id]?.count?` · ${alerts.byBoard[d.id]!.count} alert${alerts.byBoard[d.id]!.count===1?"":"s"}`:""}{alerts.error?" · alert status unavailable":""}</option>)}
         </select>
         <TabStrip
           className="hidden! sm:contents!"
@@ -122,7 +124,8 @@ export function Dashboards() {
             key: d.id,
             to: `/dashboards/${d.slug}`,
             label: d.name,
-            count: d.widgets.length,
+            alerts: alerts.byBoard[d.id],
+            alertsStale: !!alerts.error,
           }))}
           activeKey={board.id}
           onReorder={reorderDashboards}
