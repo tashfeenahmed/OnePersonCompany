@@ -1,8 +1,10 @@
+import { LiveRefreshGate, mergeReadings } from "./liveRefresh";
 import {
   createContext,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -436,12 +438,16 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshGate = useRef(new LiveRefreshGate<WindowValue>());
   useEffect(() => {
-    const refresh = () => { if (!document.hidden) setTick(t => t + 1); };
+    const refresh = () => {
+      if (!document.hidden && refreshGate.current.due(Date.now())) setTick(t => t + 1);
+    };
+    const changed = () => setTick(t => t + 1);
     const timer = window.setInterval(refresh, 60_000);
     window.addEventListener("focus", refresh);
-    window.addEventListener("opc:data-changed", refresh);
-    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener("opc:data-changed", refresh); };
+    window.addEventListener("opc:data-changed", changed);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener("opc:data-changed", changed); };
   }, []);
 
   const wanted = useMemo(() => {
@@ -589,7 +595,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
 
-    setLoading(true); setError(null); setSourceErrors({}); setSourceStates({});
+    setLoading(true); setError(null);
+    // Changing the requested window invalidates the data. Focus, polling and
+    // manual refresh keep the last reading visible until its replacement arrives.
+    if (refreshGate.current.begin(selected, Date.now())) {
+      setSourceErrors({}); setSourceStates({});
       setMetrics({});
       setHetzner(null);
       setFleet([]);
@@ -632,6 +642,52 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setInbox(null);
       setProfit(null);
       setCapture(null);
+      setSocial(null); setUsers(null); setMobileHealth(null); setWebAnalytics(null);
+    }
+    const clearSource: Record<string, () => void> = {
+      summary: () => setHetzner(null), fleet: () => setFleet([]), load: () => setLoad(null), volumes: () => setVolumes([]),
+      domains: () => {setDomains([]); setDomainSummary(null);},
+      stock: () => setStock(null),
+      costs: () => setCosts(null),
+      github: () => setGithub(null),
+      npm: () => setNpm(null),
+      mobile: () => setMobile(null),
+      stripe: () => setStripe(null),
+      adsense: () => setAdsense(null),
+      cloudflare: () => setCloudflare(null),
+      gsc: () => setGsc(null),
+      bing: () => setBing(null),
+      meta: () => setMeta(null),
+      demand: () => setDemand(null),
+      mail: () => setMail(null),
+      umami: () => setUmami(null),
+      calendar: () => setCalendar(null),
+      pypi: () => setPypi(null),
+      bluesky: () => setBluesky(null),
+      uptime: () => setUptime(null),
+      boxes: () => setBoxes(null),
+      products: () => setProducts(null),
+      backlinks: () => setBacklinks(null),
+      presence: () => setPresence(null),
+      audit: () => setAudit(null),
+      runs: () => setRuns(null),
+      llm: () => setLlm(null),
+      competitors: () => setCompetitors(null),
+      finance: () => setFinance(null),
+      leakage: () => setLeakage(null),
+      disputes: () => setDisputes(null),
+      queue: () => setQueue(null),
+      seo: () => setSeo(null),
+      social: () => setSocial(null),
+      ads: () => setAds(null),
+      inbox: () => setInbox(null),
+      profit: () => setProfit(null),
+      capture: () => setCapture(null),
+      users: () => setUsers(null),
+      mobileHealth: () => setMobileHealth(null),
+      webAnalytics: () => setWebAnalytics(null),
+    };
+    const clearError = (source: string) => setSourceErrors(s => { const next = {...s}; delete next[source]; return next; });
     void (async () => {
       /*
         WHICH PROVIDERS ARE ACTUALLY CONNECTED, asked once for the page.
@@ -668,10 +724,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       /** Fetch, or leave the state alone so the cards keep their samples. */
       const tasks: Promise<void>[] = [];
       const tryFetch = <T,>(want: boolean, get: () => Promise<T>, put: (v: T) => void, source: string) => {
-        setSourceStates(s => ({ ...s, [source]: want ? "loading" : "disconnected" }));
-        if (!want) return;
+        setSourceStates(s => ({ ...s, [source]: want ? s[source] ?? "loading" : "disconnected" }));
+        if (!want) { clearSource[source]?.(); clearError(source); return; }
         tasks.push(Promise.resolve().then(get).then(v => {
-          if (alive) { put(v); setSourceStates(s => ({ ...s, [source]: "ready" })); }
+          if (alive) { put(v); clearError(source); setSourceStates(s => ({ ...s, [source]: "ready" })); }
         }).catch(e => {
           if (alive) { setSourceStates(s => ({ ...s, [source]: "error" })); setSourceErrors(s => ({ ...s, [source]: e instanceof Error ? e.message : String(e) })); }
         }));
@@ -1026,13 +1082,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         (connected.has("appstore") || connected.has("playstore")) && wanted.needsMobileHealth,
         () => mobilehealthboard.docs(daysFor(selected, 60)),
         setMobileHealth,
-        "mobilehealth",
+        "mobileHealth",
       );
       tryFetch(
         connected.has("umami") && wanted.needsWebAnalytics,
         () => webanalyticsboard.docs(selected === 7 ? 7 : 30),
         setWebAnalytics,
-        "webanalytics",
+        "webAnalytics",
       );
 
       await Promise.all(tasks);
@@ -1040,24 +1096,24 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         wanted.series.map(async (m) => {
           const source = `metric:${m}`;
           if (!connected.has(m.split(".")[0]!)) { if (alive) setSourceStates(s => ({ ...s, [source]: "disconnected" })); return [m, [] as Point[]] as const; }
-          if (alive) setSourceStates(s => ({ ...s, [source]: "loading" }));
+          if (alive) setSourceStates(s => ({ ...s, [source]: s[source] ?? "loading" }));
           try {
             /* The readings table is this box's own and holds what has been
                collected since the metric existed; four hundred days is the
                route's cap and further than any of it goes. */
             const r = await api.metric(m, daysFor(selected, 400));
-            if (alive) setSourceStates(s => ({ ...s, [source]: "ready" }));
+            if (alive) { clearError(source); setSourceStates(s => ({ ...s, [source]: "ready" })); }
             return [
               m,
               r.points.map((p) => ({ ts: p.ts, value: p.value })),
             ] as const;
           } catch (error) {
             if (alive) { setSourceStates(s => ({ ...s, [source]: "error" })); setSourceErrors(s => ({ ...s, [source]: error instanceof Error ? error.message : String(error) })); }
-            return [m, [] as Point[]] as const;
+            return [m, null] as const;
           }
         }),
       );
-      if (alive) { setMetrics(Object.fromEntries(pairs.filter(([, p]) => p.length))); setLoading(false); }
+      if (alive) { setMetrics(previous => mergeReadings(previous, pairs)); setLoading(false); }
     })();
 
     return () => {

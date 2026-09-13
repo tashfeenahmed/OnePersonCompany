@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { cycleWidgetWidth } from "@/lib/widgetLayout";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Copy, Plus, Search, Trash2 } from "lucide-react";
 import { moveTo, slotFor, type Rect } from "@/lib/dragOrder";
@@ -46,11 +47,6 @@ import { PARAM_BADGE, PARAM_NOUN, paramChoices, paramKindOf } from "@/lib/params
  * here: the venture page wraps this in a `ScopeProvider` and the cards read it
  * through the live context, which is why nothing below knows a venture exists.
  */
-
-/** 1 → 2 → 4 → 1. Four is the full width of the grid. */
-function nextWidth(w: 1 | 2 | 4): 1 | 2 | 4 {
-  return w === 1 ? 2 : w === 2 ? 4 : 1;
-}
 
 export function BoardView({
   board,
@@ -230,14 +226,15 @@ export function BoardView({
     <>
       <span role="status" className="sr-only">{moveNote}</span>
       <div className="flex min-h-0 flex-1">
-        <div className={cn("min-w-0 flex-1 overflow-y-auto px-3 sm:px-6 pt-2", editing ? "pb-[48vh] md:pb-20" : "pb-20")}>
-          <div className="mx-auto w-full max-w-[1040px]">
+        <div className={cn("min-w-0 flex-1 overflow-y-auto px-4 sm:px-8 pt-2", board.id === "d-overview" && "overview-dashboard", editing ? "pb-[48vh] md:pb-20" : "pb-20")}>
+          <div className="mx-auto w-full max-w-[1440px]">
             <div className="mt-2 mb-5 flex flex-wrap items-end gap-3">
               <div>
-                <h1 className="mb-1 text-[27px] font-normal tracking-[-0.025em]">
+                {board.id === "d-overview" && <p className="text-muted-foreground mb-0.5 text-xs">Everything, briefly</p>}
+                <h1 className="mb-1 text-[22px] font-semibold tracking-tight">
                   {board.name}
                 </h1>
-                <p className="text-muted-foreground text-[14.5px]">
+                <p className={cn("text-muted-foreground text-xs", board.id === "d-overview" && "sr-only")}>
                   {`${board.widgets.length} ${board.widgets.length === 1 ? "widget" : "widgets"} from ${sources} ${sources === 1 ? "service" : "services"}`}
                   {liveHere > 0 && (
                     <>
@@ -265,6 +262,7 @@ export function BoardView({
                 </p>
               </div>
               <div className="ml-auto flex items-center gap-1.5">
+                {board.id === "d-overview" && freshness && <span className="mr-3 hidden text-[11px] text-muted-foreground lg:inline">{freshness.replace(/^, /, "")}</span>}
                 <Button variant="ghost" onClick={live.reload} disabled={live.loading}>Refresh</Button>
                 <Button variant="ghost" onClick={() => setRenaming(true)}>
                   Rename
@@ -281,7 +279,7 @@ export function BoardView({
               </div>
             </div>
 
-            <div ref={gridRef} className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+            <div ref={gridRef} className="grid grid-cols-12 gap-4">
               {!board.widgets.length && (
                 <div className="text-muted-foreground col-span-full rounded-[14px] border border-dashed px-5 py-11 text-center">
                   {editing
@@ -291,6 +289,8 @@ export function BoardView({
               )}
 
               {board.widgets.map((w) => (
+                <Fragment key={w.id}>
+                {board.id === "d-overview" && !editing && WIDGETS[w.type]?.section && <div className="col-span-12 mt-4 flex items-center gap-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground"><span>{WIDGETS[w.type]?.section}</span><span className="h-px flex-1 bg-border"/></div>}
                 <WidgetCard
                   key={w.id}
                   placed={w}
@@ -301,7 +301,7 @@ export function BoardView({
                   onCycleWidth={() =>
                     mutate((list) =>
                       list.map((x) =>
-                        x.id === w.id ? { ...x, w: nextWidth(x.w) } : x,
+                        x.id === w.id ? { ...x, ...cycleWidgetWidth(x, WIDGETS[x.type]) } : x,
                       ),
                     )
                   }
@@ -318,12 +318,13 @@ export function BoardView({
                     onPointerDown: (e) => grab(e, w.id),
                   } as React.HTMLAttributes<HTMLDivElement>}
                 />
+                </Fragment>
               ))}
 
               {editing && (
                 <button
                   onClick={() => setEditing(true)}
-                  className="text-muted-foreground hover:border-line-strong hover:text-foreground flex min-h-[116px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed text-[13.5px]"
+                  className="text-muted-foreground hover:border-line-strong hover:text-foreground col-span-12 xl:col-span-4 flex min-h-[116px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed text-[13.5px]"
                 >
                   <Plus className="size-4" strokeWidth={1.6} />
                   Add widget
@@ -395,7 +396,7 @@ export function BoardView({
                   ([, def]) =>
                     def.src === srcId &&
                     (!needle ||
-                      `${def.name} ${src.name}`.toLowerCase().includes(needle)),
+                      `${def.name} ${src.name} ${def.presentation ? "overview workdash" : ""}`.toLowerCase().includes(needle)),
                 );
                 if (!items.length) return null;
 

@@ -125,6 +125,8 @@ export type PlacedWidget = {
   type: string;
   /** Column span on the four-column grid: 1, 2 or 4. */
   w: 1 | 2 | 4;
+  /** Optional finer width on the twelve-column dashboard grid. */
+  span?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 12;
   /**
    * THE ONE THING A PINNED CARD IS ABOUT, by id.
    *
@@ -281,7 +283,7 @@ const KEY = "opc-state-v5";
   runs whatever version stamp the cached state carries, because an older cache
   has to stay readable.
 */
-export const SEED_VERSION = 26;
+export const SEED_VERSION = 27;
 
 /**
  * The sessions the seed invented, by id — the exact list, because the removal
@@ -393,57 +395,22 @@ const SEED: StoreState = {
       slug: "overview",
       name: "Overview",
       widgets: [
-        /*
-          THE HEADLINE, AND IT IS THE ADDITION.
-
-          Workdash's first tile is combined ARR with a stacked bar under it
-          and one line per stream. That is `revenue.combined`, at two columns
-          because the bar and its four lines are the card — a one-column
-          version would be the figure with its own explanation cropped off.
-          The table beside it is the same four streams with the share column
-          Workdash writes into prose, and the pair fills the row.
-        */
-        { id: "ov1", type: "revenue.combined", w: 2 },
-        { id: "ov2", type: "revenue.sources", w: 2 },
-        /*
-          THE OTHER THREE THINGS WORKDASH LEADS WITH, plus the one it folds:
-          what the window actually left, whether anybody showed up, how many
-          are paying, and how many arrived.
-
-          ALL FOUR ARE `metric` AND THAT IS THE WHOLE RULE OF THIS ROW. A row
-          stretches every card to the tallest one, so a proportion tile with a
-          split bar and a five-line key beside three plain figures leaves three
-          boxes two-thirds empty — which is what `users.total` did here, and
-          why the count of PEOPLE is on the Users board and the count of
-          ARRIVALS is the tile that stands in the row.
-        */
-        { id: "ov3", type: "stripe.net30", w: 1 },
-        { id: "ov4", type: "umami.pageviews", w: 1 },
-        { id: "ov5", type: "stripe.subs", w: 1 },
-        { id: "ov6", type: "users.new", w: 1 },
-        /* WHAT IS WAITING, full width. Above the money on purpose: a figure
-           is a thing to know and this is a thing to do. */
-        { id: "ov7", type: "overview.attention", w: 4 },
-        /* REVENUE, in Workdash's order: the daily line, then the movement
-           waterfall against the cost donut — the same matched pair its
-           "MRR movement" and "Where the money goes" cards make. */
-        { id: "ov8", type: "payments.daily", w: 4 },
-        { id: "ov9", type: "payments.movement", w: 2 },
-        { id: "ov10", type: "finance.groups", w: 2 },
-        /* And the subtraction those two imply, spelled out — Workdash's
-           "recurring revenue less the bill", with the margin on it. */
-        { id: "ov11", type: "overview.margin", w: 4 },
-        /* EVERY VENTURE: the figures, then the pictures. Workdash's project
-           grid, which is a table you read and photographs you recognise. */
-        { id: "ov12", type: "overview.health", w: 4 },
-        { id: "ov13", type: "overview.shots", w: 4 },
-        /* PORTFOLIO TRAFFIC — Workdash's views-against-visitors panel. */
-        { id: "ov14", type: "umami.sites", w: 4 },
-        /* THE FLEET, as Workdash's "Fleet health" meters: a matched pair,
-           and the last thing on the page because it is the half that is
-           usually fine. */
-        { id: "ov15", type: "fleet.disk", w: 2 },
-        { id: "ov16", type: "fleet.memory", w: 2 },
+        { id: "ov-arr", type: "brief.arr", w: 2, span: 4 },
+        { id: "ov-net", type: "brief.net", w: 2, span: 4 },
+        { id: "ov-views", type: "brief.views", w: 2, span: 4 },
+        { id: "ov-mrrInsight", type: "brief.mrrInsight", w: 2, span: 4 },
+        { id: "ov-paceInsight", type: "brief.paceInsight", w: 2, span: 4 },
+        { id: "ov-trafficInsight", type: "brief.trafficInsight", w: 2, span: 4 },
+        { id: "ov-figures", type: "brief.figures", w: 4, span: 12 },
+        { id: "ov-collections", type: "brief.collections", w: 4, span: 12 },
+        { id: "ov-movement", type: "brief.movement", w: 2, span: 5 },
+        { id: "ov-expenses", type: "brief.expenses", w: 2, span: 7 },
+        { id: "ov-traffic", type: "brief.traffic", w: 4, span: 12 },
+        { id: "ov-fleet", type: "brief.fleet", w: 2, span: 7 },
+        { id: "ov-play", type: "brief.play", w: 2, span: 5 },
+        { id: "ov-attention", type: "brief.attention", w: 4, span: 12 },
+        { id: "ov-projects", type: "brief.projects", w: 4, span: 12 },
+        { id: "ov-margin", type: "brief.margin", w: 4, span: 12 },
       ],
     },
     {
@@ -1897,6 +1864,7 @@ const REBUILDS: Record<string, string[][]> = {
     simplify anything — it strands the workspaces that are still on that shape.
   */
   "d-overview": [
+    ["revenue.combined", "revenue.sources", "stripe.net30", "umami.pageviews", "stripe.subs", "users.new", "overview.attention", "payments.daily", "payments.movement", "finance.groups", "overview.margin", "overview.health", "overview.shots", "umami.sites", "fleet.disk", "fleet.memory"],
     [
       "payments.mrr",
       "stripe.arr",
@@ -2233,7 +2201,7 @@ const TOP_UPS: Record<string, string[]> = {
     THEY LEAD (see TOP_UP_LEADS) because they are the headline. A combined
     run rate appended under thirty cards is a headline nobody scrolls to.
   */
-  "d-overview": ["revenue.combined", "revenue.sources"],
+  "d-overview": [],
 };
 
 /** The boards whose top-up leads rather than trails — see `migrate()`. */

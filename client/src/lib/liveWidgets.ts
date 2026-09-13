@@ -13629,3 +13629,134 @@ Object.assign(LIVE_BUILDERS, {
     return { table, caption: `At most ${count(doc.limits.propertyValues)} distinct values are kept per property.` };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* WorkDash overview presentations reuse the existing accounting builders. */
+const briefBase = (key: string, d: LiveInputs) => LIVE_BUILDERS[key]?.(d) ?? null;
+const briefMoney = (d: LiveInputs) => firstCurrency(d.stripe?.charges)?.currency ?? firstCurrency(d.stripe?.revenue)?.currency ?? "USD";
+Object.assign(LIVE_BUILDERS, {
+  "brief.arr": (d: LiveInputs) => {
+    const p = briefBase("revenue.combined", d);
+    return p ? {...p, sub:p.sub?.replace(/ · \d+ of \d+ streams? answering$/, ""), rows:p.rows?.map(([k,v])=>[k,v.replace(/ · as it stands$/, "")])} : null;
+  },
+  "brief.net": (d: LiveInputs) => {
+    const r = firstCurrency(d.stripe?.revenue);
+    if (!r) return null;
+    const deductions = r.gross - r.net;
+    return {
+      name: `Net collected · ${windowLabel(d.window ?? 30)}`,
+      value: inCurrency(r.net, r.currency),
+      sub: `From ${inCurrency(r.gross, r.currency, 0)} in Stripe's balance ledger, after fees, refunds, disputes and tax withheld.`,
+      parts: r.gross > 0 && r.net >= 0 && deductions >= 0 ? [
+        { label: "Taken off", value: deductions, text: inCurrency(deductions, r.currency, 0) },
+        { label: "Kept", value: r.net, text: inCurrency(r.net, r.currency, 0), tone: "ok" as const },
+      ] : [],
+      series: r.series.map(p => p.net),
+      caption: "Stripe ledger only; app-store payouts and operating expenses are separate. Currencies are never added together. " +
+        (d.stripe!.revenue.length > 1 ? `Showing ${r.currency.toUpperCase()}; other currencies are on Payments.` : ""),
+    };
+  },
+  "brief.views": (d: LiveInputs) => {
+    const U = d.umami;
+    if (!U?.portfolio.answering || U.portfolio.window.pageviews === null) return null;
+    const p = U.portfolio;
+    const parts = U.websites.filter(w => w.window?.pageviews != null).map(w => ({
+      label: siteName(w), value: w.window!.pageviews ?? 0, text: count(w.window!.pageviews),
+    })).sort((a,b) => b.value-a.value);
+    return {
+      name: `Views · ${p.window.days}d`, value: Intl.NumberFormat("en",{notation:"compact",maximumFractionDigits:1}).format(p.window.pageviews ?? 0),
+      sub: `${count(p.answering)} sites answering · ${parts[0]?.label ?? "No site"} leads with ${count(parts[0]?.value ?? 0)} views.`,
+      parts: [...parts.slice(0,3), ...(parts.length>3 ? [{label:"Other sites",value:parts.slice(3).reduce((n,p)=>n+p.value,0),text:count(parts.slice(3).reduce((n,p)=>n+p.value,0))}] : [])], series: p.days.slice(-p.window.days).map(p => p.pageviews),
+      caption: `${p.window.days} complete days, Umami's reporting window. Visitors are counted per site, never added into a unique portfolio audience.`,
+    };
+  },
+  "brief.mrrInsight": (d: LiveInputs) => {
+    const c = churnRow(d.stripe, churnDays(d.window));
+    if (!c) return null;
+    return { value: `Net ${c.netMrr >= 0 ? "+" : ""}${inCurrency(c.netMrr, c.currency)} MRR in ${c.days} days`,
+      sub: `${inCurrency(c.newMrr,c.currency)} added across ${count(c.newSubs)} new subscriptions against ${inCurrency(c.churnedMrr,c.currency)} churned.`,
+      tone: c.netMrr < 0 ? "warn" as const : "ok" as const };
+  },
+  "brief.paceInsight": (d: LiveInputs) => {
+    const c = firstCurrency(d.stripe?.charges);
+    if (!c?.series.length) return null;
+    const last = c.series.slice(-7);
+    const avg = last.reduce((n,p) => n+p.gross,0)/last.length;
+    const mean = c.series.reduce((n,p) => n+p.gross,0)/c.series.length;
+    return { value: `Last ${last.length} days ran ${inCurrency(avg,c.currency,0)}/day gross`,
+      sub: `${mean > 0 ? (avg/mean).toFixed(1)+"×" : "Compared with"} the ${c.series.length}-day mean of ${inCurrency(mean,c.currency,0)}/day. Successful charges, not recurring revenue.` };
+  },
+  "brief.trafficInsight": (d: LiveInputs) => {
+    const U = d.umami;
+    const sites = U?.websites.filter(w => w.window?.pageviews != null) ?? [];
+    const total = sites.reduce((n,w) => n+(w.window!.pageviews ?? 0),0);
+    if (!sites.length || !total) return null;
+    const top = [...sites].sort((a,b) => (b.window!.pageviews ?? 0)-(a.window!.pageviews ?? 0))[0]!;
+    return { value: `${siteName(top)} is ${Math.round((top.window!.pageviews ?? 0)/total*100)}% of portfolio views`,
+      sub: `${count(top.window!.pageviews)} of ${count(total)} pageviews in Umami's ${U!.portfolio.window.days}d window; the other ${sites.length-1} sites share the rest.` };
+  },
+  "brief.figures": (d: LiveInputs) => {
+    const keys = [["stripe.mrr","Recurring / month"],["stripe.subs","Active subscriptions"],["stripe.churn","Revenue churn"],["stripe.pending","Pending balance"],["gsc.clicks","Search clicks"],["gsc.impressions","Search impressions"],["gsc.ctr","Search CTR"],["gsc.position","Search position"],["users.new","New users"]];
+    const figures = keys.map(([key,label]) => { const p=briefBase(key!,d); return { label: label!, value:p?.value ?? "—", sub:p?.sub ?? "No reading available" }; });
+    return figures.some(f => f.value !== "—") ? {figures} : null;
+  },
+  "brief.collections": (d: LiveInputs) => {
+    const c = firstCurrency(d.stripe?.charges);
+    if (!c?.series.length) return null;
+    return { name: "Daily gross charges, Stripe", currency: briefMoney(d),
+      chart: [{ label: `Gross charges · ${c.currency.toUpperCase()}`, points:c.series.map(p => ({ts:at(p.day),value:p.gross})) }],
+      value: inCurrency(c.gross,c.currency,0),
+      sub: `${windowLabel(d.window ?? 30)} · gross charges before refunds`,
+      caption: "Dated by the charge, including one-off payments. This measures cash collected, not MRR. " + (d.stripe!.charges.length > 1 ? `Showing ${c.currency.toUpperCase()}; other currencies stay separate on Payments.` : ""),
+    };
+  },
+  "brief.movement": (d: LiveInputs) => {
+    const p = briefBase("payments.movement",d);
+    const c = churnRow(d.stripe, churnDays(d.window));
+    return p && c ? {...p, currency:c.currency, caption:"New recurring revenue minus churned recurring revenue. Annual subscriptions are counted as a twelfth per month."} : null;
+  },
+  "brief.expenses": (d: LiveInputs) => briefBase("finance.groups",d),
+  "brief.traffic": (d: LiveInputs) => {
+    const all = d.umami?.websites ?? [];
+    const sites = all.filter(w => w.window?.visitors != null && w.window?.pageviews != null);
+    if (!sites.length) return null;
+    return { name:`Traffic · visitors and views · ${d.umami!.portfolio.window.days}d`, names:["Visitors","Pageviews"] as [string,string], log:true,
+      dumbbell:[...sites].sort((a,b)=>(b.window!.pageviews ?? 0)-(a.window!.pageviews ?? 0)).map(w=>({
+        label:siteName(w),a:w.window!.visitors ?? 0,b:w.window!.pageviews ?? 0,text:`${count(w.window!.visitors)} → ${count(w.window!.pageviews)}`,
+      })), caption:`${d.umami!.portfolio.window.days} days · log scale. Each site counts its own visitors; people may visit more than one site. ${all.length-sites.length} sites without both measurements omitted.` };
+  },
+  "brief.fleet": (d: LiveInputs) => {
+    if (!d.boxes) return null;
+    const disk=briefBase("fleet.disk",d)?.meters ?? [];
+    const ram=briefBase("fleet.memory",d)?.meters ?? [];
+    return { hosts:d.boxes.boxes.map(b=>({name:b.label,metrics:[
+      {label:"Disk",value:disk.find(m=>m.label===b.label)?.value ?? null},
+      {label:"RAM",value:ram.find(m=>m.label===b.label)?.value ?? null},
+      {label:"CPU",value:b.sample?.cpuPercent ?? null},
+    ]})), thresholds:{warn:d.boxes.thresholds.warn,crit:d.boxes.thresholds.critical},
+    caption:"Disk is the fullest filesystem; RAM excludes available cache. CPU is measured busy time inside the guest. Missing probes remain blank." };
+  },
+  "brief.play": (d: LiveInputs) => {
+    const p=d.mobile?.play;
+    if (!p?.connected) return null;
+    // Keep each currency named and unconverted; there is no mixed-currency total.
+    const ranked=p.packages.flatMap(pkg=>pkg.payout.map(c=>({label:`${shortPackage(pkg.package)} · ${c.currency}`,value:c.amount,text:money(c.amount,c.currency)}))).sort((a,b)=>b.value-a.value);
+    const currencies=new Set(p.packages.flatMap(pkg=>pkg.payout.map(c=>c.currency)));
+    return { ranked, caption:currencies.size > 1 ? "Payouts in their original currencies; compare figures only within the same currency." : "Reported Play payouts by app. These are settlements, not estimated buyer charges.",
+      // No shared bar scale for unlike currencies.
+      ...(currencies.size > 1 ? {rows:ranked.map(r=>[r.label,r.text] as [string,string]),ranked:[]} : {}) };
+  },
+  "brief.attention": (d: LiveInputs) => briefBase("overview.attention",d),
+  "brief.projects": (d: LiveInputs) => {
+    const C=d.capture;
+    if (!C) return null;
+    const health=briefBase("overview.health",d);
+    const feed=C.ventures.flatMap(v=>briefBase("overview.shots",{...d,capture:{...C,ventures:[v]}})?.feed ?? []);
+    const order=health?.table?.map(r=>r[0]) ?? [];
+    feed.sort((a,b)=>{const ai=order.indexOf(a.title),bi=order.indexOf(b.title);return (ai<0?Infinity:ai)-(bi<0?Infinity:bi);});
+    return {feed:feed.map(item=>{
+      const row=health?.table?.find(r=>r[0]===item.title);
+      return row ? {...item,meta:[["net",row[1]!],["cost",row[2]!],["views",row[3]!]] as [string,string][]} : item;
+    }),caption:health?.caption ?? "Every website in the portfolio. Screenshots show their capture dates; an absent capture is never a current picture."};
+  },
+  "brief.margin": (d: LiveInputs) => briefBase("overview.margin",d),
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

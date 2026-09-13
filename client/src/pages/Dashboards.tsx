@@ -1,4 +1,4 @@
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NoBoard } from "@/components/BoardView";
@@ -61,6 +61,7 @@ export function LegacyReport() {
 export function Dashboards() {
   const { state, reorderDashboards, setDashboardWindow } = useStore();
   const { slug } = useParams();
+  const navigate = useNavigate();
 
   const boards = state.dashboards.filter((d) => !d.ventureId);
   const board = boards.find((d) => d.slug === slug);
@@ -101,13 +102,18 @@ export function Dashboards() {
 
   return (
     <>
-      {/* The strip wraps, so the header grows with it; the button keeps to
-          one line at the right, because "New dashboard" is the one action
-          this page has and a wrapped button reads as two. */}
-      <header className="flex min-h-12 shrink-0 items-start gap-2 px-4.5 py-1.5">
+      {/* Keep navigation in one row; the dashboard keeps its place below it. */}
+      <header className="flex min-h-12 shrink-0 items-center gap-2 px-4.5 py-1.5">
         {/* Links, not buttons: each tab IS the board's address. Hold and drag
             to reorder — the order lives in the store beside the boards. */}
+        <select aria-label="Dashboard" value={board.id} onChange={e => {
+          const next = boards.find(d => d.id === e.target.value);
+          if (next) navigate(`/dashboards/${next.slug}`);
+        }} className="h-8 min-w-0 flex-1 rounded-lg bg-accent px-2 text-xs sm:hidden">
+          {boards.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
         <TabStrip
+          className="hidden! min-w-0 flex-1 flex-nowrap! overflow-x-auto sm:flex!"
           /* BOARDS AND NOTHING ELSE. The strip used to open with four fixed
              report tabs the owner could not move or remove; every tab in it is
              now a board of his, in his order, and every one of them can be
@@ -120,7 +126,6 @@ export function Dashboards() {
           }))}
           activeKey={board.id}
           onReorder={reorderDashboards}
-          className="min-w-0 flex-1"
         />
         {/*
           ONE WINDOW FOR EVERY BOARD, here and nowhere else. It sits in this
@@ -138,9 +143,9 @@ export function Dashboards() {
           className="shrink-0"
         />
         <Button asChild size="sm" className="mt-0.5 shrink-0 whitespace-nowrap">
-          <Link to="/dashboards/new">
+          <Link to="/dashboards/new" aria-label="New dashboard">
             <Plus className="size-3.5" strokeWidth={1.8} />
-            New dashboard
+            <span className="hidden sm:inline">New dashboard</span>
           </Link>
         </Button>
       </header>

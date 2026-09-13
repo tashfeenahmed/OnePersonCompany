@@ -1,0 +1,39 @@
+/* WorkDash's surfaces and chart palette, scoped so the rest of the app retains its theme. */
+.overview-dashboard, .workdash-widget {
+  --background: #f4f5f7; --foreground: #12151b; --card: #fff;
+  --muted: #f7f8fa; --muted-foreground: #737c8b; --accent: #eceef2;
+  --border: #e2e5ea; --primary: #65a30d; --primary-ink: #3f6212;
+  --chart-grid: #e9ebef; --chart-axis: #d2d6dd; --chart-label: #4a5261;
+  --chart-1: #6f86d8; --chart-2: #c58456; --chart-3: #54a391; --chart-4: #9982cf; --chart-5: #9b9b9b;
+  --color-ok-500: #599c6b; --color-warn-500: #bc911e; --color-crit-500: #cf6054;
+  --color-ok-700: #287542; --color-warn-700: #926800; --color-crit-700: #bd4134;
+  --color-onaccent: #fff; --color-knob: #fff;
+  --color-steel-500: var(--chart-1); --color-steel-700: var(--chart-1);
+  --color-teal-500: var(--chart-3); --color-teal-700: var(--chart-3);
+  color: var(--foreground);
+}
+.dark .overview-dashboard, .dark .workdash-widget {
+  --background: #101216; --foreground: #f0f2f6; --card: #181b20;
+  --muted: #1f232a; --muted-foreground: #929ba8; --accent: #1c2027;
+  --border: #ffffff12; --primary: #a3e635; --primary-ink: #bef264;
+  --chart-grid: #262a31; --chart-axis: #333942; --chart-label: #b7bfcb;
+  --color-ok-700: #86d3a3; --color-warn-700: #ecc76a; --color-crit-700: #f2a099;
+  --color-onaccent: #161616; --color-knob: #ececec;
+}
+.overview-dashboard { background: var(--background); }
+.brief-card, .brief-insight { background: var(--card); border-radius: 28px; padding: 20px; box-shadow: 0 1px 2px #00000006; }
+.brief-card { display: flex; flex-direction: column; }
+.brief-arr { box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 22%, transparent); }
+.brief-arr-value { color: var(--primary-ink); }
+.brief-number { font-size: clamp(28px, 2.8vw, 40px); overflow-wrap: anywhere; }
+.brief-insight { padding: 16px; border-radius: 32px; }
+.brief-insight-icon { flex-shrink: 0; padding: 6px; border-radius: 50%; background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary-ink); }
+.brief-details { border-color: var(--border); }
+.brief-details > summary::-webkit-details-marker { display: none; }
+.brief-details[open] > summary svg { transform: rotate(180deg); }
+.brief-figures { padding: 0 8px; }
+.workdash-widget table { border-color: var(--border); }
+.workdash-widget details, .workdash-widget tr, .workdash-widget th, .workdash-widget a { border-color: var(--border); }
+.workdash-widget button:focus-visible, .brief-details summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+@media (max-width: 640px) { .brief-card { padding: 18px; border-radius: 22px; } .brief-number { font-size: 36px; } }
+@media (prefers-reduced-motion: reduce) { .workdash-widget * { transition: none !important; } }

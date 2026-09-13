@@ -1,3 +1,5 @@
+import { OverviewWidget } from "@/components/overview/OverviewWidget";
+import { widgetSpanClass } from "@/lib/widgetLayout";
 import { measuredWidget } from "@/lib/widgetView";
 import { Trash2, UnfoldHorizontal } from "lucide-react";
 import { BrandTile } from "@/components/BrandTile";
@@ -78,6 +80,8 @@ function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<Live
     profit: live.profit,
     capture: live.capture,
     users: live.users,
+    mobileHealth: live.mobileHealth,
+    webAnalytics: live.webAnalytics,
     window: live.window,
     ...extra,
   };
@@ -296,6 +300,12 @@ export function WidgetCard({
         ? `Nothing for ${scope.label} in ${src.name}.`
         : `Nothing collected from ${src.name} yet, so there is nothing to narrow.`
       : !isLive ? unavailable : null;
+  const failedSource = Object.keys(base.live ?? {}).find(key =>
+    live.sourceStates[key === "metric" ? `metric:${base.live?.metric}` : key] === "error");
+  if (base.presentation) return <OverviewWidget def={def} title={title} placed={placed} empty={empty}
+    stale={!!failedSource || !!live.error} error={live.sourceErrors[failedSource ?? sourceKey] ?? live.error}
+    editing={editing} onCycleWidth={onCycleWidth} onRemove={onRemove} onMove={onMove}
+    dragHandlers={dragHandlers} dragging={dragging} dropSide={dropSide} />;
   const brand = src.icon ? BRAND_ICONS[src.icon]?.hex : src.tint;
 
   return (
@@ -303,7 +313,7 @@ export function WidgetCard({
       {...dragHandlers}
 
       className={cn(
-        placed.w === 4 ? "col-span-2 xl:col-span-4" : placed.w === 2 ? "col-span-2" : "col-span-1",
+        widgetSpanClass(placed, base),
         "bg-card relative flex min-h-[116px] flex-col rounded-[14px] p-4.5 transition-colors",
         editing && "hover:border-line-strong cursor-grab touch-none select-none",
         dragging && "cursor-grabbing opacity-35",
@@ -342,8 +352,8 @@ export function WidgetCard({
           )}
           {isLive && (
             <span
-              className="bg-ok size-1.5 shrink-0 rounded-full"
-              title={`Live — ${describeCollected(collectedAt(base.src, live))}`}
+              className={cn("size-1.5 shrink-0 rounded-full", sourceState === "error" || live.error ? "bg-warn" : "bg-ok")}
+              title={`${sourceState === "error" || live.error ? "Refresh failed; showing last reading" : "Live"} — ${describeCollected(collectedAt(base.src, live))}`}
             />
           )}
         </span>

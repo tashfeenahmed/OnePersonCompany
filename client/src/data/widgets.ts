@@ -293,6 +293,12 @@ export type Widget = {
    * hostnames.
    */
   perParam?: PerParam;
+  /** Reusable WorkDash card presentation; data still comes from the live builder. */
+  presentation?: "summary" | "arr" | "insight" | "figures" | "workdash";
+  span?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 12;
+  section?: string;
+  currency?: string;
+  hosts?: { name: string; metrics: { label: string; value: number | null }[] }[];
   /**
    * Where the real numbers come from, once the provider is connected:
    * a key in the server's `readings` table, or "summary" for a provider
@@ -5037,6 +5043,29 @@ export const WIDGETS: Record<string, Widget> = {
     headers: ["Domain", "State", "Sent", "Bounce", "DNS", "Region"],
   },
 };
+
+/** WorkDash's overview cards, available on any board through the same catalog. */
+const brief = (base: string, name: string, presentation: Widget["presentation"], span: Widget["span"], extra: Partial<Widget> = {}): Widget => ({
+  ...WIDGETS[base]!, name, presentation, span, ...extra,
+});
+Object.assign(WIDGETS, {
+  "brief.arr": brief("revenue.combined", "Combined ARR", "arr", 4),
+  "brief.net": brief("stripe.net30", "Net collected", "summary", 4, { kind: "proportion" }),
+  "brief.views": brief("umami.pageviews", "Views", "summary", 4, { kind: "proportion", window: undefined }),
+  "brief.mrrInsight": brief("payments.movement", "Subscription momentum", "insight", 4),
+  "brief.paceInsight": brief("payments.daily", "Collection pace", "insight", 4),
+  "brief.trafficInsight": brief("umami.pageviews", "Traffic concentration", "insight", 4, { window: undefined }),
+  "brief.figures": brief("stripe.subs", "More figures", "figures", 12, { kind: "profile", live: { stripe: true, gsc: true, users: true } }),
+  "brief.collections": brief("payments.daily", "Daily gross charges, Stripe", "workdash", 12, { section: "Revenue" }),
+  "brief.movement": brief("payments.movement", "MRR movement", "workdash", 5),
+  "brief.expenses": brief("finance.groups", "Where the money goes", "workdash", 7),
+  "brief.traffic": brief("umami.sites", "Traffic · visitors and views", "workdash", 12, { kind: "dumbbell", section: "Audience" }),
+  "brief.fleet": brief("fleet.disk", "Fleet health", "workdash", 7, { section: "Operations" }),
+  "brief.play": brief("play.apps", "Google Play · payout by app", "workdash", 5, { kind: "ranked" }),
+  "brief.attention": brief("overview.attention", "Needs attention", "workdash", 12),
+  "brief.projects": brief("overview.shots", "Projects", "workdash", 12, { section: "Portfolio", live: { capture: true, profit: true, umami: true } }),
+  "brief.margin": brief("overview.margin", "Portfolio margin", "workdash", 12),
+});
 
 /** The presets offered when a new dashboard is created. */
 export const DASHBOARD_PRESETS: {
