@@ -149,4 +149,3 @@ signature; editing invalidates the approval. An atomic send claim prevents a
 double delivery. An interrupted or ambiguous send becomes a **Check delivery**
 item, and those are never retried automatically — check the account's Sent
 folder yourself before marking one as not sent.
-
