@@ -3,6 +3,7 @@ import type { HetznerServer } from "./api.ts";
 import type { Widget } from "../data/widgets.ts";
 import type { LiveInputs } from "./liveWidgets.ts";
 import { bytes, durationS, money } from "./format.ts";
+import { serverRegion } from "./serverRegions.ts";
 
 export type ServerStatus = "healthy" | "degraded" | "down" | "unknown";
 export type ServerPoint = { ts: string; value: number };
@@ -12,7 +13,7 @@ export type ServerMeter = {
 };
 export type ServerCardData = {
   id: string; name: string; address: string | null; hostname: string | null;
-  provider: string; location: string | null; specs: string | null;
+  provider: string; location: string | null; country: string | null; specs: string | null;
   status: ServerStatus; statusLabel: string; note: string | null; seenAt: string | null;
   uptime: string; cost: string; meters: ServerMeter[]; load: ServerPoint[];
   loadSource: string; loadSpan: string; cadenceMinutes: number;
@@ -126,6 +127,7 @@ export function serverCard(box: FleetBox, input: LiveInputs, now = Date.now()): 
     if (meters.slice(0,3).every(m=>m.value===null)) {status="unknown";statusLabel="Not measured";}
   }
   const address = serverAddress(box);
+  const region = serverRegion({location:hz?.location ?? null,address,hostname:box.hostname});
   const local = address && /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|\.(local|lan|home|internal)$/.test(address);
   const expense = hz ? input.finance?.expenses.find(e=>!e.archived && e.source==="hetzner" && e.sourceRef===`server:${hz.id}`) : undefined;
   const cost = expense ? expense.monthly===null ? "Not priced" : `${money(expense.monthly,expense.currency)}/mo`
@@ -141,7 +143,7 @@ export function serverCard(box: FleetBox, input: LiveInputs, now = Date.now()): 
     facts.push([label,stat.now===null ? "—" : `${bytes(stat.now)}/s · hypervisor`]);
   return {
     id:String(box.accountId),name:box.label,address,hostname:box.hostname,
-    provider:hz?"Hetzner":local?"Local network":"Other provider", location:hz?.location ?? null,specs:hz?.specs ?? hz?.plan ?? null,
+    provider:hz?"Hetzner":local?"Local network":"Other provider", ...region,specs:hz?.specs ?? hz?.plan ?? null,
     status,statusLabel,note:notes.join(" ") || null,seenAt:box.seenAt,uptime:durationS(box.sample?.uptimeSeconds ?? null),cost,
     meters,load,loadSource:useGuest?"Guest CPU samples":"Hetzner hypervisor CPU",loadSpan:serverHistorySpan(load),cadenceMinutes:useGuest?cadenceMinutes:0,
     docker:box.docker,containers:box.containers,
@@ -161,7 +163,7 @@ export function serverFleet(input: LiveInputs, now = Date.now()): ServerFleetDat
   const reporting = guest.filter(c=>c.load.length>0).length;
   return {cards,points,cadenceMinutes,span,mean:values.length?values.reduce((a,b)=>a+b,0)/values.length:null,peak:values.length?Math.max(...values):null,
     thresholds:serverThresholds(input.boxes),
-    caption:`Guest CPU, averaged across reporting boxes in ${cadenceMinutes}-minute intervals · ${reporting}/${cards.length} boxes have CPU history · ${span}.`,
+    caption:`Guest CPU, averaged across reporting boxes in ${cadenceMinutes}-minute intervals · ${reporting}/${cards.length} boxes have CPU history · ${span}. Readings are evenly spaced; hover for exact times.`,
   };
 }
 

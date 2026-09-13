@@ -1,10 +1,11 @@
 import { useState, type HTMLAttributes } from "react";
 import { Link } from "react-router-dom";
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, Banknote, Check, ChevronDown, Copy, Search, Server, Trash2, UnfoldHorizontal, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, Banknote, Check, ChevronDown, Copy, Globe2, Search, Server, Trash2, UnfoldHorizontal, X } from "lucide-react";
 import type { Widget } from "@/data/widgets";
 import type { PlacedWidget } from "@/lib/store";
 import type { ServerCardData, ServerFleetData, ServerMeter, ServerStatus } from "@/lib/serverWidgets";
 import { ago } from "@/lib/format";
+import { countryFlag, countryName } from "@/lib/serverRegions";
 import { widgetSpan, widgetSpanClass } from "@/lib/widgetLayout";
 import { cn } from "@/lib/utils";
 import { ServerLoadChart } from "./ServerLoadChart";
@@ -34,6 +35,8 @@ function Meter({meter}:{meter:ServerMeter}) {
 function HostCard({card}:{card:ServerCardData}) {
   const [copied,setCopied]=useState(false);
   const [copyError,setCopyError]=useState(false);
+  const flag=countryFlag(card.country);
+  const regionLabel=[countryName(card.country),card.location].filter(Boolean).join(" · ") || "Region not reported";
   async function copy() {
     if(!card.address)return;
     try {await navigator.clipboard.writeText(card.address);setCopied(true);setCopyError(false);}
@@ -41,7 +44,7 @@ function HostCard({card}:{card:ServerCardData}) {
   }
   return <article className={cn("server-host-card",card.status==="down"&&"ring-1 ring-destructive/35")} aria-label={card.name}>
     <div className="flex items-start gap-2.5">
-      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Server className="size-4" strokeWidth={1.6}/></span>
+      <span role="img" aria-label={regionLabel} title={regionLabel} data-server-region={card.country ?? "unknown"} className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-muted text-[22px] leading-none text-muted-foreground">{flag ?? <Globe2 aria-hidden="true" className="size-5" strokeWidth={1.6}/>}</span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><h3 className="min-w-0 flex-1 text-[15px] font-semibold tracking-tight">{card.name}</h3><span className={cn("inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium",statusClass[card.status])}><span className={cn("size-1.5 rounded-full",statusDot[card.status])}/>{card.statusLabel}</span></div>
         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
@@ -57,7 +60,7 @@ function HostCard({card}:{card:ServerCardData}) {
     <dl className="mt-4 grid grid-cols-3 gap-x-3 gap-y-3">{card.meters.filter((m,i)=>i<3 || !m.label.startsWith("/boot") || (m.value!==null && m.value>=m.warn)).map(m=><Meter key={m.label} meter={m}/>)}</dl>
     <div className="mt-4 border-t pt-3">
       <div className="mb-1 flex flex-wrap justify-between gap-1 text-[10px] text-muted-foreground"><span className="font-medium">CPU over time</span><span>{card.loadSpan}</span></div>
-      <ServerLoadChart points={card.load} label={`${card.name} CPU`} height={92} cadenceMinutes={card.cadenceMinutes}/>
+      <ServerLoadChart points={card.load} label={`${card.name} CPU`}/>
       <p className="mt-2 text-[10px] text-muted-foreground">{card.loadSource} · last probe {ago(card.seenAt)}</p>
     </div>
     <details className="server-disclosure mt-3 border-t pt-3">
@@ -75,17 +78,17 @@ function FleetCards({fleet}:{fleet:ServerFleetData}) {
   const [query,setQuery]=useState("");
   const counts=(status:ServerStatus)=>fleet.cards.filter(c=>c.status===status).length;
   const needle=query.trim().toLowerCase();
-  const visible=fleet.cards.filter(c=>(filter==="all"||c.status===filter) && (!needle || [c.name,c.address,c.hostname,c.location,c.provider,...c.containers.map(x=>`${x.name} ${x.image ?? ""}`),...c.counters.map(x=>x.label)].some(s=>s?.toLowerCase().includes(needle))));
+  const visible=fleet.cards.filter(c=>(filter==="all"||c.status===filter) && (!needle || [c.name,c.address,c.hostname,c.location,c.country,countryName(c.country),c.provider,...c.containers.map(x=>`${x.name} ${x.image ?? ""}`),...c.counters.map(x=>x.label)].some(s=>s?.toLowerCase().includes(needle))));
   return <>
     <div className="mb-3 flex flex-wrap items-center gap-2.5">
       <div role="group" aria-label="Filter servers by status" className="flex max-w-full flex-wrap rounded-full bg-muted p-1">
         {([["all","All"],["healthy","Healthy"],["degraded","Degraded"],["down","Not reporting"],["unknown","Unknown"]] as const).filter(([s])=>s!=="unknown"||counts("unknown")>0).map(([value,label])=><button key={value} type="button" aria-pressed={filter===value} onClick={()=>setFilter(value)} className={cn("rounded-full px-2.5 py-1.5 text-[11px] transition-colors",filter===value?"bg-card text-foreground shadow-sm":"text-muted-foreground hover:text-foreground")}>{label}</button>)}
       </div>
-      <label className="flex min-w-[170px] flex-1 items-center gap-2 rounded-full bg-muted px-3 py-2.5 sm:max-w-[240px]"><Search className="size-3.5 shrink-0 text-muted-foreground"/><input type="search" aria-label="Filter servers" placeholder="Name, IP or container…" value={query} onChange={e=>setQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-xs outline-none placeholder:text-muted-foreground"/></label>
+      <label className="flex min-w-[170px] flex-1 items-center gap-2 rounded-full bg-muted px-3 py-2.5 sm:max-w-[240px]"><Search className="size-3.5 shrink-0 text-muted-foreground"/><input type="search" aria-label="Filter servers" placeholder="Name, region, IP or container…" value={query} onChange={e=>setQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-xs outline-none placeholder:text-muted-foreground"/></label>
       <div className="ml-auto flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground" role="status">{(["healthy","degraded","down","unknown"] as const).filter(s=>counts(s)>0).map(s=><span key={s} className="inline-flex items-center gap-1"><span className={cn("size-1.5 rounded-full",statusDot[s])}/>{counts(s)} {s==="down"?"not reporting":s}</span>)}<span>{visible.length} shown</span></div>
     </div>
     <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">{[["var(--ok)","fine"],["var(--warn)","watch"],["var(--destructive)","act"]].map(([color,label])=><span key={label} className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{background:color}}/>{label}</span>)}<span>Watch / act: CPU {fleet.thresholds.cpu.warn}/{fleet.thresholds.cpu.critical}%, memory {fleet.thresholds.memory.warn}/{fleet.thresholds.memory.critical}%, disk {fleet.thresholds.disk.warn}/{fleet.thresholds.disk.critical}%.</span></div>
-    <p className="mb-4 text-[10px] leading-relaxed text-muted-foreground">Meters show the latest probe. Changes are percentage points between available samples; disks have no stored trend. Each CPU chart labels its source and recorded window.</p>
+    <p className="mb-4 text-[10px] leading-relaxed text-muted-foreground">Meters show the latest probe. Changes are percentage points between available samples; disks have no stored trend. CPU charts show evenly spaced readings; hover for exact times.</p>
     {visible.length ? <div className="server-host-grid">{visible.map(c=><HostCard key={c.id} card={c}/>)}</div> : <div className="rounded-3xl bg-card px-4 py-14 text-center"><p className="text-sm font-medium">No servers match</p><button type="button" onClick={()=>{setQuery("");setFilter("all");}} className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><X className="size-3"/>Clear filters</button></div>}
     <div className="mt-4 flex flex-wrap justify-between gap-2 text-[11px] text-muted-foreground"><span>{fleet.cards.length} servers · probed every {fleet.cadenceMinutes} minutes</span><Link to="/ops?tab=snapshots" className="underline underline-offset-4 hover:text-foreground">Open diagnostic snapshots</Link></div>
   </>;
@@ -106,7 +109,7 @@ export function ServerWidget({def,placed,empty,stale,error,editing,onCycleWidth,
     {editing && onToggleDetail && <button type="button" className="mb-2 text-[10px] text-muted-foreground" aria-label={`${placed.detail ? "Show on main dashboard" : "Move to details"}: ${def.name}`} onClick={onToggleDetail}>{placed.detail ? "Show on main dashboard" : "Move to details"}</button>}
     {(!cards||editing) && <div className="mb-2 flex items-center gap-2">{def.presentation==="server-stat"&&<Icon className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.6}/>}<h2 className={cn("min-w-0",def.presentation==="server-stat"?"text-[11px] text-muted-foreground":"text-sm font-semibold")}>{def.name}</h2>{def.presentation==="server-load"&&<span className="ml-auto text-[10px] text-muted-foreground">{def.serverFleet?.span}</span>}{controls}</div>}
     {empty ? <p className="py-5 text-xs text-muted-foreground">{empty}</p> : cards && def.serverFleet ? <FleetCards fleet={def.serverFleet}/> : def.presentation==="server-load" && def.serverFleet ? <>
-      <ServerLoadChart points={def.serverFleet.points} label="Fleet mean CPU" height={122} cadenceMinutes={def.serverFleet.cadenceMinutes}/>
+      <ServerLoadChart points={def.serverFleet.points} label="Fleet mean CPU" height={104}/>
       <p className="mt-3 text-[10px] leading-relaxed text-muted-foreground">{def.caption}</p>
       <details className="server-disclosure mt-3"><summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground"><ChevronDown className="size-3"/>Figures</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-[11px]"><thead><tr>{["Server","CPU now","Memory","Root disk","Mean CPU","Peak"].map(h=><th key={h} className="border-b py-2 pr-3 font-medium text-muted-foreground">{h}</th>)}</tr></thead><tbody>{def.serverFleet.cards.map(c=><tr key={c.id} className="border-b last:border-0"><td className="py-2.5 pr-3">{c.name}</td>{[c.meters[0]?.value ?? null,c.meters[1]?.value ?? null,c.meters[2]?.value ?? null,c.load.length?c.load.reduce((n,p)=>n+p.value,0)/c.load.length:null,c.load.length?Math.max(...c.load.map(p=>p.value)):null].map((v,i)=><td key={i} className="py-2.5 pr-3 tabular-nums text-muted-foreground">{pct(v)}</td>)}</tr>)}</tbody></table></div></details>
     </> : <><p className="mt-3 break-words text-[29px] font-semibold leading-none tracking-tight tabular-nums">{def.value ?? "—"}</p><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{def.sub}</p><details className="server-disclosure mt-auto pt-2"><summary className="cursor-pointer text-[10px] text-muted-foreground">Details</summary><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{def.caption}</p>{def.rows?.map(([k,v])=><div key={k} className="mt-2 flex flex-wrap justify-between gap-1 text-[10px]"><span className="text-muted-foreground">{k}</span><span>{v}</span></div>)}</details></>}
