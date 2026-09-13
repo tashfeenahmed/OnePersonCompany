@@ -28,6 +28,7 @@
  * itself is a chart whose baseline moves without anybody deciding it should.
  */
 import type { IntegrationManifest } from "../manifest.ts";
+import { trafficSeries } from "../insights/providers.ts";
 import * as umami from "./umami.ts";
 import * as calendar from "./calendar.ts";
 import * as pypi from "./pypi.ts";
@@ -47,6 +48,7 @@ import { blueskyRoutes } from "./bluesky-route.ts";
 import { PACKS, SKILLS } from "./skills.ts";
 
 export const manifest: IntegrationManifest = {
+  insightSources: trafficSeries,
   id: "analytics",
 
   plugins: {

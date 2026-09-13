@@ -1,4 +1,5 @@
 import { useParams } from "react-router-dom";
+import { Journal } from "./Journal";
 import { SubTabs } from "@/components/TabStrip";
 import { PageShell } from "@/components/PageShell";
 import { Feed } from "./Feed";
@@ -33,12 +34,16 @@ const FEED_DAYS = 14;
 const LEAKAGE_DAYS = 30;
 
 const TABS = [
+  { key: "infrastructure", to: "/activity/infrastructure", label: "Infrastructure" },
+  { key: "journal", to: "/activity/journal", label: "Work journal" },
   { key: "feed", to: "/activity", label: "Activity" },
   { key: "users", to: "/activity/users", label: "Users" },
   { key: "today", to: "/activity/today", label: "Today" },
 ];
 
 const SUB: Record<string, string> = {
+  infrastructure: "Server, container, disk and GPU transitions, timestamped when observed.",
+  journal: "A record of your work, one day at a time.",
   feed: "Updates from your connected services in one timeline. Events label estimated dates.",
   users: "Signups and user totals reported by your products.",
   today: "Failed payments, refunds and disputes that may need your attention.",
@@ -46,11 +51,13 @@ const SUB: Record<string, string> = {
 
 export function ActivityPage() {
   const { tab, product } = useParams();
-  const key = tab === "users" ? "users" : tab === "today" ? "today" : "feed";
+  const key = tab === "infrastructure" ? "infrastructure" : tab === "journal" ? "journal" : tab === "users" ? "users" : tab === "today" ? "today" : "feed";
 
   return (
     <PageShell title="Activity" sub={SUB[key]} wide>
       <SubTabs tabs={TABS} activeKey={key} />
+      {key === "journal" && <Journal />}
+      {key === "infrastructure" && <Feed days={90} onlyKind="infrastructure" />}
 
       {key === "feed" && <Feed days={FEED_DAYS} />}
       {key === "users" && (product ? <UserProduct product={product} /> : <Users />)}

@@ -1,3 +1,4 @@
+import { recordWorkstationObservation } from "./infrastructure.ts";
 /**
  * THE WORKSTATION — one account is one machine on the owner's own desk, and
  * the only integration here that can turn something ON.
@@ -546,6 +547,7 @@ export function writeState(s: MachineState) {
     s.gpuNote,
     s.error,
   );
+  recordWorkstationObservation(s, s.checkedAt);
 }
 
 export type StateRow = {

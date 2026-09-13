@@ -1,3 +1,5 @@
+import type { InsightsReport } from "../../../shared/insights";
+import { call } from "@/lib/api";
 import { LiveRefreshGate, mergeReadings } from "./liveRefresh";
 import {
   createContext,
@@ -249,6 +251,7 @@ export type LiveData = {
   inbox: InboxDoc | null;
   /** This month's portfolio P&L: every venture's revenue, cost and margin per
    *  currency, and the ledger's unallocated share beside them. */
+  insights?: InsightsReport | null;
   profit: PortfolioPnl | null;
   /** The newest photograph of each venture's front page, and the browser that
    *  did or did not take it. */
@@ -344,6 +347,7 @@ const LiveContext = createContext<LiveData>({
   social: null,
   ads: null,
   inbox: null,
+  insights: null,
   profit: null,
   capture: null,
   users: null,
@@ -428,6 +432,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [social, setSocial] = useState<SocialBoardDocs | null>(null);
   const [ads, setAds] = useState<AdsBoardDocs | null>(null);
   const [inbox, setInbox] = useState<InboxDoc | null>(null);
+  const [insights, setInsights] = useState<InsightsReport | null>(null);
   const [profit, setProfit] = useState<PortfolioPnl | null>(null);
   const [capture, setCapture] = useState<CaptureReport | null>(null);
   const [users, setUsers] = useState<UsersReport | null>(null);
@@ -491,6 +496,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsSocial = false;
     let needsAds = false;
     let needsInbox = false;
+    let needsInsights = false;
     let needsProfit = false;
     let needsCapture = false;
     let needsUsers = false;
@@ -537,6 +543,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.social) needsSocial = true;
       if (w.live?.ads) needsAds = true;
       if (w.live?.inbox) needsInbox = true;
+      if (w.live?.insights) needsInsights = true;
       if (w.live?.profit) needsProfit = true;
       if (w.live?.capture) needsCapture = true;
       if (w.live?.users) needsUsers = true;
@@ -584,6 +591,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsSocial,
       needsAds,
       needsInbox,
+      needsInsights,
       needsProfit,
       needsCapture,
       needsUsers,
@@ -640,6 +648,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setSeo(null);
       setAds(null);
       setInbox(null);
+      setInsights(null);
       setProfit(null);
       setCapture(null);
       setSocial(null); setUsers(null); setMobileHealth(null); setWebAnalytics(null);
@@ -681,6 +690,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       social: () => setSocial(null),
       ads: () => setAds(null),
       inbox: () => setInbox(null),
+      insights: () => setInsights(null),
       profit: () => setProfit(null),
       capture: () => setCapture(null),
       users: () => setUsers(null),
@@ -1043,6 +1053,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         three wear "now" in the catalog and say why.
       */
       tryFetch(wanted.needsInbox, () => inboxApi.open(), setInbox, "inbox");
+      tryFetch(wanted.needsInsights, () => call<InsightsReport>("/insights"), setInsights, "insights");
       tryFetch(wanted.needsProfit, () => financeApi.portfolio(), setProfit, "profit");
       tryFetch(wanted.needsCapture, () => ventureApi.capture(), setCapture, "capture");
       /*
@@ -1171,6 +1182,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         social,
         ads,
         inbox,
+        insights,
         profit,
         capture,
         users,
@@ -1222,6 +1234,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       social,
       ads,
       inbox,
+      insights,
       profit,
       capture,
       users,
@@ -1275,6 +1288,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     social,
     ads,
     inbox,
+    insights,
     profit,
     capture,
     users,

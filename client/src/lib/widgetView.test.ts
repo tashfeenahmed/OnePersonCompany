@@ -8,3 +8,8 @@ test("a measured value cannot inherit the catalog's fabricated trend or chart", 
   assert.equal(live.rows, undefined); assert.equal(live.bars, undefined); assert.equal(live.caption, undefined);
   assert.equal(measuredWidget(base, null).value, undefined);
 });
+test("insight widgets retain their renderer while replacing their measured data", () => {
+  const base = { src: "insights", name: "Pace", kind: "profile" as const, insightView: "pace" as const };
+  assert.equal(measuredWidget(base, {}).insightView, "pace");
+  assert.equal(measuredWidget(base, null).insightData, undefined);
+});

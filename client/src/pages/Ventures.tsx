@@ -1,3 +1,7 @@
+import { useState } from "react";
+import type { InsightsReport } from "../../../shared/insights";
+import { call } from "@/lib/api";
+import { insightNumber } from "@/lib/insightFormat";
 import { Link } from "react-router-dom";
 import { Network, Plus, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,6 +38,9 @@ export function Ventures() {
     simply do not appear: "3 open" and no number at all are both honest, and
     an error banner about a work count would be louder than the fact deserves.
   */
+  const { data: insights } = useApi(() => call<InsightsReport>("/insights"), []);
+  const [showDormant, setShowDormant] = useState(false);
+  const dormantIds = new Set(insights?.dormancy.filter(v => v.status === "dormant").map(v => v.id) ?? []);
   const { data: board } = useApi(() => api.board(), []);
 
   /*
@@ -117,8 +124,14 @@ export function Ventures() {
           </div>
         }
       >
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm">
+          <span>{insights ? `${dormantIds.size} dormant ventures` : "Checking venture activity…"}</span>
+          {insights && <span className="text-muted-foreground">{insights.dormantCosts.map(c => insightNumber(c.amount, c.currency)).join(" + ") || "No priced dormant costs"}{insights.dormantCosts.length ? "/month" : ""}{!insights.dormantCostsComplete && " · some costs unpriced"}</span>}
+          <button className="ml-auto underline" onClick={() => setShowDormant(!showDormant)}>{showDormant ? "Hide dormant ventures" : "Show dormant ventures"}</button>
+          <Link to="/insights" className="text-muted-foreground underline">Criteria and data coverage</Link>
+        </div>
         <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
-          {state.ventures.map((v) => {
+          {state.ventures.filter(v => showDormant || !dormantIds.has(v.id)).map((v) => {
             const chats = sessionsFor(v.id);
             const boards = dashboardsIn(v.id);
             const open = openFor(v.id);
@@ -158,6 +171,7 @@ export function Ventures() {
                   <span className="truncate text-[14.5px] font-medium tracking-tight">
                     {v.name}
                   </span>
+                  {dormantIds.has(v.id) && <span className="text-xs text-muted-foreground">Dormant</span>}
                   <StagePill stage={v.stage} className="ml-auto" />
                 </div>
 

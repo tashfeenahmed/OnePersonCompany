@@ -1,3 +1,4 @@
+import { recordInfrastructure } from "../activity/infrastructure.ts";
 /**
  * IS IT UP — asked of the owner's own sites, from this box, every tick.
  *
@@ -342,6 +343,8 @@ export async function check(host: string): Promise<Check> {
 /* -------------------------------------------------------------------- store */
 
 export function writeCheck(c: Check) {
+  recordInfrastructure([{ key: `uptime:${c.host}:ok`, source: "uptime", label: c.host, ts: c.ts, value: c.ok,
+    detail: { status: c.status, error: c.error }, describe: (_before, after) => after ? "site check recovered" : "site check failed" }]);
   db.prepare(
     `INSERT INTO uptime_checks
        (host, ts, ok, status, latency_ms, tls_days, bytes, final_url, error)

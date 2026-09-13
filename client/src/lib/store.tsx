@@ -397,6 +397,7 @@ const SEED: StoreState = {
         { id: "ov-trafficInsight", type: "brief.trafficInsight", w: 2, span: 4 },
         { id: "ov-figures", type: "brief.figures", w: 4, span: 12 },
         { id: "ov-collections", type: "brief.collections", w: 4, span: 12 },
+        { id: "ov-forecast", type: "insights.pace", w: 4, span: 12 },
         { id: "ov-movement", type: "brief.movement", w: 2, span: 5 },
         { id: "ov-expenses", type: "brief.expenses", w: 2, span: 7 },
         { id: "ov-traffic", type: "brief.traffic", w: 4, span: 12 },
@@ -404,6 +405,7 @@ const SEED: StoreState = {
         { id: "ov-play", type: "brief.play", w: 2, span: 5 },
         { id: "ov-attention", type: "brief.attention", w: 4, span: 12 },
         { id: "ov-projects", type: "brief.projects", w: 4, span: 12 },
+        { id: "ov-dormant", type: "insights.dormant", w: 4, span: 12 },
         { id: "ov-margin", type: "brief.margin", w: 4, span: 12 },
       ],
     },
@@ -466,6 +468,7 @@ const SEED: StoreState = {
            exists gets these cards from the top-up, which places them at that
            width, and a seeded board that disagreed would be two layouts for
            one board depending on when the workspace was created. */
+        { id: "sv-changes", type: "insights.infrastructure", w: 4, span: 12 },
         { id: "sv1", type: "fleet.alerts", w: 2 },
         { id: "sv2", type: "fleet.fullest", w: 1 },
         { id: "sv3", type: "fleet.reporting", w: 1 },

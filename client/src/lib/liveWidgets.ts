@@ -1,3 +1,4 @@
+import type { InsightsReport } from "../../../shared/insights";
 import type {
   CloudflareAlignment,
   CloudflareReport,
@@ -104,6 +105,7 @@ import { SERVER_BUILDERS } from "./serverWidgets.ts";
  */
 
 export type LiveInputs = {
+  insights?: InsightsReport | null;
   /**
    * THE WINDOW THE PICKER ASKED FOR — 7, 30, 90 or "all" — see lib/window.
    * Every document below was fetched over it, so most builders never read
@@ -13763,3 +13765,5 @@ Object.assign(LIVE_BUILDERS, {
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 
 Object.assign(LIVE_BUILDERS, SERVER_BUILDERS);
+
+for (const type of ["insights.pace", "insights.dormant", "insights.infrastructure"]) LIVE_BUILDERS[type] = d => d.insights ? { insightData: d.insights } : null;

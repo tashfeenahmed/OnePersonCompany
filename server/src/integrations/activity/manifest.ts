@@ -35,9 +35,12 @@ import { checkMapping } from "./link.ts";
 import { activityRoutes } from "./feed-routes.ts";
 import { runFeedPass, startFeed } from "./feed.ts";
 import { leakageRoutes } from "./leakage.ts";
+import { journalRoutes } from "./journal.ts";
+import { userSeries } from "../insights/providers.ts";
 import { SKILLS, PACKS } from "./skills.ts";
 
 export const manifest: IntegrationManifest = {
+  insightSources: userSeries,
   id: "activity",
 
   plugins: {
@@ -128,6 +131,7 @@ export const manifest: IntegrationManifest = {
   packs: PACKS,
 
   routes: [
+    { path: "/api/journal", app: journalRoutes },
     { path: "/api/users", app: userRoutes },
     { path: "/api/activity", app: activityRoutes },
     { path: "/api/leakage", app: leakageRoutes },

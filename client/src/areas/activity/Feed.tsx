@@ -28,6 +28,7 @@ import { activityApi, type ActivityEvent } from "@/lib/api/activity";
  */
 
 const KIND_LABEL: Record<string, string> = {
+  infrastructure: "Infrastructure",
   signup: "Signups",
   charge: "Payments",
   payment_failed: "Declines",
@@ -58,14 +59,14 @@ function when(e: ActivityEvent): string {
     : `${d} · day`;
 }
 
-export function Feed({ days }: { days: number }) {
+export function Feed({ days, onlyKind }: { days: number; onlyKind?: string }) {
   const [kinds, setKinds] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const report = useApi(
-    () => activityApi.activity({ days, kind: kinds.join(",") || undefined }),
-    [days, kinds.join(",")],
+    () => activityApi.activity({ days, kind: onlyKind || kinds.join(",") || undefined }),
+    [days, onlyKind, kinds.join(",")],
   );
-  const all = useApi(() => activityApi.activity({ days, limit: 1 }), [days]);
+  const all = useApi(() => activityApi.activity({ days, kind: onlyKind, limit: 1 }), [days, onlyKind]);
 
   async function refresh() {
     setRefreshing(true);

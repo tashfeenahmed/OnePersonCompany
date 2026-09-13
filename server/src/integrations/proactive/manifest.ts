@@ -241,7 +241,7 @@ export const manifest: IntegrationManifest = {
               if (r.evaluated || r.events.length)
                 console.log(
                   `[alerts] ${r.evaluated} rule(s): ${r.tripped} tripped, ` +
-                    `${r.unreadable} unreadable, ${r.skipped} in cooldown, ` +
+                    `${r.unreadable} unreadable, ${r.skipped} already active, ` +
                     `${r.events.length} event(s), ${r.snapshots} snapshot(s)`,
                 );
             })

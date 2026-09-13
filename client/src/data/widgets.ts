@@ -1,3 +1,4 @@
+import type { InsightsReport } from "../../../shared/insights";
 /**
  * DASHBOARD WIDGETS.
  *
@@ -295,6 +296,8 @@ export type Widget = {
    */
   perParam?: PerParam;
   /** Reusable WorkDash card presentation; data still comes from the live builder. */
+  insightData?: InsightsReport;
+  insightView?: "pace" | "dormant" | "infrastructure";
   presentation?: "summary" | "arr" | "insight" | "figures" | "workdash" | "server-stat" | "server-load" | "server-fleet";
   serverFleet?: ServerFleetData;
   span?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 12;
@@ -496,6 +499,7 @@ export type Widget = {
      * and a card asking only "what does the estate cost" must not pay for a
      * P&L it does not draw.
      */
+    insights?: boolean;
     profit?: boolean;
     /**
      * The venture screenshots: the newest picture of each front page, its
@@ -688,6 +692,7 @@ export type Widget = {
 };
 
 export const SOURCES: Record<string, WidgetSource> = {
+  insights: { name: "Workspace insights", icon: null, mono: "In", tint: "#7baa91", connected: true },
   stripe: { name: "Stripe", icon: "stripe", connected: true },
   /*
     NOT CONNECTED, AND THERE IS NO COLLECTOR FOR IT. `connected` here means a
@@ -1128,6 +1133,9 @@ export const SOURCES: Record<string, WidgetSource> = {
 };
 
 export const WIDGETS: Record<string, Widget> = {
+  "insights.pace": { src: "insights", name: "At this pace", kind: "profile", presentation: "workdash", span: 12, live: { insights: true }, insightView: "pace", window: "now" },
+  "insights.dormant": { src: "insights", name: "Dormant ventures", kind: "profile", presentation: "workdash", span: 6, live: { insights: true }, insightView: "dormant", window: "now" },
+  "insights.infrastructure": { src: "insights", name: "Infrastructure changes", kind: "feed", presentation: "workdash", span: 12, live: { insights: true }, insightView: "infrastructure", window: "now" },
   /*
     STRIPE. Five of these were samples and are now measurements; two of the
     five had to change what they SAY to become one.

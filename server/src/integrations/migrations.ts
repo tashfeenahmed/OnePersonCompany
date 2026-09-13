@@ -29,6 +29,7 @@ import { MIGRATIONS as seoops } from "./seoops/migrations.ts";
 import { MIGRATIONS as socialfeed } from "./socialfeed/migrations.ts";
 import { MIGRATIONS as runtime } from "./runtime/migrations.ts";
 import { MIGRATIONS as references } from "./references/migrations.ts";
+import { MIGRATIONS as insights } from "./insights/migrations.ts";
 
 /**
  * SORTED BY NAME AT BUILD TIME, NOT RENUMBERED.
@@ -49,7 +50,7 @@ import { MIGRATIONS as references } from "./references/migrations.ts";
  * migrations.test.ts, because a name is a primary key and a duplicate would
  * mean the second step silently never running.
  */
-export const INTEGRATION_MIGRATIONS: { name: string; sql: string }[] = [...analytics, ...ops, ...signals, ...ventures, ...runs, ...subagents, ...chief, ...mailflow, ...activity, ...proactive, ...people, ...security, ...video, ...videoplus, ...growth, ...publishing, ...mobilehealth, ...agentcore, ...knowledge, ...deploy, ...finance, ...customers, ...pipeline, ...webanalytics, ...nurture, ...migrate, ...seoops, ...socialfeed, ...runtime, ...references, { name: "190_workspace_preferences", sql: `CREATE TABLE workspace_preferences (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL);` },
+export const INTEGRATION_MIGRATIONS: { name: string; sql: string }[] = [...insights, ...analytics, ...ops, ...signals, ...ventures, ...runs, ...subagents, ...chief, ...mailflow, ...activity, ...proactive, ...people, ...security, ...video, ...videoplus, ...growth, ...publishing, ...mobilehealth, ...agentcore, ...knowledge, ...deploy, ...finance, ...customers, ...pipeline, ...webanalytics, ...nurture, ...migrate, ...seoops, ...socialfeed, ...runtime, ...references, { name: "190_workspace_preferences", sql: `CREATE TABLE workspace_preferences (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL);` },
   { name: "191_action_inbox", sql: `CREATE TABLE action_inbox_state (id TEXT PRIMARY KEY, resolved_at TEXT, snoozed_until TEXT);` },
   { name: "192_job_controls", sql: `
     ALTER TABLE agent_runs ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;

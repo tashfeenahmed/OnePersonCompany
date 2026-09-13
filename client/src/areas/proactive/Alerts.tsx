@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Check, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { SubTabs } from "@/components/TabStrip";
 import { Tiles } from "@/components/integrations/Panel";
@@ -92,7 +92,7 @@ export function Alerts() {
           <>
             <Tiles items={stats.map(([v, k]) => ({ v, k }))} />
 
-            <Rules onChanged={reload} />
+            <Rules onChanged={reload} refreshTick={tick} />
             <Events onChanged={reload} tick={tick} />
           </>
         )}
@@ -138,9 +138,9 @@ function Checker({ onDone }: { onDone: () => void }) {
 
 /* ------------------------------------------------------------------- rules */
 
-function Rules({ onChanged }: { onChanged: () => void }) {
+function Rules({ onChanged, refreshTick }: { onChanged: () => void; refreshTick: number }) {
   const [tick, setTick] = useState(0);
-  const doc = useApi(() => alertsApi.rules(), [tick]);
+  const doc = useApi(() => alertsApi.rules(), [tick, refreshTick]);
   const cat = useApi(() => alertsApi.catalogue(), []);
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const [tested, setTested] = useState<Record<number, TestResult | string>>({});
@@ -248,6 +248,7 @@ function Rules({ onChanged }: { onChanged: () => void }) {
 
 /** How a rule reads, in one line of the owner's own vocabulary. */
 function sentence(r: AlertRule): string {
+  if (r.managedSource) return "Complete daily observations compared with their measured baseline";
   const params = Object.entries(r.params)
     .map(([k, v]) => `${k}=${v}`)
     .join(" ");
@@ -298,10 +299,10 @@ function RuleRow({
         </span>
         {rule.seeded && (
           <span
-            title="Suggested by this box on first start, not chosen by you. Edit or delete it like any other."
+            title={rule.managedSource ? "Automatically watches complete daily data. Configure it in Insights or disable this watch." : "Suggested by this box on first start, not chosen by you. Edit or delete it like any other."}
             className="text-muted-foreground border-line-soft rounded-full border px-1.5 py-px text-[11px]"
           >
-            suggested
+            {rule.managedSource ? "automatic" : "suggested"}
           </span>
         )}
         <span className="text-muted-foreground ml-auto shrink-0 text-[12.5px] tabular-nums">
@@ -318,7 +319,7 @@ function RuleRow({
           {rule.lastEvaluatedAt && ` · ${ago(rule.lastEvaluatedAt)}`}
         </span>
         <div className="flex shrink-0 items-center gap-0.5">
-          <IconButton title="Read it now" onClick={onTest}>
+          {!rule.managedSource && <><IconButton title="Read it now" onClick={onTest}>
             <Play className="size-3.5" strokeWidth={1.6} />
           </IconButton>
           <button
@@ -326,7 +327,8 @@ function RuleRow({
             className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-[8px] px-1.5 py-1 text-[12.5px]"
           >
             {editing ? "Close" : "Edit"}
-          </button>
+          </button></>}
+          {rule.managedSource && <Link to="/insights" className="px-2 text-xs text-muted-foreground">Anomaly settings</Link>}
           <IconButton title="Delete this rule and its events" onClick={onDelete}>
             <Trash2 className="size-3.5" strokeWidth={1.6} />
           </IconButton>
@@ -335,6 +337,8 @@ function RuleRow({
 
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 pl-[46px] font-mono text-[12.5px]">
         {sentence(rule)}
+        {!rule.managedSource && (rule.forMinutes > 0 || rule.consecutive > 1) && <span>· persists {rule.forMinutes}m and {rule.consecutive} checks</span>}
+        {rule.pendingSince && <span>· condition present since {ago(rule.pendingSince)} ({rule.pendingHits} checks)</span>}
       </div>
 
       {rule.lastError && (
@@ -387,11 +391,13 @@ function IconButton({
 /* ------------------------------------------------------------------ events */
 
 function Events({ onChanged, tick }: { onChanged: () => void; tick: number }) {
-  const [openOnly, setOpenOnly] = useState(false);
+  const [status, setStatus] = useState("all");
+  const [days, setDays] = useState(30);
+  const [offset, setOffset] = useState(0);
   const [own, setOwn] = useState(0);
   const doc = useApi(
-    () => alertsApi.events({ days: 14, limit: 100, open: openOnly }),
-    [openOnly, own, tick],
+    () => alertsApi.events({ days, limit: 50, offset, open: status === "unseen", status: status === "active" || status === "recovered" ? status : undefined }),
+    [status, days, offset, own, tick],
   );
   const events = doc.data?.events ?? [];
 
@@ -399,14 +405,12 @@ function Events({ onChanged, tick }: { onChanged: () => void; tick: number }) {
     <section>
       <div className="mb-2 flex items-baseline gap-2">
         <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-          Events, last 14 days
+          Incident history
         </div>
-        <button
-          onClick={() => setOpenOnly((v) => !v)}
-          className="text-muted-foreground hover:text-foreground ml-auto text-[12.5px]"
-        >
-          {openOnly ? "Showing unacknowledged only" : "Showing everything"}
-        </button>
+        <div className="ml-auto flex flex-wrap gap-2 text-xs">
+          <select aria-label="Incident status" className="bg-background rounded border p-1" value={status} onChange={e => { setStatus(e.target.value); setOffset(0); }}><option value="all">All events</option><option value="active">Active incidents</option><option value="unseen">Active, unacknowledged</option><option value="recovered">Recovered incidents</option></select>
+          <select aria-label="Incident history period" className="bg-background rounded border p-1" value={days} onChange={e => { setDays(Number(e.target.value)); setOffset(0); }}><option value={14}>14 days</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={400}>400 days</option></select>
+        </div>
       </div>
 
       {doc.error ? (
@@ -418,9 +422,7 @@ function Events({ onChanged, tick }: { onChanged: () => void; tick: number }) {
         <p className="text-muted-foreground text-[14px]">
           {doc.loading
             ? "Reading the ledger…"
-            : openOnly
-              ? "Nothing is unacknowledged."
-              : "Nothing has been raised in the last fourteen days."}
+            : "No incidents match this period and status."}
         </p>
       ) : (
         <div className="flex flex-col">
@@ -438,6 +440,7 @@ function Events({ onChanged, tick }: { onChanged: () => void; tick: number }) {
           ))}
         </div>
       )}
+      <div className="mt-3 flex gap-3 text-xs"><button disabled={offset === 0} className="disabled:opacity-40" onClick={() => setOffset(Math.max(0, offset - 50))}>Newer events</button><button disabled={events.length < 50} className="disabled:opacity-40" onClick={() => setOffset(offset + 50)}>Older events</button></div>
     </section>
   );
 }
@@ -458,7 +461,7 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
         <span
           className={cn(
             "mt-1.5 size-1.5 shrink-0 rounded-full",
-            event.kind === "trip"
+            event.clearedAt ? "bg-chart-1" : event.kind === "trip"
               ? "bg-warn"
               : event.kind === "unreadable"
                 ? "bg-destructive"
@@ -469,7 +472,7 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
           <div className="flex flex-wrap items-baseline gap-x-2">
             <span className="min-w-0 break-words text-[14px]">{event.context?.title ?? event.ruleName ?? `rule ${event.ruleId}`}</span>
             <span className="text-muted-foreground text-[12.5px]">
-              {KIND_WORD[event.kind]} · {ago(event.ts)}
+              {event.clearedAt ? "recovered · opened" : KIND_WORD[event.kind]} · {ago(event.ts)}
             </span>
             {event.acknowledgedAt && (
               <span className="text-muted-foreground text-[12.5px]">· acknowledged</span>
@@ -478,6 +481,7 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
           <p className="text-muted-foreground mt-0.5 text-[13.5px] leading-[1.5]">
             {event.context?.summary ?? event.message}
           </p>
+          {event.clearedAt && <p className="mt-1 text-xs text-muted-foreground">Cleared {ago(event.clearedAt)} · {event.recoveryMessage}</p>}
           {event.context && event.context.apps.length > 0 && (
             <ul className="mt-2 space-y-1 text-[12.5px] leading-[1.5]">
               {event.context.apps.map(app => (
@@ -509,7 +513,7 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
             </p>
           ) : null}
         </div>
-        {event.kind !== "test" && !event.acknowledgedAt && (
+        {event.kind !== "test" && !event.acknowledgedAt && !event.clearedAt && (
           <button
             onClick={onAck}
             title="Mark as seen. The rule keeps watching."

@@ -48,6 +48,8 @@ const BLANK: RuleWrite = {
   ventureId: null,
   enabled: true,
   cooldownMinutes: 360,
+  forMinutes: 0,
+  consecutive: 1,
 };
 
 type Form = Required<Omit<RuleWrite, "params">> & { params: Record<string, string> };
@@ -70,6 +72,8 @@ function toForm(r: AlertRule | null): Form {
     ventureId: r.ventureId,
     enabled: r.enabled,
     cooldownMinutes: r.cooldownMinutes,
+    forMinutes: r.forMinutes ?? 0,
+    consecutive: r.consecutive ?? 1,
   };
 }
 
@@ -351,43 +355,22 @@ export function RuleEditor({
           </Field>
         )}
 
-        {opInfo?.needsWindow ? (
-          <Field
-            label="Window (minutes)"
-            hint="How far back the earlier reading is taken from. 1440 is a day, 10080 a week. It says nothing at all until this box has a reading that old."
-          >
-            <Input
-              type="number"
-              value={form.windowMinutes ?? 10080}
-              onChange={(e) => set("windowMinutes", Number(e.target.value) || 10080)}
-            />
-          </Field>
-        ) : (
-          <Field
-            label="Cooldown (minutes)"
-            hint="How long before this rule may raise another trip. The condition still holds; you are simply not told twice."
-          >
-            <Input
-              type="number"
-              value={form.cooldownMinutes}
-              onChange={(e) => set("cooldownMinutes", Number(e.target.value) || 0)}
-            />
+        {opInfo?.needsWindow && (
+          <Field label="Window (minutes)" hint="How far back to compare. 1440 is a day, 10080 a week. It waits until a reading that old exists.">
+            <Input type="number" value={form.windowMinutes ?? 10080} onChange={e => set("windowMinutes", Number(e.target.value) || 10080)} />
           </Field>
         )}
       </div>
+      <p className="mt-3 text-xs text-muted-foreground">One incident stays active until a successful check confirms recovery. Acknowledging it marks it as seen. A later failure opens a new incident.</p>
 
-      {opInfo?.needsWindow && (
-        <div className="mt-2.5 max-w-[240px]">
-          <Field label="Cooldown (minutes)" hint="How long before this rule may raise another trip.">
-            <Input
-              type="number"
-              value={form.cooldownMinutes}
-              onChange={(e) => set("cooldownMinutes", Number(e.target.value) || 0)}
-            />
-          </Field>
-        </div>
-      )}
-
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <Field label="Must persist for (minutes)" hint="Wait until the condition has held this long across successful checks. Zero requires no waiting time.">
+          <Input type="number" min={0} max={43200} value={form.forMinutes} onChange={e => set("forMinutes", Number(e.target.value))} />
+        </Field>
+        <Field label="Consecutive failing checks" hint="Both requirements must be met. An unreadable check breaks the streak without clearing an existing incident.">
+          <Input type="number" min={1} max={1000} value={form.consecutive} onChange={e => set("consecutive", Number(e.target.value))} />
+        </Field>
+      </div>
       {error && <p className="text-destructive mt-2.5 text-[13.5px]">{error}</p>}
 
       <div className="mt-3 flex items-center gap-2">

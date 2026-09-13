@@ -31,19 +31,20 @@ import { takeSnapshots } from "./catalogue.ts";
 import { takeReading, urlFor } from "../../shared/metrics-address.ts";
 import {
   insertEvent,
-  lastEventAt,
   markRule,
   observationAtOrBefore,
   pruneObservations,
   pruneSnapshots,
   recordObservation,
   rules,
-  type EventRow,
   type Operator,
   type RuleRow,
 } from "./store.ts";
 import { narrate } from "./narrate.ts";
 import { captureEventContext } from "./event-context.ts";
+import { advanceIncident } from "./lifecycle.ts";
+import { hasActiveIncident } from "./store.ts";
+import { evaluateAnomalies } from "../insights/anomalies.ts";
 
 /** How long observations and snapshots are kept. Snapshots are the big rows
  *  and only the previous cycle's is ever read; observations are tiny and the
@@ -202,14 +203,9 @@ export type PassResult = {
   skipped: number;
   snapshots: number;
   events: number[];
+  cleared: number;
+  pending: number;
 };
-
-/** Whether a rule may raise another event of this kind yet. */
-function inCooldown(r: RuleRow, kind: EventRow["kind"], atMs: number): boolean {
-  const last = lastEventAt(r.id, kind);
-  if (!last) return false;
-  return atMs - Date.parse(last) < r.cooldown_minutes * 60_000;
-}
 
 /**
  * ONE EVALUATION OF EVERY ENABLED RULE, plus the snapshots the narrator needs.
@@ -223,7 +219,13 @@ function inCooldown(r: RuleRow, kind: EventRow["kind"], atMs: number): boolean {
  * NOTHING IN HERE THROWS. It runs on a timer; a pass that took the process
  * down would be an alerting system that switches off the box it is watching.
  */
-export async function evaluateAll(signal?: AbortSignal): Promise<PassResult> {
+let running: Promise<PassResult> | null = null;
+export function evaluateAll(signal?: AbortSignal): Promise<PassResult> {
+  if (!running) running = evaluatePass(signal).finally(() => { running = null; });
+  return running;
+}
+
+async function evaluatePass(signal?: AbortSignal): Promise<PassResult> {
   const at = new Date().toISOString();
   const atMs = Date.parse(at);
   const docs = new Map<string, unknown>();
@@ -235,9 +237,11 @@ export async function evaluateAll(signal?: AbortSignal): Promise<PassResult> {
     skipped: 0,
     snapshots: 0,
     events: [],
+    cleared: 0,
+    pending: 0,
   };
 
-  const all = rules({ enabledOnly: true });
+  const all = rules({ enabledOnly: true }).filter(r => !r.managed_source);
   out.snapshots = await takeSnapshots(all.map((r) => r.skill), at, signal).catch(() => 0);
 
   for (const r of all) {
@@ -250,12 +254,11 @@ export async function evaluateAll(signal?: AbortSignal): Promise<PassResult> {
     out.evaluated += 1;
 
     if (!got.ok) {
+      advanceIncident(r, null, at);
       markRule(r.id, null, got.why);
       out.unreadable += 1;
-      /* Cooled down like a trip, and for the same reason: a rule against a
-         disconnected plugin would otherwise write forty-eight rows a day
-         saying the same thing. */
-      if (inCooldown(r, "unreadable", atMs)) {
+      // One incident until recovery; a later failure gets its own history.
+      if (hasActiveIncident(r.id, "unreadable")) {
         out.skipped += 1;
         continue;
       }
@@ -284,9 +287,12 @@ export async function evaluateAll(signal?: AbortSignal): Promise<PassResult> {
         : null;
 
     const verdict = judge(r, got.value, { previous, windowStart });
+    const incident = advanceIncident(r, verdict, at);
+    out.cleared += incident.cleared;
     if (!verdict.tripped) continue;
+    if (!incident.ready) { out.pending += 1; continue; }
     out.tripped += 1;
-    if (inCooldown(r, "trip", atMs)) {
+    if (hasActiveIncident(r.id, "trip")) {
       out.skipped += 1;
       continue;
     }
@@ -307,6 +313,13 @@ export async function evaluateAll(signal?: AbortSignal): Promise<PassResult> {
   }
 
   pruneObservations(OBSERVATION_DAYS);
+  try {
+    const anomaly = await evaluateAnomalies();
+    out.evaluated += anomaly.evaluated;
+    out.events.push(...anomaly.events);
+    out.tripped += anomaly.raised;
+    out.cleared += anomaly.cleared;
+  } catch (error) { console.error("[insights] anomaly pass failed", error); }
   pruneSnapshots(SNAPSHOT_DAYS);
   return out;
 }

@@ -18,7 +18,7 @@
  * guess at all of that, and a reply of "the card as it now is" would leave it
  * to guess at the rest of the column. Handing back the document means the
  * client's next state is not derived from anything: it IS the server's answer,
- * applied whole. The board is five columns and a few dozen cards — a few
+ * applied whole. The board is a set of columns and cards — a few
  * kilobytes — so the cost of that is nothing, and it buys away the entire
  * class of bug where a page and its server disagree about where a card is.
  *
@@ -33,13 +33,9 @@
  * route says so rather than guessing. `before: null` is the honest name for
  * the end of the column, and is what a drop past the last card sends.
  *
- * WHAT IS NOT HERE. There is no route that creates or deletes a column: the
- * five seeded in `020_board` are the board. Adding that is a small change and
- * a real design decision (what happens to the cards in a deleted column), and
- * neither has been made — an empty stub that answered 501 would be a promise
- * this file cannot keep. The two structural keys are still recorded, and named
- * on the document as `structural: true`, because a delete route would refuse
- * on the key and the page hides an option it should never offer.
+ * Custom columns can be created, reordered and removed. Removing one moves
+ * every card to Backlog. Backlog and Done keep their structural keys and
+ * cannot be removed, even when renamed.
  *
  * THE VENTURES ARE HERE, AND THE ID IS STILL NOT A FOREIGN KEY.
  *
@@ -66,6 +62,7 @@
  * else about it belongs to /api/ventures and is only ever borrowed here.
  */
 import { Hono } from "hono";
+import { randomUUID } from "node:crypto";
 import { db, now, type VentureRow } from "../db.ts";
 
 export const boardRoutes = new Hono();
@@ -90,6 +87,41 @@ const STRUCTURAL = new Set([BACKLOG, DONE]);
  *  that lost something the owner wrote. */
 const MAX_TITLE = 200;
 const MAX_BODY = 8_000;
+
+boardRoutes.post("/columns", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body || typeof body.title !== "string" || !body.title.trim() || body.title.trim().length > MAX_TITLE)
+    return c.json({ error: `A column needs a name of 1–${MAX_TITLE} characters.` }, 400);
+  const limit = body.wipLimit ?? null;
+  if (limit !== null && (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 0))
+    return c.json({ error: "A WIP limit is a whole number of cards, or null." }, 400);
+  tx(() => {
+    const columns = columnRows();
+    const done = columns.findIndex((col) => col.key === DONE);
+    const position = done < 0 ? columns.length : done;
+    columns.forEach((col, i) => db.prepare("UPDATE board_columns SET position = ? WHERE id = ?").run(i >= position ? i + 1 : i, col.id));
+    db.prepare("INSERT INTO board_columns (key, title, position, wip_limit, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(`custom-${randomUUID()}`, body.title.trim(), position, limit, now());
+  });
+  return c.json(boardDoc(), 201);
+});
+
+// Removing a lane never deletes work, including archived cards in that lane.
+boardRoutes.delete("/columns/:id", (c) => {
+  const column = columnById(Number(c.req.param("id")));
+  if (!column) return c.json({ error: "No column with that id." }, 404);
+  if (STRUCTURAL.has(column.key)) return c.json({ error: "Backlog and Done are required columns. You can rename them." }, 400);
+  tx(() => {
+    const backlog = columnRows().find((col) => col.key === BACKLOG)!;
+    const held = db.prepare("SELECT COALESCE(MAX(position), 0) AS tail FROM board_cards WHERE column_id = ?").get(backlog.id) as { tail: number };
+    const cards = db.prepare("SELECT id FROM board_cards WHERE column_id = ? ORDER BY position, id").all(column.id) as { id: number }[];
+    const move = db.prepare("UPDATE board_cards SET column_id = ?, position = ?, done_at = NULL, updated_at = ? WHERE id = ?");
+    cards.forEach((card, i) => move.run(backlog.id, held.tail + (i + 1) * GAP, now(), card.id));
+    db.prepare("DELETE FROM board_columns WHERE id = ?").run(column.id);
+    columnRows().forEach((col, i) => db.prepare("UPDATE board_columns SET position = ? WHERE id = ?").run(i, col.id));
+  });
+  return c.json(boardDoc());
+});
 
 /** 0 low · 1 normal · 2 high · 3 urgent. The words are the client's; the
  *  server keeps the ORDER, which is the only part of it a query cares about. */

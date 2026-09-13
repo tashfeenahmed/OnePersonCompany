@@ -99,6 +99,7 @@ const NAV = [
 const MENU = [
   { to: "/action-inbox", label: "Action inbox" },
   { to: "/activity", label: "Activity" },
+  { to: "/insights", label: "Insights" },
   { to: "/alerts", label: "Alerts" },
   { to: "/integrations", label: "Integrations" },
   { to: "/ops", label: "Ops" },

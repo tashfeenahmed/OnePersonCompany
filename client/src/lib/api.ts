@@ -4185,6 +4185,9 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  boardAddColumn: (title: string) => call<BoardDoc>("/board/columns", { method: "POST", body: JSON.stringify({ title }) }),
+  boardDeleteColumn: (id: number) => call<BoardDoc>(`/board/columns/${id}`, { method: "DELETE" }),
+
   /** Reorder the columns, in the same vocabulary a card moves in. Nothing on
    *  the page calls this yet — the board draws its five in the order the
    *  server gives them — and it is here because the route is. */

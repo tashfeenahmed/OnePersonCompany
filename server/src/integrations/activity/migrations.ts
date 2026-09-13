@@ -1,5 +1,23 @@
 /** Pure SQL, no imports — see integrations/manifest.ts for why. */
 export const MIGRATIONS: { name: string; sql: string }[] = [
+  { name: "137_activity_observations", sql: `
+    CREATE TABLE infrastructure_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, ts TEXT NOT NULL, basis TEXT NOT NULL DEFAULT '');
+    CREATE TABLE activity_user_totals (account_id INTEGER NOT NULL, day TEXT NOT NULL, total REAL NOT NULL, seen_at TEXT NOT NULL, PRIMARY KEY(account_id, day)) WITHOUT ROWID;
+    INSERT INTO activity_user_totals SELECT account_id, day, total, seen_at FROM activity_user_days WHERE total IS NOT NULL;
+  ` },
+  { name: "136_work_journal", sql: `
+    CREATE TABLE work_journal (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      day TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('did','shipped','dismissed','note')),
+      text TEXT NOT NULL,
+      venture_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX work_journal_day ON work_journal(day DESC, id DESC);
+    CREATE INDEX work_journal_venture ON work_journal(venture_id, day);
+  ` },
   {
     name: "130_activity_users",
     sql: `

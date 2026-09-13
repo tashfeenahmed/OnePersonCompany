@@ -42,6 +42,7 @@ export const THRESHOLDLESS: Operator[] = ["changed"];
 export type RuleRow = {
   id: number;
   name: string;
+  managed_source?: string | null;
   skill: string;
   view: string;
   params: string;
@@ -52,6 +53,11 @@ export type RuleRow = {
   venture_id: string | null;
   enabled: number;
   cooldown_minutes: number;
+  for_minutes?: number;
+  consecutive?: number;
+  pending_since?: string | null;
+  pending_hits?: number;
+  pending_checked_at?: string | null;
   seeded: number;
   created_at: string;
   updated_at: string;
@@ -72,6 +78,8 @@ export type RuleWrite = {
   ventureId: string | null;
   enabled: boolean;
   cooldownMinutes: number;
+  forMinutes?: number;
+  consecutive?: number;
   seeded?: boolean;
 };
 
@@ -113,7 +121,9 @@ export function insertRule(w: RuleWrite): RuleRow {
       ts,
       ts,
     );
-  return rule(Number(info.lastInsertRowid))!;
+  const id = Number(info.lastInsertRowid);
+  db.prepare("UPDATE alert_rules SET for_minutes = ?, consecutive = ? WHERE id = ?").run(w.forMinutes ?? 0, w.consecutive ?? 1, id);
+  return rule(id)!;
 }
 
 /**
@@ -136,6 +146,8 @@ export function updateRule(
     ventureId: string | null;
     enabled: boolean;
     cooldownMinutes: number;
+  forMinutes?: number;
+  consecutive?: number;
   }>,
 ): RuleRow | undefined {
   const held = rule(id);
@@ -160,7 +172,13 @@ export function updateRule(
   if (patch.enabled !== undefined) set("enabled", patch.enabled ? 1 : 0);
   if (patch.cooldownMinutes !== undefined) set("cooldown_minutes", patch.cooldownMinutes);
 
+  if (patch.forMinutes !== undefined) set("for_minutes", patch.forMinutes);
+  if (patch.consecutive !== undefined) set("consecutive", patch.consecutive);
   if (!sets.length) return held;
+  // A changed condition must establish its persistence again.
+  if (["skill", "view", "params", "path", "op", "threshold", "windowMinutes", "forMinutes", "consecutive", "enabled"].some(k => k in patch)) {
+    set("pending_since", null); set("pending_hits", 0); set("pending_checked_at", null);
+  }
   set("updated_at", now());
   args.push(id);
   db.prepare(`UPDATE alert_rules SET ${sets.join(", ")} WHERE id = ?`).run(...args);
@@ -239,6 +257,8 @@ export type EventRow = {
   narration: string | null;
   narration_note: string | null;
   acknowledged_at: string | null;
+  cleared_at?: string | null;
+  recovery_message?: string | null;
 };
 
 export function insertEvent(e: {
@@ -285,6 +305,8 @@ export function setNarration(id: number, narration: string | null, note: string 
 export function events(opts: {
   days?: number;
   limit?: number;
+  status?: "active" | "recovered";
+  offset?: number;
   ruleId?: number | null;
   openOnly?: boolean;
   kinds?: EventRow["kind"][];
@@ -299,17 +321,20 @@ export function events(opts: {
     where.push("rule_id = ?");
     args.push(opts.ruleId);
   }
-  if (opts.openOnly) where.push("acknowledged_at IS NULL");
+  if (opts.openOnly) where.push("acknowledged_at IS NULL AND cleared_at IS NULL");
+  if (opts.status === "active") where.push("cleared_at IS NULL AND kind <> 'test'");
+  if (opts.status === "recovered") where.push("cleared_at IS NOT NULL");
   if (opts.kinds?.length) {
     where.push(`kind IN (${opts.kinds.map(() => "?").join(", ")})`);
     args.push(...opts.kinds);
   }
   args.push(opts.limit ?? 100);
+  args.push(opts.offset ?? 0);
   return db
     .prepare(
       `SELECT * FROM alert_events
         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-        ORDER BY ts DESC, id DESC LIMIT ?`,
+        ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?`,
     )
     .all(...args) as unknown as EventRow[];
 }
@@ -343,7 +368,7 @@ export const openEvents = (opts: { limit?: number; ruleId?: number | null } = {}
 export function openRuleEvents():EventRow[] {
   return db.prepare(`SELECT * FROM (
     SELECT *, ROW_NUMBER() OVER (PARTITION BY rule_id ORDER BY ts DESC, id DESC) AS position
-    FROM alert_events WHERE acknowledged_at IS NULL AND kind IN (${OPEN_KINDS.map(()=>"?").join(",")})
+    FROM alert_events WHERE acknowledged_at IS NULL AND cleared_at IS NULL AND kind IN (${OPEN_KINDS.map(()=>"?").join(",")})
   ) WHERE position = 1 ORDER BY ts DESC, id DESC`).all(...OPEN_KINDS) as unknown as EventRow[];
 }
 
@@ -373,7 +398,7 @@ export function openEventsForVenture(
       `SELECT e.ts AS ts, r.name AS rule, r.skill AS skill, e.message AS message,
               e.narration AS narration
          FROM alert_events e JOIN alert_rules r ON r.id = e.rule_id
-        WHERE r.venture_id = ? AND e.acknowledged_at IS NULL
+        WHERE r.venture_id = ? AND e.acknowledged_at IS NULL AND e.cleared_at IS NULL
           AND e.kind IN (${OPEN_KINDS.map(() => "?").join(", ")})
           ${since ? "AND e.ts >= ?" : ""}
         ORDER BY e.ts DESC LIMIT ?`,
@@ -395,7 +420,7 @@ export function openEventCount(): number {
   const row = db
     .prepare(
       `SELECT COUNT(*) AS n FROM alert_events
-        WHERE acknowledged_at IS NULL AND kind IN (${OPEN_KINDS.map(() => "?").join(", ")})`,
+        WHERE acknowledged_at IS NULL AND cleared_at IS NULL AND kind IN (${OPEN_KINDS.map(() => "?").join(", ")})`,
     )
     .get(...OPEN_KINDS) as unknown as { n: number };
   return row.n;
@@ -547,4 +572,13 @@ export function markDelivered(
     d.note === undefined ? held.delivery_note : d.note,
     day,
   );
+}
+
+/** Recovery is independent of acknowledgement: seeing an incident does not fix it. */
+export function clearIncidents(ruleId: number, kind: "trip" | "unreadable", at: string, message: string): number {
+  return Number(db.prepare("UPDATE alert_events SET cleared_at = ?, recovery_message = ? WHERE rule_id = ? AND kind = ? AND cleared_at IS NULL")
+    .run(at, message, ruleId, kind).changes);
+}
+export function hasActiveIncident(ruleId: number, kind: "trip" | "unreadable"): boolean {
+  return !!db.prepare("SELECT 1 FROM alert_events WHERE rule_id = ? AND kind = ? AND cleared_at IS NULL LIMIT 1").get(ruleId, kind);
 }

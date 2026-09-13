@@ -27,6 +27,7 @@
  */
 import type { Hono } from "hono";
 import type { Skill } from "../skills/registry.ts";
+import type { MetricSeries } from "../../../shared/insights.ts";
 
 /** One entry of routes/plugins.ts's credential registry. See that file's
  *  header for what each field means; this is the same shape, exported. */
@@ -60,6 +61,8 @@ export type ConfigRegistryEntry = {
 export type CollectResult = { ok: boolean; error?: string | null; note?: string | null };
 
 export type IntegrationManifest = {
+  /** Daily, complete measurements for portable projections and anomaly detection. */
+  insightSources?: () => MetricSeries[] | Promise<MetricSeries[]>;
   /** The area, for logs: "analytics", "ops", "signals", "ventures". */
   id: string;
   /** Credential registry entries, keyed by plugin id. */

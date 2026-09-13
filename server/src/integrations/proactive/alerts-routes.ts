@@ -62,6 +62,7 @@ alertRoutes.get("/navigation", async (c) => c.json(await dashboardAlerts()));
 function shapeRule(r: RuleRow) {
   return {
     id: r.id,
+    managedSource: r.managed_source ?? null,
     name: r.name,
     skill: r.skill,
     view: r.view,
@@ -73,6 +74,10 @@ function shapeRule(r: RuleRow) {
     ventureId: r.venture_id,
     enabled: r.enabled === 1,
     cooldownMinutes: r.cooldown_minutes,
+    forMinutes: r.for_minutes ?? 0,
+    consecutive: r.consecutive ?? 1,
+    pendingSince: r.pending_since ?? null,
+    pendingHits: r.pending_hits ?? 0,
     /* Written by this box rather than chosen by the owner. It changes nothing
        about how the rule behaves — see seed.ts. */
     seeded: r.seeded === 1,
@@ -112,6 +117,8 @@ function shapeEvent(e: EventRow, byRule: Map<number, RuleRow>) {
     /* Why there is no narration, when there is none. */
     narrationNote: e.narration_note,
     acknowledgedAt: e.acknowledged_at,
+    clearedAt: e.cleared_at ?? null,
+    recoveryMessage: e.recovery_message ?? null,
   };
 }
 
@@ -129,6 +136,8 @@ type Parsed = {
   ventureId: string | null;
   enabled: boolean;
   cooldownMinutes: number;
+  forMinutes: number;
+  consecutive: number;
 };
 
 /**
@@ -259,6 +268,15 @@ function parseRule(
     if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 60 * 24 * 30)
       return bad("A cooldown is a whole number of minutes between 0 and 43200.");
     out.cooldownMinutes = v;
+  }
+
+  for (const [key, min, max] of [["forMinutes", 0, 43200], ["consecutive", 1, 1000]] as const) {
+    if (has(key)) {
+      const v = body[key];
+      if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max)
+        return bad(`${key} must be a whole number from ${min} to ${max}.`);
+      out[key] = v;
+    }
   }
 
   /* Cross-field checks, against the MERGED rule — see the doc comment. */
@@ -393,6 +411,8 @@ alertRoutes.post("/rules", async (c) => {
     ventureId: v.ventureId ?? null,
     enabled: v.enabled ?? true,
     cooldownMinutes: v.cooldownMinutes ?? 360,
+    forMinutes: v.forMinutes ?? 0,
+    consecutive: v.consecutive ?? 1,
     seeded: false,
   });
   return c.json({ rule: shapeRule(created) }, 201);
@@ -403,9 +423,13 @@ alertRoutes.patch("/rules/:id", async (c) => {
   if (!held) return c.json({ error: "There is no rule with that id." }, 404);
   const b = await body(c);
   if (!b) return c.json({ error: "The body of a rule is a JSON object." }, 400);
+  if (held.managed_source) {
+    if (typeof b.enabled !== "boolean" || Object.keys(b).some(k => k !== "enabled")) return c.json({ error: "Automatic anomaly rules use Insights settings. You can enable or disable this source here." }, 400);
+    return c.json({ rule: shapeRule(updateRule(held.id, { enabled: b.enabled })!) });
+  }
   if (!Object.keys(b).length)
     return c.json(
-      { error: "Nothing to change. Send name, skill, view, params, path, op, threshold, windowMinutes, ventureId, enabled or cooldownMinutes." },
+      { error: "Nothing to change. Send name, skill, view, params, path, op, threshold, windowMinutes, ventureId, enabled, forMinutes or consecutive." },
       400,
     );
 
@@ -445,6 +469,7 @@ alertRoutes.post("/rules/:id/test", async (c) => {
   const r = rule(Number(c.req.param("id")));
   if (!r) return c.json({ error: "There is no rule with that id." }, 404);
 
+  if (r.managed_source) return c.json({ error: "Use Check now to evaluate automatic anomaly sources with their daily history." }, 400);
   const got = await readRule(r, undefined, c.req.raw.signal);
   if (!got.ok) {
     const ev = insertEvent({
@@ -557,12 +582,15 @@ alertRoutes.get("/events", (c) => {
   const days = Math.min(400, Math.max(1, Number(c.req.query("days") ?? 14) || 14));
   const limit = Math.min(500, Math.max(1, Number(c.req.query("limit") ?? 100) || 100));
   const openOnly = c.req.query("open") === "1" || c.req.query("open") === "true";
+  const statusQ = c.req.query("status");
+  const status = statusQ === "active" || statusQ === "recovered" ? statusQ : undefined;
+  const offset = Math.max(0, Math.min(1000000, Math.floor(Number(c.req.query("offset")) || 0)));
   const kindQ = c.req.query("kind");
   const kinds =
     kindQ && ["trip", "unreadable", "test"].includes(kindQ)
       ? [kindQ as EventRow["kind"]]
       : undefined;
-  const rows = events({ days, limit, openOnly, kinds });
+  const rows = events({ days, limit, offset, status, openOnly, kinds });
   const byRule = new Map(rules().map((r) => [r.id, r]));
   return c.json({
     window: { days, limit, openOnly, kind: kindQ ?? null },
@@ -589,10 +617,8 @@ alertRoutes.post("/events/:id/ack", (c) => {
   return c.json({
     event: shapeEvent(acked!, byRule),
     open: openEventCount(),
-    /* Acknowledging says "I have seen this". It does NOT silence the rule: the
-       same condition on the next pass raises the next event once the cooldown
-       has passed. Disabling the rule is the way to stop it. */
-    note: "Acknowledged. The rule is unchanged and will raise this again after its cooldown if the condition holds.",
+    // Acknowledgement and recovery are independent facts.
+    note: "Acknowledged. This incident remains active until a successful check confirms recovery.",
   });
 });
 

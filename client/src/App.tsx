@@ -1,3 +1,4 @@
+const Insights = lazy(() => import("@/pages/Insights").then(m => ({ default: m.Insights })));
 const ActionInbox = lazy(() => import("@/pages/ActionInbox").then(m => ({ default: m.ActionInbox })));
 import { lazy, Suspense } from "react";
 import { NavigationShell } from "@/components/NavigationShell";
@@ -209,6 +210,7 @@ export default function App() {
                         The product route under /users is the one deep link,
                         because one product's user table is a place somebody
                         works in rather than a panel they glance at. */}
+                    <Route path="/insights" element={<Insights />} />
                     <Route path="/activity" element={<ActivityPage />} />
                     <Route path="/activity/:tab/:product" element={<ActivityPage />} />
                     <Route path="/activity/:tab" element={<ActivityPage />} />

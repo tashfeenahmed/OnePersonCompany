@@ -1062,6 +1062,7 @@ export async function collectUsers(): Promise<UsersSummary> {
     accounts.markOk(account.id);
     answered += 1;
     const p = check.parsed;
+    if (p.total !== null) db.prepare("INSERT INTO activity_user_totals (account_id, day, total, seen_at) VALUES (?, ?, ?, ?) ON CONFLICT(account_id, day) DO UPDATE SET total = excluded.total, seen_at = excluded.seen_at").run(account.id, now().slice(0, 10), p.total, now());
     /* THE READER'S PROBLEMS COME FIRST. "12 rows carried no id" is a fact about
        the source and "users[3].createdAt is not ISO" is a fact about the
        document; both are kept, in that order, because the first usually

@@ -1,6 +1,19 @@
 /** Pure SQL, no imports — see integrations/manifest.ts for why. */
 export const MIGRATIONS: { name: string; sql: string }[] = [
   {
+    name: "107_alert_incidents",
+    sql: `
+      ALTER TABLE alert_rules ADD COLUMN for_minutes INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE alert_rules ADD COLUMN consecutive INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE alert_rules ADD COLUMN pending_since TEXT;
+      ALTER TABLE alert_rules ADD COLUMN pending_hits INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE alert_rules ADD COLUMN pending_checked_at TEXT;
+      ALTER TABLE alert_events ADD COLUMN cleared_at TEXT;
+      ALTER TABLE alert_events ADD COLUMN recovery_message TEXT;
+      CREATE INDEX alert_events_active ON alert_events(rule_id, kind, cleared_at);
+    `,
+  },
+  {
     name: "100_alert_rules",
     sql: `
       -- A RULE IS A COMPARISON THE OWNER WROTE DOWN, AND NOTHING MORE.

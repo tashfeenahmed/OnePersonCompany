@@ -49,8 +49,8 @@ export const SKILLS: Skill[] = [
         "not recomputed. Quote them with the event's own timestamp; the same " +
         "path read now may answer differently and that is not a contradiction.",
       "Acknowledging an event says the owner saw it. It does NOT silence the " +
-        "rule: the same condition raises the next event once the cooldown has " +
-        "passed. Only disabling or deleting the rule stops it.",
+        "rule. One incident stays active until a successful check confirms recovery. " +
+        "Missing data never proves recovery. A later failure raises a new incident.",
       "A rule marked `seeded: true` was suggested by this box on first start " +
         "for a plugin that was connected. It is not something the owner chose, " +
         "and its threshold is a starting point rather than a considered limit.",
@@ -66,14 +66,14 @@ export const SKILLS: Skill[] = [
         key: "rules",
         path: "/api/alerts/rules",
         about:
-          "Every rule: what it reads, the path, the operator and threshold, its cooldown, whether it is enabled, the last value read and the last error. Plus the operator vocabulary.",
+          "Every rule: what it reads, the path, the operator and threshold, its persistence duration and consecutive checks, whether it is enabled, the last value read and the last error. Plus the operator vocabulary.",
         params: [],
       },
       {
         key: "events",
         path: "/api/alerts/events",
         about:
-          "What has been raised: trips, unreadables and tests, newest first, with narration and acknowledgement.",
+          "What has been raised: trips, unreadables and tests, newest first, with narration, acknowledgement, clearedAt and recoveryMessage.",
         params: [
           {
             name: "days",
@@ -141,7 +141,9 @@ export const SKILLS: Skill[] = [
           { name: "windowMinutes", type: "number", required: false, about: "Required by dropped_by_pct and rose_by_pct: how far back the earlier reading is taken from. 10080 is a week." },
           { name: "ventureId", type: "string", required: false, about: "The venture this rule is about, or left out for the whole business. It labels the finding; it does not narrow the document." },
           { name: "enabled", type: "string", required: false, about: "true or false. Defaults to true." },
-          { name: "cooldownMinutes", type: "number", required: false, about: "How long before the same rule may raise another trip. Defaults to 360." },
+          { name: "forMinutes", type: "number", required: false, about: "Condition must persist for this many minutes across readable checks. Default 0, maximum 43200." },
+          { name: "consecutive", type: "number", required: false, about: "Required consecutive failing checks, 1–1000. Both persistence requirements must be met." },
+          { name: "cooldownMinutes", type: "number", required: false, about: "Legacy compatibility field; incident deduplication now lasts until recovery." },
         ],
       },
       {
@@ -162,7 +164,9 @@ export const SKILLS: Skill[] = [
           { name: "windowMinutes", type: "number", required: false, about: "A different window." },
           { name: "ventureId", type: "string", required: false, about: "A venture id, or null to unfile it." },
           { name: "enabled", type: "string", required: false, about: "true or false." },
-          { name: "cooldownMinutes", type: "number", required: false, about: "A different cooldown." },
+          { name: "forMinutes", type: "number", required: false, about: "Condition must persist for this many minutes across readable checks. Default 0, maximum 43200." },
+          { name: "consecutive", type: "number", required: false, about: "Required consecutive failing checks, 1–1000. Both persistence requirements must be met." },
+          { name: "cooldownMinutes", type: "number", required: false, about: "Legacy compatibility field; incident deduplication now lasts until recovery." },
         ],
       },
       {
@@ -179,7 +183,7 @@ export const SKILLS: Skill[] = [
         method: "POST",
         path: "/api/alerts/events/:id/ack",
         about:
-          "Mark one event as seen. It does not change the rule and does not stop it raising the same thing again after its cooldown.",
+          "Mark one event as seen. It does not clear the incident. A successful check clears it automatically; a later failure opens a new incident.",
         params: [{ name: "id", type: "number", required: true, in: "path", about: "The event's id." }],
       },
     ],

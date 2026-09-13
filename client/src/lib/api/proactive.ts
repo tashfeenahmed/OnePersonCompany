@@ -77,6 +77,7 @@ export type OperatorInfo = {
 };
 
 export type AlertRule = {
+  managedSource?: string | null;
   id: number;
   name: string;
   skill: string;
@@ -89,6 +90,10 @@ export type AlertRule = {
   ventureId: string | null;
   enabled: boolean;
   cooldownMinutes: number;
+  forMinutes: number;
+  consecutive: number;
+  pendingSince: string | null;
+  pendingHits: number;
   /** Suggested by the box on first start rather than chosen by the owner. */
   seeded: boolean;
   createdAt: string;
@@ -122,6 +127,8 @@ export type AlertEvent = {
   narration: string | null;
   narrationNote: string | null;
   acknowledgedAt: string | null;
+  clearedAt: string | null;
+  recoveryMessage: string | null;
 };
 
 export type RuleWrite = {
@@ -136,6 +143,8 @@ export type RuleWrite = {
   ventureId?: string | null;
   enabled?: boolean;
   cooldownMinutes?: number;
+  forMinutes?: number;
+  consecutive?: number;
 };
 
 export type TestResult = {
@@ -267,11 +276,13 @@ export const alertsApi = {
       { method: "POST", body: JSON.stringify(body) },
     ),
 
-  events: (opts: { days?: number; limit?: number; open?: boolean } = {}) => {
+  events: (opts: { days?: number; limit?: number; open?: boolean; status?: "active" | "recovered"; offset?: number } = {}) => {
     const q = new URLSearchParams();
     if (opts.days) q.set("days", String(opts.days));
     if (opts.limit) q.set("limit", String(opts.limit));
     if (opts.open) q.set("open", "1");
+    if (opts.status) q.set("status", opts.status);
+    if (opts.offset) q.set("offset", String(opts.offset));
     const qs = q.toString();
     return call<{ count: number; open: number; events: AlertEvent[] }>(
       `/alerts/events${qs ? `?${qs}` : ""}`,

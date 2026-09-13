@@ -28,6 +28,7 @@
  * report it; neither can stop the seed. See ./prices.
  */
 import type { IntegrationManifest } from "../manifest.ts";
+import { revenueSeries } from "../insights/providers.ts";
 import { finishRun, startRun, syncPlugin, upsertPlugin } from "../../db.ts";
 import { PLUGIN, relinkDomains, seedDomains, seedHetzner } from "./expenses.ts";
 import { seedPower } from "./power.ts";
@@ -77,6 +78,7 @@ async function collectFinance() {
 }
 
 export const manifest: IntegrationManifest = {
+  insightSources: revenueSeries,
   id: "finance",
 
   config: {

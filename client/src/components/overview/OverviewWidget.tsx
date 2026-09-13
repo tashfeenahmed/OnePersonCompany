@@ -1,3 +1,4 @@
+import { PacePanel, DormantPanel, InfrastructurePanel } from "@/components/insights/InsightPanels";
 import { Activity, BarChart3, Globe2, ChevronDown, ArrowLeft, ArrowRight, UnfoldHorizontal, Trash2 } from "lucide-react";
 import { useState, type HTMLAttributes } from "react";
 import type { Widget } from "@/data/widgets";
@@ -53,6 +54,9 @@ function WebsiteImage({src, title}: {src?: string | null; title: string}) {
   </div>;
 }
 function Body({def}:{def:Widget}) {
+  if (def.insightData && def.insightView === "pace") return <PacePanel pace={def.insightData.pace} />;
+  if (def.insightData && def.insightView === "dormant") return <DormantPanel ventures={def.insightData.dormancy} costs={def.insightData.dormantCosts} complete={def.insightData.dormantCostsComplete} />;
+  if (def.insightData && def.insightView === "infrastructure") return <InfrastructurePanel events={def.insightData.infrastructure} />;
   const format=formatNumber(def);
   if (def.presentation==="arr" || def.presentation==="summary" || def.kind==="proportion") {
     const parts=def.parts ?? [];

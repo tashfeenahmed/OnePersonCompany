@@ -131,6 +131,9 @@ export function Board() {
    *  dialog redraws from the board after a save instead of holding a copy that
    *  the reply has already superseded. */
   const [opened, setOpened] = useState<number | null>(null);
+  const [newColumn, setNewColumn] = useState("");
+  const [addingColumn, setAddingColumn] = useState(false);
+  const [removingColumn, setRemovingColumn] = useState<BoardColumn | null>(null);
 
   /*
     THE BOARD'S OWN ANSWER WINS, THE CACHE FILLS IN THE REST.
@@ -300,10 +303,13 @@ export function Board() {
           sideways, and `min-h-0` is what lets each lane scroll itself rather
           than growing the row. */}
       <div className="flex min-h-0 flex-1 gap-2.5 overflow-x-auto px-6 pb-6">
-        {data.columns.map((column) => (
+        {data.columns.map((column, index) => (
           <Column
             key={column.id}
             column={column}
+            onRemove={() => setRemovingColumn(column)}
+            onMoveLeft={index > 0 ? () => mutate(() => api.boardMoveColumn(column.id, data.columns[index - 1]!.id)) : undefined}
+            onMoveRight={index < data.columns.length - 1 ? () => mutate(() => api.boardMoveColumn(column.id, data.columns[index + 2]?.id ?? null)) : undefined}
             ventures={ventures}
             filter={venture}
             /* The whole board is empty, as against this column being empty —
@@ -339,7 +345,17 @@ export function Board() {
             }
           />
         ))}
+        <form className="w-64 shrink-0 space-y-2 rounded-xl border border-dashed p-3 self-start" onSubmit={(e) => { e.preventDefault(); if (newColumn.trim() && !addingColumn) { setAddingColumn(true); void mutate(async () => { const doc = await api.boardAddColumn(newColumn.trim()); setNewColumn(""); return doc; }).finally(() => setAddingColumn(false)); } }}>
+          <Input aria-label="New column name" placeholder="Column name" value={newColumn} maxLength={200} onChange={(e) => setNewColumn(e.target.value)} />
+          <Button type="submit" variant="outline" disabled={!newColumn.trim() || addingColumn}><Plus className="size-4" /> Add column</Button>
+        </form>
       </div>
+
+      <Dialog open={removingColumn !== null} onOpenChange={(open) => !open && setRemovingColumn(null)}>
+        <DialogContent><DialogHeader><DialogTitle>Remove {removingColumn?.title}?</DialogTitle><DialogDescription>All cards in this column will move to Backlog, including archived cards. No cards will be deleted.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => setRemovingColumn(null)}>Cancel</Button><Button onClick={() => { if (removingColumn) void mutate(async () => { const doc = await api.boardDeleteColumn(removingColumn.id); setRemovingColumn(null); return doc; }); }}>Remove column</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={openedCard !== null} onOpenChange={(o) => !o && setOpened(null)}>
         {/* Wide enough for the notes to be read as a paragraph rather than a
@@ -459,6 +475,9 @@ function Column({
   onAdd,
   onRename,
   onLimit,
+  onRemove,
+  onMoveLeft,
+  onMoveRight,
 }: {
   column: BoardColumn;
   ventures: Map<string, VentureChip>;
@@ -477,6 +496,9 @@ function Column({
   onAdd: (title: string) => void;
   onRename: (title: string) => void;
   onLimit: (limit: number | null) => void;
+  onRemove: () => void;
+  onMoveLeft?: () => void;
+  onMoveRight?: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
@@ -610,6 +632,11 @@ function Column({
         )}
       </header>
 
+      <div className="flex items-center gap-2 px-3 pb-2 text-xs text-muted-foreground">
+        <button disabled={!onMoveLeft} onClick={onMoveLeft} aria-label={`Move ${column.title} left`} className="disabled:opacity-30">←</button>
+        <button disabled={!onMoveRight} onClick={onMoveRight} aria-label={`Move ${column.title} right`} className="disabled:opacity-30">→</button>
+        {!column.structural && <button onClick={onRemove} className="ml-auto" aria-label={`Remove ${column.title}`}>Remove</button>}
+      </div>
       {/* The only part of a lane that scrolls. Everything above and below it is
           `shrink-0`, so forty cards never take the column's name off screen. */}
       <div

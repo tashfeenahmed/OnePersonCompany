@@ -48,6 +48,7 @@ import { db, now, ventureRows } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
 import { PLUGIN, docRows } from "./users.ts";
 import { ventureFor } from "./link.ts";
+import { backfillInfrastructure } from "./infrastructure-backfill.ts";
 
 /** How far back a pass will derive events it has never seen. See the header. */
 export const WINDOW_DAYS = 90;
@@ -457,6 +458,9 @@ export function runFeedPass(): PassResult {
   const bySource: Record<string, number> = {};
   const notes: string[] = [];
   let inserted = 0;
+
+  try { bySource.infrastructure = backfillInfrastructure(); inserted += bySource.infrastructure; }
+  catch (error) { notes.push(`infrastructure: ${String(error)}`); }
 
   const sources: [string, () => NewEvent[]][] = [
     ["users", signupEvents],

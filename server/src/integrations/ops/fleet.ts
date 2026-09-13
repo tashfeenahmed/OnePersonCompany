@@ -1,3 +1,4 @@
+import { recordFleetReachability, recordFleetResources } from "./infrastructure.ts";
 /**
  * THE BOXES, OVER SSH — the one integration here that asks a machine about
  * itself rather than asking a vendor about it.
@@ -648,6 +649,7 @@ export function writeSample(accountId: number, ts: string, p: Probe) {
   );
   for (const ct of p.containers ?? [])
     container.run(accountId, ts, ct.name, ct.image, ct.status, ct.since);
+  recordFleetResources(accountId, ts, p);
 }
 
 export function writeHost(
@@ -688,6 +690,7 @@ export function writeHost(
     fields.ok ? ts : null,
     fields.error,
   );
+  recordFleetReachability(accountId, fields.ok, ts);
 }
 
 /** A row whose account is gone takes its samples with it — otherwise a box

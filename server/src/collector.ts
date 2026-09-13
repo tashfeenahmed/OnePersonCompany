@@ -1471,6 +1471,7 @@ export async function collectStripe(): Promise<StripeSummary> {
       ),
     }));
 
+    for (const row of mrr) record(`stripe.mrr.${row.currency.toLowerCase()}`, row.amount, { currency: row.currency, accounts: okCount });
     if (mrr.length === 1) {
       record("stripe.mrr", mrr[0]!.amount, {
         currency: mrr[0]!.currency,
