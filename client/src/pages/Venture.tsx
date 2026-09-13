@@ -1,3 +1,4 @@
+import { VentureJourney } from "@/components/ventures/journey/VentureJourney";
 import { appPage } from "../../../shared/navigation";
 import { VentureProposals } from "@/areas/pipeline/VentureProposals";
 import { useState } from "react";
@@ -279,7 +280,7 @@ export function Venture() {
       )}
 
       {!boardSlug && !tab && (
-        <Overview venture={venture} newDashboardPath={`${basePath}/new`} />
+        <VentureJourney key={venture.id} venture={venture}><Overview venture={venture} newDashboardPath={`${basePath}/new`} /></VentureJourney>
       )}
 
       {tab === "connections" && slug && (
@@ -378,7 +379,7 @@ function Overview({
     .filter((c) => c.cards.length);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-4 pb-16">
+    <div>
       <div className="mx-auto flex w-full max-w-[940px] flex-col gap-6">
         {venture.description && (
           <p className="text-[14.5px] leading-relaxed">{venture.description}</p>

@@ -28,6 +28,7 @@
  */
 import type { IntegrationManifest } from "../manifest.ts";
 import type { Skill } from "../../skills/registry.ts";
+import { journeyRoutes } from "./journey.ts";
 import { ventureLinkRoutes } from "./links.ts";
 import {
   CAPTURE_PLUGIN,
@@ -355,6 +356,7 @@ export const manifest: IntegrationManifest = {
   },
 
   routes: [
+    { path: "/api/venture-journey", app: journeyRoutes },
     /* The join. Mounted beside /api/ventures rather than inside it, because
        that router owns what the owner TYPED about a business and this one owns
        what the box has FOUND that might belong to it. */

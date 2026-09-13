@@ -188,4 +188,26 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE venture_links ADD COLUMN evidence TEXT;
     `,
   },
+  {
+    name: "480_venture_journeys",
+    sql: `
+      ALTER TABLE ventures ADD COLUMN business_type TEXT CHECK (business_type IS NULL OR business_type IN ('web','mobile','desktop','website','shop','goods','service'));
+      CREATE TABLE venture_journeys (
+        venture_id TEXT PRIMARY KEY REFERENCES ventures(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE venture_stage_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        venture_id TEXT NOT NULL REFERENCES ventures(id) ON DELETE CASCADE,
+        from_stage TEXT NOT NULL, to_stage TEXT NOT NULL, note TEXT NOT NULL, ts TEXT NOT NULL
+      );
+      CREATE INDEX venture_stage_history_venture ON venture_stage_history(venture_id,id);
+      CREATE TABLE venture_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        venture_id TEXT NOT NULL REFERENCES ventures(id) ON DELETE CASCADE,
+        ts TEXT NOT NULL, business_type TEXT, done INTEGER NOT NULL, total INTEGER NOT NULL, snapshot TEXT NOT NULL
+      );
+      CREATE INDEX venture_reviews_venture ON venture_reviews(venture_id,id);
+    `,
+  },
 ];

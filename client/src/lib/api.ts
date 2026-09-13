@@ -1,3 +1,4 @@
+import type { BusinessType } from "../../../shared/ventureJourney";
 /**
  * The API client.
  *
@@ -3230,6 +3231,7 @@ export type VentureBrand = {
 };
 
 export type Venture = {
+  businessType?: BusinessType | null;
   id: string;
   /**
    * The URL segment: /ventures/<slug>. SET ONCE AT CREATION and never moved by
@@ -3294,6 +3296,7 @@ export const VENTURE_STAGES: { id: VentureStage; label: string; note: string }[]
 /** A create body. Only the name is required — a venture typed in a hurry has
  *  to be able to exist before it has a website. */
 export type VentureInput = {
+  businessType?: BusinessType | null;
   name: string;
   description?: string;
   website?: string | null;
@@ -3305,6 +3308,9 @@ export type VentureInput = {
  *  CLEARED. The same contract the board's card patch keeps, and what makes
  *  "forget the website" an instruction rather than an omission. */
 export type VenturePatch = {
+  businessType?: BusinessType | null;
+  expectedUpdatedAt?: string;
+  stageChangeNote?: string;
   name?: string;
   description?: string | null;
   website?: string | null;

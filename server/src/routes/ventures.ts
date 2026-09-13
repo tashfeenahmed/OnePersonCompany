@@ -1,3 +1,5 @@
+import { isBusinessType } from "../../../shared/ventureJourney.ts";
+import { recordStageChange } from "../integrations/ventures/journey.ts";
 /**
  * THE VENTURES — the businesses this whole dashboard is about.
  *
@@ -124,6 +126,7 @@ function shapeVenture(r: VentureRow) {
     website: r.website,
     host: r.host,
     stage: r.stage as VentureStage,
+    businessType: r.business_type ?? null,
     color: r.color,
     /* WHERE THE COLOUR CAME FROM, on the document rather than left to be
        guessed at. It decides what the page may offer ("use the site's
@@ -344,9 +347,10 @@ ventureRoutes.post("/", async (c) => {
     description?: unknown;
     website?: unknown;
     stage?: unknown;
+    businessType?: unknown;
     color?: unknown;
   } | null;
-  if (!body) return c.json({ error: "Expected a JSON body." }, 400);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ error: "Expected a JSON body." }, 400);
 
   const name = readName(body.name);
   if ("error" in name) return c.json({ error: name.error }, 400);
@@ -377,6 +381,8 @@ ventureRoutes.post("/", async (c) => {
     stage = s.stage;
   }
 
+  if (body.businessType != null && !isBusinessType(body.businessType)) return c.json({ error: "Choose a supported business type." }, 400);
+
   const last = db.prepare("SELECT MAX(position) AS p FROM ventures").get() as {
     p: number | null;
   };
@@ -396,8 +402,8 @@ ventureRoutes.post("/", async (c) => {
   db.prepare(
     `INSERT INTO ventures
        (id, slug, name, description, website, host, stage, color, color_source,
-        position, brand, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)`,
+        position, brand, created_at, updated_at, business_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
   ).run(
     id,
     uniqueSlug(name.name),
@@ -411,6 +417,7 @@ ventureRoutes.post("/", async (c) => {
     position,
     ts,
     ts,
+    body.businessType ?? null,
   );
 
   if (website) await enrichVenture(id);
@@ -452,12 +459,13 @@ ventureRoutes.get("/:key", (c) => {
  * The slug never moves. See `slugify`.
  */
 ventureRoutes.patch("/:key", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const row = ventureRow(c.req.param("key"));
   if (!row) return c.json({ error: "No venture by that id or slug." }, 404);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ error: "Expected a JSON body." }, 400);
 
-  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!body) return c.json({ error: "Expected a JSON body." }, 400);
-
+  if (body.expectedUpdatedAt !== undefined && body.expectedUpdatedAt !== row.updated_at) return c.json({ error: "This venture changed in another window. Refresh before saving again." }, 409);
+  if (body.stageChangeNote !== undefined && (typeof body.stageChangeNote !== "string" || body.stageChangeNote.length > 4000)) return c.json({ error: "A stage decision must be at most 4,000 characters." }, 400);
   const sets: string[] = [];
   const args: (string | number | null)[] = [];
   let reread = false;
@@ -479,6 +487,10 @@ ventureRoutes.patch("/:key", async (c) => {
     if ("error" in s) return c.json({ error: s.error }, 400);
     sets.push("stage = ?");
     args.push(s.stage);
+  }
+  if (body.businessType !== undefined) {
+    if (body.businessType !== null && !isBusinessType(body.businessType)) return c.json({ error: "Choose a supported business type." }, 400);
+    sets.push("business_type = ?"); args.push(body.businessType);
   }
   if (body.website !== undefined) {
     const w = readWebsite(body.website);
@@ -517,8 +529,15 @@ ventureRoutes.patch("/:key", async (c) => {
     );
 
   sets.push("updated_at = ?");
-  args.push(now(), row.id);
-  db.prepare(`UPDATE ventures SET ${sets.join(", ")} WHERE id = ?`).run(...args);
+  const changedAt = new Date(Math.max(Date.now(), Date.parse(row.updated_at) + 1)).toISOString();
+  args.push(changedAt, row.id);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = db.prepare(`UPDATE ventures SET ${sets.join(", ")} WHERE id = ? AND updated_at = ?`).run(...args, row.updated_at);
+    if (!result.changes) { db.exec("ROLLBACK"); return c.json({ error: "This venture changed while saving. Refresh before trying again." }, 409); }
+    recordStageChange(row.id, row.stage, typeof body.stage === "string" ? body.stage : row.stage, typeof body.stageChangeNote === "string" ? body.stageChangeNote : "", changedAt);
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
 
   /* AFTER the update, so the enricher reads the new address and sees the new
      `color_source` — a PATCH that changed both the site and "use the site's

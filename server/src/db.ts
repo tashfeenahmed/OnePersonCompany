@@ -7329,6 +7329,7 @@ export function deleteChatSession(sessionId: string): number {
  * the caller passing it in, and the reason is stated at `writeVentureBrand`.
  */
 export type VentureRow = {
+  business_type?: import("../../shared/ventureJourney.ts").BusinessType | null;
   id: string;
   slug: string;
   name: string;

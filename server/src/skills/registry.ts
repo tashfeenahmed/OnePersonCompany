@@ -1206,6 +1206,13 @@ const BUILTIN_ENTRIES: Skill[] = [
     ],
     views: [
       {
+        key: "journey",
+        path: "/api/venture-journey/:key",
+        about: "This venture's saved business type, idea brief, launch plan, checklist progress and evidence, name shortlist, stage decisions and operating review history. Read before advising on validation, launch or next steps. Missing evidence is unknown, not completed work. Name decisions do not establish current domain availability.",
+        params: [{ name: "key", type: "string", required: true, in: "path", about: "The venture id or slug." }],
+      },
+
+      {
         key: "default",
         path: "/api/ventures?brief=1",
         about:
