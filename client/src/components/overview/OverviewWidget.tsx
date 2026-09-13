@@ -98,15 +98,17 @@ function Body({def}:{def:Widget}) {
   </a>)}</div>;
   return null;
 }
-export function OverviewWidget({def,title,placed,empty,stale,error,editing,onCycleWidth,onRemove,onMove,dragHandlers,dragging,dropSide}: {
+export function OverviewWidget({def,title,placed,empty,stale,error,editing,onCycleWidth,onRemove,onMove,onToggleDetail,dragHandlers,dragging,dropSide}: {
   def:Widget; title:string; placed:PlacedWidget; empty:string|null; stale:boolean; error?:string|null; editing:boolean;
   onCycleWidth:()=>void; onRemove:()=>void; onMove?:(direction:-1|1)=>void;
+  onToggleDetail?:()=>void;
   dragHandlers?:HTMLAttributes<HTMLDivElement>; dragging?:boolean; dropSide?:"before"|"after"|null;
 }) {
   const insight=def.presentation==="insight";
   const figures=def.presentation==="figures";
   const Icon=placed.type==="brief.paceInsight"?BarChart3:placed.type==="brief.trafficInsight"?Globe2:Activity;
   const controls=editing && <div className="ml-auto flex shrink-0 gap-0.5">
+    {onToggleDetail && <button type="button" className="p-1 text-muted-foreground" title={placed.detail ? "Show on main dashboard" : "Move to details"} aria-label={`${placed.detail ? "Show on main dashboard" : "Move to details"}: ${title}`} onClick={onToggleDetail}><ChevronDown className={cn("size-3.5",placed.detail && "rotate-180")}/></button>}
     {[[ArrowLeft,()=>onMove?.(-1),`Move ${title} earlier`],[ArrowRight,()=>onMove?.(1),`Move ${title} later`],[UnfoldHorizontal,onCycleWidth,`Resize ${title}`],[Trash2,onRemove,`Remove ${title}`]].map(([Glyph,action,label])=>{
       const G=Glyph as typeof ArrowLeft;return <button key={String(label)} type="button" aria-label={String(label)} title={String(label)} onClick={action as ()=>void} onPointerDown={e=>e.stopPropagation()} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><G className="size-3.5"/></button>;
     })}

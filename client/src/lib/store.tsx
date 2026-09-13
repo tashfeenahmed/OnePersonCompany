@@ -150,6 +150,8 @@ export type PlacedWidget = {
    * by shape. A pinned card with no value says which kind to pick.
    */
   param?: string;
+  /** Keep this widget in the dashboard's expandable details section. */
+  detail?: boolean;
 };
 
 export type Dashboard = {

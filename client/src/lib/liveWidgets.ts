@@ -90,6 +90,7 @@ import { DASH, ago, bytes, clock, compact, count, day, duration, durationS, inDa
 /* The same relative-with-extension rule as `./format.ts` above: the window
    labels are real code and the catalog check runs this file under bare node. */
 import { windowLabel, type WindowValue } from "./window.ts";
+import { SERVER_BUILDERS } from "./serverWidgets.ts";
 
 /**
  * How each live widget turns collected data into the shape its card draws.
@@ -13760,3 +13761,5 @@ Object.assign(LIVE_BUILDERS, {
   },
   "brief.margin": (d: LiveInputs) => briefBase("overview.margin",d),
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+Object.assign(LIVE_BUILDERS, SERVER_BUILDERS);

@@ -42,7 +42,8 @@ export function isWorkspacePreferences(v: unknown): boolean {
        invalid document. */
     && list(d.widgets, x => text(x.id, 200) && !!x.id && text(x.type, 200) && [1, 2, 4].includes(Number(x.w)) && typeof x.w === "number"
       && (x.span === undefined || (typeof x.span === "number" && [3, 4, 5, 6, 7, 8, 9, 12].includes(x.span)))
-      && (x.param === undefined || (text(x.param, 200) && !!x.param)), 500), 200)) return false;
+      && (x.param === undefined || (text(x.param, 200) && !!x.param))
+      && (x.detail === undefined || typeof x.detail === "boolean"), 500), 200)) return false;
   const slugs = (v.dashboards as Obj[]).map(d => `${d.ventureId ?? ""}/${d.slug}`);
   return new Set(slugs).size === slugs.length;
 }

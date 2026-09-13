@@ -7,6 +7,7 @@
  */
 
 import type { WidgetWindow } from "../lib/window.ts";
+import type { ServerFleetData } from "../lib/serverWidgets.ts";
 
 export type WidgetKind =
   | "metric"
@@ -294,7 +295,8 @@ export type Widget = {
    */
   perParam?: PerParam;
   /** Reusable WorkDash card presentation; data still comes from the live builder. */
-  presentation?: "summary" | "arr" | "insight" | "figures" | "workdash";
+  presentation?: "summary" | "arr" | "insight" | "figures" | "workdash" | "server-stat" | "server-load" | "server-fleet";
+  serverFleet?: ServerFleetData;
   span?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 12;
   section?: string;
   currency?: string;
@@ -4244,6 +4246,30 @@ export const WIDGETS: Record<string, Widget> = {
      Workdash's ServerCard, taken apart into the cards a board is made of. The
      overview is the whole of it at a glance; the rest are the pieces somebody
      pins beside it when one machine is the day's problem. */
+  "servers.cpu": {
+    src: "fleet", name: "Fleet CPU", kind: "metric", presentation: "server-stat", span: 3,
+    live: { boxes: true },
+  },
+  "servers.worst": {
+    src: "fleet", name: "Worst reading", kind: "metric", presentation: "server-stat", span: 3,
+    live: { boxes: true, fleet: true, load: true },
+  },
+  "servers.containers": {
+    src: "fleet", name: "Containers up", kind: "metric", presentation: "server-stat", span: 3,
+    live: { boxes: true },
+  },
+  "servers.cost": {
+    src: "finance", name: "Fleet cost", kind: "metric", presentation: "server-stat", span: 3,
+    live: { finance: true },
+  },
+  "servers.load": {
+    src: "fleet", name: "Fleet load", kind: "chart", presentation: "server-load", span: 12,
+    live: { boxes: true },
+  },
+  "servers.cards": {
+    src: "fleet", name: "Server cards", kind: "profile", presentation: "server-fleet", span: 12,
+    live: { boxes: true, fleet: true, load: true, finance: true },
+  },
   "server.overview": {
     src: "fleet",
     name: "Server",
@@ -5217,22 +5243,14 @@ export const DASHBOARD_PRESETS: {
   {
     id: "servers",
     label: "Servers",
-    note: "load, status and cost, box by box",
+    note: "fleet totals, load history and searchable server cards",
     widgets: [
-      "hetzner.fleetCpu",
-      "hetzner.busiest",
-      "hetzner.serverCount",
-      "hetzner.spend",
-      "hetzner.load",
-      "hetzner.cpuMeters",
-      "hetzner.servers",
-      "hetzner.figures",
-      "hetzner.traffic",
-      "hetzner.diskWrite",
-      "hetzner.quiet",
-      "hetzner.volumes",
-      "hetzner.specs",
-      "hetzner.age",
+      "servers.cpu",
+      "servers.worst",
+      "servers.containers",
+      "servers.cost",
+      "servers.load",
+      "servers.cards",
     ],
   },
   {

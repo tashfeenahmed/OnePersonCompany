@@ -104,6 +104,8 @@ export function BoardView({
   // returns you to a half-armed delete.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const serverDashboard = board.widgets.some(w => WIDGETS[w.type]?.presentation?.startsWith("server-"));
   const copyTargets = [
     { id: null as string | null, name: "Global dashboards" },
     ...state.ventures.map((v) => ({ id: v.id as string | null, name: v.name })),
@@ -222,21 +224,60 @@ export function BoardView({
     return venture ? `/ventures/${venture.slug}/dashboards/${slug}` : `/dashboards/${slug}`;
   }
 
+  const detailWidgets = board.widgets.filter(w => w.detail);
+  const renderWidget = (w: PlacedWidget) => (
+    <Fragment key={w.id}>
+    {board.id === "d-overview" && !editing && WIDGETS[w.type]?.section && <div className="col-span-12 mt-4 flex items-center gap-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground"><span>{WIDGETS[w.type]?.section}</span><span className="h-px flex-1 bg-border"/></div>}
+    <WidgetCard
+      key={w.id}
+      placed={w}
+      editing={editing}
+      onMove={direction => { const from = board.widgets.findIndex(x => x.id === w.id); const to = Math.max(0, Math.min(board.widgets.length - 1, from + direction)); setWidgets(board.id, moveTo(board.widgets, w.id, to)); setMoveNote(`${WIDGETS[w.type]?.name ?? "Widget"} moved to position ${to + 1}`); }}
+      dragging={dragId === w.id}
+      dropSide={dropTarget?.id === w.id ? dropTarget.side : null}
+      onCycleWidth={() =>
+        mutate((list) =>
+          list.map((x) =>
+            x.id === w.id ? { ...x, ...cycleWidgetWidth(x, WIDGETS[x.type]) } : x,
+          ),
+        )
+      }
+      onRemove={() =>
+        mutate((list) => list.filter((x) => x.id !== w.id))
+      }
+      onToggleDetail={() => mutate(list => list.map(x => x.id === w.id ? { ...x, detail: !x.detail } : x))}
+      onSetParam={(param) =>
+        mutate((list) =>
+          list.map((x) => (x.id === w.id ? { ...x, param } : x)),
+        )
+      }
+      dragHandlers={{
+        "data-widget-id": w.id,
+        onPointerDown: (e) => grab(e, w.id),
+      } as React.HTMLAttributes<HTMLDivElement>}
+    />
+    </Fragment>
+  );
+
   return (
     <>
       <span role="status" className="sr-only">{moveNote}</span>
       <div className="flex min-h-0 flex-1">
-        <div className={cn("min-w-0 flex-1 overflow-y-auto px-4 sm:px-8 pt-2", board.id === "d-overview" && "overview-dashboard", editing ? "pb-[48vh] md:pb-20" : "pb-20")}>
+        <div className={cn("min-w-0 flex-1 overflow-y-auto px-4 sm:px-8 pt-2", board.id === "d-overview" && "overview-dashboard", serverDashboard && "server-dashboard", editing ? "pb-[48vh] md:pb-20" : "pb-20")}>
           <div className="mx-auto w-full max-w-[1440px]">
             <div className="mt-2 mb-5 flex flex-wrap items-end gap-3">
               <div>
                 {board.id === "d-overview" && <p className="text-muted-foreground mb-0.5 text-xs">Everything, briefly</p>}
+                {serverDashboard && <p className="text-muted-foreground mb-0.5 text-xs">Infrastructure</p>}
                 <h1 className="mb-1 text-[22px] font-semibold tracking-tight">
                   {board.name}
                 </h1>
                 <p className={cn("text-muted-foreground text-xs", board.id === "d-overview" && "sr-only")}>
-                  {`${board.widgets.length} ${board.widgets.length === 1 ? "widget" : "widgets"} from ${sources} ${sources === 1 ? "service" : "services"}`}
-                  {liveHere > 0 && (
+                  {serverDashboard
+                    ? live.boxes ? `${live.boxes.boxes.length} servers` : "Reading fleet…"
+                    : `${board.widgets.length} ${board.widgets.length === 1 ? "widget" : "widgets"} from ${sources} ${sources === 1 ? "service" : "services"}`}
+                  {serverDashboard && freshness && <>{freshness.replace(/^, /, " · ")}</>}
+                  {!serverDashboard && liveHere > 0 && (
                     <>
                       {" · "}
                       <span className="text-ok">{liveHere} live</span>
@@ -288,38 +329,16 @@ export function BoardView({
                 </div>
               )}
 
-              {board.widgets.map((w) => (
-                <Fragment key={w.id}>
-                {board.id === "d-overview" && !editing && WIDGETS[w.type]?.section && <div className="col-span-12 mt-4 flex items-center gap-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground"><span>{WIDGETS[w.type]?.section}</span><span className="h-px flex-1 bg-border"/></div>}
-                <WidgetCard
-                  key={w.id}
-                  placed={w}
-                  editing={editing}
-                  onMove={direction => { const from = board.widgets.findIndex(x => x.id === w.id); const to = Math.max(0, Math.min(board.widgets.length - 1, from + direction)); setWidgets(board.id, moveTo(board.widgets, w.id, to)); setMoveNote(`${WIDGETS[w.type]?.name ?? "Widget"} moved to position ${to + 1}`); }}
-                  dragging={dragId === w.id}
-                  dropSide={dropTarget?.id === w.id ? dropTarget.side : null}
-                  onCycleWidth={() =>
-                    mutate((list) =>
-                      list.map((x) =>
-                        x.id === w.id ? { ...x, ...cycleWidgetWidth(x, WIDGETS[x.type]) } : x,
-                      ),
-                    )
-                  }
-                  onRemove={() =>
-                    mutate((list) => list.filter((x) => x.id !== w.id))
-                  }
-                  onSetParam={(param) =>
-                    mutate((list) =>
-                      list.map((x) => (x.id === w.id ? { ...x, param } : x)),
-                    )
-                  }
-                  dragHandlers={{
-                    "data-widget-id": w.id,
-                    onPointerDown: (e) => grab(e, w.id),
-                  } as React.HTMLAttributes<HTMLDivElement>}
-                />
-                </Fragment>
-              ))}
+              {(editing ? board.widgets : board.widgets.filter(w => !w.detail)).map(renderWidget)}
+              {!editing && detailWidgets.length > 0 && (
+                <details className="col-span-12 mt-2 rounded-2xl border px-4 py-3" onToggle={e => setDetailsOpen(e.currentTarget.open)}>
+                  <summary className="cursor-pointer text-sm font-medium">
+                    {serverDashboard ? "Uptime, hosting & detailed widgets" : "Detailed widgets"}
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">{detailWidgets.length} widgets</span>
+                  </summary>
+                  {detailsOpen && <div className="mt-4 grid grid-cols-12 gap-4">{detailWidgets.map(renderWidget)}</div>}
+                </details>
+              )}
 
               {editing && (
                 <button

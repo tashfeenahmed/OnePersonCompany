@@ -1,7 +1,8 @@
 import { OverviewWidget } from "@/components/overview/OverviewWidget";
+import { ServerWidget } from "@/components/servers/ServerWidget";
 import { widgetSpanClass } from "@/lib/widgetLayout";
 import { measuredWidget } from "@/lib/widgetView";
-import { Trash2, UnfoldHorizontal } from "lucide-react";
+import { ChevronDown, Trash2, UnfoldHorizontal } from "lucide-react";
 import { BrandTile } from "@/components/BrandTile";
 import { useMemo } from "react";
 import {
@@ -103,6 +104,7 @@ export function WidgetCard({
   onRemove,
   onMove,
   onSetParam,
+  onToggleDetail,
   dragHandlers,
   dropSide,
   dragging,
@@ -115,6 +117,7 @@ export function WidgetCard({
   /** A per-project card's venture, chosen from its header in edit mode.
    *  Undefined clears it back to "pick a venture". */
   onSetParam?: (param: string | undefined) => void;
+  onToggleDetail?: () => void;
   /** The grab handle's attributes — a pointerdown and a data id, from BoardView. */
   dragHandlers?: React.HTMLAttributes<HTMLDivElement>;
   dropSide?: "before" | "after" | null;
@@ -302,9 +305,14 @@ export function WidgetCard({
       : !isLive ? unavailable : null;
   const failedSource = Object.keys(base.live ?? {}).find(key =>
     live.sourceStates[key === "metric" ? `metric:${base.live?.metric}` : key] === "error");
+  if (base.presentation?.startsWith("server-")) return <ServerWidget def={def} placed={placed} empty={empty}
+    portfolioWide={!!scope && !narrowed}
+    stale={!!failedSource || !!live.error} error={live.sourceErrors[failedSource ?? sourceKey] ?? live.error}
+    editing={editing} onCycleWidth={onCycleWidth} onRemove={onRemove} onMove={onMove} onToggleDetail={onToggleDetail}
+    dragHandlers={dragHandlers} dragging={dragging} dropSide={dropSide} />;
   if (base.presentation) return <OverviewWidget def={def} title={title} placed={placed} empty={empty}
     stale={!!failedSource || !!live.error} error={live.sourceErrors[failedSource ?? sourceKey] ?? live.error}
-    editing={editing} onCycleWidth={onCycleWidth} onRemove={onRemove} onMove={onMove}
+    editing={editing} onCycleWidth={onCycleWidth} onRemove={onRemove} onMove={onMove} onToggleDetail={onToggleDetail}
     dragHandlers={dragHandlers} dragging={dragging} dropSide={dropSide} />;
   const brand = src.icon ? BRAND_ICONS[src.icon]?.hex : src.tint;
 
@@ -394,6 +402,7 @@ export function WidgetCard({
         )}
         {editing && (
           <div className="ml-auto flex gap-px">
+            {onToggleDetail && <button type="button" className="p-1 text-muted-foreground" title={placed.detail ? "Show on main dashboard" : "Move to details"} aria-label={`${placed.detail ? "Show on main dashboard" : "Move to details"}: ${def.name}`} onClick={onToggleDetail}><ChevronDown className={cn("size-3.5",placed.detail && "rotate-180")}/></button>}
             <button aria-label={`Move ${def.name} earlier`} className="p-1" onClick={() => onMove?.(-1)}>←</button>
             <button aria-label={`Move ${def.name} later`} className="p-1" onClick={() => onMove?.(1)}>→</button>
             <button
