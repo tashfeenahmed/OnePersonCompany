@@ -1,61 +1,6 @@
 import { runPage } from "../../../../shared/runRoutes";
-import {
-  Bot,
-  FileText,
-  MessageSquareText,
-  SearchCheck,
-  Swords,
-  Telescope,
-  UserRound,
-  type LucideIcon,
-} from "lucide-react";
 import { statusTone, statusWord } from "@/components/runs/format";
 import type { Subagent } from "@/lib/api/subagents";
-
-/**
- * THE FOUR THINGS EVERY SCREEN THAT DRAWS A WORKER NEEDS: its icon, the app
- * its work is read in, the word for what it is doing, and the colour of the
- * dot beside that word.
- *
- * A .ts beside the components rather than inside one of them, the same shape
- * `runs/format.ts` has and for the same reason: the org chart, the roster, the
- * venture overview and the worker's own page all draw a status, and the fourth
- * copy is the one that starts saying "idle" where the others say "never run".
- *
- * THE ICONS ARE THE APPS' ICONS, deliberately. A sub-agent is the app with a
- * name on it — the SEO analyst runs exactly what the SEO app runs — so a
- * second visual language for the same six things would be six more symbols to
- * learn for no new fact. Where the roster and the tab strip disagree about
- * what a magnifying glass means, the roster is wrong.
- */
-
-/**
- * By role, because a role is what a page has in its URL.
- *
- * A MAP RATHER THAN A FUNCTION, and that is not a style choice: a component
- * that comes out of a CALL during render reads to the linter — correctly —
- * as a component being CREATED during render, which resets its state on every
- * pass. An indexed lookup with a fallback is the same fact expressed as data.
- * See `RoleIcon` for the one place this is drawn.
- */
-export const ROLE_ICONS: Record<string, LucideIcon> = {
-  researcher: Telescope,
-  competitors: Swords,
-  seo: SearchCheck,
-  demand: MessageSquareText,
-  visibility: Bot,
-  writer: FileText,
-  /* The People analyst, whose app is Dossiers. A person, because that is what
-     it reports on — and the only mark here that is a subject rather than an
-     activity, which is right: it is the only worker that is not attached to a
-     business. */
-  people: UserRound,
-};
-
-/** What a role this build has never heard of is drawn as. Not nothing: a row
- *  with a hole where its mark should be looks like a bug rather than like a
- *  role added since this client was built. */
-export const FALLBACK_ROLE_ICON = Bot;
 
 /**
  * A RUN'S ADDRESS.

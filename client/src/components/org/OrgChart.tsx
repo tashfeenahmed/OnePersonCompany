@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { StagePill, VentureMark } from "@/components/VentureChrome";
 import { SubagentRow } from "@/components/org/SubagentRow";
+import { RoleIcon } from "@/components/org/RoleIcon";
 import { portfolioAddress, shortName, teamAddress } from "@/components/org/roleLook";
 import type { Org as OrgDoc, OrgVentureTeam, Subagent } from "@/lib/api/subagents";
 import { cn } from "@/lib/utils";
@@ -65,7 +66,7 @@ import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------- the geometry */
 
-const CARD_W = 236;
+const CARD_W = 260;
 const GAP_X = 16;
 /**
  * A CARD'S HEIGHT IS COMPUTED FROM THE LARGEST TEAM, and it is one height for
@@ -78,7 +79,7 @@ const GAP_X = 16;
  * change goes instead of into the last row.
  */
 const CARD_HEAD = 38;
-const ROW_H = 26.5;
+const ROW_H = 35; // 28px artwork + 6px row padding + 1px gap.
 const CARD_FOOT = 8;
 const cardHeight = (rows: number) => CARD_HEAD + Math.max(1, rows) * ROW_H + CARD_FOOT;
 /** The vertical gutter between rows of cards, which is where a row's bus line
@@ -97,7 +98,7 @@ const portfolioHeight = (rows: number) => cardHeight(rows) + SUBTITLE_H;
 /** Between the chief of staff's right edge and the portfolio card. Wider than
  *  GAP_X because the line that crosses it has to read as a relationship
  *  rather than as a gap in a row. */
-const PORTFOLIO_GAP = 48;
+const PORTFOLIO_GAP = 24;
 const OWNER_W = 210;
 const OWNER_H = 44;
 const CHIEF_W = 320;
@@ -269,11 +270,12 @@ export function OrgChart({
             style={{ left: layout.centerX - CHIEF_W / 2, top: OWNER_H + DROP, width: CHIEF_W, height: CHIEF_H }}
             className="bg-card hover:bg-card-hover absolute flex items-center gap-2.5 rounded-[14px] px-4 transition-colors"
           >
-            <span
-              className={cn("size-1.5 shrink-0 rounded-full", chiefOfStaff.connected ? "bg-ok" : "bg-border")}
-            />
+            <RoleIcon role="chief-of-staff" className="size-10" />
             <span className="min-w-0 flex-1">
-              <span className="block text-[13.5px] font-medium">Chief of staff</span>
+              <span className="flex items-center gap-1.5 text-[13.5px] font-medium">
+                Chief of staff
+                <span className={cn("size-1.5 shrink-0 rounded-full", chiefOfStaff.connected ? "bg-ok" : "bg-border")} />
+              </span>
               <span className="text-muted-foreground block truncate text-[12.5px]">
                 {chiefLine(chiefOfStaff)}
               </span>

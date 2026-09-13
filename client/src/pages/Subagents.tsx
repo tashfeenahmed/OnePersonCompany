@@ -253,9 +253,7 @@ function Roster({ org }: { org: { data: Org | null; error: string | null; loadin
                 className="bg-card hover:bg-card-hover flex flex-col gap-1.5 rounded-[14px] px-4 py-3.5 transition-colors"
               >
                 <span className="flex items-center gap-2">
-                  <span className="bg-muted text-foreground grid size-7 shrink-0 place-items-center rounded-lg">
-                    <RoleIcon role={r.role} className="size-3.5" />
-                  </span>
+                  <RoleIcon role={r.role} className="size-10" />
                   <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium">
                     {r.title}
                   </span>

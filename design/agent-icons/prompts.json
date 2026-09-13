@@ -1,0 +1,29 @@
+{
+  "generator": "Built-in image_gen",
+  "icons": [
+    {
+      "role": "researcher",
+      "prompt": "Use case: stylized-concept. Asset type: one small production app icon, isolated on a genuinely transparent background with alpha. Style: premium playful 3D clay toy, smooth soft rounded bevels, tactile matte-satin material, softly luminous highlights, subtle dimensional self-shadowing. Orthographic view facing front with a gentle 15-degree top-down angle. Centered square composition; object fills 82 percent of frame, clean bold silhouette readable at 28 pixels. Rich multicolored pastel candy palette. Consistent light from upper left. No text, lettering, watermark, enclosing square tile, colored background, floor, scene, tiny decorative particles or thin outlines. One icon only. Subject: a chunky lavender telescope angled gently upward, with a large sky-blue glass lens, mint eyepiece and a short peach tripod. A clear telescope silhouette."
+    },
+    {
+      "role": "competitors",
+      "prompt": "Use case: stylized-concept. Asset type: one small production app icon, isolated on a genuinely transparent background with alpha. Style: premium playful 3D clay toy, smooth soft rounded bevels, tactile matte-satin material, softly luminous highlights, subtle dimensional self-shadowing. Orthographic view facing front with a gentle 15-degree top-down angle. Centered square composition; object fills 82 percent of frame, clean bold silhouette readable at 28 pixels. Rich multicolored pastel candy palette. Consistent light from upper left. No text, lettering, watermark, enclosing square tile, colored background, floor, scene, tiny decorative particles or thin outlines. One icon only. Subject: two chunky chess knights facing each other, one lavender and one mint, with peach and butter-yellow bases. Two recognizable simple rival chess pieces, no chessboard."
+    },
+    {
+      "role": "seo",
+      "prompt": "Use case: stylized-concept. Asset type: one small production app icon, isolated on a genuinely transparent background with alpha. Style: premium playful 3D clay toy, smooth soft rounded bevels, tactile matte-satin material, softly luminous highlights, subtle dimensional self-shadowing. Orthographic view facing front with a gentle 15-degree top-down angle. Centered square composition; object fills 82 percent of frame, clean bold silhouette readable at 28 pixels. Rich multicolored pastel candy palette. Consistent light from upper left. No text, lettering, watermark, enclosing square tile, colored background, floor, scene, tiny decorative particles or thin outlines. One icon only. Subject: a chunky mint magnifying glass with a thick lavender handle and one raised butter-yellow check mark inside the glass. A simple search-and-check silhouette."
+    },
+    {
+      "role": "writer",
+      "prompt": "Use case: stylized-concept. Asset type: one small production app icon, isolated on a genuinely transparent background with alpha. Style: premium playful 3D clay toy, smooth soft rounded bevels, tactile matte-satin material, softly luminous highlights, subtle dimensional self-shadowing. Orthographic view facing front with a gentle 15-degree top-down angle. Centered square composition; object fills 82 percent of frame, clean bold silhouette readable at 28 pixels. Rich multicolored pastel candy palette. Consistent light from upper left. No text, lettering, watermark, enclosing square tile, colored background, floor, scene, tiny decorative particles or thin outlines. One icon only. Subject: an open chunky cream academic book with lavender cover and one short peach pencil resting diagonally along its right page. Blank pages with two raised subtle page ridges, no lettering."
+    },
+    {
+      "role": "serp",
+      "prompt": "Use case: stylized-concept. Asset type: one small production app icon, isolated on a genuinely transparent background with alpha. Style: premium playful 3D clay toy, smooth soft rounded bevels, tactile matte-satin material, softly luminous highlights, subtle dimensional self-shadowing. Orthographic view facing front with a gentle 15-degree top-down angle. Centered square composition; object fills 82 percent of frame, clean bold silhouette readable at 28 pixels. Rich multicolored pastel candy palette. Consistent light from upper left. No text, lettering, watermark, enclosing square tile, colored background, floor, scene, tiny decorative particles or thin outlines. One icon only. Subject: a chunky sky-blue search-results panel with three short raised rounded result bars, lavender, mint and peach, and a single large butter-yellow number-one medal without any digit. Simple stacked search results, no lettering."
+    },
+    {
+      "role": "aso",
+      "prompt": "Use case: stylized-concept. Asset type: one small production app icon, isolated on a genuinely transparent background with alpha. Style: premium playful 3D clay toy, smooth soft rounded bevels, tactile matte-satin material, softly luminous highlights, subtle dimensional self-shadowing. Orthographic view facing front with a gentle 15-degree top-down angle. Centered square composition; object fills 82 percent of frame, clean bold silhouette readable at 28 pixels. Rich multicolored pastel candy palette. Consistent light from upper left. No text, lettering, watermark, enclosing square tile, colored background, floor, scene, tiny decorative particles or thin outlines. One icon only. Subject: a chunky lavender smartphone standing upright, cream screen, three large mint and coral rounded app squares, and one butter-yellow star badge at its lower right. A clear app-store review silhouette."
+    }
+  ]
+}

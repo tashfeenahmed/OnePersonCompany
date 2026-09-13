@@ -820,7 +820,7 @@ export function Subagent() {
             )}
             <span className="text-muted-foreground text-[13.5px]">/</span>
             <span className="flex items-center gap-1.5 px-2 py-1 text-[13.5px]">
-              <RoleIcon role={role} className="text-muted-foreground size-3.5" />
+              <RoleIcon role={role} className="size-7" />
               {workerName ?? "…"}
             </span>
             {/* WHICH VIEW IS OPEN, IN THE BAR, because the transcript below

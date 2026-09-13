@@ -1,5 +1,10 @@
 # Clay module icons
 
+These assets are now an artwork library for sub-agents. Sidebar and owner-menu
+navigation use Lucide React. See [the current role mapping](../agent-icons/README.md)
+for the reused artwork and six matching additions. The notes below describe the
+original generation of this set.
+
 33 custom icons generated with the built-in `image_gen` tool for the sidebar: 31 modules, Settings, and pinned sessions.
 
 The set uses rounded clay forms, a multicolored pastel palette, soft highlights, and transparent backgrounds. Icons display at 20 px (16 px for Settings), with 112 × 112 WebP exports for sharp rendering on high-density screens.

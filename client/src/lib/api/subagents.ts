@@ -32,7 +32,7 @@ import type { RunSummary } from "@/lib/api/runs";
  * type nobody reads is a type that is wrong in silence. A role is a STRING on
  * the wire; a role this build has never heard of draws with the fallback icon
  * rather than failing to compile, which is the behaviour every page here
- * already has (see `ROLE_ICONS`).
+ * already has (see `ROLE_ARTWORK`).
  */
 
 /**

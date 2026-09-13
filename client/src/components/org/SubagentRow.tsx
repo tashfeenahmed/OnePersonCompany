@@ -62,7 +62,7 @@ export function SubagentRow({
     >
       <RoleIcon
         role={sa.role}
-        className="text-muted-foreground size-3.5 shrink-0"
+        className={dense ? "size-7" : "size-9"}
       />
       <span
         className={cn(

@@ -1,25 +1,24 @@
-import { FALLBACK_ROLE_ICON, ROLE_ICONS } from "@/components/org/roleLook";
+import { cn } from "@/lib/utils";
+import { FALLBACK_ROLE_ARTWORK, ROLE_ARTWORK } from "@/components/org/roleArtwork";
 
-/**
- * A ROLE'S MARK, in the one place that draws one.
- *
- * It is a component rather than three lookups because three files want it and
- * two of them want it at the top of a render — where a component pulled out of
- * a map by hand is a component the linter has to take on trust. Here the
- * lookup happens once, inside a component that is declared at module scope,
- * and every caller writes `<RoleIcon role={…} />`.
- *
- * THE ICONS ARE THE APPS' ICONS. A sub-agent is the app with a name on it, so
- * a second visual language for the same six things would be six more symbols
- * to learn for no new fact.
- */
-export function RoleIcon({
-  role,
-  className,
-}: {
-  role: string;
-  className?: string;
-}) {
-  const Icon = ROLE_ICONS[role] ?? FALLBACK_ROLE_ICON;
-  return <Icon className={className} strokeWidth={1.6} />;
+// Vite fingerprints and packages both the reused clay set and the new artwork.
+const artwork = import.meta.glob<string>(
+  ["../../assets/modules/*.webp", "../../assets/agents/*.webp"],
+  { eager: true, query: "?url&no-inline", import: "default" },
+);
+
+/** One 3D identity per role, shared by every venture and worker surface. */
+export function RoleIcon({ role, className }: { role: string; className?: string }) {
+  const key = Object.hasOwn(ROLE_ARTWORK, role) ? ROLE_ARTWORK[role] : FALLBACK_ROLE_ARTWORK;
+  return <img
+    src={artwork[`../../assets/${key}.webp`]}
+    alt=""
+    aria-hidden="true"
+    data-role={role}
+    width={28}
+    height={28}
+    draggable={false}
+    decoding="async"
+    className={cn("size-7 shrink-0 select-none object-contain", className)}
+  />;
 }
