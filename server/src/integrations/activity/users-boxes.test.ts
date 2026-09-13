@@ -20,7 +20,7 @@ import {
   boxDocument,
   boxReader,
   parsePrefixes,
-  sourceFor,
+  sourceFor as lookupSource, EXAMPLE_SOURCES,
   stripeDocument,
   type ProbeApp,
   type ProbeRow,
@@ -249,3 +249,5 @@ test("one box is probed once however many products are read off it", async () =>
   assert.equal(got.ok, false);
   assert.match(got.error ?? "", /no box called “Apps box” on the Fleet plugin/);
 });
+
+const sourceFor = (id: string) => lookupSource(id, EXAMPLE_SOURCES);

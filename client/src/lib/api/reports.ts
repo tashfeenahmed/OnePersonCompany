@@ -437,6 +437,7 @@ export type FleetMeter = {
 
 export type FleetBox = {
   accountId: number;
+  region?: { location: string; country: string } | null;
   label: string;
   target: string | null;
   hostname: string | null;

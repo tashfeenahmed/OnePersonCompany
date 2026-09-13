@@ -140,7 +140,7 @@ export type PlacedWidget = {
    * A pinned card is a scoped card whose scope is chosen on the card rather
    * than by the page it sits on — so the Search board carries "Search ·
    * Example App 1" beside "Search · FreeLLMAPI", and the Servers board carries
-   * "Memory · Home Pi" beside "Memory · Demo box", without either board
+   * "Memory · Home Pi" beside "Memory · Example host 7", without either board
    * belonging to anything. It is an ID and never a hostname for the reason a
    * venture whose website changes keeps its cards, and a box that moves
    * address keeps its account.

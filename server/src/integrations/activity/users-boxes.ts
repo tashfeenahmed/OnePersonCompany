@@ -1,5 +1,6 @@
 /** Adapt locally configured SSH user probes to the shared users contract.
  * Keep per-product schema mappings in the private data directory. */
+import { readLocalList } from "../../local-metadata.ts";
 import { db } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
 import { parseSsh, ssh, sshLabel, sshProblem, writeKeyFile } from "../ops/fleet.ts";
@@ -15,7 +16,7 @@ import type { Population } from "./users.ts";
  */
 export const PROBE_PATH = process.env.OPC_USERS_PROBE?.trim() || "/usr/local/bin/users-probe";
 
-/** How much of the probe's stdout is parsed. The largest box answers with
+/** How much of the probe's stdout is parsed. The probe may return
  *  several megabytes and the cap is refused
  *  rather than truncated, for exactly the reason users.ts refuses an oversized
  *  HTTP document: half a JSON document read as if it were whole reports a user
@@ -111,7 +112,7 @@ const NO_SEEN = "lastSeenAt: this application's user table has no last-seen colu
 const NO_PAID = "paid: this application's user table records no payment state, so paid/free is unknown for every row rather than free.";
 const NO_CONSENT = "contactPermitted: no application here keeps a consent column, so nobody is counted as contactable — see users.ts, which will not infer one from an address on file.";
 
-export const SOURCES: BoxSource[] = [
+export const EXAMPLE_SOURCES: BoxSource[] = [
   {
     id: "example-app-1",
     product: "Example App 1",
@@ -127,7 +128,7 @@ export const SOURCES: BoxSource[] = [
     id: "example-app-2",
     product: "Example App 2",
     site: "example-app-2.example.test",
-    box: "Demo box",
+    box: "Example host 7",
     idField: "fields.id",
     planField: "extra",
     /* `fields.stripe` is "yes" when a stripe_customer_id exists, which is
@@ -199,7 +200,7 @@ export const SOURCES: BoxSource[] = [
     id: "example-app-7",
     product: "Example App 7",
     site: "example-app-7.example.test",
-    box: "Demo box",
+    box: "Example host 7",
     idField: "fields.id",
     cannot: [NO_PAID, NO_SEEN, NO_COUNTRY, NO_CONSENT, "plan: this table has no plan column.", "This is the DEMO deployment and a separate database from Example App 5 above — the two are never added."],
   },
@@ -276,8 +277,30 @@ export const SOURCES: BoxSource[] = [
   },
 ];
 
-export const sourceFor = (id: string): BoxSource | undefined =>
-  SOURCES.find((s) => s.id === id.trim().toLowerCase());
+function validSource(value: unknown): value is BoxSource {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  if (!["id", "product", "box", "idField"].every(key => typeof row[key] === "string" && row[key].trim())) return false;
+  if (row.site !== null && typeof row.site !== "string") return false;
+  for (const key of ["planField", "paidField", "lastSeenField", "populationField"]) {
+    if (row[key] !== undefined && typeof row[key] !== "string") return false;
+  }
+  for (const key of ["cannot", "paid", "free"]) {
+    if (key !== "cannot" && row[key] === undefined) continue;
+    if (!Array.isArray(row[key]) || !row[key].every(item => typeof item === "string")) return false;
+  }
+  const populations = ["customer", "participant", "admin", "trial", "internal"];
+  if (row.populationDefault !== undefined && !populations.includes(String(row.populationDefault))) return false;
+  if (row.populations !== undefined && (!row.populations || typeof row.populations !== "object"
+      || Array.isArray(row.populations) || !Object.values(row.populations).every(item => populations.includes(String(item))))) return false;
+  return true;
+}
+
+export const SOURCES: BoxSource[] = readLocalList("users-box-sources.json", validSource) ?? [];
+if (new Set(SOURCES.map(source => source.id)).size !== SOURCES.length) throw new Error("Duplicate ids in users-box-sources.json.");
+
+export const sourceFor = (id: string, sources: BoxSource[] = SOURCES): BoxSource | undefined =>
+  sources.find((s) => s.id === id.trim().toLowerCase());
 
 /* ------------------------------------------------------------ reading a box */
 
@@ -478,7 +501,7 @@ export function boxDocument(app: ProbeApp, src: BoxSource | undefined, collected
   if (!src)
     problems.push(
       `“${app.id}” is a source this box has no mapping for, so nothing could be read from it — its rows have no id, ` +
-        `and every field beyond a signup date means something different per application. Add it to SOURCES in users-boxes.ts.`,
+        `and every field beyond a signup date means something different per application. Add its mapping to users-box-sources.json in your local data directory.`,
     );
   else if (noId)
     problems.push(

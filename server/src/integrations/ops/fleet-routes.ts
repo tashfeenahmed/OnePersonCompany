@@ -48,6 +48,7 @@
 import { Hono } from "hono";
 import { configValue, series } from "../../db.ts";
 import * as accounts from "../../accounts.ts";
+import { fleetRegion, fleetRegions } from "./fleet-regions.ts";
 import {
   counterMetric,
   hostRows,
@@ -127,6 +128,7 @@ fleetRoutes.get("/", (c) => {
   const disks = latestDisks();
   const containers = latestContainers();
   const counters = parseCounters(configValue("fleet", "counters"));
+  const regions = fleetRegions();
 
   const byAccount = new Map<number, SampleRow[]>();
   for (const s of samples) {
@@ -148,6 +150,7 @@ fleetRoutes.get("/", (c) => {
        *  collection — the credential exists, nothing has used it yet. */
       target: host?.target ?? null,
       hostname: host?.hostname ?? null,
+      region: fleetRegion(regions, host?.target ?? null, host?.hostname ?? null),
       kernel: host?.kernel ?? null,
       seenAt: host?.seen_at ?? null,
       okAt: host?.ok_at ?? account.lastOkAt,

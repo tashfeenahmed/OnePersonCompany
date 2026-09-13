@@ -127,7 +127,7 @@ export function serverCard(box: FleetBox, input: LiveInputs, now = Date.now()): 
     if (meters.slice(0,3).every(m=>m.value===null)) {status="unknown";statusLabel="Not measured";}
   }
   const address = serverAddress(box);
-  const region = serverRegion({location:hz?.location ?? null,address,hostname:box.hostname});
+  const region = serverRegion({location:hz?.location ?? null,configured:box.region});
   const local = address && /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|\.(local|lan|home|internal)$/.test(address);
   const expense = hz ? input.finance?.expenses.find(e=>!e.archived && e.source==="hetzner" && e.sourceRef===`server:${hz.id}`) : undefined;
   const cost = expense ? expense.monthly===null ? "Not priced" : `${money(expense.monthly,expense.currency)}/mo`

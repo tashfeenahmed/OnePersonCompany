@@ -7,6 +7,7 @@ import type { InsightsReport } from "../../../shared/insights";
  * generated, so a reload does not repaint the board with different numbers.
  */
 
+import { widgetExample } from "./widgetExamples.ts";
 import type { WidgetWindow } from "../lib/window.ts";
 import type { ServerFleetData } from "../lib/serverWidgets.ts";
 
@@ -5077,6 +5078,9 @@ export const WIDGETS: Record<string, Widget> = {
     headers: ["Domain", "State", "Sent", "Bounce", "DNS", "Region"],
   },
 };
+
+// Catalog previews are generated from synthetic data, never copied from an account.
+for (const widget of Object.values(WIDGETS)) Object.assign(widget, widgetExample(widget));
 
 /** WorkDash's overview cards, available on any board through the same catalog. */
 const brief = (base: string, name: string, presentation: Widget["presentation"], span: Widget["span"], extra: Partial<Widget> = {}): Widget => ({

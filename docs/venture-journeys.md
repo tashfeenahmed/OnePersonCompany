@@ -28,4 +28,3 @@ For a new integration, publish an `insightSources` provider through its manifest
 ## Verification
 
 `npm run check` runs isolated server/client tests, type checking, build, lint, widget catalog consistency and strict shared-type checks. Journey tests cover all 21 type/stage combinations, persistence across database connections, exact venture scoping, validation, concurrency, archives, deletion and preservation of custom workspace preferences. Browser verification uses a disposable venture and does not reset user dashboards.
-
