@@ -279,8 +279,8 @@ export type RunOpts = {
  * A browser that DOES exit — a bad flag, a missing library, a future version
  * that behaves — is honoured rather than waited out.
  */
-export function shoot(opts: RunOpts & { out: string }): Promise<ShotResult> {
-  return runBrowser(opts, { file: opts.out });
+export function shoot(opts: RunOpts & { out: string; requireDom?: boolean }): Promise<ShotResult> {
+  return runBrowser(opts, { file: opts.out, dom: opts.requireDom });
 }
 
 export type DumpResult =
@@ -296,7 +296,7 @@ export async function dump(opts: RunOpts): Promise<DumpResult> {
     : { ok: false, html: got.stdout, error: got.error };
 }
 
-function runBrowser(opts: RunOpts, want: { file: string } | { dom: true }): Promise<ShotResult> {
+function runBrowser(opts: RunOpts, want: { file: string; dom?: boolean } | { dom: true }): Promise<ShotResult> {
   const budgetMs = opts.budgetMs ?? RUN_MS;
   /* How much stdout is read before the page is called abusive. Only a DOM
      dump produces any. */
@@ -388,7 +388,7 @@ function runBrowser(opts: RunOpts, want: { file: string } | { dom: true }): Prom
 
       if ("file" in want) {
         const size = sizeOf(want.file);
-        if (size > 0 && size === lastSize)
+        if (size > 0 && size === lastSize && (!want.dom || (out.includes("</html>") && Date.now() - lastOut > QUIET_MS)))
           return finish({ ok: true, path: want.file, stdout: out, error: null });
         lastSize = size;
         return;
@@ -403,7 +403,8 @@ function runBrowser(opts: RunOpts, want: { file: string } | { dom: true }): Prom
          before it writes to it, so an exit with a zero-byte file beside it is
          a failure wearing a success's clothes. That is the stricter of the two
          copies, and it is the right one. */
-      const enough = "file" in want ? sizeOf(want.file) > 0 : out.includes("</html>");
+      const enough = ("file" in want ? sizeOf(want.file) > 0 : true) &&
+        (!want.dom || out.includes("</html>"));
       if (enough)
         return finish({
           ok: true,

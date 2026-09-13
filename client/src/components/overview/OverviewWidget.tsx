@@ -1,5 +1,5 @@
 import { Activity, BarChart3, Globe2, ChevronDown, ArrowLeft, ArrowRight, UnfoldHorizontal, Trash2 } from "lucide-react";
-import type { HTMLAttributes } from "react";
+import { useState, type HTMLAttributes } from "react";
 import type { Widget } from "@/data/widgets";
 import type { PlacedWidget } from "@/lib/store";
 import { widgetSpanClass } from "@/lib/widgetLayout";
@@ -45,6 +45,13 @@ function Table({def}:{def:Widget}) {
     {!def.table?.length && <p className="py-4 text-xs text-muted-foreground">{def.caption ?? "No rows reported."}</p>}
   </div>;
 }
+function WebsiteImage({src, title}: {src?: string | null; title: string}) {
+  const [failed, setFailed] = useState(false);
+  return <div className="aspect-[16/10] overflow-hidden bg-muted">
+    {src && !failed ? <img src={src} alt={`${title} website`} loading="lazy" className="h-full w-full object-cover object-top" onError={()=>setFailed(true)}/> :
+      <div className="flex h-full items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground"><Globe2 className="size-4 shrink-0"/>{failed ? "Preview unavailable · capture will retry" : "No capture yet"}</div>}
+  </div>;
+}
 function Body({def}:{def:Widget}) {
   const format=formatNumber(def);
   if (def.presentation==="arr" || def.presentation==="summary" || def.kind==="proportion") {
@@ -86,7 +93,7 @@ function Body({def}:{def:Widget}) {
   if (def.kind==="ranked") return def.ranked?.length ? <RankedBars label={def.name} bars={def.ranked.map((r,i)=>({...r,key:String(i),color:color(r.label)}))} format={n=>def.ranked?.find(r=>r.value===n)?.text ?? compact(n)}/> : def.rows?.length ? <Table def={{...def,headers:["App · currency","Payout"],table:def.rows}}/> : <p className="py-8 text-center text-xs text-muted-foreground">No payouts reported yet.</p>;
   if (def.kind==="table") return <Table def={def}/>;
   if (def.kind==="feed") return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{def.feed?.map((item,i)=><a key={i} href={item.href ?? undefined} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border transition hover:border-foreground/25">
-    <div className="aspect-[16/10] overflow-hidden bg-muted">{item.image ? <img src={item.image} alt={`${item.title} website`} loading="lazy" className="h-full w-full object-cover object-top" onError={e=>{e.currentTarget.style.display="none";}}/> : <div className="flex h-full items-center justify-center text-xs text-muted-foreground">No capture yet</div>}</div>
+    <WebsiteImage key={item.image} src={item.image} title={item.title}/>
     <div className="p-3"><div className="flex justify-between gap-2 text-sm font-medium"><span>{item.title}</span><span className="text-[10px] font-normal text-muted-foreground">{item.at}</span></div><p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.text}</p><div className="mt-2 flex flex-wrap gap-3 text-xs">{item.meta?.map(([k,v])=><span key={k}><b className="font-medium">{v}</b> <span className="text-muted-foreground">{k}</span></span>)}</div></div>
   </a>)}</div>;
   return null;

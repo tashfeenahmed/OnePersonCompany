@@ -102,8 +102,8 @@ export function Dashboards() {
 
   return (
     <>
-      {/* Keep navigation in one row; the dashboard keeps its place below it. */}
-      <header className="flex min-h-12 shrink-0 items-center gap-2 px-4.5 py-1.5">
+      {/* Let every dashboard tab remain visible as the available width changes. */}
+      <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 px-4.5 py-1.5">
         {/* Links, not buttons: each tab IS the board's address. Hold and drag
             to reorder — the order lives in the store beside the boards. */}
         <select aria-label="Dashboard" value={board.id} onChange={e => {
@@ -113,7 +113,7 @@ export function Dashboards() {
           {boards.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <TabStrip
-          className="hidden! min-w-0 flex-1 flex-nowrap! overflow-x-auto sm:flex!"
+          className="hidden! sm:contents!"
           /* BOARDS AND NOTHING ELSE. The strip used to open with four fixed
              report tabs the owner could not move or remove; every tab in it is
              now a board of his, in his order, and every one of them can be
@@ -135,19 +135,21 @@ export function Dashboards() {
           `dashboardWindow`), the fetch layer reads it, and every windowed
           card's name follows it.
         */}
-        <WindowPicker
-          value={state.dashboardWindow ?? DEFAULT_WINDOW}
-          onChange={setDashboardWindow}
-          options={DASHBOARD_WINDOWS}
-          label="Window every dashboard is drawn over"
-          className="shrink-0"
-        />
-        <Button asChild size="sm" className="mt-0.5 shrink-0 whitespace-nowrap">
-          <Link to="/dashboards/new" aria-label="New dashboard">
-            <Plus className="size-3.5" strokeWidth={1.8} />
-            <span className="hidden sm:inline">New dashboard</span>
-          </Link>
-        </Button>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <WindowPicker
+            value={state.dashboardWindow ?? DEFAULT_WINDOW}
+            onChange={setDashboardWindow}
+            options={DASHBOARD_WINDOWS}
+            label="Window every dashboard is drawn over"
+            className="shrink-0"
+          />
+          <Button asChild size="sm" className="mt-0.5 shrink-0 whitespace-nowrap">
+            <Link to="/dashboards/new" aria-label="New dashboard">
+              <Plus className="size-3.5" strokeWidth={1.8} />
+              <span className="hidden sm:inline">New dashboard</span>
+            </Link>
+          </Button>
+        </div>
       </header>
 
       {/* Keyed by board: switching dashboards ends an edit session rather than

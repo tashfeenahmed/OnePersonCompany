@@ -12,13 +12,10 @@
  * nothing else. A screenshot is also the one thing text cannot substitute for:
  * a palette can be read out of CSS, and what the page LOOKS like cannot.
  *
- * NO PUPPETEER, NO DEPENDENCY, NO PROTOCOL. Chrome's own command line takes a
- * `--screenshot` and a `--dump-dom` and prints a PNG and a rendered DOM
- * respectively — which is the whole of what is wanted here. Driving it over
- * DevTools would buy scrolling, waiting on selectors and a full-page capture,
- * at the cost of a websocket client and a dependency this project does not
- * have. The shot is the fold at SHOT_VIEWPORT, which is what a thumbnail wants
- * anyway.
+ * Chrome's command line captures the fold and its rendered DOM together.
+ * Slow pages and blank captures get a second pass through DevTools with real
+ * paint frames and GPU rendering, for sites that use animation or WebGL.
+ * Both passes use isolated profiles and require a valid website image.
  *
  * HOW THE BROWSER IS FOUND AND RUN IS NOT HERE — see tools/chrome.ts, the one
  * shared launcher, for ProcessSingleton locks, the browser that does not exit
@@ -57,6 +54,8 @@ import {
   withProfile,
   type Browser,
 } from "../../tools/chrome.ts";
+import { captureRendered, RENDER_RETRY_MS } from "./capture-browser.ts";
+import { captureError } from "./capture-validation.ts";
 import { assignRoles, type ColourCount } from "../../ventures/enrich.ts";
 
 /* The browser lives in tools/chrome.ts now. These two are re-exported because
@@ -115,7 +114,7 @@ export function lastShot(ventureId: string, okOnly = false): ShotRow | undefined
     .prepare(
       `SELECT * FROM venture_shots
         WHERE venture_id = ? AND brand_rendered IS NULL${okOnly ? " AND path IS NOT NULL AND error IS NULL" : ""}
-        ORDER BY ts DESC LIMIT 1`,
+        ORDER BY ts DESC, id DESC LIMIT 1`,
     )
     .get(ventureId) as ShotRow | undefined;
 }
@@ -126,7 +125,7 @@ export function lastRendered(ventureId: string): ShotRow | undefined {
     .prepare(
       `SELECT * FROM venture_shots
         WHERE venture_id = ? AND brand_rendered IS NOT NULL
-        ORDER BY ts DESC LIMIT 1`,
+        ORDER BY ts DESC, id DESC LIMIT 1`,
     )
     .get(ventureId) as ShotRow | undefined;
 }
@@ -173,7 +172,18 @@ export type CaptureResult = {
  * saying which, because the only thing worse than no screenshot is a 500 on
  * the page that was going to show one.
  */
-export async function captureVenture(v: VentureRow): Promise<CaptureResult> {
+const capturing = new Map<string, Promise<CaptureResult>>();
+
+/** A scheduled pass and a manual refresh share an in-flight capture. */
+export function captureVenture(v: VentureRow): Promise<CaptureResult> {
+  const active = capturing.get(v.id);
+  if (active) return active;
+  const run = takePicture(v).finally(() => capturing.delete(v.id));
+  capturing.set(v.id, run);
+  return run;
+}
+
+async function takePicture(v: VentureRow): Promise<CaptureResult> {
   const ts = now();
   const fail = (error: string, browser: string | null = null): CaptureResult => {
     db.prepare(
@@ -189,51 +199,45 @@ export async function captureVenture(v: VentureRow): Promise<CaptureResult> {
   const browser = findBrowser();
   if (!browser.found) return fail(browser.error);
 
-  mkdirSync(SHOTS_DIR, { recursive: true });
   const file = resolve(SHOTS_DIR, `${v.id}-${ts.replace(/[:.]/g, "")}.png`);
-
-  /* `shoot` waits on the FILE rather than on the process, because Chrome exits
-     non-zero for things that have nothing to do with whether it took the
-     picture and exits zero having written nothing when the page never loaded.
-     tools/chrome.ts says why at length. */
-  const res = await withProfile((profile) =>
-    shoot({
-      bin: browser.path,
-      args: [...baseArgs({ profile, timeoutMs: RUN_MS }), `--screenshot=${file}`, v.website!],
-      out: file,
-    }),
-  );
-
-  /* THE FILE IS THE TEST, not the run's verdict: a page that painted and then
-     hung past the wall-clock cap has still produced the picture, and throwing
-     it away would be this code being right at the owner's expense. A file of
-     zero bytes is not one — Chrome creates the output before it writes to it. */
-  const bytes = existsSync(file) ? readFileSync(file) : null;
-  if (!bytes?.length)
-    return fail(
-      res.error ?? "The browser ran and wrote no image, which usually means the page never loaded.",
-      browser.path,
-    );
-
-  const size = imageDimensions(bytes);
-
-  db.prepare(
-    `INSERT INTO venture_shots (venture_id, ts, path, bytes, width, height, brand_rendered, error)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`,
-  ).run(v.id, ts, file, bytes.length, size?.width ?? null, size?.height ?? null);
-
-  prunePictures(v.id);
-
-  return {
-    ok: true,
-    ts,
-    path: file,
-    bytes: bytes.length,
-    width: size?.width ?? null,
-    height: size?.height ?? null,
-    error: null,
-    browser: browser.path,
+  const discard = () => {
+    try { unlinkSync(file); } catch { /* No image was written. */ }
   };
+  try {
+    mkdirSync(SHOTS_DIR, { recursive: true });
+    // Read the rendered DOM alongside the image, so an offline page cannot
+    // count as success simply because Chrome wrote a PNG of it.
+    let res = await withProfile((profile) => shoot({
+      bin: browser.path,
+      args: [...baseArgs({ profile, timeoutMs: RUN_MS }), "--dump-dom", `--screenshot=${file}`, v.website!],
+      out: file,
+      requireDom: true,
+    }));
+    let bytes = existsSync(file) ? readFileSync(file) : null;
+    let error = !res.ok ? res.error : !bytes?.length
+      ? "The browser ran and wrote no image."
+      : captureError(res.stdout, bytes);
+    if (error && (!res.ok || error.includes("blank image"))) {
+      discard();
+      res = await captureRendered(browser.path, v.website, file);
+      bytes = existsSync(file) ? readFileSync(file) : null;
+      error = !res.ok ? res.error : bytes ? captureError(res.stdout, bytes) : "The browser wrote no image.";
+    }
+    if (error || !bytes) {
+      discard();
+      return fail(error ?? "The browser wrote no image.", browser.path);
+    }
+    const size = imageDimensions(bytes)!;
+    db.prepare(
+      `INSERT INTO venture_shots (venture_id, ts, path, bytes, width, height, brand_rendered, error)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`,
+    ).run(v.id, ts, file, bytes.length, size.width, size.height);
+    prunePictures(v.id);
+    return { ok: true, ts, path: file, bytes: bytes.length, ...size, error: null, browser: browser.path };
+  } catch (error) {
+    discard();
+    return fail(error instanceof Error ? error.message : String(error), browser.path);
+  }
 }
 
 /* --------------------------------------------------- the rendered reading */
@@ -382,10 +386,11 @@ captureRoutes.get("/", (c) => {
       note:
         "A capture is the top of the page at " +
         `${SHOT_VIEWPORT.width}x${SHOT_VIEWPORT.height} after ${VIRTUAL_TIME_MS / 1000}s of loading — not a ` +
-        "full-page scroll. The whole run is capped at " +
-        `${RUN_MS / 1000}s.`,
+        "full-page scroll. The first pass is capped at " +
+        `${RUN_MS / 1000}s; slow or blank pages get one retry of up to ${RENDER_RETRY_MS / 1000}s with real-time rendering.`,
     },
     refreshEveryDays: REFRESH_DAYS,
+    schedule: { checkEveryMinutes: 60, refreshEveryDays: REFRESH_DAYS, retryFailed: true, running: sweeping },
     ventures: rows.map((v) => {
       const last = lastShot(v.id);
       const ok = lastShot(v.id, true);
@@ -410,7 +415,7 @@ captureRoutes.get("/", (c) => {
               ts: ok.ts,
               ageDays: ageDays(ok.ts),
               onDisk: ok.path ? existsSync(ok.path) : false,
-              url: `/api/capture/${v.slug}/shot`,
+              url: `/api/capture/${v.slug}/shot?v=${encodeURIComponent(ok.ts)}`,
             }
           : null,
         /* The other kind of row in this table: a rendered-DOM reading from
@@ -426,9 +431,7 @@ captureRoutes.get("/", (c) => {
           }
           return { ts: r.ts, ageDays: ageDays(r.ts), domBytes: r.bytes, reading };
         })(),
-        due: !v.website
-          ? false
-          : !ok || (ageDays(ok.ts) ?? Number.POSITIVE_INFINITY) >= REFRESH_DAYS,
+        due: captureDue(v, ok, last),
       };
     }),
   });
@@ -565,6 +568,16 @@ captureRoutes.post("/:ventureKey/rebrand", async (c) => {
 
 /* ------------------------------------------------------------ the schedule */
 
+/** Failed attempts and missing files are retried on the next hourly pass,
+ * even when the previous successful picture is less than a week old. */
+export function captureDue(v: Pick<VentureRow, "id" | "website">, ok = lastShot(v.id, true), last = lastShot(v.id)): boolean {
+  if (!v.website) return false;
+  if (!ok?.path || !existsSync(ok.path)) return true;
+  if (last?.error && last.id > ok.id) return true;
+  const age = ageDays(ok.ts);
+  return age === null || age >= REFRESH_DAYS;
+}
+
 let sweeping = false;
 
 /**
@@ -585,12 +598,7 @@ export function startCaptureTimer() {
     const browser = findBrowser();
     if (!browser.found) return;
 
-    const due = ventureRows().filter((v) => {
-      if (!v.website) return false;
-      const ok = lastShot(v.id, true);
-      const age = ageDays(ok?.ts);
-      return age === null || age >= REFRESH_DAYS;
-    });
+    const due = ventureRows().filter((v) => captureDue(v));
     if (!due.length) return;
 
     sweeping = true;
@@ -607,8 +615,7 @@ export function startCaptureTimer() {
           );
         }
       }
-      sweeping = false;
-    })();
+    })().finally(() => { sweeping = false; });
   };
 
   /* A minute after boot rather than at it: the boot enrichment pass in
