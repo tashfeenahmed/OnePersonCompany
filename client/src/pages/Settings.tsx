@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { cn } from "@/lib/utils";
-import { isStoreState, useStore } from "@/lib/store";
+import { isStoreState, useStore, type StoreState } from "@/lib/store";
 import { useTheme, type Theme } from "@/lib/theme";
 import { ModelsSettings } from "@/components/ModelsSettings";
 import { Section } from "@/components/settings/Section";
@@ -41,14 +41,21 @@ export function Settings() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  function exportJson() {
-    const blob = new Blob([JSON.stringify(state, null, 2)], {
+  const recovery = (() : StoreState | null => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem("opc-workspace-recovery") || "null");
+      return isStoreState(saved) ? saved : null;
+    } catch { return null; }
+  })();
+
+  function exportJson(value: StoreState = state, prefix = "one-person-company") {
+    const blob = new Blob([JSON.stringify(value, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `one-person-company-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `${prefix}-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -291,7 +298,7 @@ export function Settings() {
               hint="Export workspace preferences for portability. Imports replace dashboard layouts and session labels after validation and confirmation."
             >
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" onClick={exportJson}>
+                <Button variant="outline" onClick={() => exportJson()}>
                   <Download className="size-[15px]" strokeWidth={1.8} />
                   Export JSON
                 </Button>
@@ -319,6 +326,13 @@ export function Settings() {
                   </span>
                 )}
               </div>
+            </Section>
+
+            <Section title="Saved recovery copy" hint="Review or export the previous preferences before restoring them.">
+              {recovery ? <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">{recovery.dashboards.map(d => `${d.name} (${d.widgets.length} widgets)`).join(" · ")}</p>
+                <Button variant="outline" onClick={() => exportJson(recovery, "one-person-company-recovery")}><Download className="size-[15px]"/>Export recovery JSON</Button>
+              </div> : <p className="text-sm text-muted-foreground">No recovery copy has been saved in this browser.</p>}
             </Section>
 
             <Section

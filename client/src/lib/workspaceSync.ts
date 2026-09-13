@@ -15,19 +15,8 @@ function metadata(): { revision: number; saved: string | null; hasLocal: boolean
     return { revision: Number.isInteger(m?.revision) ? m.revision : 0, saved: typeof m?.saved === "string" ? m.saved : null, hasLocal: !!localStorage.getItem("opc-state-v5") };
   } catch { return { revision: 0, saved: null, hasLocal: false }; }
 }
-/*
-  THE SERVER'S DOCUMENT IS MIGRATED ON THE WAY IN, the same way localStorage's
-  is on load. A browser with an empty cache seeds itself, finds the server's
-  copy is the one to keep, and accepts it wholesale — and until this ran the
-  seed through `migrate`, that copy arrived stamped with whatever SEED_VERSION
-  it was last saved under, so a board gifted by a newer build (Payments, at
-  15) never reached a fresh browser and was overwritten in one that had it.
-  Migrating here stamps the document, which makes the local copy differ from
-  the saved one, which is what the next tick PUTs — so the gift reaches the
-  server exactly once, from whichever browser first sees the old stamp.
-  `migrate` is passed in rather than imported: the store imports this hook,
-  and a runtime import back would be a cycle for one function.
-*/
+/* Repair older data formats on both local load and server hydration. Saved
+   dashboard membership, widgets and layout are never merged with templates. */
 export function useWorkspaceSync(
   state: StoreState,
   setState: React.Dispatch<React.SetStateAction<StoreState>>,

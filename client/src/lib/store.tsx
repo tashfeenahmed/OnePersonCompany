@@ -13,7 +13,8 @@ import {
 } from "react";
 import { PLUGINS } from "@/data/plugins";
 import { DASHBOARD_PRESETS, WIDGETS } from "@/data/widgets";
-import { paramKindOf } from "@/lib/params";
+import { migrateWorkspace, slugify, uniqueSlug } from "./workspaceMigrations";
+export { slugify, uniqueSlug } from "./workspaceMigrations";
 import {
   api,
   type Venture,
@@ -189,9 +190,8 @@ export type Workspace = {
 };
 
 export type StoreState = {
-  /** Which generation of the seeded CONTENT this state has had applied. Bumped
-   *  when a new starter dashboard ships, so it can be added without discarding
-   *  what the owner has made. */
+  /** Version of the saved workspace format. Starter content is never reapplied
+   *  to an existing workspace when this changes. */
   seedVersion?: number;
   workspace: Workspace;
   /** Which integrations are connected, by plugin id. The catalog carries the
@@ -272,17 +272,9 @@ export const VENTURE_COLORS = [
    page, so the index and a plugin's own page cannot disagree about it. */
 const KEY = "opc-state-v5";
 
-/*
-  BUMP THIS RATHER THAN EDITING A SEED IN PLACE. The starter dashboards are a
-  GIFT and not a template: `migrate()` hands a state the boards it has never
-  been offered, exactly once, so a board the owner deleted stays deleted and
-  one they have reshaped stays reshaped. A bump is how a new board reaches a
-  state that already exists; editing an existing seed reaches nobody.
-
-  Not every bump is a gift. A shape change is a REPAIR — see `migrate()` — and
-  runs whatever version stamp the cached state carries, because an older cache
-  has to stay readable.
-*/
+/* Starter dashboards are used only for a new workspace or an explicit reset.
+   A version bump repairs saved data; it never reapplies template content to
+   dashboards the owner has edited, reordered, resized or deleted. */
 export const SEED_VERSION = 27;
 
 /**
@@ -1473,33 +1465,6 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   return 2;
 }
 
-/** A name as a URL segment. Anything that is not a letter, a digit or a dash
- *  becomes a dash, and a name with nothing usable in it still gets an address
- *  rather than an empty one — `fallback` is what it gets, and the server's
- *  ventures use the same rule with "venture" in that slot. */
-export function slugify(name: string, fallback = "board"): string {
-  const slug = name
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-  return slug || fallback;
-}
-
-/** The same, with a numeric suffix when the address is already taken — two
- *  boards may share a name, but they cannot share a URL. */
-export function uniqueSlug(name: string, taken: Iterable<string>): string {
-  const used = new Set(taken);
-  const base = slugify(name);
-  if (!used.has(base)) return base;
-  for (let n = 2; ; n++) {
-    const candidate = `${base}-${n}`;
-    if (!used.has(candidate)) return candidate;
-  }
-}
-
 /** Enough of a shape check that a hand-edited or foreign file is refused
  *  rather than half-loaded into a blank page. */
 export function isStoreState(v: unknown): v is StoreState {
@@ -1595,53 +1560,16 @@ function load(): StoreState {
   return { ...structuredClone(SEED), ventures: [], sessions: [] };
 }
 
-/**
- * Bring older state forward without discarding it.
- *
- * TWO STEPS THAT RUN ON DIFFERENT SCHEDULES, which is why they are not one
- * `if`. Giving every board an address is a REPAIR: it has to run on any state
- * that reaches here without one, whatever version stamp it carries, or a board
- * saved by an older build has no URL and cannot be opened. Offering a new
- * starter dashboard is a GIFT and must happen exactly once — appending it on
- * every load would resurrect a board the owner had deliberately deleted, and
- * `seedVersion` is the record that it has already been offered.
- */
+/** Bring the saved data format forward while keeping the owner's layouts. */
 function migrate(state: StoreState): StoreState {
-  let dashboards = state.dashboards;
-
-  /* Repair: every cached venture in the shape the pages now read. Ungated by
-     `seedVersion` for the reason the slug repair below is — a state written by
-     an older build has to be readable whatever stamp it carries. */
-  const revived = state.ventures
+  const repaired = migrateWorkspace(state, SEED_VERSION);
+  const revived = repaired.ventures
     .map((v, i) => reviveVenture(v, i))
     .filter((v): v is Venture => !!v);
-  const ventures = revived.every((v, i) => v === state.ventures[i])
-    ? state.ventures
-    : revived;
-
-  /* Repair: a window the picker cannot draw — a hand-edited export, a value
-     from a build that offered a different set — is dropped back to the
-     default rather than carried into every fetch on every board. Ungated by
-     `seedVersion` for the same reason the slug repair below is. */
-  if (state.dashboardWindow !== undefined && !isWindowValue(state.dashboardWindow))
-    state = { ...state, dashboardWindow: undefined };
-
-  // Repair: an address for every board, unique across the set. Existing slugs
-  // are claimed first so a board that already has one keeps it.
-  if (dashboards.some((d) => !d.slug)) {
-    const taken = new Set(dashboards.map((d) => d.slug).filter(Boolean));
-    dashboards = dashboards.map((d) => {
-      if (d.slug) return d;
-      const slug = uniqueSlug(d.name, taken);
-      taken.add(slug);
-      return { ...d, slug };
-    });
-  }
-
+  const ventures = revived.every((v, i) => v === repaired.ventures[i])
+    ? repaired.ventures : revived;
   if ((state.seedVersion ?? 0) >= SEED_VERSION)
-    return dashboards === state.dashboards && ventures === state.ventures
-      ? state
-      : { ...state, dashboards, ventures };
+    return ventures === repaired.ventures ? repaired : { ...repaired, ventures };
 
   /*
     MARK THE TWELVE INVENTED SESSIONS FOR REMOVAL — mark, not delete, and the
@@ -1672,142 +1600,7 @@ function migrate(state: StoreState): StoreState {
       : s,
   );
 
-  // Gift: whichever starter boards this state has never been offered.
-  const have = new Set(dashboards.map((d) => d.id));
-  const taken = new Set(dashboards.map((d) => d.slug));
-  const added = SEED.dashboards
-    .filter((d) => !have.has(d.id))
-    .map((d) => {
-      const board = structuredClone(d);
-      // The owner may have made their own "Servers" board already; the seed
-      // does not get to take an address that is in use.
-      board.slug = uniqueSlug(board.slug, taken);
-      taken.add(board.slug);
-      return board;
-    });
-
-  /*
-    A GIFTED BOARD LANDS BESIDE ITS SEED NEIGHBOUR, not at the end of the
-    strip. Payments (SEED_VERSION 15) is seeded right after Revenue because it
-    is that subject one level deeper, and a state that already had Revenue
-    should read the same way — appended after twenty boards it would be the
-    last tab on a strip nobody scrolls to the end of. The rule is general: a
-    new board goes after the nearest seed board BEFORE it that this state
-    still has, and only at the end when it has none of them. The owner's own
-    order is untouched — one board is inserted, nothing moves.
-
-    A BOARD SEEDED FIRST LANDS FIRST, which the rule above could not say.
-    "After the nearest seed board before it" has no answer for a board with
-    nothing before it, and "at the end" was the fallback for a board whose
-    neighbours this state has all deleted — a reasonable last resort there,
-    and exactly wrong here. Overview (SEED_VERSION 23) is seeded at the head
-    of the list BECAUSE it is the board to open first; appending it to a strip
-    of twenty would put the page the owner reads first in the place nobody
-    scrolls to. So position zero in the seed means position zero in the state,
-    and the general rule is unchanged for every board that has a neighbour.
-  */
-  const gifted = added.reduce((list, board) => {
-    const at = SEED.dashboards.findIndex((d) => d.id === board.id);
-    if (at === 0) return [board, ...list];
-    const before = SEED.dashboards.slice(0, at).map((d) => d.id).reverse();
-    const anchor = before.map((id) => list.findIndex((d) => d.id === id)).find((i) => i >= 0);
-    if (anchor === undefined) return [...list, board];
-    return [...list.slice(0, anchor + 1), board, ...list.slice(anchor + 1)];
-  }, dashboards);
-
-  /*
-    A SEEDED BOARD THE OWNER NEVER TOUCHED, REBUILT RATHER THAN APPENDED TO.
-
-    The two steps above can only ADD — a board whose id is absent, or a widget
-    a board is missing — and that is right for almost everything. It is wrong
-    for a board that was RESTRUCTURED: the owner asked for the Overview to have
-    fewer, larger cards and to lead with combined revenue rather than Stripe's
-    half of it, and neither a gift (the id is already there) nor a top-up
-    (append-only) can take a card away. Appending the two new revenue cards to
-    the thirty that are there would deliver the opposite of what was asked.
-
-    SO THE REBUILD IS GATED ON THE BOARD BEING UNTOUCHED, and the gate is a
-    fingerprint: the exact SET of widget types the previous seed handed out.
-    Order, width and the widgets' own ids are all ignored, because rearranging
-    and resizing are the two things this board is FOR and neither of them is a
-    decision about which cards belong on it. Add, delete or pin a card and the
-    set no longer matches — the board is then the owner's, it is left exactly
-    as it is, and the additive top-up below brings the new cards to it instead.
-
-    THE FINGERPRINT IS DATA, NOT A READ OF THE CURRENT SEED, for the reason
-    `SEEDED_SESSION_TITLES` is: it has to recognise what an OLDER build wrote
-    long after this build stopped writing it, so it cannot be derived from a
-    seed that has already changed.
-
-    It runs once, under the same `seedVersion` gate as everything else here, so
-    a board rebuilt today and reshaped tomorrow is never rebuilt again.
-  */
-  const rebuilt = gifted.map((d) => {
-    const shapes = REBUILDS[d.id];
-    if (!shapes) return d;
-    const seed = SEED.dashboards.find((b) => b.id === d.id);
-    if (!seed) return d;
-    const have = d.widgets.map((w) => w.type).sort();
-    const untouched = shapes.some((shape) => {
-      const then = [...shape].sort();
-      return have.length === then.length && have.every((t, i) => t === then[i]);
-    });
-    if (!untouched) return d;
-    /* The board's own identity is the owner's — a renamed Overview stays
-       renamed, and its address stays the address anything linking to it used.
-       Only the cards on it are the seed's. */
-    return { ...d, widgets: structuredClone(seed.widgets) };
-  });
-
-  /*
-    TOPPING UP A BOARD THE OWNER ALREADY HAS.
-
-    The gift above only adds boards whose id is ABSENT, which is right — it is
-    what stops a deleted board coming back every load. But it means editing a
-    seed never reaches anyone who already received it, and that is exactly the
-    case here: the Revenue board was seeded while AdSense was unconnected, so it
-    carried a card explaining the absence and none of the earnings.
-
-    So: a named, ADDITIVE top-up. It only ever appends widgets that are missing,
-    never removes, reorders or resizes anything — an arrangement somebody has
-    moved around is theirs, and the worst this can do is put a card at the end
-    that they are free to delete. It is gated by the same seedVersion, so it
-    runs once and a card removed on purpose stays removed.
-  */
-  const topped = rebuilt.map((d) => {
-    const wanted = TOP_UPS[d.id];
-    if (!wanted) return d;
-    const have = new Set(d.widgets.map((w) => w.type));
-    const missing = wanted.filter((type) => !have.has(type));
-    if (!missing.length) return d;
-    const arriving = missing.map((type) => ({ id: uid("w"), type, w: defaultWidth(type) }));
-    /* In front on the boards that say so, at the end everywhere else. A
-       top-up is usually more of the same subject and reads fine after what
-       is there; the Costs one is the HEADLINE of its board — the bill
-       itself, ahead of the metered providers — and a headline appended under
-       twenty-one cards is a headline nobody scrolls to.
-
-       A PINNED CARD NEVER LEADS. It arrives with nothing chosen — no
-       venture, no box — and draws a prompt until something is, and a prompt
-       at the top of a board is not a headline whatever board it is on, so
-       those trail even where the rest of the top-up leads. */
-    const leads = TOP_UP_LEADS.has(d.id)
-      ? arriving.filter((w) => paramKindOf(WIDGETS[w.type]) === null)
-      : [];
-    const trails = arriving.filter((w) => !leads.includes(w));
-    return {
-      ...d,
-      widgets: [...leads, ...d.widgets, ...trails],
-    };
-  });
-
-  return {
-    ...state,
-    seedVersion: SEED_VERSION,
-    sessions,
-    ventures,
-    dashboards: topped,
-  };
+  return { ...repaired, sessions, ventures };
 }
 
 /**
@@ -1838,374 +1631,6 @@ const SEEDED_SESSION_TITLES = new Map<string, string>([
   ["s-12", "Hero copy rewrite"],
 ]);
 
-
-/**
- * WHAT A SEEDED BOARD LOOKED LIKE WHEN IT WAS HANDED OUT, by board id.
- *
- * The fingerprint `migrate()` compares against before it rebuilds a board from
- * the current seed: match it exactly (as a set — order and width are the
- * owner's, and changing them is what a dashboard is for) and the board has
- * never had a card added or removed, so replacing its cards takes nothing away
- * from anybody. Miss by one and the board is left alone.
- *
- * KEPT AS DATA AND NOT DERIVED FROM `SEED`, for the reason `SEEDED_SESSION_TITLES`
- * is: this has to recognise what an older build wrote, and the seed it wrote it
- * from is the thing that changed.
- */
-const REBUILDS: Record<string, string[][]> = {
-  /*
-    Overview, in each shape a build has handed it out — 23's thirty cards and
-    25's sixteen. A LIST AND NOT ONE ENTRY, because a rebuild can happen twice:
-    25 restructured the board and 26 corrected one tile on it, and a workspace
-    that took the first is as untouched as one that never left 23. Matching any
-    of them means the board is still the seed's, whichever seed's it is.
-
-    They are only ever APPENDED to. Deleting an old fingerprint does not
-    simplify anything — it strands the workspaces that are still on that shape.
-  */
-  "d-overview": [
-    ["revenue.combined", "revenue.sources", "stripe.net30", "umami.pageviews", "stripe.subs", "users.new", "overview.attention", "payments.daily", "payments.movement", "finance.groups", "overview.margin", "overview.health", "overview.shots", "umami.sites", "fleet.disk", "fleet.memory"],
-    [
-      "payments.mrr",
-      "stripe.arr",
-      "stripe.net30",
-      "umami.pageviews",
-      "overview.attention",
-      "stripe.subs",
-      "stripe.churn",
-      "stripe.pending",
-      "stripe.payouts",
-      "gsc.clicks",
-      "gsc.impressions",
-      "gsc.ctr",
-      "gsc.position",
-      "payments.daily",
-      "payments.movement",
-      "finance.groups",
-      "payments.failRate",
-      "payments.floor",
-      "overview.margin",
-      "overview.health",
-      "overview.shots",
-      "umami.sites",
-      "fleet.alerts",
-      "fleet.disk",
-      "fleet.memory",
-      "uptime.up",
-      "registrars.expiring",
-      "registrars.lapsed",
-      "registrars.autoRenewOff",
-      "registrars.runway",
-    ],
-    /* SEED_VERSION 25: the sixteen-card rebuild, before 26 swapped the
-       proportion tile in the metric row for a metric one. */
-    [
-      "revenue.combined",
-      "revenue.sources",
-      "stripe.net30",
-      "umami.pageviews",
-      "stripe.subs",
-      "users.total",
-      "overview.attention",
-      "payments.daily",
-      "payments.movement",
-      "finance.groups",
-      "overview.margin",
-      "overview.health",
-      "overview.shots",
-      "umami.sites",
-      "fleet.disk",
-      "fleet.memory",
-    ],
-  ],
-};
-
-/**
- * Widgets a seeded board should have gained since it was first handed out.
- *
- * Keyed by board id, appended only if absent. Add to a list here when a newly
- * connected provider means an existing board is now missing something real —
- * not to redesign a board somebody is already using.
- */
-const TOP_UPS: Record<string, string[]> = {
-  // AdSense was connected after the Revenue board shipped.
-  "d-revenue": ["adsense.earnings", "adsense.rpm"],
-  /*
-    Growth shipped with four sample cards and one real one. Meta is connected
-    now, so the paid side can actually answer — and `meta.cannot` comes with it,
-    because the Page reach this board used to promise is gone for two separate
-    reasons and a reader hunting for it deserves to be told rather than left
-    looking.
-  */
-  "d-growth": [
-    "meta.leads",
-    "meta.reach",
-    "meta.daily",
-    "meta.campaigns",
-    "meta.pages",
-    "instagram.followers",
-    "meta.cannot",
-    /*
-      PyPI, folded in here rather than given a board. Growth asks where
-      attention comes from, and for a library the answer is partly "people
-      installed it" — the same question `hn.mentions` two cards up is asking
-      from the other end. Nothing on this board adds a download to an
-      impression; they are two counts of two different acts.
-    */
-    "pypi.downloads",
-    "pypi.last30",
-    "pypi.weekly",
-    "pypi.packages",
-  ],
-  /*
-    The Servers board shipped saying, in its own comment, that it had no memory
-    or filesystem meter because Hetzner reports from the hypervisor and those
-    live inside the guest. There is an ssh collector inside the guest now, so
-    the two absent meters arrive — and the uptime probe with them, because "the
-    box is at 40% memory" and "the site it serves is not answering" are the two
-    halves of the same morning and only one of them is visible from Hetzner.
-  */
-  /*
-    SERVERS GAINED WORKDASH'S PAGE IN SEED_VERSION 21. The alert strip and the
-    three fleet figures LEAD — see TOP_UP_LEADS — for the reason the Costs
-    top-up does: "which box is nearly out of disk" is the question this board
-    is opened with, and an answer appended under fifteen cards is an answer
-    nobody scrolls to. The per-machine `server.*` cards are deliberately absent
-    from this list: they are pinned to one box each and a top-up cannot know
-    which, so they arrive from the palette with a machine already chosen.
-  */
-  "d-servers": [
-    "fleet.memory",
-    "fleet.disk",
-    "uptime.up",
-    "uptime.tls",
-    "fleet.alerts",
-    "fleet.fullest",
-    "fleet.reporting",
-    "fleet.memoryTotal",
-    "fleet.table",
-    "fleet.mounts",
-    "fleet.providers",
-  ],
-  /*
-    Morning check gains the day's calendar and whether anything went down
-    overnight — and now the run ledger with them. A run survives the tab
-    closing and executes one at a time on the server, so "what did the agent
-    get through overnight" is a real question nobody was being shown an answer
-    to, and it belongs on the board somebody already opens at 8am rather than
-    on one they would have to remember to visit. `uptime.status` was already
-    here as a sample and is a measurement now without being listed: it kept its
-    key, so the top-up has nothing to append.
-  */
-  "d-morning": ["calendar.today", "uptime.up", "runs.recent"],
-  /*
-    Search shipped as Google beside Bing and nothing about our own pages. Both
-    engines report what THEY did with a site; the audit is the only source here
-    that reports what the site itself is like, and an error count belongs at the
-    top of the board where somebody is already asking why the impressions moved.
-    Just the one figure: the SEO board is where the rest of the crawl lives.
-
-    THEN, IN SEED_VERSION 17, WORKDASH'S ALL-PROPERTIES PAGE: the CTR and
-    property tiles, the clicks twin of the impressions line, the dumbbell,
-    the rail of every property with a sparkline, the per-property lines, and
-    the per-property page's cards cut across the portfolio. They LEAD — see
-    TOP_UP_LEADS — for the reason the SEO ones did: the first of them are
-    tiles, and tiles appended under twenty cards are tiles nobody reads. The
-    three `rows` cards they supersede stay where the owner has them.
-  */
-  "d-search": [
-    "audit.issues",
-    "gsc.ctr",
-    "gsc.properties",
-    "gsc.clicksTrend",
-    "gsc.dumbbell",
-    "gsc.rail",
-    "gsc.propertyClicks",
-    "gsc.propertyImpressions",
-    "gsc.quiet",
-    "gsc.queriesRanked",
-    "gsc.pagesRanked",
-    "gsc.strikingRanked",
-    "gsc.propertyQueries",
-    "gsc.propertyStriking",
-    "gsc.zeroClick",
-    "gsc.sitemapsByProperty",
-    "gsc.cannot",
-  ],
-  /*
-    Costs shipped as the metered providers alone — LLM, media, Hetzner's
-    projection — with the ledger behind the Finance page nowhere on it. The
-    rate card's eight cards arrive: the monthly bill, its groups, and the
-    servers, services, electricity and domains line by line.
-  */
-  "d-costs": [
-    "finance.monthly",
-    "finance.renewals",
-    "finance.unpriced",
-    "finance.groups",
-    "finance.servers",
-    "finance.services",
-    "finance.power",
-    "finance.domains",
-  ],
-  /*
-    SEO gained Workdash's graphs in SEED_VERSION 16: the search totals, the
-    daily lines, every property drawn as itself, the ranked query and page
-    lists, and the four documents this box computes on its own. They LEAD —
-    see TOP_UP_LEADS — because the first of them are the totals the whole
-    page is read from, and totals appended under twelve cards are totals
-    nobody scrolls to. The two `rows` cards they supersede (`gsc.striking`,
-    `gsc.pages`) are left where the owner has them: a top-up never removes.
-  */
-  "d-seo": [
-    "gsc.clicks",
-    "gsc.impressions",
-    "gsc.ctr",
-    "gsc.properties",
-    "audit.crawled",
-    "gsc.trend",
-    "gsc.clicksTrend",
-    "gsc.dumbbell",
-    "audit.ranked",
-    "gsc.propertyClicks",
-    "gsc.propertyImpressions",
-    "gsc.sites",
-    "gsc.quiet",
-    "gsc.queriesRanked",
-    "gsc.pagesRanked",
-    "gsc.strikingRanked",
-    "gsc.zeroClick",
-    "gsc.propertyQueries",
-    "gsc.propertyStriking",
-    "gsc.sitemapsByProperty",
-    "indexing.told",
-    "bing.propertyIndex",
-    "authority.ceiling",
-    "geo.mentioned",
-    "seoops.moved",
-    "gsc.cannot",
-    /*
-      THE PER-PROJECT GROUP (SEED_VERSION 17). These take a venture and
-      arrive without one, so they TRAIL the board whatever TOP_UP_LEADS says
-      — a "pick a venture" prompt is not a headline; see `migrate()`.
-    */
-    "gsc.project",
-    "audit.project",
-    "authority.project",
-    "indexing.project",
-    "seoops.project",
-  ],
-  /*
-    Payments gained Workdash's graphs in SEED_VERSION 18. The cards that
-    were already on the board (`payments.gross`, `payments.floor`,
-    `payments.failRate`, `payments.movement`) kept their ids and changed
-    KIND in place — a proportion bar under the figure, a waterfall for the
-    movement — so a placed board upgrades on its next render with nothing
-    to append. What is new is the two hero tiles with their own bars, the
-    attempts card and the charge list, and they LEAD (see TOP_UP_LEADS)
-    because the first two are the tiles the page is read from. The
-    `stripe.mrr` and `stripe.subs` tiles they stand beside are left where
-    the owner has them: a top-up never removes.
-  */
-  "d-payments": ["payments.mrr", "payments.subs", "payments.attempts", "payments.recent"],
-  /*
-    Social gained the POSTS in SEED_VERSION 19. The board shipped as seven
-    cards of counts because that was everything `/api/meta` could answer; the
-    socialfeed area has been reading each mapped Page's timeline back from
-    Meta ever since, and the publishing area has been holding the queue, and
-    nothing on any board read either.
-
-    THEY LEAD — see TOP_UP_LEADS — because the first four are the tiles the
-    whole board is read from, and tiles appended under seven cards are tiles
-    nobody scrolls to. The two per-project cards trail whatever this says,
-    because they arrive with no venture chosen and a "pick a venture" prompt
-    is not a headline; `migrate()` enforces that. The seven cards already on
-    the board keep their ids and their places: a top-up never removes.
-  */
-  "d-social": [
-    "social.followers",
-    "social.views",
-    "social.quiet",
-    "social.perPost",
-    "social.viewsByPage",
-    "social.engagementByPage",
-    "social.cadence",
-    "social.viewsTrend",
-    "social.accounts",
-    "social.top",
-    "social.latest",
-    "social.facebook",
-    "social.instagram",
-    "social.bluesky",
-    "social.published",
-    "social.queue",
-    "social.coverage",
-    "social.project",
-    "social.projectStats",
-  ],
-  /*
-    ADS GAINED WORKDASH'S WHOLE PAGE IN SEED_VERSION 20. The board that
-    shipped was eight cards — the spend, the leads, the daily line, the
-    campaigns and AdSense — and none of them said whether any of that spend
-    was working or showed a single advertisement. All eight are kept; these
-    twenty-three are the rest of Workdash's /ads.
-
-    THEY LEAD (see TOP_UP_LEADS), and the order below is the order they
-    arrive in: the four missing tiles of the account's own window, then the
-    verdict, then the creatives, then the accounting view, then AdSense's
-    three. On a board somebody has already arranged, the tiles landing in
-    front is right — they are the row the page is read from — and the cards
-    already there keep their places under them.
-
-    `ads.venture` IS IN THE LIST AND STILL TRAILS. It is per-project, arrives
-    with no venture chosen, and a "pick a venture" prompt is not a headline —
-    `migrate()` sorts that out on its own.
-  */
-  "d-ads": [
-    "meta.clicks",
-    "meta.cpc",
-    "meta.reach",
-    "ads.delivering",
-    "ads.health",
-    "ads.categories",
-    "ads.quickWins",
-    "ads.failing",
-    "ads.categoryTable",
-    "ads.ventures",
-    "ads.mapping",
-    "ads.creatives",
-    "ads.cpc",
-    "ads.table",
-    "ads.fatigue",
-    "ads.issues",
-    "ads.sets",
-    "ads.campaignTrend",
-    "meta.results",
-    "adsense.daily",
-    "adsense.sites",
-    "adsense.months",
-    "ads.venture",
-  ],
-  /*
-    THE OVERVIEW'S TWO REVENUE ROLL-UPS, for a board the rebuild above would
-    not touch — one the owner has added a card to, or taken one from.
-
-    The rebuild is the path almost every workspace takes; this is the fallback,
-    and it is deliberately the SMALLEST thing that answers the request. The
-    owner asked for combined ARR with its sources on it, and these two cards
-    are that; the rest of what changed in SEED_VERSION 25 was cards being
-    REMOVED, which a top-up cannot do and must not try to — a board somebody
-    has arranged is theirs, and the worst this can do is put two cards at the
-    top that they are free to move or delete.
-
-    THEY LEAD (see TOP_UP_LEADS) because they are the headline. A combined
-    run rate appended under thirty cards is a headline nobody scrolls to.
-  */
-  "d-overview": [],
-};
-
-/** The boards whose top-up leads rather than trails — see `migrate()`. */
-const TOP_UP_LEADS = new Set(["d-costs", "d-seo", "d-search", "d-payments", "d-social", "d-ads", "d-servers", "d-overview"]);
 
 /** The addresses already taken inside one scope — a venture's boards, or the
  *  global set. Slugs are unique per scope, so this is what `uniqueSlug` is

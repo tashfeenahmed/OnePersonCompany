@@ -11,7 +11,7 @@
  *
  * This is the join, run by hand and in one second:
  *
- *   1. Every widget id a seeded board, a top-up or a preset names EXISTS.
+ *   1. Every widget id a seeded board or a preset names EXISTS.
  *   2. Every one of those that is marked `live` HAS A BUILDER. A card promising
  *      real numbers with no function behind it is the worst failure here,
  *      because it looks exactly like a provider that is not connected.
@@ -21,9 +21,9 @@
  *
  * RUN IT WITH: npm run check:catalog
  *
- * WHY IT READS store.tsx AS TEXT. The seed and the top-ups are module-private
- * constants, and they should stay that way: exporting them so a checker could
- * import them would add two non-component exports to a file fast refresh
+ * WHY IT READS store.tsx AS TEXT. The seed is a module-private
+ * constant, and it should stay that way: exporting it so a checker could
+ * import it would add a non-component export to a file fast refresh
  * already complains about, and would let a page reach for the seed at runtime.
  * A regex over `type: "..."` is a weaker join than an import — and it is the
  * right weakness here, because the thing being checked IS the strings.
@@ -44,17 +44,6 @@ const store = readFileSync(join(here, "..", "src", "lib", "store.tsx"), "utf8");
 /** Every widget id a seeded board places, in seed order. */
 const seeded = [...store.matchAll(/type: "([^"]+)"/g)].map((m) => m[1]!);
 
-/** Every widget id a top-up appends. Sliced to the TOP_UPS object rather than
- *  taken from the whole file, so a widget id quoted in a comment somewhere else
- *  is not mistaken for one a board is actually given. */
-const topUpBlock = (() => {
-  const start = store.indexOf("const TOP_UPS: Record<string, string[]> = {");
-  if (start < 0) throw new Error("TOP_UPS is no longer where this check looks for it.");
-  const end = store.indexOf("\n};", start);
-  return store.slice(start, end);
-})();
-const toppedUp = [...topUpBlock.matchAll(/"([a-z]+\.[A-Za-z0-9]+)"/g)].map((m) => m[1]!);
-
 const inPresets = DASHBOARD_PRESETS.flatMap((p) => p.widgets);
 
 const failures: string[] = [];
@@ -65,7 +54,6 @@ const fail = (line: string) => failures.push(line);
 const placed = new Map<string, string>();
 for (const [where, ids] of [
   ["a seeded board", seeded],
-  ["a top-up", toppedUp],
   ["a preset", inPresets],
 ] as const)
   for (const id of ids) if (!placed.has(id)) placed.set(id, where);
@@ -100,7 +88,7 @@ const live = Object.values(WIDGETS).filter((w) => w.live).length;
 console.log(
   `${Object.keys(WIDGETS).length} widgets across ${Object.keys(SOURCES).length} sources · ` +
     `${live} marked live · ${Object.keys(LIVE_BUILDERS).length} builders · ` +
-    `${placed.size} distinct widgets placed by a board, a top-up or a preset`,
+    `${placed.size} distinct widgets placed by a board or a preset`,
 );
 
 if (failures.length) {
