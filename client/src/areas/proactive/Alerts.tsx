@@ -451,7 +451,7 @@ const KIND_WORD: Record<AlertEvent["kind"], string> = {
 function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
   return (
     <div className="border-line-soft flex flex-col gap-1 border-b py-2.5 last:border-b-0">
-      <div className="flex items-start gap-2.5">
+      <div className="grid grid-cols-[6px_minmax(0,1fr)] items-start gap-x-2.5 gap-y-2 sm:grid-cols-[6px_minmax(0,1fr)_auto]">
         {/* The dot says which of the three kinds this is, and the word beside
             it says it in words — a colour alone would make "could not be read"
             and "tripped" a thing to decode. */}
@@ -467,7 +467,7 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className="text-[14px]">{event.ruleName ?? `rule ${event.ruleId}`}</span>
+            <span className="min-w-0 break-words text-[14px]">{event.context?.title ?? event.ruleName ?? `rule ${event.ruleId}`}</span>
             <span className="text-muted-foreground text-[12.5px]">
               {KIND_WORD[event.kind]} · {ago(event.ts)}
             </span>
@@ -476,8 +476,26 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
             )}
           </div>
           <p className="text-muted-foreground mt-0.5 text-[13.5px] leading-[1.5]">
-            {event.message}
+            {event.context?.summary ?? event.message}
           </p>
+          {event.context && event.context.apps.length > 0 && (
+            <ul className="mt-2 space-y-1 text-[12.5px] leading-[1.5]">
+              {event.context.apps.map(app => (
+                <li key={`${app.store}:${app.app}`} className="break-words">
+                  <span title={app.app}>{app.name}</span>
+                  {app.store && <span className="text-muted-foreground"> · {app.store === "play" ? "Android" : app.store === "appstore" ? "iOS" : app.store}</span>}
+                  {app.reason && <span className="text-muted-foreground"> — {app.reason}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {event.context?.summary && (
+            <details className="text-muted-foreground mt-2 text-[12px]">
+              <summary className="cursor-pointer">Rule details</summary>
+              <p className="mt-1">{event.ruleName}</p>
+              <p className="mt-0.5 break-words">{event.message}</p>
+            </details>
+          )}
           {/* THE NARRATION, AND THE HONEST ABSENCE OF ONE. A model wrote the
               first from figures that were read; the second says why there is
               none. Neither is ever filled in from memory. */}
@@ -495,7 +513,7 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
           <button
             onClick={onAck}
             title="Mark as seen. The rule keeps watching."
-            className="text-muted-foreground hover:bg-accent hover:text-foreground flex shrink-0 items-center gap-1 rounded-[8px] px-1.5 py-1 text-[12.5px]"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground col-start-2 flex items-center gap-1 justify-self-start rounded-[8px] px-1.5 py-1 text-[12.5px] sm:col-start-3 sm:row-start-1 sm:justify-self-end"
           >
             <Check className="size-3.5" strokeWidth={1.6} />
             Acknowledge

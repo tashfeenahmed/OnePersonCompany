@@ -52,6 +52,7 @@ import { upsertPlugin } from "../../db.ts";
 import { evaluateAll } from "./engine.ts";
 import { seedDefaults } from "./seed.ts";
 import { alertRoutes } from "./alerts-routes.ts";
+import { recoverSavedEventContexts } from "./event-context.ts";
 import {
   DEFAULT_HOUR,
   PLUGIN as BRIEFING,
@@ -212,6 +213,8 @@ export const manifest: IntegrationManifest = {
    * evaluated, which is the honest behaviour for a box with no collection.
    */
   onStart() {
+    try { recoverSavedEventContexts(); }
+    catch (err) { console.error("[alerts] could not recover saved app context:", err); }
     /* THE ROW BEFORE THE SETTINGS. `plugin_config` has a foreign key onto
        `plugins`, so the briefing's settings cannot be stored until the row
        exists — and the row is what puts it on the Integrations page, where the

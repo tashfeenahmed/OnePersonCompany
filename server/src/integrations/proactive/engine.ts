@@ -43,6 +43,7 @@ import {
   type RuleRow,
 } from "./store.ts";
 import { narrate } from "./narrate.ts";
+import { captureEventContext } from "./event-context.ts";
 
 /** How long observations and snapshots are kept. Snapshots are the big rows
  *  and only the previous cycle's is ever read; observations are tiny and the
@@ -73,7 +74,7 @@ export const ruleUrl = (r: Pick<RuleRow, "skill" | "view" | "params">): string =
 
 export type Read =
   | { ok: true; value: number; doc: unknown; url: string }
-  | { ok: false; why: string; url: string };
+  | { ok: false; why: string; url: string; doc?: unknown };
 
 /**
  * One rule's figure, read the way anybody else would read it.
@@ -91,7 +92,7 @@ export async function readRule(
   const reading = await takeReading(r, { docs, signal });
   return reading.error === null
     ? { ok: true, value: reading.value as number, doc: reading.doc, url: reading.url }
-    : { ok: false, why: reading.error, url: reading.url };
+    : { ok: false, why: reading.error, url: reading.url, doc: reading.doc };
 }
 
 /* ---------------------------------------------------------- the comparison */
@@ -264,6 +265,7 @@ export async function evaluateAll(signal?: AbortSignal): Promise<PassResult> {
         observed: null,
         previous: r.last_value,
         message: got.why,
+        context: captureEventContext(r, got.doc, true),
       });
       out.events.push(ev.id);
       continue;
@@ -295,6 +297,7 @@ export async function evaluateAll(signal?: AbortSignal): Promise<PassResult> {
       observed: got.value,
       previous: verdict.against,
       message: `${r.name}: ${verdict.message}`,
+      context: captureEventContext(r, got.doc, false),
     });
     out.events.push(ev.id);
     /* The narration is best-effort and comes AFTER the event exists, so a

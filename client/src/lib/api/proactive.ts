@@ -1,5 +1,6 @@
 import { call } from "@/lib/api";
 import type { DashboardAlertsDoc } from "../../../../shared/dashboardAlerts";
+import type { AlertContext } from "../../../../shared/alertContext";
 
 /**
  * ALERTS AND THE BRIEFING, FROM THIS SIDE.
@@ -117,6 +118,7 @@ export type AlertEvent = {
   observed: number | null;
   previous: number | null;
   message: string;
+  context: AlertContext | null;
   narration: string | null;
   narrationNote: string | null;
   acknowledgedAt: string | null;

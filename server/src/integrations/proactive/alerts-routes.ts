@@ -27,6 +27,7 @@
  */
 import { Hono } from "hono";
 import { dashboardAlerts } from "./dashboard-alerts.ts";
+import { captureEventContext, eventContext } from "./event-context.ts";
 import { ventureRows } from "../../db.ts";
 import { catalogueDoc, type Catalogue } from "./catalogue.ts";
 import { judge, readRule, ruleUrl, readParams, evaluateAll } from "./engine.ts";
@@ -106,6 +107,7 @@ function shapeEvent(e: EventRow, byRule: Map<number, RuleRow>) {
     observed: e.observed,
     previous: e.previous,
     message: e.message,
+    context: eventContext(e, r),
     narration: e.narration,
     /* Why there is no narration, when there is none. */
     narrationNote: e.narration_note,
@@ -451,6 +453,7 @@ alertRoutes.post("/rules/:id/test", async (c) => {
       observed: null,
       previous: r.last_value,
       message: got.why,
+      context: captureEventContext(r, got.doc, true),
     });
     return c.json({
       rule: shapeRule(r),
@@ -482,6 +485,7 @@ alertRoutes.post("/rules/:id/test", async (c) => {
     observed: got.value,
     previous: verdict.against,
     message: `Tested — ${verdict.message}`,
+    context: captureEventContext(r, got.doc, false),
   });
 
   return c.json({

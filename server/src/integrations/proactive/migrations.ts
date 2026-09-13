@@ -260,4 +260,8 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS briefings_built ON briefings(built_at DESC);
     `,
   },
+  {
+    name: "106_alert_event_context",
+    sql: `ALTER TABLE alert_events ADD COLUMN context TEXT;`,
+  },
 ];

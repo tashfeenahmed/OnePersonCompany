@@ -14,6 +14,7 @@
  * did not exist when this file was written.
  */
 import { db, now } from "../../db.ts";
+import type { AlertContext } from "../../../../shared/alertContext.ts";
 
 /* ------------------------------------------------------------------ rules */
 
@@ -234,6 +235,7 @@ export type EventRow = {
   observed: number | null;
   previous: number | null;
   message: string;
+  context: string | null;
   narration: string | null;
   narration_note: string | null;
   acknowledged_at: string | null;
@@ -245,13 +247,14 @@ export function insertEvent(e: {
   observed: number | null;
   previous: number | null;
   message: string;
+  context?: AlertContext | null;
 }): EventRow {
   const info = db
     .prepare(
-      `INSERT INTO alert_events (rule_id, ts, kind, observed, previous, message)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO alert_events (rule_id, ts, kind, observed, previous, message, context)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(e.ruleId, now(), e.kind, e.observed, e.previous, e.message);
+    .run(e.ruleId, now(), e.kind, e.observed, e.previous, e.message, e.context ? JSON.stringify(e.context) : null);
   return event(Number(info.lastInsertRowid))!;
 }
 
@@ -259,6 +262,16 @@ export function event(id: number): EventRow | undefined {
   return db.prepare("SELECT * FROM alert_events WHERE id = ?").get(id) as unknown as
     | EventRow
     | undefined;
+}
+
+/** Upgrade the old ledger before its seven-day source snapshots are pruned. */
+export function eventsMissingContext(skill: string): EventRow[] {
+  return db.prepare(`SELECT e.* FROM alert_events e JOIN alert_rules r ON r.id = e.rule_id
+    WHERE r.skill = ? AND e.context IS NULL`).all(skill) as unknown as EventRow[];
+}
+
+export function setEventContext(id: number, context: AlertContext) {
+  db.prepare("UPDATE alert_events SET context = ? WHERE id = ? AND context IS NULL").run(JSON.stringify(context), id);
 }
 
 export function setNarration(id: number, narration: string | null, note: string | null) {

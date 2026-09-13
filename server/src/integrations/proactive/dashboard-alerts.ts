@@ -3,6 +3,7 @@ import { fleetRoutes } from "../ops/fleet-routes.ts";
 import { uptimeRoutes } from "../ops/uptime-routes.ts";
 import { currentDashboardAlerts, uniqueDashboardAlerts, type DashboardAlert, type DashboardAlertsDoc, type FleetAlertInput, type DomainAlertInput, type UptimeAlertInput } from "../../../../shared/dashboardAlerts.ts";
 import { openRuleEvents, rules } from "./store.ts";
+import { eventContext } from "./event-context.ts";
 
 /** Read existing local reports; never trigger collectors or external requests. */
 export async function dashboardAlerts():Promise<DashboardAlertsDoc> {
@@ -30,7 +31,9 @@ export async function dashboardAlerts():Promise<DashboardAlertsDoc> {
       (rule.skill==="domains" && rule.path==="summary.expiring30" && rule.threshold===0 && input.domains) ||
       (rule.skill==="uptime" && rule.path==="summary.down" && rule.threshold===0 && input.uptime));
     if(covered)continue;
-    alerts.push({id:`rule:${rule.id}`,severity:"warning",title:event.kind==="unreadable"?`${rule.name} — check unavailable`:rule.name,detail:event.message,sources:[rule.skill],ventureId:rule.venture_id,href:"/alerts"});
+    const context=eventContext(event,rule);
+    const detail=context ? [context.summary ?? event.message,...context.apps.map(a=>`${a.name}${a.reason ? `: ${a.reason}` : ""}`)].join(" ") : event.message;
+    alerts.push({id:`rule:${rule.id}`,severity:"warning",title:context?.title ?? (event.kind==="unreadable"?`${rule.name} — check unavailable`:rule.name),detail,sources:[rule.skill],ventureId:rule.venture_id,href:"/alerts"});
   }
   return {alerts:uniqueDashboardAlerts([...alerts,...failures]),asOf:new Date().toISOString()};
 }
