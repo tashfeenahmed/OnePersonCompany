@@ -60,6 +60,8 @@ import type { SocialBoardDocs } from "@/lib/api/socialboard";
 import type { SocialPost } from "@/areas/socialfeed/api";
 import type { FeedItem } from "@/data/widgets";
 import type { AdRow, AdsBoardDocs } from "@/lib/api/adsboard";
+import type { MobileHealthDocs } from "@/lib/api/mobilehealthboard";
+import type { WebAnalyticsDocs } from "@/lib/api/webanalyticsboard";
 import { rateBetween } from "./fx.ts";
 import {
   TRAILING_MIN_DAYS,
@@ -320,6 +322,19 @@ export type LiveInputs = {
    * from a card that added them.
    */
   users?: UsersReport | null;
+  /*
+    THE TWO REPORTS THAT BECAME BOARDS — a bundle each, and each its own field
+    beside the source it sits nearest.
+
+    `mobileHealth` is what the apps DO and `mobile` is what they EARN; nothing
+    may be added across them, because Google counts devices where Apple counts
+    privacy-thresholded events and a crash RATE is not a crash COUNT.
+    `webAnalytics` is who the visitors were and `umami` is how many there were;
+    the adjusted figure in here is published BESIDE Umami's raw one and never
+    instead of it. Two collectors, two clocks, four fields.
+  */
+  mobileHealth?: MobileHealthDocs | null;
+  webAnalytics?: WebAnalyticsDocs | null;
   /*
     THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
     is placed with a venture id (`PlacedWidget.param`); the card resolves it
@@ -12873,5 +12888,744 @@ Object.assign(LIVE_BUILDERS, {
         ],
       ],
     };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================= mail, box by box ======
+   The Email stats report drew one CARD per mailbox and one per sending
+   domain. These two tables are the same figures in the form a board can hold:
+   one row a box, and the box's connection state in the row rather than as a
+   dot beside a card that is no longer on the page.
+
+   NOTHING HERE CROSSES THE TWO. A mailbox's waiting threads and a sending
+   domain's bounce rate are the two ends of the pipe, and no column, total or
+   footer below adds one to the other — see the `mail` source in data/widgets
+   for why they are one document and two blocks.
+   ======================================================================= */
+Object.assign(LIVE_BUILDERS, {
+  /*
+    EVERY MAILBOX. "Waiting" is a FLOOR when the scan ran out of budget and the
+    "+" says so, the way the report's tiles did — a count that quietly stopped
+    at its budget would read as the whole queue. A mailbox with no figures at
+    all is a row saying the collector has not read it, which is a different
+    state from a mailbox with nothing waiting.
+  */
+  "mail.mailboxes": ({ mail: M }: LiveInputs) => {
+    if (!M?.connected.gmail || !M.mailboxes.length) return null;
+    const table = M.mailboxes.map((b) => [
+      b.address ?? b.accountLabel,
+      b.needingReply === null ? DASH : `${count(b.needingReply)}${b.floor ? "+" : ""}`,
+      count(b.unread.threads),
+      b.oldestWaitingDays === null ? DASH : `${b.oldestWaitingDays}d`,
+      b.volume.received === null
+        ? DASH
+        : `${count(b.volume.received)} / ${count(b.volume.sent ?? 0)} · ${b.volume.days}d`,
+      `${count(b.outreach.people)}${b.outreach.new ? ` · ${b.outreach.new} new` : ""}`,
+    ]);
+    return { table };
+  },
+
+  /*
+    EVERY SENDING DOMAIN, WITH RESEND'S OWN WORD FOR ITS STATE — never reduced
+    to a boolean, for `resend.domains`' reason: "pending" is part-way through
+    verification and "failed" will not send, and only one of them is tonight's
+    work. The DNS column counts VERIFIED RECORDS and a domain whose records
+    could not be read prints "not read", which is a different and much more
+    alarming claim than zero records.
+  */
+  "mail.domains": ({ mail: M }: LiveInputs) => {
+    if (!M?.connected.resend || !M.sendingDomains.length) return null;
+    const table = M.sendingDomains.map((d) => [
+      d.name,
+      d.status ?? "state not reported",
+      d.sends.floor ? `${count(d.sends.sent)}+` : count(d.sends.sent),
+      d.sends.bounceRate === null ? DASH : percent(d.sends.bounceRate, 1),
+      !d.dns.read
+        ? "not read"
+        : d.dns.unhealthy.length
+          ? `${d.dns.unhealthy.length} pending`
+          : `${count(d.dns.verified)}/${count(d.dns.total)}`,
+      d.region ?? DASH,
+    ]);
+    const rowTones: (StatusTone | null)[] = M.sendingDomains.map((d) =>
+      d.status !== "verified"
+        ? d.status === "pending"
+          ? "warn"
+          : "bad"
+        : d.dns.unhealthy.length
+          ? "warn"
+          : "ok",
+    );
+    return { table, rowTones };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ========================================== mobile health, as cards ======
+   WHAT THE APPS DO, beside `mobile`'s account of what they earn. The Mobile
+   health report was a fixed tab with four sub-tabs; these are its cards.
+
+   THREE REFUSALS TRAVEL THROUGH EVERY BUILDER BELOW and all three are the
+   server's own:
+
+     * A RATE AND A COUNT NEVER SHARE A CARD. Play publishes crash COUNTS out
+       of a console export and crash RATES out of the Reporting API, over
+       different windows and with different denominators. Two tables.
+     * A NULL IS NEVER A ZERO. A report Apple has not generated, a cohort that
+       was empty, a rating nobody gave — each is a dash with the server's own
+       sentence beside it. The readiness card is what makes the dashes
+       trustworthy: it is where a reader sees that a report is PROCESSING
+       rather than that nothing crashed.
+     * NOTHING IS ADDED ACROSS THE STORES. Google counts devices, Apple counts
+       privacy-thresholded events, and no total below crosses them.
+   ======================================================================= */
+Object.assign(LIVE_BUILDERS, {
+  /*
+    THE WORST STABILITY RATE MEASURED, AND WHICH ONE IT IS.
+
+    NOT NECESSARILY A CRASH RATE, which is why the metric's name is on the card
+    rather than assumed by it. The server publishes `alerting.worstCrashRate`
+    for crashes alone and it is null on an account whose only measured rate is
+    ANRs — so this takes the worst of the rates that were actually measured and
+    SAYS WHICH METRIC IT IS. A card that called an ANR rate a crash rate would
+    be adding two measurements of two different things by naming them one.
+  */
+  "mobilehealth.worstCrash": ({ mobileHealth: MH }: LiveInputs) => {
+    const rates = MH?.stability?.rates.filter((r) => r.window !== null) ?? [];
+    if (!rates.length) return null;
+    const worst = rates.reduce((a, b) => ((b.window ?? 0) > (a.window ?? 0) ? b : a));
+    const value = worst.window ?? 0;
+    return {
+      name: `Worst stability rate · ${worst.metric}`,
+      value: pct(value, { digits: 3 }),
+      tag: "measured",
+      /* Play's own bands: 1.09% of users is the "bad behaviour" threshold the
+         console flags, and half of it is where it is worth watching. */
+      tone: value >= 0.0109 ? "bad" : value >= 0.005 ? "warn" : "ok",
+      sub: also(`${worst.app} · ${worst.store}`, `weighted by ${worst.weightedBy}`),
+    };
+  },
+
+  /*
+    THE RATES, EACH OVER THE DAYS THAT ANSWERED.
+
+    The window column is the count of DAYS THE METRIC SET HAD, not the days
+    asked for: the vitals window ends at the metric set's own freshness rather
+    than at today, so a 30-day ask over 16 answered days is 16 and says so.
+  */
+  "mobilehealth.crashRates": ({ mobileHealth: MH }: LiveInputs) => {
+    const s = MH?.stability;
+    if (!s) return null;
+    if (!s.rates.length)
+      return {
+        table: [],
+        caption:
+          "No crash or ANR RATE was measured. That is not a rate of zero — the readiness card says which report said what.",
+      };
+    const table = s.rates.map((r) => [
+      `${r.app} · ${r.store}`,
+      r.metric,
+      r.window === null ? DASH : `${pct(r.window, { digits: 3 })} of users`,
+      String(r.days.length),
+    ]);
+    return {
+      table,
+      caption: `Weighted by the distinct users each day had. The vitals window is ${s.vitalsWindowDays} days and ends at the metric set's own freshness, not at today.`,
+    };
+  },
+
+  /*
+    THE COUNTS, WHICH HAVE NO DENOMINATOR AND ARE NEVER A RATE. Straight out of
+    the console's export. The worst version is the biggest single version bucket
+    — the page drew all eight as bars; a table row carries the one that matters
+    and the total it is out of.
+  */
+  "mobilehealth.crashCounts": ({ mobileHealth: MH }: LiveInputs) => {
+    const s = MH?.stability;
+    if (!s) return null;
+    if (!s.counts.length)
+      return { table: [], caption: "No crash COUNT report answered in this window." };
+    const table = s.counts.map((c) => {
+      const worst = [...c.byVersion].sort((a, b) => b.amount - a.amount)[0];
+      return [
+        `${c.app} · ${c.store}`,
+        c.metric,
+        `${count(c.total)} ${c.unit}`,
+        worst ? `${worst.version} · ${count(worst.amount)}` : DASH,
+        c.source,
+      ];
+    });
+    return {
+      table,
+      caption: "Counts with no denominator — never a rate. The rate table above is a different measurement of a different thing.",
+    };
+  },
+
+  /*
+    THE PROBES: whether each store's API answered at all, with the provider's
+    own refusal behind a failing one. This is the card that separates "nothing
+    crashed" from "nobody was allowed to ask".
+  */
+  "mobilehealth.probes": ({ mobileHealth: MH }: LiveInputs) => {
+    const r = MH?.readiness;
+    if (!r?.probes.length) return null;
+    const statuses: [string, StatusTone][] = r.probes.map((p) => [
+      `${p.probe} · ${p.store}${p.ok ? "" : ` — ${p.error ?? `refused${p.status === null ? "" : ` (${p.status})`}`}`}`,
+      p.ok ? "ok" : "bad",
+    ]);
+    for (const c of r.lastCollected)
+      statuses.push([`${c.store} last collected ${c.at ? ago(c.at) : "never"}`, c.at ? "ok" : "warn"]);
+    if (r.collecting) statuses.push(["a collection is running now", "warn"]);
+    return { statuses };
+  },
+
+  /*
+    EVERY REPORT ASKED FOR, AND WHAT THE STORE SAID. The longest table on the
+    board and the most important one: a report that is absent, processing or
+    refused produces a null everywhere else, and this is where that null gets
+    its reason. Capped, with the tail counted rather than dropped silently.
+  */
+  "mobilehealth.readiness": ({ mobileHealth: MH }: LiveInputs) => {
+    const r = MH?.readiness;
+    if (!r?.reports.length) return null;
+    const order = ["error", "unauthorized", "absent", "delayed", "processing", "empty", "available", "present"];
+    const rank = (state: string) => {
+      const i = order.indexOf(state);
+      return i < 0 ? order.length : i;
+    };
+    const rows = [...r.reports].sort((a, b) => rank(a.state) - rank(b.state));
+    const shown = rows.slice(0, 14);
+    const table = shown.map((x) => [x.app, x.report, x.state, count(x.rows)]);
+    const tones: Record<string, StatusTone> = {
+      present: "ok",
+      available: "ok",
+      error: "bad",
+      unauthorized: "bad",
+    };
+    const rowTones: (StatusTone | null)[] = shown.map((x) => tones[x.state] ?? "warn");
+    if (rows.length > shown.length) {
+      table.push([`${rows.length - shown.length} more reports`, DASH, DASH, DASH]);
+      rowTones.push(null);
+    }
+    return {
+      table,
+      rowTones,
+      caption: also(
+        Object.entries(r.counts)
+          .map(([state, n]) => `${n} ${state}`)
+          .join(" · "),
+        r.note,
+      ),
+    };
+  },
+
+  /* --------------------------------------------------------- the reviews */
+
+  /*
+    THE AVERAGE, AND WHAT IT IS AN AVERAGE OF.
+
+    THE FLOOR CAVEAT IS PART OF THE FIGURE. The aggregates cover at most
+    `aggregateCap` rows; past that every number here is a floor rather than a
+    total and the card says so instead of quoting an average of a sample as an
+    average of everything.
+  */
+  "mobilehealth.rating": ({ mobileHealth: MH }: LiveInputs) => {
+    const r = MH?.reviews;
+    if (!r) return null;
+    if (r.average === null)
+      return {
+        value: DASH,
+        sub: r.inWindow ? `${count(r.inWindow)} review(s), none rated` : "no review in the window",
+      };
+    return {
+      name: `Reviews · ${r.window.days}d`,
+      value: `${r.average}★`,
+      tag: "measured",
+      tone: r.average >= 4 ? "ok" : r.average >= 3 ? "warn" : "bad",
+      sub: also(
+        `${count(r.inWindow)} review(s) across ${r.counts.length} app${r.counts.length === 1 ? "" : "s"}`,
+        r.aggregatesComplete ? "" : `a floor: the newest ${count(r.aggregateCap)} only`,
+      ),
+    };
+  },
+
+  /*
+    THE STAR DISTRIBUTION. Every bucket is drawn including the empty ones,
+    because on a rating a zero IS a measurement — nobody gave this app three
+    stars is a fact about the window, not a gap in it.
+  */
+  "mobilehealth.stars": ({ mobileHealth: MH }: LiveInputs) => {
+    const r = MH?.reviews;
+    if (!r || !r.inWindow) return null;
+    const total = Object.values(r.stars).reduce((n, v) => n + v, 0);
+    if (!total) return null;
+    return {
+      ranked: [5, 4, 3, 2, 1].map((star) => {
+        const n = r.stars[String(star)] ?? 0;
+        return {
+          label: `${star} star`,
+          value: n,
+          text: count(n),
+          sub: pct(n / total, { digits: 0 }),
+        };
+      }),
+      caption: also(
+        `${count(total)} rated review(s) over ${r.window.days} days`,
+        r.aggregatesComplete ? "" : "a floor, not a total",
+      ),
+    };
+  },
+
+  /*
+    BY APP VERSION — ANDROID ONLY, and the caption says why rather than leaving
+    a reader to wonder where the iPhone rows are: Apple's review resource
+    carries no version at all.
+  */
+  "mobilehealth.reviewVersions": ({ mobileHealth: MH }: LiveInputs) => {
+    const rows = MH?.reviews?.byVersion ?? [];
+    if (!rows.length) return null;
+    return {
+      table: rows.map((v) => [v.version, `${v.average}★`, count(v.reviews)]),
+      caption:
+        "Android only — Apple's review resource carries no version, so an iOS review is in no row here.",
+    };
+  },
+
+  /*
+    A MODEL'S READING, AND IT SAYS SO IN THOSE WORDS.
+
+    Every theme carries the number of reviews it was drawn from; a theme citing
+    an id the model invented is dropped by the server before it is published,
+    which is what makes the count worth printing. The model and whether the
+    answer was cached go in the caption, because "who said this" is part of the
+    claim when the claim is not a measurement.
+  */
+  "mobilehealth.themes": ({ mobileHealth: MH }: LiveInputs) => {
+    const t = MH?.trend;
+    if (!t) return null;
+    if (!t.themes.length)
+      return {
+        rows: [["No theme was published", t.themeNote ?? `${count(t.read)} review(s) with text were read`]],
+      };
+    return {
+      rows: t.themes.map((theme): [string, string] => [
+        theme.theme,
+        `${theme.sentiment} · ${theme.reviewIds.length} review(s)`,
+      ]),
+      caption: also(
+        `A model's reading of ${count(t.read)} review(s) with text — not a measurement${t.model ? ` · ${t.model}` : ""}`,
+        t.cached ? "cached against this exact set of reviews" : "",
+      ),
+    };
+  },
+
+  /*
+    THE REVIEWS THEMSELVES, because a star distribution is not what somebody
+    said. The store's own reply travels with the review when there is one — it
+    is the store's, not this box's, and this box cannot write one.
+
+    NO LINK ON ANY ITEM: neither store publishes a public address for a single
+    review, and a card would rather say nothing than draw a dead one.
+  */
+  "mobilehealth.reviews": ({ mobileHealth: MH }: LiveInputs) => {
+    const r = MH?.reviews;
+    if (!r) return null;
+    if (!r.reviews.length)
+      return {
+        feed: [],
+        caption:
+          "No review in the window. On the Android side that is the seven-day API window rather than the app's review count.",
+      };
+    const feed: FeedItem[] = r.reviews.slice(0, 12).map((x) => ({
+      title: x.title ?? `${x.rating === null ? "no star" : `${x.rating}★`} · ${x.app}`,
+      text: x.reply ? `${x.body ?? "(no text)"}\n\nAnswered in the console: ${x.reply}` : x.body,
+      href: null,
+      at: x.created ?? undefined,
+      tone:
+        x.rating === null ? undefined : x.rating <= 2 ? "bad" : x.rating >= 4 ? "ok" : "warn",
+      meta: [
+        ["store", x.store],
+        ["app", x.app],
+        ...(x.appVersion ? ([["version", x.appVersion]] as [string, string][]) : []),
+        ...(x.territory ? ([["territory", x.territory]] as [string, string][]) : []),
+      ],
+    }));
+    return {
+      feed,
+      caption: also(
+        `${count(r.listed)} of ${count(r.inWindow)} review(s) in the window`,
+        "replying happens in the store's own console — this box cannot",
+      ),
+    };
+  },
+
+  /* ----------------------------------------------------- the acquisition */
+
+  /*
+    STORE VISITORS AGAINST ACQUISITIONS. Android only, and the caption carries
+    the server's own sentence about it rather than a paraphrase.
+  */
+  "mobilehealth.conversion": ({ mobileHealth: MH }: LiveInputs) => {
+    const c = MH?.conversion;
+    if (!c) return null;
+    if (!c.measured)
+      return { table: [], caption: c.reason ?? "Listing conversion was not measured." };
+    return {
+      table: c.apps.map((a) => [
+        a.app,
+        count(a.visitors),
+        count(a.acquisitions),
+        pct(a.rate),
+      ]),
+      caption: also(
+        c.source,
+        c.totalsFrom ? `totals from the ${c.totalsFrom} cut — the cuts are the same visitors and never add` : "",
+      ),
+    };
+  },
+
+  /*
+    ONE CUT OF THOSE VISITORS, AND ONLY ONE.
+
+    `totalsFrom` is the cut the server itself totalled from; the others are the
+    SAME visitors sliced differently, so drawing two on one axis would be
+    counting a person twice. The card names the cut it drew.
+  */
+  "mobilehealth.conversionBy": ({ mobileHealth: MH }: LiveInputs) => {
+    const c = MH?.conversion;
+    if (!c?.measured) return null;
+    const cut = c.totalsFrom ?? Object.keys(c.by)[0];
+    const rows = cut ? (c.by[cut] ?? []) : [];
+    if (!rows.length) return null;
+    return {
+      name: `Store visitors, by ${cut}`,
+      ranked: rows.slice(0, 8).map((r) => ({
+        label: r.value,
+        value: r.visitors ?? 0,
+        text: count(r.visitors),
+        sub: `${pct(r.rate, { digits: 0 })} acquired`,
+      })),
+      caption: `One cut of the same visitors. The other ${Math.max(c.cuts.length - 1, 0)} cut(s) slice the same people and are never added to these.`,
+    };
+  },
+
+  /*
+    THE RETENTION CURVE, OR THE REASON THERE IS NONE — and the reason is the
+    card when the report is not in the bucket, because an empty curve reads as
+    an app nobody came back to.
+  */
+  "mobilehealth.retention": ({ mobileHealth: MH }: LiveInputs) => {
+    const r = MH?.retention;
+    if (!r) return null;
+    if (!r.measured || !r.apps.length)
+      return {
+        rows: [
+          ["Not measured", r.reason ?? "no retention report answered"],
+          ["Where it would come from", r.source],
+        ],
+      };
+    const rows: [string, string][] = [];
+    for (const app of r.apps)
+      for (const point of app.curve)
+        rows.push([
+          `${app.app} · day ${point.day}`,
+          `${count(point.retained)} of ${count(point.installers)} · ${pct(point.rate, { digits: 0 })}`,
+        ]);
+    return { rows: rows.slice(0, 12), caption: r.source };
+  },
+
+  /*
+    THE INSTALL SEGMENTS — ONE GROUP, NAMED.
+
+    The report drew a dozen of these, one per app and metric; a board card is
+    one axis, and an axis carrying two apps' devices would be adding two
+    populations. So this is the biggest group by total and the card says which
+    app, which store, which metric and which UNIT it is — devices, users and
+    events are three counts in one Play file.
+
+    THE REMAINDER IS THE SERVER'S ROW and never `total` minus what is drawn:
+    `other` is null for a LEVEL metric, where the slices are states on a day
+    and subtracting them would invent a figure.
+  */
+  "mobilehealth.segments": ({ mobileHealth: MH }: LiveInputs) => {
+    const groups = MH?.segments?.groups.filter((g) => g.top.length) ?? [];
+    if (!groups.length) return null;
+    const g = groups.reduce((a, b) => (b.total > a.total ? b : a));
+    const ranked = g.top.map((s) => ({
+      label: s.value,
+      value: s.amount,
+      text: count(s.amount),
+      sub: s.share === null ? undefined : pct(s.share, { digits: 0 }),
+    }));
+    if (g.other) ranked.push({ label: "(other slices)", value: g.other, text: count(g.other), sub: undefined });
+    return {
+      name: `Install segments · ${g.dimension}`,
+      ranked,
+      caption: `${g.app} · ${g.store} · ${g.metric} · ${count(g.total)} ${g.unit ?? "units"} · ${
+        g.metricKind === "level"
+          ? "a level — a state on a day, never summed over days"
+          : "an event — summable"
+      }${groups.length > 1 ? ` · ${groups.length - 1} other group(s) not drawn, because two apps' counts do not share an axis` : ""}`,
+    };
+  },
+
+  /*
+    WHERE EVERY VERSION IS, observed once per collection. Apple publishes no
+    change dates, so a gap between observations is a day nobody looked rather
+    than a day nothing happened — which is why the last column is DAYS SEEN
+    and not "days live".
+  */
+  "mobilehealth.versions": ({ mobileHealth: MH }: LiveInputs) => {
+    const v = MH?.versions;
+    if (!v) return null;
+    if (!v.measured || !v.apps.length)
+      return { table: [], caption: "Nothing has been observed yet — the collector has not run." };
+    const rows = v.apps.flatMap((a) => a.versions.map((x) => ({ app: a.app, ...x })));
+    const shown = rows.slice(0, 14);
+    const table = shown.map((x) => [
+      x.app,
+      x.version,
+      x.phase,
+      x.storeState && x.storeState !== x.state ? `${x.state ?? DASH} / ${x.storeState}` : (x.state ?? DASH),
+      String(x.daysObserved),
+    ]);
+    const rowTones: (StatusTone | null)[] = shown.map((x) =>
+      x.phase === "live" ? "ok" : x.phase === "rejected" ? "bad" : "warn",
+    );
+    if (rows.length > shown.length) {
+      table.push([`${rows.length - shown.length} more versions`, DASH, DASH, DASH, DASH]);
+      rowTones.push(null);
+    }
+    return {
+      table,
+      rowTones,
+      caption:
+        "Observed once per collection. Apple publishes no change dates, so a gap is a day nobody looked.",
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================ web analytics, as cards ====
+   THE DEPTH UNDER THE UMAMI CARDS. Who the visitors were, what a named
+   heuristic would take off as automated, and what the custom events recorded.
+
+   FOUR REFUSALS TRAVEL THROUGH EVERY BUILDER BELOW, and they are the report
+   page's own, transcribed:
+
+     * RAW AND ADJUSTED ARE BOTH ON THE BOARD. `webanalytics.raw` carries what
+       Umami actually said and `webanalytics.adjusted` carries what one named
+       heuristic would take off; neither replaces the other, and nothing stored
+       on this box has been reduced.
+     * A NULL IS NEVER A ZERO. A heuristic that could not be RUN is a different
+       sentence from one that found nothing, and the bot card prints both.
+     * TWO POPULATIONS NEVER SHARE AN AXIS. Country counts visitors and
+       referrer counts views; every ranked card says which, and the remainder
+       no value accounted for is drawn rather than folded into the shares.
+     * EVERY CARD NAMES ITS SITE. The rotation reads one website every twelve
+       hours and the segments route takes one id; a ranking with no site on it
+       would read as the portfolio's, and there is no portfolio ranking to be
+       had — see lib/api/webanalyticsboard.
+   ======================================================================= */
+
+/** The site every segments card was drawn for, said the same way each time. */
+function segmentSite(W: WebAnalyticsDocs): string {
+  const s = W.site;
+  if (!s) return "no site has had its turn in the rotation yet";
+  const name = s.domain ?? s.name ?? s.websiteId;
+  return `${name} · the site the rotation read most recently${
+    (W.sites?.sites.length ?? 0) > 1 ? ` of ${W.sites!.sites.length}` : ""
+  }`;
+}
+
+/** One dimension's block, as a ranked list — or null when the rotation has
+ *  not collected that dimension for this site. The shares are the SERVER'S,
+ *  of the dimension's own rows, and are never re-derived from the rows drawn:
+ *  a share of the top eight wearing a share of everything's clothes is the
+ *  one mistake this form makes easy. */
+function segmentRanked(
+  W: WebAnalyticsDocs | null | undefined,
+  dimension: string,
+  cap = 8,
+): Partial<Widget> | null {
+  const block = W?.segments?.segments.find((b) => b.dimension === dimension);
+  if (!block?.values.length) return null;
+  const rows = block.values.slice(0, cap);
+  const undrawn = block.values.length - rows.length;
+  return {
+    ranked: rows.map((v) => ({
+      label: v.value,
+      value: v.count,
+      text: count(v.count),
+      sub: pct(v.share, { digits: 1 }),
+    })),
+    caption: [
+      `${block.capped ? "at least " : ""}${count(block.total)} ${block.counts} · ${block.startDay} → ${block.endDay}`,
+      segmentSite(W!),
+      undrawn > 0
+        ? `${undrawn} more value(s) not drawn; the shares are of ${count(block.total)}${
+            block.capped
+              ? ", which is the row limit rather than the whole distribution — every share here is too big by an amount nobody measured"
+              : ", the whole distribution"
+          }`
+        : "",
+      block.gapReason ?? "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  /*
+    WHAT UMAMI ACTUALLY SAID, for the one site the segments were drawn for.
+    Four figures and the adjustment's basis under them, which is the report's
+    own first card — the numbers the adjusted tile beside it is measured
+    against.
+  */
+  "webanalytics.raw": ({ webAnalytics: W }: LiveInputs) => {
+    const s = W?.segments;
+    if (!s) return null;
+    const rows: [string, string][] = [
+      ["Visitors (raw)", count(s.raw.visitors)],
+      ["Pageviews", count(s.raw.pageviews)],
+      ["Visits", count(s.raw.visits)],
+      ["Bounces", count(s.raw.bounces)],
+    ];
+    return {
+      name: `Raw · ${s.windowDays}d`,
+      rows,
+      caption: [
+        segmentSite(W!),
+        s.raw.startDay ? `${s.raw.startDay} → ${s.raw.endDay}` : "no window collected",
+        s.adjusted.note,
+      ].join(" · "),
+    };
+  },
+
+  /*
+    THE ADJUSTED FIGURE, BESIDE THE RAW ONE AND NEVER INSTEAD OF IT.
+
+    `basis` is the server's own sentence and says which of the two things a
+    null means: the raw figure was not measured, or the arithmetic was refused
+    because the exclusion came out larger than the figure. Neither is a floored
+    zero, so neither is drawn as one.
+  */
+  "webanalytics.adjusted": ({ webAnalytics: W }: LiveInputs) => {
+    const a = W?.segments?.adjusted.visitors;
+    if (!a) return null;
+    return {
+      name: `Visitors, bot-adjusted · ${W!.segments!.windowDays}d`,
+      value: count(a.value),
+      tag: a.heuristic ? "adjusted" : "raw",
+      sub: also(
+        a.excluded ? `${count(a.excluded)} excluded by ${a.heuristic}` : (a.heuristic ?? "no heuristic matched"),
+        segmentSite(W!),
+      ),
+      caption: a.basis,
+    };
+  },
+
+  /*
+    THE BOT DIAGNOSTICS, AND THE TESTS THAT COULD NOT BE RUN.
+
+    A HEURISTIC THAT WAS NOT RUN IS NOT A HEURISTIC THAT FOUND NOTHING, and the
+    difference is the whole reason this card exists. A finding carries what it
+    excluded and the population it excluded it from; a refusal carries the
+    server's reason, unedited.
+  */
+  "webanalytics.bots": ({ webAnalytics: W }: LiveInputs) => {
+    const s = W?.segments;
+    if (!s) return null;
+    const rows: [string, string][] = s.findings.map((f) => [
+      f.title,
+      f.excluded === null
+        ? "excludes nothing by design"
+        : `${count(f.excluded)} ${f.population} over ${f.windowDays}d · ${f.fingerprint}`,
+    ]);
+    for (const r of s.refusals)
+      rows.push([`${r.heuristic} — NOT RUN over ${r.windowDays}d`, r.reason]);
+    if (!rows.length)
+      rows.push([
+        "No heuristic matched",
+        `that is not proof of no automated traffic — it is proof that none of the ${s.heuristics.length} tests fired`,
+      ]);
+    return { rows, caption: segmentSite(W!) };
+  },
+
+  "webanalytics.countries": ({ webAnalytics: W }: LiveInputs) => segmentRanked(W, "country"),
+  "webanalytics.browsers": ({ webAnalytics: W }: LiveInputs) => segmentRanked(W, "browser"),
+  "webanalytics.devices": ({ webAnalytics: W }: LiveInputs) => segmentRanked(W, "device", 6),
+  /*
+    REFERRERS COUNT VIEWS WHERE THE THREE ABOVE COUNT VISITORS, which is why
+    the caption's `counts` word is the block's own and not a constant in this
+    file. Two populations, four cards, no arithmetic across them.
+  */
+  "webanalytics.referrers": ({ webAnalytics: W }: LiveInputs) => segmentRanked(W, "referrer"),
+
+  /*
+    THE CUSTOM EVENTS, EVERY SITE.
+
+    OCCURRENCES AND PARTICIPANTS ARE TWO POPULATIONS and the columns say so:
+    one is how many times a thing happened, the other how many SESSION
+    IDENTITIES did it — not people, and never a step in a funnel. A
+    participant count of null is a measurement that was refused and the card
+    leaves it a dash rather than repeating the occurrence count.
+  */
+  "webanalytics.events": ({ webAnalytics: W }: LiveInputs) => {
+    const sites = W?.events?.sites ?? [];
+    const rows = sites.flatMap((s) =>
+      s.events.map((e) => ({ site: s.domain ?? s.name ?? s.websiteId, ...e })),
+    );
+    if (!W?.events) return null;
+    if (!rows.length)
+      return {
+        table: [],
+        caption:
+          "No custom event has been collected. Either none are sent, or no site has had its turn in the rotation yet.",
+      };
+    const shown = [...rows].sort((a, b) => (b.occurrences ?? 0) - (a.occurrences ?? 0)).slice(0, 14);
+    const table = shown.map((e) => [
+      e.event,
+      e.site,
+      count(e.occurrences),
+      count(e.participants),
+      e.perParticipant === null ? DASH : e.perParticipant.toFixed(2),
+    ]);
+    if (rows.length > shown.length) table.push([`${rows.length - shown.length} more events`, DASH, DASH, DASH, DASH]);
+    return {
+      table,
+      caption: `Over ${W.events.windowDays} days across ${sites.length} site(s). Participants are session identities, not people, and "per participant" is repeats rather than steps.`,
+    };
+  },
+
+  /*
+    THE PROPERTIES THOSE EVENTS CARRIED, with the UNIT NOBODY STATED drawn as
+    exactly that. A numeric property whose unit is null is a column of numbers
+    in unknown units, and a mean printed without one is a figure nobody can
+    act on — so the column says "not stated" rather than being left blank.
+  */
+  "webanalytics.eventProps": ({ webAnalytics: W }: LiveInputs) => {
+    const doc = W?.events;
+    if (!doc) return null;
+    const rows = doc.sites.flatMap((s) =>
+      s.events.flatMap((e) => e.properties.map((p) => ({ event: e.event, ...p }))),
+    );
+    if (!rows.length)
+      return { table: [], caption: "No event carried a property this box could aggregate." };
+    const shown = [...rows].sort((a, b) => b.records - a.records).slice(0, 14);
+    const table = shown.map((p) => [
+      p.event,
+      p.property,
+      count(p.records),
+      p.numeric?.avg === null || p.numeric?.avg === undefined ? DASH : p.numeric.avg.toFixed(2),
+      p.unit ?? "not stated",
+      p.topValues
+        ? p.topValues.slice(0, 3).map((v) => `${v.value} (${v.count})`).join(", ")
+        : p.truncated
+          ? "aggregate refused — a value would not parse"
+          : DASH,
+    ]);
+    if (rows.length > shown.length)
+      table.push([`${rows.length - shown.length} more properties`, DASH, DASH, DASH, DASH, DASH]);
+    return { table, caption: `At most ${count(doc.limits.propertyValues)} distinct values are kept per property.` };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

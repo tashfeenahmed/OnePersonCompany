@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Check, Copy, LayoutTemplate } from "lucide-react";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { VentureSelect } from "@/components/VentureSelect";
@@ -27,6 +27,19 @@ import { cn } from "@/lib/utils";
  * name typed takes the source board's name, which is what somebody copying a
  * board nearly always wants and can still type over.
  *
+ * A TEMPLATE CAN BE CHOSEN BY THE ADDRESS. `?preset=<id>` opens the page with
+ * that template already picked and its name in the box, which is what makes
+ * "make me an Email stats board" a link. The four reports that used to be
+ * fixed tabs on the Dashboards page redirect here that way — see
+ * pages/Dashboards — so an old bookmark becomes an offer to make the board.
+ * An id naming no template is ignored rather than argued with: the page still
+ * opens, on Blank, which is where somebody who typed a bad link would rather
+ * be than on an error.
+ *
+ * IT SEEDS THE CHOICE AND THEN GETS OUT OF THE WAY. The query is read once,
+ * into the initialiser; pressing another template does not rewrite the
+ * address, because the choice on this page is a draft and not a destination.
+ *
  * WHERE IT LANDS IS THE FORM'S TO SAY. The global page offers a venture
  * dropdown with "Everything" at the top; the venture's own page arrives with
  * that venture chosen. Either way the board is made in the scope shown, and
@@ -35,14 +48,19 @@ import { cn } from "@/lib/utils";
  */
 export function NewDashboard() {
   const { slug } = useParams();
+  const [params] = useSearchParams();
   const navigate = useNavigate();
   const { state, addDashboard, copyDashboard } = useStore();
 
   const here = slug ? (state.ventures.find((v) => v.slug === slug) ?? null) : null;
+  const asked = DASHBOARD_PRESETS.find((p) => p.id === params.get("preset")) ?? null;
   const [ventureId, setVentureId] = useState<string | null>(here?.id ?? null);
-  const [name, setName] = useState("");
+  /* The asked-for template's own label, typed for you. It is a board name
+     somebody would have typed anyway, and it is over-typeable — which is the
+     difference between a default and a decision. */
+  const [name, setName] = useState(asked?.label ?? "");
   /* "preset:<id>" or "copy:<board id>" — see the header. */
-  const [from, setFrom] = useState("preset:blank");
+  const [from, setFrom] = useState(`preset:${asked?.id ?? "blank"}`);
   const presetId = from.startsWith("preset:") ? from.slice(7) : null;
   const copyId = from.startsWith("copy:") ? from.slice(5) : null;
 

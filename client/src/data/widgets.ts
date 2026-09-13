@@ -511,6 +511,32 @@ export type Widget = {
      * words. The Users board draws both and says which is which.
      */
     users?: boolean;
+    /**
+     * WHAT THE APPS DO, beside `mobile`'s account of what they earn: crash and
+     * ANR rates and counts, which report each store answered, the reviews and
+     * what a model read in them, listing conversion, retention, install
+     * segments and where every version is. Eight documents, one bundle — see
+     * lib/api/mobilehealthboard.
+     *
+     * ITS OWN FLAG BESIDE `mobile`, never a widening of it. Nothing on either
+     * side may be added to the other — Google counts devices where Apple
+     * counts privacy-thresholded events, and a crash rate is not a crash
+     * count — and the two collectors run on their own timers, so a board
+     * carrying only the proceeds tile must not wait on a reviews route.
+     */
+    mobileHealth?: boolean;
+    /**
+     * WHO THE VISITORS WERE, beside `umami`'s count of how many: the raw
+     * figures with what a named bot heuristic would take off, the per-dimension
+     * rankings, and what the custom events recorded. See
+     * lib/api/webanalyticsboard.
+     *
+     * ITS OWN FLAG BESIDE `umami` for the reason `mobileHealth` is its own
+     * beside `mobile`: two collectors, two clocks. Nothing adds across them
+     * either — the adjusted figure is published BESIDE the raw one Umami
+     * reported and never instead of it.
+     */
+    webAnalytics?: boolean;
   };
   /**
    * A WORD ABOUT WHAT KIND OF NUMBER THIS IS, worn as a small mono pill after
@@ -1053,6 +1079,42 @@ export const SOURCES: Record<string, WidgetSource> = {
     icon: null,
     mono: "Rv",
     tint: "#3f6b5f",
+    connected: true,
+  },
+
+  /* ======================================================================
+     THE TWO REPORTS THAT BECAME CARDS.
+
+     Mobile health and Web analytics were fixed tabs on the Dashboards page —
+     readings nobody could rearrange or delete. They are boards now, and these
+     are the sources their cards are filed under.
+
+     NEITHER IS A WIDENING OF THE SOURCE ABOVE IT, and the rule is the one
+     `collectedAt` in lib/live is built on: ONE SOURCE PER CLOCK. `mobile` is
+     the money and the units, collected by the stores' own collector; this is
+     the crashes, the reviews and the versions, collected on a six-hour timer
+     of its own, and the two can honestly disagree about how fresh they are.
+     `umami` reads every website in one pass; this area's rotation takes one
+     site every twelve hours, so a country ranking can be half a day older
+     than the visitor count above it. Folding either pair into one source
+     would put one clock on two collectors.
+
+     Connected, because the gate is elsewhere: the fetch in lib/live asks only
+     when a store plugin (or Umami) has a credential, and with none the cards
+     keep their samples and wear no live dot.
+     ====================================================================== */
+  mobilehealth: {
+    name: "Mobile health",
+    icon: null,
+    mono: "Mh",
+    tint: "#4a7d6b",
+    connected: true,
+  },
+  webanalytics: {
+    name: "Web analytics",
+    icon: null,
+    mono: "Wa",
+    tint: "#3d6fa8",
     connected: true,
   },
 };
@@ -4744,6 +4806,236 @@ export const WIDGETS: Record<string, Widget> = {
     window: "now",
     live: { users: true },
   },
+
+  /* ====================================================================
+     MOBILE HEALTH — the report, as cards.
+
+     Two refusals travel through every one of these and both are the
+     server's own: a rate and a COUNT are two measurements of two
+     different things and never share a card, and a figure no report
+     answered is a dash with the reason beside it rather than a zero. The
+     readiness card is why the dashes are trustworthy — it is the one
+     place a reader can see that Apple has generated no instance of a
+     report rather than that nothing crashed.
+     ==================================================================== */
+  "mobilehealth.worstCrash": {
+    src: "mobilehealth",
+    name: "Worst crash rate",
+    kind: "metric",
+    window: "selected",
+    live: { mobileHealth: true },
+    invert: true,
+  },
+  "mobilehealth.crashRates": {
+    src: "mobilehealth",
+    name: "Crash and ANR rates",
+    kind: "table",
+    window: "selected",
+    live: { mobileHealth: true },
+    headers: ["App", "Metric", "Rate", "Days"],
+  },
+  "mobilehealth.crashCounts": {
+    src: "mobilehealth",
+    name: "Crash and ANR counts",
+    kind: "table",
+    window: "selected",
+    live: { mobileHealth: true },
+    headers: ["App", "Metric", "Total", "Worst version", "Source"],
+  },
+  "mobilehealth.probes": {
+    src: "mobilehealth",
+    name: "What each store answered",
+    kind: "statuses",
+    window: "now",
+    live: { mobileHealth: true },
+  },
+  "mobilehealth.readiness": {
+    src: "mobilehealth",
+    name: "Every report, and what it said",
+    kind: "table",
+    window: "now",
+    live: { mobileHealth: true },
+    headers: ["App", "Report", "State", "Rows"],
+  },
+  "mobilehealth.rating": {
+    src: "mobilehealth",
+    name: "Reviews",
+    kind: "metric",
+    window: "selected",
+    live: { mobileHealth: true },
+  },
+  "mobilehealth.stars": {
+    src: "mobilehealth",
+    name: "Stars",
+    kind: "ranked",
+    window: "selected",
+    live: { mobileHealth: true },
+  },
+  "mobilehealth.reviewVersions": {
+    src: "mobilehealth",
+    name: "Reviews by app version",
+    kind: "table",
+    window: "selected",
+    live: { mobileHealth: true },
+    headers: ["Version", "Average", "Reviews"],
+  },
+  "mobilehealth.themes": {
+    src: "mobilehealth",
+    name: "What the reviews are about",
+    kind: "rows",
+    window: "selected",
+    live: { mobileHealth: true },
+  },
+  "mobilehealth.reviews": {
+    src: "mobilehealth",
+    name: "The reviews",
+    kind: "feed",
+    window: "selected",
+    live: { mobileHealth: true },
+  },
+  "mobilehealth.conversion": {
+    src: "mobilehealth",
+    name: "Listing conversion",
+    kind: "table",
+    window: "selected",
+    live: { mobileHealth: true },
+    headers: ["App", "Store visitors", "Acquisitions", "Conversion"],
+  },
+  "mobilehealth.conversionBy": {
+    src: "mobilehealth",
+    name: "Store visitors, by cut",
+    kind: "ranked",
+    window: "selected",
+    live: { mobileHealth: true },
+  },
+  "mobilehealth.retention": {
+    src: "mobilehealth",
+    name: "Retention",
+    kind: "rows",
+    window: "selected",
+    live: { mobileHealth: true },
+  },
+  "mobilehealth.segments": {
+    src: "mobilehealth",
+    name: "Install segments",
+    kind: "ranked",
+    window: "selected",
+    live: { mobileHealth: true },
+  },
+  "mobilehealth.versions": {
+    src: "mobilehealth",
+    name: "Version states",
+    kind: "table",
+    window: "now",
+    live: { mobileHealth: true },
+    headers: ["App", "Version", "Phase", "Store's own state", "Days seen"],
+  },
+
+  /* ====================================================================
+     WEB ANALYTICS — the depth under the Umami cards, as cards.
+
+     Every one of these names the SITE it was drawn for. The segments
+     route takes one website and a board has no picker, so the rotation's
+     own choice is drawn and said out loud; a country ranking with no site
+     on it would read as the portfolio's, and there is no portfolio
+     ranking to be had — Umami de-duplicates per website and nothing
+     joins identity across them.
+
+     RAW AND ADJUSTED ARE TWO CARDS AND BOTH ARE ALWAYS DRAWN. There is
+     no state of this catalog in which the bot-adjusted figure is the only
+     one on a board.
+     ==================================================================== */
+  "webanalytics.raw": {
+    src: "webanalytics",
+    name: "Raw, and what a heuristic would take off",
+    kind: "rows",
+    window: "selected",
+    live: { webAnalytics: true },
+  },
+  "webanalytics.adjusted": {
+    src: "webanalytics",
+    name: "Visitors, bot-adjusted",
+    kind: "metric",
+    window: "selected",
+    live: { webAnalytics: true },
+  },
+  "webanalytics.bots": {
+    src: "webanalytics",
+    name: "Bot diagnostics",
+    kind: "rows",
+    window: "selected",
+    live: { webAnalytics: true },
+  },
+  "webanalytics.countries": {
+    src: "webanalytics",
+    name: "Visitors by country",
+    kind: "ranked",
+    window: "selected",
+    live: { webAnalytics: true },
+  },
+  "webanalytics.browsers": {
+    src: "webanalytics",
+    name: "Visitors by browser",
+    kind: "ranked",
+    window: "selected",
+    live: { webAnalytics: true },
+  },
+  "webanalytics.devices": {
+    src: "webanalytics",
+    name: "Visitors by device",
+    kind: "ranked",
+    window: "selected",
+    live: { webAnalytics: true },
+  },
+  "webanalytics.referrers": {
+    src: "webanalytics",
+    name: "Views by referrer",
+    kind: "ranked",
+    window: "selected",
+    live: { webAnalytics: true },
+  },
+  "webanalytics.events": {
+    src: "webanalytics",
+    name: "Custom events",
+    kind: "table",
+    window: "selected",
+    live: { webAnalytics: true },
+    headers: ["Event", "Site", "Occurrences", "Participants", "Per participant"],
+  },
+  "webanalytics.eventProps": {
+    src: "webanalytics",
+    name: "Event properties",
+    kind: "table",
+    window: "selected",
+    live: { webAnalytics: true },
+    headers: ["Event", "Property", "Records", "Mean", "Unit", "Top values"],
+  },
+
+  /* ====================================================================
+     THE TWO MAIL TABLES — every box, in figures.
+
+     The Email stats report drew one card per mailbox and one per sending
+     domain. A board draws them as two tables, because that is the form
+     that survives being three columns wide: the same figures, one row a
+     box, and the connection state in the row rather than as a dot beside
+     a card that is no longer there.
+     ==================================================================== */
+  "mail.mailboxes": {
+    src: "mail",
+    name: "Every mailbox",
+    kind: "table",
+    window: "selected",
+    live: { mail: true },
+    headers: ["Mailbox", "Waiting", "Unread", "Oldest", "In / out", "Wrote to"],
+  },
+  "mail.domains": {
+    src: "mail",
+    name: "Every sending domain",
+    kind: "table",
+    window: "selected",
+    live: { mail: true },
+    headers: ["Domain", "State", "Sent", "Bounce", "DNS", "Region"],
+  },
 };
 
 /** The presets offered when a new dashboard is created. */
@@ -5125,6 +5417,147 @@ export const DASHBOARD_PRESETS: {
       "uptime.status",
       "hetzner.servers",
       "telegram.alerts",
+    ],
+  },
+
+  /*
+    ================================================================
+    THE FOUR REPORTS, AS TEMPLATES.
+
+    Email stats, Mobile health, Web analytics and Growth were FIXED TABS on
+    the Dashboards page — readings beside the boards that nobody could
+    rename, rearrange or delete. Each is a template now, in the reading
+    order its page had, so making one is a board the owner owns: drag the
+    cards, drop the ones that do not earn their place, delete the whole
+    thing.
+
+    WHAT DID NOT SURVIVE THE MOVE IS THE WRITING. Those pages carried
+    buttons — collect now, file a review onto a card, file a campaign to a
+    venture, start an experiment, submit URLs to IndexNow — and a widget
+    reads. Every FIGURE each page drew is on the template below it; the
+    presses stayed behind with the areas that own them.
+    ================================================================
+  */
+  /*
+    EMAIL STATS. The two headline figures per kind of box first — a mailbox
+    and a sending domain are two different questions and their numbers do
+    not add, which is why they were two tiles and not one — then every box
+    in figures, then what the two APIs will not say, which is the card that
+    stops the rest from being read as the whole picture.
+  */
+  {
+    id: "email-stats",
+    label: "Email stats",
+    note: "every mailbox and every sending domain, as figures",
+    widgets: [
+      "gmail.unread",
+      "gmail.inbox",
+      "resend.sends",
+      "resend.bounce",
+      "mail.mailboxes",
+      "gmail.volume",
+      "gmail.contacts",
+      "gmail.labels",
+      "mail.domains",
+      "resend.domains",
+      "resend.daily",
+      "resend.outcomes",
+      "resend.dns",
+      "gmail.mailbox",
+      "mail.cannot",
+    ],
+  },
+  /*
+    MOBILE HEALTH. The four sub-tabs in their own order — health, reviews,
+    acquisition, versions — with the readiness table under the health block
+    rather than at the end, because it is what makes every dash above it
+    trustworthy. Nothing here is added to the App Store and Play cards: this
+    is what the apps DO, those are what they earn.
+  */
+  {
+    id: "mobile-health",
+    label: "Mobile health",
+    note: "crashes, reviews, listing conversion and where each version is",
+    widgets: [
+      "mobilehealth.worstCrash",
+      "mobilehealth.rating",
+      "mobilehealth.crashRates",
+      "mobilehealth.crashCounts",
+      "mobilehealth.probes",
+      "mobilehealth.readiness",
+      "mobilehealth.stars",
+      "mobilehealth.themes",
+      "mobilehealth.reviews",
+      "mobilehealth.reviewVersions",
+      "mobilehealth.conversion",
+      "mobilehealth.conversionBy",
+      "mobilehealth.segments",
+      "mobilehealth.retention",
+      "mobilehealth.versions",
+    ],
+  },
+  /*
+    WEB ANALYTICS. Raw and adjusted first and both always — there is no
+    arrangement of this board that draws the bot-adjusted figure without the
+    raw one beside it — then who those visitors were, then what they did,
+    then the advertisements that sent them. The campaign and creative cards
+    are the `ads` bundle's, which is the same three routes the report's last
+    two tabs read.
+  */
+  {
+    id: "web-analytics",
+    label: "Web analytics",
+    note: "who the visitors were, what a bot heuristic would take off, and what they did",
+    widgets: [
+      "umami.visitors",
+      "webanalytics.adjusted",
+      "webanalytics.raw",
+      "webanalytics.bots",
+      "webanalytics.countries",
+      "webanalytics.browsers",
+      "webanalytics.devices",
+      "webanalytics.referrers",
+      "webanalytics.events",
+      "webanalytics.eventProps",
+      "ads.mapping",
+      "ads.ventures",
+      "ads.fatigue",
+      "ads.creatives",
+      "ads.issues",
+      "ads.sets",
+      "umami.sites",
+    ],
+  },
+  /*
+    GROWTH. Four readings that share one question and no data — how much
+    authority a host has, what has been told to IndexNow, whether the ad
+    account is healthy, and where the AI answers name us. NOTHING RANKS THE
+    HOSTS: an authority estimate is the mean of whichever parts could be read
+    for that host, and two hosts measured on different parts are two
+    measurements wearing one word.
+
+    THE CRO TAB IS NOT HERE and could not be. It is a funnel for ONE venture
+    with a stage picker, a library of experiments and four buttons that start
+    and finish them — writing, per venture, with state. That is a page, and
+    it stays one; the reading beside it that a board can hold is the audit
+    and the authority estimate.
+  */
+  {
+    id: "growth",
+    label: "Growth",
+    note: "authority, IndexNow, ad-account health and AI visibility",
+    widgets: [
+      "authority.ceiling",
+      "indexing.told",
+      "ads.delivering",
+      "ads.health",
+      "ads.categories",
+      "ads.categoryTable",
+      "ads.failing",
+      "ads.quickWins",
+      "geo.mentioned",
+      "seoops.moved",
+      "audit.ranked",
     ],
   },
 ];

@@ -53,6 +53,8 @@ import { customersApi, type DisputeDoc, type RecoveryQueue } from "@/lib/api/cus
 import { seoboard, type SeoOpsDocs } from "@/lib/api/seoboard";
 import { socialboard, type SocialBoardDocs } from "@/lib/api/socialboard";
 import { adsboard, type AdsBoardDocs } from "@/lib/api/adsboard";
+import { mobilehealthboard, type MobileHealthDocs } from "@/lib/api/mobilehealthboard";
+import { webanalyticsboard, type WebAnalyticsDocs } from "@/lib/api/webanalyticsboard";
 import {
   LIVE_BUILDERS,
 } from "@/lib/liveWidgets";
@@ -265,6 +267,22 @@ export type LiveData = {
    * card that added them.
    */
   users: UsersReport | null;
+  /*
+    THE TWO REPORTS THAT BECAME BOARDS.
+
+    Each is a bundle of the documents a fixed tab on the Dashboards page used
+    to draw, and each is its OWN field beside the source it sits nearest —
+    `mobile` for the app stores' money, `umami` for the visitor counts —
+    because they are collected by different collectors on different timers.
+    One field for a pair would put one clock on two of them, which is the
+    thing `collectedAt` below exists to keep honest.
+  */
+  /** Crashes, reviews, listing conversion, retention, install segments and
+   *  version states. Gated on either store plugin, like `mobile`. */
+  mobileHealth: MobileHealthDocs | null;
+  /** Who the visitors were, what a bot heuristic would take off, and what the
+   *  custom events recorded. Gated on Umami, whose rows it reads. */
+  webAnalytics: WebAnalyticsDocs | null;
   /**
    * THE WINDOW EVERY DOCUMENT ABOVE WAS ASKED FOR — the picker's, from the
    * store. Carried here so a card can label itself and a builder can tell
@@ -327,6 +345,8 @@ const LiveContext = createContext<LiveData>({
   profit: null,
   capture: null,
   users: null,
+  mobileHealth: null,
+  webAnalytics: null,
   window: DEFAULT_WINDOW,
   sourceStates: {}, sourceErrors: {},
   loading: true,
@@ -409,6 +429,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [profit, setProfit] = useState<PortfolioPnl | null>(null);
   const [capture, setCapture] = useState<CaptureReport | null>(null);
   const [users, setUsers] = useState<UsersReport | null>(null);
+  const [mobileHealth, setMobileHealth] = useState<MobileHealthDocs | null>(null);
+  const [webAnalytics, setWebAnalytics] = useState<WebAnalyticsDocs | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
@@ -466,6 +488,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsProfit = false;
     let needsCapture = false;
     let needsUsers = false;
+    let needsMobileHealth = false;
+    let needsWebAnalytics = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
       if (w.live?.summary) needsSummary = true;
@@ -510,6 +534,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.profit) needsProfit = true;
       if (w.live?.capture) needsCapture = true;
       if (w.live?.users) needsUsers = true;
+      if (w.live?.mobileHealth) needsMobileHealth = true;
+      if (w.live?.webAnalytics) needsWebAnalytics = true;
     }
     return {
       series: [...series],
@@ -555,6 +581,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsProfit,
       needsCapture,
       needsUsers,
+      needsMobileHealth,
+      needsWebAnalytics,
     };
   }, []);
 
@@ -978,6 +1006,35 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         "users",
       );
 
+      /*
+        THE TWO REPORTS THAT BECAME BOARDS.
+
+        EITHER STORE IS ENOUGH FOR THE FIRST, the rule `mobile` above it
+        follows: the bundle has a document per report and a store that has
+        never answered says so on its own, so an owner who ships on one
+        platform gets a real, partial answer rather than an empty one. This
+        area ingests sixty days at most; a wider ask is answered over sixty and
+        every card built from it captions the span the route actually returned.
+
+        THE SECOND IS GATED ON UMAMI because it reads Umami's own rows — the
+        segments are a second cut of the same sessions, taken by a rotation of
+        its own. Its route cuts at SEVEN OR THIRTY DAYS and nothing else (the
+        bot heuristics are calibrated to those two), so ninety and "all" are
+        drawn over thirty and the cards say so beside the figures.
+      */
+      tryFetch(
+        (connected.has("appstore") || connected.has("playstore")) && wanted.needsMobileHealth,
+        () => mobilehealthboard.docs(daysFor(selected, 60)),
+        setMobileHealth,
+        "mobilehealth",
+      );
+      tryFetch(
+        connected.has("umami") && wanted.needsWebAnalytics,
+        () => webanalyticsboard.docs(selected === 7 ? 7 : 30),
+        setWebAnalytics,
+        "webanalytics",
+      );
+
       await Promise.all(tasks);
       const pairs = await Promise.all(
         wanted.series.map(async (m) => {
@@ -1061,6 +1118,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         profit,
         capture,
         users,
+        mobileHealth,
+        webAnalytics,
         window: selected,
       });
       if (patch) liveTypes.add(type);
@@ -1110,6 +1169,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       profit,
       capture,
       users,
+      mobileHealth,
+      webAnalytics,
       window: selected,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
@@ -1161,6 +1222,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     profit,
     capture,
     users,
+    mobileHealth,
+    webAnalytics,
   ]);
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
@@ -1529,6 +1592,29 @@ export function collectedAt(src: string, live: LiveData): string | null {
     */
     case "social":
       return live.social?.posts?.lastReadAt ?? null;
+    /*
+      THE TWO REPORTS THAT BECAME BOARDS, each dated by ITS OWN COLLECTOR and
+      never by the moment its bundle was assembled — which is "just now" on
+      every read, over crash figures Google generated overnight and a country
+      ranking taken half a day ago.
+
+      Mobile health quotes the newest of the two stores' collection times, and
+      the readiness card is where a reader sees them apart. Web analytics
+      quotes the ROTATION'S read of the site its segments were drawn for,
+      because that is the figure on the card — the events beside it come from
+      every site and are as old as the oldest of them, which is a thing this
+      one clock cannot say and the events card says for itself.
+    */
+    case "mobilehealth":
+      return (
+        live.mobileHealth?.readiness?.lastCollected
+          .map((c) => c.at)
+          .filter((at): at is string => !!at)
+          .sort()
+          .at(-1) ?? null
+      );
+    case "webanalytics":
+      return live.webAnalytics?.site?.readAt ?? null;
     default:
       return null;
   }

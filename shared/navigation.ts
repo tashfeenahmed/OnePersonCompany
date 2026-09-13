@@ -7,7 +7,18 @@ export const MOVED_APPS: Readonly<Record<string, string>> = {
      still resolves to the view somebody meant. */
   email: "/mail",
   mailbox: "/mail",
-  "email-stats": "/dashboards/reports/email-stats",
+  /* THE FOUR READINGS THAT BECAME TEMPLATES. Email stats, Mobile health, Web
+     analytics and Growth were fixed tabs on the Dashboards page — pages
+     nobody could rename, rearrange or delete. Each is a DASHBOARD_PRESETS
+     entry now, so a tool named here resolves to the New dashboard page with
+     its own template already chosen: the honest end for an address whose page
+     is gone, and one press from the same figures on a board the owner owns.
+
+     THE `runId` FORM OF `appPage` MEANS NOTHING FOR THESE, as it means
+     nothing for `motion` below — the destination carries a query and a run id
+     appended behind it would be one malformed address out of two good ones.
+     `appPage` drops it; see the function. */
+  "email-stats": "/dashboards/new?preset=email-stats",
   triage: "/mail/triage",
   outbox: "/mail/outbox",
   nurture: "/mail/nurture",
@@ -29,18 +40,24 @@ export const MOVED_APPS: Readonly<Record<string, string>> = {
      kind resolves to the same address as the page. */
   campaign: "/social/studio/publishing",
   posts: "/social/posts",
-  /* The three growth readings are reports on the Dashboards page, beside
-     Email stats. The SEO, SERP and ASO run apps are not listed: they are
-     sub-agents' work and read at /outputs/<slug> with the other five. */
-  mobilehealth: "/dashboards/reports/mobile-health",
-  webanalytics: "/dashboards/reports/web-analytics",
-  growth: "/dashboards/reports/growth",
+  /* The other three, for the reason spelled out above Email stats. The SEO,
+     SERP and ASO run apps are not listed: they are sub-agents' work and read
+     at /outputs/<slug> with the other five. */
+  mobilehealth: "/dashboards/new?preset=mobile-health",
+  webanalytics: "/dashboards/new?preset=web-analytics",
+  growth: "/dashboards/new?preset=growth",
   ops: "/ops",
 };
 
 export function appPage(slug: string, runId?: string): string {
   const base = Object.hasOwn(MOVED_APPS, slug) ? MOVED_APPS[slug]! : `/outputs/${encodeURIComponent(slug)}`;
-  return runId ? `${base}/${encodeURIComponent(runId)}` : base;
+  /* A DESTINATION THAT CARRIES A QUERY TAKES NO RUN ID. Five of the entries
+     above resolve to a tab or a template rather than to a page that can show
+     one run — "/social/studio?make=motion", the four dashboard templates — and
+     a run id pasted on the end of one of those would be a path segment inside
+     a query string: an address that matches no route at all. Dropping it lands
+     the reader on the thing that exists, which is the whole job of this map. */
+  return runId && !base.includes("?") ? `${base}/${encodeURIComponent(runId)}` : base;
 }
 
 /* WHAT A ROW USED TO BE CALLED. The sidebar's saved order and the owner's

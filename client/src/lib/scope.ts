@@ -736,6 +736,22 @@ export function scopeLive(
       inbox: scoped.inbox,
       profit: scoped.profit,
       capture: scoped.capture,
+      /*
+        THE TWO REPORT BUNDLES GO IN UNNARROWED, and neither is in
+        SCOPABLE_SOURCES, so WidgetCard already hands them the whole document
+        inside a venture and puts the "portfolio" tag on the header. This pass
+        has to agree with that or the same card would lose its live dot while
+        still drawing real numbers.
+
+        NEITHER COULD BE NARROWED HONESTLY. An app is not a hostname — the
+        stores' rows carry a bundle id and a package name, and matching either
+        against a domain is the weak join this box refuses elsewhere. And the
+        web-analytics segments are for ONE website the rotation chose; filtering
+        that to a venture would leave either the whole card or nothing at all,
+        neither of which is a narrowing.
+      */
+      mobileHealth: scoped.mobileHealth,
+      webAnalytics: scoped.webAnalytics,
     });
     if (patch) liveTypes.add(type);
   }

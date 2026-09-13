@@ -1,31 +1,41 @@
-import { lazy } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { Activity, BarChart3, Globe, Plus, TrendingUp } from "lucide-react";
+import { Plus } from "lucide-react";
 import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NoBoard } from "@/components/BoardView";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
 import { WindowPicker } from "@/components/WindowPicker";
 import { DASHBOARD_WINDOWS, DEFAULT_WINDOW } from "@/lib/window";
-import { appPage } from "../../../shared/navigation";
-const EmailStats = lazy(() => import("@/pages/EmailStats").then(m => ({ default: m.EmailStats })));
-const MobileHealth = lazy(() => import("@/areas/mobilehealth/MobileHealth").then(m => ({ default: m.MobileHealth })));
-const WebAnalytics = lazy(() => import("@/areas/webanalytics/WebAnalytics").then(m => ({ default: m.WebAnalytics })));
-const Growth = lazy(() => import("@/areas/growth/pages/Growth").then(m => ({ default: m.Growth })));
 
 /**
- * THE REPORTS: pages that read collected figures back and are not boards.
- * Each is a fixed tab at /dashboards/reports/<key>, beside the boards, because
- * a reading somebody cannot rearrange still belongs where the readings are.
- * The three growth ones came from a sidebar section of their own; the sidebar
- * lists areas, and a report is not an area.
+ * WHERE THE FOUR REPORTS WENT.
+ *
+ * Email stats, Mobile health, Web analytics and Growth were FIXED TABS here:
+ * pages beside the boards, at /dashboards/reports/<key>, that nobody could
+ * rename, rearrange or delete. They are TEMPLATES now — the same figures, as
+ * widgets, in the same reading order (see DASHBOARD_PRESETS) — so the answer
+ * to "I want this reading" is a board the owner owns rather than a tab the
+ * app insists on.
+ *
+ * THE OLD ADDRESSES BECOME AN OFFER TO MAKE ONE. A link somebody sent, a
+ * bookmark, a report written six weeks ago: each lands on the New dashboard
+ * page with its own template already chosen. That is the honest end for an
+ * address whose page is gone — better than a 404, and better than silently
+ * showing a different reading under the URL somebody asked for.
+ *
+ * The keys ARE the preset ids, which is why there is no map here.
  */
-const REPORTS = [
-  { key: "email-stats", label: "Email stats", icon: BarChart3, page: EmailStats },
-  { key: "mobile-health", label: "Mobile health", icon: Activity, page: MobileHealth },
-  { key: "web-analytics", label: "Web analytics", icon: Globe, page: WebAnalytics },
-  { key: "growth", label: "Growth", icon: TrendingUp, page: Growth },
-] as const;
+const REPORT_PRESETS = new Set(["email-stats", "mobile-health", "web-analytics", "growth"]);
+
+export function LegacyReport() {
+  const { report } = useParams();
+  return (
+    <Navigate
+      to={report && REPORT_PRESETS.has(report) ? `/dashboards/new?preset=${report}` : "/dashboards"}
+      replace
+    />
+  );
+}
 
 /**
  * THE GLOBAL DASHBOARDS — every board that is about the whole operation.
@@ -50,8 +60,7 @@ const REPORTS = [
  */
 export function Dashboards() {
   const { state, reorderDashboards, setDashboardWindow } = useStore();
-  const { slug, report: reportParam } = useParams();
-  const report = REPORTS.find((r) => r.key === reportParam) ?? null;
+  const { slug } = useParams();
 
   const boards = state.dashboards.filter((d) => !d.ventureId);
   const board = boards.find((d) => d.slug === slug);
@@ -69,20 +78,22 @@ export function Dashboards() {
   */
   const first = boards.find((d) => d.id === "d-overview") ?? boards[0];
 
-  // The bare /dashboards: land on that board and put its own address in
-  // the bar, replacing rather than pushing so Back still leaves the page.
-  if (!slug && !report)
+  /* The bare /dashboards: land on that board and put its own address in the
+     bar, replacing rather than pushing so Back still leaves the page. With no
+     board at all there is nowhere to land, so it offers to make one — which
+     is now the only way a dashboard comes into being. */
+  if (!slug)
     return first ? (
       <Navigate to={`/dashboards/${first.slug}`} replace />
     ) : (
-      <Navigate to={appPage("email-stats")} replace />
+      <Navigate to="/dashboards/new" replace />
     );
 
-  if (!board && !report)
+  if (!board)
     return (
       <NoBoard
         title="No dashboard at this address"
-        body={`Nothing here is called “${slug ?? reportParam}”. It may have been deleted, filed under a venture, or the link may be from another workspace.`}
+        body={`Nothing here is called “${slug}”. It may have been deleted, filed under a venture, or the link may be from another workspace.`}
         boards={boards}
         basePath="/dashboards"
       />
@@ -97,27 +108,25 @@ export function Dashboards() {
         {/* Links, not buttons: each tab IS the board's address. Hold and drag
             to reorder — the order lives in the store beside the boards. */}
         <TabStrip
-          /* FINANCE IS A FIXED TAB AND NOT A BOARD. The cost cards on the
-             boards below are widgets; the ledger, the allocation rules and the
-             per-venture P&L are a page, and this strip is the place somebody
-             already comes to ask what things cost. It leaves /dashboards on
-             purpose — see areas/finance/Finance.tsx. */
-          tabs={[...REPORTS.map((r) => ({ key: `report:${r.key}`, to: `/dashboards/reports/${r.key}`, label: r.label, icon: r.icon, fixed: true })), ...boards.map((d) => ({
+          /* BOARDS AND NOTHING ELSE. The strip used to open with four fixed
+             report tabs the owner could not move or remove; every tab in it is
+             now a board of his, in his order, and every one of them can be
+             renamed, rearranged and deleted. */
+          tabs={boards.map((d) => ({
             key: d.id,
             to: `/dashboards/${d.slug}`,
             label: d.name,
             count: d.widgets.length,
-          }))]}
-          activeKey={report ? `report:${report.key}` : board?.id ?? null}
+          }))}
+          activeKey={board.id}
           onReorder={reorderDashboards}
           className="min-w-0 flex-1"
         />
         {/*
-          ONE WINDOW FOR EVERY BOARD AND EVERY REPORT TAB, here and nowhere
-          else. It sits in this strip rather than on each board because the
-          point of it is that two boards — and a report beside them — are
-          read over the same span; a control per page would be back to the
-          seven fetch defaults this replaces. The store keeps it (see
+          ONE WINDOW FOR EVERY BOARD, here and nowhere else. It sits in this
+          strip rather than on each board because the point of it is that two
+          boards are read over the same span; a control per page would be back
+          to the seven fetch defaults this replaces. The store keeps it (see
           `dashboardWindow`), the fetch layer reads it, and every windowed
           card's name follows it.
         */}
@@ -138,13 +147,13 @@ export function Dashboards() {
 
       {/* Keyed by board: switching dashboards ends an edit session rather than
           carrying a half-open widget panel across to a different board. */}
-      {report ? <report.page /> : board && <BoardView
+      <BoardView
         key={board.id}
         board={board}
         basePath="/dashboards"
         homePath="/dashboards"
         ventureId={null}
-      />}
+      />
     </>
   );
 }

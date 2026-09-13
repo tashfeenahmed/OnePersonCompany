@@ -17,6 +17,7 @@ import { PaletteTokens, ThemeProvider } from "@/lib/theme";
 const Chat = lazy(() => import("@/pages/Chat").then(m => ({ default: m.Chat })));
 const NewDashboard = lazy(() => import("@/pages/NewDashboard").then(m => ({ default: m.NewDashboard })));
 const Dashboards = lazy(() => import("@/pages/Dashboards").then(m => ({ default: m.Dashboards })));
+const LegacyReport = lazy(() => import("@/pages/Dashboards").then(m => ({ default: m.LegacyReport })));
 const PluginDetail = lazy(() => import("@/pages/PluginDetail").then(m => ({ default: m.PluginDetail })));
 const Plugins = lazy(() => import("@/pages/Plugins").then(m => ({ default: m.Plugins })));
 const Ventures = lazy(() => import("@/pages/Ventures").then(m => ({ default: m.Ventures })));
@@ -248,7 +249,12 @@ export default function App() {
                         is in the bar is always something worth bookmarking. */}
                     <Route path="/dashboards" element={<Dashboards />} />
                     <Route path="/dashboards/new" element={<NewDashboard />} />
-                    <Route path="/dashboards/reports/:report" element={<Dashboards />} />
+                    {/* WHERE THE FOUR REPORT TABS WENT. Email stats, Mobile
+                        health, Web analytics and Growth were fixed tabs on the
+                        strip above; each is a template now, and its old
+                        address lands on the New dashboard page with that
+                        template chosen. See pages/Dashboards. */}
+                    <Route path="/dashboards/reports/:report" element={<LegacyReport />} />
                     <Route path="/dashboards/:slug" element={<Dashboards />} />
                     <Route path="/board" element={<Board />} />
                     {/*
@@ -305,9 +311,11 @@ export default function App() {
                     <Route path="/social/posts" element={<Navigate to="/social/studio/publishing?tab=published" replace />} />
                     {/* The SEO & growth section is gone: its three run apps
                         are sub-agents' work at /outputs, and its three
-                        readings are reports on the Dashboards page. The old
-                        addresses land on the new ones, run id and all. */}
-                    <Route path="/growth" element={<Navigate to="/dashboards/reports/growth" replace />} />
+                        readings are dashboard TEMPLATES now. The old addresses
+                        land on the new ones — run id and all for a run app,
+                        and without one for a template, which has no run to
+                        show. */}
+                    <Route path="/growth" element={<Navigate to="/dashboards/new?preset=growth" replace />} />
                     <Route path="/growth/:page" element={<LegacyGrowth />} />
                     <Route path="/growth/:page/:runId" element={<LegacyGrowth />} />
                     <Route path="/ops" element={<Ops />} />
@@ -395,13 +403,19 @@ function LegacyIntegration() {
   return <Navigate to={`/integrations/${id}`} replace />;
 }
 
-/** The old /growth/<page>, carried to where the page lives now: a run app
- *  to /outputs, a reading to the Dashboards page's reports. */
+/** The old /growth/<page>, carried to where the page lives now: a run app to
+ *  /outputs, a reading to the dashboard template that draws it. */
 function LegacyGrowth() {
   const { page, runId } = useParams();
   const location = useLocation();
   const slug = page === "overview" ? "growth" : (page ?? "growth");
-  return <Navigate to={`${appPage(slug, runId)}${location.search}${location.hash}`} state={location.state} replace />;
+  const path = appPage(slug, runId);
+  /* A DESTINATION THAT ALREADY CARRIES A QUERY KEEPS ITS OWN. The three
+     readings resolve to "/dashboards/new?preset=…", and appending an old
+     "?tab=cro" behind that would make one malformed address out of two good
+     ones — the same reason `appPage` drops a run id for those entries. */
+  const search = path.includes("?") ? "" : location.search;
+  return <Navigate to={`${path}${search}${location.hash}`} state={location.state} replace />;
 }
 
 function LegacyApp() {
