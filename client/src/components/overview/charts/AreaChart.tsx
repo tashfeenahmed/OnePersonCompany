@@ -45,7 +45,7 @@ export function AreaChart({
   data,
   label,
   height,
-  color = "var(--primary)",
+  color = "var(--chart-line-1)",
   format = (v) => usd(v),
   axisFormat = (v) => (v === 0 ? "$0" : `$${compact(v)}`),
   mean = false,
@@ -147,7 +147,7 @@ export function AreaChart({
                   x2={m.l + iw}
                   y1={Y(v)}
                   y2={Y(v)}
-                  stroke={v === 0 ? "var(--chart-axis)" : "var(--chart-grid)"}
+                  stroke={v === 0 ? "var(--line-strong)" : "var(--line-soft)"}
                   strokeWidth={1}
                   shapeRendering="crispEdges"
                 />
@@ -172,7 +172,7 @@ export function AreaChart({
                     x2={X(i)}
                     y1={m.t}
                     y2={m.t + ih}
-                    stroke="var(--chart-grid)"
+                    stroke="var(--line-soft)"
                     strokeWidth={1}
                     shapeRendering="crispEdges"
                   />

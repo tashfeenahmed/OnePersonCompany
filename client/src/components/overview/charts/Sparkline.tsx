@@ -25,7 +25,7 @@ export function Sparkline({
   label,
   width = 72,
   height = 20,
-  color = "var(--chart-1)",
+  color = "var(--chart-line-1)",
   area = false,
   baseline = "zero",
   className,

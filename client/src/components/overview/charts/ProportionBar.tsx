@@ -49,7 +49,7 @@ export function ProportionBar({
             style={{
               flex: `${share} 1 0`,
               background: p.color,
-              color: p.ink ?? "var(--color-onaccent)",
+              color: p.ink ?? "var(--primary-foreground)",
             }}
             title={`${p.label} · ${format(share, p)}`}
           >

@@ -54,7 +54,7 @@ export function RankedBars({
           >
             {bars.map((b, i) => {
               const y = i * rowH
-              const color = b.color ?? "var(--chart-1)"
+              const color = b.color ?? "var(--chart-line-1)"
               const bw = b.value === null ? 0 : (b.value / top) * w
               const text = b.value === null ? "" : format(b.value)
               // "Fits inside" is measured against an estimate that errs wide,
@@ -116,7 +116,7 @@ export function RankedBars({
                         width={w}
                         height={12}
                         rx={6}
-                        fill="var(--chart-grid)"
+                        fill="var(--line-soft)"
                       />
                       <rect
                         x={0}
@@ -131,7 +131,7 @@ export function RankedBars({
                         y={y + 30}
                         textAnchor={inside ? "end" : "start"}
 
-                        fill={inside ? "var(--color-onaccent)" : "var(--foreground)"}
+                        fill={inside ? "var(--primary-foreground)" : "var(--foreground)"}
                         fontSize={11.5}
                         fontWeight={620}
                         className="tabular-nums"

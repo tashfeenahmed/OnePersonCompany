@@ -87,7 +87,7 @@ export function Waterfall({
                   x2={m.l + iw}
                   y1={Y(v)}
                   y2={Y(v)}
-                  stroke={v === 0 ? "var(--chart-axis)" : "var(--chart-grid)"}
+                  stroke={v === 0 ? "var(--line-strong)" : "var(--line-soft)"}
                   strokeWidth={1}
                   shapeRendering="crispEdges"
                 />
@@ -116,7 +116,7 @@ export function Waterfall({
                   x2={cx(i + 1) - bw / 2}
                   y1={y}
                   y2={y}
-                  stroke="var(--chart-axis)"
+                  stroke="var(--line-strong)"
                   strokeWidth={1}
                 />
               )
@@ -165,7 +165,7 @@ export function Waterfall({
                     x={cx(i)}
                     y={m.t + ih + 17}
                     textAnchor="middle"
-                    fill="var(--chart-label)"
+                    fill="var(--muted-foreground)"
                     fontSize={11}
                     fontWeight={600}
                   >

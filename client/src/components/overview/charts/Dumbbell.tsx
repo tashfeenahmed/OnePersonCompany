@@ -34,8 +34,8 @@ export function Dumbbell({
   rows,
   label,
   names,
-  colorA = "var(--chart-1)",
-  colorB = "var(--chart-2)",
+  colorA = "var(--chart-line-1)",
+  colorB = "var(--chart-line-2)",
   log = false,
   domainMax,
   format = compact,
@@ -90,7 +90,7 @@ export function Dumbbell({
                   x2={X(v)}
                   y1={m.t}
                   y2={m.t + ih}
-                  stroke="var(--chart-grid)"
+                  stroke="var(--line-soft)"
                   strokeWidth={1}
                   shapeRendering="crispEdges"
                 />
@@ -111,7 +111,7 @@ export function Dumbbell({
               x2={m.l}
               y1={m.t}
               y2={m.t + ih}
-              stroke="var(--chart-axis)"
+              stroke="var(--line-strong)"
               strokeWidth={1}
               shapeRendering="crispEdges"
             />
@@ -156,7 +156,7 @@ export function Dumbbell({
                     x={m.l - 12}
                     y={y + 3.5}
                     textAnchor="end"
-                    fill="var(--chart-label)"
+                    fill="var(--muted-foreground)"
                     fontSize={11.5}
                     fontWeight={560}
                   >
@@ -167,7 +167,7 @@ export function Dumbbell({
                     x2={X(r.b)}
                     y1={y}
                     y2={y}
-                    stroke="var(--chart-axis)"
+                    stroke="var(--line-strong)"
                     strokeWidth={2}
                     strokeLinecap="round"
                   />

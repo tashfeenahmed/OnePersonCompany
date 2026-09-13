@@ -36,9 +36,9 @@ export function Meters({
   hosts,
   thresholds = { warn: 60, crit: 80 },
   colors = {
-    ok: "var(--color-ok-500)",
-    warn: "var(--color-warn-500)",
-    crit: "var(--color-crit-500)",
+    ok: "var(--ok)",
+    warn: "var(--warn)",
+    crit: "var(--destructive)",
   },
   wrap,
   className,
@@ -88,7 +88,7 @@ export function Meters({
                     style={{
                       background:
                         c === null
-                          ? "var(--chart-grid)"
+                          ? "var(--line-soft)"
                           : `color-mix(in srgb, ${c} 16%, transparent)`,
                     }}
                   >
