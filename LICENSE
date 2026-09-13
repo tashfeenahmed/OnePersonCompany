@@ -1,27 +1,21 @@
-NO LICENCE HAS BEEN CHOSEN YET.
+MIT License
 
-This file is a placeholder. It is not a licence and it grants nothing.
+Copyright (c) 2026 One Person Company contributors
 
-Until the owner of this repository replaces this file with an actual licence
-text, the legal default applies: all rights are reserved. Nobody other than the
-copyright holder has permission to use, copy, modify, merge, publish,
-distribute, sublicense or sell this software, and the absence of a stated
-licence is not permission.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-A LICENCE MUST BE SET BEFORE THIS REPOSITORY IS PUBLISHED.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-Choosing one is the owner's decision and nobody else's. It is not a formality:
-the choice determines whether anyone may run this, whether they may modify it
-privately, whether a modified copy they run as a network service must be shared
-back, and whether the owner keeps a patent claim. Those are business decisions,
-not engineering ones.
-
-To resolve this:
-
-  1. Choose a licence. https://choosealicense.com/ walks through the trade-offs.
-  2. Replace the whole of this file with that licence's exact, unmodified text.
-  3. Fill in the copyright line with the year and the copyright holder's name.
-  4. Add a `license` field to the root `package.json` naming its SPDX
-     identifier, and update the Licence section of README.md.
-
-Until all four are done, treat this repository as private.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

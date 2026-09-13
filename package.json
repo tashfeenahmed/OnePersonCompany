@@ -16,5 +16,6 @@
     "service-status": "node --experimental-strip-types server/src/cli/install.ts --status",
     "test": "npm --prefix server test && npm --prefix client test",
     "check": "npm run test && npm run build && npm --prefix client run lint && npm --prefix client run check:catalog && npm --prefix client run check:strict"
-  }
+  },
+  "license": "MIT"
 }

@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest an improvement to a real workflow.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the workflow and where it gets difficult.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What would a useful result look like?
+      description: Include alternatives or an example with fictional data.
+    validations:
+      required: true
