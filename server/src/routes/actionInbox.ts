@@ -23,6 +23,7 @@
  *     the state wherever it has one, exactly as resolve already did;
  *     `action_inbox_state` is the fallback for the kinds with nowhere else.
  */
+import { undoable, undoAction, UndoError, type UndoReceipt } from "../actions/undo.ts";
 import { Hono } from "hono";
 import { db, now } from "../db.ts";
 import { fileCard } from "./board.ts";
@@ -61,6 +62,10 @@ export function inboxItems(): Item[] {
 }
 export const actionInboxRoutes = new Hono();
 actionInboxRoutes.get("/", c => c.json({ items: inboxItems(), asOf: now() }));
+actionInboxRoutes.post("/undo/:token", c => {
+  try { undoAction(c.req.param("token")); return c.json({ ok: true }); }
+  catch (error) { if (error instanceof UndoError) return c.json({ error: error.message }, error.status); throw error; }
+});
 actionInboxRoutes.post("/:id/:action", async c => {
   const id = c.req.param("id"), action = c.req.param("action");
   if (!["resolve", "snooze", "board"].includes(action)) return c.json({ error: "Unknown action." }, 400);
@@ -77,20 +82,21 @@ actionInboxRoutes.post("/:id/:action", async c => {
      own row is left clear rather than written with a second copy that the two
      surfaces could then disagree about. */
   let wroteThrough = false;
+  let undo: UndoReceipt | null = null;
   db.exec("BEGIN IMMEDIATE");
   try {
-    if (kind === "alert" && action === "resolve") { ackEvent(Number(parts[0])); wroteThrough = true; }
-    if (kind === "commitment" && action === "resolve") { decide(parts.join(":"), "done"); wroteThrough = true; }
+    if (kind === "alert" && action === "resolve") { undo = undoable("alert", [Number(parts[0])], () => ackEvent(Number(parts[0]))).undo; wroteThrough = true; }
+    if (kind === "commitment" && action === "resolve") { undo = undoable("commitment", [parts.join(":")], () => decide(parts.join(":"), "done")).undo; wroteThrough = true; }
     /* Mailflow's own verb. An omitted field keeps what is stored, so snoozing
        from here cannot clear a "done" set on the Mail page. */
     if (kind === "triage") {
-      markThread(Number(parts[0]), parts[1]!, action === "snooze" ? { snoozedUntil: until } : { doneAt: ts });
+      undo = undoable("triage", [Number(parts[0]), parts.slice(1).join(":")], () => markThread(Number(parts[0]), parts.slice(1).join(":"), action === "snooze" ? { snoozedUntil: until } : { doneAt: ts })).undo;
       wroteThrough = true;
     }
     if (!wroteThrough)
-      db.prepare("INSERT INTO action_inbox_state (id, resolved_at, snoozed_until) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET resolved_at=excluded.resolved_at, snoozed_until=excluded.snoozed_until")
-        .run(id, action === "resolve" ? ts : null, action === "snooze" ? until : null);
+      undo = undoable("inbox", [id], () => db.prepare("INSERT INTO action_inbox_state (id, resolved_at, snoozed_until) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET resolved_at=excluded.resolved_at, snoozed_until=excluded.snoozed_until")
+        .run(id, action === "resolve" ? ts : null, action === "snooze" ? until : null)).undo;
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
-  return c.json({ ok: true, wroteThrough });
+  return c.json({ ok: true, wroteThrough, undo });
 });

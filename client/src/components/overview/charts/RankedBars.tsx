@@ -33,7 +33,7 @@ export function RankedBars({
   className,
 }: Props) {
   const [ref, w] = useMeasuredWidth<HTMLDivElement>()
-  const { tip, show, hide } = useTip()
+  const { tip, show, hide, point, pinned, unpin } = useTip(JSON.stringify(bars))
 
   const rowH = 46
   const H = bars.length * rowH
@@ -48,7 +48,7 @@ export function RankedBars({
             width={w}
             height={H}
             viewBox={`0 0 ${w} ${H}`}
-            role="img"
+            role="group"
             aria-label={label}
             className="block"
           >
@@ -64,7 +64,7 @@ export function RankedBars({
               return (
                 <g
                   key={b.key}
-                  onMouseEnter={() =>
+                  {...point(() =>
                     show({
                       x: Math.min(bw, w - 20),
                       y: y + 20,
@@ -74,8 +74,8 @@ export function RankedBars({
                           ? (b.empty ?? "not reported")
                           : format(b.value),
                     })
-                  }
-                  onMouseLeave={hide}
+                  , `Inspect ${b.label}`)}
+                  onPointerLeave={hide}
                 >
                   <rect x={0} y={y} width={w} height={rowH} fill="transparent" />
                   <text
@@ -146,7 +146,7 @@ export function RankedBars({
           </svg>
         )
       })()}
-      <ChartTip tip={tip} width={w} />
+      <ChartTip pinned={pinned} onUnpin={unpin} tip={tip} width={w} />
     </div>
   )
 }

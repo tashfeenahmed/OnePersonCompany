@@ -24,6 +24,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VentureSelect } from "@/components/VentureSelect";
 import { PostCard } from "@/components/studio/PostCard";
 import { ReadinessBanner } from "@/components/studio/ReadinessBanner";
+import { GameplayPicker } from "@/components/studio/GameplayPicker";
+import { gameplayLabel } from "../../../shared/gameplay";
 import { MotionReadinessNote, NewSceneListButton, SceneListEditor } from "@/components/studio/SceneListEditor";
 import { RunSteps } from "@/components/runs/RunSteps";
 import { VideoResult } from "@/areas/video/VideoResult";
@@ -617,6 +619,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const stewie = useApi(() => (make === "stewie" ? stewieApi.read().catch(() => null) : Promise.resolve(null)), [make]);
   const [stewieMode, setStewieMode] = useState<"images" | "pages">("images");
   const [background, setBackground] = useState("");
+  const gameplay = stewie.data?.backgrounds ?? (stewie.data?.worker?.backgrounds ?? []).map(id => ({ id, label: gameplayLabel(id), thumbnailUrl: null }));
 
   const needsVenture = make !== "youtube" && make !== "stewie";
   const ready =
@@ -625,7 +628,9 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     (make === "image" ? brief.trim().length > 0 : true) &&
     (make === "ugc" ? assets.length > 0 : true) &&
     (make === "youtube" ? Object.keys(keeps).length > 0 || url.trim().length > 0 : true) &&
-    (make === "stewie" ? (stewie.data?.configured ?? false) && !stewie.data?.running && (stewieMode === "pages" ? url.trim().length > 0 : brief.trim().length > 0) : true);
+    (make === "stewie" ? (stewie.data?.configured ?? false) && !stewie.data?.running
+      && (!background || gameplay.some(item => item.id === background))
+      && (stewieMode === "pages" ? url.trim().length > 0 : brief.trim().length > 0) : true);
 
   async function go() {
     if (!ready) return;
@@ -703,7 +708,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     youtube: "Searching and previewing are free — metadata and YouTube's own player. Cutting is one shorts run per video you ticked, a few minutes each, one at a time.",
     reel: "Headless Chrome captures each page, a model writes the two voices, the voice plugin speaks them if it is on.",
     motion: "A model drafts the scene list unless you pick a saved one; Chrome renders the frames. Silent unless the voice plugin is on.",
-    stewie: "Handed to Workdash's Pi, which wakes the Dell if it is asleep (about ninety seconds), writes the two-hander there, clones both voices and renders. A few minutes, and real power while the Dell is up.",
+    stewie: "Handed to Workdash's Pi, which wakes the Dell if it is asleep (about ninety seconds), clones both voices and renders the script written by your workspace LLM. A few minutes, and real power while the Dell is up.",
   }[make];
 
   return (
@@ -743,19 +748,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
               <Textarea value={url} onChange={(e) => setUrl(e.target.value)} rows={3} placeholder="https://…" className="text-[14px]" />
             </Field>
           )}
-          {(stewie.data?.worker?.backgrounds?.length ?? 0) > 0 ? (
-            <Field label="Gameplay footage">
-              <Chips
-                value={background}
-                onChange={setBackground}
-                options={[{ key: "", label: "Worker's default" }, ...stewie.data!.worker!.backgrounds!.map((b) => ({ key: b, label: b.replace(/_/g, " ") }))]}
-              />
-            </Field>
-          ) : (
-            <Field label="Gameplay footage (optional)" hint="The worker is asleep, so its clip list is not known. Name one it holds, or leave it for the default.">
-              <Input value={background} onChange={(e) => setBackground(e.target.value)} placeholder="subway_surfers" className="w-64 text-[14px]" />
-            </Field>
-          )}
+          <GameplayPicker backgrounds={gameplay} value={background} onChange={setBackground} loading={stewie.loading} />
         </div>
       )}
 

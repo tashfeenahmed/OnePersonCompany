@@ -290,7 +290,7 @@ export const alertsApi = {
   },
 
   ack: (id: number) =>
-    call<{ event: AlertEvent; open: number; note: string }>(`/alerts/events/${id}/ack`, {
+    call<{ event: AlertEvent; open: number; note: string; undo: { token: string; expiresAt: number } | null }>(`/alerts/events/${id}/ack`, {
       method: "POST",
     }),
 

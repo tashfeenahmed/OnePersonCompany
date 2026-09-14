@@ -163,8 +163,8 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { duration } from "@/lib/format";
 import { useDraft } from "@/hooks/useDraft";
+import { useModelProviders } from "@/hooks/useModelProviders";
 import {
-  ArrowUp,
   Bot,
   Brain,
   Bug,
@@ -177,9 +177,7 @@ import {
   LayoutDashboard,
   Plug,
   Plus,
-  SlidersHorizontal,
   Sparkles,
-  Square,
   TriangleAlert,
   Wrench,
 } from "lucide-react";
@@ -191,7 +189,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Textarea } from "@/components/ui/textarea";
+import { CommandBar } from "@/components/chat/CommandBar";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { VentureMark } from "@/components/VentureChrome";
@@ -208,7 +206,6 @@ import {
   type ChatRunState,
   type ChatToolCall,
   type MessageBackendId,
-  type ModelProviders,
   type ProviderId,
 } from "@/lib/api";
 
@@ -782,17 +779,7 @@ export function Chat() {
     text: string;
   } | null>(null);
   const [backends, setBackends] = useState<ChatBackends | null>(null);
-  /**
-   * THE PROVIDER LAYER, kept beside the agent one rather than folded into it.
-   *
-   * `/chat/backends` already says WHICH provider would take a message when no
-   * agent is live — that is the `fallback` field, and it is what the banner
-   * and the composer read. This second document is the list of all four and
-   * their connected states, which only the picker needs; fetching it here
-   * rather than inside the picker means the header does not flicker a "No
-   * provider" label for one frame on every open.
-   */
-  const [providers, setProviders] = useState<ModelProviders | null>(null);
+  const { data: providers } = useModelProviders();
   /*
     MANAGED OR REMOTE, per agent — a second fetch, and worth it.
 
@@ -922,13 +909,6 @@ export function Chat() {
   }, []);
 
   const refreshBackends = useCallback(() => {
-    /* The provider list is refreshed with the backend state, because the two
-       change together: making a provider the default is what turns "no agent
-       is live" from a refusal into a fallback. */
-    api
-      .modelProviders()
-      .then(setProviders)
-      .catch(() => setProviders(null));
     /* And the agents' modes, from the route that owns that fact. */
     api
       .agents()
@@ -944,6 +924,9 @@ export function Chat() {
          one screen is noise. */
       .catch(() => setBackends(null));
   }, []);
+
+  const providerKey = providers?.providers.filter(p => p.live).map(p => `${p.id}:${p.model ?? ""}`).join("|");
+  useEffect(() => { refreshBackends(); }, [providerKey, refreshBackends]);
 
   /**
    * THIS PAGE, LISTENING TO STREAMS IT DID NOT START.
@@ -1699,29 +1682,6 @@ export function Chat() {
     }
   }
 
-  /**
-   * Choose the provider every agent inherits — and, when no agent is live, the
-   * one that answers this chat directly.
-   *
-   * The backend state is re-read afterwards and not merely the provider list,
-   * because THAT is what carries the fallback sentence the banner and the
-   * composer are drawn from: a provider chosen here changes what the page says
-   * about a chat with no agent in it.
-   */
-  async function chooseProvider(id: ProviderId | null) {
-    try {
-      setProviders(await api.setModelProvider(id));
-      setBackends(await api.chatBackends());
-      setSwitchFailure(null);
-    } catch (e: unknown) {
-      if (sessionId)
-        setSwitchFailure({
-          id: sessionId,
-          text: e instanceof Error ? e.message : "Could not change the provider.",
-        });
-    }
-  }
-
   /* --------------------------------------------------------------- parts */
 
   const live = backends?.live ?? null;
@@ -1866,78 +1826,6 @@ export function Chat() {
     </DropdownMenu>
   );
 
-  /*
-    THE PROVIDER PICKER, WHICH IS NOT A SECOND AGENT SELECTOR.
-
-    The two menus name two layers and the header shows both because they can
-    disagree in a way the owner has to be able to see. The agent selector says
-    who is THINKING; this says which model is COMPLETING — the one every agent
-    is pointed at, and the one that answers this chat directly when no agent is
-    live. A single control covering both would have to pretend that "Hermes"
-    and "the local model" are alternatives at the same level, and they are not:
-    Hermes talks to the local model.
-
-    It is shown whether or not an agent is live, for the same reason: an agent
-    IS spending the provider named here, and hiding the label until the agent
-    goes away would mean the only time you could see which model you were
-    paying for is when nothing was using it.
-
-    The whole table — endpoints, policies, what each provider is — lives in
-    Settings → Models. This is the switch, not the page.
-  */
-  const providerPicker = (
-    <DropdownMenu>
-      <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]">
-        <Cpu className="size-3.5" strokeWidth={1.6} />
-        {providers?.live ? PROVIDER_NAMES[providers.live] : "No provider"}
-        <ChevronDown className="size-[13px]" strokeWidth={1.6} />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel className="text-muted-foreground text-[12.5px] font-normal">
-          One provider completes. Agents are pointed at it, and with no agent
-          live it answers this chat itself.
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {(providers?.providers ?? []).map((p) => (
-          <DropdownMenuItem
-            key={p.id}
-            disabled={!p.connected}
-            onSelect={() => p.connected && void chooseProvider(p.id)}
-          >
-            <Check
-              className={cn("size-3.5 shrink-0", !p.live && "opacity-0")}
-              strokeWidth={2}
-            />
-            <span className="flex-1">{PROVIDER_NAMES[p.id]}</span>
-            <span className="text-muted-foreground text-[12.5px]">
-              {!p.connected
-                ? "not connected"
-                : p.live
-                  ? `default · ${p.policy.mode === "series" ? "series" : `${p.policy.concurrency} at once`}`
-                  : "ready"}
-            </span>
-          </DropdownMenuItem>
-        ))}
-        {providers?.live && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => void chooseProvider(null)}>
-              <span className="size-3.5 shrink-0" />
-              No default — nothing completes
-            </DropdownMenuItem>
-          </>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link to="/settings">
-            <SlidersHorizontal className="size-3.5" strokeWidth={1.6} />
-            Endpoints and policy
-          </Link>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-
   const hasChat = messages.length > 0 || busyHere;
 
   /*
@@ -1986,7 +1874,6 @@ export function Chat() {
       <header className="flex h-12 shrink-0 items-center gap-2 px-4.5">
         {picker}
         <div className="ml-auto flex items-center gap-0.5">
-          {providerPicker}
           {selector}
           <Link
             to="/dashboards"
@@ -2278,86 +2165,35 @@ export function Chat() {
 
       <div className="flex shrink-0 justify-center px-6 pt-5 pb-5.5">
         <div className="w-full max-w-[760px]">
-          <div className="bg-card hover:bg-card-hover focus-within:bg-card-hover rounded-[18px] px-4 pt-3 pb-2 transition-colors">
-            <Textarea
-              ref={inputRef}
-              aria-label="Message"
-              value={text}
-              autoFocus
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              placeholder={
-                noAgent && !fallback
-                  ? "Connect an agent under Integrations to start talking…"
-                  : "Ask anything, or describe what you want to build…"
-              }
-              className="max-h-[200px] min-h-[46px] resize-none border-0 bg-transparent p-0 px-1.5 shadow-none hover:bg-transparent focus-visible:ring-0 dark:bg-transparent"
-            />
-            {(draftError || attachmentError) && <p role="alert" className="text-destructive text-xs p-1">{draftError || attachmentError}</p>}
-            <input ref={attachmentRef} hidden type="file" accept="text/*,.md,.json,.csv,.ts,.tsx,.js,.py,.html,.css,.yaml,.yml,.log" onChange={async e => {
-              const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
-              if (file.size > 100_000) { setAttachmentError("Choose a text file smaller than 100 KB."); return; }
-              try {
-                const content = await file.text();
-                if (content.includes("\0")) throw new Error("Choose a text file; binary attachments are not supported.");
-                setText(previous => `${previous}\n\nAttached file: ${file.name}\n${content}`); setAttachmentError(null); inputRef.current?.focus();
-              } catch (error) { setAttachmentError(String(error)); }
-            }} />
-            <div className="flex flex-wrap items-center gap-0.5 pt-1">
-              <button
-                title="Attach a text file"
-                aria-label="Attach a text file"
-                onClick={() => attachmentRef.current?.click()}
-                className="hover:bg-accent rounded-lg p-1.5"
-              >
-                <Plus className="size-[15px]" strokeWidth={1.6} />
-              </button>
-              {picker}
-              <Link
-                to="/integrations"
-                className="hover:bg-accent flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
-              >
-                <Plug className="size-[15px]" strokeWidth={1.6} />
-                Integrations
-              </Link>
-              {/*
-                SEND BECOMES STOP, IN THE SAME PLACE. One control, because
-                there is only ever one thing to do with a turn in flight, and a
-                separate stop button somewhere else is a button that is
-                disabled 99% of the time. The square is the universal spelling
-                of it and needs no label.
-
-                Stopping is not a cancel: the server keeps what the agent had
-                already said, flagged as cut off. Nothing on screen is lost by
-                pressing it, which is why it is offered without a confirmation.
-              */}
-              {busyHere ? (
-                <button
-                  onClick={stop}
-                  title="Stop"
-                  className="bg-primary text-primary-foreground ml-auto grid size-7 place-items-center rounded-lg"
-                >
-                  <Square className="size-3 fill-current" strokeWidth={2} />
-                </button>
-              ) : (
-                <button
-                  onClick={() => void send()}
-                  disabled={!text.trim()}
-                  title="Send"
-                  className={cn(
-                    "bg-primary text-primary-foreground ml-auto grid size-7 place-items-center rounded-lg transition-opacity",
-                    text.trim() ? "opacity-100" : "pointer-events-none opacity-25",
-                  )}
-                >
-                  <ArrowUp className="size-4" strokeWidth={2} />
-                </button>
-              )}
-            </div>
+          <CommandBar
+            value={text}
+            onChange={setText}
+            onSend={() => void send()}
+            onStop={stop}
+            onAttach={() => attachmentRef.current?.click()}
+            busy={busyHere}
+            inputRef={inputRef}
+            error={draftError || attachmentError}
+            placeholder={noAgent && !fallback
+              ? "Connect an agent…"
+              : "Ask anything…"}
+          />
+          <input ref={attachmentRef} hidden type="file" accept="text/*,.md,.json,.csv,.ts,.tsx,.js,.py,.html,.css,.yaml,.yml,.log" onChange={async e => {
+            const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
+            if (file.size > 100_000) { setAttachmentError("Choose a text file smaller than 100 KB."); return; }
+            try {
+              const content = await file.text();
+              if (content.includes("\0")) throw new Error("Choose a text file; binary attachments are not supported.");
+              setText(previous => `${previous}\n\nAttached file: ${file.name}\n${content}`); setAttachmentError(null); inputRef.current?.focus();
+            } catch (error) { setAttachmentError(String(error)); }
+          }} />
+          <div className="chat-command-context">
+            {picker}
+            <Link to="/integrations"
+              className="hover:bg-accent hover:text-foreground flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px]">
+              <Plug className="size-[14px]" strokeWidth={1.6} />
+              Integrations
+            </Link>
           </div>
           {/*
             The footer says which agent is answering, because the composer is

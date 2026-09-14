@@ -43,7 +43,7 @@ export function Dumbbell({
   className,
 }: Props) {
   const [ref, w] = useMeasuredWidth<HTMLDivElement>()
-  const { tip, show, hide } = useTip()
+  const { tip, show, hide, point, pinned, unpin } = useTip(JSON.stringify(rows))
 
   return (
     <div ref={ref} className={`relative w-full ${className ?? ""}`}>
@@ -79,7 +79,7 @@ export function Dumbbell({
             width={w}
             height={H}
             viewBox={`0 0 ${w} ${H}`}
-            role="img"
+            role="group"
             aria-label={`${label} — ${names[0]} and ${names[1]} per row${log ? ", log scale" : ""}`}
             className="block"
           >
@@ -122,7 +122,7 @@ export function Dumbbell({
               return (
                 <g
                   key={r.key}
-                  onMouseEnter={() =>
+                  {...point(() =>
                     show({
                       x: X(Math.max(r.a, r.b)),
                       y,
@@ -141,8 +141,8 @@ export function Dumbbell({
                           </>
                         ),
                     })
-                  }
-                  onMouseLeave={hide}
+                  , `Inspect ${r.label}`)}
+                  onPointerLeave={hide}
                 >
                   <rect
                     x={0}
@@ -203,7 +203,7 @@ export function Dumbbell({
           </svg>
         )
       })()}
-      <ChartTip tip={tip} width={w} />
+      <ChartTip pinned={pinned} onUnpin={unpin} tip={tip} width={w} />
     </div>
   )
 }

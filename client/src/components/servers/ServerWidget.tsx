@@ -1,3 +1,5 @@
+import { InspectButton } from "@/components/interactions/InspectButton";
+import { AnimatedDetails } from "@/components/interactions/AnimatedDetails";
 import { useState, type HTMLAttributes } from "react";
 import { Link } from "react-router-dom";
 import { Activity, AlertTriangle, ArrowLeft, ArrowRight, Banknote, Check, ChevronDown, Copy, Globe2, Search, Server, Trash2, UnfoldHorizontal, X } from "lucide-react";
@@ -32,7 +34,7 @@ function Meter({meter}:{meter:ServerMeter}) {
   </div>;
 }
 
-function HostCard({card}:{card:ServerCardData}) {
+function HostCard({card, inspection = false}:{card:ServerCardData; inspection?: boolean}) {
   const [copied,setCopied]=useState(false);
   const [copyError,setCopyError]=useState(false);
   const flag=countryFlag(card.country);
@@ -42,8 +44,8 @@ function HostCard({card}:{card:ServerCardData}) {
     try {await navigator.clipboard.writeText(card.address);setCopied(true);setCopyError(false);}
     catch {setCopyError(true);}
   }
-  return <article className={cn("server-host-card",card.status==="down"&&"ring-1 ring-destructive/35")} aria-label={card.name}>
-    <div className="flex items-start gap-2.5">
+  return <article className={cn("group relative server-host-card",card.status==="down"&&"ring-1 ring-destructive/35")} aria-label={card.name}>
+    <div className={cn("flex items-start gap-2.5", !inspection && "pr-7")}>
       <span role="img" aria-label={regionLabel} title={regionLabel} data-server-region={card.country ?? "unknown"} className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-muted text-[22px] leading-none text-muted-foreground">{flag ?? <Globe2 aria-hidden="true" className="size-5" strokeWidth={1.6}/>}</span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><h3 className="min-w-0 flex-1 text-[15px] font-semibold tracking-tight">{card.name}</h3><span className={cn("inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium",statusClass[card.status])}><span className={cn("size-1.5 rounded-full",statusDot[card.status])}/>{card.statusLabel}</span></div>
@@ -56,6 +58,7 @@ function HostCard({card}:{card:ServerCardData}) {
         <p className="mt-0.5 text-[10px] text-muted-foreground">{[card.location,card.provider,card.specs].filter(Boolean).join(" · ")}</p>
       </div>
     </div>
+    {!inspection && <div className="absolute right-3 top-3"><InspectButton title={card.name} description={`Last probe ${ago(card.seenAt)} · ${card.loadSpan}`}><HostCard card={card} inspection/></InspectButton></div>}
     {card.note && <p className={cn("mt-3 rounded-xl bg-muted/60 px-3 py-2 text-[11px] leading-relaxed",statusClass[card.status])}>{card.note}</p>}
     <dl className="mt-4 grid grid-cols-3 gap-x-3 gap-y-3">{card.meters.filter((m,i)=>i<3 || !m.label.startsWith("/boot") || (m.value!==null && m.value>=m.warn)).map(m=><Meter key={m.label} meter={m}/>)}</dl>
     <div className="mt-4 border-t pt-3">
@@ -63,13 +66,13 @@ function HostCard({card}:{card:ServerCardData}) {
       <ServerLoadChart points={card.load} label={`${card.name} CPU`}/>
       <p className="mt-2 text-[10px] text-muted-foreground">{card.loadSource} · last probe {ago(card.seenAt)}</p>
     </div>
-    <details className="server-disclosure mt-3 border-t pt-3">
+    <AnimatedDetails open={inspection || undefined} className="server-disclosure mt-3 border-t pt-3">
       <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs"><ChevronDown className="size-3.5 text-muted-foreground"/><span>Containers</span><span className="ml-auto text-[11px] text-muted-foreground">{card.docker?.installed?`${card.docker.running} running`:card.docker?"not installed":"not measured"}</span></summary>
       <div className="mt-3 space-y-2.5">{card.containers.map(c=><div key={c.name} className="min-w-0"><div className="flex flex-wrap justify-between gap-1 text-[11px]"><span className="break-all font-medium">{c.name}</span><span className={/unhealthy|restarting/i.test(c.status ?? "")?"text-warn":"text-muted-foreground"}>{c.status ?? "unknown"}</span></div><p className="mt-0.5 break-all text-[10px] text-muted-foreground">{c.image}{c.since?` · ${c.since}`:""}</p></div>)}
         <p className="text-[10px] leading-relaxed text-muted-foreground">{card.docker?.installed?"Running Docker containers only. Stopped containers and host processes are not included.":card.docker?"This box does not have Docker installed. Host processes are not measured here.":"The probe has not reported whether Docker is installed."}</p>
       </div>
-    </details>
-    <details className="server-disclosure mt-3 border-t pt-3"><summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs"><ChevronDown className="size-3.5 text-muted-foreground"/>System details & counters</summary><dl className="mt-3 space-y-2">{[...card.facts,...card.counters.map(c=>[c.label,c.value===null?c.note ?? "Not measured":String(c.value)])].map(([label,value])=><div key={label} className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-[11px]"><dt className="text-muted-foreground">{label}</dt><dd className="break-all text-right tabular-nums">{value}</dd></div>)}</dl></details>
+    </AnimatedDetails>
+    <AnimatedDetails open={inspection || undefined} className="server-disclosure mt-3 border-t pt-3"><summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs"><ChevronDown className="size-3.5 text-muted-foreground"/>System details & counters</summary><dl className="mt-3 space-y-2">{[...card.facts,...card.counters.map(c=>[c.label,c.value===null?c.note ?? "Not measured":String(c.value)])].map(([label,value])=><div key={label} className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-[11px]"><dt className="text-muted-foreground">{label}</dt><dd className="break-all text-right tabular-nums">{value}</dd></div>)}</dl></AnimatedDetails>
   </article>;
 }
 
@@ -103,16 +106,16 @@ export function ServerWidget({def,placed,empty,stale,error,editing,onCycleWidth,
 }) {
   const Icon=statIcons[placed.type as keyof typeof statIcons] ?? Server;
   const cards=def.presentation==="server-fleet";
-  const controls=editing && <div className="ml-auto flex shrink-0 gap-0.5">{[[ArrowLeft,()=>onMove?.(-1),"Move earlier"],[ArrowRight,()=>onMove?.(1),"Move later"],[UnfoldHorizontal,onCycleWidth,"Resize"],[Trash2,onRemove,"Remove"]].map(([Glyph,action,label])=>{const G=Glyph as typeof ArrowLeft;return <button type="button" key={String(label)} aria-label={`${label} ${def.name}`} title={`${label} ${def.name}`} onClick={action as ()=>void} onPointerDown={e=>e.stopPropagation()} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><G className="size-3.5"/></button>;})}</div>;
-  return <section {...dragHandlers} aria-label={def.name} data-span={widgetSpan(placed,def)} className={cn("server-widget min-w-0",widgetSpanClass(placed,def),cards?"server-fleet-widget":def.presentation==="server-stat"?"server-summary-card":"server-load-card",editing&&"cursor-grab touch-none select-none",dragging&&"opacity-35",dropSide&&"outline outline-2 outline-offset-4 outline-primary")}>
+  const controls=editing && <div className="widget-action ml-auto flex shrink-0 gap-0.5">{[[ArrowLeft,()=>onMove?.(-1),"Move earlier"],[ArrowRight,()=>onMove?.(1),"Move later"],[UnfoldHorizontal,onCycleWidth,"Resize"],[Trash2,onRemove,"Remove"]].map(([Glyph,action,label])=>{const G=Glyph as typeof ArrowLeft;return <button type="button" key={String(label)} aria-label={`${label} ${def.name}`} title={`${label} ${def.name}`} onClick={action as ()=>void} onPointerDown={e=>e.stopPropagation()} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><G className="size-3.5"/></button>;})}</div>;
+  return <section {...dragHandlers} aria-label={def.name} data-span={widgetSpan(placed,def)} className={cn("group server-widget min-w-0",widgetSpanClass(placed,def),cards?"server-fleet-widget":def.presentation==="server-stat"?"server-summary-card":"server-load-card",editing&&"cursor-grab touch-none select-none",dragging&&"opacity-35",dropSide&&"drag-destination")}>
     {portfolioWide && <p className="mb-2 text-[10px] text-muted-foreground">All servers · portfolio-wide</p>}
     {editing && onToggleDetail && <button type="button" className="mb-2 text-[10px] text-muted-foreground" aria-label={`${placed.detail ? "Show on main dashboard" : "Move to details"}: ${def.name}`} onClick={onToggleDetail}>{placed.detail ? "Show on main dashboard" : "Move to details"}</button>}
     {(!cards||editing) && <div className="mb-2 flex items-center gap-2">{def.presentation==="server-stat"&&<Icon className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.6}/>}<h2 className={cn("min-w-0",def.presentation==="server-stat"?"text-[11px] text-muted-foreground":"text-sm font-semibold")}>{def.name}</h2>{def.presentation==="server-load"&&<span className="ml-auto text-[10px] text-muted-foreground">{def.serverFleet?.span}</span>}{controls}</div>}
     {empty ? <p className="py-5 text-xs text-muted-foreground">{empty}</p> : cards && def.serverFleet ? <FleetCards fleet={def.serverFleet}/> : def.presentation==="server-load" && def.serverFleet ? <>
       <ServerLoadChart points={def.serverFleet.points} label="Fleet mean CPU" height={104}/>
       <p className="mt-3 text-[10px] leading-relaxed text-muted-foreground">{def.caption}</p>
-      <details className="server-disclosure mt-3"><summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground"><ChevronDown className="size-3"/>Figures</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-[11px]"><thead><tr>{["Server","CPU now","Memory","Root disk","Mean CPU","Peak"].map(h=><th key={h} className="border-b py-2 pr-3 font-medium text-muted-foreground">{h}</th>)}</tr></thead><tbody>{def.serverFleet.cards.map(c=><tr key={c.id} className="border-b last:border-0"><td className="py-2.5 pr-3">{c.name}</td>{[c.meters[0]?.value ?? null,c.meters[1]?.value ?? null,c.meters[2]?.value ?? null,c.load.length?c.load.reduce((n,p)=>n+p.value,0)/c.load.length:null,c.load.length?Math.max(...c.load.map(p=>p.value)):null].map((v,i)=><td key={i} className="py-2.5 pr-3 tabular-nums text-muted-foreground">{pct(v)}</td>)}</tr>)}</tbody></table></div></details>
-    </> : <><p className="mt-3 break-words text-[29px] font-semibold leading-none tracking-tight tabular-nums">{def.value ?? "—"}</p><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{def.sub}</p><details className="server-disclosure mt-auto pt-2"><summary className="cursor-pointer text-[10px] text-muted-foreground">Details</summary><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{def.caption}</p>{def.rows?.map(([k,v])=><div key={k} className="mt-2 flex flex-wrap justify-between gap-1 text-[10px]"><span className="text-muted-foreground">{k}</span><span>{v}</span></div>)}</details></>}
+      <AnimatedDetails className="server-disclosure mt-3"><summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground"><ChevronDown className="size-3"/>Figures</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-[11px]"><thead><tr>{["Server","CPU now","Memory","Root disk","Mean CPU","Peak"].map(h=><th key={h} className="border-b py-2 pr-3 font-medium text-muted-foreground">{h}</th>)}</tr></thead><tbody>{def.serverFleet.cards.map(c=><tr key={c.id} className="border-b last:border-0"><td className="py-2.5 pr-3">{c.name}</td>{[c.meters[0]?.value ?? null,c.meters[1]?.value ?? null,c.meters[2]?.value ?? null,c.load.length?c.load.reduce((n,p)=>n+p.value,0)/c.load.length:null,c.load.length?Math.max(...c.load.map(p=>p.value)):null].map((v,i)=><td key={i} className="py-2.5 pr-3 tabular-nums text-muted-foreground">{pct(v)}</td>)}</tr>)}</tbody></table></div></AnimatedDetails>
+    </> : <><p className="mt-3 break-words text-[29px] font-semibold leading-none tracking-tight tabular-nums">{def.value ?? "—"}</p><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{def.sub}</p><AnimatedDetails className="server-disclosure mt-auto pt-2"><summary className="cursor-pointer text-[10px] text-muted-foreground">Details</summary><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{def.caption}</p>{def.rows?.map(([k,v])=><div key={k} className="mt-2 flex flex-wrap justify-between gap-1 text-[10px]"><span className="text-muted-foreground">{k}</span><span>{v}</span></div>)}</AnimatedDetails></>}
     {stale && <p role="status" title={error ?? undefined} className="mt-2 text-[11px] text-warn">Refresh failed · showing the last reading</p>}
   </section>;
 }

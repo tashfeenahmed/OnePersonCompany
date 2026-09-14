@@ -1,3 +1,4 @@
+import { readingPresentation } from "./readingPresentation";
 import type { InsightsReport } from "../../../shared/insights";
 import { call } from "@/lib/api";
 import { LiveRefreshGate, mergeReadings } from "./liveRefresh";
@@ -296,6 +297,7 @@ export type LiveData = {
    * days that landed); see `daysFor` below for what "all" was turned into.
    */
   window: WindowValue;
+  pendingWindow?: WindowValue;
   /** Which widget types are showing real data right now. */
   sourceStates: Record<string, "loading" | "disconnected" | "ready" | "error">;
   sourceErrors: Record<string, string>;
@@ -391,6 +393,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   */
   const { state: stored } = useStore();
   const selected: WindowValue = stored.dashboardWindow ?? DEFAULT_WINDOW;
+  const [readingWindow, setReadingWindow] = useState(selected);
+  const [settled, setSettled] = useState<LiveData | null>(null);
   const [metrics, setMetrics] = useState<Record<string, Point[]>>({});
   const [hetzner, setHetzner] = useState<HetznerSummary | null>(null);
   const [fleet, setFleet] = useState<HetznerServer[]>([]);
@@ -607,6 +611,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     // Changing the requested window invalidates the data. Focus, polling and
     // manual refresh keep the last reading visible until its replacement arrives.
     if (refreshGate.current.begin(selected, Date.now())) {
+      setReadingWindow(selected);
       setSourceErrors({}); setSourceStates({});
       setMetrics({});
       setHetzner(null);
@@ -1188,7 +1193,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         users,
         mobileHealth,
         webAnalytics,
-        window: selected,
+        window: readingWindow,
       });
       if (patch) liveTypes.add(type);
     }
@@ -1240,12 +1245,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       users,
       mobileHealth,
       webAnalytics,
-      window: selected,
+      window: readingWindow,
       sourceStates, sourceErrors, loading, error, liveTypes,
       reload: () => setTick((t) => t + 1),
     };
   }, [
-    selected,
+    readingWindow,
     sourceStates, sourceErrors, loading, error,
     metrics,
     hetzner,
@@ -1296,7 +1301,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     webAnalytics,
   ]);
 
-  return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
+  // A complete snapshot is the fallback for the next range change. The guard
+  // updates remembered render state once, before children see a new request.
+  if (!value.loading && value.window === selected && settled !== value) setSettled(value);
+  const presented = readingPresentation(value, settled, selected);
+  return <LiveContext.Provider value={presented}>{children}</LiveContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

@@ -14,6 +14,10 @@ export function ServerLoadChart({points,label,height=72}: {
   const id=useId().replaceAll(":","");
   const [ref,width]=useMeasuredWidth<HTMLDivElement>();
   const [active,setActive]=useState<number|null>(null);
+  const [pinned, setPinned] = useState(false);
+  const nextKey = JSON.stringify(points);
+  const [readingKey, setReadingKey] = useState(nextKey);
+  if (readingKey !== nextKey) { setReadingKey(nextKey); setPinned(false); setActive(null); }
   const first=points[0], last=points.at(-1);
   if (!first || !last || points.length<2) return <div ref={ref}><p className="py-6 text-xs text-muted-foreground">Not enough CPU history yet.</p></div>;
 
@@ -29,14 +33,17 @@ export function ServerLoadChart({points,label,height=72}: {
   const selected=selectedIndex===null?null:points[selectedIndex]!;
   const tip=selected && selectedIndex!==null ? {x:x(selectedIndex),y:y(selected.value),title:stamp(selected.ts),rows:<TipRow label="CPU" value={pct(selected.value)}/>} : null;
 
+  const unpin = () => { setPinned(false); setActive(null); };
+  const pick = (e: { clientX: number; currentTarget: SVGSVGElement }) => { const r = e.currentTarget.getBoundingClientRect(); return clamp(Math.round(((e.clientX-r.left)*width/r.width-4)/plotWidth*(points.length-1)),0,points.length-1); };
   return <div ref={ref} className="relative min-w-0" data-server-chart>
     {width>0 && <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" tabIndex={0}
-      aria-label={`${label}: ${pct(last.value)} latest, ${pct(points[peak]!.value)} peak, ${pct(mean)} average. ${points.length} evenly spaced readings from ${stamp(first.ts)} to ${stamp(last.ts)}. Use left and right arrows for exact times and values.`}
+      aria-label={`${label}: ${pct(last.value)} latest, ${pct(points[peak]!.value)} peak, ${pct(mean)} average. ${points.length} evenly spaced readings from ${stamp(first.ts)} to ${stamp(last.ts)}. Use left and right arrows for values, Enter to pin and Escape to clear.`}
       className="block w-full rounded-sm outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary"
-      onPointerMove={e=>{const rect=e.currentTarget.getBoundingClientRect();const px=(e.clientX-rect.left)*width/rect.width;setActive(clamp(Math.round((px-4)/plotWidth*(points.length-1)),0,points.length-1));}}
-      onPointerLeave={()=>setActive(null)} onBlur={()=>setActive(null)}
-      onFocus={()=>setActive(points.length-1)}
-      onKeyDown={e=>{if(e.key==="ArrowLeft"||e.key==="ArrowRight"){e.preventDefault();setActive(i=>clamp((i ?? points.length-1)+(e.key==="ArrowLeft"?-1:1),0,points.length-1));}else if(e.key==="Home"||e.key==="End"){e.preventDefault();setActive(e.key==="Home"?0:points.length-1);}else if(e.key==="Escape")setActive(null);}}>
+      onPointerMove={e=>{if(!pinned)setActive(pick(e));}}
+      onClick={e=>{const i=pick(e);if(pinned && active===i)unpin();else {setActive(i);setPinned(true);}}}
+      onPointerLeave={()=>{if(!pinned)setActive(null);}} onBlur={()=>{if(!pinned)setActive(null);}}
+      onFocus={e=>{if(!pinned && e.currentTarget.matches(":focus-visible"))setActive(points.length-1);}}
+      onKeyDown={e=>{if(e.key==="ArrowLeft"||e.key==="ArrowRight"){e.preventDefault();setActive(i=>clamp((i ?? points.length-1)+(e.key==="ArrowLeft"?-1:1),0,points.length-1));}else if(e.key==="Home"||e.key==="End"){e.preventDefault();setActive(e.key==="Home"?0:points.length-1);}else if(e.key==="Escape"){e.stopPropagation();unpin();}else if(e.key==="Enter" || e.key===" "){e.preventDefault();if(pinned)unpin();else{setActive(i=>i ?? points.length-1);setPinned(true);}}}}>
       <defs><linearGradient id={`cpu-${id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-line-2)" stopOpacity=".22"/><stop offset="100%" stopColor="var(--chart-line-2)" stopOpacity=".02"/></linearGradient></defs>
       <line x1="4" x2={width-4} y1={baseline} y2={baseline} stroke="var(--border)"/>
       <path d={`${line} L${x(points.length-1)},${baseline} L${x(0)},${baseline} Z`} fill={`url(#cpu-${id})`}/>
@@ -47,7 +54,7 @@ export function ServerLoadChart({points,label,height=72}: {
       {tip && <line x1={tip.x} x2={tip.x} y1="16" y2={baseline} stroke="var(--chart-line-2)" strokeOpacity=".35"/>}
     </svg>}
     <div className="-mt-3 flex justify-between gap-2 font-mono text-[10px] tabular-nums text-muted-foreground"><span>{stamp(first.ts)}</span><span>{stamp(last.ts)}</span></div>
-    <ChartTip tip={tip} width={width}/>
+    <ChartTip pinned={pinned} onUnpin={unpin} tip={tip} width={width}/>
     {selected && <span role="status" className="sr-only">{label}: {stamp(selected.ts)}, {pct(selected.value)}</span>}
   </div>;
 }

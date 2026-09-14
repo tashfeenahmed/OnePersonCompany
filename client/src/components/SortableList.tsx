@@ -1,3 +1,4 @@
+import { useReorderMotion } from "@/hooks/useReorderMotion";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,7 @@ export function SortableList<T extends Item>({ items, onReorder, renderItem, des
   describedAs: string;
 }) {
   const list = useRef<HTMLDivElement>(null);
+  useReorderMotion(list, items.map(i=>i.key).join("|"), "data-sort-key");
   const drag = useRef<Drag | null>(null);
   /** Set when a drag has just ended, so the click that closes it is swallowed
    *  rather than followed. Cleared by that click, or the next press. */
@@ -152,7 +154,7 @@ export function SortableList<T extends Item>({ items, onReorder, renderItem, des
         key={item.key}
         data-sort-key={item.key}
         aria-describedby={helpId}
-        className={cn("relative select-none", preview?.key === item.key && "opacity-40")}
+        className={cn("relative select-none", preview?.key === item.key && "opacity-40", preview?.before === item.key && "rounded-lg bg-accent/60")}
         onPointerDown={start}
         onPointerMove={track}
         onPointerUp={finish}

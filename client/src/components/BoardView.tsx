@@ -1,7 +1,10 @@
+import { useReorderMotion } from "@/hooks/useReorderMotion";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { AnimatedDetails } from "@/components/interactions/AnimatedDetails";
 import { cycleWidgetWidth } from "@/lib/widgetLayout";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Copy, Plus, Search, Trash2 } from "lucide-react";
+import { Copy, Plus, Search, Trash2, Ellipsis, RefreshCw } from "lucide-react";
 import { moveTo, slotFor, type Rect } from "@/lib/dragOrder";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,6 +52,8 @@ import { PARAM_BADGE, PARAM_NOUN, paramChoices, paramKindOf } from "@/lib/params
  * here: the venture page wraps this in a `ScopeProvider` and the cards read it
  * through the live context, which is why nothing below knows a venture exists.
  */
+
+const scrollPositions = new Map<string, number>();
 
 export function BoardView({
   board,
@@ -134,44 +139,71 @@ export function BoardView({
   const [ghost, setGhost] = useState<{ x: number; y: number; label: string } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const slotRef = useRef<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const cancelDrag = useRef<(() => void) | null>(null);
+  const scrollKey = `${basePath}/${board.id}`;
+  useReorderMotion(gridRef, board.widgets.map(w => w.id).join("|"), "data-widget-id");
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const saved = scrollPositions.get(scrollKey) ?? 0;
+    el.scrollTop = saved;
+    // Images and measurements can expand the restored board after mounting.
+    let interacted = false;
+    const stop = () => { interacted = true; };
+    el.addEventListener("wheel", stop, { passive: true });
+    el.addEventListener("pointerdown", stop);
+    el.addEventListener("keydown", stop);
+    const observer = new ResizeObserver(() => { if (!interacted) el.scrollTop = saved; });
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    const timer = setTimeout(() => observer.disconnect(), 1500);
+    return () => { clearTimeout(timer); observer.disconnect(); el.removeEventListener("wheel", stop); el.removeEventListener("pointerdown", stop); el.removeEventListener("keydown", stop); };
+  }, [scrollKey]);
+  useEffect(() => () => cancelDrag.current?.(), []);
+  useEffect(() => {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const run = gridRef.current?.animate([{ opacity: .6 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
+    return () => run?.cancel();
+  }, [live.window]);
 
   function grab(e: React.PointerEvent<HTMLDivElement>, id: string) {
-    if (!editing || e.button !== 0) return;
-    if ((e.target as HTMLElement).closest("button, a, input, textarea, select")) return;
-    e.preventDefault();
-    const label = WIDGETS[board.widgets.find((w) => w.id === id)?.type ?? ""]?.name ?? "widget";
-    setDragId(id);
-    setGhost({ x: e.clientX, y: e.clientY, label });
+    if (!editing || e.button !== 0 || (e.target as HTMLElement).closest("button, a, input, textarea, select, summary")) return;
+    cancelDrag.current?.();
+    const pointerId = e.pointerId, startX = e.clientX, startY = e.clientY;
+    const label = WIDGETS[board.widgets.find(w => w.id === id)?.type ?? ""]?.name ?? "Widget";
+    let dragging = false, x = startX, y = startY, frame = 0;
     slotRef.current = null;
-
-    const rects = (): Rect[] =>
-      Array.from(gridRef.current?.querySelectorAll<HTMLElement>("[data-widget-id]") ?? [])
-        .filter((el) => el.dataset.widgetId !== id)
-        .map((el) => {
-          const r = el.getBoundingClientRect();
-          return { id: el.dataset.widgetId!, left: r.left, top: r.top, width: r.width, height: r.height };
-        });
-
+    const update = () => {
+      const rects: Rect[] = Array.from(gridRef.current?.querySelectorAll<HTMLElement>("[data-widget-id]") ?? [])
+        .filter(el => el.dataset.widgetId !== id).map(el => { const r = el.getBoundingClientRect(); return { id: el.dataset.widgetId!, left: r.left, top: r.top, width: r.width, height: r.height }; });
+      const slot = slotFor(rects, x, y);
+      slotRef.current = slot.index; setDropTarget(slot.mark); setGhost({ x, y, label });
+    };
+    const scroll = () => {
+      const pane = scrollRef.current;
+      if (pane) { const r = pane.getBoundingClientRect(); const speed = y < r.top + 45 ? -10 : y > r.bottom - 45 ? 10 : 0; if (speed) { pane.scrollTop += speed; update(); } }
+      frame = requestAnimationFrame(scroll);
+    };
     const move = (ev: PointerEvent) => {
-      const slot = slotFor(rects(), ev.clientX, ev.clientY);
-      slotRef.current = slot.index;
-      setDropTarget(slot.mark);
-      setGhost({ x: ev.clientX, y: ev.clientY, label });
+      if (ev.pointerId !== pointerId) return;
+      x = ev.clientX; y = ev.clientY;
+      if (!dragging && Math.hypot(x-startX, y-startY) < 5) return;
+      ev.preventDefault();
+      if (!dragging) { dragging = true; setDragId(id); frame = requestAnimationFrame(scroll); }
+      update();
     };
-    const up = () => {
-      document.removeEventListener("pointermove", move);
-      document.removeEventListener("pointerup", up);
-      document.removeEventListener("pointercancel", up);
-      const at = slotRef.current;
-      if (at !== null) setWidgets(board.id, moveTo(board.widgets, id, at));
-      setDragId(null);
-      setDropTarget(null);
-      setGhost(null);
-      slotRef.current = null;
+    const finish = (commit: boolean) => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.removeEventListener("pointercancel", cancel); document.removeEventListener("keydown", key); window.removeEventListener("blur", cancel);
+      if (commit && dragging && slotRef.current !== null) { setWidgets(board.id, moveTo(board.widgets, id, slotRef.current)); setMoveNote(`${label} moved to position ${slotRef.current + 1}`); }
+      else if (dragging) setMoveNote("Move cancelled");
+      setDragId(null); setDropTarget(null); setGhost(null); slotRef.current = null; cancelDrag.current = null;
     };
-    document.addEventListener("pointermove", move);
-    document.addEventListener("pointerup", up);
-    document.addEventListener("pointercancel", up);
+    const up = (ev: PointerEvent) => { if (ev.pointerId === pointerId) finish(true); };
+    const cancel = () => finish(false);
+    const key = (ev: KeyboardEvent) => { if (ev.key === "Escape") { ev.preventDefault(); cancel(); } };
+    cancelDrag.current = cancel;
+    document.addEventListener("pointermove", move, { passive: false }); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", cancel); document.addEventListener("keydown", key); window.addEventListener("blur", cancel);
   }
 
   const sources = useMemo(
@@ -266,7 +298,7 @@ export function BoardView({
     <>
       <span role="status" className="sr-only">{moveNote}</span>
       <div className="flex min-h-0 flex-1">
-        <div className={cn("min-w-0 flex-1 overflow-y-auto px-4 sm:px-8 pt-2", board.id === "d-overview" && "overview-dashboard", serverDashboard && "server-dashboard", editing ? "pb-[48vh] md:pb-20" : "pb-20")}>
+        <div ref={scrollRef} onScroll={e => scrollPositions.set(scrollKey, e.currentTarget.scrollTop)} data-dashboard-scroll className={cn("dashboard-enter min-w-0 flex-1 overflow-y-auto px-4 sm:px-8 pt-2", board.id === "d-overview" && "overview-dashboard", serverDashboard && "server-dashboard", editing ? "pb-[48vh] md:pb-20" : "pb-20")}>
           <div className="mx-auto w-full max-w-[1440px]">
             <div className="mt-2 mb-5 flex flex-wrap items-end gap-3">
               <div>
@@ -307,10 +339,8 @@ export function BoardView({
               </div>
               <div className="ml-auto flex items-center gap-1.5">
                 {board.id === "d-overview" && freshness && <span className="mr-3 hidden text-[11px] text-muted-foreground lg:inline">{freshness.replace(/^, /, "")}</span>}
-                <Button variant="ghost" onClick={()=>{live.reload();dashboardAlerts.refresh();}} disabled={live.loading}>Refresh</Button>
-                <Button variant="ghost" onClick={() => setRenaming(true)}>
-                  Rename
-                </Button>
+                <span role="status" className="sr-only">{live.loading ? live.pendingWindow ? `Updating to ${windowWords(live.pendingWindow)}. Still showing ${windowWords(live.window)}.` : "Refreshing readings" : "Readings updated"}</span>
+                <Button variant="ghost" className="min-w-[94px]" title={live.pendingWindow ? `Updating to ${windowWords(live.pendingWindow)}; showing ${windowWords(live.window)}` : undefined} onClick={()=>{live.reload();dashboardAlerts.refresh();}} disabled={live.loading}><RefreshCw className={cn("size-3.5",live.loading && "motion-safe:animate-spin")}/>{live.loading ? "Updating" : "Refresh"}</Button>
                 <Button
                   variant={editing ? "default" : "outline"}
                   onClick={() => {
@@ -320,11 +350,12 @@ export function BoardView({
                 >
                   {editing ? "Done" : "Edit"}
                 </Button>
+                <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Dashboard actions"><Ellipsis className="size-4"/></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={()=>setRenaming(true)}>Rename dashboard</DropdownMenuItem><DropdownMenuItem onSelect={()=>setCopyOpen(true)}>Copy dashboard</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
               </div>
             </div>
 
             <DashboardAlertList boardId={board.id}/>
-            <div ref={gridRef} className="grid grid-cols-12 gap-4">
+            <div ref={gridRef} className="grid grid-cols-12 gap-4" aria-busy={live.loading}>
               {!board.widgets.length && (
                 <div className="text-muted-foreground col-span-full rounded-[14px] border border-dashed px-5 py-11 text-center">
                   {editing
@@ -335,13 +366,13 @@ export function BoardView({
 
               {(editing ? board.widgets : board.widgets.filter(w => !w.detail)).map(renderWidget)}
               {!editing && detailWidgets.length > 0 && (
-                <details className="col-span-12 mt-2 rounded-2xl border px-4 py-3" onToggle={e => setDetailsOpen(e.currentTarget.open)}>
+                <AnimatedDetails className="col-span-12 mt-2 rounded-2xl border px-4 py-3" onToggle={e => setDetailsOpen(e.currentTarget.open)}>
                   <summary className="cursor-pointer text-sm font-medium">
                     {serverDashboard ? "Uptime, hosting & detailed widgets" : "Detailed widgets"}
                     <span className="ml-2 text-xs font-normal text-muted-foreground">{detailWidgets.length} widgets</span>
                   </summary>
                   {detailsOpen && <div className="mt-4 grid grid-cols-12 gap-4">{detailWidgets.map(renderWidget)}</div>}
-                </details>
+                </AnimatedDetails>
               )}
 
               {editing && (
@@ -363,7 +394,7 @@ export function BoardView({
             className="bg-card text-foreground pointer-events-none fixed z-50 rounded-[11px] px-3 py-2 text-[13px] shadow-md"
             style={{ left: ghost.x + 12, top: ghost.y + 12 }}
           >
-            {ghost.label}
+            <span className="block text-[10px] text-muted-foreground">Release to place · Esc to cancel</span>{ghost.label}
           </div>
         )}
         {/*
@@ -386,7 +417,7 @@ export function BoardView({
           aria-hidden={!editing}
           inert={!editing || undefined}
           className={cn(
-            "bg-sidebar fixed inset-x-0 bottom-0 z-30 flex flex-col overflow-hidden transition-all duration-300 ease-out md:static md:max-h-none md:shrink-0",
+            "bg-sidebar fixed inset-x-0 bottom-0 z-30 flex flex-col overflow-hidden transition-all duration-200 motion-reduce:transition-none ease-out md:static md:max-h-none md:shrink-0",
             editing
               ? "max-h-[42vh] translate-y-0 border-t md:w-[300px] md:translate-x-0 md:border-t-0 md:border-l"
               : "max-h-0 translate-y-full md:w-0 md:translate-x-full",

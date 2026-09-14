@@ -1,3 +1,4 @@
+import { SelectionPill } from "@/components/interactions/SelectionPill";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { WindowValue } from "@/lib/window";
@@ -61,19 +62,21 @@ export function WindowPicker({
 }) {
   return (
     <div className={cn("flex flex-wrap items-center gap-0.5", className)}>
-      <div role="group" aria-label={label} className="flex flex-wrap items-center gap-0.5">
+      <div role="group" aria-label={label} className="relative flex flex-wrap items-center gap-0.5">
+        <SelectionPill value={value}/>
         {options.map((option) => {
           const selected = option === value;
           return (
             <button
               key={String(option)}
               type="button"
+              data-selected={selected}
               aria-pressed={selected}
               aria-label={longLabel(option)}
               onClick={() => onChange(option)}
               className={cn(
-                "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[13.5px] transition-colors",
-                selected && "bg-accent text-foreground font-medium",
+                "selection-control text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[13.5px] transition-colors",
+                selected && "text-foreground font-medium",
               )}
             >
               {pillLabel(option)}

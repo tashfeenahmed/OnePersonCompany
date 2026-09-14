@@ -1,3 +1,5 @@
+import { UndoActionsProvider } from "@/components/interactions/UndoActions";
+import { DetailDrawerProvider } from "@/components/interactions/DetailDrawer";
 const Insights = lazy(() => import("@/pages/Insights").then(m => ({ default: m.Insights })));
 const ActionInbox = lazy(() => import("@/pages/ActionInbox").then(m => ({ default: m.ActionInbox })));
 import { lazy, Suspense } from "react";
@@ -67,7 +69,7 @@ function WorkspaceApplication() {
                 whatever serves the built files must fall back to index.html for
                 unknown paths; Vite's dev server and `vite preview` both do. */}
             <BrowserRouter>
-              <NavigationShell>
+              <UndoActionsProvider><DetailDrawerProvider><NavigationShell>
                 <Suspense fallback={<p role="status" className="p-6">Loading page…</p>}>
                   <Routes>
                     {/*
@@ -373,7 +375,7 @@ function WorkspaceApplication() {
                     <Route path="*" element={<div className="p-8"><h1 className="text-2xl mb-3">Page not found</h1><p>This address does not match a page.</p><Link className="underline" to="/">Go to your workspace</Link></div>} />
                   </Routes>
                 </Suspense>
-              </NavigationShell>
+              </NavigationShell></DetailDrawerProvider></UndoActionsProvider>
             </BrowserRouter>
           </TooltipProvider>
           </DashboardAlertsProvider>

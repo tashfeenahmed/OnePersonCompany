@@ -97,6 +97,9 @@ import { configValue, getPlugin, setConfig, upsertPlugin } from "../db.ts";
 import * as accounts from "../accounts.ts";
 import { getJson, readModelIds } from "../chat/wire.ts";
 import { activeProvider, type Endpoint, type ModelProvider } from "../models/provider.ts";
+import { setBackendPreparation } from "../chat/backend.ts";
+import { ProviderUse } from "./provider-use.ts";
+import { setTimeout as delay } from "node:timers/promises";
 import * as hermesAdapter from "../providers/hermes.ts";
 import * as openclawAdapter from "../providers/openclaw.ts";
 /*
@@ -114,6 +117,34 @@ import { installCli } from "../skills/cli.ts";
 
 export type AgentId = "hermes" | "openclaw";
 export const AGENT_IDS: AgentId[] = ["hermes", "openclaw"];
+const providerUses = { hermes: new ProviderUse(), openclaw: new ProviderUse() };
+
+setBackendPreparation(async (id, signal) => {
+  // Remote gateways own their configuration; only processes managed by this
+  // workspace can be restarted and pointed at its selected model.
+  if (configValue(id, "mode") !== "managed") return () => {};
+  const ready = AbortSignal.any([AbortSignal.timeout(120_000), ...(signal ? [signal] : [])]);
+  return providerUses[id].acquire(async idle => {
+    while (true) {
+      ready.throwIfAborted();
+      let pl = await plan(SPECS[id]); // Off/disconnected must never use stale credentials.
+      if (RUNTIME[id].fingerprint !== fingerprint(pl)) {
+        await idle();
+        // Re-read after an earlier answer finishes; the choice may have changed again.
+        pl = await plan(SPECS[id]);
+        const result = await reconfigureNow(id, pl);
+        if (!result.ok) throw new Error(result.error);
+      }
+      while (RUNTIME[id].child && RUNTIME[id].state === "starting") {
+        await delay(100, undefined, { signal: ready });
+      }
+      if (!RUNTIME[id].child || RUNTIME[id].state !== "running") {
+        throw new Error(`${SPECS[id].label} is not running. Start it under Integrations.`);
+      }
+      if (RUNTIME[id].fingerprint === fingerprint(await plan(SPECS[id]))) return;
+    }
+  }, ready);
+});
 
 export type InstanceState =
   | "absent"
@@ -1047,16 +1078,24 @@ function configureOpenClaw(s: Spec, pl: Plan) {
  * would say one thing and the answers would come from another.
  */
 export async function reconfigure(id: AgentId): Promise<{ ok: boolean; error?: string }> {
+  try {
+    return await providerUses[id].configure(() => reconfigureNow(id), AbortSignal.timeout(120_000));
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function reconfigureNow(id: AgentId, planned?: Plan): Promise<{ ok: boolean; error?: string }> {
   const s = SPECS[id];
   const r = RUNTIME[id];
   if (!r.installed) return { ok: false, error: `${s.label} is not installed here yet.` };
   const log = logger(s);
   try {
-    const pl = await plan(s);
+    const pl = planned ?? await plan(s);
     s.configure(s, pl);
     r.pointed = pl.pointed;
     const next = fingerprint(pl);
-    const changed = r.fingerprint !== null && r.fingerprint !== next;
+    const changed = r.fingerprint !== next;
     r.fingerprint = next;
     log(`configured for ${pl.pointed.providerLabel} · ${pl.model} at ${pl.baseUrl}`);
     if (r.child && changed) {
@@ -1662,11 +1701,10 @@ export function boot() {
 /**
  * Keep a running agent pointed at the CURRENT default provider.
  *
- * `PUT /api/models/provider` is a route in another file and this one has no
- * business hooking it, so the seam is a poll rather than a callback: every
- * fifteen seconds a running agent's provider is resolved again and compared
- * with the fingerprint its config was written from. A change means the config
- * on disk is stale, and `reconfigure` rewrites it and restarts the child.
+ * Every managed request checks the current provider before it begins. This
+ * idle watcher also updates an agent that is not receiving requests, after a
+ * short settle window. Both paths use the same lease so a provider change
+ * cannot restart the process while it is answering an existing request.
  *
  * FIFTEEN SECONDS IS CHEAP because `activeProvider()` is a config read and a
  * factory call — no HTTP, no vault read — for as long as the provider names

@@ -1,3 +1,5 @@
+import { db } from "../../db.ts";
+import { undoable } from "../../actions/undo.ts";
 /**
  * THE ALERTS ROUTES — rules in, events out, and one honest word for each.
  *
@@ -612,10 +614,15 @@ alertRoutes.post("/events/:id/ack", (c) => {
       { error: "A test is not an alert — there is nothing to acknowledge." },
       400,
     );
-  const acked = ackEvent(id);
+  db.exec("BEGIN IMMEDIATE");
+  let action;
+  try { action = undoable("alert", [id], () => ackEvent(id)); db.exec("COMMIT"); }
+  catch (error) { db.exec("ROLLBACK"); throw error; }
+  const acked = action.result;
   const byRule = new Map(rules().map((r) => [r.id, r]));
   return c.json({
     event: shapeEvent(acked!, byRule),
+    undo: action.undo,
     open: openEventCount(),
     // Acknowledgement and recovery are independent facts.
     note: "Acknowledged. This incident remains active until a successful check confirms recovery.",

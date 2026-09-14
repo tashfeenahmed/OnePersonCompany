@@ -1,0 +1,125 @@
+.chat-command {
+  /* The filter needs an opaque fill; translucent glass disappears in its
+     alpha contrast. Both palette tokens are opaque in every app theme. */
+  --chat-command-fill: var(--card);
+}
+
+.chat-command:focus-within,
+.chat-command:hover {
+  --chat-command-fill: var(--card-hover);
+}
+
+.chat-command-liquid {
+  padding-right: 68px;
+  min-height: 56px;
+}
+
+.chat-command-bar {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  vertical-align: top;
+  border-radius: var(--chat-command-corner);
+}
+
+.chat-command-inputs {
+  display: flex;
+  align-items: flex-end;
+  min-height: 56px;
+  padding: 8px;
+  border-radius: inherit;
+}
+
+.chat-command .chat-command-textarea {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  min-height: 40px;
+  max-height: min(200px, 30dvh);
+  padding: 9px 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  resize: none;
+  font-size: 14px;
+  line-height: 22px;
+  overflow-y: auto;
+}
+
+.chat-command-attach,
+.chat-command-idle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--muted-foreground);
+}
+
+.chat-command-attach:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+/* The idle affordance only fades: its position never follows the button. */
+.chat-command-idle,
+.chat-command-send-icon {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.chat-command-idle[data-show="true"],
+.chat-command-send-icon[data-show="true"] { opacity: 1; }
+
+.chat-command-action {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: 0;
+  width: 56px;
+  height: 56px;
+}
+
+.chat-command-send {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--foreground);
+  background: transparent;
+  cursor: pointer;
+}
+
+.chat-command-send:disabled { pointer-events: none; }
+.chat-command-send:not(:disabled):hover { background: var(--accent); }
+.chat-command-send:not(:disabled):active .chat-command-send-icon { opacity: .65; }
+.chat-command button:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+
+.chat-command-error {
+  margin: 8px 20px 0;
+  font-size: 12px;
+  color: var(--destructive);
+}
+
+.chat-command-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 10px 8px 0;
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 640px) {
+  .chat-command .chat-command-textarea { font-size: 16px; }
+  .chat-command-idle { width: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-command-idle,
+  .chat-command-send-icon { transition: none; }
+}

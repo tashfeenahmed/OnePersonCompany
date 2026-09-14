@@ -36,6 +36,7 @@ import { MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
 import { SortableList } from "@/components/SortableList";
 import { SidebarPinButton } from "@/components/SidebarPinButton";
 import { SidebarSessionRow } from "@/components/SidebarSessionRow";
+import { WorkspaceModelMenu } from "@/components/WorkspaceModelMenu";
 import { ModuleIcon } from "@/components/ModuleIcon";
 import { pinKey, sidebarPins, type SidebarPin } from "../../../shared/sidebarPins";
 import { orderNav } from "../../../shared/sidebarNav";
@@ -407,6 +408,7 @@ export function AppSidebar() {
             ))}
             <DropdownMenuSeparator />
 
+            <WorkspaceModelMenu />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 {resolved === "dark" ? (

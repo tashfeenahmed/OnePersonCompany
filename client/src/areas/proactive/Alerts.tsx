@@ -1,3 +1,5 @@
+import { useUndoActions } from "@/components/interactions/UndoActions";
+import { AnimatedDetails } from "@/components/interactions/AnimatedDetails";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Check, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
@@ -391,6 +393,7 @@ function IconButton({
 /* ------------------------------------------------------------------ events */
 
 function Events({ onChanged, tick }: { onChanged: () => void; tick: number }) {
+  const undo = useUndoActions();
   const [status, setStatus] = useState("all");
   const [days, setDays] = useState(30);
   const [offset, setOffset] = useState(0);
@@ -429,12 +432,9 @@ function Events({ onChanged, tick }: { onChanged: () => void; tick: number }) {
           {events.map((e) => (
             <EventRow
               key={e.id}
-              event={e}
+              event={undo.handled.has(`alert:${e.id}`) ? { ...e, acknowledgedAt: new Date().toISOString() } : e}
               onAck={() => {
-                void alertsApi.ack(e.id).then(() => {
-                  setOwn((n) => n + 1);
-                  onChanged();
-                });
+                void undo.perform({ key: `alert:${e.id}`, label: "Alert acknowledged", run: () => alertsApi.ack(e.id), refresh: () => { setOwn(n => n + 1); onChanged(); } });
               }}
             />
           ))}
@@ -494,11 +494,11 @@ function EventRow({ event, onAck }: { event: AlertEvent; onAck: () => void }) {
             </ul>
           )}
           {event.context?.summary && (
-            <details className="text-muted-foreground mt-2 text-[12px]">
+            <AnimatedDetails className="text-muted-foreground mt-2 text-[12px]">
               <summary className="cursor-pointer">Rule details</summary>
               <p className="mt-1">{event.ruleName}</p>
               <p className="mt-0.5 break-words">{event.message}</p>
-            </details>
+            </AnimatedDetails>
           )}
           {/* THE NARRATION, AND THE HONEST ABSENCE OF ONE. A model wrote the
               first from figures that were read; the second says why there is

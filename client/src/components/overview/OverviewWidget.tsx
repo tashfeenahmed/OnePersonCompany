@@ -1,3 +1,12 @@
+import { InspectButton } from "@/components/interactions/InspectButton";
+import { useDetailDrawer } from "@/components/interactions/DetailDrawer";
+import { InboxItems } from "@/components/interactions/InboxItems";
+import { useLive } from "@/lib/live";
+import { useStore } from "@/lib/store";
+import type { InboxItem } from "@/lib/api/inbox";
+import { Link } from "react-router-dom";
+import { windowWords } from "@/lib/window";
+import { AnimatedDetails } from "@/components/interactions/AnimatedDetails";
 import { PacePanel, DormantPanel, InfrastructurePanel } from "@/components/insights/InsightPanels";
 import { Activity, BarChart3, Globe2, ChevronDown, ArrowLeft, ArrowRight, UnfoldHorizontal, Trash2 } from "lucide-react";
 import { useState, type HTMLAttributes } from "react";
@@ -33,11 +42,11 @@ function formatNumber(def: Widget) {
 }
 function Details({def}:{def:Widget}) {
   if (!def.caption && !def.rows?.length) return null;
-  return <details className="brief-details mt-auto border-t pt-2">
+  return <AnimatedDetails className="brief-details mt-auto border-t pt-2">
     <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground"><ChevronDown className="size-3"/>About these figures</summary>
     {def.caption && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{def.caption}</p>}
     {def.rows?.map(([k,v],i)=><div key={`${k}-${i}`} className="mt-2 flex flex-wrap justify-between gap-2 text-xs"><span className="text-muted-foreground">{k}</span><span>{v}</span></div>)}
-  </details>;
+  </AnimatedDetails>;
 }
 function Table({def}:{def:Widget}) {
   return <div className="overflow-x-auto"><table className="w-full border-collapse text-left text-xs"><thead><tr>{def.headers?.map(h=><th key={h} className="border-b px-2 py-2 font-medium text-muted-foreground">{h}</th>)}</tr></thead>
@@ -53,7 +62,12 @@ function WebsiteImage({src, title}: {src?: string | null; title: string}) {
       <div className="flex h-full items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground"><Globe2 className="size-4 shrink-0"/>{failed ? "Preview unavailable · capture will retry" : "No capture yet"}</div>}
   </div>;
 }
-function Body({def}:{def:Widget}) {
+function Body({def, items}:{def:Widget; items?: InboxItem[]}) {
+  const open = useDetailDrawer();
+  const { state } = useStore();
+  if (def.live?.inbox && items) return <InboxItems items={items}/>;
+  if (def.figures) return <dl className="space-y-4">{def.figures.map(f=><div key={f.label}><dt className="text-xs text-muted-foreground">{f.label}</dt><dd className="mt-1 text-xl font-semibold">{f.value}</dd><p className="mt-1 text-xs text-muted-foreground">{f.sub}</p></div>)}</dl>;
+  if (def.presentation === "insight") return <p className="text-sm leading-relaxed">{def.sub}</p>;
   if (def.insightData && def.insightView === "pace") return <PacePanel pace={def.insightData.pace} />;
   if (def.insightData && def.insightView === "dormant") return <DormantPanel ventures={def.insightData.dormancy} costs={def.insightData.dormantCosts} complete={def.insightData.dormantCostsComplete} />;
   if (def.insightData && def.insightView === "infrastructure") return <InfrastructurePanel events={def.insightData.infrastructure} />;
@@ -77,7 +91,7 @@ function Body({def}:{def:Widget}) {
   if (def.kind==="chart") return <>
     {def.sub && <p className="mb-4 text-xs text-muted-foreground">{shortMoney(def.sub)}</p>}
     <AreaChart label={def.name} data={(def.chart?.[0]?.points ?? []).map(p=>({date:p.ts.slice(0,10),value:p.value}))} height={250} format={format} axisFormat={format} color="var(--chart-line-1)" mean/>
-    <details className="brief-details mt-1"><summary className="text-[11px] text-muted-foreground cursor-pointer">Show daily figures</summary><Table def={{...def,headers:["Date",def.chart?.[0]?.label ?? "Amount"],table:def.chart?.[0]?.points.map(p=>[p.ts.slice(0,10),format(p.value)])}}/></details>
+    <AnimatedDetails className="brief-details mt-1"><summary className="text-[11px] text-muted-foreground cursor-pointer">Show daily figures</summary><Table def={{...def,headers:["Date",def.chart?.[0]?.label ?? "Amount"],table:def.chart?.[0]?.points.map(p=>[p.ts.slice(0,10),format(p.value)])}}/></AnimatedDetails>
   </>;
   if (def.kind==="waterfall") {
     const {bars}=(def.steps ?? []).reduce<{running:number;bars:WaterfallBar[]}>((state,p,i)=>{
@@ -96,10 +110,18 @@ function Body({def}:{def:Widget}) {
   if (def.kind==="meters") return <Meters hosts={(def.hosts ?? []).map((h,i)=>({key:String(i),name:h.name,metrics:h.metrics}))} thresholds={def.thresholds} colors={{ok:"var(--ok)",warn:"var(--warn)",crit:"var(--destructive)"}}/>;
   if (def.kind==="ranked") return def.ranked?.length ? <RankedBars label={def.name} bars={def.ranked.map((r,i)=>({...r,key:String(i),color:color(r.label)}))} format={n=>def.ranked?.find(r=>r.value===n)?.text ?? compact(n)}/> : def.rows?.length ? <Table def={{...def,headers:["App · currency","Payout"],table:def.rows}}/> : <p className="py-8 text-center text-xs text-muted-foreground">No payouts reported yet.</p>;
   if (def.kind==="table") return <Table def={def}/>;
-  if (def.kind==="feed") return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{def.feed?.map((item,i)=><a key={i} href={item.href ?? undefined} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border transition hover:border-foreground/25">
+  if (def.kind==="feed") return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{def.feed?.map((item,i)=><button key={i} type="button" aria-label={`Inspect ${item.title}`} onClick={() => {
+    const venture = state.ventures.find(v => v.name === item.title || (v.website && v.website === item.href));
+    open({ title: item.title, description: item.at ? `Website capture · ${item.at}` : "Venture details", content: <div className="space-y-5">
+      <div className="overflow-hidden rounded-xl"><WebsiteImage src={item.image} title={item.title}/></div>
+      <p className="break-words text-sm text-muted-foreground">{item.text}</p>
+      <dl className="grid grid-cols-2 gap-4">{item.meta?.map(([k,v])=><div key={k}><dt className="text-xs text-muted-foreground">{k}</dt><dd className="mt-1 font-medium tabular-nums">{v}</dd></div>)}</dl>
+      <div className="flex flex-wrap gap-4 text-sm">{venture && <Link className="underline underline-offset-4" to={`/ventures/${venture.slug}`}>Open venture</Link>}{item.href && <a className="underline underline-offset-4" href={item.href} target="_blank" rel="noreferrer">Visit website ↗</a>}</div>
+    </div> });
+  }} className="overflow-hidden rounded-xl border text-left transition hover:border-foreground/25 focus-visible:outline-2 focus-visible:outline-primary">
     <WebsiteImage key={item.image} src={item.image} title={item.title}/>
     <div className="p-3"><div className="flex justify-between gap-2 text-sm font-medium"><span>{item.title}</span><span className="text-[10px] font-normal text-muted-foreground">{item.at}</span></div><p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.text}</p><div className="mt-2 flex flex-wrap gap-3 text-xs">{item.meta?.map(([k,v])=><span key={k}><b className="font-medium">{v}</b> <span className="text-muted-foreground">{k}</span></span>)}</div></div>
-  </a>)}</div>;
+  </button>)}</div>;
   return null;
 }
 export function OverviewWidget({def,title,placed,empty,stale,error,editing,onCycleWidth,onRemove,onMove,onToggleDetail,dragHandlers,dragging,dropSide}: {
@@ -108,22 +130,23 @@ export function OverviewWidget({def,title,placed,empty,stale,error,editing,onCyc
   onToggleDetail?:()=>void;
   dragHandlers?:HTMLAttributes<HTMLDivElement>; dragging?:boolean; dropSide?:"before"|"after"|null;
 }) {
+  const live = useLive();
   const insight=def.presentation==="insight";
   const figures=def.presentation==="figures";
   const Icon=placed.type==="brief.paceInsight"?BarChart3:placed.type==="brief.trafficInsight"?Globe2:Activity;
-  const controls=editing && <div className="ml-auto flex shrink-0 gap-0.5">
+  const controls=editing ? <div className="widget-action ml-auto flex shrink-0 gap-0.5">
     {onToggleDetail && <button type="button" className="p-1 text-muted-foreground" title={placed.detail ? "Show on main dashboard" : "Move to details"} aria-label={`${placed.detail ? "Show on main dashboard" : "Move to details"}: ${title}`} onClick={onToggleDetail}><ChevronDown className={cn("size-3.5",placed.detail && "rotate-180")}/></button>}
     {[[ArrowLeft,()=>onMove?.(-1),`Move ${title} earlier`],[ArrowRight,()=>onMove?.(1),`Move ${title} later`],[UnfoldHorizontal,onCycleWidth,`Resize ${title}`],[Trash2,onRemove,`Remove ${title}`]].map(([Glyph,action,label])=>{
       const G=Glyph as typeof ArrowLeft;return <button key={String(label)} type="button" aria-label={String(label)} title={String(label)} onClick={action as ()=>void} onPointerDown={e=>e.stopPropagation()} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><G className="size-3.5"/></button>;
     })}
-  </div>;
-  return <article {...dragHandlers} className={cn("workdash-widget min-w-0",widgetSpanClass(placed,def),insight?"brief-insight":figures?"brief-figures":"brief-card",def.presentation==="arr"&&"brief-arr",editing&&"cursor-grab touch-none select-none",dragging&&"opacity-35",dropSide&&"outline outline-2 outline-offset-4 outline-primary")}>
-    {figures ? <><div className="flex justify-end">{controls}</div><details className="brief-details"><summary className="flex cursor-pointer list-none items-center gap-2 py-1 font-mono text-[11px] text-muted-foreground"><ChevronDown className="size-3.5"/>{def.figures?.length ?? 9} more numbers · audience, search, rates</summary><div className="mt-3 grid gap-3 sm:grid-cols-3">{empty ? <p className="text-xs text-muted-foreground">{empty}</p>:def.figures?.map(f=><div key={f.label} className="rounded-2xl bg-card p-4"><p className="text-xs text-muted-foreground">{f.label}</p><p className="mt-2 text-2xl font-semibold tabular-nums">{f.value}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{f.sub}</p></div>)}</div></details></> : insight ? <><div className="flex items-start gap-3"><div className="brief-insight-icon"><Icon className="size-4" strokeWidth={1.7}/></div><div className="min-w-0 flex-1"><p className="text-[13px] font-medium leading-snug">{empty ? title : shortMoney(def.value ?? "—")}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{shortMoney(empty ?? def.sub ?? "")}</p></div></div>{controls}</> : <>
+  </div> : <InspectButton title={title} description={`${windowWords(live.window)} · reading at time of opening`}><div className="space-y-5">{empty ? <p className="text-sm text-muted-foreground">{empty}</p> : <Body def={def} items={live.inbox?.items}/>}<p className="text-xs leading-relaxed text-muted-foreground">{def.caption}</p>{def.rows && <Table def={{...def,headers:["Measure","Value"],table:def.rows}}/>}</div></InspectButton>;
+  return <article {...dragHandlers} className={cn("group workdash-widget min-w-0",widgetSpanClass(placed,def),insight?"brief-insight":figures?"brief-figures":"brief-card",def.presentation==="arr"&&"brief-arr",editing&&"cursor-grab touch-none select-none",dragging&&"opacity-35",dropSide&&"drag-destination")}>
+    {figures ? <><div className="flex justify-end">{controls}</div><AnimatedDetails className="brief-details"><summary className="flex cursor-pointer list-none items-center gap-2 py-1 font-mono text-[11px] text-muted-foreground"><ChevronDown className="size-3.5"/>{def.figures?.length ?? 9} more numbers · audience, search, rates</summary><div className="mt-3 grid gap-3 sm:grid-cols-3">{empty ? <p className="text-xs text-muted-foreground">{empty}</p>:def.figures?.map(f=><div key={f.label} className="rounded-2xl bg-card p-4"><p className="text-xs text-muted-foreground">{f.label}</p><p className="mt-2 text-2xl font-semibold tabular-nums">{f.value}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{f.sub}</p></div>)}</div></AnimatedDetails></> : insight ? <><div className="flex items-start gap-3"><div className="brief-insight-icon"><Icon className="size-4" strokeWidth={1.7}/></div><div className="min-w-0 flex-1"><p className="text-[13px] font-medium leading-snug">{empty ? title : shortMoney(def.value ?? "—")}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{shortMoney(empty ?? def.sub ?? "")}</p></div></div>{controls}</> : <>
       <div className="mb-1 flex items-center gap-2"><h2 className={cn("min-w-0 flex-1",def.presentation==="summary"||def.presentation==="arr"?"text-xs font-medium text-muted-foreground":"text-sm font-semibold tracking-tight")}>{title}</h2>
         {def.series && def.series.length>1 && <Sparkline label={`${title} trend`} data={def.series.map(value=>({value}))} color="var(--chart-line-1)" width={62} height={20}/>}
         {def.kind==="chart" && def.value && <span className="text-xs font-medium tabular-nums">{def.value}</span>}{controls}
       </div>
-      {empty ? <p className="py-6 text-xs leading-relaxed text-muted-foreground">{empty}</p> : <><div className="mt-2"><Body def={def}/></div><Details def={def}/></>}
+      {empty ? <p className="py-6 text-xs leading-relaxed text-muted-foreground">{empty}</p> : <><div className="mt-2"><Body def={def} items={live.inbox?.items}/></div><Details def={def}/></>}
     </>}
     {stale && !empty && <p role="status" title={error ?? undefined} className="mt-2 text-[11px] text-warn">Refresh failed · showing the last reading</p>}
   </article>;

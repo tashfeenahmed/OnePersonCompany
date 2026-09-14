@@ -1,34 +1,10 @@
-/**
- * MODELS — WHICH PROVIDER COMPLETES, AND WHAT ITS POLICY IS.
- *
- * WHY THIS LIVES IN SETTINGS AND THE PICKER LIVES IN THE CHAT HEADER, rather
- * than one of the two. They answer two different questions and the app already
- * splits them this way for the agents:
- *
- *   the Chat header   "who is answering me, right now" — a one-click switch
- *                     beside the composer that is about to spend one, exactly
- *                     where the agent selector already is.
- *   Settings → Models "what have I got, and how is each one set up" — four
- *                     providers, their endpoints, their policies, and the
- *                     sentence saying which one every agent inherits. That is
- *                     a page you read, not a control you reach for mid-chat.
- *
- * Putting the whole table in the chat header would be a dropdown with four
- * policies in it; putting the switch only in Settings would mean leaving a
- * conversation to change which model is answering it.
- *
- * THE POLICY ITSELF IS EDITED ON EACH PROVIDER'S OWN PAGE, and this shows it
- * read-only with a link. The controls belong beside the endpoints they govern
- * — "least-busy across these two boxes" means nothing without the two boxes on
- * screen — and a second set of editable controls here would be a second place
- * for the same value to be half-typed.
- */
+/** Provider details and policies. The quick workspace switch lives in the account menu. */
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useApi } from "@/hooks/useApi";
+import { useModelProviders } from "@/hooks/useModelProviders";
 import { cn } from "@/lib/utils";
 import { api, type ModelProvider, type ProviderReply, type ProviderId } from "@/lib/api";
 import { GATE_POLL_MS } from "@/components/ModelPolicy";
@@ -72,7 +48,7 @@ function policyLine(p: ModelProvider): string {
 }
 
 export function ModelsSettings() {
-  const doc = useApi(() => api.modelProviders(), []);
+  const doc = useModelProviders();
   const { reload } = doc;
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -88,7 +64,7 @@ export function ModelsSettings() {
     setBusy(true);
     setProblem(null);
     try {
-      doc.setData(await api.setModelProvider(id));
+      await doc.choose(id);
     } catch (e) {
       setProblem(e instanceof Error ? e.message : String(e));
     } finally {
@@ -114,10 +90,9 @@ export function ModelsSettings() {
           The default provider
         </div>
         <p className="text-muted-foreground mt-0.5 max-w-[560px] text-[13.5px]">
-          One provider completes. Every agent spawned from here is pointed at
-          it, so "which model" is decided once — and a chat with no agent in
-          front of it talks to it directly. Choosing one that is not connected
-          is allowed and does nothing until its credentials are in.
+          Your workspace provider powers chat, managed assistants, sub-agents
+          and built-in AI jobs. Switch it from your account menu on any page.
+          New requests use the saved choice; answers already running finish first.
         </p>
       </div>
 
@@ -133,6 +108,7 @@ export function ModelsSettings() {
           it can now READ this box's data, but only where the model has been
           measured to support function calling. See
           areas/runtime/ToolModeNote.tsx. */}
+      <p className="text-muted-foreground text-[12.5px]">Remote assistants manage their own models. Use a managed Hermes or OpenClaw instance to inherit this choice. Image, voice and rendering engines keep their own settings.</p>
       <ToolModeNote />
 
       <div className="flex flex-col gap-2">
@@ -141,7 +117,7 @@ export function ModelsSettings() {
           return (
             <button
               key={p.id}
-              disabled={busy || !p.connected}
+              disabled={busy || doc.saving || !p.connected}
               onClick={() => void choose(p.id)}
               aria-pressed={p.default}
               className={cn(
@@ -200,7 +176,7 @@ export function ModelsSettings() {
           <Button
             variant="ghost"
             size="sm"
-            disabled={busy}
+            disabled={busy || doc.saving}
             onClick={() => void choose(null)}
             className="-ml-3 h-7 px-2 text-[13px]"
           >

@@ -105,7 +105,7 @@ export function Dashboards() {
   return (
     <>
       {/* Let every dashboard tab remain visible as the available width changes. */}
-      <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 px-4.5 py-1.5">
+      <header className="relative flex min-h-12 shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 px-4.5 py-1.5">
         {/* Links, not buttons: each tab IS the board's address. Hold and drag
             to reorder — the order lives in the store beside the boards. */}
         <select aria-label="Dashboard" value={board.id} onChange={e => {

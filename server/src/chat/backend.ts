@@ -232,11 +232,32 @@ export function setChoiceReader(fn: () => ChatBackendId | null) {
   readChoice = fn;
 }
 
+// The managed-instance owner prepares the selected provider and holds a lease
+// until the whole response finishes, including a streamed response's cleanup.
+let prepare: (id: ChatBackendId, signal?: AbortSignal) => Promise<() => void> = async () => () => {};
+export function setBackendPreparation(fn: typeof prepare) { prepare = fn; }
+
 export function activeBackend(): ChatBackend | null {
   const id = readChoice();
   if (!id) return null;
   const make = adapters.get(id);
-  return make ? make() : null;
+  const backend = make?.();
+  if (!backend) return null;
+  return {
+    ...backend,
+    async ask(turns, opts) {
+      const release = await prepare(id, opts?.signal);
+      try { return await backend.ask(turns, opts); }
+      finally { release(); }
+    },
+    ...(backend.stream ? {
+      async *stream(turns: ChatTurn[], opts?: AskOptions) {
+        const release = await prepare(id, opts?.signal);
+        try { yield* backend.stream!(turns, opts); }
+        finally { release(); }
+      },
+    } : {}),
+  };
 }
 
 /** Every backend that could be chosen, and whether each is connected — for the

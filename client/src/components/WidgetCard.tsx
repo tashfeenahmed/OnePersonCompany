@@ -323,9 +323,10 @@ export function WidgetCard({
 
       className={cn(
         widgetSpanClass(placed, base),
-        "bg-card relative flex min-h-[116px] flex-col rounded-[14px] p-4.5 transition-colors",
+        "group bg-card relative flex min-h-[116px] flex-col rounded-[14px] p-4.5 transition-colors",
         editing && "hover:border-line-strong cursor-grab touch-none select-none",
         dragging && "cursor-grabbing opacity-35",
+        dropSide && "drag-destination",
         dropSide === "before" &&
           "before:bg-foreground before:absolute before:top-1.5 before:-left-1.5 before:bottom-1.5 before:w-0.5 before:rounded-sm before:content-['']",
         dropSide === "after" &&
@@ -402,7 +403,7 @@ export function WidgetCard({
           </select>
         )}
         {editing && (
-          <div className="ml-auto flex gap-px">
+          <div className="widget-action ml-auto flex gap-px">
             {onToggleDetail && <button type="button" className="p-1 text-muted-foreground" title={placed.detail ? "Show on main dashboard" : "Move to details"} aria-label={`${placed.detail ? "Show on main dashboard" : "Move to details"}: ${def.name}`} onClick={onToggleDetail}><ChevronDown className={cn("size-3.5",placed.detail && "rotate-180")}/></button>}
             <button aria-label={`Move ${def.name} earlier`} className="p-1" onClick={() => onMove?.(-1)}>←</button>
             <button aria-label={`Move ${def.name} later`} className="p-1" onClick={() => onMove?.(1)}>→</button>

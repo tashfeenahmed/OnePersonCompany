@@ -2,9 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, call } from "./api";
 import type { StoreState } from "./store";
 import { isWorkspacePreferences } from "../../../shared/workspace";
+import { syncFailureNotice, workspaceFingerprint, workspaceHydrationChoice } from "./workspaceSyncPolicy";
 type Preferences = Pick<StoreState, "workspace" | "sessions" | "dashboards" | "appOrder" | "navOrder" | "seedVersion" | "favoritePaths" | "pinnedItems" | "palette">;
 type Document = { revision: number; data: Preferences | null };
 const META = "opc-workspace-sync";
+const unchanged = (state: StoreState) => state;
 export function preferences(s: StoreState): Preferences {
   return { workspace: s.workspace, sessions: s.sessions, dashboards: s.dashboards, appOrder: s.appOrder, navOrder: s.navOrder, seedVersion: s.seedVersion, favoritePaths: s.favoritePaths, pinnedItems: s.pinnedItems, palette: s.palette };
 }
@@ -20,20 +22,44 @@ function metadata(): { revision: number; saved: string | null; hasLocal: boolean
 export function useWorkspaceSync(
   state: StoreState,
   setState: React.Dispatch<React.SetStateAction<StoreState>>,
-  migrate: (s: StoreState) => StoreState = (s) => s,
+  migrate: (s: StoreState) => StoreState = unchanged,
 ) {
   const current = useRef(state);
   useLayoutEffect(() => { current.current = state; }, [state]);
   const [initial] = useState(metadata);
-  const revision = useRef(initial.revision), saved = useRef(initial.saved), busy = useRef(false), conflict = useRef(false);
-  const [status, setStatus] = useState("Connecting to workspace…"), [ready, setReady] = useState(false), [hasConflict, setConflict] = useState(false);
+  const revision = useRef(initial.revision), saved = useRef(initial.saved);
+  const [status, setStatus] = useState(""), [ready, setReady] = useState(false), [hasConflict, setConflict] = useState(false);
   const actions = useRef<{ sync: () => Promise<void>; resolve: (local: boolean) => Promise<void> } | null>(null);
   useEffect(() => {
-    let alive = true, hydrated = false;
-    const initialJson = JSON.stringify(preferences(current.current));
+    let alive = true, hydrated = false, busy = false, conflict = false;
+    let firstFailureAt: number | null = null;
+    const initialJson = workspaceFingerprint(preferences(current.current));
+    // Compare both copies in the current format. A format upgrade must not
+    // look like an unsaved edit on the next load.
+    const fingerprint = (data: Preferences | null) => data ? workspaceFingerprint(preferences(migrate({
+      ...current.current, pinnedItems: undefined, favoritePaths: undefined, palette: undefined, navOrder: undefined, ...data,
+    }))) : null;
+    const savedFingerprint = () => {
+      try { return saved.current ? fingerprint(JSON.parse(saved.current) as Preferences) : null; }
+      catch { return null; }
+    };
+    const recovered = () => { firstFailureAt = null; setStatus(""); };
+    const failed = (error: unknown) => {
+      if (!alive) return;
+      if (error instanceof ApiError && error.status === 409) { conflict = true; setConflict(true); }
+      const notice = syncFailureNotice({
+        message: error instanceof Error ? error.message : String(error),
+        status: error instanceof ApiError ? error.status : undefined,
+      }, firstFailureAt, Date.now());
+      firstFailureAt = notice.firstFailureAt;
+      // The conflict notice explains the choice itself. Keep this field for
+      // transport/validation errors, including a failed resolution attempt.
+      setStatus(error instanceof ApiError && error.status === 409 ? "" : notice.message); setReady(true);
+    };
     const get = async () => {
-      const doc = await call<Document>("/workspace");
-      if (doc.data && !isWorkspacePreferences(doc.data)) throw new Error("The saved workspace is invalid. Export your browser copy before restoring a backup.");
+      const doc = await call<Document>("/workspace", { signal: AbortSignal.timeout(10_000) });
+      if (!doc || !Number.isInteger(doc.revision) || doc.revision < 0 || (doc.data !== null && !isWorkspacePreferences(doc.data)))
+        throw new ApiError(422, "The saved workspace is invalid. Export your browser copy before restoring a backup.");
       return doc;
     };
     const remember = () => { localStorage.setItem(META, JSON.stringify({ revision: revision.current, saved: saved.current })); };
@@ -49,46 +75,57 @@ export function useWorkspaceSync(
       remember();
     };
     const sync = async () => {
-      if (busy.current || conflict.current) return;
-      busy.current = true;
+      if (!alive || busy || conflict) return;
+      busy = true;
       try {
         if (!hydrated) {
           const doc = await get(); if (!alive) return;
-          const local = JSON.stringify(preferences(current.current));
-          const dirty = (initial.saved !== null && local !== initial.saved) || local !== initialJson;
-          const legacyConflict = initial.hasLocal && initial.saved === null && doc.data && local !== JSON.stringify(doc.data);
+          const choice = workspaceHydrationChoice({
+            local: workspaceFingerprint(preferences(current.current)), server: fingerprint(doc.data),
+            saved: savedFingerprint(), initial: initialJson, hasLocal: initial.hasLocal,
+            revision: revision.current, serverRevision: doc.revision,
+          });
+          if (choice === "conflict") throw new ApiError(409, "This browser and the server have different workspace preferences. Choose which to keep.");
+          if (choice === "accept") accept(doc);
+          else revision.current = doc.revision;
           hydrated = true; setReady(true);
-          if (legacyConflict) throw new ApiError(409, "This browser and the server have different workspace preferences. Choose which to keep.");
-          if (!dirty) accept(doc);
-          else if (doc.revision !== revision.current) throw new ApiError(409, "Unsynced browser edits conflict with a newer server version. Choose which to keep.");
         }
-        const value = preferences(current.current), json = JSON.stringify(value);
-        if (json !== saved.current) {
-          const out = await call<{ revision: number }>("/workspace", { method: "PUT", body: JSON.stringify({ revision: revision.current, data: value }) });
+        const value = preferences(current.current), json = workspaceFingerprint(value);
+        if (json !== savedFingerprint()) {
+          const out = await call<{ revision: number }>("/workspace", { method: "PUT", body: JSON.stringify({ revision: revision.current, data: value }), signal: AbortSignal.timeout(10_000) });
           if (!alive) return;
           revision.current = out.revision; saved.current = json; remember();
         } else {
           const doc = await get(); if (!alive) return;
-          if (doc.revision !== revision.current && JSON.stringify(preferences(current.current)) === json) accept(doc);
+          if (doc.revision !== revision.current && workspaceFingerprint(preferences(current.current)) === json) accept(doc);
         }
-        setStatus("");
+        recovered();
       } catch (error) {
         if (!alive) return;
-        if (error instanceof ApiError && error.status === 409) { conflict.current = true; setConflict(true); }
-        setStatus(error instanceof Error ? error.message : String(error)); setReady(true);
-      } finally { busy.current = false; }
+        // A timed-out save may have succeeded, or another tab saved the same
+        // preferences. Verify before asking the owner to resolve a conflict.
+        if (hydrated && error instanceof ApiError && error.status === 409) {
+          try {
+            const doc = await get(); if (!alive) return;
+            const remote = fingerprint(doc.data);
+            if (remote === workspaceFingerprint(preferences(current.current))) { accept(doc); recovered(); return; }
+            if (remote === savedFingerprint()) { revision.current = doc.revision; recovered(); return; }
+          } catch (checkError) { failed(checkError); return; }
+        }
+        failed(error);
+      } finally { busy = false; }
     };
     const resolve = async (local: boolean) => {
-      if (busy.current) return;
-      busy.current = true;
+      if (!alive || busy) return;
+      busy = true;
       try {
         saveRecovery(current.current);
         const doc = await get(); if (!alive) return;
         revision.current = doc.revision;
         if (!local) accept(doc); else saved.current = null;
-        conflict.current = false; setConflict(false); setStatus(""); hydrated = true;
+        conflict = false; setConflict(false); recovered(); hydrated = true;
       } catch (error) { if (alive) setStatus(String(error)); }
-      finally { busy.current = false; }
+      finally { busy = false; }
       await sync();
     };
     actions.current = { sync, resolve };

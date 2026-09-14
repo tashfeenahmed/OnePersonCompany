@@ -4,11 +4,11 @@
  *
  * THIS BOX DOES NOT RENDER IT, AND THAT IS THE WHOLE DESIGN. The format was
  * built in Workdash: the Pi owns the job — the search, the page captures, the
- * script, the decision to spend a wake — and the Dell under the desk owns the
+ * render, the decision to spend a wake — and the Dell under the desk owns the
  * voice model and the cores. Voice cloning wants a GPU; this machine has none
  * to spare and the Pi has none at all. So the pipeline here is a CLIENT of the
  * Workdash agent's own reel routes, over the LAN, with the agent's service
- * key: it starts the job, watches it, and fetches the file when it is done.
+ * key. This workspace writes the script using its selected LLM; it starts the job, watches it, and fetches the file when it is done.
  * Everything Workdash learned about that box — wake it, hold the GPU, sleep it
  * only if we woke it — stays where it was learned.
  *
@@ -43,6 +43,10 @@ import * as accounts from "../../accounts.ts";
 import { StepError, runDir, type RunSession } from "../video/faceless.ts";
 import { saveJob } from "../video/store.ts";
 import { bytesOf, findFfprobe, probeDuration } from "../video/tools.ts";
+import { gameplayBackgrounds } from "./gameplay-previews.ts";
+import type { GameplayBackground } from "../../../../shared/gameplay.ts";
+import { writeStewieScript, type PreparedReel } from "./stewie-script.ts";
+import { activeProvider, NoProviderError } from "../../models/provider.ts";
 
 export const WORKDASH_PLUGIN = "workdash";
 const READER = "videoplus.stewie";
@@ -95,7 +99,7 @@ type ReelWorker = {
   modes?: string[];
   error?: string;
 };
-type ReelDoc = { items: ReelItem[]; running: boolean; sleepDueAt: number | null; worker: ReelWorker };
+type ReelDoc = { items: ReelItem[]; running: boolean; sleepDueAt: number | null; worker: ReelWorker; externalScript?: boolean };
 
 /** The one connected Workdash agent, or a sentence saying why there is none. */
 export function agent(): { agent: Agent | null; note: string } {
@@ -137,20 +141,22 @@ export async function capabilities(): Promise<{
   agent: string | null;
   running: boolean;
   worker: ReelWorker | null;
+  backgrounds: GameplayBackground[];
   recent: { id: string; status: string; prompt: string; at: number; mode: string }[];
 }> {
   const { agent: a, note } = agent();
-  if (!a) return { configured: false, note, agent: null, running: false, worker: null, recent: [] };
+  if (!a) return { configured: false, note, agent: null, running: false, worker: null, backgrounds: [], recent: [] };
   try {
     const doc = await ask<ReelDoc>(a, "/agent/reel");
     return {
       configured: true,
       note: doc.worker.reachable
         ? `The render worker is up${doc.worker.gpu ? ` on ${doc.worker.gpu}` : ""}.`
-        : `The render worker is not answering (${doc.worker.error ?? "asleep"}). The Pi wakes it when a reel starts — expect about ninety seconds before the script is written.`,
+        : `The render worker is not answering (${doc.worker.error ?? "asleep"}). The Pi wakes it when a reel starts — expect about ninety seconds before rendering begins.`,
       agent: a.url,
       running: doc.running,
       worker: doc.worker,
+      backgrounds: gameplayBackgrounds(a.url, doc.worker.reachable ? doc.worker.backgrounds ?? [] : undefined),
       recent: (doc.items ?? []).slice(0, 5).map((i) => ({ id: i.id, status: i.status, prompt: i.prompt, at: i.at, mode: i.mode ?? "images" })),
     };
   } catch (err) {
@@ -160,6 +166,7 @@ export async function capabilities(): Promise<{
       agent: a.url,
       running: false,
       worker: null,
+      backgrounds: gameplayBackgrounds(a.url),
       recent: [],
     };
   }
@@ -182,6 +189,7 @@ export async function stewieVideo(opts: {
   signal?: AbortSignal;
 }): Promise<void> {
   const { session: s, input, signal } = opts;
+  if (!activeProvider()) throw new NoProviderError();
   const dir = runDir(opts.runId);
   mkdirSync(dir, { recursive: true });
 
@@ -208,6 +216,21 @@ export async function stewieVideo(opts: {
   /* ------------------------------------------------------------ 2. start */
   const urls = input.urls.split(/\r?\n|,/).map((u) => u.trim()).filter(Boolean);
   const mode = input.mode === "pages" && urls.length ? "pages" : "images";
+  if (!before.externalScript) {
+    throw new StepError("script", "Update the WorkDash agent to support workspace-written scripts. This keeps Stewie on your selected LLM.");
+  }
+  const scriptStep = s.startStep("script", "writing with the workspace LLM");
+  let script: Awaited<ReturnType<typeof writeStewieScript>>;
+  try {
+    const prepared = await ask<PreparedReel>(a, "/agent/reel/prepare-script", {
+      method: "POST", body: JSON.stringify({ prompt: input.prompt, mode, urls }),
+    }, AbortSignal.any([AbortSignal.timeout(120_000), ...(signal ? [signal] : [])]));
+    script = await writeStewieScript(prepared, signal);
+    s.endStep(scriptStep, `${script.provider}${script.model ? ` · ${script.model}` : ""}`);
+  } catch (error) {
+    s.endStep(scriptStep, "failed");
+    throw new StepError("script", error instanceof Error ? error.message : String(error));
+  }
   const startStep = s.startStep("start", `asking for a ${mode} reel`);
   let item: ReelItem;
   try {
@@ -218,6 +241,7 @@ export async function stewieVideo(opts: {
         background: input.background || null,
         mode,
         urls: mode === "pages" ? urls : [],
+        script,
       }),
     });
     if (!out.ok || !out.item) throw new Error(out.error ?? "the agent refused without a reason");
@@ -305,6 +329,8 @@ export async function stewieVideo(opts: {
       captures: (item.captures ?? []).map((c) => ({ url: c.url, title: c.title, captured: !!c.file, error: c.error })),
       background: item.background,
       grounded: !!item.grounded,
+      provider: script.provider,
+      model: script.model,
       sources: item.sources ?? [],
       workdash: { id: item.id, dell: item.dell, slept: item.slept, renderSeconds: item.renderSeconds ?? null },
     },
@@ -337,11 +363,11 @@ export async function stewieVideo(opts: {
         : []),
       ...(item.sources?.length
         ? [``, `## What the script leaned on`, ``, ...item.sources.map((src) => `- [${src.title}](${src.url})`)]
-        : [``, `The script was written from the model's own knowledge on the Dell — nothing was searched.`]),
+        : [``, `No research sources were available for this script.`]),
       ``,
       `## Where the work happened`,
       ``,
-      `The Pi owned the job (${item.id}); the Dell wrote the script and rendered it. ${
+      `The workspace wrote the script with ${script.provider}${script.model ? ` (${script.model})` : ""}. The Pi owned the render job (${item.id}); the Dell rendered it. ${
         item.dell === "woken"
           ? `This job woke the Dell${item.slept ? " and powered it off again" : item.slept === false ? " and left it on" : ""}.`
           : item.dell === "already-awake"

@@ -91,7 +91,7 @@ export function Settings() {
                 this page that changes what the server DOES, and it has a table
                 of four providers, their endpoints and their policies behind
                 it. See ModelsSettings.tsx for why the one-click switch lives
-                in the Chat header instead and this is the page you read. */}
+                in the sidebar account menu and this is the page you read. */}
             <TabsTrigger value="models">Models</TabsTrigger>
             <TabsTrigger value="budgets">Usage limits</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>

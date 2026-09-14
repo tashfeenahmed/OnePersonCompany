@@ -1,4 +1,6 @@
-import { useRef, useState, type ComponentType } from "react";
+import { SelectionPill } from "@/components/interactions/SelectionPill";
+import { useReorderMotion } from "@/hooks/useReorderMotion";
+import { useRef, useState, useEffect, type ComponentType } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { AlertBadge } from "@/components/AlertBadge";
@@ -11,14 +13,9 @@ import type { AlertSummary } from "@/lib/dashboardAlerts";
  * way — the URL is the selection, each tab is a real link — and a reorder that
  * worked on one and not the other would be a bug the eye finds immediately.
  *
- * CLICK STILL NAVIGATES; HOLD STARTS A DRAG. A tab is a `<Link>`, and a link
- * that stops being clickable because it grew a drag handler is the worst
- * outcome available. So the drag is armed only after the pointer has been held
- * for a moment (`HOLD_MS`) without moving far, and a plain click — down and up
- * inside that window — is left alone for the router. Native HTML5 drag-and-drop
- * carries the reorder itself, the way the dashboard widgets already do it: no
- * library, the same drop-indicator line, the same before/after decision by
- * which half of the target the pointer is over.
+ * Click follows the link; movement beyond a small threshold reorders it.
+ * Touch waits briefly so a scroll does not accidentally move a tab. Pointer
+ * events keep a visible destination across wrapped rows; Escape cancels.
  *
  * THE ORDER IS THE CALLER'S TO KEEP. This component reports a new key order and
  * draws whatever it is handed; where that order lives (the store, for both
@@ -53,8 +50,8 @@ const HOLD_MS = 150;
  */
 function tabItemClass(active: boolean): string {
   return cn(
-    "text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[13.5px] whitespace-nowrap",
-    active && "bg-accent text-foreground font-medium",
+    "text-muted-foreground hover:bg-accent hover:text-foreground selection-control rounded-lg px-2.5 py-1.5 text-[13.5px] whitespace-nowrap",
+    active && "text-foreground font-medium",
   );
 }
 
@@ -69,40 +66,46 @@ export function TabStrip({
   onReorder: (keys: string[]) => void;
   className?: string;
 }) {
+  const strip = useRef<HTMLDivElement>(null);
+  useReorderMotion(strip, tabs.map(t=>t.key).join("|"), "data-tab-key");
   const [announcement, setAnnouncement] = useState("");
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ key: string; side: "before" | "after" } | null>(null);
-  // Which tab is armed for dragging — set by a held pointer, cleared by a
-  // click that ended before the hold, and read by `draggable` below.
-  const [armed, setArmed] = useState<string | null>(null);
-  const holdTimer = useRef<number | null>(null);
-
-  function arm(key: string) {
-    clearHold();
-    holdTimer.current = window.setTimeout(() => setArmed(key), HOLD_MS);
-  }
-  function clearHold() {
-    if (holdTimer.current !== null) {
-      window.clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-    }
-  }
-
-  function finish(targetKey: string) {
-    if (!dragKey || !drop || dragKey === targetKey) return;
-    const keys = tabs.filter(t => !t.fixed).map((t) => t.key);
-    const from = keys.indexOf(dragKey);
-    keys.splice(from, 1);
-    const to = keys.indexOf(targetKey) + (drop.side === "after" ? 1 : 0);
-    keys.splice(to, 0, dragKey);
-    onReorder(keys);
-  }
-
-  function reset() {
-    setDragKey(null);
-    setDrop(null);
-    setArmed(null);
-    clearHold();
+  const cancelDrag = useRef<(() => void) | null>(null);
+  const swallowClick = useRef(false);
+  useEffect(() => () => cancelDrag.current?.(), []);
+  function start(e: React.PointerEvent<HTMLAnchorElement>, tab: Tab) {
+    if (tab.fixed || e.button !== 0) return;
+    cancelDrag.current?.(); swallowClick.current = false;
+    let held = e.pointerType !== "touch", moved = false, destination: { key: string; side: "before" | "after" } | null = null;
+    const pointer = e.pointerId, startX = e.clientX, startY = e.clientY;
+    const timer = setTimeout(() => { held = true; }, HOLD_MS);
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointer) return;
+      const distance = Math.hypot(ev.clientX-startX, ev.clientY-startY);
+      if (!held && distance > 8) { finish(false); return; }
+      if (!held || distance < 5) return;
+      ev.preventDefault(); moved = true; setDragKey(tab.key);
+      const choices = [...(strip.current?.querySelectorAll<HTMLElement>("[data-tab-key]") ?? [])].filter(el => el.dataset.tabKey !== tab.key && !tabs.find(t => t.key === el.dataset.tabKey)?.fixed);
+      let nearest: HTMLElement | null = null, best = Infinity;
+      for (const el of choices) { const r = el.getBoundingClientRect(); const dx = Math.max(r.left-ev.clientX, 0, ev.clientX-r.right), dy = Math.max(r.top-ev.clientY, 0, ev.clientY-r.bottom); const distance = dx*dx+dy*dy; if(distance<best){best=distance;nearest=el;} }
+      if (nearest) { const r = nearest.getBoundingClientRect(); destination = { key: nearest.dataset.tabKey!, side: ev.clientX > r.left+r.width/2 ? "after" : "before" }; setDrop(destination); }
+    };
+    const finish = (commit: boolean) => {
+      clearTimeout(timer); document.removeEventListener("pointermove",move); document.removeEventListener("pointerup",up); document.removeEventListener("pointercancel",cancel); document.removeEventListener("keydown",key); window.removeEventListener("blur",cancel);
+      if (moved) swallowClick.current = true;
+      if (commit && moved && destination) {
+        const keys = tabs.filter(t=>!t.fixed && t.key!==tab.key).map(t=>t.key);
+        const to = keys.indexOf(destination.key)+(destination.side === "after" ? 1 : 0);
+        keys.splice(to,0,tab.key); onReorder(keys); setAnnouncement(`${tab.label} moved to position ${to+1}`);
+      } else if(moved) setAnnouncement("Move cancelled");
+      setDragKey(null); setDrop(null); cancelDrag.current = null;
+    };
+    const up = (ev: PointerEvent) => { if(ev.pointerId === pointer) finish(true); };
+    const cancel = () => finish(false);
+    const key = (ev: KeyboardEvent) => { if(ev.key === "Escape"){ev.preventDefault();cancel();} };
+    cancelDrag.current = cancel;
+    document.addEventListener("pointermove",move,{passive:false}); document.addEventListener("pointerup",up); document.addEventListener("pointercancel",cancel); document.addEventListener("keydown",key); window.addEventListener("blur",cancel);
   }
 
   /* WRAPS RATHER THAN SCROLLS. A strip that scrolled sideways hid every tab
@@ -110,7 +113,8 @@ export function TabStrip({
      were two controls for a problem the strip should not have. Every tab is
      visible; the row grows a line when it must. */
   return (
-    <div className={cn("flex flex-wrap items-center gap-0.5", className)}>
+    <div ref={strip} className={cn("relative flex flex-wrap items-center gap-0.5", className)}>
+      <SelectionPill value={`${activeKey}:${tabs.map(t=>t.key).join("|")}`}/>
       <span className="sr-only" role="status">{announcement}</span>
       {tabs.map((t) => {
         const active = t.key === activeKey;
@@ -119,8 +123,10 @@ export function TabStrip({
           <Link
             key={t.key}
             to={t.to}
+            data-tab-key={t.key}
+            data-selected={active}
             aria-current={active ? "page" : undefined}
-            title={t.fixed ? undefined : "Alt + Left/Right arrow to reorder"}
+            title={t.fixed ? undefined : "Drag to reorder · Alt + Left/Right arrow with the keyboard"}
             onKeyDown={e => {
               if (t.fixed || !e.altKey || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
               e.preventDefault(); const keys = tabs.filter(x => !x.fixed).map(x => x.key), from = keys.indexOf(t.key), to = Math.max(0, Math.min(keys.length - 1, from + (e.key === "ArrowLeft" ? -1 : 1)));
@@ -128,39 +134,14 @@ export function TabStrip({
               const position = tabs.map((tab, index) => tab.fixed ? 0 : index + 1).filter(Boolean)[to];
               setAnnouncement(`${t.label} moved to position ${position}`);
             }}
-            draggable={!t.fixed && armed === t.key}
-            onPointerDown={() => { if (!t.fixed) arm(t.key); }}
-            onPointerUp={clearHold}
-            onPointerLeave={clearHold}
-            onDragStart={(e) => {
-              // A link's default drag carries its URL; a reorder carries the
-              // tab. Mark it as a move so the cursor says so.
-              e.dataTransfer.effectAllowed = "move";
-              setDragKey(t.key);
-            }}
-            onDragEnd={reset}
-            onDragOver={(e) => {
-              if (t.fixed || !dragKey || dragKey === t.key) return;
-              e.preventDefault();
-              const r = e.currentTarget.getBoundingClientRect();
-              setDrop({
-                key: t.key,
-                side: e.clientX > r.left + r.width / 2 ? "after" : "before",
-              });
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (!t.fixed) finish(t.key);
-              reset();
-            }}
-            onClick={(e) => {
-              // A drop landing on a link must not also follow it.
-              if (dragKey) e.preventDefault();
-            }}
+            draggable={false}
+            onDragStart={e => e.preventDefault()}
+            onPointerDown={e => start(e,t)}
+            onClick={e => { if (swallowClick.current) { e.preventDefault(); swallowClick.current = false; } }}
             className={cn(
               tabItemClass(active),
               "relative hidden items-center gap-[7px] select-none sm:flex",
-              armed === t.key && "cursor-grab",
+              drop?.key === t.key && "drag-destination",
               dragKey === t.key && "opacity-35",
               drop?.key === t.key &&
                 drop.side === "before" &&
@@ -236,11 +217,12 @@ export function SubTabs({
   return (
     <div
       className={cn(
-        "mb-5 flex items-center gap-0.5 overflow-x-auto",
+        "relative mb-5 flex items-center gap-0.5 overflow-x-auto",
         rule && "border-line-soft border-b pb-2",
         className,
       )}
     >
+      <SelectionPill value={activeKey}/>
       {tabs.map((t) => {
         const active = t.key === activeKey;
         const Icon = t.icon;
@@ -259,6 +241,8 @@ export function SubTabs({
           <Link
             key={t.key}
             to={t.to}
+            data-tab-key={t.key}
+            data-selected={active}
             title={t.title}
             aria-current={active ? "page" : undefined}
             className={shape}
@@ -268,6 +252,7 @@ export function SubTabs({
         ) : (
           <button
             key={t.key}
+            data-selected={active}
             type="button"
             title={t.title}
             aria-current={active ? "page" : undefined}

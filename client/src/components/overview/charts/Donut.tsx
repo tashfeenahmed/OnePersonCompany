@@ -40,7 +40,7 @@ export function Donut({
   className,
 }: Props) {
   const [ref, w] = useMeasuredWidth<HTMLDivElement>()
-  const { tip, show, hide } = useTip()
+  const { tip, show, hide, point, pinned, unpin } = useTip(JSON.stringify(slices))
   const sum = total ?? slices.reduce((n, s) => n + s.value, 0)
 
   return (
@@ -73,7 +73,7 @@ export function Donut({
             width={w}
             height={H}
             viewBox={`0 0 ${w} ${H}`}
-            role="img"
+            role="group"
             aria-label={label}
             className="block"
           >
@@ -84,7 +84,7 @@ export function Donut({
                 fill={s.color}
                 opacity={active && active !== s.key ? 0.32 : 1}
                 className="transition-opacity duration-150"
-                onMouseEnter={() => {
+                {...point(() => {
                   onActive?.(s.key)
                   show({
                     x: cx + (R + 6) * Math.cos(mid),
@@ -103,8 +103,8 @@ export function Donut({
                       </>
                     ),
                   })
-                }}
-                onMouseLeave={() => {
+                }, `Inspect ${s.label}: ${format(s.value)}`)}
+                onPointerLeave={() => {
                   onActive?.(null)
                   hide()
                 }}
@@ -134,7 +134,7 @@ export function Donut({
           </svg>
         )
       })()}
-      <ChartTip tip={tip} width={w} />
+      <ChartTip pinned={pinned} onUnpin={unpin} tip={tip} width={w} />
     </div>
   )
 }

@@ -216,6 +216,7 @@ export type StewieDoc = {
     modes?: string[];
     error?: string;
   } | null;
+  backgrounds?: import("../../../../shared/gameplay").GameplayBackground[];
   recent: { id: string; status: string; prompt: string; at: number; mode: string }[];
 };
 

@@ -70,4 +70,8 @@ export const INTEGRATION_MIGRATIONS: { name: string; sql: string }[] = [...insig
   { name: "194_onboarding_provisioned_boards", sql: `
     CREATE TABLE onboarding_provisioned_boards (id TEXT PRIMARY KEY);
   ` },
+  { name: "482_action_undo", sql: `
+    CREATE TABLE action_undo (token TEXT PRIMARY KEY, target TEXT NOT NULL, row_keys TEXT NOT NULL, before_state TEXT NOT NULL, after_state TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX action_undo_expiry ON action_undo(expires_at);
+  ` },
 ].sort((a, b) => a.name.localeCompare(b.name));

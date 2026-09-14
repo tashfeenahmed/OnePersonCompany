@@ -11,6 +11,7 @@
     "build": "npm --prefix server run typecheck && npm --prefix client run build",
     "start": "node --experimental-strip-types server/src/index.ts",
     "doctor": "node --experimental-strip-types server/src/cli/doctor.ts",
+    "gameplay-previews": "node --experimental-strip-types server/src/cli/gameplay-previews.ts",
     "install-service": "node --experimental-strip-types server/src/cli/install.ts",
     "uninstall-service": "node --experimental-strip-types server/src/cli/install.ts --uninstall",
     "service-status": "node --experimental-strip-types server/src/cli/install.ts --status",

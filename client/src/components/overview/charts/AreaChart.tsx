@@ -1,5 +1,5 @@
 // Shared visual design with the sibling WorkDash chart kit.
-import { useId, type ReactNode } from "react"
+import { useId, useRef, type ReactNode } from "react"
 import { ChartTip } from "./ChartTip"
 import { useTip } from "./useTip"
 import { useMeasuredWidth } from "./useMeasuredWidth"
@@ -56,7 +56,8 @@ export function AreaChart({
 }: Props) {
   const id = useId().replace(/:/g, "")
   const [ref, w] = useMeasuredWidth<HTMLDivElement>()
-  const { tip, show, hide } = useTip()
+  const { tip, show, hide, pin, unpin, pinned, keys } = useTip(JSON.stringify(data))
+  const active = useRef(0)
 
   const H = height ?? (w > 0 && w < 760 ? 250 : 300)
   const m = { t: 22, r: 16, b: 26, l: 54 }
@@ -101,17 +102,8 @@ export function AreaChart({
         const pick = (px: number) =>
           clamp(Math.round(((px - m.l) / iw) * (data.length - 1)), 0, last)
 
-        return (
-          <svg
-            width={w}
-            height={H}
-            viewBox={`0 0 ${w} ${H}`}
-            role="img"
-            aria-label={`${label}, ${dayShort(data[0].date)} to ${dayShort(data[last].date)}`}
-            className="block overflow-visible"
-            onMouseMove={(e) => {
-              const box = e.currentTarget.getBoundingClientRect()
-              const i = pick(e.clientX - box.left)
+        const inspect = (i: number) => {
+          active.current = i;
               const d = data[i]
               show({
                 x: X(i),
@@ -128,8 +120,33 @@ export function AreaChart({
                   </>
                 ),
               })
+        };
+        const inspectPointer = (e: React.PointerEvent<SVGSVGElement>) => {
+          const box = e.currentTarget.getBoundingClientRect();
+          inspect(pick((e.clientX - box.left) * w / box.width));
+        };
+
+        return (
+          <svg
+            width={w}
+            height={H}
+            viewBox={`0 0 ${w} ${H}`}
+            role="img"
+            aria-label={`${label}, ${dayShort(data[0].date)} to ${dayShort(data[last].date)}. Arrow keys select a reading. Enter pins it; Escape clears it.`}
+            className="block overflow-visible outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary"
+            tabIndex={0}
+            onPointerMove={inspectPointer}
+            onPointerDown={inspectPointer}
+            onClick={pin}
+            onFocus={e => { if(e.currentTarget.matches(":focus-visible")) inspect(last); }}
+            onBlur={hide}
+            onKeyDown={e => {
+              if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+                e.preventDefault();
+                inspect(e.key === "Home" ? 0 : e.key === "End" ? last : clamp(active.current + (e.key === "ArrowLeft" ? -1 : 1), 0, last));
+              } else keys(e);
             }}
-            onMouseLeave={hide}
+            onPointerLeave={hide}
           >
             <defs>
               {}
@@ -291,7 +308,7 @@ export function AreaChart({
           </svg>
         )
       })()}
-      <ChartTip tip={tip} width={w} />
+      <ChartTip pinned={pinned} onUnpin={unpin} tip={tip} width={w} />
     </div>
   )
 }

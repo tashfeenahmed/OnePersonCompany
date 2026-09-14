@@ -3,8 +3,10 @@ import { isWorkspacePreferences } from "../../../shared/workspace";
 import { isPaletteId, type PaletteId } from "./palettes";
 import { DEFAULT_WINDOW, isWindowValue, type WindowValue } from "@/lib/window";
 import { useWorkspaceSync, saveRecovery, preferences } from "./workspaceSync";
+import { WorkspaceSyncNotice } from "../components/WorkspaceSyncNotice";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -1840,15 +1842,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
      matter rather than a tidiness one. */
   const [streamingSessions, setStreamingSessions] = useState<string[]>([]);
 
-  useEffect(() => {
+  const persistBrowserCopy = useCallback(() => {
     try {
       localStorage.setItem(KEY, JSON.stringify(state));
       setStorageError("");
     } catch {
-      setStorageError("Browser storage is full or unavailable. Keep this page open until server sync succeeds.");
+      setStorageError("This browser can't save a local copy of your workspace. Server sync will keep trying; you can also export a backup.");
       /* the session still works without persistence */
     }
   }, [state]);
+  useEffect(persistBrowserCopy, [persistBrowserCopy]);
 
   /**
    * THE VENTURES, ASKED FOR ONCE, HERE.
@@ -2208,11 +2211,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [state, streamingSessions]);
 
   return <StoreContext.Provider value={store}>
-    {(sync.status || storageError) && <div role="status" className="bg-amber-50 text-black border-b p-2 text-sm flex flex-wrap gap-2 items-center">
-      <span>{storageError || sync.status}</span>
-      {sync.hasConflict ? <><button className="underline" onClick={() => void sync.resolve(false)}>Use server version</button><button className="underline" onClick={() => void sync.resolve(true)}>Keep this browser version</button></> : <button className="underline" onClick={() => void sync.retry()}>Retry sync</button>}
-      <a className="underline" href="/settings?tab=data">Export or recover</a>
-    </div>}
+    <WorkspaceSyncNotice {...sync} storageError={storageError} retry={async () => {
+      persistBrowserCopy();
+      await sync.retry();
+    }} />
     {children}
   </StoreContext.Provider>;
 }

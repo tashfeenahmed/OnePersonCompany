@@ -1,0 +1,24 @@
+.selection-pill { transition: transform 180ms cubic-bezier(.2,.8,.2,1), width 180ms ease, height 180ms ease, opacity 150ms ease; }
+.selection-control { position: relative; z-index: 1; }
+@keyframes detail-in { from { opacity: .4; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes detail-out { to { opacity: 0; transform: translateX(28px); } }
+@keyframes soft-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes soft-out { to { opacity: 0; } }
+.detail-drawer[data-state=open] { animation: detail-in 200ms ease-out; }
+.detail-drawer[data-state=closed] { animation: detail-out 150ms ease-in; }
+.detail-shade[data-state=open] { animation: soft-in 150ms ease; }
+.detail-shade[data-state=closed] { animation: soft-out 150ms ease; }
+.dashboard-enter { animation: soft-in 180ms ease; }
+.refresh-indicator { display: inline-flex; align-items:center; gap: 6px; font-size: 11px; color: var(--muted-foreground); }
+.widget-action { opacity: .55; transition: opacity 150ms ease, background-color 150ms ease; }
+.widget-action:hover, .widget-action:focus-visible, .group:hover .widget-action { opacity: 1; }
+details > summary svg { transition: transform 180ms ease; }
+.drag-destination { box-shadow: 0 0 0 2px var(--primary); background: color-mix(in srgb,var(--primary) 5%,var(--card)); }
+@media (hover:hover) and (pointer:fine) { .widget-action { opacity: 0; } .group:hover .widget-action, .group:focus-within .widget-action { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .selection-pill, .widget-action, details > summary svg { transition: none !important; }
+  .dashboard-enter, .detail-drawer, .detail-shade { animation: none !important; }
+}
+
+[data-chart-point] { cursor:pointer; outline:none; }
+[data-chart-point]:focus-visible { stroke:var(--foreground); stroke-width:2; }

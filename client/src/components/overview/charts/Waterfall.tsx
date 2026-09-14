@@ -43,7 +43,7 @@ export function Waterfall({
   className,
 }: Props) {
   const [ref, measured] = useMeasuredWidth<HTMLDivElement>()
-  const { tip, show, hide } = useTip()
+  const { tip, show, hide, point, pinned, unpin } = useTip(JSON.stringify(bars))
   const m = { t: 34, r: 10, b: 42, l: 52 }
 
   return (
@@ -76,7 +76,7 @@ export function Waterfall({
             width={w}
             height={height}
             viewBox={`0 0 ${w} ${height}`}
-            role="img"
+            role="group"
             aria-label={label}
             className="block overflow-visible"
           >
@@ -133,15 +133,15 @@ export function Waterfall({
               return (
                 <g
                   key={b.key}
-                  onMouseEnter={() =>
+                  {...point(() =>
                     show({
                       x: cx(i),
                       y: yTop,
                       title: b.label,
                       rows: b.tip ?? format(b.value),
                     })
-                  }
-                  onMouseLeave={hide}
+                  , `Inspect ${b.label}`)}
+                  onPointerLeave={hide}
                 >
                   <path
                     d={barPath(cx(i) - bw / 2, yTop, bw, h, drop ? 0 : 4, drop ? 4 : 0)}
@@ -196,7 +196,7 @@ export function Waterfall({
           </svg>
         )
       })()}
-      <ChartTip tip={tip} width={Math.min(measured, maxWidth)} />
+      <ChartTip pinned={pinned} onUnpin={unpin} tip={tip} width={Math.min(measured, maxWidth)} />
     </div>
   )
 }

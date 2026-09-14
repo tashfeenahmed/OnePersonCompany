@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
+import { useModelProviders } from "@/hooks/useModelProviders";
 import { runtimeApi } from "@/lib/api/runtime";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +40,9 @@ const WORD: Record<string, string> = {
 };
 
 export function ToolModeNote() {
-  const doc = useApi(() => runtimeApi.tools(), []);
+  const { data: providers } = useModelProviders();
+  const current = providers?.providers.find(p => p.live);
+  const doc = useApi(() => runtimeApi.tools(), [current?.id, current?.model]);
   const { reload } = doc;
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
