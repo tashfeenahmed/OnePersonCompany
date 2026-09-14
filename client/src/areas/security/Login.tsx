@@ -31,7 +31,8 @@ import { securityApi } from "@/lib/api/security";
  * running" behind a session that is now perfectly good.
  */
 function safeNext(): string {
-  const raw = new URLSearchParams(window.location.search).get("next") ?? "/";
+  const current = window.location.pathname === "/login" ? "/" : window.location.pathname + window.location.search;
+  const raw = new URLSearchParams(window.location.search).get("next") ?? current;
   return /^\/(?!\/)/.test(raw) ? raw : "/";
 }
 

@@ -1,3 +1,4 @@
+import { businessTypesOf, toggleBusinessType } from "../../../shared/businessTypes";
 import { BUSINESS_TYPES, type BusinessType } from "../../../shared/ventureJourney";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -69,7 +70,7 @@ function Form({ venture }: { venture?: Venture }) {
   const [description, setDescription] = useState(venture?.description ?? "");
   const [website, setWebsite] = useState(venture?.website ?? "");
   const [stage, setStage] = useState<VentureStage>(venture?.stage ?? "idea");
-  const [businessType, setBusinessType] = useState<BusinessType | null>(venture?.businessType ?? null);
+  const [businessTypes, setBusinessTypes] = useState<BusinessType[]>(venture ? businessTypesOf(venture) : []);
   const [expectedUpdatedAt] = useState(venture?.updatedAt);
   /* Null means "whatever the site says" — the option that sends `color: null`
      and lets the server put back the measured primary, or a default when
@@ -97,7 +98,7 @@ function Form({ venture }: { venture?: Venture }) {
           description: description.trim(),
           website: trimmedSite || null,
           stage,
-          businessType,
+          businessTypes,
           expectedUpdatedAt,
           color,
         });
@@ -108,7 +109,7 @@ function Form({ venture }: { venture?: Venture }) {
           description: description.trim(),
           website: trimmedSite || null,
           stage,
-          businessType,
+          businessTypes,
           color,
         });
         navigate(`/ventures/${made.slug}`);
@@ -206,12 +207,10 @@ function Form({ venture }: { venture?: Venture }) {
             have already clicked past.
           */}
           <div className="grid gap-1.5">
-            <Label htmlFor="venture-business-type">Business type</Label>
-            <select id="venture-business-type" className="bg-background rounded-lg border p-2 text-sm" value={businessType ?? ""} onChange={e => setBusinessType(e.target.value ? e.target.value as BusinessType : null)}>
-              <option value="">Choose later</option>
-              {BUSINESS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
-            <p className="text-muted-foreground text-[12.5px]">Tailors your venture checklist. You can change this later and keep your progress.</p>
+            <Label id="venture-business-types">Business types · select all that apply</Label>
+            <div className="flex flex-wrap gap-2" role="group" aria-labelledby="venture-business-types">
+              {BUSINESS_TYPES.map(t => <button key={t.id} type="button" aria-pressed={businessTypes.includes(t.id)} className={`rounded-lg border px-3 py-2 text-sm ${businessTypes.includes(t.id) ? "bg-accent text-foreground" : "text-muted-foreground"}`} onClick={() => setBusinessTypes(types => toggleBusinessType(types, t.id))}>{t.label}</button>)}
+            </div>
           </div>
           <div className="grid gap-1.5">
             <Label>Stage</Label>

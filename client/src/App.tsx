@@ -1,6 +1,7 @@
 const Insights = lazy(() => import("@/pages/Insights").then(m => ({ default: m.Insights })));
 const ActionInbox = lazy(() => import("@/pages/ActionInbox").then(m => ({ default: m.ActionInbox })));
 import { lazy, Suspense } from "react";
+import { OnboardingGate } from "@/components/OnboardingGate";
 import { NavigationShell } from "@/components/NavigationShell";
 import { Link, useLocation } from "react-router-dom";
 import { appPage } from "../../shared/navigation";
@@ -45,6 +46,13 @@ const Studio = lazy(() => import("@/pages/Studio").then(m => ({ default: m.Studi
 export default function App() {
   return (
     <ThemeProvider>
+      <OnboardingGate><WorkspaceApplication /></OnboardingGate>
+    </ThemeProvider>
+  );
+}
+
+function WorkspaceApplication() {
+  return (
       <StoreProvider>
         {/* Draws nothing: it applies the workspace's palette over the mode.
             Inside the store because that is where the choice is kept. */}
@@ -371,7 +379,6 @@ export default function App() {
           </DashboardAlertsProvider>
         </LiveProvider>
       </StoreProvider>
-    </ThemeProvider>
   );
 }
 

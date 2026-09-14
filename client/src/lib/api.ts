@@ -20,10 +20,12 @@ import type { Cancelling, RunStatus } from "../../../shared/runStatus";
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  fieldErrors: Record<string, string>;
+  constructor(status: number, message: string, fieldErrors: Record<string, string> = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.fieldErrors = fieldErrors;
   }
 }
 
@@ -63,7 +65,10 @@ export async function call<T>(path: string, init?: RequestInit): Promise<T> {
       body && typeof body === "object" && "error" in body
         ? String((body as { error: unknown }).error)
         : `HTTP ${res.status}`;
-    throw new ApiError(res.status, message);
+    const rawFields = body && typeof body === 'object' && 'fieldErrors' in body ? body.fieldErrors : null;
+    const fieldErrors = rawFields && typeof rawFields === 'object' && !Array.isArray(rawFields)
+      ? Object.fromEntries(Object.entries(rawFields).filter(([,v]) => typeof v === 'string')) as Record<string,string> : {};
+    throw new ApiError(res.status, message, fieldErrors);
   }
   if (init?.method && !["GET", "HEAD"].includes(init.method) && path !== "/workspace") window.dispatchEvent(new Event("opc:data-changed"));
   return body as T;
@@ -3232,6 +3237,7 @@ export type VentureBrand = {
 
 export type Venture = {
   businessType?: BusinessType | null;
+  businessTypes?: BusinessType[];
   id: string;
   /**
    * The URL segment: /ventures/<slug>. SET ONCE AT CREATION and never moved by
@@ -3297,6 +3303,7 @@ export const VENTURE_STAGES: { id: VentureStage; label: string; note: string }[]
  *  to be able to exist before it has a website. */
 export type VentureInput = {
   businessType?: BusinessType | null;
+  businessTypes?: BusinessType[];
   name: string;
   description?: string;
   website?: string | null;
@@ -3309,6 +3316,7 @@ export type VentureInput = {
  *  "forget the website" an instruction rather than an omission. */
 export type VenturePatch = {
   businessType?: BusinessType | null;
+  businessTypes?: BusinessType[];
   expectedUpdatedAt?: string;
   stageChangeNote?: string;
   name?: string;

@@ -59,6 +59,7 @@ const OPEN = new Set([
   "GET /api/health",
   "POST /api/security/login",
   "GET /api/security/status",
+  "GET /api/onboarding/status",
   "POST /api/security/logout",
 ]);
 
@@ -156,6 +157,7 @@ type SurfaceRule = {
 };
 
 const OWNER_SURFACE: SurfaceRule[] = [
+  { prefix: "/api/onboarding", methods: "write", level: "browser", why: "first-run setup configures the owner, credentials, and workspace" },
   /* ---- the owner's browser, signed in ------------------------------------ */
   {
     paths: ["/api/security/sessions/:id"],

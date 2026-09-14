@@ -78,11 +78,15 @@ npm run dev
 
 Open **[http://127.0.0.1:5180](http://127.0.0.1:5180)**. The development launcher starts the UI and API together.
 
-1. **Set up your workspace** in Settings → General.
-2. **Set an owner password** in Security.
-3. **Add your first venture** and choose its stage and business type.
-4. **Connect a service** in Integrations to bring in measurements.
-5. **Choose a model or agent runtime** when you want AI assistance.
+A fresh installation opens a guided setup:
+
+1. **Name your workspace** and set an owner password.
+2. **Add ventures** with their business type and stage, or start with an empty workspace.
+3. **Select services**, download a blank ENV template, and paste credentials together. Individual fields and credential-file uploads are also available.
+4. **Check access** and fix failed connections. Working services stay available across the workspace.
+5. **Choose Hermes or OpenClaw** with an LLM provider, then review your starting dashboards.
+
+Setup resumes after a reload. Existing workspaces keep their layout and open normally. After setup, manage details in Settings, Security, Ventures, and Integrations. See [onboarding and automatic setup](docs/onboarding.md) for connection matching and isolated testing.
 
 You can use planning and work tracking before connecting any external account. Paid providers and services may charge for their own usage.
 

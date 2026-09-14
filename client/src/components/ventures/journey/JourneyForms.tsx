@@ -1,3 +1,4 @@
+import { businessTypesOf } from "../../../../../shared/businessTypes";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -58,13 +59,13 @@ export function NameEditor({ candidate, ...props }: FormProps & { candidate?: Na
 }
 export function StageEditor({ venture, doc, target, close, busy, error, change }: { venture: Venture; doc: JourneyDocument; target: JourneyStage; close: () => void; busy: boolean; error: string | null; change: (stage: JourneyStage, note: string, expectedAt: string) => Promise<boolean> }) {
   const [stage, setStage] = useState(target), [note, setNote] = useState(""), [expectedAt] = useState(venture.updatedAt);
-  const readiness = journeyReadiness(journeyTasks(doc.state, venture.stage, venture.businessType ?? null), doc.state.tasks);
+  const readiness = journeyReadiness(journeyTasks(doc.state, venture.stage, businessTypesOf(venture)), doc.state.tasks);
   const forward = JOURNEY_STAGES.indexOf(stage) > JOURNEY_STAGES.indexOf(venture.stage);
   return <JourneyModal title="Change venture status" description="Your business can move forwards or back. Checklists, evidence, connections and dashboards stay saved." close={close}>
     <form onSubmit={async e => { e.preventDefault(); if (await change(stage, note, expectedAt)) close(); }}>
       <label className="journey-field">Venture status<select value={stage} onChange={e => setStage(e.target.value as JourneyStage)}>{JOURNEY_STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}</select></label>
       {forward && readiness.requiredOpen.length > 0 && <div className="journey-note mb-4">{readiness.requiredOpen.length} essentials remain open in {STAGE_LABELS[venture.stage].toLowerCase()}. You can still move forward.<ul className="mt-2 list-disc pl-4">{readiness.requiredOpen.map(t => <li key={t.key}>{t.title}</li>)}</ul></div>}
-      {!venture.businessType && <p className="journey-muted mb-3">Choose a business type to include its specific launch checks. Only common steps are currently shown.</p>}
+      {!businessTypesOf(venture).length && <p className="journey-muted mb-3">Choose a business type to include its specific launch checks. Only common steps are currently shown.</p>}
       <label className="journey-field">Decision note<textarea maxLength={4000} placeholder="What changed? What have you learned or decided?" value={note} onChange={e => setNote(e.target.value)} /></label>
       <ErrorNotice error={error} /><div className="journey-modal-footer"><Button type="button" variant="ghost" onClick={close}>Cancel</Button><Button disabled={busy || stage === venture.stage}>{busy ? "Saving…" : `Move to ${STAGE_LABELS[stage]}`}</Button></div>
     </form>

@@ -1,4 +1,4 @@
-import { isBusinessType } from "../../../shared/ventureJourney.ts";
+import { parseBusinessTypes, storedBusinessTypes } from "../../../shared/businessTypes.ts";
 import { recordStageChange } from "../integrations/ventures/journey.ts";
 /**
  * THE VENTURES — the businesses this whole dashboard is about.
@@ -127,6 +127,7 @@ function shapeVenture(r: VentureRow) {
     host: r.host,
     stage: r.stage as VentureStage,
     businessType: r.business_type ?? null,
+    businessTypes: storedBusinessTypes(r),
     color: r.color,
     /* WHERE THE COLOUR CAME FROM, on the document rather than left to be
        guessed at. It decides what the page may offer ("use the site's
@@ -348,6 +349,7 @@ ventureRoutes.post("/", async (c) => {
     website?: unknown;
     stage?: unknown;
     businessType?: unknown;
+    businessTypes?: unknown;
     color?: unknown;
   } | null;
   if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ error: "Expected a JSON body." }, 400);
@@ -381,7 +383,9 @@ ventureRoutes.post("/", async (c) => {
     stage = s.stage;
   }
 
-  if (body.businessType != null && !isBusinessType(body.businessType)) return c.json({ error: "Choose a supported business type." }, 400);
+  let types;
+  try { types = parseBusinessTypes(body.businessTypes, body.businessType); }
+  catch { return c.json({ error: "Choose supported business types." }, 400); }
 
   const last = db.prepare("SELECT MAX(position) AS p FROM ventures").get() as {
     p: number | null;
@@ -402,8 +406,8 @@ ventureRoutes.post("/", async (c) => {
   db.prepare(
     `INSERT INTO ventures
        (id, slug, name, description, website, host, stage, color, color_source,
-        position, brand, created_at, updated_at, business_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
+        position, brand, created_at, updated_at, business_type, business_types)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?)`,
   ).run(
     id,
     uniqueSlug(name.name),
@@ -417,7 +421,8 @@ ventureRoutes.post("/", async (c) => {
     position,
     ts,
     ts,
-    body.businessType ?? null,
+    types[0] ?? null,
+    JSON.stringify(types),
   );
 
   if (website) await enrichVenture(id);
@@ -488,9 +493,17 @@ ventureRoutes.patch("/:key", async (c) => {
     sets.push("stage = ?");
     args.push(s.stage);
   }
-  if (body.businessType !== undefined) {
-    if (body.businessType !== null && !isBusinessType(body.businessType)) return c.json({ error: "Choose a supported business type." }, 400);
-    sets.push("business_type = ?"); args.push(body.businessType);
+  if (body.businessTypes !== undefined || body.businessType !== undefined) {
+    let types;
+    try {
+      // Older editors resend the primary type when saving unrelated fields.
+      // Keep additional selections when that primary type has not changed.
+      types = body.businessTypes === undefined && body.businessType != null && body.businessType === row.business_type
+        ? storedBusinessTypes(row)
+        : parseBusinessTypes(body.businessTypes, body.businessType);
+    }
+    catch { return c.json({ error: "Choose supported business types." }, 400); }
+    sets.push("business_type = ?", "business_types = ?"); args.push(types[0] ?? null, JSON.stringify(types));
   }
   if (body.website !== undefined) {
     const w = readWebsite(body.website);

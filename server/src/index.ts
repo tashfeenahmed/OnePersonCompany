@@ -2,6 +2,8 @@ import { actionInboxRoutes } from "./routes/actionInbox.ts";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { onboardingRoutes } from "./routes/onboarding.ts";
+import { startOnboardingReconciliation } from "./onboarding/reconcile.ts";
 import { setupRoutes } from "./routes/setup.ts";
 /**
  * The API.
@@ -182,6 +184,7 @@ app.route("/api/stock", stock);
    the file that can write to the vault as small as it was. */
 app.route("/api/action-inbox", actionInboxRoutes);
 app.route("/api/setup", setupRoutes);
+app.route("/api/onboarding", onboardingRoutes);
 app.route("/api/workspace", workspaceRoutes);
 app.route("/api/plugins", pluginConfig);
 app.route("/api/github", githubRoutes);
@@ -441,6 +444,7 @@ freellmapiInstance.boot();
 agentInstances.boot();
 
 serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {
+  startOnboardingReconciliation();
   console.log(`[api] http://127.0.0.1:${info.port}`);
   console.log(
     `[api] collectors: ${Object.keys(COLLECTORS).join(", ") || "none"}` +

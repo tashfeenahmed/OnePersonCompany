@@ -62,4 +62,12 @@ export const INTEGRATION_MIGRATIONS: { name: string; sql: string }[] = [...insig
     CREATE INDEX budget_usage_run ON budget_usage(run_id);
     CREATE TABLE run_checkpoints (run_id TEXT NOT NULL, step_key TEXT NOT NULL, reply TEXT NOT NULL, PRIMARY KEY(run_id,step_key));
   ` },
+  { name: "193_onboarding", sql: `
+    CREATE TABLE onboarding_state (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL DEFAULT 1, draft TEXT NOT NULL, created_at TEXT NOT NULL, completed_at TEXT);
+    CREATE TABLE onboarding_connections (setup_key TEXT PRIMARY KEY, plugin TEXT NOT NULL, account_id INTEGER REFERENCES plugin_accounts(id) ON DELETE SET NULL, result TEXT NOT NULL);
+    CREATE TABLE onboarding_auto_links (plugin TEXT NOT NULL, entity TEXT NOT NULL, venture_id TEXT NOT NULL REFERENCES ventures(id) ON DELETE CASCADE, PRIMARY KEY(plugin, entity));
+  ` },
+  { name: "194_onboarding_provisioned_boards", sql: `
+    CREATE TABLE onboarding_provisioned_boards (id TEXT PRIMARY KEY);
+  ` },
 ].sort((a, b) => a.name.localeCompare(b.name));

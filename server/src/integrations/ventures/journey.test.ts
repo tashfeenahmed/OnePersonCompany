@@ -10,6 +10,28 @@ import { JOURNEY_TEMPLATES } from "../../../../shared/ventureJourneyTemplates.ts
 import { shiftDay } from "../../../../shared/workJournal.ts";
 const init = (method: string, data?: unknown) => ({ method, headers: { "content-type": "application/json" }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
 let serial = 0;
+test("multiple venture types survive API edits and archive all selected review tracks", async () => {
+  const v = await create({ stage: "launched", businessTypes: ["web", "mobile"] });
+  let doc = await read(v.id);
+  assert.deepEqual(doc.businessTypes, ["web", "mobile"]);
+  const picked = journeyTasks(emptyJourney(), "launched", ["web", "mobile"]);
+  for (const type of ["web", "mobile"])
+    await saved(v.id, { kind: "task", key: picked.find(t => t.businessType === type)!.key, status: "done", evidence: "Reviewed" });
+  const untouched = journeyTasks(emptyJourney(), "launched", "goods").find(t => t.businessType === "goods")!;
+  await saved(v.id, { kind: "task", key: untouched.key, status: "done", evidence: "Saved from another track" });
+  assert.equal((await update(v.id, { kind: "start-review", businessType: "web", businessTypes: ["web"] })).status, 409);
+  doc = await saved(v.id, { kind: "start-review", businessType: "web", businessTypes: ["web", "mobile"] });
+  assert.equal(doc.reviews[0]!.done, 2);
+  assert.deepEqual(doc.reviews[0]!.businessTypes, ["web", "mobile"]);
+  assert.equal(doc.reviews[0]!.total, picked.length);
+  assert(picked.every(t => !doc.state.tasks[t.key]));
+  assert.equal(doc.state.tasks[untouched.key]!.status, "done");
+  const renamed = await ventureRoutes.request(`/${v.id}`, init("PATCH", { name: "Both platforms", businessType: "web" }));
+  assert.deepEqual((await renamed.json() as { businessTypes: string[] }).businessTypes, ["web", "mobile"]);
+  for (const value of ["web", ["web", "unknown"], null])
+    assert.equal((await ventureRoutes.request(`/${v.id}`, init("PATCH", { businessTypes: value }))).status, 400);
+  assert.deepEqual((await read(v.id)).businessTypes, ["web", "mobile"]);
+});
 async function create(body: Record<string, unknown> = {}) {
   const r = await ventureRoutes.request("/", init("POST", { name: `Journey test ${++serial}`, ...body }));
   assert.equal(r.status, 201, await r.clone().text());

@@ -1,3 +1,4 @@
+import { parseBusinessTypes, storedBusinessTypes } from "../../../../shared/businessTypes.ts";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { db, ventureRow, type VentureRow } from "../../db.ts";
@@ -7,10 +8,10 @@ import { JOURNEY_TEMPLATES } from "../../../../shared/ventureJourneyTemplates.ts
 
 export function readJourney(venture: VentureRow): JourneyDocument {
   const row = db.prepare("SELECT revision, updated_at, state FROM venture_journeys WHERE venture_id = ?").get(venture.id) as { revision: number; updated_at: string; state: string } | undefined;
-  return { ventureId: venture.id, stage: venture.stage as JourneyStage, businessType: venture.business_type ?? null,
+  return { ventureId: venture.id, stage: venture.stage as JourneyStage, businessType: venture.business_type ?? null, businessTypes: storedBusinessTypes(venture),
     revision: row?.revision ?? 0, updatedAt: row?.updated_at ?? null, state: row ? JSON.parse(row.state) as JourneyState : emptyJourney(),
     history: db.prepare("SELECT id, from_stage AS fromStage, to_stage AS toStage, note, ts AS at FROM venture_stage_history WHERE venture_id = ? ORDER BY id DESC LIMIT 100").all(venture.id) as JourneyDocument["history"],
-    reviews: db.prepare("SELECT id, ts AS at, business_type AS businessType, done, total FROM venture_reviews WHERE venture_id = ? ORDER BY id DESC LIMIT 50").all(venture.id) as JourneyDocument["reviews"] };
+    reviews: (db.prepare("SELECT id, ts AS at, business_type AS businessType, done, total, json_extract(snapshot, '$.businessTypes') AS types FROM venture_reviews WHERE venture_id = ? ORDER BY id DESC LIMIT 50").all(venture.id) as { id: number; at: string; businessType: JourneyDocument["businessType"]; done: number; total: number; types: string | null }[]).map(({ types, ...review }) => ({ ...review, businessTypes: parseBusinessTypes(types ? JSON.parse(types) : undefined, review.businessType) })) };
 }
 export function recordStageChange(id: string, from: string, to: string, note: string, at: string) {
   if (from !== to) db.prepare("INSERT INTO venture_stage_history (venture_id,from_stage,to_stage,note,ts) VALUES (?,?,?,?,?)").run(id, from, to, note, at);
@@ -62,7 +63,8 @@ export function applyJourneyCommand(state: JourneyState, raw: unknown, at: strin
       state.names = state.names.filter(n => n.id !== command.id); return null;
     }
     case "start-review":
-      if (!(command.businessType === null || isBusinessType(command.businessType))) return "Choose a valid business type.";
+      try { parseBusinessTypes(command.businessTypes, command.businessType); }
+      catch { return "Choose valid business types."; }
       return null; // Archiving and reset are performed in the same transaction below.
     default: return "Unknown journey command.";
   }
@@ -86,10 +88,11 @@ journeyRoutes.patch("/:key", async c => {
     if (problem) { db.exec("ROLLBACK"); return c.json({ error: problem }, 400); }
     const command = body.command as JourneyCommand;
     if (command.kind === "start-review") {
-      if (venture.stage !== "launched" || (venture.business_type ?? null) !== command.businessType) { db.exec("ROLLBACK"); return c.json({ error: "Reload the current launched business type before starting its next review." }, 409); }
-      const tasks = journeyTasks(doc.state, "launched", command.businessType), progress = journeyReadiness(tasks, doc.state.tasks);
+      const types = parseBusinessTypes(command.businessTypes, command.businessType), currentTypes = storedBusinessTypes(venture);
+      if (venture.stage !== "launched" || types.length !== currentTypes.length || types.some(type => !currentTypes.includes(type))) { db.exec("ROLLBACK"); return c.json({ error: "Reload the current launched business type before starting its next review." }, 409); }
+      const tasks = journeyTasks(doc.state, "launched", types), progress = journeyReadiness(tasks, doc.state.tasks);
       if (!progress.done && !progress.skipped) { db.exec("ROLLBACK"); return c.json({ error: "Complete or skip a step before starting the next review." }, 400); }
-      db.prepare("INSERT INTO venture_reviews (venture_id,ts,business_type,done,total,snapshot) VALUES (?,?,?,?,?,?)").run(venture.id, at, command.businessType, progress.done, progress.total, JSON.stringify({ tasks, progress: doc.state.tasks }));
+      db.prepare("INSERT INTO venture_reviews (venture_id,ts,business_type,done,total,snapshot) VALUES (?,?,?,?,?,?)").run(venture.id, at, types[0] ?? null, progress.done, progress.total, JSON.stringify({ tasks, businessTypes: types, progress: doc.state.tasks }));
       for (const task of tasks) delete doc.state.tasks[task.key];
     }
     db.prepare(`INSERT INTO venture_journeys (venture_id,revision,state,updated_at) VALUES (?,?,?,?) ON CONFLICT(venture_id) DO UPDATE SET revision=excluded.revision,state=excluded.state,updated_at=excluded.updated_at`).run(venture.id, doc.revision + 1, JSON.stringify(doc.state), at);

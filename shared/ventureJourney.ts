@@ -25,7 +25,7 @@ export type JourneyTask = { key: string; stage: JourneyStage; businessType: Busi
 export type NameCandidate = { id: string; name: string; domain: string; status: "unchecked" | "shortlisted" | "ruled-out" | "chosen"; evidence: string; updatedAt: string };
 export type JourneyState = { version: 1; profile: JourneyProfile; tasks: Record<string, TaskProgress>; custom: JourneyTask[]; names: NameCandidate[] };
 export type StageChange = { id: number; fromStage: JourneyStage; toStage: JourneyStage; note: string; at: string };
-export type JourneyDocument = { ventureId: string; stage: JourneyStage; businessType: BusinessType | null; revision: number; updatedAt: string | null; state: JourneyState; history: StageChange[]; reviews: { id: number; at: string; businessType: BusinessType | null; done: number; total: number }[] };
+export type JourneyDocument = { ventureId: string; stage: JourneyStage; businessType: BusinessType | null; businessTypes?: BusinessType[]; revision: number; updatedAt: string | null; state: JourneyState; history: StageChange[]; reviews: { id: number; at: string; businessType: BusinessType | null; businessTypes?: BusinessType[]; done: number; total: number }[] };
 export type JourneyCommand =
   | { kind: "profile"; values: JourneyProfile }
   | { kind: "task"; key: string; status: TaskStatus; evidence: string }
@@ -33,10 +33,11 @@ export type JourneyCommand =
   | { kind: "delete-task"; key: string }
   | { kind: "name"; id?: string; name: string; domain: string; status: NameCandidate["status"]; evidence: string }
   | { kind: "delete-name"; id: string }
-  | { kind: "start-review"; businessType: BusinessType | null };
+  | { kind: "start-review"; businessType: BusinessType | null; businessTypes?: BusinessType[] };
 export function emptyJourney(): JourneyState { return { version: 1, profile: {}, tasks: {}, custom: [], names: [] }; }
-export function journeyTasks(state: JourneyState, stage: JourneyStage, businessType: BusinessType | null) {
-  return [...JOURNEY_TEMPLATES, ...state.custom].filter(t => t.stage === stage && (t.businessType === null || t.businessType === businessType));
+export function journeyTasks(state: JourneyState, stage: JourneyStage, businessType: BusinessType | readonly BusinessType[] | null) {
+  const types = Array.isArray(businessType) ? businessType : businessType ? [businessType] : [];
+  return [...JOURNEY_TEMPLATES, ...state.custom].filter(t => t.stage === stage && (t.businessType === null || types.includes(t.businessType)));
 }
 export function journeyReadiness(tasks: JourneyTask[], progress: JourneyState["tasks"]) {
   const done = tasks.filter(t => progress[t.key]?.status === "done").length;

@@ -882,7 +882,7 @@ export const PLUGINS: Plugin[] = [
     help: "TWO KEYS THAT DO TWO DIFFERENT JOBS, and neither can do the other's. The ADMIN key (sk-admin-…) reads /v1/organization/costs and is what fills the costs board; a project key is refused there whatever scopes it carries. It is also refused at /v1/chat/completions — probed 2026-09-05, OpenAI answers 401 “Missing scopes: model.request” — so completing through OpenAI needs the second field: an ordinary PROJECT key (sk-proj-…) with model access. Leave that one empty and everything about the bill still works. The Costs API groups by project or by line item and never both, so there is no per-model split to be had from it.",
     docs: "https://platform.openai.com/settings/organization/admin-keys",
     fields: [
-      { key: "key", label: "Admin key", kind: "secret", ph: "sk-admin-…" },
+      { key: "key", label: "Admin key (optional)", kind: "secret", ph: "sk-admin-…", optional: true },
       {
         key: "chat-key",
         label: "Inference key (optional)",
@@ -911,7 +911,7 @@ export const PLUGINS: Plugin[] = [
     help: "TWO KEYS THAT DO TWO DIFFERENT JOBS. The first must be a MANAGEMENT key: an inference key answers /credits and its own /key and is refused by /activity and /keys with a 403, so it would connect, show a balance and never show what the balance went on. The reverse is just as true — probed 2026-09-05, the management key is refused at /chat/completions with 401 “User not found.” — so completing through OpenRouter needs the second field: an ordinary inference key. Leave it empty and everything about the bill still works. (Its /models catalog answers 200 to no key at all, so a key that lists models has proved nothing.)",
     docs: "https://openrouter.ai/keys",
     fields: [
-      { key: "key", label: "Management key", kind: "secret", ph: "sk-or-v1-… (management)" },
+      { key: "key", label: "Management key (optional)", kind: "secret", ph: "sk-or-v1-… (management)", optional: true },
       {
         key: "chat-key",
         label: "Inference key (optional)",

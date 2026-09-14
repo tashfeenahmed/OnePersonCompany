@@ -183,18 +183,16 @@ const BUILTIN: Record<
   openai: {
     secret: "openai-admin-key",
     fields: ["key", "chat-key"],
-    optional: ["chat-key"],
+    optional: ["key", "chat-key"],
     /* So the two entries read `openai-admin-key` and `openai-chat-key` rather
        than `openai-admin-key-key` and `openai-admin-key-chat-key`. */
     stems: { "chat-key": "openai-chat-key" },
     async verify(values) {
       const key = (values.key ?? "").trim();
-      if (!key)
-        return "Paste an org admin key (sk-admin-…) from Settings → Organization → Admin keys.";
+      if (!key && !(values["chat-key"] ?? "").trim()) return "Add an inference key, a reporting key, or both.";
       if (key.includes("\n"))
         return "That is more than one line. One key per account here.";
-      const res = await openai.verify(key);
-      if (!res.ok) return res.error;
+      if (key) { const res = await openai.verify(key); if (!res.ok) return res.error; }
       /* Only when one has been typed. An account that holds the bill and no
          inference key is a complete, working account. */
       const chatKey = (values["chat-key"] ?? "").trim();
@@ -209,16 +207,14 @@ const BUILTIN: Record<
   openrouter: {
     secret: "openrouter-key",
     fields: ["key", "chat-key"],
-    optional: ["chat-key"],
+    optional: ["key", "chat-key"],
     stems: { "chat-key": "openrouter-chat-key" },
     async verify(values) {
       const key = (values.key ?? "").trim();
-      if (!key)
-        return "Paste a MANAGEMENT key from openrouter.ai → Settings → Keys. An inference key connects and then shows nothing.";
+      if (!key && !(values["chat-key"] ?? "").trim()) return "Add an inference key, a management key, or both.";
       if (key.includes("\n"))
         return "That is more than one line. One key per account here.";
-      const res = await openrouter.verify(key);
-      if (!res.ok) return res.error;
+      if (key) { const res = await openrouter.verify(key); if (!res.ok) return res.error; }
       const chatKey = (values["chat-key"] ?? "").trim();
       if (chatKey) {
         const inference = await openrouterChat.verifyChatKey(chatKey);
@@ -1410,3 +1406,35 @@ plugins.post("/:id/collect", async (c) => {
   const result = await collector();
   return c.json({ ...shape(id), collected: result });
 });
+
+/** The onboarding flow shares the registry and vault; it never stores ENV text. */
+export function setupConnectionSchemas() {
+  return Object.entries(REGISTRY).map(([id, entry]) => ({ id, fields: entry.fields, optional: entry.optional ?? [], verifiable: !!entry.verify }));
+}
+export async function connectSetupAccount(id: string, label: string, raw: unknown, existingId?: number | null) {
+  const entry = REGISTRY[id];
+  if (!entry) throw new Error('This service cannot be connected here yet.');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.values(raw).some(v => typeof v !== 'string' || v.length > 100_000)) throw new Error('Expected credential fields.');
+  const checked = checkFields(entry, raw);
+  if (!checked.ok) throw new Error(checked.error);
+  const prior = existingId ? accounts.get(existingId) : accounts.list(id).find(a=>a.label===label);
+  if (prior && prior.pluginId !== id) throw new Error('That account belongs to a different service.');
+  const saved = prior ? vault.readSet(prior.id, `onboarding_${id}`) : {};
+  const values: Record<string,string> = {};
+  for (const f of entry.fields) values[f] = checked.fields[f]?.trim() || saved[f] || '';
+  const missing = requiredFields(entry).filter(f=>!values[f]);
+  if (missing.length) throw new Error(`Missing: ${missing.join(', ')}.`);
+  if (!entry.verify) throw new Error('This service needs its integration settings completed before it can be verified.');
+  const problem = await entry.verify(values);
+  if (problem) throw new Error(problem);
+  upsertPlugin(id, false, null);
+  const account = prior ?? accounts.create(id, label);
+  if (account.label !== label) accounts.rename(account.id, label);
+  applyCredentials(account, entry, values);
+  accounts.markOk(account.id);
+  // An inference key proves model access, not access to the organisation bill.
+  const modelOnly = (id === 'openai' || id === 'openrouter') && !values.key;
+  const collected = modelOnly ? null : await collectNow(id);
+  const after = accounts.get(account.id)!;
+  return { accountId: account.id, fields: Object.keys(values).filter(k=>!!values[k]), collected: collected?.ok ?? null, error: after.lastError ?? (collected?.ok === false ? 'Connected, but the first data sync did not finish. Check this service’s read permissions.' : null) };
+}

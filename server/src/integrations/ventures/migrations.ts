@@ -210,4 +210,11 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX venture_reviews_venture ON venture_reviews(venture_id,id);
     `,
   },
+  {
+    name: "481_venture_business_types",
+    sql: `
+      ALTER TABLE ventures ADD COLUMN business_types TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(business_types) AND json_type(business_types) = 'array');
+      UPDATE ventures SET business_types = json_array(business_type) WHERE business_type IS NOT NULL;
+    `,
+  },
 ];
