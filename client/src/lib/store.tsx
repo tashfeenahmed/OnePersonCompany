@@ -517,6 +517,7 @@ const SEED: StoreState = {
         { id: "dm10", type: "registrars.nameservers", w: 2 },
         { id: "dm11", type: "registrars.byRegistrar", w: 2 },
         { id: "dm12", type: "registrars.newest", w: 2 },
+        { id: "dm-search", type: "registrars.search", w: 4, span: 12 },
       ],
     },
     /*

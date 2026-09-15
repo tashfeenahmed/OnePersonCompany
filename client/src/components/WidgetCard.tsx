@@ -1,3 +1,4 @@
+import { DomainSearch } from "@/components/domains/DomainSearch";
 import { OverviewWidget } from "@/components/overview/OverviewWidget";
 import { ServerWidget } from "@/components/servers/ServerWidget";
 import { widgetSpanClass } from "@/lib/widgetLayout";
@@ -437,7 +438,8 @@ export function WidgetCard({
           def.kind === "metric" || def.kind === "bars" ? "mt-auto" : "mt-2.5",
         )}
       >
-        {empty && (
+        {def.kind === "domain-search" && <DomainSearch />}
+        {empty && def.kind !== "domain-search" && (
           <p className="text-muted-foreground text-[12.5px] leading-snug">
             {empty}
           </p>

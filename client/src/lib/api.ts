@@ -48,7 +48,8 @@ function goToLogin() {
   window.location.replace(`/login?next=${encodeURIComponent(next)}`);
 }
 
-export async function call<T>(path: string, init?: RequestInit): Promise<T> {
+/** Read-only POST endpoints can opt out of the data-changed broadcast. */
+export async function call<T>(path: string, init?: RequestInit, options?: { notifyChange?: boolean }): Promise<T> {
   const res = await fetch(BASE + path, {
     ...init,
     headers: { "content-type": "application/json", ...init?.headers },
@@ -70,7 +71,7 @@ export async function call<T>(path: string, init?: RequestInit): Promise<T> {
       ? Object.fromEntries(Object.entries(rawFields).filter(([,v]) => typeof v === 'string')) as Record<string,string> : {};
     throw new ApiError(res.status, message, fieldErrors);
   }
-  if (init?.method && !["GET", "HEAD"].includes(init.method) && path !== "/workspace") window.dispatchEvent(new Event("opc:data-changed"));
+  if (options?.notifyChange !== false && init?.method && !["GET", "HEAD"].includes(init.method) && path !== "/workspace") window.dispatchEvent(new Event("opc:data-changed"));
   return body as T;
 }
 

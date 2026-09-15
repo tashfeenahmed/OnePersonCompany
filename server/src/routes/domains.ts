@@ -20,9 +20,11 @@
  * first into a number too big to act on.
  */
 import { Hono } from "hono";
+import { domainSearch } from "../integrations/domain-search/routes.ts";
 import { daysUntil, registeredDomains } from "../providers/domains.ts";
 
 export const domains = new Hono();
+domains.route("/search", domainSearch);
 
 /** The two lines a renewal is judged against, in one place. A week is when a
  *  lapse becomes a thing to do today; a month is roughly where it stops being

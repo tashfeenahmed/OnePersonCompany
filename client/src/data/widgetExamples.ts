@@ -6,6 +6,7 @@ export function widgetExample(widget: Widget): Partial<Widget> {
   const parts = [{ label: "Example A", value: 60, text: "60" }, { label: "Example B", value: 40, text: "40" }];
   const base = { sub: "Illustrative example", caption: "Synthetic preview data" };
   switch (widget.kind) {
+    case "domain-search": return { sub: "Search across TLDs or check domains in bulk." };
     case "metric": return { ...base, value: "100", series };
     case "bars": return { ...base, bars: series, labels: "Example observations" };
     case "rows": return { ...base, rows: [["Example A", "60"], ["Example B", "40"]] };

@@ -26,7 +26,8 @@ export type WidgetKind =
   | "profile"
   | "proportion"
   | "waterfall"
-  | "feed";
+  | "feed"
+  | "domain-search";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -2047,6 +2048,9 @@ export const WIDGETS: Record<string, Widget> = {
      stale is worse than no renewal figure at all.
   */
 
+  "registrars.search": {
+    src: "registrars", name: "Domain search", kind: "domain-search", span: 12, window: "now",
+  },
   "registrars.total": {
     src: "registrars",
     name: "Domains held",
@@ -5282,6 +5286,7 @@ export const DASHBOARD_PRESETS: {
       "registrars.byRegistrar",
       "registrars.nameservers",
       "registrars.newest",
+      "registrars.search",
     ],
   },
   /*
