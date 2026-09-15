@@ -604,6 +604,23 @@ export function runChild(r: { id: string; kind: string; title: string; status: s
   };
 }
 
+/** Ground chat handoff claims in the same ledger the sidebar reads. */
+export function sessionWorkLines(sessionId: string): string[] {
+  const rows = db.prepare(`SELECT id, kind, title, status FROM agent_runs
+    WHERE parent_session_id = ? ORDER BY queued_at DESC, rowid DESC LIMIT 6`)
+    .all(sessionId) as unknown as { id: string; kind: string; title: string; status: string }[];
+  return [
+    "Registered OPC runs in this conversation, from the live run ledger:",
+    ...(rows.length ? rows.slice(0, 5).map(row => {
+      const child = runChild(row);
+      return `- ${row.id}: ${row.kind}, ${row.status}; report ${child.to}`;
+    }) : ["None. Earlier assistant claims, native helper tasks and local files are not registered OPC dispatches."]),
+    ...(rows.length > 5 ? ["Older runs omitted; read the runs history if needed."] : []),
+    "Use this current state over earlier claims in the conversation. Never say a worker " +
+      "is running from a previous assistant message alone; verify the roster and actual run id.",
+  ];
+}
+
 export function childrenBySession(): Map<string, RunChild[]> {
   const rows = db
     .prepare(

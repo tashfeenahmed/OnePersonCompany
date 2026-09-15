@@ -57,6 +57,16 @@ test("dispatch guidance quotes the configured wrapper path and leaves the worker
   assert.match(lines, /choose the worker from the flat `workers` array/);
 });
 
+test("old assistant claims are checked against the conversation's actual dispatch ledger", () => {
+  assert.match(instructions(composed("hermes")), /None\. Earlier assistant claims/);
+  db.prepare("INSERT INTO agent_runs(id,kind,venture_id,title,input,status,queued_at,parent_session_id) VALUES(?,?,?,?,?,?,?,?)")
+    .run("run-real", "seo", ventureId, "SEO review", "{}", "queued", now(), sessionId);
+  const system = instructions(composed("hermes"));
+  assert.match(system, /run-real: seo, queued; report \/outputs\/seo\/run-real/);
+  assert.doesNotMatch(system, /None\. Earlier assistant claims/);
+  assert.doesNotMatch(instructions(composed("hermes", null, "another-chat")), /run-real/);
+});
+
 test("the assigned specialist's prompt owns execution rather than another handoff", () => {
   const system = systemBrief({def:kindDef("seo")!,ventureName:"Cedar Studio",hasTools:true,data:"Existing audit findings"});
   assert.match(system,/assigned specialist executing this run/);

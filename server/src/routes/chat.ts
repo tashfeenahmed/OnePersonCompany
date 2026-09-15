@@ -141,7 +141,7 @@ import { ventureContext } from "./ventures.ts";
   line above keeps: the prose about a team, and the address of the page a run
   is read at, have exactly one author, and it is the file that owns them.
 */
-import { childrenBySession, portfolioTeamLines, ventureTeamLines } from "../integrations/subagents/store.ts";
+import { childrenBySession, portfolioTeamLines, sessionWorkLines, ventureTeamLines } from "../integrations/subagents/store.ts";
 import { delegationLines } from "../integrations/subagents/delegation.ts";
 import { goalLines } from "../integrations/chief/goals.ts";
 import { ROUNDS_SESSION } from "../integrations/chief/rounds.ts";
@@ -470,6 +470,7 @@ function withOrg(
   if (live) {
     const managed = readMode(live.id) === "managed";
     lines.push(...delegationLines(sessionId, managed, managed ? managedCliPath(live.id) : undefined));
+    lines.push("", ...sessionWorkLines(sessionId));
   }
 
   const team = ventureId ? ventureTeamLines(ventureId) : null;
