@@ -435,7 +435,8 @@ export function workerRoster(opts: { ventureId?: string; role?: string; limit: n
       (SubagentRow & { venture_slug: string | null; venture_name: string | null })[];
   const ctx = { tallies: tallies(), last: lastRuns() };
   return {
-    roles: roleInfos(),
+    total, limit: opts.limit, offset: opts.offset,
+    nextOffset: opts.offset + rows.length < total ? opts.offset + rows.length : null,
     workers: rows.map(row => {
       const s = shapeSubagent(row, ctx);
       return {
@@ -445,8 +446,7 @@ export function workerRoster(opts: { ventureId?: string; role?: string; limit: n
         lastRun: s.lastRun ? { id: s.lastRun.id, status: s.lastRun.status, url: runPage(s.kind, s.lastRun.id) } : null,
       };
     }),
-    total, limit: opts.limit, offset: opts.offset,
-    nextOffset: opts.offset + rows.length < total ? opts.offset + rows.length : null,
+    roles: roleInfos().filter(role => !opts.role || role.role === opts.role),
   };
 }
 

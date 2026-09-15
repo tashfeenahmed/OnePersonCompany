@@ -31,6 +31,8 @@ test("a late venture's worker remains discoverable inside the tool response budg
   assert.equal(doc.workers[0].name, "Search specialist");
   assert.equal(doc.workers[0].enabled, false);
   assert.equal(doc.workers[0].venture.id, "v-opaque-29");
+  assert.deepEqual(doc.roles.map((role: { role: string }) => role.role), ["seo"]);
+  assert.ok(bounded.bytes < 2_000, "an exact worker lookup fits even a small terminal result");
   assert.ok(!text.includes("data:image") && !text.includes("standing instructions"));
   const byId = await (await subagentRoutes.request("/roster?venture=v-opaque-29&role=seo")).json();
   assert.deepEqual(byId, doc);
