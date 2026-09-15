@@ -2739,6 +2739,11 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
          AND NOT EXISTS (SELECT 1 FROM venture_links);
     `,
   },
+  {
+    name: "403_chat_report_link",
+    sql: `ALTER TABLE chat_messages ADD COLUMN report_run_id TEXT
+          REFERENCES agent_runs(id) ON DELETE SET NULL;`,
+  },
 /* SORTED BY NAME, NOT BY POSITION IN THIS FILE. The prefix is the order, and
    it was not: this array ran 017 before 015, and the integration blocks
    concatenated after it ran one area's 3xx steps ahead of another's 1xx. The
@@ -7148,6 +7153,7 @@ export type ChatMessageRow = {
   tools: string | null;
   /** 1 when the answer was cut off before the agent finished it. */
   partial: number;
+  report_run_id: string | null;
 };
 
 export function appendChatMessage(m: {
@@ -7164,13 +7170,14 @@ export function appendChatMessage(m: {
    *  decides an empty list is stored as null. */
   tools?: ChatToolCall[] | null;
   partial?: boolean;
+  reportRunId?: string | null;
 }): ChatMessageRow {
   const info = db
     .prepare(
       `INSERT INTO chat_messages
          (session_id, ts, role, content, backend, channel, model,
-          prompt_tokens, completion_tokens, ms, tools, partial)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          prompt_tokens, completion_tokens, ms, tools, partial, report_run_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       m.sessionId,
@@ -7185,6 +7192,7 @@ export function appendChatMessage(m: {
       m.ms ?? null,
       m.tools && m.tools.length ? JSON.stringify(m.tools) : null,
       m.partial ? 1 : 0,
+      m.reportRunId ?? null,
     );
   return db
     .prepare("SELECT * FROM chat_messages WHERE id = ?")

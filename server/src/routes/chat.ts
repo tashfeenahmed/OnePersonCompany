@@ -61,6 +61,7 @@
  * at the end — complete, or flagged `partial` and honest about it.
  */
 import { Hono } from "hono";
+import { chatReport } from "../chat/reports.ts";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
@@ -562,6 +563,7 @@ function shapeMessage(r: ChatMessageRow) {
     /* A boolean on the wire, because 0/1 is SQLite's way of spelling one and
        the browser should not have to know that. */
     partial: r.partial === 1,
+    report: chatReport(r),
   };
 }
 

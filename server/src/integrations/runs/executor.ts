@@ -375,6 +375,7 @@ function reportToParent(runId: string, ms: number) {
       role: "assistant",
       content: lines.join("\n"),
       channel: "run",
+      reportRunId: row.id,
       backend: null,
       model: null,
       ms,

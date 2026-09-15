@@ -190,6 +190,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CommandBar } from "@/components/chat/CommandBar";
+import { ReportCard } from "@/components/chat/ReportCard";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { VentureMark } from "@/components/VentureChrome";
@@ -206,8 +207,6 @@ import {
   type ChatMessage,
   type ChatRunState,
   type ChatToolCall,
-  type MessageBackendId,
-  type ProviderId,
 } from "@/lib/api";
 
 const SUGGESTIONS = [
@@ -242,31 +241,6 @@ const BACKEND_NAMES: Record<ChatBackendId, string> = {
   hermes: "Hermes",
   openclaw: "OpenClaw",
 };
-
-const PROVIDER_NAMES: Record<ProviderId, string> = {
-  freellmapi: "FreeLLMAPI",
-  local: "Local model",
-  openai: "OpenAI",
-  openrouter: "OpenRouter",
-};
-
-/**
- * WHO WROTE THIS MESSAGE, and the two kinds of author are named differently on
- * purpose.
- *
- * An AGENT answered with tools and memory behind it; a PROVIDER answered as a
- * bare completion because no agent was live. Reading a transcript six weeks
- * later, "Hermes" and "Local model, direct" are two different claims about
- * what that answer was capable of being, and collapsing them into one name
- * would be the same lie the two agents already refuse to tell about each
- * other.
- */
-function authorName(backend: MessageBackendId | null): string {
-  if (!backend) return "Agent";
-  if (backend.startsWith("provider:"))
-    return `${PROVIDER_NAMES[backend.slice("provider:".length) as ProviderId]}, direct`;
-  return BACKEND_NAMES[backend as ChatBackendId];
-}
 
 function greeting() {
   const h = new Date().getHours();
@@ -2043,26 +2017,11 @@ export function Chat() {
                   </div>
                 ) : (
                   <div key={m.id}>
-                    <AssistantBody text={m.content.trim()} tools={m.tools} />
-                    {/*
-                      WHICH AGENT, WHICH MODEL, HOW LONG. Under every answer and
-                      not in a tooltip, because the two backends do not answer
-                      identically and a transcript that hides which one spoke is
-                      a transcript you cannot reason about later. Every field is
-                      omitted rather than zeroed when the agent did not report
-                      it — an agent that counts no tokens has not said the turn
-                      was free.
-                    */}
-                    <p className="text-muted-foreground mt-1.5 text-[12.5px]">
-                      {/* A run's report is written by the server on the
-                          worker's behalf — runs/executor.ts — and is not the
-                          agent's turn, so it is not signed as one. */}
-                      {m.channel === "run" ? "Sub-agent report" : authorName(m.backend)}
-                      {m.model && ` · ${m.model}`}
-                      {m.ms !== null && ` · ${duration(m.ms)}`}
-                      {m.usage &&
-                        ` · ${m.usage.prompt + m.usage.completion} tokens`}
-                    </p>
+                    {m.report ? (
+                      <ReportCard report={m.report} />
+                    ) : (
+                      <AssistantBody text={m.content.trim()} tools={m.tools} />
+                    )}
                     {/*
                       A CUT-OFF ANSWER SAYS SO, EVERY TIME IT IS READ.
 

@@ -2653,6 +2653,7 @@ export type ChatToolCall = {
 };
 
 export type ChatMessage = {
+  report?: import("../../../shared/chatReport").ChatReport | null;
   id: number;
   ts: string;
   role: "user" | "assistant" | "system";
