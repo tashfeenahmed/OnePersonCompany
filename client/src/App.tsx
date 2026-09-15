@@ -148,6 +148,7 @@ function WorkspaceApplication() {
                       path="/ventures/:slug/team/:role"
                       element={<Subagent />}
                     />
+                    <Route path="/ventures/:slug/team/:role/runs/:runId" element={<Subagent />} />
                     {/*
                       THE WORKER WITH NO VENTURE ABOVE IT. Same element, one
                       segment shorter, and the shortness is the whole meaning:
@@ -162,6 +163,7 @@ function WorkspaceApplication() {
                       /ventures/... is a longer literal prefix.
                     */}
                     <Route path="/team/:role" element={<Subagent />} />
+                    <Route path="/team/:role/runs/:runId" element={<Subagent />} />
                     {/*
                       ONE WATCHED PERSON'S FILE. A person used to be a query
                       parameter on the line above — `?person=<id>`, a filter

@@ -18,7 +18,7 @@ import { count } from "./format.ts";
  * "take me back to the conversation" that does not need a second click.
  *
  * "NEW" IS AN ADDRESS TOO. Pressing New brief has to be somewhere the back
- * button can return to, so the blank page is `?run=new` rather than a flag in
+ * button can return to, so the blank page is `/runs/new` rather than a flag in
  * a ref — and `new` can never collide with a run, whose ids are `r-` and six
  * characters (see the server's `store.ts`).
  *
@@ -39,6 +39,14 @@ export const NEW_BRIEF = "new";
 /** What the middle of the page draws. `run` and `blank` are never both set;
  *  neither set means the page's own list state (the analyst's grid). */
 export type ChatView = { run: string | null; blank: boolean };
+
+/** A copied or edited URL must never attribute another worker's report here. */
+export function runBelongsToWorker(
+  run: { kind: string; ventureId: string | null },
+  worker: { kind: string; ventureId: string | null },
+): boolean {
+  return run.kind === worker.kind && run.ventureId === worker.ventureId;
+}
 
 /**
  * The open run, from the address and the ledger.

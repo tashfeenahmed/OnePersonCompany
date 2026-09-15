@@ -14,7 +14,7 @@ import { useApi } from "@/hooks/useApi";
 import { ago, count, duration, when } from "@/lib/format";
 import { isHtmlReport, reportText, titleOfHtml } from "@/lib/report";
 import { wordCount, type ReportFact } from "@/lib/reportDocument";
-import { signature } from "@/lib/runChat";
+import { runBelongsToWorker, signature } from "@/lib/runChat";
 import { cn } from "@/lib/utils";
 import { isLive, readCards, runsApi } from "@/lib/api/runs";
 
@@ -94,7 +94,7 @@ export function RunChat({
 }: {
   runId: string;
   /** The worker's short name and title — who signs the reply. */
-  worker: { name: string; title: string };
+  worker: { name: string; title: string; kind: string; ventureId: string | null };
   ventureName: string | null;
   /** How the brief got here, from the worker's transcript. Null for a run
    *  older than the newest twenty, where the stored input is all there is. */
@@ -199,6 +199,8 @@ export function RunChat({
       ].filter((f) => f.value)
     : [];
 
+  if (run && !runBelongsToWorker(run, worker))
+    return <p className="text-muted-foreground pb-2 text-[14px]">This run does not belong to this sub-agent. Choose a conversation from their history.</p>;
   if (open.error)
     return (
       <p className="text-muted-foreground pb-2 text-[14px]">

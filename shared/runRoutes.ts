@@ -40,3 +40,11 @@ export function appForKind(kind: string): string {
 export function runPage(kind: string, id: string): string {
   return appPage(appForKind(kind), id);
 }
+
+/** A worker's conversations, with a stable address for each individual run. */
+export function subagentPage(role: string, ventureSlug: string | null, runId?: string): string {
+  const base = ventureSlug === null
+    ? `/team/${encodeURIComponent(role)}`
+    : `/ventures/${encodeURIComponent(ventureSlug)}/team/${encodeURIComponent(role)}`;
+  return runId ? `${base}/runs/${encodeURIComponent(runId)}` : base;
+}

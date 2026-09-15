@@ -3,7 +3,7 @@ import { beforeEach, test } from "node:test";
 import { appendChatMessage, chatMessages, db, now } from "../db.ts";
 import { ensureTeam, subagentId } from "../integrations/subagents/store.ts";
 import { chatReport } from "./reports.ts";
-import { runPage } from "../../../shared/runRoutes.ts";
+import { runPage, subagentPage } from "../../../shared/runRoutes.ts";
 
 const sessionId = "report-card-test";
 beforeEach(() => {
@@ -27,7 +27,7 @@ test("new reports resolve persisted run IDs and custom worker identity independe
   assert.equal(stored.ms, 42_000, "hidden metadata remains available");
   assert.deepEqual(chatReport(stored), {
     runId: "r-report", title: "Market founder profile", agentName: "My people researcher",
-    role: "people", status: "done", to: runPage("dossier", "r-report"), error: null,
+    role: "people", status: "done", to: subagentPage("people", null, "r-report"), error: null,
   });
 });
 
@@ -36,6 +36,7 @@ test("existing notifications become cards without rewriting their saved content"
   assert.equal(stored.report_run_id, null);
   assert.equal(chatReport(stored)?.runId, "r-report");
   assert.equal(chatMessages(sessionId)[0]?.content, stored.content);
+  assert.equal(chatReport(message({ content: `Report · [open the run](${subagentPage("people", null, "r-report")})` }))?.runId, "r-report");
 });
 
 test("ordinary links, partial messages, and runs from another conversation never become cards", () => {

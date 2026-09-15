@@ -35,9 +35,10 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { sweepLine } from "@/lib/watchDeltas";
 import { chatView, NEW_BRIEF } from "@/lib/runChat";
-import { isLive, runsApi, type RunSummary } from "@/lib/api/runs";
+import { isLive, runsApi } from "@/lib/api/runs";
 import { peopleApi, type WatchInput, type WatchPerson } from "@/lib/api/people";
 import { findSubagent, subagentApi, type SubagentDetail } from "@/lib/api/subagents";
+import { subagentPage } from "../../../shared/runRoutes";
 
 /**
  * ONE WORKER, DRAWN AS A CONVERSATION WITH IT.
@@ -75,8 +76,8 @@ import { findSubagent, subagentApi, type SubagentDetail } from "@/lib/api/subage
  * chat makes for a turn in flight.
  *
  * ---------------------------------------------------------------------------
- * WHAT THE MIDDLE SHOWS, AND WHAT DECIDES IT. `?run=<id>` is the address of an
- * open conversation; `?run=new` is the blank page, which the back button can
+ * WHAT THE MIDDLE SHOWS, AND WHAT DECIDES IT. `/runs/<id>` is the address of an
+ * open conversation; `/runs/new` is the blank page, which the back button can
  * return to; no parameter at all opens the NEWEST run, the way opening the app
  * lands on the last chat. The People Analyst is the exception and it is a
  * standing one: its landing page is the grid of watched people, because that
@@ -167,7 +168,7 @@ import { findSubagent, subagentApi, type SubagentDetail } from "@/lib/api/subage
  * name in the title, and both ends compare it the same way.
  */
 export function Subagent() {
-  const { slug, role = "" } = useParams();
+  const { slug, role = "", runId: routeRunId } = useParams();
   const { state } = useStore();
   const navigate = useNavigate();
 
@@ -185,7 +186,8 @@ export function Subagent() {
         : Promise.resolve(null),
     [slug, stored?.id, role],
   );
-  const sa = detail.data;
+  const sa = detail.data?.role === role && (detail.data.venture?.slug ?? null) === (slug ?? null)
+    ? detail.data : null;
   const reload = detail.reload;
   /*
     WHOSE WORKER THIS IS — the server's answer first, the store's cache second,
@@ -245,16 +247,20 @@ export function Subagent() {
   const onUnfiled = chosen === UNFILED;
   /** The address of the open conversation: a run id, `new` for the blank page,
    *  or nothing at all — which `chatView` reads as the newest run. */
-  const openRunId = params.get("run");
+  const openRunId = routeRunId ?? params.get("run");
+  const runHref = useCallback((id: string) => {
+    const next = new URLSearchParams(params);
+    next.delete("run");
+    const query = next.toString();
+    return subagentPage(role, slug ?? null, id) + (query ? `?${query}` : "");
+  }, [params, role, slug]);
   /** Open a run, or `NEW_BRIEF` for the blank page. Pushed rather than
    *  replaced: which conversation is open is a place the owner went to. */
   const openRun = useCallback(
     (id: string) => {
-      const next = new URLSearchParams(params);
-      next.set("run", id);
-      setParams(next);
+      navigate(runHref(id));
     },
-    [params, setParams],
+    [navigate, runHref],
   );
 
   /** The rail, the cards and the crumb all mean the same three destinations. */
@@ -451,6 +457,13 @@ export function Subagent() {
   const railRuns = onUnfiled ? unfiledRuns : runs;
   /** A run, the blank page, or this worker's own list. See `lib/runChat`. */
   const view = chatView(openRunId, railRuns, watchlisted);
+  // Resolve the landing page and legacy ?run links to the exact conversation.
+  // Replacing keeps Back useful; polling newer runs never changes an open URL.
+  const addressedRun = view.run ?? (openRunId === NEW_BRIEF ? NEW_BRIEF : null);
+  useEffect(() => {
+    if (sa && addressedRun && (!routeRunId || params.has("run")))
+      navigate(runHref(addressedRun), { replace: true });
+  }, [sa, addressedRun, routeRunId, params, navigate, runHref]);
   /** How the open run's brief got here, when it is among the newest twenty. */
   const sent = view.run
     ? (transcript.find((x) => x.run.id === view.run) ?? null)
@@ -502,10 +515,6 @@ export function Subagent() {
     stuck.current = follow;
     el.scrollTop = follow ? el.scrollHeight : 0;
   }, [view.run, ledgerIn]);
-
-  function pick(run: RunSummary) {
-    openRun(run.id);
-  }
 
   /** New brief: nothing open, the composer focused, and an address the back
    *  button can return to. */
@@ -921,7 +930,7 @@ export function Subagent() {
                  the newest is what is open, and the rail has to mark the row
                  the reader is looking at. */
               activeId={view.run}
-              onPick={pick}
+              href={(run) => runHref(run.id)}
               onNew={newBrief}
             />
           )}
@@ -959,7 +968,7 @@ export function Subagent() {
                   <RunChat
                   key={view.run}
                   runId={view.run}
-                  worker={{ name: workerName ?? sa.name, title: sa.title }}
+                  worker={{ name: workerName ?? sa.name, title: sa.title, kind: sa.kind, ventureId: sa.ventureId }}
                   ventureName={venture?.name ?? null}
                   sent={sent}
                   onStop={(id) => void stop(id)}

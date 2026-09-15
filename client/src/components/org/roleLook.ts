@@ -1,4 +1,4 @@
-import { runPage } from "../../../../shared/runRoutes";
+import { runPage, subagentPage } from "../../../../shared/runRoutes";
 import { statusTone, statusWord } from "@/components/runs/format";
 import type { Subagent } from "@/lib/api/subagents";
 
@@ -36,7 +36,7 @@ export function shortName(name: string, venture: string): string {
 /** A worker's page. Built from the venture's slug rather than the worker's id,
  *  because /ventures/<slug>/team/seo is an address somebody can read. */
 export const teamAddress = (ventureSlug: string, role: string) =>
-  `/ventures/${encodeURIComponent(ventureSlug)}/team/${encodeURIComponent(role)}`;
+  subagentPage(role, ventureSlug);
 
 /**
  * A worker with no venture above it: /team/people.
@@ -48,7 +48,7 @@ export const teamAddress = (ventureSlug: string, role: string) =>
  * does not exist. Same page, one segment shorter.
  */
 export const portfolioAddress = (role: string) =>
-  `/team/${encodeURIComponent(role)}`;
+  subagentPage(role, null);
 
 /**
  * ONE WATCHED PERSON'S FILE: /team/people/<id>.

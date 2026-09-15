@@ -1,4 +1,4 @@
-import { appForKind, runPage } from "../../../../shared/runRoutes.ts";
+import { appForKind, runPage, subagentPage } from "../../../../shared/runRoutes.ts";
 /**
  * THE ROSTER, AND WHAT IT IS DERIVED FROM.
  *
@@ -443,7 +443,7 @@ export function workerRoster(opts: { ventureId?: string; role?: string; limit: n
         id: s.id, name: s.name, role: s.role, kind: s.kind,
         venture: s.portfolio ? null : { id: row.venture_id, slug: row.venture_slug, name: row.venture_name },
         portfolio: s.portfolio, enabled: s.enabled, running: s.running, queued: s.queued,
-        lastRun: s.lastRun ? { id: s.lastRun.id, status: s.lastRun.status, url: runPage(s.kind, s.lastRun.id) } : null,
+        lastRun: s.lastRun ? { id: s.lastRun.id, status: s.lastRun.status, url: runThreadPage({ id: s.lastRun.id, kind: s.kind, venture_id: s.ventureId, venture_slug: row.venture_slug }) } : null,
       };
     }),
     roles: roleInfos().filter(role => !opts.role || role.role === opts.role),
@@ -592,7 +592,28 @@ export type RunChild = {
  *  to be TWO shapes — the frame carried no `app` and no `to`, so a rail could
  *  not draw a link from it and threw the payload away to re-poll, which made a
  *  typed event into an expensive "something changed" ping. */
-export function runChild(r: { id: string; kind: string; title: string; status: string }): RunChild {
+type RunThreadTarget = {
+  id: string;
+  kind: string;
+  venture_id?: string | null;
+  venture_slug?: string | null;
+};
+
+/** Derive the worker from the existing role registry and run's venture. List
+ * callers join the slug once; single-run callers may resolve it here. Runs
+ * with no matching worker retain their original Outputs destination. */
+export function runThreadPage(run: RunThreadTarget): string {
+  const scope = run.venture_slug !== undefined && run.venture_id !== undefined ? run :
+    db.prepare(`SELECT r.venture_id, v.slug AS venture_slug FROM agent_runs r
+      LEFT JOIN ventures v ON v.id = r.venture_id WHERE r.id = ?`).get(run.id) as
+      { venture_id: string | null; venture_slug: string | null } | undefined;
+  if (!scope) return runPage(run.kind, run.id);
+  const role = (scope.venture_id ? ROLES : PORTFOLIO_ROLES).find(role => role.kind === run.kind);
+  if (!role || (scope.venture_id && !scope.venture_slug)) return runPage(run.kind, run.id);
+  return subagentPage(role.role, scope.venture_slug ?? null, run.id);
+}
+
+export function runChild(r: RunThreadTarget & { title: string; status: string }): RunChild {
   return {
     id: `run:${r.id}`,
     runId: r.id,
@@ -600,15 +621,16 @@ export function runChild(r: { id: string; kind: string; title: string; status: s
     kind: r.kind,
     app: appForKind(r.kind),
     status: r.status,
-    to: runPage(r.kind, r.id),
+    to: runThreadPage(r),
   };
 }
 
 /** Ground chat handoff claims in the same ledger the sidebar reads. */
 export function sessionWorkLines(sessionId: string): string[] {
-  const rows = db.prepare(`SELECT id, kind, title, status FROM agent_runs
-    WHERE parent_session_id = ? ORDER BY queued_at DESC, rowid DESC LIMIT 6`)
-    .all(sessionId) as unknown as { id: string; kind: string; title: string; status: string }[];
+  const rows = db.prepare(`SELECT r.id, r.kind, r.title, r.status, r.venture_id, v.slug AS venture_slug
+    FROM agent_runs r LEFT JOIN ventures v ON v.id = r.venture_id
+    WHERE r.parent_session_id = ? ORDER BY r.queued_at DESC, r.rowid DESC LIMIT 6`)
+    .all(sessionId) as unknown as (RunThreadTarget & { title: string; status: string })[];
   return [
     "Registered OPC runs in this conversation, from the live run ledger:",
     ...(rows.length ? rows.slice(0, 5).map(row => {
@@ -624,9 +646,10 @@ export function sessionWorkLines(sessionId: string): string[] {
 export function childrenBySession(): Map<string, RunChild[]> {
   const rows = db
     .prepare(
-      `SELECT id, kind, title, status, parent_session_id FROM agent_runs
-        WHERE parent_session_id IS NOT NULL
-        ORDER BY queued_at DESC, rowid DESC`,
+      `SELECT r.id, r.kind, r.title, r.status, r.parent_session_id, r.venture_id, v.slug AS venture_slug
+        FROM agent_runs r LEFT JOIN ventures v ON v.id = r.venture_id
+        WHERE r.parent_session_id IS NOT NULL
+        ORDER BY r.queued_at DESC, r.rowid DESC`,
     )
     .all() as unknown as {
     id: string;
@@ -634,6 +657,8 @@ export function childrenBySession(): Map<string, RunChild[]> {
     title: string;
     status: string;
     parent_session_id: string;
+    venture_id: string | null;
+    venture_slug: string | null;
   }[];
   const out = new Map<string, RunChild[]>();
   for (const r of rows) {

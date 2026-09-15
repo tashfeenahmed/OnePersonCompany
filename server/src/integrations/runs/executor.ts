@@ -1,5 +1,5 @@
 import { budgets, budgeted, runContext, queuePaused, assertMeterable } from "../../runtime/budgets.ts";
-import { runPage } from "../../../../shared/runRoutes.ts";
+import { runThreadPage } from "../subagents/store.ts";
 /**
  * THE EXECUTOR — one piece of long work at a time, on whatever will answer.
  *
@@ -334,7 +334,7 @@ function reportToParent(runId: string, ms: number) {
   const def = kindDef(row.kind);
   const what = def?.name ?? row.kind;
   const took = ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`;
-  const page = runPage(row.kind, row.id);
+  const page = runThreadPage(row);
   const lines: string[] = [];
 
   if (row.status === "done") {

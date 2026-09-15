@@ -62,7 +62,7 @@ test("old assistant claims are checked against the conversation's actual dispatc
   db.prepare("INSERT INTO agent_runs(id,kind,venture_id,title,input,status,queued_at,parent_session_id) VALUES(?,?,?,?,?,?,?,?)")
     .run("run-real", "seo", ventureId, "SEO review", "{}", "queued", now(), sessionId);
   const system = instructions(composed("hermes"));
-  assert.match(system, /run-real: seo, queued; report \/outputs\/seo\/run-real/);
+  assert.match(system, /run-real: seo, queued; report \/ventures\/cedar-studio\/team\/seo\/runs\/run-real/);
   assert.doesNotMatch(system, /None\. Earlier assistant claims/);
   assert.doesNotMatch(instructions(composed("hermes", null, "another-chat")), /run-real/);
 });

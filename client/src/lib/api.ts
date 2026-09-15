@@ -2903,7 +2903,7 @@ export type SessionChild = {
   kind: string;
   app: string;
   status: RunStatus;
-  /** /apps/<app>/<runId> — where the report is actually read. */
+  /** The exact worker conversation, or its Outputs page when it has no worker. */
   to: string;
 };
 

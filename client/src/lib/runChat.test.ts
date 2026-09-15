@@ -1,8 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chatView, signature, NEW_BRIEF } from "./runChat.ts";
+import { chatView, runBelongsToWorker, signature, NEW_BRIEF } from "./runChat.ts";
+import { subagentPage } from "../../../shared/runRoutes.ts";
 
 const runs = [{ id: "r-newest" }, { id: "r-older" }];
+
+test("each worker run has a distinct, encoded path including portfolio workers", () => {
+  assert.equal(subagentPage("seo", "cedar", "r-one"), "/ventures/cedar/team/seo/runs/r-one");
+  assert.notEqual(subagentPage("seo", "cedar", "r-one"), subagentPage("seo", "cedar", "r-two"));
+  assert.equal(subagentPage("people", null, "r-one"), "/team/people/runs/r-one");
+  assert.equal(subagentPage("role /x", "a/b", "r ?#"), "/ventures/a%2Fb/team/role%20%2Fx/runs/r%20%3F%23");
+});
+
+test("a worker only displays runs for its own kind and venture", () => {
+  const run = { kind: "seo", ventureId: "v-one" };
+  assert.ok(runBelongsToWorker(run, run));
+  assert.equal(runBelongsToWorker(run, { ...run, kind: "geo" }), false);
+  assert.equal(runBelongsToWorker(run, { ...run, ventureId: "v-two" }), false);
+  assert.equal(runBelongsToWorker(run, { ...run, ventureId: null }), false);
+  assert.ok(runBelongsToWorker({ kind: "dossier", ventureId: null }, { kind: "dossier", ventureId: null }));
+});
 
 test("the address wins when it names a run", () => {
   assert.deepEqual(chatView("r-older", runs, false), { run: "r-older", blank: false });

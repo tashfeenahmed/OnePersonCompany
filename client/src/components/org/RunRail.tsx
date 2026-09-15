@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { Link } from "react-router-dom";
 import { SquarePen } from "lucide-react";
 import { statusTone, statusWord } from "@/components/runs/format";
 import { dayLabel, runLabel } from "@/components/org/dossiers";
@@ -17,7 +18,7 @@ import type { RunSummary } from "@/lib/api/runs";
  * whole ledger as summaries, and a row that could not be opened would be a
  * history the owner can see and not read.
  *
- * A ROW OPENS THE RUN ON THIS PAGE, at `?run=<id>`. It used to be two verbs —
+ * A ROW OPENS THE RUN ON THIS PAGE, at `/runs/<id>`. It used to be two verbs —
  * scroll to an exchange in a transcript, or leave for the Outputs tab — and on
  * the People Analyst, whose transcript was only the unfiled pile, a filed
  * dossier was neither: the click did nothing. One verb now. The open row is
@@ -25,7 +26,7 @@ import type { RunSummary } from "@/lib/api/runs";
  *
  * NEW BRIEF IS AT THE TOP, because that is where New chat is. It clears the
  * selection rather than sending anything: the empty page with the composer
- * focused, at `?run=new`, which is an address the back button understands.
+ * focused, at `/runs/new`, which is an address the back button understands.
  *
  * GROUPED BY DAY BECAUSE THAT IS HOW WORK IS REMEMBERED. "Today" and
  * "Yesterday" are the two the owner actually reasons in — the rest are dates,
@@ -57,7 +58,7 @@ export function RunRail({
   note,
   label,
   activeId,
-  onPick,
+  href,
   onNew,
 }: {
   /** The worker's name, as the rail's own heading. */
@@ -73,7 +74,7 @@ export function RunRail({
   label?: (run: RunSummary) => string | null;
   /** The run open on the page, if one is. */
   activeId: string | null;
-  onPick: (run: RunSummary) => void;
+  href: (run: RunSummary) => string;
   /** Clear the selection and start a new brief. Absent on a rail that has
    *  nowhere to send one. */
   onNew?: () => void;
@@ -150,10 +151,10 @@ export function RunRail({
                 const open = run.id === activeId;
                 const stamp = run.finishedAt ?? run.startedAt ?? run.queuedAt;
                 return (
-                  <button
+                  <Link
                     key={run.id}
-                    onClick={() => onPick(run)}
-                    aria-current={open ? "true" : undefined}
+                    to={href(run)}
+                    aria-current={open ? "page" : undefined}
                     title={`${run.title} · ${statusWord(run.status)} · ${day(stamp, { year: true })} ${clock(stamp)}`}
                     className={cn(
                       "flex w-full items-center gap-2 rounded-[9px] px-1.5 py-1.5 text-left transition-colors",
@@ -175,7 +176,7 @@ export function RunRail({
                     <span className="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">
                       {live ? statusWord(run.status) : clock(stamp)}
                     </span>
-                  </button>
+                  </Link>
                 );
               })}
             </Fragment>
