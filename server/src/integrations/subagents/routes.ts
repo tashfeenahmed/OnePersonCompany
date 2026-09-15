@@ -56,6 +56,7 @@ import {
   subagentRow,
   subagentRuns,
   venture,
+  workerRoster,
   type SubagentRow,
 } from "./store.ts";
 
@@ -256,6 +257,19 @@ subagentRoutes.get("/", async (c) => {
       queued: all.reduce((n, s) => n + s.queued, 0),
     },
   });
+});
+
+subagentRoutes.get("/roster", (c) => {
+  const key = c.req.query("venture")?.trim();
+  const role = c.req.query("role")?.trim();
+  if (role && !roleDef(role)) return c.json({ error: "Unknown sub-agent role.", roles: roleInfos() }, 400);
+  const v = key ? venture(key) : undefined;
+  if (key && !v) return c.json({ error: "No venture by that id or slug." }, 404);
+  if (key && role && isPortfolioRole(role)) return c.json({ error: "Portfolio roles take no venture." }, 400);
+  const limit = Number(c.req.query("limit") ?? 20), offset = Number(c.req.query("offset") ?? 0);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0)
+    return c.json({ error: "limit must be 1–50 and offset a non-negative integer." }, 400);
+  return c.json(workerRoster({ ventureId: v?.id, role, limit, offset }));
 });
 
 subagentRoutes.get("/:id", (c) => {

@@ -1,0 +1,80 @@
+import assert from "node:assert/strict";
+import { beforeEach, test } from "node:test";
+import { db, now } from "../../db.ts";
+import { boundResponse, DEFAULT_RESPONSE_BYTES } from "../agentcore/bound.ts";
+import { entry, view } from "../../skills/registry.ts";
+import { subagentRoutes } from "./routes.ts";
+import { ensureTeam, subagentId, workerRoster } from "./store.ts";
+
+beforeEach(() => {
+  db.exec("DELETE FROM agent_runs; DELETE FROM subagents; DELETE FROM ventures;");
+  const insert = db.prepare("INSERT INTO ventures(id,slug,name,stage,color,color_source,created_at,updated_at,position,brand) VALUES(?,?,?,?,?,?,?,?,?,?)");
+  for (let i = 0; i < 30; i++) insert.run(`v-opaque-${i}`, `business-${i}`, `Business ${i}`, "launched", "#334455", "owner", now(), now(), i,
+    JSON.stringify({ favicon: `data:image/png;base64,${"a".repeat(8_000)}` }));
+  ensureTeam();
+  db.prepare("UPDATE subagents SET instructions = ?").run("Owner's standing instructions. ".repeat(200));
+});
+
+test("a late venture's worker remains discoverable inside the tool response budget", async () => {
+  const id = subagentId("v-opaque-29", "seo");
+  db.prepare("UPDATE subagents SET enabled=0, name=? WHERE id=?").run("Search specialist", id);
+  const response = await subagentRoutes.request("/roster?venture=business-29&role=seo");
+  assert.equal(response.status, 200);
+  const text = await response.text();
+  const bounded = boundResponse(text, { budget: DEFAULT_RESPONSE_BYTES, pretty: true });
+  assert.equal(bounded.bounded, false, "branding and standing instructions must not crowd out the worker");
+  const doc = JSON.parse(bounded.text);
+  assert.equal(doc.total, 1);
+  assert.equal(doc.nextOffset, null);
+  assert.equal(doc.workers.length, 1);
+  assert.equal(doc.workers[0].id, id);
+  assert.equal(doc.workers[0].name, "Search specialist");
+  assert.equal(doc.workers[0].enabled, false);
+  assert.equal(doc.workers[0].venture.id, "v-opaque-29");
+  assert.ok(!text.includes("data:image") && !text.includes("standing instructions"));
+  const byId = await (await subagentRoutes.request("/roster?venture=v-opaque-29&role=seo")).json();
+  assert.deepEqual(byId, doc);
+});
+
+test("all workers are reachable through stable pages and portfolio lookup needs no venture", async () => {
+  const found: string[] = [];
+  let offset: number | null = 0, total = 0;
+  while (offset !== null) {
+    const page = workerRoster({ limit: 20, offset });
+    total = page.total;
+    const bounded = boundResponse(JSON.stringify(page), { budget: DEFAULT_RESPONSE_BYTES, pretty: true });
+    assert.equal(bounded.bounded, false);
+    found.push(...page.workers.map(w => w.id));
+    offset = page.nextOffset;
+  }
+  assert.equal(found.length, total);
+  assert.equal(new Set(found).size, total);
+  const response = await subagentRoutes.request("/roster?role=people");
+  const doc = await response.json() as ReturnType<typeof workerRoster>;
+  assert.equal(doc.total, 1);
+  assert.equal(doc.workers[0]!.portfolio, true);
+  assert.equal(doc.workers[0]!.venture, null);
+});
+
+test("unknown targets and invalid paging fail explicitly, and the agent catalog exposes the compact view", async () => {
+  for (const [query, status] of [
+    ["venture=missing", 404], ["role=missing", 400], ["venture=business-1&role=people", 400],
+    ["limit=51", 400], ["limit=0", 400], ["limit=NaN", 400], ["offset=-1", 400], ["offset=1.2", 400],
+  ] as const) assert.equal((await subagentRoutes.request(`/roster?${query}`)).status, status, query);
+  const skill = entry("subagents")!;
+  assert.equal(view(skill, null)?.path, "/api/subagents/roster");
+  assert.equal(view(skill, "roster")?.path, "/api/subagents/roster");
+  assert.equal(view(skill, "default")?.path, "/api/subagents", "full org remains available");
+  assert.deepEqual(view(skill, "roster")?.params.map(p => p.name), ["venture", "role", "limit", "offset"]);
+});
+
+test("roster busy state includes jobs started outside chat delegation", async () => {
+  db.prepare("INSERT INTO agent_runs(id,kind,venture_id,title,input,status,queued_at,started_at) VALUES(?,?,?,?,?,?,?,?)")
+    .run("run-existing", "seo", "v-opaque-29", "Existing review", "{}", "running", now(), now());
+  const doc = await (await subagentRoutes.request("/roster?venture=business-29&role=seo")).json() as ReturnType<typeof workerRoster>;
+  const worker = doc.workers[0]!;
+  assert.equal(worker.running, true);
+  assert.equal(worker.lastRun?.id, "run-existing");
+  assert.equal(worker.lastRun?.status, "running");
+  assert.ok(worker.lastRun?.url.includes("run-existing"));
+});

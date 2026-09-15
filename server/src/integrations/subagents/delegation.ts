@@ -45,10 +45,16 @@ export function delegationLines(sessionId: string, managed: boolean): string[] {
     ...roleInfos().map(r => `- role \`${r.role}\` — ${r.title}; ${r.portfolio ? "no venture" : "requires a venture"}. ${r.what}`),
     "",
     managed
-      ? "Read `opc help subagents` and `opc subagents` to choose the worker. " +
+      ? "Read `opc help subagents`, then `opc subagents roster --venture <id-or-slug> " +
+        "--role <role>` to choose the worker from the flat `workers` array. Omit " +
+        "--venture for portfolio roles. This filtered roster avoids the full org's " +
+        "response limit; never infer that a worker is missing from truncated data " +
+        "or construct its id from a slug. " +
         "Dispatch with `opc subagents dispatch --role <role> --venture <id-or-slug> " +
         "--brief <brief> --parentSessionId <session-id>`; omit --venture for portfolio roles."
-      : "Read GET /api/skills/subagents, then POST /api/skills/subagents/dispatch with " +
+      : "Read GET /api/skills/subagents?view=roster&venture=<id-or-slug>&role=<role> " +
+        "to choose from its flat workers array (omit venture for portfolio roles), " +
+        "then POST /api/skills/subagents/dispatch with " +
         "{role, venture, brief, parentSessionId}; omit venture for portfolio roles.",
     `Use ${JSON.stringify(sessionId)} as parentSessionId so the run is filed under this chat.`,
   ];

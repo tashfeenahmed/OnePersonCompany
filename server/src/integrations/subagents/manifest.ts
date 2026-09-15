@@ -68,6 +68,13 @@ const skills: Skill[] = [
       "skill.",
     rules: [
       ...DELEGATION_RULES,
+      "USE THE ROSTER VIEW FOR DISPATCH. It returns a flat `workers` array with " +
+        "real ids, enabled state and busy state. Filter by venture id/slug and " +
+        "role; omit venture for portfolio workers. The full org includes images " +
+        "and history and may be truncated; a worker absent from that partial " +
+        "result is NOT missing. Follow nextOffset for more roster pages. Never " +
+        "construct a sub-agent id from a venture slug; use the returned id. If " +
+        "running or queued, read that worker's detail before starting more work.",
       "THE PAPER WRITER'S BRIEF IS A SEARCH SUBJECT, NOT A TASK. It goes to " +
         "OpenAlex and arXiv as typed, so it is three to ten words naming the " +
         "field — `AI coding agents with persistent project memory` — and never " +
@@ -111,6 +118,21 @@ const skills: Skill[] = [
     ],
     views: [
       {
+        key: "roster",
+        path: "/api/subagents/roster",
+        about: "Compact dispatch directory: `workers` is a flat array of real worker ids, " +
+          "names, roles, venture id/slug/name, enabled, running, queued and lastRun. " +
+          "Filter by venture and role before dispatch; omit venture for portfolio roles. " +
+          "`total` counts matching workers and `nextOffset` identifies the next page. " +
+          "Read the `one` view for standing instructions and run details when needed.",
+        params: [
+          { name: "venture", type: "string", in: "query", required: false, about: "Optional venture id or slug. Omit for portfolio workers." },
+          { name: "role", type: "string", in: "query", required: false, about: "Optional role from the live role descriptions." },
+          { name: "limit", type: "number", in: "query", required: false, fallback: 20, about: "Workers per page, 1–50." },
+          { name: "offset", type: "number", in: "query", required: false, fallback: 0, about: "Start here; use nextOffset from the previous page." },
+        ],
+      },
+      {
         key: "default",
         path: "/api/subagents",
         about:
@@ -137,9 +159,7 @@ const skills: Skill[] = [
             required: true,
             in: "path",
             about:
-              "The sub-agent id: sa-<venture id>-<role> for a venture worker, " +
-              "like sa-v-acme-seo, and sa-portfolio-<role> for one that belongs " +
-              "to no venture, like sa-portfolio-people.",
+              "The exact sub-agent id returned by the roster. Do not build an id from a venture slug.",
           },
         ],
       },

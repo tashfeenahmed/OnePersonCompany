@@ -419,6 +419,37 @@ export function shapeSubagent(row: SubagentRow, ctx?: { tallies: Map<string, Run
   };
 }
 
+/** A paged tool roster. Icons, instructions and report bodies belong in the
+ * detail view; including them here can hide later workers behind the tool budget. */
+export function workerRoster(opts: { ventureId?: string; role?: string; limit: number; offset: number }) {
+  ensureTeam(opts.ventureId);
+  const predicates: string[] = [];
+  const args: string[] = [];
+  if (opts.ventureId !== undefined) { predicates.push("s.venture_id = ?"); args.push(opts.ventureId); }
+  if (opts.role) { predicates.push("s.role = ?"); args.push(opts.role); }
+  const where = predicates.length ? ` WHERE ${predicates.join(" AND ")}` : "";
+  const total = (db.prepare(`SELECT COUNT(*) AS n FROM subagents s${where}`).get(...args) as { n: number }).n;
+  const rows = db.prepare(`SELECT s.*, v.slug AS venture_slug, v.name AS venture_name
+    FROM subagents s LEFT JOIN ventures v ON v.id = s.venture_id${where}
+    ORDER BY s.venture_id, s.role, s.id LIMIT ? OFFSET ?`).all(...args, opts.limit, opts.offset) as unknown as
+      (SubagentRow & { venture_slug: string | null; venture_name: string | null })[];
+  const ctx = { tallies: tallies(), last: lastRuns() };
+  return {
+    roles: roleInfos(),
+    workers: rows.map(row => {
+      const s = shapeSubagent(row, ctx);
+      return {
+        id: s.id, name: s.name, role: s.role, kind: s.kind,
+        venture: s.portfolio ? null : { id: row.venture_id, slug: row.venture_slug, name: row.venture_name },
+        portfolio: s.portfolio, enabled: s.enabled, running: s.running, queued: s.queued,
+        lastRun: s.lastRun ? { id: s.lastRun.id, status: s.lastRun.status, url: runPage(s.kind, s.lastRun.id) } : null,
+      };
+    }),
+    total, limit: opts.limit, offset: opts.offset,
+    nextOffset: opts.offset + rows.length < total ? opts.offset + rows.length : null,
+  };
+}
+
 /**
  * THE WHOLE ORG, top to bottom: every venture with its team, and beside them
  * the workers that belong to none.

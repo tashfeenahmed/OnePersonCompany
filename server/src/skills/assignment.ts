@@ -4,8 +4,10 @@ export const SKILL_ASSIGNMENT_RULE =
   "Chief of Staff: compare the requested outcome with the live sub-agent roster and " +
   "delegate new specialist work to the matching enabled worker. This includes new " +
   "analysis based on existing data; a cached source or a quick task is not a reason " +
-  "to do the worker's job yourself. Read `opc help subagents` and `opc subagents` " +
-  "first. A procedural skill describes HOW to work, not WHO should do it. Direct " +
+  "to do the worker's job yourself. Read `opc help subagents`, then use the " +
+  "`roster` view filtered by venture and role; choose from its flat `workers` array. " +
+  "Missing rows in a truncated org chart do not mean the workers do not exist. " +
+  "A procedural skill describes HOW to work, not WHO should do it. Direct " +
   "lookups, explanations, status checks and summaries of completed reports can stay " +
   "in chat, as can work the owner explicitly asks you not to delegate. If you are " +
   "already executing an assigned sub-agent run, use this skill yourself and finish " +
