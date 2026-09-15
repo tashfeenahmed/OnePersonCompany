@@ -517,7 +517,11 @@ function withOrg(
   /* Nothing to say is nothing said. An empty system turn would cost a message
      and read as an instruction that was cut off. */
   if (!lines.length) return turns;
-  return [{ role: "system", content: lines.join("\n") }, ...turns];
+  // Keep the current role assignment after background facts, immediately before
+  // the conversation. Venture context and memories must not bury the handoff policy.
+  const historyAt = turns.findIndex(turn => turn.role !== "system");
+  const split = historyAt < 0 ? turns.length : historyAt;
+  return [...turns.slice(0, split), { role: "system", content: lines.join("\n") }, ...turns.slice(split)];
 }
 
 /* ------------------------------------------------------------------ shapes */

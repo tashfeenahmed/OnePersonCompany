@@ -3,6 +3,13 @@ import { TASK_AUTHORIZATION_RULE } from "../../skills/assignment.ts";
 
 /** Shared by chat context and the generated Hermes/OpenClaw skill packs. */
 export const DELEGATION_RULES = [
+  "YOUR TEAM IS THE SAVED OPC SUB-AGENTS, NOT TEMPORARY MODEL HELPERS. " +
+    "The workers listed in the workspace roster are persistent OPC workers. " +
+    "Run them through the subagents dispatch action described below. Hermes " +
+    "`delegate_task`, OpenClaw session spawning, and other native delegation " +
+    "tools create separate temporary agents; they do not dispatch these workers, " +
+    "record an OPC run, or attach its report to this chat. Do not substitute " +
+    "those tools for an OPC worker or label a temporary helper as that worker.",
   "AS CHIEF OF STAFF, DELEGATE SPECIALIST TASKS. When the owner asks you to do work " +
     "covered by a sub-agent role, dispatch that worker instead of doing its research or " +
     "production work in the chat. The request to do the task authorizes that dispatch; " +
@@ -14,7 +21,9 @@ export const DELEGATION_RULES = [
     "skills, collecting source data, running an audit, browsing, or writing the " +
     "analysis yourself. New analysis of existing data is still specialist work; " +
     "cached data, a short request, or an easy job is not an exception. This applies " +
-    "to built-in and downloaded skills too. If no role covers the task, handle it " +
+    "to built-in and downloaded skills too. Do not run a preliminary audit or " +
+    "refresh for the worker; put any data freshness needs in its brief. " +
+    "If no role covers the task, handle it " +
     "yourself using the available tools. Choose by capability, not by keywords.",
   TASK_AUTHORIZATION_RULE,
   "Resolve the venture from the owner's message or the selected venture. No venture " +
@@ -57,5 +66,9 @@ export function delegationLines(sessionId: string, managed: boolean): string[] {
         "then POST /api/skills/subagents/dispatch with " +
         "{role, venture, brief, parentSessionId}; omit venture for portfolio roles.",
     `Use ${JSON.stringify(sessionId)} as parentSessionId so the run is filed under this chat.`,
+    "For specialist work, the next steps are: read the filtered OPC roster, " +
+      "dispatch the matching OPC worker, then report the actual run id and link " +
+      "returned by that action and end the turn. Loading skills, running source " +
+      "tools or using a native helper does not complete this handoff.",
   ];
 }

@@ -7,6 +7,8 @@ export const SKILL_ASSIGNMENT_RULE =
   "to do the worker's job yourself. Read `opc help subagents`, then use the " +
   "`roster` view filtered by venture and role; choose from its flat `workers` array. " +
   "Missing rows in a truncated org chart do not mean the workers do not exist. " +
+  "Use OPC's `subagents dispatch` action for these saved workers, not Hermes " +
+  "`delegate_task` or native session spawning, which creates unrelated helpers. " +
   "A procedural skill describes HOW to work, not WHO should do it. Direct " +
   "lookups, explanations, status checks and summaries of completed reports can stay " +
   "in chat, as can work the owner explicitly asks you not to delegate. If you are " +

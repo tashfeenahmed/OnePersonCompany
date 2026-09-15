@@ -38,6 +38,10 @@ test("an unscoped chat names every specialist and can use the venture named in t
     assert.match(system,/BEFORE CHOOSING HOW/);
     assert.match(system,/New analysis of existing data is still specialist work/);
     assert.ok(system.includes(TASK_AUTHORIZATION_RULE));
+    const assignment = turns.filter(t => t.role === "system").at(-1)!.content;
+    assert.match(assignment, /SAVED OPC SUB-AGENTS, NOT TEMPORARY MODEL HELPERS/);
+    assert.match(assignment, /delegate_task/);
+    assert.match(assignment, /actual run id and link/);
     assert.match(system,/No venture selected in the header does not prevent delegation/);
     assert.ok(system.includes(`Use "${sessionId}" as parentSessionId`));
     assert.equal(turns.at(-1)?.content,request);
