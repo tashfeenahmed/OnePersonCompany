@@ -57,8 +57,7 @@ export function SidebarSessionRow({ session, openSessionId, streaming, pinned, d
       {session.children.map(child =>
         <div key={child.id} className="text-muted-foreground focus-within:bg-accent hover:bg-accent hover:text-foreground flex min-w-0 items-center gap-1 rounded-lg transition-colors">
           <Link to={child.to} title={child.title} className="min-w-0 flex-1 truncate px-2 py-[5px] text-[13px] outline-none">{child.title}</Link>
-          <span className="text-muted-foreground mr-2 shrink-0 text-[11.5px]">{child.status}</span>
-          {streaming.has(child.id) && <span title="Still answering" aria-label="Still answering" className="bg-foreground/60 mr-2 size-1.5 shrink-0 animate-pulse rounded-full" />}
+          {child.status === "running" && <span role="status" title="Working" aria-label="Working" className="bg-foreground/60 mr-2 size-1.5 shrink-0 rounded-full motion-safe:animate-pulse" />}
         </div>
       )}
     </div>}
