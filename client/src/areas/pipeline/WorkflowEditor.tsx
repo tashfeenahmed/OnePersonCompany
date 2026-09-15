@@ -2,6 +2,7 @@ import { useState, type PointerEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Bot, Check, ChevronDown, Copy, Database, GripVertical, LayoutList, Mail, Plus, Save, Settings2, ShieldCheck, Sparkles, Trash2, Workflow } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { call } from "@/lib/api";
+import { randomId } from "@/lib/id";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -90,7 +91,7 @@ export function WorkflowEditor({ onSaved, currentStage }: { onSaved: () => void;
     <Button variant="ghost" className="w-full" onClick={() => setAdding(true)}><Plus className="size-4" />Add another block</Button>
     <Dialog open={adding} onOpenChange={setAdding}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl"><DialogHeader><DialogTitle>Add a block</DialogTitle><DialogDescription>Choose the work this step should do.</DialogDescription></DialogHeader>
       <div className="grid gap-2 sm:grid-cols-2">{BLOCK_KINDS.map(kind => { const Icon = icons[kind]; return <button key={kind} className="rounded-xl border border-line-soft p-4 text-left hover:bg-muted" onClick={() => {
-        const b = newBlock(kind,`wf-${crypto.randomUUID()}`), blocks = [...definition.blocks];
+        const b = newBlock(kind,`wf-${randomId()}`), blocks = [...definition.blocks];
         let at = kind === "briefing" ? blocks.length : blocks.findIndex(v => v.kind === "briefing");
         if (kind === "agent") { const findings = blocks.findIndex(v => v.kind === "synthesis"); if(findings >= 0) at = findings; }
         blocks.splice(at < 0 ? blocks.length : at,0,b); edit({ ...definition,blocks }); setAdding(false); setEditing(b.id);
@@ -113,7 +114,7 @@ export function WorkflowEditor({ onSaved, currentStage }: { onSaved: () => void;
         <div className="flex flex-wrap gap-2 border-t border-line-soft pt-4">
           <Button variant="outline" size="sm" aria-label="Move block up" onClick={() => { const i=definition.blocks.findIndex(b => b.id===selected.id); move(i,i-1); }}><ArrowUp className="size-4" /></Button>
           <Button variant="outline" size="sm" aria-label="Move block down" onClick={() => { const i=definition.blocks.findIndex(b => b.id===selected.id); move(i,i+1); }}><ArrowDown className="size-4" /></Button>
-          <Button variant="outline" size="sm" onClick={() => { const b={ ...structuredClone(selected),id:`wf-${crypto.randomUUID()}`,title:`${selected.title} copy` }; const blocks=[...definition.blocks]; blocks.splice(blocks.findIndex(v => v.id===selected.id)+1,0,b); edit({ ...definition,blocks }); setEditing(b.id); }}><Copy className="size-4" />Duplicate</Button>
+          <Button variant="outline" size="sm" onClick={() => { const b={ ...structuredClone(selected),id:`wf-${randomId()}`,title:`${selected.title} copy` }; const blocks=[...definition.blocks]; blocks.splice(blocks.findIndex(v => v.id===selected.id)+1,0,b); edit({ ...definition,blocks }); setEditing(b.id); }}><Copy className="size-4" />Duplicate</Button>
           <Button variant="ghost" size="sm" onClick={() => { edit({ ...definition,blocks:definition.blocks.filter(b => b.id!==selected.id).map(b => ({ ...b,dependsOn:b.dependsOn.filter(d => d!==selected.id) })) }); setEditing(null); }}><Trash2 className="size-4" />Remove</Button>
           <Button size="sm" className="ml-auto" onClick={() => setEditing(null)}>Done</Button>
         </div>

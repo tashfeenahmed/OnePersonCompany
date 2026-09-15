@@ -213,6 +213,8 @@ test("the generated systemd unit restarts on failure and caps the retries", () =
   assert.match(text, /^StartLimitBurst=\d+$/m);
   assert.match(text, /^WantedBy=default\.target$/m);
   assert.ok(text.includes(p.outLog));
+  assert.equal(text.split("\n").find((line) => line.startsWith("WorkingDirectory=")), `WorkingDirectory=${p.root}`,
+    "systemd reads WorkingDirectory as a literal path, so shell quotes make it non-absolute");
 });
 
 test("the generated environment carries the existing server/.env across rather than dropping it", () => {

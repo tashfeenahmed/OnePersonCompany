@@ -112,9 +112,13 @@ Defaults work without an environment file. To customize them, copy `server/.env.
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `8787` | API and production UI port. |
+| `OPC_BIND_HOST` | `127.0.0.1` | Listening interface; set `0.0.0.0` for LAN access and restrict the port with a firewall. |
+| `OPC_ALLOWED_ORIGINS` | Empty | Additional exact browser origins, comma-separated, such as `http://dashboard.local:8787`. |
 | `OPC_UI_PORT` | `5180` | Development UI port; must differ from `PORT`. |
 | `OPC_DATA_DIR` | `./data` | Local data directory, resolved from `server/`. |
 | `OPC_COLLECT_MINUTES` | `30` | Default collection interval; `0` disables scheduled collection. |
+
+For LAN access, set an owner password in Settings → Security before enabling the listening interface, and permit the port only from your trusted network in the host firewall. Add the exact URL you will open to `OPC_ALLOWED_ORIGINS` so browser controls work from that address.
 
 Run `npm run doctor` to check local readiness. If a port is occupied, stop the other process or set different ports in `server/.env`. If a widget has no data, check the integration's connection and collection status.
 

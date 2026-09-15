@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { call } from "@/lib/api";
+import { randomId } from "@/lib/id";
 
 export type UndoResult = { undo?: { token: string; expiresAt: number } | null };
 type Action = { key: string; label: string; run: () => Promise<UndoResult>; refresh?: () => void };
@@ -32,7 +33,7 @@ export function UndoActionsProvider({ children }: { children: ReactNode }) {
       if (result.undo) setToasts(rows => [...rows, { id: result.undo!.token, key: action.key, label: action.label, receipt: result.undo!, refresh: action.refresh }]);
       action.refresh?.(); changed(); return true;
     } catch (error) {
-      setToasts(rows => [...rows, { id: crypto.randomUUID(), label: "Couldn’t update this item", error: error instanceof Error ? error.message : String(error) }]);
+      setToasts(rows => [...rows, { id: randomId(), label: "Couldn’t update this item", error: error instanceof Error ? error.message : String(error) }]);
       return false;
     } finally { working(action.key, false); }
   }

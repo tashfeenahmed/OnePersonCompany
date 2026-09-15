@@ -22,7 +22,7 @@ import { setupRoutes } from "./routes/setup.ts";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { COLLECT_MINUTES, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "./config.ts";
+import { allowedBrowserOrigin, BIND_HOST, COLLECT_MINUTES, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "./config.ts";
 import { ventureRows } from "./db.ts";
 /* The collector schedule and the health checks, both owned by the deploy area
    — see integrations/deploy/manifest.ts for why they are one area. */
@@ -129,7 +129,7 @@ const app = new Hono();
 app.use(
   "/api/*",
   cors({
-    origin: (o) => (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(o) ? o : null),
+    origin: (o) => (allowedBrowserOrigin(o) ? o : null),
     credentials: true,
   }),
 );
@@ -446,10 +446,10 @@ freellmapiInstance.boot();
  */
 agentInstances.boot();
 
-serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {
+serve({ fetch: app.fetch, port: PORT, hostname: BIND_HOST }, (info) => {
   startOnboardingReconciliation();
   startBoardAutomation();
-  console.log(`[api] http://127.0.0.1:${info.port}`);
+  console.log(`[api] listening on ${BIND_HOST}:${info.port}`);
   console.log(
     `[api] collectors: ${Object.keys(COLLECTORS).join(", ") || "none"}` +
       (COLLECT_MINUTES > 0 ? ` · every ${COLLECT_MINUTES}m` : " · scheduler off"),

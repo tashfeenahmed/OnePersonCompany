@@ -20,6 +20,8 @@ export const DATA_DIR = resolve(serverDir, env("OPC_DATA_DIR", "./data"));
 export const DB_FILE = resolve(DATA_DIR, "opc.db");
 export const VAULT_KEY_FILE = resolve(DATA_DIR, "vault.key");
 export const PORT = num("PORT", 8787, 1, 65535);
+/** Loopback by default; deployments can explicitly bind a LAN interface. */
+export const BIND_HOST = env("OPC_BIND_HOST", "127.0.0.1");
 export const COLLECT_MINUTES = num("OPC_COLLECT_MINUTES", 30, 0);
 export const RETAIN_DAYS = num("OPC_RETAIN_DAYS", 400, 1);
 export const LOAD_RETAIN_DAYS = num("OPC_LOAD_RETAIN_DAYS", 30, 1);
@@ -35,4 +37,28 @@ export const UI_PORT = num("OPC_UI_PORT", 5180, 1, 65535);
  * one, so a checkout that has never set `OPC_UI_PORT` still works.
  */
 export const ALLOWED_ORIGIN_PORTS: ReadonlySet<string> = new Set([String(PORT), String(UI_PORT), "5173"]);
+
+/** Additional browser addresses are exact origins, never wildcards or a
+ *  blanket trust of private IPs. Shared by CORS and the owner controls. */
+export function parseBrowserOrigins(value: string): ReadonlySet<string> {
+  return new Set(value.split(",").map((v) => v.trim()).filter(Boolean).map((v) => {
+    const url = new URL(v);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password ||
+        url.pathname !== "/" || url.search || url.hash || url.hostname.includes("*"))
+      throw new Error("OPC_ALLOWED_ORIGINS must contain comma-separated HTTP(S) origins without paths or credentials.");
+    return url.origin;
+  }));
+}
+export const EXTRA_BROWSER_ORIGINS = parseBrowserOrigins(env("OPC_ALLOWED_ORIGINS", ""));
+
+export function allowedBrowserOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    if (origin !== url.origin) return false;
+    return EXTRA_BROWSER_ORIGINS.has(origin) || (
+      url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) &&
+      ALLOWED_ORIGIN_PORTS.has(url.port || "80")
+    );
+  } catch { return false; }
+}
 mkdirSync(DATA_DIR, { recursive: true });

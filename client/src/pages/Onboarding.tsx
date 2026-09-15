@@ -24,6 +24,7 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import { call, ApiError, type AgentsDoc } from "@/lib/api";
+import { randomId } from "@/lib/id";
 import { PLUGINS } from "@/data/plugins";
 import { BRAND_ICONS } from "@/data/brandIcons";
 import { COLOR_SERVICE_MARKS } from "@/components/onboarding/serviceBrandMarks";
@@ -96,7 +97,7 @@ const freshVenture = (): VentureInput => ({
   businessTypes: ["web"],
   stage: "idea",
 });
-const key = () => crypto.randomUUID();
+const key = randomId;
 const plugin = (id: string) => PLUGINS.find((p) => p.id === id);
 const typeIcons = {
   web: Globe,

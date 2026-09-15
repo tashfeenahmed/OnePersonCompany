@@ -49,7 +49,7 @@
  */
 import type { Context, Next } from "hono";
 import { keyScope, presentedKey, SERVICE_HEADER, SERVICE_KEY_FILE } from "../../auth.ts";
-import { ALLOWED_ORIGIN_PORTS } from "../../config.ts";
+import { allowedBrowserOrigin } from "../../config.ts";
 import { cookieValue, liveSession, passwordSet, touchSession } from "./owner.ts";
 
 /** Paths that answer with no credential at all once a password exists. Exact
@@ -276,11 +276,11 @@ export function agentRefusal(method: string, path: string): string | null {
  * `separate-user` and container levels, is a process that cannot read the
  * owner key and would have to be written to lie.
  *
- * TWO SIGNALS, BECAUSE A BROWSER GET SENDS NO `Origin`. A same-origin `fetch`
+ * BROWSER SIGNALS, BECAUSE A BROWSER GET SENDS NO `Origin`. A same-origin `fetch`
  * sends `Origin` only for methods that are not GET/HEAD, so an Origin-only
  * test would 403 the dashboard's own read of `/api/backups`. `Sec-Fetch-Site`
- * is sent by every current browser on every fetch and by no shell tool, which
- * is exactly the distinction wanted here.
+ * is sent in secure contexts. HTTP LAN browsers omit it, so an exact trusted
+ * Referer origin also identifies the dashboard's own GETs.
  *
  * NO SIGNAL AT ALL IS NOT A BROWSER, and this is the line the second copy of
  * this function got wrong. It only refused what it could see — a foreign
@@ -297,11 +297,14 @@ export function agentRefusal(method: string, path: string): string | null {
  */
 export function browserShaped(c: Context): boolean {
   if (c.req.header("x-opc-via") === "skills") return false;
+  if (foreignOrigin(c)) return false;
 
   const site = (c.req.header("sec-fetch-site") ?? "").toLowerCase();
   if (site === "same-origin") return true;
 
-  return c.req.header("origin") !== undefined && !foreignOrigin(c);
+  // HTTP LAN pages do not receive Sec-Fetch-* headers. Their same-origin
+  // GETs still carry Referer, including reads of owner-only settings.
+  return c.req.header("origin") !== undefined || c.req.header("referer") !== undefined;
 }
 
 /**
@@ -316,14 +319,12 @@ export function browserShaped(c: Context): boolean {
  */
 function foreignOrigin(c: Context): boolean {
   const origin = c.req.header("origin");
-  if (!origin) return false;
+  if (origin) return !allowedBrowserOrigin(origin);
+  const referer = c.req.header("referer");
+  if (!referer) return false;
   try {
-    const url = new URL(origin);
-    return !(
-      url.protocol === "http:" &&
-      ["localhost", "127.0.0.1"].includes(url.hostname) &&
-      ALLOWED_ORIGIN_PORTS.has(url.port || "80")
-    );
+    const url = new URL(referer);
+    return Boolean(url.username || url.password) || !allowedBrowserOrigin(url.origin);
   } catch {
     return true;
   }

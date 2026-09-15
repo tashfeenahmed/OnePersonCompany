@@ -42,7 +42,7 @@ import { homedir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { COLLECT_MINUTES, DATA_DIR, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "../../config.ts";
+import { BIND_HOST, COLLECT_MINUTES, DATA_DIR, EXTRA_BROWSER_ORIGINS, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "../../config.ts";
 
 const run = promisify(execFile);
 
@@ -144,6 +144,8 @@ export function envText(from = DEV_ENV_FILE): string {
      are what the running process is actually using. */
   const derived: [key: string, value: string, why: string][] = [
     ["PORT", String(PORT), "The API and production website port."],
+    ["OPC_BIND_HOST", BIND_HOST, "Listening interface. Loopback by default; use a LAN firewall when enabling network access."],
+    ["OPC_ALLOWED_ORIGINS", [...EXTRA_BROWSER_ORIGINS].join(","), "Additional browser origins, comma-separated; for example http://dashboard.local:8787."],
     ["OPC_DATA_DIR", DATA_DIR, "Database, keys and artifacts. Absolute here on purpose: a service has no reliable working directory."],
     ["OPC_COLLECT_MINUTES", String(COLLECT_MINUTES), "The DEFAULT collection cadence. Per-source cadence is a setting on each plugin's page; 0 turns the scheduler off."],
     ["OPC_RETAIN_DAYS", String(RETAIN_DAYS), "Reading retention."],
@@ -337,7 +339,9 @@ StartLimitBurst=4
 
 [Service]
 Type=simple
-WorkingDirectory=${sd(p.root)}
+# WorkingDirectory takes one literal path; unlike ExecStart, quotes become
+# part of the path and make systemd reject even an ordinary absolute path.
+WorkingDirectory=${p.root}
 Environment="OPC_ENV_FILE=${ENV_FILE.replace(/"/g, '\\"')}"
 Environment="LANG=en_US.UTF-8"
 Environment="PATH=${(process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin").replace(/"/g, '\\"')}"
