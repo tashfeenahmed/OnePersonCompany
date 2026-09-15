@@ -98,8 +98,8 @@ test("an agent block waits for completion; synthesis sees the finished report", 
   write([newBlock("agent","wf-agent"),newBlock("synthesis","wf-findings")]);
   const out=runNight({trigger:"manual"}); assert.equal(asked,1); assert.equal(synthesised,false);
   release(); const result=await out; assert.equal(result.run?.completed,2); assert.equal(synthesised,true);
-  const detail=await (await pipelineRoutes.request(`/runs/${result.run!.id}`)).json();
-  assert.equal(detail.jobs[0].venture_name,"Test one");
+  const detail=await (await pipelineRoutes.request(`/runs/${result.run!.id}`)).json() as { jobs: { venture_name: string }[] };
+  assert.equal(detail.jobs[0]?.venture_name,"Test one");
 });
 
 test("stopping cancels the owned queued agent and skips later blocks", async () => {
