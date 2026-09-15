@@ -2146,6 +2146,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setState((s) => ({
           ...s,
           dashboards: s.dashboards.filter((d) => d.id !== id),
+          pinnedItems: sidebarPins(s).filter(pin => pin.type !== "dashboard" || pin.dashboardId !== id),
         }));
       },
 

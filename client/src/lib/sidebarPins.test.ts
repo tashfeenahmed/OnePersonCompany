@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pinKey, reorderPins, sidebarPins, togglePin, type SidebarPin } from "../../../shared/sidebarPins.ts";
+import { dashboardDestination } from "../../../shared/dashboardNavigation.ts";
 import { isWorkspacePreferences } from "../../../shared/workspace.ts";
 
 const board: SidebarPin = { type: "page", path: "/board" };
 const session: SidebarPin = { type: "session", sessionId: "chat / ü" };
+const dashboard: SidebarPin = { type: "dashboard", dashboardId: "d-servers" };
 const email: SidebarPin = { type: "page", path: "/mail" };
 
 test("old favorites retain order and migrate aliases without duplicates or resurrecting cleared pins", () => {
@@ -30,8 +32,28 @@ test("reordering preserves concurrent additions and ignores deleted or duplicate
 test("workspace import accepts mixed pins and rejects malformed, duplicate, or unsafe destinations", () => {
   const data = { workspace: { name: "Test", owner: "Owner" }, sessions: [{ id: session.sessionId, title: "Chat" }], dashboards: [] };
   assert.equal(isWorkspacePreferences(data), true);
-  assert.equal(isWorkspacePreferences({ ...data, pinnedItems: [board, session, email] }), true);
-  for (const pinnedItems of [null, [null], [board, board], [{ type: "session", sessionId: "" }], [{ type: "session", sessionId: 3 }], [{ type: "page", path: "https://example.com" }], [{ type: "page", path: "//example.com" }], [{ type: "unknown", path: "/board" }]]) {
+  assert.equal(isWorkspacePreferences({ ...data, pinnedItems: [board, session, email, dashboard] }), true);
+  for (const pinnedItems of [null, [null], [board, board], [dashboard, dashboard], [{ type: "dashboard", dashboardId: "" }], [{ type: "dashboard", dashboardId: 3 }], [{ type: "dashboard", dashboardId: "x".repeat(201) }], [{ type: "session", sessionId: "" }], [{ type: "session", sessionId: 3 }], [{ type: "page", path: "https://example.com" }], [{ type: "page", path: "//example.com" }], [{ type: "unknown", path: "/board" }]]) {
     assert.equal(isWorkspacePreferences({ ...data, pinnedItems }), false);
   }
+});
+
+
+test("dashboard pins have independent identities and can be reordered with pages and chats", () => {
+  const sameId: SidebarPin = { type: "session", sessionId: dashboard.dashboardId };
+  const pinnedItems = togglePin({ pinnedItems: [board, sameId] }, dashboard);
+  assert.deepEqual(pinnedItems, [board, sameId, dashboard]);
+  assert.deepEqual(reorderPins({ pinnedItems }, [pinKey(dashboard), pinKey(board)]), [dashboard, board, sameId]);
+  assert.deepEqual(togglePin({ pinnedItems }, dashboard), [board, sameId]);
+});
+
+test("dashboard links follow renamed slugs and venture moves without changing pin identity", () => {
+  const original = { id: dashboard.dashboardId, slug: "servers" };
+  const moved = { ...original, slug: "Fleet & capacity", ventureId: "v-one" };
+  const ventures = [{ id: "v-one", slug: "First / venture" }];
+  assert.equal(dashboardDestination(original, ventures), "/dashboards/servers");
+  assert.equal(dashboardDestination({ ...original, slug: "infrastructure" }, ventures), "/dashboards/infrastructure");
+  assert.equal(dashboardDestination(moved, ventures), "/ventures/First%20%2F%20venture/dashboards/Fleet%20%26%20capacity");
+  assert.equal(dashboardDestination(moved, []), null);
+  assert.deepEqual(sidebarPins({ pinnedItems: [dashboard] }), [dashboard]);
 });

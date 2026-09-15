@@ -1,10 +1,10 @@
 import { sidebarPath } from "./navigation.ts";
 
-export type SidebarPin = { type: "page"; path: string } | { type: "session"; sessionId: string };
+export type SidebarPin = { type: "page"; path: string } | { type: "session"; sessionId: string } | { type: "dashboard"; dashboardId: string };
 type PinPreferences = { pinnedItems?: SidebarPin[]; favoritePaths?: string[] };
 
 export function pinKey(pin: SidebarPin): string {
-  return pin.type === "page" ? `page:${pin.path}` : `session:${pin.sessionId}`;
+  return pin.type === "page" ? `page:${pin.path}` : pin.type === "dashboard" ? `dashboard:${pin.dashboardId}` : `session:${pin.sessionId}`;
 }
 
 /** Read old favorites until the first pin edit; an explicitly empty list stays empty. */

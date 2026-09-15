@@ -14,9 +14,10 @@ export function isWorkspacePreferences(v: unknown): boolean {
   if (v.pinnedItems !== undefined) {
     if (!Array.isArray(v.pinnedItems) || v.pinnedItems.length > 5200 || !v.pinnedItems.every(pin => object(pin) && (
       pin.type === "page" ? text(pin.path, 300) && /^\/[a-z][a-z0-9/-]*$/.test(pin.path)
+        : pin.type === "dashboard" ? text(pin.dashboardId, 200) && !!pin.dashboardId
         : pin.type === "session" && text(pin.sessionId, 200) && !!pin.sessionId
     ))) return false;
-    const keys = v.pinnedItems.map(pin => pin.type === "page" ? `page:${pin.path}` : `session:${pin.sessionId}`);
+    const keys = v.pinnedItems.map(pin => pin.type === "page" ? `page:${pin.path}` : pin.type === "dashboard" ? `dashboard:${pin.dashboardId}` : `session:${pin.sessionId}`);
     if (new Set(keys).size !== keys.length) return false;
   }
   /* The chrome's palette: one of the ids in client/src/lib/palettes.ts, or

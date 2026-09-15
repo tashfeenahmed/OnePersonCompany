@@ -43,7 +43,7 @@ export function SortableList<T extends Item>({ items, onReorder, renderItem, des
   describedAs: string;
 }) {
   const list = useRef<HTMLDivElement>(null);
-  useReorderMotion(list, items.map(i=>i.key).join("|"), "data-sort-key");
+  useReorderMotion(list, items.map(i=>i.key).join("|"), "data-sort-key", true);
   const drag = useRef<Drag | null>(null);
   /** Set when a drag has just ended, so the click that closes it is swallowed
    *  rather than followed. Cleared by that click, or the next press. */
@@ -53,7 +53,7 @@ export function SortableList<T extends Item>({ items, onReorder, renderItem, des
   const helpId = useId();
 
   function beforeAt(y: number, key: string): string | null {
-    const rows = list.current?.querySelectorAll<HTMLElement>("[data-sort-key]") ?? [];
+    const rows = list.current?.querySelectorAll<HTMLElement>(":scope > [data-sort-key]") ?? [];
     for (const row of rows) {
       if (row.dataset.sortKey === key) continue;
       const rect = row.getBoundingClientRect();
@@ -106,8 +106,10 @@ export function SortableList<T extends Item>({ items, onReorder, renderItem, des
 
   function start(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || !event.isPrimary) return;
+    // Nested lists own their gestures; a dashboard must not drag the whole section.
+    if ((event.target as Element).closest("[data-sort-list]") !== list.current) return;
     /* A control inside the row is that control's press, not a drag start. */
-    if ((event.target as HTMLElement).closest("button, input, textarea, [data-no-drag]")) return;
+    if ((event.target as HTMLElement).closest("button:not([data-sort-handle]), input, textarea, [data-no-drag]")) return;
     swallowClick.current = false;
     drag.current = { key: event.currentTarget.dataset.sortKey!, pointerId: event.pointerId, startY: event.clientY, y: event.clientY, active: false, row: event.currentTarget };
   }
@@ -137,6 +139,7 @@ export function SortableList<T extends Item>({ items, onReorder, renderItem, des
   }
 
   function keyMove(event: KeyboardEvent<HTMLDivElement>, item: T, index: number) {
+    if ((event.target as Element).closest("[data-sort-list]") !== list.current) return;
     if (!event.altKey || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     reset();
@@ -149,7 +152,7 @@ export function SortableList<T extends Item>({ items, onReorder, renderItem, des
   return <>
     <p id={helpId} className="sr-only">Drag a {describedAs} to reorder it, or hold Alt and press Up or Down. Alt with Home moves it to the top; Alt with End moves it to the bottom. Escape cancels a drag.</p>
     <span role="status" className="sr-only">{announcement}</span>
-    <div ref={list} className={cn("relative space-y-px", dragging && "cursor-grabbing")}>
+    <div ref={list} data-sort-list className={cn("relative space-y-px", dragging && "cursor-grabbing")}>
       {items.map((item, index) => <div
         key={item.key}
         data-sort-key={item.key}

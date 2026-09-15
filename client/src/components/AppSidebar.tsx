@@ -35,6 +35,8 @@ import { MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
 
 import { SortableList } from "@/components/SortableList";
 import { SidebarPinButton } from "@/components/SidebarPinButton";
+import { SidebarDashboards } from "@/components/SidebarDashboards";
+import { SidebarDashboardRow } from "@/components/SidebarDashboardRow";
 import { SidebarSessionRow } from "@/components/SidebarSessionRow";
 import { WorkspaceModelMenu } from "@/components/WorkspaceModelMenu";
 import { ModuleIcon } from "@/components/ModuleIcon";
@@ -120,6 +122,7 @@ export function AppSidebar() {
   const pinnedKeys = new Set(pins.map(pinKey));
   const pinnedRows = pins.flatMap(pin => {
     const label = pin.type === "page" ? NAV.find(item => item.to === pin.path)?.label
+      : pin.type === "dashboard" ? state.dashboards.find(board => board.id === pin.dashboardId)?.name
       : state.sessions.find(session => session.id === pin.sessionId)?.title;
     return label ? [{ key: pinKey(pin), label, pin }] : [];
   });
@@ -256,12 +259,13 @@ export function AppSidebar() {
     return `${session.title} ${state.ventures.find(venture => venture.id === session.ventureId)?.name ?? ""}`.toLowerCase().includes(query);
   });
 
-  function renderPage(path: string) {
+  function renderPage(path: string, accordion = false) {
     const item = NAV.find(item => item.to === path);
     if (!item) return null;
     const { label } = item;
     const active = isHere(path);
     const pin: SidebarPin = { type: "page", path };
+    if (path === "/dashboards" && accordion) return <SidebarDashboards pinned={pinnedKeys.has(pinKey(pin))} onTogglePin={() => togglePinned(pin)} />;
     return <div className={cn("sidebar-row flex min-w-0 items-center gap-0.5 rounded-lg pr-1 transition-colors focus-within:bg-accent", active ? "bg-accent font-medium" : "hover:bg-accent")}>
       <Link to={path} aria-current={active ? "page" : undefined} title={label} draggable={false}
         className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-1.5 text-[13.5px] outline-none"
@@ -313,6 +317,10 @@ export function AppSidebar() {
         <h2 className="px-2 py-2 text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Pinned</h2>
         <SortableList items={pinnedRows} onReorder={reorderPinned} describedAs="pin" renderItem={item => {
           if (item.pin.type === "page") return renderPage(item.pin.path);
+          if (item.pin.type === "dashboard") {
+            const board = state.dashboards.find(board => item.pin.type === "dashboard" && board.id === item.pin.dashboardId);
+            return board ? <SidebarDashboardRow board={board} /> : null;
+          }
           const session = state.sessions.find(session => item.pin.type === "session" && session.id === item.pin.sessionId);
           return session ? renderSession(session) : null;
         }} />
@@ -321,7 +329,7 @@ export function AppSidebar() {
       <nav aria-label="Workspace">
         {/* A reorder while folded only names the rows above the fold; the
             ones below keep their order behind it. */}
-        <SortableList items={navRows} describedAs="page" renderItem={item => renderPage(item.key)}
+        <SortableList items={navRows} describedAs="page" renderItem={item => renderPage(item.key, true)}
           onReorder={keys => setNavOrder([...keys, ...ordered.filter(path => !keys.includes(path))])} />
         {below.length > 0 && <button
           type="button"

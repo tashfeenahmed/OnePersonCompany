@@ -1,15 +1,16 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 
 /** Animate positions after a committed reorder; the DOM order remains authoritative. */
-export function useReorderMotion(ref: RefObject<HTMLElement | null>, order: string, attribute: string) {
+export function useReorderMotion(ref: RefObject<HTMLElement | null>, order: string, attribute: string, directChildren = false) {
   const previous = useRef(new Map<string, { x: number; y: number }>());
   useLayoutEffect(() => {
     const root = ref.current;
     if (!root) return;
+    const selector = `${directChildren ? ":scope > " : ""}[${attribute}]`;
     const host = root.getBoundingClientRect();
     const next = new Map<string, { x: number; y: number }>();
     const animations: Animation[] = [];
-    root.querySelectorAll<HTMLElement>(`[${attribute}]`).forEach(el => {
+    root.querySelectorAll<HTMLElement>(selector).forEach(el => {
       const key = el.getAttribute(attribute)!;
       const rect = el.getBoundingClientRect();
       const point = { x: rect.left - host.left, y: rect.top - host.top };
@@ -23,11 +24,11 @@ export function useReorderMotion(ref: RefObject<HTMLElement | null>, order: stri
     const measure = () => {
       if (animations.some(a => a.playState === "running")) return;
       const r = root.getBoundingClientRect();
-      root.querySelectorAll<HTMLElement>(`[${attribute}]`).forEach(el => { const b = el.getBoundingClientRect(); previous.current.set(el.getAttribute(attribute)!, { x: b.left-r.left, y: b.top-r.top }); });
+      root.querySelectorAll<HTMLElement>(selector).forEach(el => { const b = el.getBoundingClientRect(); previous.current.set(el.getAttribute(attribute)!, { x: b.left-r.left, y: b.top-r.top }); });
     };
     const observer = new ResizeObserver(measure);
     observer.observe(root.parentElement ?? root);
-    root.querySelectorAll(`[${attribute}]`).forEach(el => observer.observe(el));
+    root.querySelectorAll(selector).forEach(el => observer.observe(el));
     return () => { observer.disconnect(); animations.forEach(animation => animation.cancel()); };
-  }, [ref, order, attribute]);
+  }, [ref, order, attribute, directChildren]);
 }

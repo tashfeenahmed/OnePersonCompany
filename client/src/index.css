@@ -319,3 +319,21 @@
 @media (prefers-reduced-motion: reduce) {
   .sidebar-more-chevron { transition: none; }
 }
+
+/* The dashboard disclosure replaces its icon only while it is being used. */
+.sidebar-dashboard-icon, .sidebar-dashboard-chevron {
+  transition: opacity 140ms ease, rotate 180ms ease;
+}
+.sidebar-dashboard-chevron { opacity: 0; }
+.sidebar-dashboard-toggle:hover .sidebar-dashboard-icon,
+.sidebar-dashboard-toggle:focus-visible .sidebar-dashboard-icon { opacity: 0; }
+.sidebar-dashboard-toggle:hover .sidebar-dashboard-chevron,
+.sidebar-dashboard-toggle:focus-visible .sidebar-dashboard-chevron { opacity: 1; }
+.sidebar-dashboard-accordion { transition: grid-template-rows 180ms ease, visibility 180ms; }
+@media (hover: none) {
+  .sidebar-dashboard-icon { opacity: 0; }
+  .sidebar-dashboard-chevron { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-dashboard-icon, .sidebar-dashboard-chevron, .sidebar-dashboard-accordion { transition: none; }
+}

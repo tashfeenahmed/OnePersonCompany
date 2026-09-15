@@ -1,10 +1,8 @@
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { Plus } from "lucide-react";
-import { TabStrip } from "@/components/TabStrip";
 import { BoardView, NoBoard } from "@/components/BoardView";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
-import { useDashboardAlerts } from "@/hooks/useDashboardAlerts";
 import { WindowPicker } from "@/components/WindowPicker";
 import { DASHBOARD_WINDOWS, DEFAULT_WINDOW } from "@/lib/window";
 
@@ -53,17 +51,15 @@ export function LegacyReport() {
  * THIS PAGE IS ONE OF TWO DOORS ONTO THE SAME COMPONENT. A venture's boards
  * live at /ventures/<slug>/dashboards/<board> and are the same grid, the same
  * edit panel and the same drag — see components/BoardView. What this page owns
- * is the strip along the top and the scope: `!d.ventureId` is the global set,
+ * is the shared time window and the scope: `!d.ventureId` is the global set,
  * and a board filed under a venture is not shown here even though it is in the
  * same list. An older board saved before ventures had dashboards has no
  * `ventureId` at all, which is why the test is falsiness rather than a null
  * check: a board from before the distinction existed is a global board.
  */
 export function Dashboards() {
-  const { state, reorderDashboards, setDashboardWindow } = useStore();
-  const alerts=useDashboardAlerts();
+  const { state, setDashboardWindow } = useStore();
   const { slug } = useParams();
-  const navigate = useNavigate();
 
   const boards = state.dashboards.filter((d) => !d.ventureId);
   const board = boards.find((d) => d.slug === slug);
@@ -72,12 +68,12 @@ export function Dashboards() {
     and otherwise whatever is first.
 
     BY ID AND NOT BY POSITION, which is the whole reason this is not just
-    `boards[0]`. The strip is drag-reorderable and the order is the owner's;
-    somebody who drags Costs to the front has said where the tabs go, not
+    `boards[0]`. The sidebar is drag-reorderable and the order is the owner's;
+    somebody who drags Costs to the front has said where the links go, not
     which board answers "open my dashboard". The Overview is the board built
     to be opened first — it is the one that joins every other board's subject
     into one page — so it is the destination while it exists, and a workspace
-    that deleted it falls back to the first tab rather than to nothing.
+    that deleted it falls back to the first dashboard rather than to nothing.
   */
   const first = boards.find((d) => d.id === "d-overview") ?? boards[0];
 
@@ -104,40 +100,8 @@ export function Dashboards() {
 
   return (
     <>
-      {/* Let every dashboard tab remain visible as the available width changes. */}
-      <header className="relative flex min-h-12 shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 px-4.5 py-1.5">
-        {/* Links, not buttons: each tab IS the board's address. Hold and drag
-            to reorder — the order lives in the store beside the boards. */}
-        <select aria-label="Dashboard" value={board.id} onChange={e => {
-          const next = boards.find(d => d.id === e.target.value);
-          if (next) navigate(`/dashboards/${next.slug}`);
-        }} className="h-8 min-w-0 flex-1 rounded-lg bg-accent px-2 text-xs sm:hidden">
-          {boards.map(d => <option key={d.id} value={d.id}>{d.name}{alerts.byBoard[d.id]?.count?` · ${alerts.byBoard[d.id]!.count} alert${alerts.byBoard[d.id]!.count===1?"":"s"}`:""}{alerts.error?" · alert status unavailable":""}</option>)}
-        </select>
-        <TabStrip
-          className="hidden! sm:contents!"
-          /* BOARDS AND NOTHING ELSE. The strip used to open with four fixed
-             report tabs the owner could not move or remove; every tab in it is
-             now a board of his, in his order, and every one of them can be
-             renamed, rearranged and deleted. */
-          tabs={boards.map((d) => ({
-            key: d.id,
-            to: `/dashboards/${d.slug}`,
-            label: d.name,
-            alerts: alerts.byBoard[d.id],
-            alertsStale: !!alerts.error,
-          }))}
-          activeKey={board.id}
-          onReorder={reorderDashboards}
-        />
-        {/*
-          ONE WINDOW FOR EVERY BOARD, here and nowhere else. It sits in this
-          strip rather than on each board because the point of it is that two
-          boards are read over the same span; a control per page would be back
-          to the seven fetch defaults this replaces. The store keeps it (see
-          `dashboardWindow`), the fetch layer reads it, and every windowed
-          card's name follows it.
-        */}
+      {/* Navigation lives in the sidebar; this window applies to every dashboard. */}
+      <header className="relative flex min-h-12 shrink-0 items-center gap-2 px-4.5 py-1.5">
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <WindowPicker
             value={state.dashboardWindow ?? DEFAULT_WINDOW}
