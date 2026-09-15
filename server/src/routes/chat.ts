@@ -124,7 +124,7 @@ import { noteOutcome } from "./models.ts";
   and this app can write nothing into it. `readMode` is how those two are told
   apart — see `withSkills` below.
 */
-import { readMode } from "../agents/instance.ts";
+import { managedCliPath, readMode } from "../agents/instance.ts";
 import { preamble } from "../skills/registry.ts";
 /*
   WHICH BUSINESS THIS CONVERSATION IS ABOUT, when the page said. Imported
@@ -467,8 +467,10 @@ function withOrg(
   // Worker execution has its own brief; never turn it into another dispatcher.
   if (sessionId.startsWith("run:")) return turns;
   const lines: string[] = [];
-  if (live)
-    lines.push(...delegationLines(sessionId, readMode(live.id) === "managed"));
+  if (live) {
+    const managed = readMode(live.id) === "managed";
+    lines.push(...delegationLines(sessionId, managed, managed ? managedCliPath(live.id) : undefined));
+  }
 
   const team = ventureId ? ventureTeamLines(ventureId) : null;
   if (team) {

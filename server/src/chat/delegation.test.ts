@@ -7,6 +7,8 @@ import { setQueuePaused } from "../runtime/budgets.ts";
 import { entry } from "../skills/registry.ts";
 import { TASK_AUTHORIZATION_RULE } from "../skills/assignment.ts";
 import { kindDef, systemBrief } from "../integrations/runs/kinds.ts";
+import { managedCliPath } from "../agents/instance.ts";
+import { delegationLines } from "../integrations/subagents/delegation.ts";
 
 const { composeTurns, chat } = await import("../routes/chat.ts");
 const { subagentRoutes } = await import("../integrations/subagents/routes.ts");
@@ -42,10 +44,17 @@ test("an unscoped chat names every specialist and can use the venture named in t
     assert.match(assignment, /SAVED OPC SUB-AGENTS, NOT TEMPORARY MODEL HELPERS/);
     assert.match(assignment, /delegate_task/);
     assert.match(assignment, /actual run id and link/);
+    assert.ok(assignment.includes(managedCliPath(id)), "managed prompts must not rely on a tool shell's PATH");
     assert.match(system,/No venture selected in the header does not prevent delegation/);
     assert.ok(system.includes(`Use "${sessionId}" as parentSessionId`));
     assert.equal(turns.at(-1)?.content,request);
   }
+});
+
+test("dispatch guidance quotes the configured wrapper path and leaves the worker decision to the agent", () => {
+  const lines = delegationLines(sessionId, true, "/tmp/owner's workspace/bin/opc").join("\n");
+  assert.ok(lines.includes("'/tmp/owner'\\''s workspace/bin/opc' subagents dispatch --role <role>"));
+  assert.match(lines, /choose the worker from the flat `workers` array/);
 });
 
 test("the assigned specialist's prompt owns execution rather than another handoff", () => {

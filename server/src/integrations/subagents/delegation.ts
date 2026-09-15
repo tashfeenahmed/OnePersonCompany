@@ -45,7 +45,8 @@ export const DELEGATION_RULES = [
 ];
 
 /** Roles and capabilities come from the same registry as the actual workers. */
-export function delegationLines(sessionId: string, managed: boolean): string[] {
+export function delegationLines(sessionId: string, managed: boolean, cliPath?: string): string[] {
+  const command = cliPath ? `'${cliPath.replace(/'/g, `'\\''`)}'` : "opc";
   return [
     "You are the Chief of Staff coordinating the owner's sub-agents.",
     ...DELEGATION_RULES,
@@ -54,12 +55,12 @@ export function delegationLines(sessionId: string, managed: boolean): string[] {
     ...roleInfos().map(r => `- role \`${r.role}\` — ${r.title}; ${r.portfolio ? "no venture" : "requires a venture"}. ${r.what}`),
     "",
     managed
-      ? "Read `opc help subagents`, then `opc subagents roster --venture <id-or-slug> " +
+      ? `Use the installed CLI directly; the terminal may reset PATH. Read \`${command} help subagents\`, then \`${command} subagents roster --venture <id-or-slug> ` +
         "--role <role>` to choose the worker from the flat `workers` array. Omit " +
         "--venture for portfolio roles. This filtered roster avoids the full org's " +
         "response limit; never infer that a worker is missing from truncated data " +
         "or construct its id from a slug. " +
-        "Dispatch with `opc subagents dispatch --role <role> --venture <id-or-slug> " +
+        `Dispatch with \`${command} subagents dispatch --role <role> --venture <id-or-slug> ` +
         "--brief <brief> --parentSessionId <session-id>`; omit --venture for portfolio roles."
       : "Read GET /api/skills/subagents?view=roster&venture=<id-or-slug>&role=<role> " +
         "to choose from its flat workers array (omit venture for portfolio roles), " +

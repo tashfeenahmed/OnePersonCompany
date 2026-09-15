@@ -111,7 +111,7 @@ import * as openclawAdapter from "../providers/openclaw.ts";
 */
 import { liveFingerprint, syncHermesSkills } from "../skills/hermes.ts";
 import { openClawSkillServers, syncOpenClawSkills } from "../skills/openclaw.ts";
-import { installCli } from "../skills/cli.ts";
+import { CLI_NAME, installCli } from "../skills/cli.ts";
 
 /* ------------------------------------------------------------------- ids */
 
@@ -324,6 +324,11 @@ function hermesHome(spec: Spec) {
  *  and this directory is ours. */
 function cliBinDir(spec: Spec) {
   return join(spec.root, "bin");
+}
+
+/** Managed tool shells can reset PATH; prompts use the same installed wrapper. */
+export function managedCliPath(id: AgentId): string {
+  return join(cliBinDir(SPECS[id]), CLI_NAME);
 }
 
 export function spec(id: AgentId): Spec {
