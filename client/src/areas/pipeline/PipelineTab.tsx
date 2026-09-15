@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { WorkflowEditor } from "./WorkflowEditor";
+import { runPage } from "../../../../shared/runRoutes";
 import { Link } from "react-router-dom";
 import { CalendarOff, ChevronRight, Loader2, Play, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -48,6 +50,8 @@ export function PipelineTab() {
   const [said, setSaid] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const reload = doc.reload;
+  useEffect(() => { const t=setInterval(() => { if(document.visibilityState === "visible") reload(); },5000); return () => clearInterval(t); },[reload]);
 
   if (doc.error) return <p className="text-destructive text-[14.5px]">{doc.error}</p>;
   if (!doc.data) return <p className="text-muted-foreground text-[14.5px]">Reading the schedule…</p>;
@@ -70,28 +74,29 @@ export function PipelineTab() {
   return (
     <div className="flex flex-col gap-5">
       <p className="text-muted-foreground text-[13.5px]">
-        Everything this box does on its own, in one place and in dependency
-        order. The night walks the stages it OWNS; the rest keep their own
-        timers in their own areas and are listed here so the schedule is
-        complete rather than only complete about the parts it drives. The
-        overnight result lands under the{" "}
+        Your nightly review, built from editable blocks. Reports and the overnight result appear in the{" "}
         <Link className="underline" to={`/chat/${schedule.session}`}>
           Pipeline
         </Link>{" "}
         conversation.
       </p>
 
+      <details className="rounded-2xl border border-line-soft bg-card">
+      <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"><span>{schedule.enabled ? `Every night at ${String(schedule.hour).padStart(2,"0")}:00 · ${schedule.timezone}` : "Nightly schedule is off"}</span><span className="text-xs text-muted-foreground">Edit schedule</span></summary>
       <ScheduleForm
         key={`${schedule.enabled}:${schedule.hour}:${schedule.timezone}:${schedule.zoneWasSet}:${schedule.maxMinutes}:${schedule.maxUsd}:${schedule.blackouts.map((b) => b.raw).join("|")}`}
         schedule={schedule}
         onSaved={() => doc.reload()}
       />
+      </details>
+
+      {doc.data.activity?.running && <div role="status" className="flex items-center gap-3 rounded-xl border border-blue-400/30 bg-blue-500/5 p-4 text-sm"><Loader2 className="size-4 animate-spin" /><span className="flex-1">Workflow running · {stages.find(s => s.id === last?.currentStage)?.title ?? "Preparing the next block"}</span><Button variant="outline" size="sm" onClick={() => void pipelineApi.stop().then(doc.reload)}>Stop run</Button></div>}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           variant="outline"
-          disabled={busy !== null}
+          disabled={busy !== null || doc.data.activity?.running || !doc.data.workflowSaved}
           onClick={() =>
             go("plan", async () => {
               /* The rehearsal is its OWN call to its own route. There is no
@@ -107,9 +112,10 @@ export function PipelineTab() {
         <Button
           size="sm"
           variant="outline"
-          disabled={busy !== null}
+          disabled={busy !== null || doc.data.activity?.running || !doc.data.workflowSaved}
           onClick={() =>
             go("run", async () => {
+              if(doc.data!.workflowSaved) { await pipelineApi.start(); return "Workflow started. Follow its progress below."; }
               const out = await pipelineApi.run();
               return out.run
                 ? `${out.run.completed} completed, ${out.run.skipped} skipped, ${out.run.failed} failed.`
@@ -118,7 +124,7 @@ export function PipelineTab() {
           }
         >
           {busy === "run" ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" strokeWidth={1.6} />}
-          Run the night now
+          {doc.data.workflowSaved ? "Run saved workflow" : "Run the night now"}
         </Button>
         <Button
           size="sm"
@@ -135,12 +141,12 @@ export function PipelineTab() {
           {schedule.skipTonight ? "Un-skip tonight" : "Skip tonight"}
         </Button>
         <span className="text-muted-foreground text-[12.5px]">
-          Planning spends nothing. Running dispatches real sub-agent runs and
-          sends model calls billed to you.
+          {doc.data.workflowSaved ? "Preview spends nothing. Runs use your selected model and runtime budgets." : "Save your workflow to preview or run these blocks."}
         </span>
       </div>
       {said && <p className="text-muted-foreground text-[13.5px]">{said}</p>}
       {failure && <p className="text-destructive text-[13.5px]">{failure}</p>}
+      <WorkflowEditor onSaved={doc.reload} currentStage={last?.currentStage} />
       {schedule.skipTonight && (
         <p className="text-warn-foreground text-[13.5px]">
           The scheduled night for {schedule.skipTonight.day} will not run.
@@ -150,7 +156,8 @@ export function PipelineTab() {
       )}
 
       {/* ---------------------------------------------------------- the graph */}
-      <div>
+      {!doc.data.workflowSaved && <details>
+        <summary className="cursor-pointer text-sm text-muted-foreground">Existing schedules and background services</summary>
         <div className="mb-2 flex items-baseline gap-3">
           <h2 className="text-[16px] font-medium">The stages</h2>
           <span className="text-muted-foreground text-[12.5px]">
@@ -175,11 +182,11 @@ export function PipelineTab() {
             <StageRow key={s.id} stage={s} busy={busy !== null} onChanged={() => doc.reload()} onRun={go} />
           ))}
         </div>
-      </div>
+      </details>}
 
       {/* --------------------------------------------------------- last night */}
       <div>
-        <h2 className="mb-2 text-[16px] font-medium">Last night</h2>
+        <h2 className="mb-2 text-[16px] font-medium">Latest run</h2>
         {last ? (
           <RunCard run={last} expanded onToggle={() => setOpen(open === last.id ? null : last.id)} />
         ) : (
@@ -346,20 +353,22 @@ function RunCard({ run, expanded, onToggle }: { run: Run; expanded: boolean; onT
 
 function RunDetail({ id }: { id: string }) {
   const doc = useApi(() => pipelineApi.one(id), [id]);
+  useEffect(() => { if(doc.data?.run.finishedAt) return; const t=setInterval(doc.reload,3000); return () => clearInterval(t); },[doc.reload,doc.data?.run.finishedAt]);
   if (doc.error) return <p className="text-destructive px-3 py-2 text-[13.5px]">{doc.error}</p>;
   if (!doc.data) return <p className="text-muted-foreground px-3 py-2 text-[13.5px]">Reading…</p>;
   return (
     <div className="border-line-soft mt-1 ml-6 flex flex-col gap-1 border-l pl-3">
       {doc.data.stages.map((s: StageResult, i: number) => (
         <div key={`${s.stageId}-${i}`} className="flex flex-wrap items-baseline gap-2 text-[13px]">
-          <span className="w-36 shrink-0 font-medium">{s.stageId}</span>
+          <span className="w-44 shrink-0 font-medium">{doc.data!.workflowSnapshot?.find(b => b.id===s.stageId)?.title ?? s.stageId}</span>
           <span className={cn("w-24 shrink-0", OUTCOME_STYLE[s.outcome])}>{s.outcome}</span>
-          <span className="text-muted-foreground">{s.note ?? s.reason ?? s.error ?? ""}</span>
+          <span className="text-muted-foreground">{s.error ?? s.reason ?? s.note ?? ""}</span>
           {s.ms !== null && s.ms > 0 && (
             <span className="text-muted-foreground ml-auto shrink-0">{Math.round(s.ms / 100) / 10}s</span>
           )}
         </div>
       ))}
+      {doc.data.jobs?.length > 0 && <div className="mt-3 space-y-1 border-t border-line-soft pt-3"><p className="mb-2 text-xs text-muted-foreground">Sub-agent reports</p>{doc.data.jobs.map(job => <Link className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-muted" key={job.agent_run_id} to={runPage(job.kind,job.agent_run_id)}><span>{job.venture_name ?? job.venture_id} · {doc.data!.workflowSnapshot?.find(b => b.id===job.block_id)?.title ?? job.block_id}</span><span className="text-xs text-muted-foreground">{job.status ?? "record unavailable"} →</span></Link>)}</div>}
     </div>
   );
 }
@@ -563,7 +572,7 @@ function Proposals() {
 /**
  * THE SYNTHESIS DIALS.
  *
- * Five values, all of them decisions rather than credentials, all of them about
+ * Four values, all of them decisions rather than credentials, all of them about
  * how much of the owner's morning this pass is allowed to fill. They are stored
  * on the `synthesis` pseudo-plugin and validated once on the server, which is
  * why this form does no checking of its own beyond keeping the boxes small —
@@ -581,7 +590,6 @@ function SynthesisForm({
     "per-venture": String(config.perVenture),
     "per-night": String(config.perNight),
     "repeat-days": String(config.repeatDays),
-    model: config.model ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -601,9 +609,6 @@ function SynthesisForm({
       </Field>
       <Field label="Days before repeating an idea" width="w-32">
         <Input value={values["repeat-days"]} onChange={(e) => set("repeat-days", e.target.value)} />
-      </Field>
-      <Field label="Model (blank = the provider's own)" width="w-56">
-        <Input value={values.model} onChange={(e) => set("model", e.target.value)} />
       </Field>
       <Button
         size="sm"
@@ -628,7 +633,7 @@ function SynthesisForm({
         Each venture in the rotation costs one model call over its whole evidence packet, so the first
         box is the main dial on what a night spends. Defaults:{" "}
         {config.defaults.venturesPerNight} / {config.defaults.perVenture} / {config.defaults.perNight} /{" "}
-        {config.defaults.repeatDays} days.
+        {config.defaults.repeatDays} days. Uses your shared LLM selection from the sidebar.
       </span>
       {error && <p className="text-destructive w-full text-[13.5px]">{error}</p>}
       {connected === false && (

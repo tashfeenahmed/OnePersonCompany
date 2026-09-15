@@ -1,3 +1,4 @@
+import { workflowOwns } from "../pipeline/workflow-store.ts";
 /**
  * AGENT MEMORY — what the Chief of Staff KNOWS, as opposed to what it can go
  * and look up.
@@ -695,6 +696,7 @@ export function startConsolidation() {
   timer = setInterval(() => {
     void (async () => {
       try {
+        if (workflowOwns("memory")) return;
         const week = isoWeek();
         if (db.prepare("SELECT week FROM chief_memory_passes WHERE week = ?").get(week)) return;
         if (noteCount() < 3) return;

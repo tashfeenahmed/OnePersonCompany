@@ -86,6 +86,26 @@ let started = false;
 let lastTickAt: string | null = null;
 let lastPruneAt: string | null = null;
 
+/** A workflow shares the scheduler's lock, waits for any current sweep and
+ * refreshes connected sources. Recent successful reads need no duplicate I/O. */
+export async function refreshForWorkflow(signal: AbortSignal) {
+  const { setTimeout: delay } = await import("node:timers/promises");
+  while (inFlight) await delay(500, undefined, { signal });
+  signal.throwIfAborted();
+  inFlight = true;
+  const counts = { refreshed: 0, reused: 0, failed: 0 };
+  try {
+    for (const plugin of allPlugins().filter(p => p.connected === 1 && registry[p.id])) {
+      signal.throwIfAborted();
+      const last = db.prepare("SELECT finished_at FROM runs WHERE plugin_id=? AND ok=1 ORDER BY finished_at DESC LIMIT 1").get(plugin.id) as { finished_at: string } | undefined;
+      if (last && Date.parse(last.finished_at) > Date.now() - 15 * 60_000) { counts.reused++; continue; }
+      try { const out = await registry[plugin.id]!(); if (out.ok) counts.refreshed++; else counts.failed++; }
+      catch { counts.failed++; }
+    }
+    signal.throwIfAborted(); return counts;
+  } finally { inFlight = false; }
+}
+
 /**
  * The last time a collector for this plugin STARTED, from the runs table.
  *

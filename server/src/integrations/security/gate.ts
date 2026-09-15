@@ -208,6 +208,7 @@ const OWNER_SURFACE: SurfaceRule[] = [
 
   /* ---- any owner proof --------------------------------------------------- */
   { prefix: "/api/plugins", methods: "write", level: "proof", why: "connecting, disconnecting and configuring accounts is the owner's" },
+  { paths: ["/api/pipeline/workflow"], methods: "write", level: "proof", why: "recurring workflow instructions and scope are chosen by the owner" },
   { prefix: "/api/backups", methods: "all", level: "proof", why: "an archive can be restored over the live database" },
   { prefix: "/api/security", methods: "write", level: "proof", why: "the password and the sessions are the lock itself" },
   { prefix: "/api/agents", methods: "write", level: "proof", why: "an agent must not install, reconfigure or restart an agent" },

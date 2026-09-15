@@ -72,6 +72,7 @@ export type Schedule = {
 };
 
 export type Run = {
+  currentStage?: string | null;
   id: string;
   startedAt: string;
   finishedAt: string | null;
@@ -104,6 +105,8 @@ export type StageResult = {
 };
 
 export type PipelineDoc = {
+  workflowSaved: boolean;
+  activity: { running: boolean; runId: string | null };
   schedule: Schedule;
   stages: Stage[];
   cycle: string[];
@@ -124,6 +127,8 @@ export type NightResult = {
 };
 
 export const pipelineApi = {
+  start: () => call<{ running:boolean;runId:string|null }>("/pipeline/start",{ method:"POST" }),
+  stop: () => call("/pipeline/stop",{ method:"POST" }),
   all: () => call<PipelineDoc>("/pipeline"),
   /*
     TWO CALLS, NOT ONE WITH A FLAG.
@@ -139,7 +144,7 @@ export const pipelineApi = {
   run: (body: { stage?: string } = {}) =>
     call<NightResult>("/pipeline/run", { method: "POST", body: JSON.stringify(body) }),
   one: (id: string) =>
-    call<{ run: Run; stages: StageResult[] }>(`/pipeline/runs/${encodeURIComponent(id)}`),
+    call<{ run: Run; stages: StageResult[]; jobs: { block_id:string;agent_run_id:string;status:string|null;kind:string;venture_id:string|null;venture_name:string|null }[];workflowSnapshot:{id:string;title:string}[]|null }>(`/pipeline/runs/${encodeURIComponent(id)}`),
   setStage: (
     id: string,
     patch: {

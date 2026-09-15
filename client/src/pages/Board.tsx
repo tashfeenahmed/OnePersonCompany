@@ -12,7 +12,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useApi } from "@/hooks/useApi";
+import { useBoard } from "@/hooks/useBoard";
+import { BoardAutomation } from "@/components/BoardAutomation";
 import {
   api,
   type BoardCard,
@@ -95,18 +96,11 @@ type VentureChip = {
  * mean somewhere else: the card lands exactly where the indicator promised,
  * with whatever is filtered out staying where it already was.
  *
- * WHAT IS DELIBERATELY NOT HERE. No column can be created or deleted — the
- * five the server seeds are the board, and the API has no route for either.
- * Columns are not reorderable by drag on this page yet, though the route and
- * the client call for it exist. And nothing files a card by itself: no backlog
- * filer, no issue ranking, no gardening sweep writes cards in. Cards like those
- * come from collectors reading other people's systems; these are the owner's
- * own. The seam is a
- * nullable `origin` on the server (see routes/board.ts) and nothing else.
+ * Automatic cards arrive through the server's source adapters, with durable
+ * origins. Quiet polling also picks up cards created by chat or other tabs.
  */
 export function Board() {
   const { state } = useStore();
-  const { data, error, loading, setData, reload } = useApi(() => api.board(), []);
 
   /* WHICH VENTURE'S WORK IS SHOWING — null is "all of it". A venture id
      rather than an index, so the filter survives a venture being renamed and
@@ -134,6 +128,7 @@ export function Board() {
   const [newColumn, setNewColumn] = useState("");
   const [addingColumn, setAddingColumn] = useState(false);
   const [removingColumn, setRemovingColumn] = useState<BoardColumn | null>(null);
+  const { data, error, loading, reload, mutate: writeBoard } = useBoard(drag !== null || opened !== null);
 
   /*
     THE BOARD'S OWN ANSWER WINS, THE CACHE FILLS IN THE REST.
@@ -167,13 +162,10 @@ export function Board() {
    * board is one object, and restoring it is one assignment.
    */
   async function mutate(call: () => Promise<BoardDoc>, optimistic?: BoardDoc) {
-    const previous = data;
-    if (optimistic) setData(optimistic);
     try {
-      setData(await call());
+      await writeBoard(call, optimistic);
       setRefused(null);
     } catch (e) {
-      if (optimistic) setData(previous);
       setRefused(e instanceof Error ? e.message : String(e));
     }
   }
@@ -212,7 +204,7 @@ export function Board() {
 
   /* ---- the three states this page actually has, before any board is drawn */
 
-  if (error)
+  if (error && !data)
     return (
       <Empty
         title="The board cannot be read"
@@ -240,7 +232,7 @@ export function Board() {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="shrink-0 px-6 pt-4 pb-3.5">
-        <div className="flex items-end gap-3">
+        <div className="flex flex-wrap items-end gap-3">
           <div>
             <h1 className="mb-1 text-[27px] font-normal tracking-[-0.025em]">Board</h1>
             <p className="text-muted-foreground text-[14.5px]">
@@ -257,7 +249,9 @@ export function Board() {
               )}
             </p>
           </div>
+          <BoardAutomation onChecked={() => void reload()} />
         </div>
+        {error && <p role="status" className="mt-2 text-xs text-muted-foreground">Could not refresh. Showing your last saved board.</p>}
 
         {/* THE VENTURE FILTER. Chips rather than a dropdown: there are a
             handful of ventures, the answer is worth having on screen, and a

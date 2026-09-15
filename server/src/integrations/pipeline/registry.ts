@@ -104,6 +104,9 @@ export type Stage = {
    *  dependency that was skipped or failed skips this one with that reason,
    *  which is the whole reason to declare one. */
   deps: string[];
+  /** Workflow dependencies always order blocks; optionally require success. */
+  requireSuccess?: boolean;
+  definition?: unknown;
   defaultEnabled: boolean;
   defaultCadence: Cadence;
   /** The part of the night this stage prefers, `HH:MM-HH:MM` in the pipeline's
@@ -124,6 +127,9 @@ export type Stage = {
 /* ------------------------------------------------------------- the registry */
 
 const stages = new Map<string, Stage>();
+let resolveWorkflow: ((registered: Stage[]) => Stage[]) | null = null;
+export function setWorkflowResolver(resolve: (registered: Stage[]) => Stage[]) { resolveWorkflow = resolve; }
+export function registeredStages(): Stage[] { return [...stages.values()]; }
 
 /**
  * Add a stage. Idempotent by id, because `node --watch` re-imports modules on
@@ -135,11 +141,12 @@ export function registerStage(stage: Stage): void {
 }
 
 export function allStages(): Stage[] {
-  return [...stages.values()];
+  const registered = registeredStages();
+  return resolveWorkflow ? resolveWorkflow(registered) : registered;
 }
 
 export function stage(id: string): Stage | null {
-  return stages.get(id) ?? null;
+  return allStages().find(s => s.id === id) ?? null;
 }
 
 /* ------------------------------------------------------------------ order */

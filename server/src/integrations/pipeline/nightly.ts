@@ -70,6 +70,8 @@ import {
 } from "./registry.ts";
 
 export type RunRow = {
+  current_stage?: string | null;
+  workflow_snapshot?: string | null;
   id: string;
   started_at: string;
   finished_at: string | null;
@@ -154,6 +156,7 @@ export function shapeRun(r: RunRow) {
     ms: r.ms,
     summary: r.summary,
     note: r.note,
+    currentStage: r.finished_at ? null : r.current_stage ?? null,
   };
 }
 
@@ -279,6 +282,10 @@ export function plan(s: PipelineSettings, at = new Date()): { planned: PlannedSt
  *  catches a crash; this catches a second press of the button while the first
  *  is still walking, which the table cannot see. */
 let walking = false;
+let activeRunId: string | null = null;
+let activeAbort: AbortController | null = null;
+export function pipelineActivity() { return { running: walking, runId: activeRunId }; }
+export function stopPipeline() { activeAbort?.abort(new Error("Stopped by the owner.")); return pipelineActivity(); }
 
 export type NightResult = {
   ran: boolean;
@@ -413,6 +420,8 @@ export async function runNight(
     };
   }
   walking = true;
+  activeRunId = id;
+  activeAbort = new AbortController();
 
   const counts = { completed: 0, skipped: 0, failed: 0, "over-budget": 0 } as Record<StageOutcome, number>;
   /* What each stage DID tonight, which is what `unsatisfied` reads: a skip and
@@ -420,7 +429,8 @@ export async function runNight(
   const outcomes = new Map<string, StageOutcome>();
   let usdTotal: number | null = budgets().usdPerMillion ? 0 : null;
 
-  const signal = opts.signal ?? AbortSignal.timeout(Math.max(60, (s.maxMinutes ?? 240) * 60) * 1000);
+  const signal = AbortSignal.any([activeAbort.signal, ...(opts.signal ? [opts.signal] : []),
+    ...(s.maxMinutes === null ? [] : [AbortSignal.timeout(s.maxMinutes * 60_000)])]);
 
   const file = (
     st: Stage,
@@ -450,15 +460,19 @@ export async function runNight(
       usd,
       JSON.stringify(result.counts ?? {}),
     );
+    db.prepare("UPDATE pipeline_runs SET completed=?,skipped=?,failed=?,over_budget=? WHERE id=?")
+      .run(counts.completed,counts.skipped,counts.failed,counts["over-budget"],id);
   };
 
   try {
     const { planned } = plan(s, startedAt);
     const list = only ? planned.filter((p) => p.stage.id === only) : planned;
+    db.prepare("UPDATE pipeline_runs SET planned=?,workflow_snapshot=? WHERE id=?")
+      .run(list.length, JSON.stringify(list.map(p => ({ id:p.stage.id,title:p.stage.title,about:p.stage.about,deps:p.stage.deps,definition:p.stage.definition }))), id);
 
     for (const p of list) {
-      if (signal.aborted) break;
       const at = now();
+      if (signal.aborted) { file(p.stage,at,0,{ outcome:"skipped",reason:"The workflow was stopped or reached its time limit." },null); continue; }
 
       if (p.refusal) {
         file(p.stage, at, 0, { outcome: p.refusal.outcome, reason: p.refusal.reason }, null);
@@ -469,8 +483,10 @@ export async function runNight(
          on its own: `only` is the owner asking for this stage now, and
          refusing because the collector has not run today would be the schedule
          overruling a button press. */
-      if (!only) {
-        const short = p.stage.deps.map((d) => unsatisfied(d, outcomes)).filter((x): x is string => x !== null);
+      if (!only && p.stage.requireSuccess !== false) {
+        const short = p.stage.deps.map((d) => p.stage.requireSuccess === true
+          ? outcomes.get(d) === "completed" ? null : `${d}, which did not complete successfully in this run`
+          : unsatisfied(d, outcomes)).filter((x): x is string => x !== null);
         if (short.length) {
           file(p.stage, at, 0, { outcome: "skipped", reason: `it depends on ${short.join("; and on ")}` }, null);
           continue;
@@ -493,9 +509,11 @@ export async function runNight(
       const stale = staleDeps(p.stage);
 
       const contextId = `pipeline:${id}:${p.stage.id}`;
+      db.prepare("UPDATE pipeline_runs SET current_stage=? WHERE id=?").run(p.stage.id,id);
       const stageStarted = Date.now();
       const stageMs = p.settled.maxMinutes ? p.settled.maxMinutes * 60_000 : null;
       const deadline = stageMs ? stageStarted + stageMs : Number.POSITIVE_INFINITY;
+      const blockSignal = stageMs ? AbortSignal.any([signal, AbortSignal.timeout(stageMs)]) : signal;
       let result: StageResult;
       try {
         result = await runContext.run(
@@ -507,7 +525,7 @@ export async function runNight(
                allowance, and a night the owner started by hand is still
                unattended work. */
             automation: true,
-            signal,
+            signal: blockSignal,
             sequence: 0,
             resume: false,
           },
@@ -516,11 +534,12 @@ export async function runNight(
               runId: id,
               stageId: p.stage.id,
               dry,
-              signal,
+              signal: blockSignal,
               deadline,
               budget: { maxUsd: p.settled.maxUsd, maxMinutes: p.settled.maxMinutes },
             }),
         );
+        if (blockSignal.aborted && result.outcome === "completed") result = { ...result, outcome: "failed", error: "This block reached its time limit or was stopped." };
       } catch (err) {
         result = {
           outcome: "failed",
@@ -532,11 +551,14 @@ export async function runNight(
           ...result,
           note: [result.note, `Worth knowing: ${stale.join("; ")}.`].filter(Boolean).join(" "),
         };
-      file(p.stage, at, Date.now() - stageStarted, result, dry ? null : spentOnRun(contextId));
+      const children = db.prepare("SELECT agent_run_id FROM pipeline_block_jobs WHERE run_id=? AND block_id=?").all(id,p.stage.id) as { agent_run_id: string }[];
+      const ownUsd = dry ? null : spentOnRun(contextId);
+      const stageUsd = ownUsd === null ? null : ownUsd + children.reduce((n,r) => n + (spentOnRun(r.agent_run_id) ?? 0),0);
+      file(p.stage, at, Date.now() - stageStarted, result, stageUsd);
     }
 
     const stages = stageResultRows(id).map(shapeStageResult);
-    const summary = summarise({ id, dry, trigger: opts.trigger, counts, usd: usdTotal, stages });
+    const summary = summarise({ id, dry, trigger: opts.trigger, counts, usd: usdTotal, stages, titles: new Map(list.map(p => [p.stage.id,p.stage.title])) });
     db.prepare(
       `UPDATE pipeline_runs SET finished_at = ?, planned = ?, completed = ?, skipped = ?, failed = ?,
               over_budget = ?, usd = ?, ms = ?, summary = ? WHERE id = ?`,
@@ -557,9 +579,10 @@ export async function runNight(
     return { ran: true, why: null, run: shapeRun(row), stages };
   } finally {
     walking = false;
+    activeRunId = null; activeAbort = null;
     /* A night that threw left its row open. Closing it here means the ledger
        never carries a run that started and is apparently still going. */
-    db.prepare("UPDATE pipeline_runs SET finished_at = COALESCE(finished_at, ?) WHERE id = ?").run(now(), id);
+    db.prepare("UPDATE pipeline_runs SET finished_at = COALESCE(finished_at, ?),current_stage=NULL WHERE id = ?").run(now(), id);
   }
 }
 
@@ -581,7 +604,9 @@ export function summarise(input: {
   counts: Record<StageOutcome, number>;
   usd: number | null;
   stages: ReturnType<typeof shapeStageResult>[];
+  titles?: ReadonlyMap<string, string>;
 }): string {
+  const title = (id: string) => input.titles?.get(id) ?? id;
   const head = input.dry
     ? `**Planned night** (nothing was run) — ${input.stages.length} stage${input.stages.length === 1 ? "" : "s"} considered.`
     : `**Overnight result** — ${input.counts.completed} completed, ${input.counts.skipped} skipped, ` +
@@ -593,7 +618,7 @@ export function summarise(input: {
 
   const ran = input.stages.filter((s) => s.outcome === "completed");
   if (ran.length) {
-    lines.push(...ran.map((s) => `- **${s.stageId}** — ${s.note ?? "completed, with nothing to report."}`));
+    lines.push(...ran.map((s) => `- **${title(s.stageId)}** — ${s.note ?? "completed, with nothing to report."}`));
   } else {
     lines.push("- Nothing ran.");
   }
@@ -604,7 +629,7 @@ export function summarise(input: {
     lines.push(
       ...bad.map(
         (s) =>
-          `- **${s.stageId}** ${s.outcome === "failed" ? "FAILED" : "ran out of budget"} — ${s.error ?? s.reason ?? "no reason recorded"}`,
+          `- **${title(s.stageId)}** ${s.outcome === "failed" ? "FAILED" : "ran out of budget"} — ${s.error ?? s.reason ?? "no reason recorded"}`,
       ),
     );
   }
@@ -615,13 +640,13 @@ export function summarise(input: {
   );
   if (decided.length) {
     lines.push("");
-    lines.push(`Skipped: ${decided.map((s) => `${s.stageId} (${s.reason ?? "no reason"})`).join("; ")}.`);
+    lines.push(`Skipped: ${decided.map((s) => `${title(s.stageId)} (${s.reason ?? "no reason"})`).join("; ")}.`);
   }
   if (selfScheduled.length) {
     lines.push("");
     lines.push(
       `${selfScheduled.length} stage${selfScheduled.length === 1 ? " keeps its" : "s keep their"} own timer and ` +
-        `${selfScheduled.length === 1 ? "was" : "were"} not started here: ${selfScheduled.map((s) => s.stageId).join(", ")}.`,
+        `${selfScheduled.length === 1 ? "was" : "were"} not started here: ${selfScheduled.map((s) => title(s.stageId)).join(", ")}.`,
     );
   }
 
@@ -629,7 +654,7 @@ export function summarise(input: {
   lines.push(
     input.usd === null
       ? "Cost is not measured on this box: no price per million tokens is configured, so the night's spend is unknown rather than zero."
-      : `Model spend on this night: $${input.usd.toFixed(4)}. It counts calls the stages made themselves; work they QUEUED (sub-agent runs) is billed to those runs.`,
+      : `Model spend on this night: $${input.usd.toFixed(4)}. Includes direct calls and sub-agent jobs linked to workflow blocks.`,
   );
 
   return lines.join("\n");
@@ -650,11 +675,14 @@ export const PIPELINE_SESSION = "pipeline";
  * `failInterrupted` does the same thing for the run queue.
  */
 export function closeInterrupted(): number {
+  db.prepare(`UPDATE agent_runs SET status='cancelled',finished_at=?
+    WHERE status='queued' AND id IN (SELECT j.agent_run_id FROM pipeline_block_jobs j
+    JOIN pipeline_runs n ON n.id=j.run_id WHERE n.finished_at IS NULL)`).run(now());
   return settleOpenRows({
     table: "pipeline_runs",
     /* No status column here: an open row is one with no finish on it. */
     openWhen: "finished_at IS NULL",
-    set: { finished_at: NOW },
+    set: { finished_at: NOW, current_stage: null },
     note: { column: "note", text: INTERRUPTED },
   });
 }

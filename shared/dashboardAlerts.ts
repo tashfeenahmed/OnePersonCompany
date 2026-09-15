@@ -8,6 +8,8 @@ export type DashboardAlert = {
   entity?: { kind: "server" | "domain" | "host"; id: string };
   ventureId?: string | null;
   href?: string;
+  /** False for an incomplete/unavailable report rather than measured work. */
+  actionable?: boolean;
 };
 export type DashboardAlertsDoc = { alerts: DashboardAlert[]; asOf: string };
 
@@ -40,7 +42,7 @@ export function currentDashboardAlerts(input:{fleet?:FleetAlertInput;domains?:Do
       add("reporting","critical","not reporting",box.error ?? "More than three collection intervals since the last probe.");
       continue; // Old resource readings are not additional current incidents.
     }
-    if(!box.sample) {add("reporting","warning","no readings yet","The server has not returned its first probe.");continue;}
+    if(!box.sample) {add("reporting","warning","no readings yet","The server has not returned its first probe.");alerts[alerts.length-1]!.actionable=false;continue;}
     const check=(key:string,label:string,value:number|null|undefined,limits:Limits)=>{
       if(value===null || value===undefined || !Number.isFinite(value) || value<limits.warn)return;
       add(key,value>=limits.critical?"critical":"warning",`${label} at ${Math.round(value)}%`,`Watch at ${limits.warn}%; act at ${limits.critical}%.`);

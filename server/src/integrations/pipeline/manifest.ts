@@ -69,6 +69,7 @@ import {
 } from "./synthesis.ts";
 import { synthesisRoutes } from "./synthesis-routes.ts";
 import { upsertPlugin } from "../../db.ts";
+import { installWorkflowEngine } from "./workflow-engine.ts";
 
 /** A whole-number setting check, shared by the six that want one. */
 const whole = (min: number, max: number, unit: string) => (value: string) => {
@@ -140,9 +141,9 @@ export const manifest: IntegrationManifest = {
         "max-minutes": {
           label: "Most minutes one night may take",
           hint:
-            `The budget the night PLANS against: past it, no further stage is STARTED, and one that ` +
-            `is already running is never killed. Default ${DEFAULT_MAX_MINUTES}. 0 means no clock ` +
-            `cap, which on a machine that sleeps is a night that can span a morning.`,
+            `The maximum elapsed time for a night. At the limit, its active block is asked to stop ` +
+            `and no more blocks start. Default ${DEFAULT_MAX_MINUTES}. 0 means no overall clock ` +
+            `cap; individual block time limits still apply.`,
           ph: String(DEFAULT_MAX_MINUTES),
           check: whole(0, 1440, "minutes"),
         },
@@ -239,6 +240,7 @@ export const manifest: IntegrationManifest = {
     registerBuiltins();
     registerCalledStages();
     registerSynthesisStage();
+    installWorkflowEngine();
     startPipeline();
   },
 };

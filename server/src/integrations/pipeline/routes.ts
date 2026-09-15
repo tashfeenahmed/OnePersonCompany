@@ -25,6 +25,10 @@
  * cannot parse instead of defaulting to false.
  */
 import { Hono, type Context } from "hono";
+import { db, ventureRows } from "../../db.ts";
+import { ROLES } from "../subagents/store.ts";
+import { workflow, saveWorkflow, WorkflowError } from "./workflow-store.ts";
+import { pipelineActivity, stopPipeline } from "./nightly.ts";
 import { nextRunAt, wall } from "../../shared/time.ts";
 import { LAST_RUN_MEANS } from "./builtins.ts";
 import { readBool, refuseDry } from "./params.ts";
@@ -58,6 +62,25 @@ import {
 } from "./registry.ts";
 
 export const pipelineRoutes = new Hono();
+
+pipelineRoutes.get("/workflow", c => c.json({ ...workflow(), roles: ROLES.map(r => ({ id:r.role,title:r.title })), ventures:ventureRows().map(v => ({ id:v.id,name:v.name })), activity:pipelineActivity() }));
+pipelineRoutes.put("/workflow", async c => {
+  const body = await c.req.json().catch(() => null);
+  try { return c.json(saveWorkflow(body?.revision, body?.definition)); }
+  catch (e) { if (e instanceof WorkflowError) return c.json({ error:e.message },e.status); throw e; }
+});
+pipelineRoutes.post("/start", async c => {
+  const body = await c.req.json().catch(() => null);
+  const refusal = refuseDry(body, "POST /api/pipeline/plan");
+  if (refusal) return c.json({ error:refusal },400);
+  if (!workflow().saved) return c.json({ error:"Save the workflow before running it." },409);
+  if (pipelineActivity().running) return c.json({ error:"A workflow is already running." },409);
+  // Detach the long-running work from the HTTP request. Refreshing or closing
+  // the browser cannot abandon the run; its ledger and Stop button remain live.
+  void runNight({ trigger:"manual" }).then(deliver).catch(e => console.error("[pipeline] workflow failed", e));
+  return c.json(pipelineActivity(),202);
+});
+pipelineRoutes.post("/stop", c => c.json(stopPipeline()));
 
 /** A stage window, the same grammar a blackout uses for its span. */
 const WINDOW = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
@@ -211,8 +234,8 @@ function schedule() {
         "The dollar budget is checked BEFORE a stage starts and never during it: a stage already " +
         "running is not killed by an accountant. Per-call limits live in the runtime budgets.",
       cost:
-        "A night's cost counts the model calls its stages made themselves. Work a stage QUEUED — a " +
-        "sub-agent run — is billed to that run, not here. Null means this box prices no tokens.",
+        "A night's cost includes direct model calls and sub-agent jobs linked to workflow blocks. " +
+        "Null means this box prices no tokens.",
     },
   };
 }
@@ -230,6 +253,8 @@ pipelineRoutes.get("/", (c) => {
     /** The last REAL night, not the last planned one: a plan somebody ran at
      *  noon must not read as last night's result. */
     last: runs.find((r) => !r.dry) ?? null,
+    workflowSaved: workflow().saved,
+    activity: pipelineActivity(),
   });
 });
 
@@ -238,7 +263,8 @@ pipelineRoutes.get("/runs", (c) => c.json({ runs: runRows(50).map(shapeRun) }));
 pipelineRoutes.get("/runs/:id", (c) => {
   const row = runRow(c.req.param("id"));
   if (!row) return c.json({ error: "No pipeline run by that id." }, 404);
-  return c.json({ run: shapeRun(row), stages: stageResultRows(row.id).map(shapeStageResult) });
+  const jobs = db.prepare("SELECT j.block_id,j.agent_run_id,r.status,r.kind,j.venture_id,v.name AS venture_name FROM pipeline_block_jobs j LEFT JOIN agent_runs r ON r.id=j.agent_run_id LEFT JOIN ventures v ON v.id=j.venture_id WHERE j.run_id=?").all(row.id);
+  return c.json({ run: shapeRun(row), stages: stageResultRows(row.id).map(shapeStageResult), jobs, workflowSnapshot:row.workflow_snapshot ? JSON.parse(row.workflow_snapshot) : null });
 });
 
 /** WHAT TONIGHT WOULD DO, decided now, writing nothing. The cheap answer: it
@@ -298,7 +324,7 @@ async function walk(c: Context, dry: boolean) {
       delivery,
       note: dry
         ? "Nothing was run. Each stage was asked what it would do and answered without spending anything."
-        : "Stages that dispatch sub-agent runs return as soon as the work is QUEUED. What came of it is in the runs ledger.",
+        : "Workflow specialist blocks wait for their linked sub-agent reports. Open a block's jobs to see the findings.",
     },
     201,
   );

@@ -74,4 +74,9 @@ export const INTEGRATION_MIGRATIONS: { name: string; sql: string }[] = [...insig
     CREATE TABLE action_undo (token TEXT PRIMARY KEY, target TEXT NOT NULL, row_keys TEXT NOT NULL, before_state TEXT NOT NULL, after_state TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
     CREATE INDEX action_undo_expiry ON action_undo(expires_at);
   ` },
+  { name: "483_board_automation", sql: `
+    CREATE TABLE board_automation (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 1, disabled_sources TEXT NOT NULL DEFAULT '[]', checked_at TEXT, filed INTEGER NOT NULL DEFAULT 0, errors TEXT NOT NULL DEFAULT '[]');
+    INSERT INTO board_automation(id) VALUES(1);
+    CREATE TABLE board_automation_filings (origin TEXT PRIMARY KEY, card_id INTEGER REFERENCES board_cards(id) ON DELETE SET NULL, source TEXT NOT NULL, filed_at TEXT NOT NULL);
+  ` },
 ].sort((a, b) => a.name.localeCompare(b.name));

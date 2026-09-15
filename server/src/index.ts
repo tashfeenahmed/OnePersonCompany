@@ -1,4 +1,6 @@
 import { actionInboxRoutes } from "./routes/actionInbox.ts";
+import { boardAutomationRoutes } from "./board/routes.ts";
+import { startBoardAutomation } from "./board/automation.ts";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -306,6 +308,7 @@ app.route("/api/search", searchRoutes);
   all, so there is nothing above it that it needs to have run.
 */
 app.route("/api/board", boardRoutes);
+app.route("/api/board/automation", boardAutomationRoutes);
 /*
   THE VENTURES — the businesses every other route on this server is measuring
   something about, and the second thing here that stores what the OWNER typed.
@@ -445,6 +448,7 @@ agentInstances.boot();
 
 serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {
   startOnboardingReconciliation();
+  startBoardAutomation();
   console.log(`[api] http://127.0.0.1:${info.port}`);
   console.log(
     `[api] collectors: ${Object.keys(COLLECTORS).join(", ") || "none"}` +

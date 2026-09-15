@@ -33,7 +33,7 @@ export async function dashboardAlerts():Promise<DashboardAlertsDoc> {
     if(covered)continue;
     const context=eventContext(event,rule);
     const detail=context ? [context.summary ?? event.message,...context.apps.map(a=>`${a.name}${a.reason ? `: ${a.reason}` : ""}`)].join(" ") : event.message;
-    alerts.push({id:`rule:${rule.id}`,severity:"warning",title:context?.title ?? (event.kind==="unreadable"?`${rule.name} — check unavailable`:rule.name),detail,sources:rule.managed_source ? [rule.skill, String(JSON.parse(rule.params).sourcePlugin ?? rule.skill)] : [rule.skill],ventureId:rule.venture_id,href:"/alerts"});
+    alerts.push({id:`rule:${rule.id}`,severity:"warning",title:context?.title ?? (event.kind==="unreadable"?`${rule.name} — check unavailable`:rule.name),detail,sources:rule.managed_source ? [rule.skill, String(JSON.parse(rule.params).sourcePlugin ?? rule.skill)] : [rule.skill],ventureId:rule.venture_id,href:"/alerts",actionable:event.kind!=="unreadable"});
   }
   return {alerts:uniqueDashboardAlerts([...alerts,...failures]),asOf:new Date().toISOString()};
 }

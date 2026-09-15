@@ -1,3 +1,4 @@
+import { workflowOwns } from "./workflow-store.ts";
 /**
  * THE STAGES THE PIPELINE ACTUALLY CALLS.
  *
@@ -56,6 +57,7 @@ import { PIPELINE_PLUGIN, prefs, registerStage, settled, stage, type StageResult
  * on the next tick of either timer without a restart.
  */
 export function pipelineOwnsRounds(): boolean {
+  if (workflowOwns("agent")) return true;
   if ((configValue(PIPELINE_PLUGIN, "enabled") ?? "").trim().toLowerCase() !== "on") return false;
   const s = stage("rounds");
   if (!s) return false;

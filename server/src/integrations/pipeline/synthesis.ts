@@ -464,6 +464,8 @@ export type VenturePass = {
   ventureId: string;
   venture: string;
   ran: boolean;
+  /** A failed model/evidence read, rather than an intentional skip. */
+  failed?: boolean;
   /** Why nothing was asked. Null when the model was asked. */
   why: string | null;
   filed: number;
@@ -507,7 +509,7 @@ export async function passForVenture(
     return { ...base, ran: false, why: "proposals are switched off for this venture." };
 
   const packet = await packetFor(v.id, opts.signal);
-  if (!packet) return { ...base, ran: false, why: "the evidence packet could not be built." };
+  if (!packet) return { ...base, ran: false, failed: true, why: "the evidence packet could not be built." };
   if (packet.nothingMeasured)
     return {
       ...base,
@@ -575,6 +577,7 @@ export async function passForVenture(
         packet,
         model,
         ran: false,
+        failed: true,
         why: err instanceof Error ? err.message.slice(0, 300) : "the model could not be reached.",
       };
     }
@@ -588,6 +591,7 @@ export async function passForVenture(
       packet,
       model,
       ran: false,
+      failed: true,
       /* WHAT IT ACTUALLY SAID, trimmed. A bare "could not be read" is a dead
          end for the owner: the commonest cause is a model answering in prose
          that it has nothing to add, which is a useful answer wearing the wrong
@@ -707,7 +711,8 @@ export async function passForVenture(
  * rather than picked and then refused — otherwise a portfolio with four parked
  * businesses would spend its whole nightly quota on them.
  */
-export function rotation(limit: number): { id: string; name: string; lastPassAt: string | null }[] {
+export function rotation(limit: number, priorityIds: readonly string[] = []): { id: string; name: string; lastPassAt: string | null }[] {
+  const priority = new Set(priorityIds);
   const covered = new Map(
     (db.prepare("SELECT venture_id, last_pass_at FROM synthesis_coverage").all() as unknown as {
       venture_id: string;
@@ -718,6 +723,8 @@ export function rotation(limit: number): { id: string; name: string; lastPassAt:
     .filter((v) => proposalsOn(v.id))
     .map((v, i) => ({ id: v.id, name: v.name, lastPassAt: covered.get(v.id) ?? null, i }))
     .sort((a, b) => {
+      const fresh = Number(priority.has(b.id)) - Number(priority.has(a.id));
+      if (fresh) return fresh;
       if (a.lastPassAt === b.lastPassAt) return a.i - b.i;
       if (a.lastPassAt === null) return -1;
       if (b.lastPassAt === null) return 1;
@@ -756,7 +763,9 @@ export function registerSynthesisStage(): void {
     budget: { maxMinutes: 20 },
     async run(ctx): Promise<StageResult> {
       const s = settings();
-      const picked = rotation(s.venturesPerNight);
+      const finished = db.prepare(`SELECT DISTINCT j.venture_id FROM pipeline_block_jobs j
+        JOIN agent_runs r ON r.id=j.agent_run_id WHERE j.run_id=? AND r.status='done'`).all(ctx.runId) as {venture_id:string}[];
+      const picked = rotation(s.venturesPerNight, finished.map(r => r.venture_id));
       if (!picked.length)
         return {
           outcome: "skipped",
@@ -766,6 +775,7 @@ export function registerSynthesisStage(): void {
       let filed = 0;
       let dropped = 0;
       let asked = 0;
+      let failed = 0;
       const notes: string[] = [];
 
       for (const v of picked) {
@@ -784,6 +794,7 @@ export function registerSynthesisStage(): void {
         filed += pass.filed;
         dropped += pass.dropped;
         if (pass.ran) asked += 1;
+        if (pass.failed) failed += 1;
         notes.push(
           pass.ran
             ? `${pass.venture}: ${pass.filed} filed, ${pass.dropped} dropped`
@@ -792,11 +803,12 @@ export function registerSynthesisStage(): void {
       }
 
       return {
-        outcome: "completed",
+        outcome: failed ? "failed" : "completed",
+        error: failed ? `${failed} venture synthesis pass${failed === 1 ? "" : "es"} could not be completed. See the per-venture notes.` : null,
         note: ctx.dry
           ? `Would look at ${picked.map((p) => p.name).join(", ")}. ${notes.join("; ")}`
           : `${filed} proposal${filed === 1 ? "" : "s"} filed, ${dropped} dropped, across ${picked.length} venture${picked.length === 1 ? "" : "s"}. ${notes.join("; ")}`,
-        counts: { ventures: picked.length, asked, filed, dropped },
+        counts: { ventures: picked.length, asked, filed, dropped, failed },
       };
     },
   });

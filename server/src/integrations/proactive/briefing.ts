@@ -1,3 +1,4 @@
+import { workflowOwns } from "../pipeline/workflow-store.ts";
 /**
  * THE MORNING BRIEFING — the facts first, the prose second, and both kept.
  *
@@ -524,7 +525,7 @@ export type BuildResult = {
  * a rebuild is a rebuild, not a second briefing, because the day is the key.
  */
 export async function build(
-  opts: { force?: boolean; signal?: AbortSignal } = {},
+  opts: { force?: boolean; signal?: AbortSignal; inAppOnly?: boolean } = {},
 ): Promise<BuildResult> {
   const s = settings();
   const { day } = zoned(s.timezone);
@@ -547,7 +548,7 @@ export async function build(
     model: written.model,
     note: written.note,
   });
-  const delivery = await deliver(row, s);
+  const delivery = await deliver(row, opts.inAppOnly ? { ...s, telegram: false } : s);
   markDelivered(day, { chat: delivery.chat, telegram: delivery.telegram, note: delivery.note });
   return { day, rebuilt: true, row: briefing(day)!, delivery };
 }
@@ -573,6 +574,7 @@ export function startBriefing() {
   timer = setInterval(() => {
     void (async () => {
       try {
+        if (workflowOwns("briefing")) return;
         const s = settings();
         const { day, hour } = zoned(s.timezone);
         if (hour < s.hour) return;

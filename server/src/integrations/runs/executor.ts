@@ -417,7 +417,7 @@ export function pump() {
   const timeout = setTimeout(() => abort.abort(new Error("Job runtime budget exceeded.")), budgets().runSeconds * 1000);
   timeout.unref();
   const parent = db.prepare("SELECT parent_session_id AS id FROM agent_runs WHERE id=?").get(row.id) as {id: string | null} | undefined;
-  void runContext.run({ id: row.id, venture: row.venture_id, automation: parent?.id === "rounds", signal: abort.signal, sequence: 0, resume: !!row.resume_checkpoints }, async () => {
+  void runContext.run({ id: row.id, venture: row.venture_id, automation: parent?.id === "rounds" || parent?.id === "pipeline", signal: abort.signal, sequence: 0, resume: !!row.resume_checkpoints }, async () => {
     assertMeterable(row.kind);
     await execute(row, session);
     /*

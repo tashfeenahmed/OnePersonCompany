@@ -232,4 +232,11 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
     `,
   },
 
+  { name: "484_workflow_blocks", sql: `
+    CREATE TABLE pipeline_workflow(id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL,definition TEXT NOT NULL,updated_at TEXT NOT NULL);
+    CREATE TABLE pipeline_block_jobs(run_id TEXT NOT NULL,block_id TEXT NOT NULL,venture_id TEXT NOT NULL,agent_run_id TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(run_id,block_id,venture_id));
+    CREATE INDEX pipeline_block_jobs_history ON pipeline_block_jobs(block_id,venture_id,created_at);
+    ALTER TABLE pipeline_runs ADD COLUMN workflow_snapshot TEXT;
+    ALTER TABLE pipeline_runs ADD COLUMN current_stage TEXT;
+  ` },
 ];

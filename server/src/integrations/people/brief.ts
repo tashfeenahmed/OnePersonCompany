@@ -1,3 +1,4 @@
+import { workflowOwns } from "../pipeline/workflow-store.ts";
 /**
  * THE WEEKLY RELATIONS BRIEF — who you have stopped writing to, who went
  * quiet, and who is new.
@@ -584,6 +585,7 @@ export function startWeekly() {
   const tick = () => {
     void (async () => {
       try {
+        if (workflowOwns("relationships")) return;
         if (briefRow(isoWeek())) return;
         const tracked = people().filter((p) => p.mutual).length;
         if (tracked < MIN_CONTACTS) return;
