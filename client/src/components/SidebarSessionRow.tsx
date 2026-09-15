@@ -5,6 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { SidebarPinButton } from "@/components/SidebarPinButton";
 import { ModuleIcon } from "@/components/ModuleIcon";
 import { cn } from "@/lib/utils";
+import { runLinkFromChat } from "@/lib/runNavigation";
 import type { Session } from "@/lib/store";
 
 export function SidebarSessionRow({ session, openSessionId, streaming, pinned, deleting, onTogglePin, onRename, onDelete }: {
@@ -56,7 +57,7 @@ export function SidebarSessionRow({ session, openSessionId, streaming, pinned, d
           fallback here any more — the server sends `to` on both doors. */}
       {session.children.map(child =>
         <div key={child.id} className="text-muted-foreground focus-within:bg-accent hover:bg-accent hover:text-foreground flex min-w-0 items-center gap-1 rounded-lg transition-colors">
-          <Link to={child.to} title={child.title} className="min-w-0 flex-1 truncate px-2 py-[5px] text-[13px] outline-none">{child.title}</Link>
+          <Link to={runLinkFromChat(child.to)} title={child.title} className="min-w-0 flex-1 truncate px-2 py-[5px] text-[13px] outline-none">{child.title}</Link>
           {child.status === "running" && <span role="status" title="Working" aria-label="Working" className="bg-foreground/60 mr-2 size-1.5 shrink-0 rounded-full motion-safe:animate-pulse" />}
         </div>
       )}

@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { CodeBlock } from "@/components/CodeBlock";
 import { RichBlock } from "@/components/RichBlock";
 import { richLang } from "@/lib/rich";
+import { runLinkFromChat } from "@/lib/runNavigation";
 
 /**
  * The element map.
@@ -167,6 +168,12 @@ const COMPONENTS = {
   ),
 };
 
+const CHAT_COMPONENTS = {
+  ...COMPONENTS,
+  a: (props: { href?: string; children?: React.ReactNode }) =>
+    COMPONENTS.a({ ...props, href: props.href ? runLinkFromChat(props.href) : props.href }),
+};
+
 /**
  * MEMOISED ON THE TEXT, which is the whole performance story of streaming.
  *
@@ -183,13 +190,15 @@ const COMPONENTS = {
 export const Markdown = memo(function Markdown({
   text,
   className,
+  linkContext,
 }: {
   text: string;
   className?: string;
+  linkContext?: "chat";
 }) {
   return (
     <div className={cn("text-[14.5px] leading-[1.6] break-words", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={linkContext === "chat" ? CHAT_COMPONENTS : COMPONENTS}>
         {text}
       </ReactMarkdown>
     </div>

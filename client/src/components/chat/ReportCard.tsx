@@ -2,6 +2,7 @@ import { ArrowUpRight, Check, CircleAlert, Clock3 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { cn } from "@/lib/utils";
+import { runLinkFromChat } from "@/lib/runNavigation";
 import type { ChatReport } from "../../../../shared/chatReport";
 
 const states = {
@@ -17,7 +18,7 @@ export function ReportCard({ report }: { report: ChatReport }) {
   const StatusIcon = state.icon;
   return (
     <Link
-      to={report.to}
+      to={runLinkFromChat(report.to)}
       aria-label={`${report.title} — ${state.label} — ${report.agentName}`}
       className="group border-line-soft bg-card hover:border-line-strong focus-visible:ring-ring flex w-full max-w-xl items-start gap-4 rounded-2xl border p-4 transition-colors focus-visible:ring-2 focus-visible:outline-none sm:p-5"
     >

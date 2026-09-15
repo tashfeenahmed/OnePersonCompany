@@ -358,7 +358,7 @@ function AssistantBody({
         g.kind === "work" ? (
           <Working key={`w-${g.calls[0]!.toolCallId}`} calls={g.calls} reasoning={i === firstWork ? reasoning ?? null : null} />
         ) : (
-          <Markdown key={`t-${i}`} text={g.text} />
+          <Markdown key={`t-${i}`} text={g.text} linkContext="chat" />
         ),
       )}
     </>

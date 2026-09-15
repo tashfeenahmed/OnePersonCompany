@@ -35,6 +35,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { sweepLine } from "@/lib/watchDeltas";
 import { chatView, NEW_BRIEF } from "@/lib/runChat";
+import { isChatRunView } from "@/lib/runNavigation";
 import { isLive, runsApi } from "@/lib/api/runs";
 import { peopleApi, type WatchInput, type WatchPerson } from "@/lib/api/people";
 import { findSubagent, subagentApi, type SubagentDetail } from "@/lib/api/subagents";
@@ -248,6 +249,7 @@ export function Subagent() {
   /** The address of the open conversation: a run id, `new` for the blank page,
    *  or nothing at all — which `chatView` reads as the newest run. */
   const openRunId = routeRunId ?? params.get("run");
+  const fromChat = !!openRunId && isChatRunView(params);
   const runHref = useCallback((id: string) => {
     const next = new URLSearchParams(params);
     next.delete("run");
@@ -907,7 +909,7 @@ export function Subagent() {
             rail's job is to reach a previous run — or the one working now — in
             one press, and for a dossier the brief's first line IS the person's
             name. */}
-        {sa &&
+        {!fromChat && sa &&
           (venture || portfolio) &&
           (
             <RunRail
