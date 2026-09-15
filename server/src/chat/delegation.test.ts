@@ -5,6 +5,8 @@ import type { ChatBackend } from "./backend.ts";
 import { ensureTeam, roleInfos, subagentId } from "../integrations/subagents/store.ts";
 import { setQueuePaused } from "../runtime/budgets.ts";
 import { entry } from "../skills/registry.ts";
+import { TASK_AUTHORIZATION_RULE } from "../skills/assignment.ts";
+import { kindDef, systemBrief } from "../integrations/runs/kinds.ts";
 
 const { composeTurns, chat } = await import("../routes/chat.ts");
 const { subagentRoutes } = await import("../integrations/subagents/routes.ts");
@@ -33,10 +35,20 @@ test("an unscoped chat names every specialist and can use the venture named in t
     assert.match(system,/Cedar Studio \(cedar-studio\)/);
     for (const role of roleInfos()) assert.ok(system.includes(`role \`${role.role}\``),role.role);
     assert.match(system,/DELEGATE SPECIALIST TASKS/);
+    assert.match(system,/BEFORE CHOOSING HOW/);
+    assert.match(system,/New analysis of existing data is still specialist work/);
+    assert.ok(system.includes(TASK_AUTHORIZATION_RULE));
     assert.match(system,/No venture selected in the header does not prevent delegation/);
     assert.ok(system.includes(`Use "${sessionId}" as parentSessionId`));
     assert.equal(turns.at(-1)?.content,request);
   }
+});
+
+test("the assigned specialist's prompt owns execution rather than another handoff", () => {
+  const system = systemBrief({def:kindDef("seo")!,ventureName:"Cedar Studio",hasTools:true,data:"Existing audit findings"});
+  assert.match(system,/assigned specialist executing this run/);
+  assert.match(system,/do not dispatch your assignment to another sub-agent/);
+  assert.match(system,/YOUR REPLY IS THE DOCUMENT/);
 });
 
 test("selected teams include the owner's disabled state and delegation failure is not silent fallback", () => {

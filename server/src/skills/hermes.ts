@@ -39,6 +39,7 @@ import { join } from "node:path";
 import { UNIVERSAL_RULES, skills, type Skill, type SkillParam } from "./registry.ts";
 import { manifestPacks } from "../integrations/index.ts";
 import { PRESENT_GUIDE } from "./present.ts";
+import { SKILL_ASSIGNMENT_RULE, TASK_AUTHORIZATION_RULE } from "./assignment.ts";
 
 /** The category directory these all live in, under `$HERMES_HOME/skills/`. One
  *  of its own so the agent's index groups them, and so the prune below has a
@@ -135,7 +136,8 @@ function frontmatter(s: Skill): string {
         (s.actions?.length
           ? ` It can also change it — ${s.actions.map((a) => a.key).join(", ")} — ` +
             `under the rules the pack sets out.`
-          : ""),
+          : "") +
+        " In owner chat, check sub-agents before new specialist work; assigned workers use this skill directly.",
     )}`,
     "version: 1.0.0",
     "license: MIT",
@@ -161,12 +163,15 @@ function body(s: Skill, cli: string | null): string {
   const out: string[] = [];
 
   out.push(`\n# ${s.title}\n`);
+  out.push("## Decide who does the work\n");
+  out.push(`${SKILL_ASSIGNMENT_RULE}\n`);
   out.push("## When to use\n");
   out.push(
-    `Use this whenever the owner asks about ${s.id} — for example: ` +
+    `Use this for the data and actions described below after deciding who owns the task. ` +
+      `Questions it can inform include: ` +
       `${s.asks.map((q) => `"${q}"`).join(" or ")}. ` +
-      `The answer is a live figure from this machine's own database; never ` +
-      `estimate one and never answer from memory.\n`,
+      `Read the actual records and their collection times; never invent a figure ` +
+      `or present an existing result as work you just performed.\n`,
   );
 
   out.push("## What the data is\n");
@@ -223,7 +228,7 @@ function body(s: Skill, cli: string | null): string {
       `These CHANGE the owner's own data. Each is \`opc ${s.id} <action>\` with ` +
         `every parameter as a \`--flag value\`; the reply is the whole document as ` +
         `it now stands, so read what you changed back out of it and tell him what ` +
-        `you did. Do none of these unless he asked for that exact change.\n`,
+        `you did. ${TASK_AUTHORIZATION_RULE}\n`,
     );
     for (const a of actions) {
       const flags = a.params.filter((p) => p.required || p.exampled).map(exampleFlag).join(" ");

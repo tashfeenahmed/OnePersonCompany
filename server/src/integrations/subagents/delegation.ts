@@ -1,4 +1,5 @@
 import { roleInfos } from "./store.ts";
+import { TASK_AUTHORIZATION_RULE } from "../../skills/assignment.ts";
 
 /** Shared by chat context and the generated Hermes/OpenClaw skill packs. */
 export const DELEGATION_RULES = [
@@ -7,6 +8,15 @@ export const DELEGATION_RULES = [
     "production work in the chat. The request to do the task authorizes that dispatch; " +
     "the owner does not have to say 'use a sub-agent'. A procedural skill teaches a " +
     "worker HOW to do its job; loading that skill yourself is not a substitute for delegation.",
+  "CHOOSE WHO DOES THE WORK BEFORE CHOOSING HOW. For a new task, first compare " +
+    "the requested outcome with the role descriptions below and read the live " +
+    "sub-agent roster. If a worker covers it, hand off before loading procedural " +
+    "skills, collecting source data, running an audit, browsing, or writing the " +
+    "analysis yourself. New analysis of existing data is still specialist work; " +
+    "cached data, a short request, or an easy job is not an exception. This applies " +
+    "to built-in and downloaded skills too. If no role covers the task, handle it " +
+    "yourself using the available tools. Choose by capability, not by keywords.",
+  TASK_AUTHORIZATION_RULE,
   "Resolve the venture from the owner's message or the selected venture. No venture " +
     "selected in the header does not prevent delegation when the message names a known " +
     "venture. Read the roster to resolve its real id or slug; ask only if the target " +

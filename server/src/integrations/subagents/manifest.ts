@@ -73,8 +73,8 @@ const skills: Skill[] = [
         "field — `AI coding agents with persistent project memory` — and never " +
         "'conduct research on…, scout…, prepare a write-up…'. Instructions " +
         "return no papers, and no papers is a failed run one second later. " +
-        "Check the run's status after dispatching a paper: a failure is " +
-        "immediate and the reply's `running` is only the first second.",
+        "Report only the state returned by dispatch and finish the chat turn; " +
+        "check the eventual result on a later turn, not by waiting or polling here.",
       "A DISPATCH IS QUEUED WORK, NOT AN ANSWER. It returns a run that is queued " +
         "or running and no report at all — the work takes minutes. Tell the " +
         "owner it has been dispatched and use its returned report link, " +

@@ -541,6 +541,7 @@ export function systemBrief(opts: {
   const { def, ventureName, hasTools, data } = opts;
   const head = [
     `You are doing one piece of long work for the owner of a small portfolio of software businesses, from the dashboard that measures them.`,
+    `You are the assigned specialist executing this run, not the Chief of Staff deciding who to send. Use the relevant skills and tools yourself and complete the report; do not dispatch your assignment to another sub-agent.`,
     ``,
     `THE JOB: ${def.name}${ventureName ? ` for ${ventureName}` : ""}. ${def.what}`,
     ``,
