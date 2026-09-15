@@ -3,6 +3,7 @@ import { BUSINESS_TYPES, type BusinessType } from "../../../shared/ventureJourne
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ExternalLink, RefreshCw, Trash2 } from "lucide-react";
+import { BUSINESS_TYPE_ICONS } from "@/data/businessTypeIcons";
 import { when } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -209,7 +210,15 @@ function Form({ venture }: { venture?: Venture }) {
           <div className="grid gap-1.5">
             <Label id="venture-business-types">Business types · select all that apply</Label>
             <div className="flex flex-wrap gap-2" role="group" aria-labelledby="venture-business-types">
-              {BUSINESS_TYPES.map(t => <button key={t.id} type="button" aria-pressed={businessTypes.includes(t.id)} className={`rounded-lg border px-3 py-2 text-sm ${businessTypes.includes(t.id) ? "bg-accent text-foreground" : "text-muted-foreground"}`} onClick={() => setBusinessTypes(types => toggleBusinessType(types, t.id))}>{t.label}</button>)}
+              {BUSINESS_TYPES.map(t => {
+                const Icon = BUSINESS_TYPE_ICONS[t.id];
+                return <button key={t.id} type="button" aria-pressed={businessTypes.includes(t.id)}
+                  className={cn("inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", businessTypes.includes(t.id) ? "bg-accent text-foreground" : "text-muted-foreground")}
+                  onClick={() => setBusinessTypes(types => toggleBusinessType(types, t.id))}>
+                  <Icon className="size-4 shrink-0" strokeWidth={1.7} aria-hidden="true" />
+                  {t.label}
+                </button>;
+              })}
             </div>
           </div>
           <div className="grid gap-1.5">

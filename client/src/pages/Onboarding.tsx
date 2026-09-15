@@ -13,18 +13,13 @@ import {
   Grid2X2,
   Sparkles,
   Bot,
-  Globe,
-  Smartphone,
-  Monitor,
-  Store,
-  Package,
-  BriefcaseBusiness,
   Loader2,
   CircleAlert,
   LockKeyhole,
 } from "lucide-react";
 import { call, ApiError, type AgentsDoc } from "@/lib/api";
 import { randomId } from "@/lib/id";
+import { BUSINESS_TYPE_ICONS } from "@/data/businessTypeIcons";
 import { PLUGINS } from "@/data/plugins";
 import { BRAND_ICONS } from "@/data/brandIcons";
 import { COLOR_SERVICE_MARKS } from "@/components/onboarding/serviceBrandMarks";
@@ -99,15 +94,7 @@ const freshVenture = (): VentureInput => ({
 });
 const key = randomId;
 const plugin = (id: string) => PLUGINS.find((p) => p.id === id);
-const typeIcons = {
-  web: Globe,
-  mobile: Smartphone,
-  desktop: Monitor,
-  website: Globe,
-  shop: Store,
-  goods: Package,
-  service: BriefcaseBusiness,
-};
+
 function Mark({ id }: { id: string }) {
   const p = plugin(id);
   const brand = p?.icon ? BRAND_ICONS[p.icon] : null;
@@ -833,7 +820,7 @@ export function Onboarding() {
                           }
                         >
                           {BUSINESS_TYPES.map((t) => {
-                            const Icon = typeIcons[t.id];
+                            const Icon = BUSINESS_TYPE_ICONS[t.id];
                             return (
                               <button
                                 key={t.id}
@@ -1401,7 +1388,7 @@ export function Onboarding() {
                         {[
                           ...new Set(draft.ventures.flatMap(businessTypesOf)),
                         ].map((type) => {
-                          const Icon = typeIcons[type];
+                          const Icon = BUSINESS_TYPE_ICONS[type];
                           return (
                             <div className="ob-auto-rule" key={type}>
                               <Icon size={18} />
