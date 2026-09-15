@@ -141,13 +141,13 @@ export function Ventures() {
               <Link
                 key={v.id}
                 to={`/ventures/${v.slug}`}
-                className="bg-card hover:bg-card-hover flex min-h-[148px] flex-col rounded-[14px] p-4.5 transition-colors"
+                className="bg-card hover:bg-card-hover flex min-h-[148px] flex-col rounded-[14px] p-1.5 transition-colors"
               >
                 {/* The top of the page at 1280x800, not the whole page — so it
                     is anchored to the top rather than centred, which is where
                     the header of any site actually is. */}
                 {anyPicture && (
-                  <div className="mb-3 h-[88px] overflow-hidden rounded-[11px] border">
+                  <div className="aspect-video shrink-0 overflow-hidden rounded-[9px] border">
                     {picture ? (
                       <img
                         src={picture.url}
@@ -166,46 +166,48 @@ export function Ventures() {
                   </div>
                 )}
 
-                <div className="flex items-center gap-2">
-                  <VentureMark venture={v} size={18} />
-                  <span className="truncate text-[14.5px] font-medium tracking-tight">
-                    {v.name}
-                  </span>
-                  {dormantIds.has(v.id) && <span className="text-xs text-muted-foreground">Dormant</span>}
-                  <StagePill stage={v.stage} className="ml-auto" />
-                </div>
+                <div className="flex flex-1 flex-col px-3 py-3">
+                  <div className="flex items-center gap-2">
+                    <VentureMark venture={v} size={18} />
+                    <span className="truncate text-[14.5px] font-medium tracking-tight">
+                      {v.name}
+                    </span>
+                    {dormantIds.has(v.id) && <span className="text-xs text-muted-foreground">Dormant</span>}
+                    <StagePill stage={v.stage} className="ml-auto" />
+                  </div>
 
-                {/* The host, not the whole URL: nobody reads "https://" and
-                    the scheme is never the interesting half. */}
-                {v.host && (
-                  <span className="text-muted-foreground mt-1 truncate text-[12.5px]">
-                    {v.host}
-                  </span>
-                )}
-
-                <p className="text-muted-foreground mt-1.5 line-clamp-2 text-[13px]">
-                  {v.description || "No description yet."}
-                </p>
-
-                <div className="border-line-soft text-muted-foreground mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t pt-2.5 text-[12.5px]">
-                  <span>
-                    {boards.length}{" "}
-                    {boards.length === 1 ? "dashboard" : "dashboards"}
-                  </span>
-                  <span>
-                    {chats.length} {chats.length === 1 ? "chat" : "chats"}
-                  </span>
-                  {/* Null is "the board could not be read", which is not zero
-                      open cards, so the clause is left out entirely. */}
-                  {open !== null && <span>{open} open on the board</span>}
-                  {links !== null && (
-                    <span
-                      title="Things across the integrations that this venture has been linked to."
-                      className="ml-auto"
-                    >
-                      {links} linked
+                  {/* The host, not the whole URL: nobody reads "https://" and
+                      the scheme is never the interesting half. */}
+                  {v.host && (
+                    <span className="text-muted-foreground mt-1 truncate text-[12.5px]">
+                      {v.host}
                     </span>
                   )}
+
+                  <p className="text-muted-foreground mt-1.5 line-clamp-2 text-[13px]">
+                    {v.description || "No description yet."}
+                  </p>
+
+                  <div className="border-line-soft text-muted-foreground mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t pt-2.5 text-[12.5px]">
+                    <span>
+                      {boards.length}{" "}
+                      {boards.length === 1 ? "dashboard" : "dashboards"}
+                    </span>
+                    <span>
+                      {chats.length} {chats.length === 1 ? "chat" : "chats"}
+                    </span>
+                    {/* Null is "the board could not be read", which is not zero
+                        open cards, so the clause is left out entirely. */}
+                    {open !== null && <span>{open} open on the board</span>}
+                    {links !== null && (
+                      <span
+                        title="Things across the integrations that this venture has been linked to."
+                        className="ml-auto"
+                      >
+                        {links} linked
+                      </span>
+                    )}
+                  </div>
                 </div>
               </Link>
             );
