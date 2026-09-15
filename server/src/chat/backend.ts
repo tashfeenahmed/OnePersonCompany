@@ -237,6 +237,11 @@ export function setChoiceReader(fn: () => ChatBackendId | null) {
 let prepare: (id: ChatBackendId, signal?: AbortSignal) => Promise<() => void> = async () => () => {};
 export function setBackendPreparation(fn: typeof prepare) { prepare = fn; }
 
+export type BackendReadiness = { ready: boolean; reason: string | null };
+let readReadiness: (id: ChatBackendId) => BackendReadiness | null = () => null;
+export function setBackendReadiness(fn: typeof readReadiness) { readReadiness = fn; }
+export function backendReadiness(id: ChatBackendId): BackendReadiness | null { return readReadiness(id); }
+
 export function activeBackend(): ChatBackend | null {
   const id = readChoice();
   if (!id) return null;

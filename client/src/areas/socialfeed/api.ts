@@ -187,6 +187,8 @@ export type UgcDoc = {
   venture: { id: string; slug: string; name: string } | null;
   ready: {
     replicate: boolean;
+    image: boolean;
+    imageProvider: "openrouter" | "replicate";
     imageModel: string;
     /** Null is the default and is not a fault: the animation step is skipped
      *  and nothing is spent on video. */

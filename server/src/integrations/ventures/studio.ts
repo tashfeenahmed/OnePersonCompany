@@ -1,43 +1,5 @@
-/**
- * THE STUDIO — a post for a venture: words from the model provider, a picture
- * from Replicate, both in the venture's own brand.
- *
- * WHY THIS IS A VENTURE ROUTE AND NOT A "SOCIAL" INTEGRATION. Nothing here
- * measures anything and nothing here publishes anything — which is STILL TRUE
- * after `integrations/publishing/` arrived: a finished post is FILED there as
- * a draft by a button on the page, and every route in this file remains unable
- * to send anything anywhere. It takes what the box
- * already KNOWS about a business — the name, the sentence the owner wrote, the
- * stage it is at, the palette and the fonts read off its own site — and turns
- * a one-line brief into a caption and an image that look like they came from
- * that business rather than from a stock library. The venture record is the
- * whole input; without it this would be a prompt box.
- *
- * THE TWO HALVES FAIL SEPARATELY AND THE ROW KEEPS BOTH. A caption needs a
- * model provider; an image needs a Replicate token. A box with the first and
- * not the second produces a post with words, no picture, and an `error` saying
- * exactly which credential is missing — which is a useful post and a true
- * record. The reverse is not offered: an image with no caption is a picture,
- * and this is not a picture generator.
- *
- * THE IMAGE COSTS MONEY AND THE ROUTE SAYS SO BEFORE IT SPENDS ANY. `GET
- * /api/studio` reports readiness — is a provider live, is Replicate connected,
- * which model — so a page can offer the button honestly rather than discover
- * the failure after the owner pressed it. flux-schnell is the default because
- * it is the cheapest thing on Replicate that produces something usable; the
- * model is a setting because "cheapest usable" is a judgement that changes.
- *
- * REPLICATE IS CALLED WITH `Prefer: wait` AND THEN POLLED IF IT DOES NOT
- * FINISH IN TIME — see `tools/replicate-run.ts` for why abandoning it instead
- * is the worse of the two outcomes. The poll here is bounded much tighter
- * than for a video, because this route is one somebody is waiting on in a
- * browser — see `makeImage`.
- *
- * NO COST IS REPORTED, and providers/replicate.ts's header explains at length
- * why there is none to report: Replicate publishes no price anywhere in its
- * API and a prediction record carries no hardware and no rate. `ms` is the
- * wall clock this took. It is not money and is not labelled as if it were.
- */
+/** Studio creates captions with the shared LLM and images with the selected
+ * image provider. Each half keeps its own result; neither publishes content. */
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Hono } from "hono";
@@ -46,6 +8,7 @@ import { configValue, db, now, ventureRow, ventureRowById, type VentureRow } fro
 import { readBrand } from "../../ventures/enrich.ts";
 import { factsForPrompt } from "../knowledge/store.ts";
 import { brandOverrides, guidePrompt, guideVisuals } from "../references/guide.ts";
+import { DEFAULT_IMAGE_MODEL, generateOpenRouterImage, imageModelLabel, isOpenRouterImageModel, MISSING_IMAGE_KEY, openRouterImageAccounts } from "../../providers/openrouter-images.ts";
 import { tokenAccounts } from "../../providers/replicate.ts";
 import { download, firstUrl, predict } from "../../tools/replicate-run.ts";
 import { ASPECTS } from "../video/assemble.ts";
@@ -123,14 +86,8 @@ async function resolveReferences(
   return referenceResolver(ventureId, assetIds, model);
 }
 
-/**
- * The default image model.
- *
- * flux-schnell: four steps, a second or two, a fraction of a cent, and good
- * enough for a social card. Named as `owner/name` because that is the shape
- * Replicate's model-predictions endpoint takes in its path.
- */
-export const DEFAULT_MODEL = "black-forest-labs/flux-schnell";
+/** Shared default for Studio posts and UGC stills. */
+export const DEFAULT_MODEL = DEFAULT_IMAGE_MODEL;
 
 /** How long Replicate is allowed to hold the connection open under
  *  `Prefer: wait`, plus a little. Its own ceiling is 60 seconds. */
@@ -442,7 +399,7 @@ function imagePrompt(v: VentureRow, brief: string, format: Format): string {
   );
 }
 
-/* ------------------------------------------------------------- replicate */
+/* -------------------------------------------------------- image generation */
 
 export type ImageResult = {
   ok: boolean;
@@ -456,15 +413,7 @@ export function imageModel(): string {
   return (configValue(STUDIO_PLUGIN, "imageModel") ?? "").trim() || DEFAULT_MODEL;
 }
 
-/**
- * One prediction, run to completion.
- *
- * The endpoint, the wait header, the poll, the output walker and the capped
- * download are all tools/replicate-run.ts's — they were written twice, and the
- * two copies disagreed about whether a still-queued prediction was worth
- * waiting for. What is this file's is the INPUT: which model, which aspect
- * ratio, four steps, PNG, and where the file lands.
- */
+/** Generate with the selected provider and store the finished PNG. */
 export async function makeImage(
   prompt: string,
   format: Format,
@@ -479,6 +428,15 @@ export async function makeImage(
   const fail = (error: string): ImageResult => ({
     ok: false, path: null, model, ms: Date.now() - started, error,
   });
+
+  if (isOpenRouterImageModel(model)) {
+    const result = await generateOpenRouterImage({ model, prompt, format, references: refs?.dataUrls });
+    if (!result.ok) return fail(result.error);
+    mkdirSync(STUDIO_DIR, { recursive: true });
+    const path = resolve(STUDIO_DIR, `${id}.png`);
+    writeFileSync(path, result.bytes);
+    return { ok: true, path, model, ms: Date.now() - started, error: null };
+  }
 
   /* The sentence is this area's and stays this area's — it names the button
      the owner would press next, which the shared runner cannot know. */
@@ -536,10 +494,26 @@ export async function makeImage(
 
 /* --------------------------------------------------------------- readiness */
 
+export function imageReadiness() {
+  const model = imageModel();
+  const openrouter = isOpenRouterImageModel(model);
+  const count = openrouter ? openRouterImageAccounts().length : tokenAccounts("studio_readiness").length;
+  return {
+    ready: count > 0,
+    accounts: count,
+    provider: openrouter ? "openrouter" : "replicate",
+    providerLabel: openrouter ? "OpenRouter" : "Replicate",
+    label: imageModelLabel(model),
+    model,
+    isDefault: model === DEFAULT_MODEL,
+    note: count
+      ? `Uses your ${openrouter ? "OpenRouter" : "Replicate"} connection. Image generation is billed to that account.`
+      : openrouter ? MISSING_IMAGE_KEY : "Connect Replicate under Integrations to create images.",
+  };
+}
+
 function readiness() {
   const provider = activeProvider();
-  const replicate = tokenAccounts("studio_readiness");
-  const model = imageModel();
   return {
     caption: {
       ready: provider !== null,
@@ -550,18 +524,7 @@ function readiness() {
         ? `Captions come from ${provider.label}, under its own concurrency policy.`
         : "No model provider is live, so no caption can be written. Choose one under Integrations → Models.",
     },
-    image: {
-      ready: replicate.length > 0,
-      accounts: replicate.length,
-      model,
-      isDefault: model === DEFAULT_MODEL,
-      note: replicate.length
-        ? `Images come from ${model} on Replicate, called with \`Prefer: wait\` and then followed for ` +
-          `up to ${POLL_FOR_MS / 60_000} minutes if it queues. ` +
-          "Replicate publishes no price in its API, so nothing here can tell you what a " +
-          "post cost — see the Costs page for what it does report."
-        : "Replicate is not connected, so a post will be stored with its caption and no image.",
-    },
+    image: imageReadiness(),
     formats: Object.entries(FORMATS).map(([key, f]) => ({ key, ratio: f.ratio, about: f.about })),
     /* Empty on a healthy box. A shape the renderer supports and the Studio has
        no name for is drift between two lists that describe one thing, and it
@@ -569,7 +532,7 @@ function readiness() {
     aspectsWithNoFormat: unnamedAspects(),
     note:
       "A post needs the caption half. Without a model provider nothing is created; " +
-      "without Replicate a post is created with words and an error where the picture goes.",
+      "without an image connection a post is created with words and an error where the picture goes.",
   };
 }
 

@@ -2782,6 +2782,7 @@ export type AgentsDoc = {
 };
 
 export type ChatBackends = {
+  readiness?: { ready: boolean; reason: string | null } | null;
   backends: {
     id: ChatBackendId;
     connected: boolean;

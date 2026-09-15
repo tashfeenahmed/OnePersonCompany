@@ -196,6 +196,7 @@ import { VentureMark } from "@/components/VentureChrome";
 import { Markdown } from "@/components/Markdown";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
 import { ToolCallLine } from "@/components/ToolCallLine";
+import { ToolActivityText } from "@/components/ToolActivityText";
 import { attachChatRun, cancelChatRun, type ChatRunHandlers } from "@/lib/chatRuns";
 import {
   ApiError,
@@ -414,7 +415,7 @@ function Working({ calls, reasoning }: { calls: ChatToolCall[]; reasoning: strin
         className={cn(
           "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline gap-1.5 rounded-[9px] px-1.5 py-0.5 text-left text-[14.5px] leading-[1.6] transition-colors",
           running
-            ? "tool-shimmer focus-visible:ring-ring focus-visible:ring-1"
+            ? "focus-visible:ring-ring focus-visible:ring-1"
             : "hover:bg-accent hover:text-foreground focus-visible:bg-accent",
         )}
       >
@@ -422,14 +423,16 @@ function Working({ calls, reasoning }: { calls: ChatToolCall[]; reasoning: strin
           className={cn("size-3 shrink-0 self-center transition-transform", open && "rotate-90")}
           strokeWidth={1.8}
         />
-        <span className="min-w-0 truncate">
-          {running
-            ? `Working · ${running.tool}${running.label ? ` · ${running.label}` : ""}`
-            : `Worked · ${steps} step${steps === 1 ? "" : "s"}`}
-        </span>
-        <span className="shrink-0">
-          {running ? ` · step ${calls.indexOf(running) + 1} of ${calls.length}…` : ms > 0 ? ` · ${duration(ms)}` : ""}
-        </span>
+        <ToolActivityText running={running !== null}>
+          <span className="min-w-0 truncate">
+            {running
+              ? `Working · ${running.tool}${running.label ? ` · ${running.label}` : ""}`
+              : `Worked · ${steps} step${steps === 1 ? "" : "s"}`}
+          </span>
+          <span className="shrink-0 whitespace-pre">
+            {running ? ` · step ${calls.indexOf(running) + 1} of ${calls.length}…` : ms > 0 ? ` · ${duration(ms)}` : ""}
+          </span>
+        </ToolActivityText>
       </button>
       {open && (
         <div className="border-line-soft mt-0.5 ml-1.5 border-l pl-2.5">
@@ -927,6 +930,11 @@ export function Chat() {
 
   const providerKey = providers?.providers.filter(p => p.live).map(p => `${p.id}:${p.model ?? ""}`).join("|");
   useEffect(() => { refreshBackends(); }, [providerKey, refreshBackends]);
+  useEffect(() => {
+    if (backends?.readiness?.ready !== false) return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") refreshBackends(); }, 3000);
+    return () => clearInterval(timer);
+  }, [backends?.readiness?.ready, refreshBackends]);
 
   /**
    * THIS PAGE, LISTENING TO STREAMS IT DID NOT START.
@@ -2088,42 +2096,11 @@ export function Chat() {
               {flight && (flight.text || flight.reasoning || flight.tools.length) ? (
                 <div>
                   <AssistantBody text={flight.text} tools={flight.tools} reasoning={flight.reasoning || null} />
-                  {/*
-                    THE CARET, WHICH IS THE ONLY THING ON THIS PAGE THAT SAYS
-                    "still going". A spinner beside a growing answer is two
-                    controls saying the same thing; this is one, and it sits
-                    exactly where the next word will appear.
-                  */}
-                  {/*
-                    IT IS A PICTURE OF A CARET AND NOTHING ELSE, and the two
-                    classes at the end are what say so. A two-pixel bar drawn
-                    at the end of a sentence looks exactly like a text cursor,
-                    which is a thing you can click into and put words at — so
-                    a pointer over it is the interface promising an editor that
-                    does not exist, and the I-beam a text run would give it is
-                    the same promise more quietly. `pointer-events-none` takes
-                    it out of hit-testing altogether, so the cursor over it is
-                    whatever the answer behind it is showing, and a
-                    double-click to select a word does not stop at it;
-                    `cursor-default` is what that resolves to on the bare
-                    column beside the text.
-                  */}
-                  {/* And it stands down while a tool is running. Nothing is
-                      being typed then — the model is waiting on a result —
-                      and the tool's own line already shimmers to say so; a
-                      caret blinking under it would be the second control this
-                      comment just said the page does not have. */}
-                  {!flight.tools.some((t) => t.finishedAt === null) && (
-                    <span
-                      aria-hidden
-                      className="bg-foreground pointer-events-none ml-0.5 inline-block h-[13px] w-[2px] animate-pulse cursor-default align-[-1px] select-none"
-                    />
-                  )}
                 </div>
               ) : null}
 
-              {/* Before the first byte there is nothing to draw a caret after,
-                  so the wait gets a sentence — and it names who is answering,
+              {/* Before the first content arrives, the wait gets a sentence
+                  that names who is answering,
                   because that is the thing worth knowing while you wait. When
                   the wait is a QUEUE rather than an agent thinking, it says
                   that instead: silence with a known cause is not the same
@@ -2202,8 +2179,10 @@ export function Chat() {
             about where a chat lands.
           */}
           <p className="text-muted-foreground mt-2.5 text-center text-[12.5px]">
-            {backends?.liveLabel
-              ? `${backends.liveLabel} is answering. Only one agent is live at a time.`
+            {backends?.readiness?.ready === false
+              ? backends.readiness.reason
+              : backends?.liveLabel
+              ? `${backends.liveLabel} is ready. Uses your shared LLM selection.`
               : fallback
                 ? `${fallback.label} is answering directly, across ${fallback.endpoints} endpoint${fallback.endpoints === 1 ? "" : "s"}. No agent, so no tools.`
                 : "Chats save automatically. Choosing a venture is optional."}

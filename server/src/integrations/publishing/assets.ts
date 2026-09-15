@@ -1,3 +1,4 @@
+import { isOpenRouterImageModel } from "../../providers/openrouter-images.ts";
 /**
  * THE ASSET LIBRARY — a venture's own pictures, kept so a post can look like
  * it came from that business.
@@ -532,6 +533,10 @@ const SCHEMA_TIMEOUT_MS = 8_000;
  * answer changes when a model publishes a new version.
  */
 export async function modelImageInput(model: string): Promise<ImageInputSupport> {
+  if (isOpenRouterImageModel(model)) return {
+    checked: true, supported: true, field: "input_references", many: true,
+    note: "Up to four reference images guide GPT-image-2.5 through OpenRouter.",
+  };
   const hit = cache.get(model);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
 

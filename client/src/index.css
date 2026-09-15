@@ -268,6 +268,14 @@
    `background-color` sits UNDER the image and is clipped to the glyphs like
    everything else, so wherever the image is not, the base grey is. */
 .tool-shimmer {
+  -webkit-background-clip: text;
+  background-clip: text;
+  /* This layer never owns the button tint or transitions its paint. In
+     particular, removing a running state must not fade an unclipped fill. */
+  transition: none;
+}
+
+.tool-shimmer[data-running="true"] {
   background-color: var(--muted-foreground);
   background-image: linear-gradient(
     100deg,
@@ -277,8 +285,6 @@
   );
   background-size: 300% 100%;
   background-repeat: no-repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
   color: transparent;
   animation: tool-shimmer-sweep 2.2s ease-in-out infinite;
 }
@@ -288,7 +294,8 @@
    highlight held still — a lighter grey than the finished lines around it,
    which is the same difference the sweep was drawing, minus the motion. */
 @media (prefers-reduced-motion: reduce) {
-  .tool-shimmer {
+  .tool-shimmer[data-running="true"] {
+    background-color: transparent;
     background-image: none;
     color: var(--shimmer-highlight);
     animation: none;

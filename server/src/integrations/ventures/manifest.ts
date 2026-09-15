@@ -1,3 +1,4 @@
+import { isOpenRouterImageModel } from "../../providers/openrouter-images.ts";
 /**
  * THE VENTURES AREA — the four things that are ABOUT a business rather than
  * about a provider.
@@ -11,7 +12,7 @@
  * (`/api/studio`).
  *
  * SO THERE ARE NO `plugins` AND NO `collectors` HERE. Nothing in this area
- * holds a credential of its own — the studio borrows Replicate's and the model
+ * holds a credential of its own — the studio uses the configured image and model
  * provider's, the audit needs none, and the capture needs a browser rather
  * than a key — and nothing runs on the half-hourly scheduler, because none of
  * these are measurements that go stale on that cadence. The one background
@@ -224,7 +225,7 @@ const skills: Skill[] = [
     plugins: [],
     about:
       "Drafts: a caption and hashtags from the live model provider, and a square, " +
-      "story or landscape image from Replicate, both built from what this box " +
+      "story or landscape image from the configured image provider, both built from what this box " +
       "knows about the venture — the owner's name for it, his own sentence about " +
       "it, its stage, and the palette and fonts read off its site. Nothing here " +
       "publishes anything; a post is a draft on this machine.",
@@ -232,7 +233,7 @@ const skills: Skill[] = [
       "A POST IS A DRAFT AND NOTHING PUBLISHES IT. There is no route on this box " +
         "that posts to any network, and you must not imply one exists.",
       "THE IMAGE COSTS MONEY. Every create and every image regenerate runs a real " +
-        "Replicate prediction on the owner's account. Do it when he asks for a " +
+        "image generation on the owner's account (GPT-image-2.5 through OpenRouter by default). Do it when he asks for a " +
         "post, not to show him what one would look like.",
       "A POST WITH `error` SET AND A CAPTION IS THE NORMAL FAILURE, not a broken " +
         "row: it means the caption worked and the image did not, and the error " +
@@ -243,8 +244,7 @@ const skills: Skill[] = [
         "mistake here, because somebody clicks it.",
       "COLOURS IN A PROMPT WERE MEASURED FROM THE SITE, not chosen. Say so if you " +
         "quote them, exactly as the ventures skill's rules require.",
-      "NO COST IS REPORTED AND NONE CAN BE. Replicate publishes no price in its " +
-        "API — see the Costs page. `ms` is wall clock, not money.",
+      "`ms` is wall clock, not money. Image generation is billed by the selected provider; see its usage records for cost.",
     ],
     views: [
       {
@@ -265,7 +265,7 @@ const skills: Skill[] = [
         path: "/api/studio",
         about:
           "Whether a caption can be written and an image made right now: which " +
-          "provider is live, whether Replicate is connected, and which image model " +
+          "provider is live, whether the image provider is connected, and which image model " +
           "is configured.",
         params: [],
       },
@@ -277,8 +277,8 @@ const skills: Skill[] = [
         path: "/api/studio/posts",
         about:
           "Draft one post. Writes a caption through the live model provider and " +
-          "runs an image prediction on Replicate — which spends money. Without a " +
-          "model provider nothing is created; without Replicate the post is stored " +
+          "runs the selected image model — which spends money. Without a " +
+          "model provider nothing is created; without the image credential the post is stored " +
           "with its caption and an error where the picture goes.",
         params: [
           { name: "ventureId", type: "string", required: true, about: "The venture's id or slug — everything about the brand comes from its record." },
@@ -290,9 +290,9 @@ const skills: Skill[] = [
     ],
     asks: [
       "Draft a launch post for my newest venture about the feature that just shipped.",
-      "What can the studio actually do right now — is Replicate connected?",
+      "What can the studio actually do right now — is the image provider connected?",
     ],
-    /* The image comes from Replicate and the caption from whichever provider is
+    /* The image comes from its configured provider and the caption from whichever provider is
        live, which may be a hosted one. Either way this leaves the machine. */
     openWorld: true,
   },
@@ -335,19 +335,12 @@ export const manifest: IntegrationManifest = {
       keys: {
         imageModel: {
           label: "Image model",
-          hint:
-            `The Replicate model the studio generates images with, as owner/name. ` +
-            `Empty means ${DEFAULT_MODEL} — four steps, a second or two, and a ` +
-            "fraction of a cent a picture, which is why it is the default. A " +
-            "slower model here is a slower and more expensive post; the model is " +
-            "a setting because “cheapest thing that looks good” is a judgement " +
-            "that changes. No version hash: the model-scoped endpoint always runs " +
-            "the current version.",
+          hint: `Empty uses ${DEFAULT_MODEL} through your OpenRouter inference key. Choose openai/gpt-image-2.5-flare for faster images. Replicate owner/name models are also supported.`,
           ph: DEFAULT_MODEL,
           check(value) {
-            if (!value) return null; // cleared means the default
-            if (!/^[\w.-]+\/[\w.-]+$/.test(value))
-              return `A Replicate model is owner/name, like ${DEFAULT_MODEL} — no version hash and no URL.`;
+            if (!value || isOpenRouterImageModel(value)) return null; // cleared means the default
+            if (value.startsWith("openai/") || !/^[\w.-]+\/[\w.-]+$/.test(value))
+              return `Choose ${DEFAULT_MODEL}, openai/gpt-image-2.5-flare, or a Replicate owner/name model.`;
             return null;
           },
         },

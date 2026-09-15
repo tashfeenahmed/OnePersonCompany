@@ -75,6 +75,7 @@ import {
   activeBackend,
   ask,
   backends,
+  backendReadiness,
   setChoiceReader,
   type ChatBackend,
   type ChatStreamEvent,
@@ -141,6 +142,7 @@ import { ventureContext } from "./ventures.ts";
   is read at, have exactly one author, and it is the file that owns them.
 */
 import { childrenBySession, portfolioTeamLines, ventureTeamLines } from "../integrations/subagents/store.ts";
+import { delegationLines } from "../integrations/subagents/delegation.ts";
 import { goalLines } from "../integrations/chief/goals.ts";
 import { ROUNDS_SESSION } from "../integrations/chief/rounds.ts";
 import { memoryLines } from "../integrations/chief/memory.ts";
@@ -462,12 +464,11 @@ function withOrg(
   ventureId: string | null,
   live: ChatBackend | null,
 ): ChatTurn[] {
+  // Worker execution has its own brief; never turn it into another dispatcher.
+  if (sessionId.startsWith("run:")) return turns;
   const lines: string[] = [];
   if (live)
-    lines.push(
-      `This conversation's id is \`${sessionId}\`; when you dispatch a sub-agent ` +
-        `pass it as parentSessionId so the work is filed under this chat.`,
-    );
+    lines.push(...delegationLines(sessionId, readMode(live.id) === "managed"));
 
   const team = ventureId ? ventureTeamLines(ventureId) : null;
   if (team) {
@@ -580,6 +581,7 @@ function readTools(raw: string | null): ChatToolCall[] | null {
 function backendState() {
   const chosen = readChatBackend();
   const live = activeBackend();
+  const readiness = live ? backendReadiness(live.id) : null;
   /*
     THE FOURTH FACT, ADDED WITH THE FALLBACK: what would answer if no agent
     does. It is deliberately NOT folded into `live` — `live` means "an agent is
@@ -600,6 +602,7 @@ function backendState() {
        not have to reverse-engineer it from the flags above. */
     live: live?.id ?? null,
     liveLabel: live?.label ?? null,
+    readiness,
     /* Who takes the message when `live` is null. Null here as well means
        nothing at all will answer, which is the only state that refuses a
        message outright. */
@@ -607,7 +610,9 @@ function backendState() {
       ? { provider: provider.id, label: provider.label, endpoints: provider.endpoints.length }
       : null,
     why:
-      live !== null
+      readiness?.ready === false
+        ? readiness.reason
+        : live !== null
         ? null
         : provider !== null
           ? `No agent is live, so messages go straight to ${provider.label} — a model with nothing in front of it: no tools, no memory beyond this transcript.`

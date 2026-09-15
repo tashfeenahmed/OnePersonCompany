@@ -42,6 +42,7 @@ import type { IntegrationManifest } from "../manifest.ts";
 import type { Skill } from "../../skills/registry.ts";
 import { PORTFOLIO_ROLES, ROLES } from "./store.ts";
 import { DEFAULT_OWNER, WORKSPACE_PLUGIN, subagentRoutes } from "./routes.ts";
+import { DELEGATION_RULES } from "./delegation.ts";
 
 const ROLE_LIST = ROLES.map((r) => r.role).join(", ");
 const PORTFOLIO_LIST = PORTFOLIO_ROLES.map((r) => r.role).join(", ");
@@ -66,6 +67,7 @@ const skills: Skill[] = [
       "one off with `dispatch`, and read what it wrote later through the `runs` " +
       "skill.",
     rules: [
+      ...DELEGATION_RULES,
       "THE PAPER WRITER'S BRIEF IS A SEARCH SUBJECT, NOT A TASK. It goes to " +
         "OpenAlex and arXiv as typed, so it is three to ten words naming the " +
         "field — `AI coding agents with persistent project memory` — and never " +

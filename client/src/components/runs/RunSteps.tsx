@@ -2,6 +2,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { RunStep } from "@/lib/api/runs";
 import { duration } from "@/lib/format";
+import { ToolActivityText } from "@/components/ToolActivityText";
 
 /**
  * WHAT THE RUN DID WHILE IT WAS WRITING, AS GREY LINES.
@@ -60,20 +61,22 @@ function StepLine({ step }: { step: RunStep }) {
         className={cn(
           "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[9px] px-1.5 py-0.5 text-left text-[14.5px] leading-[1.6] transition-colors",
           running
-            ? "tool-shimmer focus-visible:ring-ring focus-visible:ring-1"
+            ? "focus-visible:ring-ring focus-visible:ring-1"
             : "hover:bg-accent hover:text-foreground focus-visible:bg-accent",
         )}
       >
-        <span className="min-w-0 truncate">
-          {step.tool}
-          {step.label && ` · ${step.label}`}
-        </span>
-        {/* `whitespace-pre` because a flex item drops the space at its start,
-            and without it the line reads "13 rivals on file· completed". */}
-        <span className="shrink-0 whitespace-pre">
-          {" · "}
-          {running ? "running…" : took_ ? `completed in ${took_}` : "completed"}
-        </span>
+        <ToolActivityText running={running}>
+          <span className="min-w-0 truncate">
+            {step.tool}
+            {step.label && ` · ${step.label}`}
+          </span>
+          {/* `whitespace-pre` because a flex item drops the space at its start,
+              and without it the line reads "13 rivals on file· completed". */}
+          <span className="shrink-0 whitespace-pre">
+            {" · "}
+            {running ? "running…" : took_ ? `completed in ${took_}` : "completed"}
+          </span>
+        </ToolActivityText>
       </button>
 
       {open && (

@@ -178,7 +178,7 @@ export function PostCard({
           <ImageOff className="size-4 shrink-0" strokeWidth={1.6} />
           <span>
             {busy === "image"
-              ? "Making a picture — Replicate holds the line for up to a minute."
+              ? "Creating your image…"
               : "No picture on this post."}
           </span>
         </div>
@@ -204,9 +204,7 @@ export function PostCard({
           {post.ms !== null && (
             <>
               <span>·</span>
-              {/* Time, and said as time. Replicate publishes no price in its
-                  API, so nothing here can turn this into money. */}
-              <span title="Wall clock. Not a cost — Replicate publishes no price in its API.">
+              <span title="Time taken to generate. See your provider for usage and cost.">
                 {(post.ms / 1000).toFixed(1)}s
               </span>
             </>

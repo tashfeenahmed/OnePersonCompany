@@ -41,9 +41,12 @@ export type StudioReadiness = {
   };
   image: {
     ready: boolean;
-    /** How many Replicate tokens are stored. 0 means no picture will be made. */
+    /** Connected accounts with the required image inference credential. */
     accounts: number;
-    /** owner/name, always a string — the server substitutes its default. */
+    provider: "openrouter" | "replicate";
+    providerLabel: string;
+    label: string;
+    /** The exact model id sent to the image provider. */
     model: string;
     isDefault: boolean;
     note: string;

@@ -27,7 +27,7 @@ import { db, ventureRow, ventureRowById, ventureRows } from "../../db.ts";
 import { insertRun, mintRunId, queuedCount, runRow, shapeRun } from "../runs/store.ts";
 import { assetRows } from "../publishing/assets.ts";
 import { destinationRows, META_PLUGIN } from "../publishing/destinations.ts";
-import { imageModel } from "../ventures/studio.ts";
+import { imageModel, imageReadiness } from "../ventures/studio.ts";
 import { tokenAccounts } from "../../providers/replicate.ts";
 import * as meta from "../../providers/meta.ts";
 import { accountRows, lastRead, postRows, readPosts, shapePost } from "./posts.ts";
@@ -296,19 +296,24 @@ socialfeedRoutes.get("/ugc", (c) => {
   if (key && !v) return c.json({ error: `There is no venture “${key}”.` }, 404);
   const replicate = tokenAccounts("socialfeed_ugc_readiness");
   const model = videoModel();
+  const image = imageReadiness();
 
   return c.json({
     venture: v ? { id: v.id, slug: v.slug, name: v.name } : null,
     ready: {
       replicate: replicate.length > 0,
+      image: image.ready,
+      imageProvider: image.provider,
       imageModel: imageModel(),
       /* NULL IS THE DEFAULT AND IT IS NOT A FAULT. With no model named the
          animation step is skipped, the job produces a still, and nothing is
          spent. */
       videoModel: model,
       seconds: ugcSeconds(),
-      note: !replicate.length
-        ? "Replicate is not connected, so a UGC job cannot make even the still. Paste an `r8_…` token under Integrations → Replicate."
+      note: !image.ready
+        ? image.note
+        : model && !replicate.length
+          ? "The still image is ready to generate. Connect Replicate to animate it."
         : model
           ? `The animation step will call ${model}, which costs real money per clip.`
           : "No image-to-video model is named, so a UGC job will produce a still image and skip the animation step. Nothing is spent on video.",

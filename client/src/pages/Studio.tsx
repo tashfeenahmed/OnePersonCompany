@@ -1,3 +1,4 @@
+import studioHeader from "@/assets/studio/digital-studio.webp";
 import { Suspense, lazy, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -338,7 +339,17 @@ function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, o
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-3 pb-20">
       <div className="mx-auto w-full max-w-[820px]">
-        <h1 className="mt-10 mb-6 text-center text-[30px] font-normal tracking-[-0.025em]">
+        <div className="mt-5">
+          <img
+            src={studioHeader}
+            alt="A colorful creative studio with filmmakers, a video editing desk and social post designs"
+            width={1440}
+            height={480}
+            decoding="async"
+            className="block aspect-[3/1] w-full object-contain"
+          />
+        </div>
+        <h1 className="mt-5 mb-6 text-center text-[30px] font-normal tracking-[-0.025em]">
           Create anything with AI
         </h1>
 
@@ -701,8 +712,8 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
 
   const cost = {
     image: readiness?.image.ready
-      ? "About twenty seconds, and a fraction of a cent on Replicate."
-      : "About five seconds. Without Replicate the post is stored with its words and no picture.",
+      ? `One image, billed through ${readiness.image.providerLabel}.`
+      : "Connect the image provider to include a picture. Otherwise, only the caption is saved.",
     ugc: "One image prediction always, and one image-to-video prediction if a model is set under Integrations → Social feed. With none set it makes a still and spends nothing on video.",
     faceless: "A model turn for the script, Pexels for the footage, ffmpeg on this machine. A minute or two.",
     youtube: "Searching and previewing are free — metadata and YouTube's own player. Cutting is one shorts run per video you ticked, a few minutes each, one at a time.",

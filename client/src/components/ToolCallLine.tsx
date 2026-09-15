@@ -74,6 +74,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { ChatToolCall } from "@/lib/api";
+import { ToolActivityText } from "@/components/ToolActivityText";
 
 /** How long it took, from the two timestamps this side stamped on receipt.
  *  Null while it is still going — and null is drawn as "running…", never as
@@ -108,33 +109,30 @@ export function ToolCallLine({ call }: { call: ChatToolCall }) {
              extra width are what let the hover tint reach past the text
              without the line moving when it appears. */
           "text-muted-foreground -mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline rounded-[9px] px-1.5 py-0.5 text-left text-[14.5px] leading-[1.6] transition-colors",
-          /* Hover and focus are the same tint, because a keyboard reaching a
-             line and a pointer resting on it are the same fact about which one
-             is being addressed. A RUNNING line gets a ring instead of a tint:
-             `background-clip: text` clips every background this element has,
-             the colour included, so a tinted rectangle would be painted inside
-             the glyphs and nowhere else. A ring is a box-shadow and is not
-             clipped by it. */
+          /* Keep the running focus ring and completed hover tint on the
+             button; the text shimmer lives on a separate layer. */
           running
-            ? "tool-shimmer focus-visible:ring-ring focus-visible:ring-1"
+            ? "focus-visible:ring-ring focus-visible:ring-1"
             : "hover:bg-accent hover:text-foreground focus-visible:bg-accent",
         )}
       >
         {/* The name and the label are one phrase and truncate as one: the
             label is the more specific half, so a narrow column losing the end
             of it still leaves the tool that ran. */}
-        <span className="min-w-0 truncate">
-          {call.tool}
-          {call.label && ` · ${call.label}`}
-        </span>
-        <span className="shrink-0">
-          {" · "}
-          {running
-            ? "running…"
-            : ms === null
-              ? "completed"
-              : `completed in ${(ms / 1000).toFixed(1)}s`}
-        </span>
+        <ToolActivityText running={running}>
+          <span className="min-w-0 truncate">
+            {call.tool}
+            {call.label && ` · ${call.label}`}
+          </span>
+          <span className="shrink-0 whitespace-pre">
+            {" · "}
+            {running
+              ? "running…"
+              : ms === null
+                ? "completed"
+                : `completed in ${(ms / 1000).toFixed(1)}s`}
+          </span>
+        </ToolActivityText>
       </button>
 
       {open && (

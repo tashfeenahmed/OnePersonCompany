@@ -3,22 +3,7 @@ import { CircleCheck, CircleSlash } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudioReadiness } from "@/lib/api/studio";
 
-/**
- * WHETHER A POST CAN BE MADE, SAID BEFORE THE BUTTON IS PRESSED.
- *
- * The image half costs money and the caption half is the half without which
- * there is no post at all, so both are stated up front with the server's own
- * sentences. This is the whole reason `GET /api/studio` exists: an app that
- * discovered "Replicate is not connected" after twenty seconds of spinner
- * would have taught the owner to distrust the button.
- *
- * IT IS NOT A WARNING BAR. Both halves ready is the normal case and is drawn
- * as two quiet lines of fact, not as a green success banner — the state worth
- * shouting is the missing one, and only that one gets a link to go fix it.
- * The caption half's link is Settings, because that is where this app chooses
- * a provider; the image half's is Replicate's own page under Integrations,
- * because that is where the token is pasted.
- */
+/** Caption and image connections are independent. */
 export function ReadinessBanner({ readiness }: { readiness: StudioReadiness }) {
   const rows: {
     key: string;
@@ -42,12 +27,12 @@ export function ReadinessBanner({ readiness }: { readiness: StudioReadiness }) {
       key: "image",
       ready: readiness.image.ready,
       title: readiness.image.ready
-        ? `Pictures from ${readiness.image.model}${readiness.image.isDefault ? "" : " (not the default)"}`
-        : "Replicate is not connected",
+        ? `Pictures from ${readiness.image.label ?? readiness.image.model}`
+        : `${readiness.image.label ?? readiness.image.model} · setup needed`,
       note: readiness.image.note,
       fix: readiness.image.ready
         ? undefined
-        : { to: "/integrations/replicate", label: "Paste a token" },
+        : { to: `/integrations/${readiness.image.provider ?? "openrouter"}`, label: "Connect" },
     },
   ];
 

@@ -97,9 +97,9 @@ import { configValue, getPlugin, setConfig, upsertPlugin } from "../db.ts";
 import * as accounts from "../accounts.ts";
 import { getJson, readModelIds } from "../chat/wire.ts";
 import { activeProvider, type Endpoint, type ModelProvider } from "../models/provider.ts";
-import { setBackendPreparation } from "../chat/backend.ts";
+import { setBackendPreparation, setBackendReadiness } from "../chat/backend.ts";
 import { ProviderUse } from "./provider-use.ts";
-import { setTimeout as delay } from "node:timers/promises";
+import { ensureManagedReady, waitForPortRelease } from "./readiness.ts";
 import * as hermesAdapter from "../providers/hermes.ts";
 import * as openclawAdapter from "../providers/openclaw.ts";
 /*
@@ -125,6 +125,11 @@ setBackendPreparation(async (id, signal) => {
   if (configValue(id, "mode") !== "managed") return () => {};
   const ready = AbortSignal.any([AbortSignal.timeout(120_000), ...(signal ? [signal] : [])]);
   return providerUses[id].acquire(async idle => {
+    const wait = () => ensureManagedReady({
+      label: SPECS[id].label, signal: ready, start: () => start(id),
+      read: () => ({ ...RUNTIME[id], hasChild: RUNTIME[id].child !== null, autostart: configValue(id, INSTANCE_KEY) === "running" }),
+    });
+    await wait();
     while (true) {
       ready.throwIfAborted();
       let pl = await plan(SPECS[id]); // Off/disconnected must never use stale credentials.
@@ -135,15 +140,18 @@ setBackendPreparation(async (id, signal) => {
         const result = await reconfigureNow(id, pl);
         if (!result.ok) throw new Error(result.error);
       }
-      while (RUNTIME[id].child && RUNTIME[id].state === "starting") {
-        await delay(100, undefined, { signal: ready });
-      }
-      if (!RUNTIME[id].child || RUNTIME[id].state !== "running") {
-        throw new Error(`${SPECS[id].label} is not running. Start it under Integrations.`);
-      }
+      await wait();
       if (RUNTIME[id].fingerprint === fingerprint(await plan(SPECS[id]))) return;
     }
   }, ready);
+});
+
+setBackendReadiness(id => {
+  if (configValue(id, "mode") !== "managed") return null;
+  const r = RUNTIME[id], ready = r.state === "running" && r.child !== null;
+  return { ready, reason: ready ? null : r.lastError ?? (r.starting || r.state === "starting"
+    ? `${SPECS[id].label} is starting. Your message will wait until it is ready.`
+    : `${SPECS[id].label} is ${r.state}. ${configValue(id, INSTANCE_KEY) === "running" && r.failedStarts < 5 ? "Your next message will try to restart it." : "Start it under Integrations."}`) };
 });
 
 export type InstanceState =
@@ -1254,7 +1262,9 @@ export async function start(id: AgentId): Promise<{ ok: boolean; error?: string 
       rather than reported.
     */
     if (await portBusy(s.port)) {
-      if (!reapOrphan(s, log)) {
+      reapOrphan(s, log);
+      log("waiting for the previous listener to release the port");
+      if (!await waitForPortRelease(() => portBusy(s.port), AbortSignal.timeout(GRACE_MS + 2000))) {
         const why =
           `Something is already listening on 127.0.0.1:${s.port}. That is either ` +
           `another copy of this instance or an unrelated service — this will not ` +
@@ -1263,7 +1273,6 @@ export async function start(id: AgentId): Promise<{ ok: boolean; error?: string 
         log(`! ${why}`);
         return { ok: false, error: why };
       }
-      await new Promise((r2) => setTimeout(r2, 500));
     }
 
     r.wanted = true;
@@ -1442,7 +1451,9 @@ async function waitForHealth(id: AgentId, proc: ChildProcess) {
   const key = doorKey(s);
   const deadline = Date.now() + 120_000;
   while (r.child === proc && Date.now() < deadline) {
-    if (await s.probe(s, key)) {
+    const healthy = await s.probe(s, key);
+    if (r.child !== proc) return;
+    if (healthy) {
       r.healthyAt = new Date().toISOString();
       r.failedStarts = 0;
       setState(id, "running", null);
@@ -1648,7 +1659,7 @@ export function report(id: AgentId, live: AgentId | null): AgentReport {
     mode: readMode(id),
     managedAccount: Number(configValue(id, MANAGED_ACCOUNT_KEY) ?? 0) || null,
     pointed: r.pointed,
-    live: live === id,
+    live: live === id && (readMode(id) !== "managed" || isRunning(id)),
     log: r.tail.slice(-80),
   };
 }
