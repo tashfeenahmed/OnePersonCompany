@@ -645,6 +645,7 @@ export async function shortsVideo(opts: {
       track,
       audio: null,
       silentTrack: false,
+      keepSourceAudio: true,
       signal,
     });
     if (!res.ok) {

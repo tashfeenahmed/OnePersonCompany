@@ -256,11 +256,12 @@ export async function segment(opts: {
   drawtext: string | null;
   /** A moving crop, from videoplus/track.ts, or null for the fixed fit. */
   track?: Track | null;
-  /** A narration file, or null for a segment with no sound. When null and
-   *  `silentTrack` is true a silent track is generated instead — see the
-   *  header on why a video's segments must agree. */
+  /** A narration file, or null. Narration/silentTrack override source audio. */
   audio: string | null;
   silentTrack: boolean;
+  /** Keep the source's first audio stream, using the same seek as its video.
+   *  Opt-in for Shorts; stock footage stays silent unless narration is supplied. */
+  keepSourceAudio?: boolean;
   signal?: AbortSignal;
 }): Promise<SegmentResult> {
   const args: string[] = ["-y", "-v", "error"];
@@ -299,6 +300,9 @@ export async function segment(opts: {
        length the script asked for, whether the narration ran short or long. */
     args.push("-af", "apad");
     args.push(...A_ARGS);
+  } else if (opts.keepSourceAudio) {
+    // Optional mapping also supports source videos that have no audio.
+    args.push("-map", "0:a:0?", ...A_ARGS);
   } else {
     args.push("-an");
   }
