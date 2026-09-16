@@ -5,6 +5,7 @@ import { inboxItems } from "../routes/actionInbox.ts";
 import { linkedEntities } from "../integrations/ventures/links.ts";
 import { hostMatch, ventureForHost } from "../shared/host.ts";
 import { registerBoardSource, type BoardCandidate } from "./automation.ts";
+import { isBrandQuery } from "./brand-query.ts";
 
 /** Stored, actionable work; inboxItems owns acknowledgement/snooze decisions. */
 export function inboxCandidates(): BoardCandidate[] {
@@ -48,7 +49,16 @@ export async function healthCandidates(): Promise<BoardCandidate[]> {
 }
 
 /** One measured search opportunity per venture, at most six per pass. No
- * missing-plugin guesses or model calls. Explicit links precede host joins. */
+ * missing-plugin guesses or model calls. Explicit links precede host joins.
+ *
+ * Brand and navigational rows are skipped: a query that names a venture (or
+ * misspells it, or adds `github`/`login` to it) is somebody who already knew
+ * the name, and "improve the page targeting it" is not work anybody can do.
+ * The check runs against EVERY launched venture's brand, not just this one's,
+ * because a property that ranks for a sibling venture's name used to file a
+ * card under the wrong venture ("neu.ie: improve the page targeting
+ * 'freellmapi'"). Rows are read impressions-first and the first non-brand one
+ * wins, so a property whose whole head is brand simply yields nothing. */
 export function growthCandidates(): BoardCandidate[] {
   const cutoff = new Date(Date.now() - 3 * 86_400_000).toISOString();
   const sites = db.prepare("SELECT property,window_start,window_end,seen_at FROM gsc_sites WHERE error IS NULL AND window_start IS NOT NULL AND window_end IS NOT NULL AND seen_at>=?").all(cutoff) as {
@@ -56,6 +66,8 @@ export function growthCandidates(): BoardCandidate[] {
   }[];
   const candidates: (BoardCandidate & { score: number })[] = [];
   const ventures = ventureRows();
+  const brands = ventures.filter(v => v.stage === "launched")
+    .map(v => ({ name: v.name, slug: v.slug, host: v.host }));
   for (const v of ventures) {
     if (v.stage !== "launched" || (db.prepare("SELECT proposals FROM synthesis_venture_prefs WHERE venture_id=?").get(v.id) as { proposals: number } | undefined)?.proposals === 0) continue;
     const links = linkedEntities(v.id, "gsc");
@@ -63,8 +75,9 @@ export function growthCandidates(): BoardCandidate[] {
       (links.length ? links.includes(s.property) : !!v.host && hostMatch(s.property, v.host) && ventureForHost(v.host, ventures)?.id === v.id));
     let best: (typeof candidates)[number] | undefined;
     for (const site of owned) {
-      const query = db.prepare("SELECT query,impressions,clicks,position,seen_at FROM gsc_queries WHERE property=? AND seen_at>=? AND impressions>=100 AND position>=5 AND position<=20 ORDER BY impressions DESC,query LIMIT 1")
-        .get(site.property, cutoff) as { query: string; impressions: number; clicks: number; position: number; seen_at: string } | undefined;
+      const rows = db.prepare("SELECT query,impressions,clicks,position,seen_at FROM gsc_queries WHERE property=? AND seen_at>=? AND impressions>=100 AND position>=5 AND position<=20 ORDER BY impressions DESC,query LIMIT 25")
+        .all(site.property, cutoff) as { query: string; impressions: number; clicks: number; position: number; seen_at: string }[];
+      const query = rows.find(row => !brands.some(brand => isBrandQuery(row.query, brand)));
       if (!query || (best && best.score >= query.impressions)) continue;
       best = { origin: `growth:search:${v.id}:${createHash("sha256").update(query.query.toLowerCase()).digest("hex").slice(0, 24)}`,
         title: `${v.name}: improve the page targeting “${query.query}”`,

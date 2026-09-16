@@ -122,3 +122,25 @@ test("search growth cards require fresh measured data and a matching opted-in ve
   db.prepare("INSERT INTO synthesis_venture_prefs(venture_id,proposals,updated_at) VALUES(?,0,?)").run("test-v",time);
   assert.equal(growthCandidates().length,0);
 });
+
+test("search growth cards skip brand queries, including another venture's brand on our own property", () => {
+  const time=new Date().toISOString(), today=time.slice(0,10), yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
+  const venture=db.prepare("INSERT INTO ventures(id,slug,name,host,stage,color,color_source,created_at,updated_at,position) VALUES(?,?,?,?,'launched','#334455','owner',?,?,0)");
+  venture.run("free-v","freellmapi","FreeLLMAPI","freellmapi.co",time,time);
+  venture.run("neu-v","neu","Neu","neu.ie",time,time);
+  upsertPlugin("gsc",true,null); const account=insertAccount("gsc","Brand Search");
+  const site=db.prepare("INSERT INTO gsc_sites(property,account_id,account_label,window_start,window_end,seen_at) VALUES(?,?,'Brand Search',?,?,?)");
+  site.run("sc-domain:freellmapi.co",account,yesterday,today,time);
+  site.run("sc-domain:neu.ie",account,yesterday,today,time);
+  const query=db.prepare("INSERT INTO gsc_queries(property,query,clicks,impressions,position,seen_at) VALUES(?,?,1,?,9,?)");
+  query.run("sc-domain:freellmapi.co","freellmapi github",900,time);
+  query.run("sc-domain:freellmapi.co","freelmapi",800,time);
+  query.run("sc-domain:freellmapi.co","free llm api",300,time);
+  query.run("sc-domain:neu.ie","freellmapi",500,time);
+  const cards=growthCandidates();
+  assert.equal(cards.length,1);
+  assert.equal(cards[0]!.ventureId,"free-v");
+  assert.match(cards[0]!.title,/free llm api/);
+  db.prepare("DELETE FROM gsc_queries WHERE query='free llm api'").run();
+  assert.equal(growthCandidates().length,0);
+});
