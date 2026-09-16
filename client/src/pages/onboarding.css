@@ -1200,98 +1200,17 @@
 }
 .ob-welcome-visual {
   min-width: 0;
-  position: relative;
-  aspect-ratio: 1.08;
-}
-.ob-office {
-  position: relative;
-  margin: 0;
   width: 100%;
-  height: 100%;
+  max-width: 590px;
+  justify-self: center;
+  aspect-ratio: 1;
 }
-.ob-office::before {
-  content: "";
-  position: absolute;
-  inset: 12% -4% 4%;
-  background: radial-gradient(
-    ellipse,
-    #02060c 15%,
-    #061121 40%,
-    transparent 70%
-  );
-  pointer-events: none;
-}
-.ob-office-stage,
-.ob-office-stage canvas,
-.ob-office-fallback {
-  width: 100%;
-  height: 100%;
+.ob-office-illustration {
   display: block;
-}
-.ob-office-stage {
-  position: relative;
-}
-.ob-office-stage[tabindex="0"] {
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  border-radius: 24px;
-}
-.ob-office-stage[data-dragging="true"] {
-  cursor: grabbing;
-}
-.ob-office-stage:focus {
-  outline: none;
-}
-.ob-office-stage:focus-visible:not([data-pointer-focus="true"]) {
-  outline: 1px solid #326da4;
-  outline-offset: 3px;
-}
-.ob-office-fallback {
-  position: absolute;
-  inset: 0;
-  opacity: 0.8;
-}
-.ob-office-fallback :is(path, ellipse) {
-  fill: #0a2a4e;
-  fill-opacity: 0.14;
-  stroke: #479cff;
-  stroke-width: 1;
-  stroke-opacity: 0.75;
-  vector-effect: non-scaling-stroke;
-}
-.ob-office[data-scene-state="playing"] .ob-office-fallback,
-.ob-office[data-scene-state="idle"] .ob-office-fallback {
-  display: none;
-}
-.ob .ob-office-replay {
-  position: absolute;
-  right: 16px;
-  bottom: 20px;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  color: var(--muted-foreground);
-  background: var(--background);
-  transition:
-    color 0.2s,
-    border-color 0.2s;
-}
-.ob .ob-office-replay:hover {
-  color: var(--foreground);
-  border-color: var(--muted-foreground);
-}
-.ob .ob-office-replay:disabled {
-  opacity: 0.25;
-}
-@media (prefers-reduced-motion: reduce) {
-  .ob-office-replay {
-    display: none !important;
-  }
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
 }
 @media (prefers-reduced-motion: no-preference) {
   .ob-welcome-copy > :not(.ob-welcome-steps),
@@ -1334,7 +1253,7 @@
   }
   .ob-welcome-visual {
     grid-row: 1;
-    aspect-ratio: 1.55;
+    max-width: 360px;
   }
   .ob-welcome-copy {
     padding: 0 8px;
@@ -1361,7 +1280,7 @@
     gap: 16px;
   }
   .ob-welcome-visual {
-    aspect-ratio: 1.4;
+    max-width: 280px;
   }
   .ob-welcome .ob-eyebrow {
     font-size: 8px;
