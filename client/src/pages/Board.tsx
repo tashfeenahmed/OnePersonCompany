@@ -15,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBoard } from "@/hooks/useBoard";
+import { BoardColumnMenu } from "@/components/BoardColumnMenu";
+import type { PromptVenture } from "@/lib/boardPrompt";
 import { BoardAutomation } from "@/components/BoardAutomation";
 import {
   api,
@@ -40,9 +42,7 @@ import { day } from "@/lib/format";
  * Hence a shape rather than the whole `Venture`: half of these are joined from
  * two places and neither half is complete on its own.
  */
-type VentureChip = {
-  id: string;
-  name: string;
+type VentureChip = PromptVenture & {
   color: string;
   brand?: { favicon: string | null };
 };
@@ -150,7 +150,7 @@ export function Board() {
   );
   for (const [id, v] of Object.entries(data?.ventures ?? {})) {
     const cached = ventures.get(id);
-    ventures.set(id, { ...cached, id, name: v.name, color: v.color });
+    ventures.set(id, { ...cached, id, name: v.name, slug: v.slug, stage: v.stage, color: v.color });
   }
   const ventureList = [...ventures.values()];
   const visibleVentures = showAllVentures ? ventureList : ventureList.slice(0, 4);
@@ -366,8 +366,8 @@ export function Board() {
       </div>
 
       <Dialog open={removingColumn !== null} onOpenChange={(open) => !open && setRemovingColumn(null)}>
-        <DialogContent><DialogHeader><DialogTitle>Remove {removingColumn?.title}?</DialogTitle><DialogDescription>All cards in this column will move to Backlog, including archived cards. No cards will be deleted.</DialogDescription></DialogHeader>
-          <DialogFooter><Button variant="outline" onClick={() => setRemovingColumn(null)}>Cancel</Button><Button onClick={() => { if (removingColumn) void mutate(async () => { const doc = await api.boardDeleteColumn(removingColumn.id); setRemovingColumn(null); return doc; }); }}>Remove column</Button></DialogFooter>
+        <DialogContent><DialogHeader><DialogTitle>Delete {removingColumn?.title}?</DialogTitle><DialogDescription>All cards in this column will move to Backlog, including archived cards. No cards will be deleted.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => setRemovingColumn(null)}>Cancel</Button><Button onClick={() => { if (removingColumn) void mutate(async () => { const doc = await api.boardDeleteColumn(removingColumn.id); setRemovingColumn(null); return doc; }); }}>Delete column</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -511,7 +511,7 @@ function Column({
   onOpen: (id: number) => void;
   onAdd: (title: string) => void;
   onRename: (title: string) => void;
-  onLimit: (limit: number | null) => void;
+  onLimit: (limit: number | null) => Promise<BoardDoc | null>;
   onRemove: () => void;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
@@ -520,7 +520,6 @@ function Column({
   const [title, setTitle] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(column.title);
-  const [limiting, setLimiting] = useState(false);
   const [visibleLimit, setVisibleLimit] = useState(COLUMN_PAGE_SIZE);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -621,56 +620,16 @@ function Column({
           {hidden > 0 ? `${shown.length} of ${column.count}` : column.count}
         </span>
 
-        {/* THE WIP LIMIT, and null is not zero. No limit draws nothing at all;
-            a limit draws "/ n" and turns warn when the column is over it. A
-            limit of 0 is a column that should hold nothing, which is a real
-            instruction and reads correctly here as "0/0 over". */}
-        {limiting ? (
-          <Input
-            type="number"
-            min={0}
-            autoFocus
-            defaultValue={column.wipLimit ?? ""}
-            aria-label={`WIP limit for ${column.title}`}
-            onBlur={(e) => {
-              setLimiting(false);
-              const raw = e.target.value.trim();
-              const next = raw === "" ? null : Number(raw);
-              if (next !== null && (!Number.isInteger(next) || next < 0)) return;
-              if (next !== column.wipLimit) onLimit(next);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-              if (e.key === "Escape") {
-                e.currentTarget.value = String(column.wipLimit ?? "");
-                setLimiting(false);
-              }
-            }}
-            className="h-6 w-12 shrink-0 px-1.5 text-[12.5px]"
-          />
-        ) : (
-          <button
-            onClick={() => setLimiting(true)}
-            title={
-              column.wipLimit === null
-                ? "No limit on this column. Click to set one — it is never enforced, only reported."
-                : `At most ${column.wipLimit}. Clear the box to remove the limit.`
-            }
-            className={cn(
-              "shrink-0 rounded-md px-1 text-[12.5px]",
-              column.overLimit ? "text-warn font-medium" : "text-muted-foreground/60",
-            )}
-          >
-            {column.wipLimit === null ? "limit" : `/ ${column.wipLimit}`}
-          </button>
+        {column.wipLimit !== null && (
+          <span title={`Card limit: ${column.wipLimit}${column.overLimit ? " — over limit" : ""}`}
+            className={cn("shrink-0 text-[12.5px]", column.overLimit ? "text-warn font-medium" : "text-muted-foreground")}>
+            / {column.wipLimit}
+          </span>
         )}
+        <BoardColumnMenu column={column} ventures={ventures} onLimit={onLimit} onRemove={onRemove}
+          onMoveLeft={onMoveLeft} onMoveRight={onMoveRight} />
       </header>
 
-      <div className="flex items-center gap-2 px-3 pb-2 text-xs text-muted-foreground">
-        <button disabled={!onMoveLeft} onClick={onMoveLeft} aria-label={`Move ${column.title} left`} className="disabled:opacity-30">←</button>
-        <button disabled={!onMoveRight} onClick={onMoveRight} aria-label={`Move ${column.title} right`} className="disabled:opacity-30">→</button>
-        {!column.structural && <button onClick={onRemove} className="ml-auto" aria-label={`Remove ${column.title}`}>Remove</button>}
-      </div>
       {/* The only part of a lane that scrolls. Everything above and below it is
           `shrink-0`, so forty cards never take the column's name off screen. */}
       <div
