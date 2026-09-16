@@ -374,9 +374,11 @@ export function failureCode(
  * sitemap is what an admin screen, a thank-you page or a login looks like when
  * somebody did the right thing — freellmapi.co's `/manage` is exactly that —
  * and reporting it as an error is how a tool teaches its owner to ignore it.
+ * The start URL is the exception either way: a venture's front door telling
+ * Google to stay out is the whole problem whether or not a sitemap exists.
  */
-export const noindexSeverity = (inSitemap: boolean): "error" | "notice" =>
-  inSitemap ? "error" : "notice";
+export const noindexSeverity = (inSitemap: boolean, isStart = false): "error" | "notice" =>
+  inSitemap || isStart ? "error" : "notice";
 
 function attr(tag: string, name: string): string | null {
   const m = new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>\`]+))`, "i").exec(tag);
@@ -863,12 +865,12 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
      like, and filing that as an error is how the list stops being read. */
   const noindexed = ok.filter((p) => p.noindex);
   add("error", "noindex", "Pages that are noindex but listed in the sitemap.",
-    noindexed.filter((p) => noindexSeverity(inSitemap(p)) === "error").map((p) => p.url),
-    "A <meta name=robots> or <meta name=googlebot> carrying `noindex`, on a URL the site's own " +
-      "sitemap asks Google to index. The site is arguing with itself and one of the two is wrong.");
+    noindexed.filter((p) => noindexSeverity(inSitemap(p), discoveryOf(asked(p)) === "start") === "error").map((p) => p.url),
+    "A <meta name=robots> or <meta name=googlebot> carrying `noindex`, on the start URL or on a URL the " +
+      "site's own sitemap asks Google to index. The site is arguing with itself and one of the two is wrong.");
 
   add("notice", "noindex", "Pages that tell search engines not to index them.",
-    noindexed.filter((p) => noindexSeverity(inSitemap(p)) === "notice").map((p) => p.url),
+    noindexed.filter((p) => noindexSeverity(inSitemap(p), discoveryOf(asked(p)) === "start") === "notice").map((p) => p.url),
     "A <meta name=robots> or <meta name=googlebot> carrying `noindex`, on a URL no sitemap this " +
       "crawl read lists. That is usually deliberate — an account area, a checkout, a thank-you " +
       "page — so it is reported as a fact rather than a fault. On a page you want found it is the " +

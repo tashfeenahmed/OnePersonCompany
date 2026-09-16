@@ -69,6 +69,7 @@ test("a failure is a page error or a broken link depending on who asked for it",
   assert.equal(failureCode(301, null, "start"), null);
   assert.equal(noindexSeverity(true), "error");
   assert.equal(noindexSeverity(false), "notice");
+  assert.equal(noindexSeverity(false, true), "error");
 });
 
 /* ------------------------------------------------------------ the crawl */
