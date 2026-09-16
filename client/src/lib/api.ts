@@ -3066,6 +3066,7 @@ export type MailThread = {
 };
 
 export type MailThreadPage = {
+  readAt?: string;
   accountId: number;
   accountLabel: string;
   address: string | null;
@@ -3593,6 +3594,7 @@ export const api = {
     page?: string | null;
     account?: number;
     limit?: number;
+    refresh?: boolean;
   } = {}) => {
     const p = new URLSearchParams();
     if (opts.q) p.set("q", opts.q);
@@ -3600,6 +3602,7 @@ export const api = {
     if (opts.page) p.set("page", opts.page);
     if (opts.account) p.set("account", String(opts.account));
     if (opts.limit) p.set("limit", String(opts.limit));
+    if (opts.refresh) p.set("refresh", "1");
     const qs = p.toString();
     return call<MailThreadPage>(`/mailbox/threads${qs ? `?${qs}` : ""}`);
   },

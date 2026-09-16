@@ -25,7 +25,8 @@ import type { VentureRow } from "../../db.ts";
 import { facelessVideo, runDir, StepError, type RunSession } from "./faceless.ts";
 import { shortsVideo } from "./shorts.ts";
 import { ASPECTS, DEFAULT_ASPECT, type Fit } from "./assemble.ts";
-import { forgetJob } from "./store.ts";
+import { clipRows, forgetJob, jobRow } from "./store.ts";
+import { deleteThumbnails } from "./thumbnails.ts";
 import * as leases from "../deploy/leases.ts";
 import { motionVideo } from "../videoplus/motion.ts";
 import { reelVideo } from "../videoplus/reel.ts";
@@ -264,15 +265,17 @@ async function renderVideo(opts: {
  *  this area's route; the rows go and so does the directory, because the
  *  files exist only because of that run. */
 export function forgetVideo(runId: string) {
+  // Never interpret an id as a path or remove the shared thumbnail directory.
+  if (!/^r-[a-zA-Z0-9_-]+$/.test(runId)) throw new Error("Invalid run id for file removal.");
+  // Keep all records if file removal fails, so the owner can retry. Remove
+  // previews before sources; a concurrent render checks its source again
+  // before saving and cannot recreate a deleted preview.
+  deleteThumbnails(runId, [jobRow(runId)?.path ?? null, ...clipRows(runId).map((clip) => clip.path)]);
+  rmSync(runDir(runId), { recursive: true, force: true });
   forgetJob(runId);
   forgetFraming(runId);
   /* And the socialfeed area's UGC row, for the `ugc` format. That module
      imports db.ts and nothing else precisely so this line cannot close a
      cycle — see integrations/socialfeed/forget.ts. */
   forgetSocialfeed(runId);
-  try {
-    rmSync(runDir(runId), { recursive: true, force: true });
-  } catch {
-    /* A directory that will not delete costs disk, not correctness. */
-  }
 }

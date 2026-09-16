@@ -47,6 +47,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { VentureSelect } from "@/components/VentureSelect";
+import { SocialPlatformIcon, SocialPlatformLabel } from "@/components/SocialPlatform";
 import { useApi } from "@/hooks/useApi";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -312,7 +313,10 @@ function ItemCard({
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <span className={cn("font-medium", STATUS_TONE[item.status])}>{item.status}</span>
         <span className="text-muted-foreground">·</span>
-        <span>{item.destination ? `${item.destination.label} — ${item.destination.handle ?? item.destination.id}` : "no destination"}</span>
+        <span className="inline-flex items-center gap-2">
+          {item.destination && <SocialPlatformIcon platform={item.destination.kind} />}
+          {item.destination ? `${item.destination.label} — ${item.destination.handle ?? item.destination.id}` : "no destination"}
+        </span>
         <span className="text-muted-foreground">·</span>
         <span className="text-muted-foreground">{item.venture?.name ?? item.ventureId}</span>
         {item.scheduledFor && (
@@ -386,8 +390,9 @@ function ItemCard({
               <button
                 key={d.id}
                 onClick={() => void act("dest", () => publishingApi.patchItem(item.id, { destinationId: d.id }))}
-                className="hover:border-line-strong rounded-[12px] border px-2.5 py-1 text-[13px]"
+                className="hover:border-line-strong inline-flex items-center gap-2 rounded-[12px] border px-2.5 py-1 text-[13px]"
               >
+                <SocialPlatformIcon platform={d.kind} />
                 {d.label} — {d.handle}
               </button>
             ))}
@@ -675,6 +680,7 @@ function DestinationCard({
   return (
     <div className="bg-card border-line-soft grid gap-2 rounded-[14px] p-4.5">
       <div className="flex flex-wrap items-center gap-2 text-[14px]">
+        <SocialPlatformIcon platform={d.kind} />
         <span className="font-medium">{d.handle ?? d.externalId}</span>
         <span className="text-muted-foreground">{d.label}</span>
         <span className="text-muted-foreground text-[12.5px]">{d.account}</span>
@@ -752,6 +758,8 @@ function CampaignsTab({ ventureId }: { ventureId: string | null }) {
               (c) => (
                 <button
                   key={c}
+                  type="button"
+                  aria-pressed={channels.includes(c)}
                   onClick={() =>
                     setChannels((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))
                   }
@@ -760,7 +768,7 @@ function CampaignsTab({ ventureId }: { ventureId: string | null }) {
                     channels.includes(c) ? "border-foreground" : "hover:border-line-strong",
                   )}
                 >
-                  {c}
+                  <SocialPlatformLabel platform={c} />
                 </button>
               ),
             )}

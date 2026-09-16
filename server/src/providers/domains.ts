@@ -84,6 +84,13 @@ export function daysUntil(day: string | null, now = new Date()): number | null {
   return Math.round((then - today) / 86_400_000);
 }
 
+/** Keep today's renewals and unknown dates active. Re-evaluate on every read,
+ * so expiry and a subsequently reported renewal need no destructive cleanup. */
+export function domainHasExpired(day: string | null, now = new Date()): boolean {
+  const days = daysUntil(day, now);
+  return days !== null && days < 0;
+}
+
 /* ----------------------------------------------------------------- fields */
 
 /** Dynadot answers yes/no in a string where JSON has had a boolean all along;
@@ -212,7 +219,7 @@ export function describe(err: unknown): string {
  * `claimedTwice`, which is the right answer to "who holds this name" — but it
  * is not the right answer to "how many names are there".
  */
-export function registeredDomains(): DomainRecord[] {
+export function registeredDomains(options: { includeExpired?: boolean; now?: Date } = {}): DomainRecord[] {
   const byName = new Map<string, DomainRecord>();
   for (const d of allDomains()) {
     const key = d.name.trim().toLowerCase();
@@ -220,5 +227,9 @@ export function registeredDomains(): DomainRecord[] {
     if (!held || (held.source === "cloudflare" && d.source !== "cloudflare"))
       byName.set(key, d);
   }
-  return [...byName.values()];
+  // Deduplicate first: an older secondary provider row must not resurrect a
+  // domain whose authoritative registrar row has expired. Raw records remain
+  // available for history and for joins that describe DNS configuration.
+  const at = options.now ?? new Date();
+  return [...byName.values()].filter((d) => options.includeExpired || !domainHasExpired(d.expires_at, at));
 }

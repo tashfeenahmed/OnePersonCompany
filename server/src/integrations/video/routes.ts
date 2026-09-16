@@ -36,7 +36,8 @@ import { ASPECTS } from "./assemble.ts";
 import { pickCaptioner } from "./captions.ts";
 import { pexelsKey } from "./footage.ts";
 import { FORMATS } from "./execute.ts";
-import { clipCounts, clipRows, jobRow, jobRows, shapeJob } from "./store.ts";
+import { clipCounts, clipPathsByRun, clipRows, jobRow, jobRows, shapeJob } from "./store.ts";
+import { thumbnailSource, thumbnailUrl, videoThumbnail } from "./thumbnails.ts";
 import { findFfmpeg, findFfprobe, findYtDlp } from "./tools.ts";
 import { clampCount, searchYoutube, youtubeReadiness } from "./youtube.ts";
 
@@ -129,6 +130,7 @@ videoRoutes.get("/", async (c) => {
     limit: Number.isFinite(limit) ? limit : 50,
   });
   const counts = clipCounts();
+  const clipPaths = clipPathsByRun(rows.filter((r) => (counts.get(r.run_id) ?? 0) > 0).map((r) => r.run_id));
 
   return c.json({
     venture: v ? { id: v.id, slug: v.slug, name: v.name } : null,
@@ -136,11 +138,16 @@ videoRoutes.get("/", async (c) => {
        would otherwise ship fifty transcripts to draw a table of dates. Both
        are one request away at /api/video/:runId, which is what the run page
        asks for. */
-    videos: rows.map((r) => ({
-      ...shapeJob(r, []),
-      script: undefined,
-      clipCount: counts.get(r.run_id) ?? 0,
-    })),
+    videos: rows.map((r) => {
+      const source = thumbnailSource([r.path, ...(clipPaths.get(r.run_id) ?? [])]);
+      return {
+        ...shapeJob(r, []),
+        script: undefined,
+        clipCount: counts.get(r.run_id) ?? 0,
+        onDisk: source !== null,
+        thumbnailUrl: thumbnailUrl(r.run_id, source),
+      };
+    }),
     readiness: await readiness(),
   });
 });
@@ -182,10 +189,22 @@ videoRoutes.get("/:runId", (c) => {
       },
       404,
     );
-  return c.json(shapeJob(row, clipRows(row.run_id)));
+  const clips = clipRows(row.run_id);
+  const source = thumbnailSource([row.path, ...clips.map((clip) => clip.path)]);
+  return c.json({ ...shapeJob(row, clips), onDisk: source !== null, thumbnailUrl: thumbnailUrl(row.run_id, source) });
 });
 
 /* -------------------------------------------------------------- the files */
+
+videoRoutes.get("/:runId/thumbnail", async (c) => {
+  const row = jobRow(c.req.param("runId"));
+  if (!row) return c.notFound();
+  const source = thumbnailSource([row.path, ...clipRows(row.run_id).map((clip) => clip.path)]);
+  if (!source) return c.notFound();
+  const image = await videoThumbnail(source, row.run_id);
+  if (!image) return c.notFound();
+  return c.body(new Uint8Array(image), 200, { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff" });
+});
 
 /**
  * The finished video.

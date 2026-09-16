@@ -23,8 +23,12 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VentureSelect } from "@/components/VentureSelect";
+import { GenerationMenu } from "@/components/studio/GenerationMenu";
 import { PostCard } from "@/components/studio/PostCard";
 import { ReadinessBanner } from "@/components/studio/ReadinessBanner";
+import { ShapePicker } from "@/components/studio/ShapePicker";
+import { ASPECT_OPTIONS } from "@/data/mediaShapes";
+import { SocialPlatformLabel } from "@/components/SocialPlatform";
 import { GameplayPicker } from "@/components/studio/GameplayPicker";
 import { gameplayLabel } from "../../../shared/gameplay";
 import { MotionReadinessNote, NewSceneListButton, SceneListEditor } from "@/components/studio/SceneListEditor";
@@ -127,12 +131,11 @@ const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[
 ];
 
 const PLATFORMS = ["Instagram", "LinkedIn", "X", "Facebook", "TikTok"];
-const SHAPES: { key: StudioFormat; ratio: string }[] = [
-  { key: "square", ratio: "1:1" },
-  { key: "story", ratio: "9:16" },
-  { key: "landscape", ratio: "16:9" },
+const SHAPES: { key: StudioFormat; label: string; ratio: string }[] = [
+  { key: "square", label: "Square", ratio: "1:1" },
+  { key: "story", label: "Story", ratio: "9:16" },
+  { key: "landscape", label: "Landscape", ratio: "16:9" },
 ];
-const ASPECTS = ["9:16", "1:1", "16:9"];
 
 /** The venture's palette as it reads today, for the posts whose own prompt
  *  named no colours. The order matches the prompt's: the three roles, then
@@ -231,6 +234,21 @@ export function Studio() {
     if (openKey === `post:${id}`) setParam("open", null);
   }
 
+  async function deleteGeneration(g: Generation) {
+    if (g.kind === "post") {
+      await studioApi.remove(g.post.id);
+      forgetPost(g.post.id);
+      posts.reload();
+    } else {
+      await runsApi.remove(g.run.id);
+      runs.setData((d) => d ? { ...d, runs: d.runs.filter((r) => r.id !== g.run.id) } : d);
+      videos.setData((d) => d ? { ...d, videos: d.videos.filter((v) => v.runId !== g.run.id) } : d);
+      if (openKey === g.key) setParam("open", null);
+      runs.reload();
+      videos.reload();
+    }
+  }
+
   /* OPENING A GENERATION IS A TRIP BACK TO CREATE. The row can be clicked
      while Publishing is in the column, so it names the address as well as the
      row rather than only editing the query — and it carries nothing across
@@ -287,6 +305,7 @@ export function Studio() {
         loading={posts.loading || runs.loading}
         openKey={pathname === STUDIO ? openKey : null}
         onOpen={openGeneration}
+        onDelete={deleteGeneration}
       />
 
       {/*
@@ -410,7 +429,7 @@ function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, o
 
 /* ------------------------------------------------------------------ rail */
 
-function Rail({ ventures, railVenture, onRailVenture, generations, loading, openKey, onOpen }: {
+function Rail({ ventures, railVenture, onRailVenture, generations, loading, openKey, onOpen, onDelete }: {
   ventures: Venture[];
   railVenture: string | null;
   onRailVenture: (id: string | null) => void;
@@ -418,6 +437,7 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
   loading: boolean;
   openKey: string | null;
   onOpen: (key: string) => void;
+  onDelete: (generation: Generation) => Promise<void>;
 }) {
   /* The doors at the top: the screen this page opens on, what fills the rail
      on its own, where a finished piece goes next, and what every generator is
@@ -454,7 +474,7 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
        is a place you navigate from, so it gets a surface of its own — white
        in the light theme, and the card token in the dark one, because a rail
        painted literal white in the dark is a lamp. */
-    <aside className="border-line-soft dark:bg-card flex w-[272px] shrink-0 flex-col border-r bg-white">
+    <aside className="border-line-soft dark:bg-card flex w-[272px] min-w-0 shrink-0 flex-col border-r bg-white">
       <div className="border-line-soft grid gap-0.5 border-b p-2.5">
         {doors.map((d) => (
           <NavLink
@@ -483,15 +503,15 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
         <VentureSelect ventures={ventures} value={railVenture} onChange={onRailVenture} none="Every venture" className="h-8 w-full text-[13px]" />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2 pb-3">
         {!loading && generations.length === 0 && (
           <p className="text-muted-foreground px-2 py-2 text-[12.5px] leading-relaxed">
             Nothing made yet. Whatever you make above lands here, and Autopilot adds to it on a schedule.
           </p>
         )}
-        <div className="grid gap-px">
+        <div className="grid min-w-0 grid-cols-1 gap-px">
           {generations.map((g) => (
-            <GenerationRow key={g.key} generation={g} active={g.key === openKey} onClick={() => onOpen(g.key)} />
+            <GenerationRow key={g.key} generation={g} active={g.key === openKey} onClick={() => onOpen(g.key)} onDelete={() => onDelete(g)} />
           ))}
         </div>
       </div>
@@ -501,23 +521,36 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
 
 const FORMAT_ICON: Record<string, typeof Film> = { ugc: Clapperboard, faceless: VideoIcon, shorts: Scissors, reel: Film, motion: Shapes, stewie: Tv };
 
-function GenerationRow({ generation: g, active, onClick }: { generation: Generation; active: boolean; onClick: () => void }) {
+function GenerationThumbnail({ src, children }: { src?: string | null; children: ReactNode }) {
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  return (
+    <span className="bg-muted grid size-9 shrink-0 place-items-center overflow-hidden rounded-md">
+      {src && src !== failedSource ? (
+        <img src={src} alt="" width={36} height={36} loading="lazy" decoding="async"
+          onError={() => setFailedSource(src)} className="size-full object-cover" />
+      ) : children}
+    </span>
+  );
+}
+
+function GenerationRow({ generation: g, active, onClick, onDelete }: { generation: Generation; active: boolean; onClick: () => void; onDelete: () => Promise<void> }) {
   if (g.kind === "post") {
     const p = g.post;
     return (
-      <button onClick={onClick} className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors", active ? "bg-accent" : "hover:bg-accent/60")}>
-        {p.image && p.imageOnDisk ? (
-          <img src={p.image} alt="" className="size-9 shrink-0 rounded-md object-cover" />
-        ) : (
-          <span className="bg-muted grid size-9 shrink-0 place-items-center rounded-md"><ImageIcon className="text-muted-foreground size-4" strokeWidth={1.6} /></span>
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px]">{p.caption?.split("\n")[0] || p.brief}</span>
-          <span className="text-muted-foreground block truncate text-[11.5px]">
-            Image post · {p.format}{p.error ? " · problem" : ""} · {ago(p.ts)}
+      <div className={cn("flex min-w-0 items-center rounded-lg", active ? "bg-accent" : "hover:bg-accent/60")}>
+        <button onClick={onClick} title={p.caption?.split("\n")[0] || p.brief} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left">
+          <GenerationThumbnail src={p.imageOnDisk ? p.image : null}>
+            <ImageIcon className="text-muted-foreground size-4" strokeWidth={1.6} />
+          </GenerationThumbnail>
+          <span className="min-w-0 flex-1 overflow-hidden">
+            <span className="block truncate text-[13px]">{p.caption?.split("\n")[0] || p.brief}</span>
+            <span className="text-muted-foreground block truncate text-[11.5px]">
+              Image post · {p.format}{p.error ? " · problem" : ""} · {ago(p.ts)}
+            </span>
           </span>
-        </span>
-      </button>
+        </button>
+        <GenerationMenu title={p.caption?.split("\n")[0] || p.brief} live={false} onDelete={onDelete} />
+      </div>
     );
   }
   const r = g.run;
@@ -528,20 +561,25 @@ function GenerationRow({ generation: g, active, onClick }: { generation: Generat
     g.job?.script?.title ?? g.job?.script?.brief ?? g.input?.brief ?? g.input?.url ?? r.ventureName ?? "Video";
   const what = FORMAT_LABEL[format] ?? "Video";
   const clips = g.job && g.job.clipCount > 0 ? ` · ${g.job.clipCount} clips` : "";
+  const details = `${what}${clips} · ${live ? r.status : r.status === "done" ? (g.job?.onDisk === false ? "file gone" : "done") : r.status} · ${ago(r.queuedAt)}`;
   return (
-    <button onClick={onClick} className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors", active ? "bg-accent" : "hover:bg-accent/60")}>
-      <span className="bg-muted grid size-9 shrink-0 place-items-center rounded-md">
-        {live ? <Loader2 className="text-muted-foreground size-4 animate-spin" strokeWidth={1.6} /> : <Icon className="text-muted-foreground size-4" strokeWidth={1.6} />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px]">{title}</span>
-        <span className={cn("block truncate text-[11.5px]", r.status === "failed" ? "text-destructive" : "text-muted-foreground")}>
-          {what}{clips} · {live ? r.status : r.status === "done" ? (g.job?.onDisk === false ? "file gone" : "done") : r.status} · {ago(r.queuedAt)}
+    <div className={cn("flex min-w-0 items-center rounded-lg", active ? "bg-accent" : "hover:bg-accent/60")}>
+      <button onClick={onClick} title={`${title}\n${details}`} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left">
+        <GenerationThumbnail src={live ? null : g.job?.thumbnailUrl}>
+          {live ? <Loader2 className="text-muted-foreground size-4 animate-spin" strokeWidth={1.6} /> : <Icon className="text-muted-foreground size-4" strokeWidth={1.6} />}
+        </GenerationThumbnail>
+        <span className="min-w-0 flex-1 overflow-hidden">
+          <span className="block truncate text-[13px]">{title}</span>
+          <span className={cn("block truncate text-[11.5px]", r.status === "failed" ? "text-destructive" : "text-muted-foreground")}>
+            {details}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+      <GenerationMenu title={title} live={live} onDelete={onDelete} />
+    </div>
   );
 }
+
 
 /* -------------------------------------------------------------- composer */
 
@@ -555,7 +593,7 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
   );
 }
 
-function Chips<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { key: T; label: string; sub?: string; title?: string }[] }) {
+function Chips<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { key: T; label: ReactNode; sub?: string; title?: string }[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {options.map((o) => (
@@ -563,6 +601,7 @@ function Chips<T extends string>({ value, onChange, options }: { value: T; onCha
           key={o.key}
           type="button"
           title={o.title}
+          aria-pressed={value === o.key}
           onClick={() => onChange(o.key)}
           className={cn("rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors", value === o.key ? "border-foreground" : "hover:border-line-strong")}
         >
@@ -628,9 +667,10 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   );
   /* What the Pi and the Dell can do right now. Asking wakes nothing. */
   const stewie = useApi(() => (make === "stewie" ? stewieApi.read().catch(() => null) : Promise.resolve(null)), [make]);
+  const footage = useApi(() => (make === "stewie" ? stewieApi.backgrounds().catch(() => null) : Promise.resolve(null)), [make]);
   const [stewieMode, setStewieMode] = useState<"images" | "pages">("images");
   const [background, setBackground] = useState("");
-  const gameplay = stewie.data?.backgrounds ?? (stewie.data?.worker?.backgrounds ?? []).map(id => ({ id, label: gameplayLabel(id), thumbnailUrl: null }));
+  const gameplay = stewie.data?.backgrounds ?? footage.data?.backgrounds ?? (stewie.data?.worker?.backgrounds ?? []).map(id => ({ id, label: gameplayLabel(id), thumbnailUrl: null }));
 
   const needsVenture = make !== "youtube" && make !== "stewie";
   const ready =
@@ -745,7 +785,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
 
       {make === "stewie" && (
         <div className="grid gap-3.5">
-          {stewie.data && (
+          {stewie.data && (!stewie.data.configured || stewie.data.running) && (
             <p className={cn("text-[12.5px]", stewie.data.configured ? "text-muted-foreground" : "text-destructive")}>
               {stewie.data.configured ? stewie.data.note : <>{stewie.data.note} <Link to="/integrations/workdash" className="underline decoration-dotted">Connect it</Link>.</>}
               {stewie.data.running ? " A reel is rendering on the Pi right now; it does one at a time." : ""}
@@ -759,7 +799,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
               <Textarea value={url} onChange={(e) => setUrl(e.target.value)} rows={3} placeholder="https://…" className="text-[14px]" />
             </Field>
           )}
-          <GameplayPicker backgrounds={gameplay} value={background} onChange={setBackground} loading={stewie.loading} />
+          <GameplayPicker backgrounds={gameplay} value={background} onChange={setBackground} loading={footage.loading && stewie.loading} />
         </div>
       )}
 
@@ -859,20 +899,20 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
       {make === "image" ? (
         <div className="grid gap-3.5 sm:grid-cols-2">
           <Field label="Shape">
-            <Chips value={shape} onChange={setShape} options={SHAPES.map((s) => ({ key: s.key, label: s.key, sub: s.ratio }))} />
+            <ShapePicker value={shape} onChange={setShape} options={SHAPES} />
           </Field>
           <Field label="Written for">
             <Chips
               value={platform ?? ""}
               onChange={(v) => setPlatform(v || null)}
-              options={[{ key: "", label: "Any" }, ...PLATFORMS.map((p) => ({ key: p, label: p }))]}
+              options={["", ...PLATFORMS].map((p) => ({ key: p, label: <SocialPlatformLabel platform={p} /> }))}
             />
           </Field>
         </div>
       ) : make === "stewie" ? null : (
         <div className="grid gap-3.5 sm:grid-cols-2">
           <Field label="Shape">
-            <Chips value={aspect} onChange={setAspect} options={ASPECTS.map((a) => ({ key: a, label: a }))} />
+            <ShapePicker value={aspect} onChange={setAspect} options={ASPECT_OPTIONS} />
           </Field>
           {(make === "faceless" || make === "reel") && (
             <Field label="Length in seconds" hint={make === "faceless" ? "10 to 120." : "10 to 120; decides how many lines of dialogue there are."}>

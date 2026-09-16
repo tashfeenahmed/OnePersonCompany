@@ -6,6 +6,9 @@ import { gameplayBackgrounds, gameplayPreviewDirectory, gameplayThumbnail, impor
 import { gameplayLabel, isGameplayName } from "../../../../shared/gameplay.ts";
 import { DATA_DIR } from "../../config.ts";
 import { findFfmpeg, run } from "../video/tools.ts";
+import { stewieRoutes } from "./stewie-routes.ts";
+import { upsertPlugin } from "../../db.ts";
+import * as accounts from "../../accounts.ts";
 
 const agent = "https://render-agent.example.test";
 const file = "a".repeat(24) + ".jpg";
@@ -17,6 +20,23 @@ function seed() {
   writeFileSync(resolve(dir, "catalogue.json"), JSON.stringify([{ id: "subway_surfers", file }, { id: "fruit_ninja", file }]));
   return dir;
 }
+
+test("the saved catalogue loads without probing the remote render worker", async t => {
+  seed();
+  upsertPlugin("workdash", true, null);
+  const account = accounts.create("workdash", "Test renderer");
+  accounts.writeCredentials(account, "workdash", ["url", "key"], { url: agent, key: "test-key" });
+  t.mock.method(globalThis, "fetch", async () => { throw new Error("A catalogue read must not contact the worker"); });
+  const response = await stewieRoutes.request("/backgrounds");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "private, max-age=60");
+  const body = await response.json() as { backgrounds: { id: string }[] };
+  assert.deepEqual(body.backgrounds.map(item => item.id), ["subway_surfers", "fruit_ninja"]);
+  const preview = await stewieRoutes.request("/backgrounds/fruit_ninja/thumbnail");
+  assert.equal(preview.status, 200);
+  assert.match(preview.headers.get("Cache-Control")!, /private/);
+  accounts.remove(account);
+});
 
 test("sleeping workers retain selectable cached footage, served through local authenticated image routes", () => {
   seed();

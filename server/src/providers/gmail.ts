@@ -82,9 +82,10 @@
  *   GET  /users/me/messages          and  /users/me/messages/{id}?format=metadata
  *   POST /users/me/threads/{id}/modify        the one write — UNREAD only
  */
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import * as accounts from "../accounts.ts";
 import type { Account } from "../accounts.ts";
+import { ReadCache } from "../runtime/read-cache.ts";
 
 export const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 export const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -1141,14 +1142,11 @@ export async function collect(
    opposite kind of code, and the difference is worth stating rather than
    leaving to be discovered.
 
-   THE COLLECTOR STORES COUNTS. THE LIVE HALF STORES NOTHING. A mail client
-   has to render a subject, a sender and a body, so no mask can save this half
-   the way it saves that one — the private data is the product. What replaces
-   the mask is the absence of a destination: these functions are called inside
-   one HTTP request, their answer is written to one response, and there is no
-   table, no cache, no log line and no file anywhere below them. `routes/
-   mailbox.ts` is the only caller and its own header carries the same rule from
-   the other end.
+   THE COLLECTOR STORES COUNTS. Live mail is never written to a table, file or
+   log. Interactive list pages may stay in a bounded memory cache for thirty
+   seconds; summary metadata for five minutes, verified against fresh Gmail
+   history IDs. Message bodies and attachments are not cached. The mailbox
+   routes apply the same policy and send no-store responses to the browser.
 
    That is a real stance change from the file it sits in and not an oversight,
    which is why it is a banner and not a comment. `routes/mail.ts` — the
@@ -1177,6 +1175,8 @@ export async function collect(
 export type Session = {
   account: Account;
   token: string;
+  /** Separates cached reads when credentials are changed, without storing them. */
+  cacheScope?: string;
   /** What Google says the grant carries, off the refresh response. `modify`
    *  checks this before it writes, because a read-only grant must fail as
    *  "this token cannot do that" and not as a 403 three frames later. */
@@ -1223,7 +1223,10 @@ export async function open(reader: string, accountId?: number): Promise<Session>
     pair.values["client-secret"]!,
     pair.values["refresh-token"]!,
   );
-  return { account: pair.account, token, scopes };
+  const cacheScope = createHash("sha256").update(JSON.stringify([
+    pair.values["client-id"], pair.values["client-secret"], pair.values["refresh-token"],
+  ])).digest("hex");
+  return { account: pair.account, token, scopes, cacheScope };
 }
 
 /* ------------------------------------------------------------- headers */
@@ -1404,17 +1407,23 @@ export async function listThreadStubs(
   };
 }
 
+type ThreadMetadata = { messages?: MetaMessage[] };
+// A fresh Gmail listing supplies each thread's latest history id. Reuse only
+// metadata with that exact revision; messages and attachments are never cached.
+const threadMetadata = new ReadCache<ThreadMetadata>(doc => doc.messages?.length ? 5 * 60_000 : 0, 500);
+
 /** The hydration on its own: ten quota units PER STUB. Pass only the threads
  *  you actually need drawn. */
 export async function hydrateThreads(
   session: Session,
   stubs: ThreadStub[],
+  opts: { cache?: boolean; fresh?: boolean } = {},
 ): Promise<{ threads: ThreadRow[]; dropped: number }> {
   const { token } = session;
 
   const hydrated = await pooled(stubs, CONCURRENCY, async (stub) => {
     try {
-      const doc = await get<{ messages?: MetaMessage[] }>(
+      const load = () => get<ThreadMetadata>(
         `threads/${encodeURIComponent(stub.id)}`,
         token,
         [
@@ -1429,6 +1438,9 @@ export async function hydrateThreads(
         ],
         COST.threadGet,
       );
+      const doc = opts.cache && stub.historyId
+        ? await threadMetadata.get(mailboxScope(session) + JSON.stringify([stub.id, stub.historyId]), load, opts.fresh)
+        : await load();
       return { stub, doc };
     } catch {
       /* Deleted, or refused for this one thread. Dropped rather than fatal. */
@@ -1496,14 +1508,29 @@ export async function hydrateThreads(
   return { threads, dropped };
 }
 
-/** The listing and the hydration, as every caller but triage wants them. */
+type ThreadPage = { threads: ThreadRow[]; nextPageToken: string | null; dropped: number; readAt: string };
+const mailboxPages = new ReadCache<ThreadPage>(page => page.dropped ? 0 : 30_000, 32);
+const mailboxScope = (session: Session) => `${session.account.id}:${session.cacheScope ?? createHash("sha256").update(session.token).digest("hex")}:`;
+
+export function invalidateMailboxPages(session: Session) {
+  mailboxPages.clear(mailboxScope(session));
+  threadMetadata.clear(mailboxScope(session));
+}
+
+/** Only the interactive mailbox opts into short-lived list caching. Collector
+ * and agent reads stay fresh. Keys include the account, credentials and query. */
 export async function listThreads(
   session: Session,
-  opts: { q: string; max: number; pageToken?: string },
-): Promise<{ threads: ThreadRow[]; nextPageToken: string | null; dropped: number }> {
-  const page = await listThreadStubs(session, opts);
-  const { threads, dropped } = await hydrateThreads(session, page.stubs);
-  return { threads, nextPageToken: page.nextPageToken, dropped };
+  opts: { q: string; max: number; pageToken?: string; cache?: boolean; fresh?: boolean },
+): Promise<ThreadPage> {
+  const load = async () => {
+    const page = await listThreadStubs(session, opts);
+    const { threads, dropped } = await hydrateThreads(session, page.stubs, opts);
+    return { threads, nextPageToken: page.nextPageToken, dropped, readAt: new Date().toISOString() };
+  };
+  if (!opts.cache) return load();
+  const key = mailboxScope(session) + JSON.stringify([opts.q, opts.max, opts.pageToken ?? null]);
+  return mailboxPages.get(key, load, opts.fresh);
 }
 
 /* ---------------------------------------------------------------- reading */
@@ -1709,6 +1736,7 @@ export async function modify(
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(threadId))
     throw new GmailError(400, "That is not a Gmail thread id.");
 
+  invalidateMailboxPages(session);
   await gate(COST.threadModify);
   const res = await fetch(
     `${GMAIL_API}/threads/${threadId}/modify`,
@@ -1739,6 +1767,7 @@ export async function modify(
      caller asked for a state and this returns the state it asked for, so a
      partial write would have been an error rather than a different answer. */
   await res.text();
+  invalidateMailboxPages(session);
   return { threadId, unread };
 }
 

@@ -34,7 +34,7 @@
  */
 import { Buffer } from "node:buffer";
 import { gmailMailboxes } from "../../db.ts";
-import { GMAIL_API, GmailError, type Session } from "../../providers/gmail.ts";
+import { GMAIL_API, GmailError, invalidateMailboxPages, type Session } from "../../providers/gmail.ts";
 
 const TIMEOUT_MS = 45_000;
 
@@ -266,6 +266,7 @@ export async function sendMessage(
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 
+  invalidateMailboxPages(session);
   const text = await res.text();
   if (!res.ok) {
     let message = text.slice(0, 300);

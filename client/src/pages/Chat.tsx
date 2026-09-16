@@ -167,19 +167,15 @@ import { useModelProviders } from "@/hooks/useModelProviders";
 import {
   Bot,
   Brain,
-  Bug,
   Check,
   ChevronDown,
   ChevronRight,
-  Code2,
   Cpu,
   FolderClosed,
   LayoutDashboard,
   Plug,
   Plus,
-  Sparkles,
   TriangleAlert,
-  Wrench,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -191,6 +187,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CommandBar } from "@/components/chat/CommandBar";
 import { ReportCard } from "@/components/chat/ReportCard";
+import { DailySuggestions } from "@/components/chat/DailySuggestions";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { VentureMark } from "@/components/VentureChrome";
@@ -208,34 +205,6 @@ import {
   type ChatRunState,
   type ChatToolCall,
 } from "@/lib/api";
-
-const SUGGESTIONS = [
-  {
-    icon: Sparkles,
-    title: "Explore starter templates",
-    desc: "Standard startup scaffolds, ready to fork",
-    prompt:
-      "Explore standard startup templates and show me what fits a solo founder.",
-  },
-  {
-    icon: Wrench,
-    title: "Build a new feature",
-    desc: "Plan it, scaffold it, wire it up",
-    prompt: "Help me build a new feature. Start by asking what the feature is.",
-  },
-  {
-    icon: Code2,
-    title: "Review code",
-    desc: "Catch bugs and rough edges before merge",
-    prompt: "Review the code on my current branch and flag anything risky.",
-  },
-  {
-    icon: Bug,
-    title: "Fix an issue",
-    desc: "Paste an error, trace it to the cause",
-    prompt: "Here's a failing test / error. Help me fix it.",
-  },
-];
 
 const BACKEND_NAMES: Record<ChatBackendId, string> = {
   hermes: "Hermes",
@@ -1968,34 +1937,14 @@ export function Chat() {
               <p className="text-muted-foreground mb-6 text-[14.5px]">
                 {loading
                   ? "Reading this chat…"
-                  : "Start from scratch, or pick up one of these."}
+                  : "Picked from your workspace. Fresh every day."}
               </p>
 
-              <div className="grid gap-2 sm:grid-cols-2">
-                {SUGGESTIONS.map(({ icon: Icon, title, desc, prompt }) => (
-                  <button
-                    key={title}
-                    onClick={() => {
-                      setText(prompt);
-                      inputRef.current?.focus();
-                    }}
-                    className="bg-card hover:bg-card-hover flex items-start gap-2.5 rounded-[14px] px-4.5 py-3.5 text-left transition-colors active:translate-y-px"
-                  >
-                    <Icon
-                      className="text-muted-foreground mt-0.5 size-4 shrink-0"
-                      strokeWidth={1.6}
-                    />
-                    <span>
-                      <span className="block text-[14px] font-medium tracking-tight">
-                        {title}
-                      </span>
-                      <span className="text-muted-foreground mt-0.5 block text-[13px]">
-                        {desc}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <DailySuggestions ventureId={targetId} onChoose={suggestion => {
+                setTargetId(suggestion.ventureId);
+                setText(suggestion.prompt);
+                inputRef.current?.focus();
+              }} />
             </>
           )}
 

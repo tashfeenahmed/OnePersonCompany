@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { SocialPlatformLabel } from "@/components/SocialPlatform";
 import { socialfeedApi, type SocialAccount, type SocialPost } from "./api";
 
 export function PublishedTimeline({
@@ -199,7 +200,7 @@ function AccountLine({ account: a }: { account: SocialAccount }) {
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 py-1 text-[13.5px]">
       <span className={cn("size-1.5 shrink-0 rounded-full", bad ? "bg-destructive" : a.lastOkAt ? "bg-ok" : "bg-warn")} />
       <span className="min-w-[140px] truncate">{a.pageName ?? a.pageId}</span>
-      <span className="text-muted-foreground text-[12.5px]">{a.platform}</span>
+      <SocialPlatformLabel platform={a.platform} className="text-muted-foreground text-[12.5px]" />
       {a.ventureName && <span className="text-muted-foreground text-[12.5px]">{a.ventureName}</span>}
       <span className="text-muted-foreground text-[12.5px]">
         {a.posts === null ? "no posts read" : `${a.posts} posts`}
@@ -228,7 +229,7 @@ function PostCard({ post: p }: { post: SocialPost }) {
         )}
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
-            <span className="text-muted-foreground">{p.platform}</span>
+            <SocialPlatformLabel platform={p.platform} className="text-muted-foreground" />
             {p.pageName && <span className="text-muted-foreground">{p.pageName}</span>}
             {p.mediaType && <span className="text-muted-foreground">{p.mediaType}</span>}
             <span className="text-muted-foreground">{when(p.createdTime, { year: true })}</span>

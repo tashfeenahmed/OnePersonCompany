@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Copy, ImageOff, Loader2, RefreshCw, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SocialPlatformLabel } from "@/components/SocialPlatform";
 import { when } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { studioApi, type StudioPost } from "@/lib/api/studio";
@@ -192,7 +193,7 @@ export function PostCard({
           {post.platform && (
             <>
               <span>·</span>
-              <span>{post.platform}</span>
+              <SocialPlatformLabel platform={post.platform} />
             </>
           )}
           {post.model && (

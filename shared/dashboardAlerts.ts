@@ -57,9 +57,9 @@ export function currentDashboardAlerts(input:{fleet?:FleetAlertInput;domains?:Do
   const d=input.domains;
   if(d)for(const domain of d.domains) {
     const days=domain.expiresInDays;
-    if(days===null || days>d.summary.thresholds.warn)continue;
+    if(days===null || !Number.isFinite(days) || days<0 || days>d.summary.thresholds.warn)continue;
     alerts.push({id:`domain:${domain.name.toLowerCase()}:expiry`,severity:days<=d.summary.thresholds.crit?"critical":"warning",
-      title:days<0?`${domain.name} expired ${Math.abs(days)} days ago`:days===0?`${domain.name} expires today`:`${domain.name} expires in ${days} days`,
+      title:days===0?`${domain.name} expires today`:`${domain.name} expires in ${days} days`,
       detail:`${domain.registrar} · auto-renew ${domain.autoRenew===null?"not reported":domain.autoRenew?"on":"off"}.`,sources:["domains"],entity:{kind:"domain",id:domain.name.toLowerCase()}});
   }
   if(input.uptime)for(const host of input.uptime.hosts) {

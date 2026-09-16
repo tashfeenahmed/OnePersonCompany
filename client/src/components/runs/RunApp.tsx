@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { VentureSelect } from "@/components/VentureSelect";
+import { ShapePicker } from "@/components/studio/ShapePicker";
+import { ASPECT_OPTIONS } from "@/data/mediaShapes";
 import { RunReport } from "@/components/runs/RunReport";
 import {
   backendPhrase,
@@ -361,7 +363,16 @@ export function RunApp({
                     with no options falls through to the text input below,
                     which is the honest fallback for a field this client does
                     not understand. */}
-                {f.kind === "select" && f.options?.length ? (
+                {f.kind === "select" && f.key === "aspect" && f.options?.length && f.options.every((o) => ASPECT_OPTIONS.some((a) => a.key === o.value)) ? (
+                  <div className="max-w-sm">
+                    <ShapePicker
+                      label={f.label}
+                      value={valueOf(f)}
+                      onChange={(value) => setValues((v) => ({ ...v, [f.key]: value }))}
+                      options={f.options.map((o) => ASPECT_OPTIONS.find((a) => a.key === o.value)!)}
+                    />
+                  </div>
+                ) : f.kind === "select" && f.options?.length ? (
                   <div className="flex flex-wrap gap-1.5">
                     {f.options.map((o) => (
                       <button

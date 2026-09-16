@@ -102,6 +102,15 @@ export function clipCounts(): Map<string, number> {
   return new Map(rows.map((r) => [r.run_id, r.n]));
 }
 
+export function clipPathsByRun(runIds: string[]): Map<string, string[]> {
+  if (!runIds.length) return new Map();
+  const rows = db.prepare(`SELECT run_id, path FROM video_clips WHERE run_id IN (${runIds.map(() => "?").join(",")}) AND path IS NOT NULL ORDER BY idx`)
+    .all(...runIds) as { run_id: string; path: string }[];
+  const paths = new Map<string, string[]>();
+  for (const row of rows) paths.set(row.run_id, [...(paths.get(row.run_id) ?? []), row.path]);
+  return paths;
+}
+
 export function saveJob(job: {
   runId: string;
   ventureId: string | null;

@@ -34,6 +34,7 @@ import { budgets, saveBudgets, queuePaused, setQueuePaused, usageReport } from "
  * two minutes from finishing.
  */
 import { Hono } from "hono";
+import { sourceDeletionProblem } from "../publishing/sourceDeletion.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { db, now, ventureRow, ventureRowById } from "../../db.ts";
 import { activeBackend } from "../../chat/backend.ts";
@@ -355,16 +356,23 @@ runRoutes.delete("/:id", (c) => {
   const id = c.req.param("id");
   const row = runRow(id);
   if (!row) return c.json({ error: "No run by that id." }, 404);
-  if (row.status === "running")
+  if (row.status === "running" || row.status === "queued")
     return c.json(
       {
         error:
-          "That run is still working. Cancel it first — stopping a run and " +
+          "That run is queued or still working. Cancel it first — stopping a run and " +
           "deleting the record of it are two different things.",
       },
       409,
     );
-  return c.json({ id, deleted: deleteRun(id) });
+  const problem = row.kind === "video" ? sourceDeletionProblem("video_job", id) : null;
+  if (problem) return c.json({ error: problem }, 409);
+  try {
+    return c.json({ id, deleted: deleteRun(id) });
+  } catch (error) {
+    console.error("Run deletion failed", id, error);
+    return c.json({ error: "Could not remove all generation files. The generation was kept so you can retry." }, 500);
+  }
 });
 
 runRoutes.get("/:id/markdown", (c) => {

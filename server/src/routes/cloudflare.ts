@@ -39,7 +39,7 @@ import {
 } from "../db.ts";
 import { CANNOT, CLOUDFLARE_GRAPHQL, WINDOW_DAYS } from "../providers/cloudflare.ts";
 import { CLOUDFLARE_WINDOW_DAYS } from "../collector.ts";
-import { daysUntil, registeredDomains } from "../providers/domains.ts";
+import { daysUntil, domainHasExpired, registeredDomains } from "../providers/domains.ts";
 
 export const cloudflareRoutes = new Hono();
 
@@ -83,7 +83,7 @@ cloudflareRoutes.get("/", (c) => {
 
   const zoneRows = cloudflareZones();
   const state = cloudflareState();
-  const registrarRows = cloudflareRegistrar();
+  const registrarRows = cloudflareRegistrar().filter((d) => !domainHasExpired(d.expires_at));
 
   const today = new Date().toISOString().slice(0, 10);
   const through = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
@@ -129,7 +129,9 @@ cloudflareRoutes.get("/", (c) => {
      A Cloudflare row reports no nameservers, so such a zone lands in `unknown`
      — the registrar holds it and would not say where it points — which is the
      honest verdict rather than a missing one. */
-  const domains = registeredDomains();
+  // DNS configuration can outlive a registration. Keep its ownership metadata
+  // for the alignment join without presenting it as an active renewal.
+  const domains = registeredDomains({ includeExpired: true });
   const heldByName = new Map<string, (typeof domains)[number]>();
   const claimedTwice: string[] = [];
   for (const d of domains) {
@@ -317,6 +319,7 @@ cloudflareRoutes.get("/", (c) => {
 
   const byState = (s: string) => zones.filter((z) => z.alignment.state === s);
   const registrarOnly = domains
+    .filter((d) => !domainHasExpired(d.expires_at))
     .filter((d) => !zoneNames.has(d.name.toLowerCase()))
     .map((d) => ({
       name: d.name,

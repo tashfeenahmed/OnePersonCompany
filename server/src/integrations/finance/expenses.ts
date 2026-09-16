@@ -25,6 +25,7 @@
  * profit.ts — and the ledger stays a list of things that recur.
  */
 import { db, allDomains, now, ventureRowById } from "../../db.ts";
+import { domainHasExpired, domainName, registeredDomains } from "../../providers/domains.ts";
 import { ventureOfEntity } from "../ventures/links.ts";
 import { tldPrice } from "./prices.ts";
 import {
@@ -91,17 +92,39 @@ export const ownerFields = (r: ExpenseRow): string[] => {
 
 /* ------------------------------------------------------------------ reads */
 
+/** Expired registrations stop contributing to current commitments. Derive
+ * this from the registrar on read, preserving the stored row and owner edits
+ * so a renewed domain returns automatically. End the historical commitment
+ * at expiry, rather than deleting costs from months when it was still held. */
+function withDomainExpiry(rows: ExpenseRow[]): ExpenseRow[] {
+  if (!rows.some((r) => r.source === "registrar")) return rows;
+  const at = new Date();
+  const registrations = new Map(registeredDomains({ includeExpired: true, now: at })
+    .map((d) => [domainName(d.name), d.expires_at]));
+  return rows.map((r) => {
+    if (r.source !== "registrar" || !r.source_ref) return r;
+    const name = domainName(r.source_ref.slice(r.source_ref.indexOf(":") + 1));
+    // A registrar may eventually drop the expired name altogether. Its last
+    // recorded renewal date still ends the bill; disappearance is not renewal.
+    const end = registrations.has(name) ? registrations.get(name)! : r.renewal_on;
+    if (!end || !domainHasExpired(end, at)) return r;
+    return { ...r, archived: 1, ends_on: r.ends_on && r.ends_on < end ? r.ends_on : end };
+  });
+}
+
 export function allExpenses(includeArchived = false): ExpenseRow[] {
-  return db
+  const rows = db
     .prepare(
       `SELECT * FROM finance_expenses ${includeArchived ? "" : "WHERE archived = 0"}
        ORDER BY category, label`,
     )
     .all() as unknown as ExpenseRow[];
+  return withDomainExpiry(rows).filter((r) => includeArchived || r.archived === 0);
 }
 
 export function expense(id: string): ExpenseRow | undefined {
-  return db.prepare("SELECT * FROM finance_expenses WHERE id = ?").get(id) as ExpenseRow | undefined;
+  const row = db.prepare("SELECT * FROM finance_expenses WHERE id = ?").get(id) as ExpenseRow | undefined;
+  return row ? withDomainExpiry([row])[0] : undefined;
 }
 
 /** How the row goes on the wire, with the two derived cadences computed here
@@ -599,4 +622,3 @@ export function relinkDomains(): number {
   }
   return moved;
 }
-

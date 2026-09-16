@@ -951,7 +951,7 @@ const yesNo = (v: boolean | null, yes: string, no: string) =>
  */
 function registrarWord(summary: DomainSummary): string {
   const names = Object.keys(summary.byRegistrar);
-  if (!names.length) return "no registrar answered";
+  if (!names.length) return "No active domains";
   const who = names.length === 1 ? `all from ${names[0]}` : names.join(" and ");
   return summary.accounts > names.length
     ? `${who} · ${summary.accounts} accounts`
@@ -976,7 +976,7 @@ Object.assign(LIVE_BUILDERS, {
       // Nought is the good answer here and deserves a sentence, not a blank.
       sub: n
         ? "the registrar may still hold these — check today"
-        : "nothing has lapsed",
+        : "Expired domains are excluded",
     };
   },
 

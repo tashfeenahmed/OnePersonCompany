@@ -1,5 +1,5 @@
 /**
- * The mailbox — a live proxy onto Gmail and Resend. NOTHING HERE IS STORED.
+ * The mailbox — Gmail and Resend reads, with no persistent message storage.
  *
  * THAT IS THE FIRST THING TO KNOW AND IT IS A DELIBERATE BREAK WITH THE ROUTE
  * NEXT DOOR. `routes/mail.ts` answers "what is my mail doing" out of tables
@@ -8,17 +8,18 @@
  * is what makes its privacy claim structural rather than a promise. This route
  * answers "what does this thread say", which no such table could ever answer,
  * so it does the opposite thing: it asks Gmail on the read, hands the answer
- * to one browser, and forgets it.
+ * to the browser, with bounded memory caching for Gmail list pages and unchanged summaries.
  *
  * Concretely, and this is the whole contract:
  *
  *   * no `INSERT`, no `UPDATE`, no file write and no `console.log` of anything
  *     that came out of a message. The only database reads below are the
  *     mailbox ADDRESS and the sending DOMAIN LIST — configuration, not mail.
- *   * no cache. A thread read twice is fetched twice. A sixty-second memo
- *     would be a mailbox living in this process's heap between requests, which
- *     is a smaller version of the thing this route exists not to do, and it
- *     would buy a page load that is already two seconds.
+ *   * only interactive Gmail list pages are cached, for 30 seconds in memory.
+ *     Keys include credentials, account and query; read/unread writes invalidate
+ *     them, and Refresh bypasses them. Summary metadata is reused for up to
+ *     five minutes only if a fresh listing reports the same Gmail history id.
+ *     Message bodies remain uncached.
  *   * `routes/mail.ts` is untouched by any of it. Its schema is still
  *     body-free, and nothing here writes to it.
  *
@@ -87,6 +88,10 @@ import {
 import { threadHosts, ventureForThread, type ThreadHost } from "../integrations/mailflow/triage.ts";
 
 export const mailbox = new Hono();
+mailbox.use("*", async (c, next) => {
+  c.header("Cache-Control", "no-store");
+  await next();
+});
 
 /**
  * How many threads a page carries.
@@ -705,7 +710,7 @@ mailbox.get("/threads", async (c) => {
   const result = await answered(async () => {
     const session: Session = await open("mailbox_threads", accountParam(c.req.query("account")));
     const q = composeQuery(scopeFor(mailboxKey, gmail?.address ?? null), typed);
-    const listed = await listThreads(session, { q, max, pageToken: page });
+    const listed = await listThreads(session, { q, max, pageToken: page, cache: true, fresh: c.req.query("refresh") === "1" });
     return { session, q, listed };
   });
 
@@ -727,6 +732,7 @@ mailbox.get("/threads", async (c) => {
     /** Set when the chip named a domain no connected key covers, so the page
      *  can say the filter was ignored rather than quietly widening. */
     mailboxIgnored: chip && !known ? chip : null,
+    readAt: listed.readAt,
     threads: listed.threads.map((t: ThreadRow) => ({
       id: t.id,
       subject: t.subject,

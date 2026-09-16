@@ -109,6 +109,7 @@ export type VideoClip = {
 
 export type VideoJob = {
   runId: string;
+  thumbnailUrl?: string | null;
   ventureId: string | null;
   ventureName: string | null;
   format: string;
@@ -222,6 +223,7 @@ export type StewieDoc = {
 
 export const stewieApi = {
   read: () => call<StewieDoc>("/stewie"),
+  backgrounds: () => call<{ backgrounds: import("../../../../shared/gameplay").GameplayBackground[] }>("/stewie/backgrounds"),
 };
 
 /* ------------------------------------------------------------- autopilot */

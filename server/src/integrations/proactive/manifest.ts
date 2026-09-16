@@ -61,6 +61,7 @@ import {
   validZone,
 } from "./briefing.ts";
 import { briefingRoutes } from "./briefing-routes.ts";
+import { suggestionRoutes } from "./suggestion-routes.ts";
 import { SKILLS, PACKS } from "./skills.ts";
 
 /** A minute after each collect tick — see the file header. */
@@ -190,6 +191,7 @@ export const manifest: IntegrationManifest = {
   packs: PACKS,
 
   routes: [
+    { path: "/api/home", app: suggestionRoutes },
     { path: "/api/alerts", app: alertRoutes },
     { path: "/api/briefing", app: briefingRoutes },
   ],

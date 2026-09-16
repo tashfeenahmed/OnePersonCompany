@@ -26,8 +26,17 @@ test("a missing server produces one reporting incident instead of replaying stal
 test("domain expiry and TLS warnings respect unknown values, urgency and unique domain identities",()=>{
   const d=(name:string,days:number|null)=>({name,expiresInDays:days,autoRenew:true,registrar:"Registrar"});
   const issues=currentDashboardAlerts({domains:{domains:[d("soon.test",30),d("urgent.test",7),d("expired.test",-2),d("safe.test",31),d("unknown.test",null),d("soon.test",30)],summary:{thresholds:{crit:7,warn:30}}},uptime:{hosts:[{host:"site.test",current:{ok:false,error:"Timeout",status:null},tls:{daysLeft:5}}]}});
-  assert.equal(issues.length,5);assert.equal(issues.filter(a=>a.severity==="critical").length,4);
+  assert.equal(issues.length,4);assert.equal(issues.filter(a=>a.severity==="critical").length,3);
+  assert.ok(!issues.some(a=>a.id==="domain:expired.test:expiry"));
   assert.equal(currentDashboardAlerts({}).length,0);
+});
+test("expired registrations leave navigation while today's renewals and TLS failures stay actionable",()=>{
+  const domain=(name:string,days:number|null)=>({name,expiresInDays:days,autoRenew:false,registrar:"Registrar"});
+  const issues=currentDashboardAlerts({domains:{domains:[domain("past.test",-1),domain("today.test",0),domain("invalid.test",NaN)],summary:{thresholds:{crit:7,warn:30}}},uptime:{hosts:[{host:"active.test",current:{ok:true,status:200},tls:{daysLeft:-1}}]}});
+  assert.deepEqual(issues.map(a=>a.id).sort(),["domain:today.test:expiry","uptime:active.test:tls"]);
+  const rollup=dashboardAlertRollup([board("domains",["registrars.runway"]),board("d-overview",[])],issues);
+  assert.equal(rollup.byBoard.domains?.count,2);
+  assert.equal(rollup.total.count,2);
 });
 test("navigation counts unique alerts, not repeated widgets or appearances on multiple boards",()=>{
   const issues=[alert("disk",["fleet","hetzner"]),alert("domain",["domains"],{severity:"critical"}),alert("payment",["stripe"])];

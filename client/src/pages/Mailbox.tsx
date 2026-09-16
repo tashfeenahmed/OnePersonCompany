@@ -8,10 +8,12 @@ import {
   Mail,
   MailOpen,
   Paperclip,
+  RefreshCw,
   Search,
 } from "lucide-react";
-import { bytes, day, when } from "@/lib/format";
+import { ago, bytes, day, when } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
 import { useStore, type Venture } from "@/lib/store";
@@ -122,11 +124,14 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
   const chips = useApi(() => api.mailboxes(), []);
   const connected = chips.data?.connected ?? null;
 
+  const forceRefresh = useRef(false);
   const threads = useApi(
-    async () =>
-      mode === "inbox" && connected
-        ? await api.mailboxThreads({ q, mailbox: chip, page })
-        : null,
+    async () => {
+      if (mode !== "inbox" || !connected) return null;
+      const refresh = forceRefresh.current;
+      forceRefresh.current = false;
+      return api.mailboxThreads({ q, mailbox: chip, page, refresh });
+    },
     [mode, connected, q, chip, page],
   );
 
@@ -150,7 +155,12 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
      half-second before the first request even leaves — an empty state is a
      claim, and it must not be made about a question nobody has asked yet. */
   const loading =
-    chips.loading || (mode === "inbox" ? threads.loading : sent.loading);
+    (chips.loading && !chips.data) || (mode === "inbox" ? threads.loading && !threads.data : sent.loading && !sent.data);
+  const refreshing = mode === "inbox" ? threads.loading : sent.loading;
+  function refreshMail() {
+    if (mode === "inbox") { forceRefresh.current = true; setReadNow({}); threads.reload(); }
+    else sent.reload();
+  }
   const error = mode === "inbox" ? threads.error : sent.error;
 
   /**
@@ -224,25 +234,33 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
       {/* The controls do not scroll with the rows. A search box that leaves
           the top of the list is a search box you scroll back up to reach. */}
       <div className="shrink-0 border-b px-3 pt-2.5 pb-2">
-        <div className="relative">
-          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-          <Input
-            value={typed}
-            onChange={(e) => {
-              setTyped(e.target.value);
-              setPage(null);
-              setBack([]);
-            }}
-            placeholder={
-              mode === "inbox"
-                ? "Search this mailbox — from:, has:attachment, \"a phrase\""
-                : "Search is Gmail's; this list is Resend's"
-            }
-            disabled={mode === "sent"}
-            className="h-8 pl-8 text-[13.5px]"
-            aria-label="Search mail"
-          />
+        <div className="flex items-center gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+            <Input
+              value={typed}
+              onChange={(e) => {
+                setTyped(e.target.value);
+                setPage(null);
+                setBack([]);
+              }}
+              placeholder={
+                mode === "inbox"
+                  ? "Search this mailbox — from:, has:attachment, \"a phrase\""
+                  : "Search is Gmail's; this list is Resend's"
+              }
+              disabled={mode === "sent"}
+              className="h-8 pl-8 text-[13.5px]"
+              aria-label="Search mail"
+            />
+          </div>
+          <Button variant="ghost" size="icon-sm" disabled={refreshing} aria-label="Refresh mail" title="Refresh mail" onClick={refreshMail}>
+            <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
+          </Button>
         </div>
+        {mode === "inbox" && threads.data?.readAt && <p className="text-muted-foreground mt-1 text-[11px]" role="status">
+          {refreshing ? "Updating…" : `Updated ${ago(threads.data.readAt)}`}
+        </p>}
 
         {/* The chips. Horizontal scroll rather than wrap: ten domains wrapped
             onto three lines is a third of the list pane spent on a filter. */}

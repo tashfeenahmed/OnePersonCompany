@@ -57,14 +57,9 @@ function tld(name: string): string {
 }
 
 domains.get("/", (c) => {
-  /* NOT `allDomains()`, WHICH IS ONLY THE `domains` TABLE. A name registered
-     at Cloudflare is collected into a second table of its own, and while this
-     route read the first one only, every number below — the total, the lapsed
-     and expiring counts, auto-renew-off, unlocked, the runway — silently left
-     those names out. `registeredDomains()` is the one reader both this page
-     and the Cloudflare page go through. */
-  const rows = registeredDomains();
   const now = new Date();
+  // Every current domain widget uses the same active, deduplicated portfolio.
+  const rows = registeredDomains({ now });
 
   const list = rows.map((r) => ({
     name: r.name,
@@ -88,12 +83,6 @@ domains.get("/", (c) => {
 
   const dated = list.filter((d) => d.expiresInDays !== null);
 
-  /*
-    LAPSED IS NOT "EXPIRING". A name whose date has passed is counted by
-    `lapsed` and by nothing else: rolling it into "1 renewing this week" would
-    let the most urgent row on the page hide inside a number that also means
-    "there is a week to sort this out". They are different mornings.
-  */
   const within = (days: number) =>
     dated.filter((d) => d.expiresInDays! >= 0 && d.expiresInDays! <= days).length;
 
@@ -123,9 +112,9 @@ domains.get("/", (c) => {
        *  more than one is a portfolio that says so. */
       accounts: Object.keys(byAccount).length,
       byTld,
-      /** Already past their date. A registrar can still hold a name in
-       *  redemption, so this is a finding rather than an absence. */
-      lapsed: dated.filter((d) => d.expiresInDays! < 0).length,
+      /** Compatibility for saved widgets/rules. Expired names are no longer
+       * part of this active portfolio, even if the registrar retains them. */
+      lapsed: 0,
       expiring7: within(EXPIRY.crit),
       expiring30: within(EXPIRY.warn),
       expiring90: within(90),

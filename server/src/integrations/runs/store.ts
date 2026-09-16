@@ -280,16 +280,14 @@ export function finishRunRow(
 }
 
 export function deleteRun(id: string): boolean {
+  // A video owns its entire run directory and previews. Remove these before
+  // any records, so a filesystem error leaves the generation available to retry.
+  forgetVideo(id);
   /* The rows that only exist because of this run go with it. `paper_library`
      does NOT: a paper that exists in the world is not un-published by deleting
      the run that found it, and the next scout would only fetch it again. */
   db.prepare("DELETE FROM geo_answers WHERE run_id = ?").run(id);
   db.prepare("DELETE FROM papers WHERE run_id = ?").run(id);
-  /* A video run also owns FILES — its whole directory under data/video. They
-     go with the row, because they exist only because of it and nothing else
-     will ever look for them. Deleting a run is the only moment somebody has
-     actually said so. */
-  forgetVideo(id);
   const res = db.prepare("DELETE FROM agent_runs WHERE id = ?").run(id);
   return Number(res.changes) > 0;
 }

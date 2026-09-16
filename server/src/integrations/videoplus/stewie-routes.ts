@@ -7,11 +7,18 @@
  */
 import { Hono } from "hono";
 import { agent, capabilities } from "./stewie.ts";
-import { gameplayThumbnail } from "./gameplay-previews.ts";
+import { gameplayBackgrounds, gameplayThumbnail } from "./gameplay-previews.ts";
 
 export const stewieRoutes = new Hono();
 
 stewieRoutes.get("/", async (c) => c.json(await capabilities()));
+
+// The saved footage catalogue does not depend on the worker health probe.
+stewieRoutes.get("/backgrounds", (c) => {
+  const connected = agent().agent;
+  c.header("Cache-Control", "private, max-age=60");
+  return c.json({ backgrounds: connected ? gameplayBackgrounds(connected.url) : [] });
+});
 
 stewieRoutes.get("/backgrounds/:name/thumbnail", c => {
   const connected = agent().agent;

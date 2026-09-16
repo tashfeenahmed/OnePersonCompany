@@ -54,7 +54,7 @@ test("a name held by two collectors is counted once, and the registrar's row win
   row("only-cf.example", "cloudflare", cloudflare, "Cloudflare Registrar", null);
   row("only-registrar.example", "spaceship", spaceship, "Spaceship", "2021-02-02");
 
-  const found = registeredDomains();
+  const found = registeredDomains({ now: new Date("2026-09-06T00:00:00Z") });
   assert.equal(found.length, 3, "the overlapping name is one domain, not two");
 
   const shared = found.find((d) => d.name.toLowerCase() === "shared.example");

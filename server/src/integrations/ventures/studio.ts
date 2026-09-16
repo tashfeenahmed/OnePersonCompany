@@ -1,6 +1,6 @@
 /** Studio creates captions with the shared LLM and images with the selected
  * image provider. Each half keeps its own result; neither publishes content. */
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Hono } from "hono";
 import { DATA_DIR } from "../../config.ts";
@@ -13,8 +13,16 @@ import { tokenAccounts } from "../../providers/replicate.ts";
 import { download, firstUrl, predict } from "../../tools/replicate-run.ts";
 import { ASPECTS } from "../video/assemble.ts";
 import { activeProvider, complete, NoProviderError } from "../../models/provider.ts";
+import { sourceDeletionProblem } from "../publishing/sourceDeletion.ts";
 
 export const studioRoutes = new Hono();
+const regenerating = new Set<string>();
+studioRoutes.use("/posts/:id/regenerate", async (c, next) => {
+  const id = c.req.param("id")!;
+  if (regenerating.has(id)) return c.json({ error: "This generation is already regenerating." }, 409);
+  regenerating.add(id);
+  try { await next(); } finally { regenerating.delete(id); }
+});
 
 /** The pseudo-plugin the image model hangs off — `chat` and `models` do the
  *  same one layer up, and for the same foreign-key reason. */
@@ -844,12 +852,18 @@ studioRoutes.post("/posts/:id/regenerate", async (c) => {
 studioRoutes.delete("/posts/:id", (c) => {
   const row = postRow(c.req.param("id"));
   if (!row) return c.json({ error: "No post by that id." }, 404);
-  if (row.image_path && existsSync(row.image_path)) {
-    try {
-      unlinkSync(row.image_path);
-    } catch {
-      /* a file that will not delete is not a reason to keep the row */
+  if (regenerating.has(row.id)) return c.json({ error: "This generation is regenerating. Wait for it to finish before deleting." }, 409);
+  const problem = sourceDeletionProblem("studio_post", row.id);
+  if (problem) return c.json({ error: problem }, 409);
+  try {
+    if (row.image_path) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(row.id) || resolve(row.image_path) !== resolve(STUDIO_DIR, `${row.id}.png`))
+        throw new Error("Image is outside this generation's storage.");
+      rmSync(row.image_path, { force: true });
     }
+  } catch (error) {
+    console.error("Studio generation deletion failed", row.id, error);
+    return c.json({ error: "Could not remove the image file. The generation was kept so you can retry." }, 500);
   }
   db.prepare("DELETE FROM studio_posts WHERE id = ?").run(row.id);
   return c.json({ ok: true, deleted: row.id });

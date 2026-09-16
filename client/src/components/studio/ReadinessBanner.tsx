@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { CircleCheck, CircleSlash } from "lucide-react";
+import { CircleSlash } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudioReadiness } from "@/lib/api/studio";
 
@@ -36,9 +36,12 @@ export function ReadinessBanner({ readiness }: { readiness: StudioReadiness }) {
     },
   ];
 
+  const missing = rows.filter((row) => !row.ready);
+  if (!missing.length) return null;
+
   return (
     <div className="overflow-hidden rounded-[14px] bg-card">
-      {rows.map((r, i) => (
+      {missing.map((r, i) => (
         <div
           key={r.key}
           className={cn(
@@ -46,17 +49,7 @@ export function ReadinessBanner({ readiness }: { readiness: StudioReadiness }) {
             i > 0 && "border-line-soft border-t",
           )}
         >
-          {r.ready ? (
-            <CircleCheck
-              className="text-ok mt-px size-4 shrink-0"
-              strokeWidth={1.7}
-            />
-          ) : (
-            <CircleSlash
-              className="text-warn mt-px size-4 shrink-0"
-              strokeWidth={1.7}
-            />
-          )}
+          <CircleSlash className="text-warn mt-px size-4 shrink-0" strokeWidth={1.7} />
           <div className="min-w-0">
             <div className="text-[14px]">{r.title}</div>
             <p className="text-muted-foreground mt-0.5 text-[13px] leading-relaxed">

@@ -53,6 +53,7 @@ import {
   stripeSubscriptions,
   type VentureRow,
 } from "../../db.ts";
+import { domainHasExpired } from "../../providers/domains.ts";
 import { hostMatch, hostOf } from "../../shared/host.ts";
 import { PORT } from "../../config.ts";
 import { serviceHeaders } from "../../auth.ts";
@@ -144,7 +145,7 @@ export function builtinEntities(): Entity[] {
   /* The two registrars. `source` IS the plugin id — a domain row knows which
      door read it — so a link points at dynadot or spaceship rather than at a
      "domains" plugin that has no page of its own. */
-  for (const d of allDomains())
+  for (const d of allDomains().filter((d) => !domainHasExpired(d.expires_at)))
     out.push({
       plugin: d.source,
       entity: d.name,

@@ -27,7 +27,7 @@ import * as accounts from "./accounts.ts";
 import * as hetzner from "./providers/hetzner.ts";
 import * as dynadot from "./providers/dynadot.ts";
 import * as spaceship from "./providers/spaceship.ts";
-import { daysUntil, type DomainRow } from "./providers/domains.ts";
+import { daysUntil, domainHasExpired, type DomainRow } from "./providers/domains.ts";
 import * as github from "./providers/github.ts";
 import * as npm from "./providers/npm.ts";
 import {
@@ -448,11 +448,12 @@ async function collectRegistrar(
   const soon = days.filter((n) => n !== null && n >= 0 && n <= 30).length;
   const lapsed = days.filter((n) => n !== null && n < 0).length;
 
-  record(`${id}.domains`, all.length, {
+  const active = all.filter((d) => !domainHasExpired(d.expiresAt));
+  record(`${id}.domains`, active.length, {
     /* What could not be answered, so a run that returns fewer facts than
        last week is visible as that rather than as a change in the account. */
-    withExpiry: all.filter((d) => d.expiresAt).length,
-    autoRenewOff: all.filter((d) => d.autoRenew === false).length,
+    withExpiry: active.filter((d) => d.expiresAt).length,
+    autoRenewOff: active.filter((d) => d.autoRenew === false).length,
     /* How many logins this figure is the sum of. A total that quietly became
        the sum of two accounts is a total that changed meaning. */
     accounts: okCount,
@@ -461,10 +462,10 @@ async function collectRegistrar(
   // An account that holds nothing is a real answer, not a failure: a
   // registrar can be connected and empty.
   const note =
-    `${all.length} domain${all.length === 1 ? "" : "s"}` +
+    `${active.length} active domain${active.length === 1 ? "" : "s"}` +
     (outcomes.length > 1 ? ` across ${okCount}/${outcomes.length} accounts` : "") +
     (soon ? `, ${soon} renewing within 30 days` : "") +
-    (lapsed ? `, ${lapsed} past its date` : "");
+    (lapsed ? `, ${lapsed} expired and excluded` : "");
 
   finishRun(runId, true, note, warnings.join("; ") || undefined);
   syncPlugin(id, warnings.join("; ") || null);
@@ -472,7 +473,7 @@ async function collectRegistrar(
   return {
     ok: true,
     runId,
-    domains: all.length,
+    domains: active.length,
     expiringSoon: soon,
     lapsed,
     accounts: outcomes,
