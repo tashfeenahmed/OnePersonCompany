@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, Check, Copy, Globe2, List, LoaderCircle, Search, Square } from "lucide-react";
@@ -96,9 +97,9 @@ export function DomainSearch() {
             onClick={() => { setMode(value); reset(); }} className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors disabled:opacity-50", mode === value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground")}><Icon className="size-4" />{label}</button>)}
         </div>
         <label className="flex items-center gap-2 text-xs text-muted-foreground" htmlFor={`${id}-registrar`}>Check with
-          <select id={`${id}-registrar`} disabled={busy} value={accountId} onChange={e => { setAccountId(Number(e.target.value)); reset(); }} className="max-w-[240px] rounded-lg border bg-background px-2 py-2 text-foreground">
-            {accounts.map(a => <option value={a.id} key={a.id}>{a.name}{accounts.filter(x => x.provider === a.provider).length > 1 ? ` · ${a.label}` : ""}</option>)}
-          </select>
+          <SelectField id={`${id}-registrar`} disabled={busy} value={accountId} onValueChange={(value) => { setAccountId(Number(value)); reset(); }} className="max-w-[240px] rounded-lg border bg-background px-2 py-2 text-foreground">
+            {accounts.map(a => <SelectOption value={a.id} key={a.id}>{a.name}{accounts.filter(x => x.provider === a.provider).length > 1 ? ` · ${a.label}` : ""}</SelectOption>)}
+          </SelectField>
         </label>
       </div>
       <form onSubmit={e => { e.preventDefault(); void run(); }} className="space-y-2">
@@ -125,7 +126,7 @@ export function DomainSearch() {
         {plan && <progress className="h-1 w-full accent-[var(--foreground)]" aria-label="Domains checked" value={results.length} max={plan.domains.length} />}
         {!!results.length && <>
           <div className="flex flex-wrap gap-2">
-            <select aria-label="Filter availability" value={filter} onChange={e => { setFilter(e.target.value as typeof filter); setLimit(50); }} className="rounded-lg border bg-background p-2 text-xs"><option value="all">All results</option>{Object.entries(LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+            <SelectField aria-label="Filter availability" value={filter} onValueChange={(value) => { setFilter(value as typeof filter); setLimit(50); }} className="rounded-lg border bg-background p-2 text-xs"><SelectOption value="all">All results</SelectOption>{Object.entries(LABELS).map(([key, label]) => <SelectOption key={key} value={key}>{label}</SelectOption>)}</SelectField>
             <input aria-label="Filter domain results" value={query} onChange={e => { setQuery(e.target.value); setLimit(50); }} placeholder="Filter names or extensions…" className="min-w-0 flex-1 rounded-lg border bg-background p-2 text-xs" />
           </div>
           <div className="max-h-[420px] overflow-auto rounded-xl border">

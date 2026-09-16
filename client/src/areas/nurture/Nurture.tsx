@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useState } from "react";
 import { Loader2, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -182,30 +183,30 @@ function NewSequence({ doc, onCreated }: { doc: NurtureDoc; onCreated: () => voi
       </label>
       <label className="block text-[13.5px]">
         Venture
-        <select
+        <SelectField
           aria-label="Venture"
           value={venture}
-          onChange={(e) => setVenture(e.target.value)}
-          className="border-line-soft mt-1 block w-full rounded border p-2 text-[13.5px]"
+          onValueChange={(value) => setVenture(value)}
+          className="border-line-soft mt-1 flex w-full rounded border p-2 text-[13.5px]"
         >
-          <option value="">No venture</option>
+          <SelectOption value="">No venture</SelectOption>
           {state.ventures.map((v) => (
-            <option key={v.id} value={v.id}>{v.name}</option>
+            <SelectOption key={v.id} value={v.id}>{v.name}</SelectOption>
           ))}
-        </select>
+        </SelectField>
       </label>
       <label className="block text-[13.5px]">
         Who joins it
-        <select
+        <SelectField
           aria-label="Enrolment kind"
           value={kind}
-          onChange={(e) => setKind(e.target.value)}
-          className="border-line-soft mt-1 block w-full rounded border p-2 text-[13.5px]"
+          onValueChange={(value) => setKind(value)}
+          className="border-line-soft mt-1 flex w-full rounded border p-2 text-[13.5px]"
         >
           {doc.enrolKinds.map((k) => (
-            <option key={k} value={k}>{k}</option>
+            <SelectOption key={k} value={k}>{k}</SelectOption>
           ))}
-        </select>
+        </SelectField>
         <span className="text-muted-foreground mt-1 block text-[12.5px]">
           signup, trial and churned are read from a product's own users document — the `users` plugin. With
           none connected they enrol nobody, and the sequence says so. `manual` means you (or the agent) add
@@ -468,25 +469,25 @@ function Identities({ doc, onChanged }: { doc: NurtureDoc; onChanged: () => void
         </div>
         <label className="block text-[13.5px]">
           {kind === "resend" ? "Which Resend key (one per sending domain)" : "Which Gmail account"}
-          <select
+          <SelectField
             aria-label="Account"
             value={accountId}
-            onChange={(e) => {
-              setAccountId(e.target.value);
+            onValueChange={(value) => {
+              setAccountId(value);
               if (kind === "gmail") {
-                const found = options.data?.gmail.find((g) => String(g.id) === e.target.value);
+                const found = options.data?.gmail.find((g) => String(g.id) === value);
                 if (found?.address) setFromAddress(found.address);
               }
             }}
-            className="border-line-soft mt-1 block w-full rounded border p-2 text-[13.5px]"
+            className="border-line-soft mt-1 flex w-full rounded border p-2 text-[13.5px]"
           >
-            <option value="">Choose one</option>
+            <SelectOption value="">Choose one</SelectOption>
             {(kind === "resend" ? (options.data?.resend ?? []) : (options.data?.gmail ?? [])).map((a) => (
-              <option key={a.id} value={a.id}>
+              <SelectOption key={a.id} value={a.id}>
                 {"domain" in a ? a.domain : (a.address ?? a.label)}
-              </option>
+              </SelectOption>
             ))}
-          </select>
+          </SelectField>
         </label>
         <label className="block text-[13.5px]">
           From address
@@ -503,17 +504,17 @@ function Identities({ doc, onChanged }: { doc: NurtureDoc; onChanged: () => void
         </label>
         <label className="block text-[13.5px]">
           Venture
-          <select
+          <SelectField
             aria-label="Identity venture"
             value={venture}
-            onChange={(e) => setVenture(e.target.value)}
-            className="border-line-soft mt-1 block w-full rounded border p-2 text-[13.5px]"
+            onValueChange={(value) => setVenture(value)}
+            className="border-line-soft mt-1 flex w-full rounded border p-2 text-[13.5px]"
           >
-            <option value="">No venture</option>
+            <SelectOption value="">No venture</SelectOption>
             {state.ventures.map((v) => (
-              <option key={v.id} value={v.id}>{v.name}</option>
+              <SelectOption key={v.id} value={v.id}>{v.name}</SelectOption>
             ))}
-          </select>
+          </SelectField>
         </label>
         {error && <p role="alert" className="text-destructive text-[13.5px]">{error}</p>}
         <Button

@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
@@ -299,13 +300,13 @@ function RefCard({ refItem, ventures, onChanged }: { refItem: Asset; ventures: V
       />
       {/* Which venture this belongs to, and a way to move it. A select
           rather than nineteen chips on every card. */}
-      <select
+      <SelectField aria-label="Reference venture"
         value={refItem.ventureId}
-        onChange={(e) => { if (e.target.value !== refItem.ventureId) void patch({ ventureId: e.target.value }); }}
+        onValueChange={(value) => { if (value !== refItem.ventureId) void patch({ ventureId: value }); }}
         className="border-line-soft h-7 rounded-[8px] border bg-transparent px-1.5 text-[12px]"
       >
-        {ventures.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-      </select>
+        {ventures.map((v) => <SelectOption key={v.id} value={v.id}>{v.name}</SelectOption>)}
+      </SelectField>
       <div className="text-muted-foreground flex items-center justify-between text-[12px]">
         <span>{saved ? "saved" : problem ? <span className="text-destructive">{problem}</span> : `used ${refItem.usedCount} time${refItem.usedCount === 1 ? "" : "s"}`}</span>
         <button type="button" className="hover:text-foreground hover:underline" onClick={() => void publishingApi.removeAsset(refItem.id).then(onChanged)}>

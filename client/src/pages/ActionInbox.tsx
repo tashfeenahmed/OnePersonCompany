@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useUndoActions, type UndoResult } from "@/components/interactions/UndoActions";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -25,7 +26,7 @@ export function ActionInbox() {
   }
   const items = data?.items.filter(i => !undo.handled.has(i.id) && (!source || i.source === source) && `${i.title} ${i.detail}`.toLowerCase().includes(query.toLowerCase())) ?? [];
   return <><TopBar label="Action inbox" /><PageShell title="Action inbox" sub="Alerts, replies, commitments, failed jobs and payment issues, ordered by urgency.">
-    <div className="flex flex-wrap gap-2 mb-4"><input aria-label="Search action inbox" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search actions…" className="border rounded p-2" /><select aria-label="Filter by source" value={source} onChange={e => setSource(e.target.value)} className="border rounded p-2"><option value="">All sources</option>{["Alert", "Email", "Commitment", "Failed job", "Revenue"].map(s => <option key={s}>{s}</option>)}</select><button className="rounded-lg px-3.5 bg-muted hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] transition-colors disabled:opacity-50" disabled={loading} onClick={reload}>Refresh</button></div>
+    <div className="flex flex-wrap gap-2 mb-4"><input aria-label="Search action inbox" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search actions…" className="border rounded p-2" /><SelectField aria-label="Filter by source" value={source} onValueChange={(value) => setSource(value)} className="border rounded p-2"><SelectOption value="">All sources</SelectOption>{["Alert", "Email", "Commitment", "Failed job", "Revenue"].map(s => <SelectOption key={s} value={s}>{s}</SelectOption>)}</SelectField><button className="rounded-lg px-3.5 bg-muted hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] transition-colors disabled:opacity-50" disabled={loading} onClick={reload}>Refresh</button></div>
     {(error || note) && <p role="status" className="mb-3 text-sm">{error || note}</p>}
     {loading && !data && <p role="status">Loading actions…</p>}
     {data && !items.length && <p>No open actions match this view.</p>}

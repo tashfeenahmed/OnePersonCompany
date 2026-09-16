@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useLocation, Link } from "react-router-dom";
 import { useDraft } from "@/hooks/useDraft";
 import { useStore } from "@/lib/store";
@@ -384,13 +385,13 @@ function Composer({ accounts, onCreated }: { accounts: OutboxDoc["accounts"]; on
   return <section className="bg-card rounded-xl p-5 space-y-3 mb-4">
     <h2 className="font-medium">{reply?.thread ? "Draft a reply" : "New draft"}</h2>
     {reply?.back && <Link className="text-sm underline" to={reply.back}>Back to conversation</Link>}
-    <label className="block text-sm">From<select aria-label="From account" value={account} disabled={!!reply?.thread} onChange={e => setAccount(e.target.value)} className="block border rounded p-2 w-full">
-      <option value="">Choose a Gmail account</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.address ?? a.label}</option>)}
-    </select></label>
+    <label className="block text-sm">From<SelectField aria-label="From account" value={account} disabled={!!reply?.thread} onValueChange={(value) => setAccount(value)} className="flex border rounded p-2 w-full">
+      <SelectOption value="">Choose a Gmail account</SelectOption>{accounts.map(a => <SelectOption key={a.id} value={a.id}>{a.address ?? a.label}</SelectOption>)}
+    </SelectField></label>
     <label className="block text-sm">To<Input value={to} type="email" onChange={e => setTo(e.target.value)} /></label>
     <label className="block text-sm">Subject<Input value={subject} maxLength={300} onChange={e => setSubject(e.target.value)} /></label>
     <label className="block text-sm">Message<Textarea value={body} maxLength={20000} rows={8} onChange={e => setBody(e.target.value)} /></label>
-    <label className="block text-sm">Venture<select value={venture} onChange={e => setVenture(e.target.value)} className="block border rounded p-2 w-full"><option value="">No venture</option>{state.ventures.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
+    <label className="block text-sm">Venture<SelectField value={venture} onValueChange={(value) => setVenture(value)} className="flex border rounded p-2 w-full"><SelectOption value="">No venture</SelectOption>{state.ventures.map(v => <SelectOption key={v.id} value={v.id}>{v.name}</SelectOption>)}</SelectField></label>
     {(error || toError || subjectError || bodyError) && <p role="alert" className="text-destructive text-sm">{error || toError || subjectError || bodyError}</p>}
     <div className="flex gap-2"><Button disabled={busy || !account || !to.trim() || !subject.trim() || !body.trim()} onClick={async () => {
       setBusy(true); setError(null);

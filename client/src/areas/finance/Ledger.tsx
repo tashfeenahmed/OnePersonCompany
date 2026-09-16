@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
@@ -103,13 +104,13 @@ function Row({ e, onChange }: { e: Expense; onChange: () => void }) {
           </div>
         </td>
         <td className="py-1.5 pr-3">
-          <select
+          <SelectField aria-label="Expense category"
             value={e.category}
-            onChange={(ev) => void patch({ category: ev.target.value })}
+            onValueChange={(value) => void patch({ category: value })}
             className="bg-transparent text-[13.5px] outline-none"
           >
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+            {CATEGORIES.map((c) => <SelectOption key={c} value={c}>{c}</SelectOption>)}
+          </SelectField>
         </td>
         <td className="py-1.5 pr-3 text-right">
           <Cell
@@ -133,13 +134,13 @@ function Row({ e, onChange }: { e: Expense; onChange: () => void }) {
           <Cell value={e.currency} owned={owned.has("currency")} onSave={(v) => patch({ currency: v })} />
         </td>
         <td className="py-1.5 pr-3">
-          <select
+          <SelectField aria-label="Expense period"
             value={e.period}
-            onChange={(ev) => void patch({ period: ev.target.value })}
+            onValueChange={(value) => void patch({ period: value })}
             className="bg-transparent text-[13.5px] outline-none"
           >
-            {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
+            {PERIODS.map((p) => <SelectOption key={p} value={p}>{p}</SelectOption>)}
+          </SelectField>
         </td>
         <td className="py-1.5 pr-3 text-right tabular-nums text-[13.5px]">
           {amount(e.monthly, e.currency)}
@@ -217,9 +218,9 @@ export function Ledger() {
             </label>
             <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">Category</div>
-              <select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} className="bg-card h-8 rounded-md px-3 text-[13.5px]">
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <SelectField aria-label="New expense category" value={draft.category} onValueChange={(value) => setDraft({ ...draft, category: value })} className="bg-card h-8 rounded-md px-3 text-[13.5px]">
+                {CATEGORIES.map((c) => <SelectOption key={c} value={c}>{c}</SelectOption>)}
+              </SelectField>
             </label>
             <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">Amount</div>
@@ -231,9 +232,9 @@ export function Ledger() {
             </label>
             <label className="text-[12.5px]">
               <div className="text-muted-foreground mb-1">Period</div>
-              <select value={draft.period} onChange={(e) => setDraft({ ...draft, period: e.target.value })} className="bg-card h-8 rounded-md px-3 text-[13.5px]">
-                {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
+              <SelectField aria-label="New expense period" value={draft.period} onValueChange={(value) => setDraft({ ...draft, period: value })} className="bg-card h-8 rounded-md px-3 text-[13.5px]">
+                {PERIODS.map((p) => <SelectOption key={p} value={p}>{p}</SelectOption>)}
+              </SelectField>
             </label>
             <button
               onClick={async () => {

@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -225,33 +226,33 @@ export function RuleEditor({
         </Field>
 
         <Field label="Which document" hint="From the live skills catalogue — the same list the agent reads.">
-          <select
+          <SelectField aria-label="Rule document"
             value={form.skill}
-            onChange={(e) => chooseSkill(e.target.value)}
+            onValueChange={(value) => chooseSkill(value)}
             className={selectClass}
           >
-            <option value="">Choose a document…</option>
+            <SelectOption value="">Choose a document…</SelectOption>
             {skills.map((s) => (
-              <option key={s.id} value={s.id}>
+              <SelectOption key={s.id} value={s.id}>
                 {s.id} — {s.title.split("—")[1]?.trim() ?? s.title}
-              </option>
+              </SelectOption>
             ))}
-          </select>
+          </SelectField>
         </Field>
 
         <Field label="Which view" hint="Most documents have one. Some are several cuts of the same data.">
-          <select
+          <SelectField aria-label="Rule view"
             value={form.view}
-            onChange={(e) => setForm((f) => ({ ...f, view: e.target.value, params: {} }))}
+            onValueChange={(value) => setForm((f) => ({ ...f, view: value, params: {} }))}
             className={selectClass}
             disabled={!chosen}
           >
             {(chosen?.views ?? []).map((v) => (
-              <option key={v.key} value={v.key}>
+              <SelectOption key={v.key} value={v.key}>
                 {v.key}
-              </option>
+              </SelectOption>
             ))}
-          </select>
+          </SelectField>
         </Field>
       </div>
 
@@ -319,17 +320,17 @@ export function RuleEditor({
 
       <div className="mt-2.5 grid gap-2.5 sm:grid-cols-3">
         <Field label="Trips when" hint={opInfo?.about ?? ""}>
-          <select
+          <SelectField aria-label="Rule operator"
             value={form.op}
-            onChange={(e) => set("op", e.target.value as Operator)}
+            onValueChange={(value) => set("op", value as Operator)}
             className={selectClass}
           >
             {operators.map((o) => (
-              <option key={o.op} value={o.op}>
+              <SelectOption key={o.op} value={o.op}>
                 {o.op}
-              </option>
+              </SelectOption>
             ))}
-          </select>
+          </SelectField>
         </Field>
 
         {opInfo?.needsThreshold ? (

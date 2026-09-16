@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useMemo, useState } from "react";
 import { Loader2, Play, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -197,17 +198,17 @@ export function SceneListEditor({ id, onChanged, onDeleted, className }: {
           {(parsed.scenes as Record<string, unknown>[]).map((scene, i) => (
             <div key={i} className="border-line-soft flex flex-wrap items-center gap-2 border-l-2 py-1 pl-2.5">
               <span className="text-muted-foreground w-[18px] text-[12.5px]">{i + 1}</span>
-              <select
+              <SelectField aria-label="Scene type"
                 value={String(scene.kind ?? "")}
-                onChange={(e) => patchScene(i, "kind", e.target.value)}
+                onValueChange={(value) => patchScene(i, "kind", value)}
                 className="border-line-soft rounded-[11px] border bg-transparent px-2 py-1 text-[13px]"
               >
                 {["title", "stat", "compare", "list", "cta"].map((k) => (
-                  <option key={k} value={k}>
+                  <SelectOption key={k} value={k}>
                     {k}
-                  </option>
+                  </SelectOption>
                 ))}
-              </select>
+              </SelectField>
               <label className="text-muted-foreground flex items-center gap-1 text-[12.5px]">
                 seconds
                 <input

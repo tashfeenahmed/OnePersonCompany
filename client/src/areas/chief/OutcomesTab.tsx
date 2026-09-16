@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useMemo, useState } from "react";
 import { Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { count, pct } from "@/lib/format";
@@ -365,32 +366,32 @@ function TrackForm({
           <Input value={form.unit} onChange={(e) => set("unit", e.target.value)} />
         </Row>
         <Row label="Metric — which document" hint="From the live skills catalogue. A disconnected one will fail its baseline and say so.">
-          <select
+          <SelectField aria-label="Metric document"
             value={form.skill}
-            onChange={(e) => set("skill", e.target.value)}
+            onValueChange={(value) => set("skill", value)}
             className="border-input bg-background h-8 rounded-lg border px-2 text-[14px]"
           >
-            <option value="">Choose a skill…</option>
+            <SelectOption value="">Choose a skill…</SelectOption>
             {skills.map((s) => (
-              <option key={s.id} value={s.id}>
+              <SelectOption key={s.id} value={s.id}>
                 {s.id}
                 {s.connected ? "" : " (not connected)"}
-              </option>
+              </SelectOption>
             ))}
-          </select>
+          </SelectField>
         </Row>
         <Row label="Which view" hint="Most documents have one. Some have several cuts of the same data.">
-          <select
+          <SelectField aria-label="Metric view"
             value={form.view}
-            onChange={(e) => set("view", e.target.value)}
+            onValueChange={(value) => set("view", value)}
             className="border-input bg-background h-8 rounded-lg border px-2 text-[14px]"
           >
             {(chosen?.views ?? [{ key: "default" }]).map((v) => (
-              <option key={v.key} value={v.key}>
+              <SelectOption key={v.key} value={v.key}>
                 {v.key}
-              </option>
+              </SelectOption>
             ))}
-          </select>
+          </SelectField>
         </Row>
         <Row
           label="The field in it"

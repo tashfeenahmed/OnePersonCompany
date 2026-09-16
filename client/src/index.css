@@ -56,6 +56,7 @@
 }
 
 :root {
+    color-scheme: light;
     /* Ported from ../design — a near-black ink on warm paper, dark greys
        throughout, and colour reserved for state.
 
@@ -133,6 +134,7 @@
 }
 
 .dark {
+    color-scheme: dark;
     --background: #0e0e0d;
     --foreground: #f4f2ed;
     --card: #1a1a18;

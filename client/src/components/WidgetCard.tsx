@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { DomainSearch } from "@/components/domains/DomainSearch";
 import { OverviewWidget } from "@/components/overview/OverviewWidget";
 import { ServerWidget } from "@/components/servers/ServerWidget";
@@ -381,14 +382,14 @@ export function WidgetCard({
             choice; it stops the pointer so the grab handle around it does
             not start a drag. */}
         {editing && perParam && paramKind && (
-          <select
+          <SelectField
             aria-label={`${PARAM_NOUN[paramKind]} for ${def.name}`}
             value={placed.param ?? ""}
-            onChange={(e) => onSetParam?.(e.target.value || undefined)}
+            onValueChange={(value) => onSetParam?.(value || undefined)}
             onPointerDown={(e) => e.stopPropagation()}
             className="bg-muted text-foreground h-6 max-w-[124px] shrink-0 rounded-[7px] border-0 px-1.5 text-[11.5px]"
           >
-            <option value="">Pick a {PARAM_NOUN[paramKind]}…</option>
+            <SelectOption value="">Pick a {PARAM_NOUN[paramKind]}…</SelectOption>
             {paramChoices(paramKind, {
               ventures: state.ventures,
               /* THE PORTFOLIO DOCUMENT, not the narrowed one. Inside a venture
@@ -397,11 +398,11 @@ export function WidgetCard({
                  hides most of the machines. */
               fleet: portfolio.boxes,
             }).map((choice) => (
-              <option key={choice.id} value={choice.id}>
+              <SelectOption key={choice.id} value={choice.id}>
                 {choice.name}
-              </option>
+              </SelectOption>
             ))}
-          </select>
+          </SelectField>
         )}
         {editing && (
           <div className="widget-action ml-auto flex gap-px">

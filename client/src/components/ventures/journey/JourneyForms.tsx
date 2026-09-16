@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { businessTypesOf } from "../../../../../shared/businessTypes";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,7 @@ export function TaskEditor({ task, progress, ...props }: FormProps & { task: Jou
   const [remove, setRemove] = useState(false);
   return <JourneyModal title={task.title} description={task.detail || "Your own checklist step."} close={props.close}>
     <form onSubmit={async e => { e.preventDefault(); if (await props.save({ kind: "task", key: task.key, status, evidence })) props.close(); }}>
-      <label className="journey-field">Status<select value={status} onChange={e => setStatus(e.target.value as TaskStatus)}><option value="todo">To do</option><option value="done">Done</option><option value="skipped">Does not apply</option></select></label>
+      <label className="journey-field">Status<SelectField aria-label="Task status" value={status} onValueChange={(value) => setStatus(value as TaskStatus)}><SelectOption value="todo">To do</SelectOption><SelectOption value="done">Done</SelectOption><SelectOption value="skipped">Does not apply</SelectOption></SelectField></label>
       <label className="journey-field">{status === "skipped" ? "Why does this not apply?" : "Evidence & notes"}<textarea rows={6} maxLength={8000} required={status === "skipped"} placeholder={task.evidenceHint} value={evidence} onChange={e => setEvidence(e.target.value)} /></label>
       <p className="journey-muted">{task.required ? "Essential step" : "Suggested step"} · {task.tool}</p>
       <ErrorNotice error={props.error} reload={props.reload} /><div className="journey-modal-footer">{task.custom && <Button type="button" variant="ghost" disabled={props.busy} onClick={async () => { if (!remove) setRemove(true); else if (await props.save({ kind: "delete-task", key: task.key })) props.close(); }}>{remove ? "Confirm remove step & evidence" : "Remove step"}</Button>}<Button type="button" variant="ghost" onClick={props.close}>Cancel</Button><Button disabled={props.busy}>{props.busy ? "Saving…" : "Save step"}</Button></div>
@@ -51,7 +52,7 @@ export function NameEditor({ candidate, ...props }: FormProps & { candidate?: Na
     <form onSubmit={async e => { e.preventDefault(); if (await props.save({ kind: "name", id: candidate?.id, name, domain, status, evidence })) props.close(); }}>
       <label className="journey-field">Candidate name<input required maxLength={100} value={name} onChange={e => setName(e.target.value)} /></label>
       <label className="journey-field">Domain to check<input placeholder="example.com" maxLength={253} value={domain} onChange={e => setDomain(e.target.value)} /></label>
-      <label className="journey-field">Decision<select value={status} onChange={e => setStatus(e.target.value as NameCandidate["status"])}><option value="unchecked">Unchecked</option><option value="shortlisted">Shortlisted</option><option value="ruled-out">Ruled out</option><option value="chosen">Chosen</option></select></label>
+      <label className="journey-field">Decision<SelectField aria-label="Name decision" value={status} onValueChange={(value) => setStatus(value as NameCandidate["status"])}><SelectOption value="unchecked">Unchecked</SelectOption><SelectOption value="shortlisted">Shortlisted</SelectOption><SelectOption value="ruled-out">Ruled out</SelectOption><SelectOption value="chosen">Chosen</SelectOption></SelectField></label>
       <label className="journey-field">Research & checks<textarea required={status === "chosen"} maxLength={4000} placeholder="Domain, existing brands, handles, links to checks and the date you checked." value={evidence} onChange={e => setEvidence(e.target.value)} /></label>
       <ErrorNotice error={props.error} reload={props.reload} /><div className="journey-modal-footer">{candidate && <Button type="button" variant="ghost" disabled={props.busy} onClick={async () => { if (!remove) setRemove(true); else if (await props.save({ kind: "delete-name", id: candidate.id })) props.close(); }}>{remove ? "Confirm remove candidate" : "Remove"}</Button>}<Button type="button" variant="ghost" onClick={props.close}>Cancel</Button><Button disabled={props.busy}>Save candidate</Button></div>
     </form>
@@ -63,7 +64,7 @@ export function StageEditor({ venture, doc, target, close, busy, error, change }
   const forward = JOURNEY_STAGES.indexOf(stage) > JOURNEY_STAGES.indexOf(venture.stage);
   return <JourneyModal title="Change venture status" description="Your business can move forwards or back. Checklists, evidence, connections and dashboards stay saved." close={close}>
     <form onSubmit={async e => { e.preventDefault(); if (await change(stage, note, expectedAt)) close(); }}>
-      <label className="journey-field">Venture status<select value={stage} onChange={e => setStage(e.target.value as JourneyStage)}>{JOURNEY_STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}</select></label>
+      <label className="journey-field">Venture status<SelectField aria-label="Venture status" value={stage} onValueChange={(value) => setStage(value as JourneyStage)}>{JOURNEY_STAGES.map(s => <SelectOption key={s} value={s}>{STAGE_LABELS[s]}</SelectOption>)}</SelectField></label>
       {forward && readiness.requiredOpen.length > 0 && <div className="journey-note mb-4">{readiness.requiredOpen.length} essentials remain open in {STAGE_LABELS[venture.stage].toLowerCase()}. You can still move forward.<ul className="mt-2 list-disc pl-4">{readiness.requiredOpen.map(t => <li key={t.key}>{t.title}</li>)}</ul></div>}
       {!businessTypesOf(venture).length && <p className="journey-muted mb-3">Choose a business type to include its specific launch checks. Only common steps are currently shown.</p>}
       <label className="journey-field">Decision note<textarea maxLength={4000} placeholder="What changed? What have you learned or decided?" value={note} onChange={e => setNote(e.target.value)} /></label>

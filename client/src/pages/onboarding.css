@@ -38,7 +38,7 @@
 }
 .ob button,
 .ob input,
-.ob select,
+.ob [data-slot="select-trigger"],
 .ob textarea {
   font: inherit;
 }
@@ -56,7 +56,7 @@
 .ob input:focus-visible,
 .ob textarea:focus-visible,
 .ob summary:focus-visible,
-.ob select:focus-visible {
+.ob [data-slot="select-trigger"]:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 3px;
 }
@@ -189,7 +189,7 @@
   margin-bottom: 0;
 }
 .ob input,
-.ob select,
+.ob [data-slot="select-trigger"],
 .ob textarea {
   width: 100%;
   min-width: 0;
@@ -566,8 +566,9 @@
   gap: 10px;
   margin-top: 17px;
 }
-.ob-add-account select {
+.ob-add-account [data-slot="select-trigger"] {
   flex: 1;
+  height: auto;
 }
 .ob-add-account button {
   flex-shrink: 0;
@@ -1129,7 +1130,7 @@
 }
 .ob input[aria-invalid="true"],
 .ob textarea[aria-invalid="true"],
-.ob select[aria-invalid="true"] {
+.ob [data-slot="select-trigger"][aria-invalid="true"] {
   border-color: var(--destructive);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--destructive) 15%, transparent);
 }
@@ -1373,7 +1374,7 @@
 
 .ob input[aria-invalid="true"]:focus-visible,
 .ob textarea[aria-invalid="true"]:focus-visible,
-.ob select[aria-invalid="true"]:focus-visible {
+.ob [data-slot="select-trigger"][aria-invalid="true"]:focus-visible {
   outline-color: color-mix(in srgb, var(--destructive) 45%, transparent);
 }
 .ob-account-control {

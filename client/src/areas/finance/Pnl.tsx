@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "@/hooks/useApi";
@@ -61,13 +62,13 @@ export function Pnl() {
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <select
+        <SelectField aria-label="Month"
           value={month}
-          onChange={(e) => setMonth(e.target.value)}
+          onValueChange={(value) => setMonth(value)}
           className="bg-card rounded-md px-3 py-1.5 text-[13.5px]"
         >
-          {months.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
+          {months.map((m) => <SelectOption key={m} value={m}>{m}</SelectOption>)}
+        </SelectField>
         <Badge actual={d.actual} />
         <span className="text-muted-foreground text-[12.5px]">
           ledger {currencies(d.ledger.monthly)} / month · {currencies(d.ledger.unallocatedShared)} of it unallocated

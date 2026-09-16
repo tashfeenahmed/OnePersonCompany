@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import type { ComponentProps } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
@@ -185,18 +186,18 @@ export function ListingsPanel({ venture }: { venture?: string }) {
                         </span>
                       )}
 
-                      <select
+                      <SelectField aria-label="Listing status"
                         className="border-line-soft bg-card ml-auto rounded-[8px] px-1.5 py-0.5 text-[12.5px]"
                         value={cell.state}
                         disabled={busy === key}
-                        onChange={(e) => void set(v.ventureId, cell, { state: e.target.value as ListingState })}
+                        onValueChange={(value) => void set(v.ventureId, cell, { state: value as ListingState })}
                       >
                         {d.states.map((s) => (
-                          <option key={s} value={s}>
+                          <SelectOption key={s} value={s}>
                             {LABEL[s]}
-                          </option>
+                          </SelectOption>
                         ))}
-                      </select>
+                      </SelectField>
 
                       <a
                         href={cell.url ?? cell.submitUrl}

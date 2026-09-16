@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -165,6 +166,9 @@ export function Onboarding() {
   const [agents, setAgents] = useState<AgentsDoc | null>(null),
     [agentBusy, setAgentBusy] = useState(false);
   const [preview, setPreview] = useState("workspace");
+  const [accountService, setAccountService] = useState("");
+  const accountServices = [...new Set(draft.accounts.map((account) => account.plugin))];
+  const selectedAccountService = accountServices.includes(accountService) ? accountService : accountServices[0] ?? "";
   const [welcomeDismissed, setWelcomeDismissed] = useState(false);
   const [workspaceStep, setWorkspaceStep] = useState(0);
   const { flow, transitioning, transition } = useScreenTransition();
@@ -1195,26 +1199,23 @@ export function Onboarding() {
                             </div>
                           ))}
                           <div className="ob-add-account">
-                            <select
+                            <SelectField
                               aria-label="Service for another account"
                               id="ob-account-service"
+                              value={selectedAccountService}
+                              onValueChange={setAccountService}
                             >
-                              {[
-                                ...new Set(draft.accounts.map((a) => a.plugin)),
-                              ].map((id) => (
-                                <option key={id} value={id}>
+                              {accountServices.map((id) => (
+                                <SelectOption key={id} value={id}>
                                   {plugin(id)?.name}
-                                </option>
+                                </SelectOption>
                               ))}
-                            </select>
+                            </SelectField>
                             <button
                               className="ob-text"
                               onClick={() => {
-                                const id = (
-                                  document.getElementById(
-                                    "ob-account-service",
-                                  ) as HTMLSelectElement
-                                ).value;
+                                const id = selectedAccountService;
+                                if (!id) return;
                                 const slot =
                                   Math.max(
                                     ...draft.accounts

@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import studioHeader from "@/assets/studio/digital-studio.webp";
 import { Suspense, lazy, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -823,12 +824,12 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
       {make === "motion" && (
         <Field label="Scene list" hint="A saved list renders as written. Drafting one from the brief is a model call, and its numbers are claims to read before you publish.">
           <div className="flex flex-wrap items-center gap-2">
-            <select value={spec} onChange={(e) => setSpec(e.target.value)} className="border-line-soft h-9 rounded-[12px] border bg-transparent px-2.5 text-[13.5px]">
-              <option value="">Draft one from the brief</option>
+            <SelectField aria-label="Scene list" value={spec} onValueChange={(value) => setSpec(value)} className="border-line-soft h-9 rounded-[12px] border bg-transparent px-2.5 text-[13.5px]">
+              <SelectOption value="">Draft one from the brief</SelectOption>
               {(specs.data?.specs ?? []).map((s) => (
-                <option key={s.id} value={s.id}>{s.name} · {s.scenes} scenes · {s.aspect}</option>
+                <SelectOption key={s.id} value={s.id}>{s.name} · {s.scenes} scenes · {s.aspect}</SelectOption>
               ))}
-            </select>
+            </SelectField>
             <NewSceneListButton
               ventureId={venture?.id ?? null}
               onCreated={(id) => { setSpec(id); specs.reload(); }}

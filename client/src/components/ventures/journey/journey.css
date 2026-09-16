@@ -42,8 +42,9 @@
 .journey-name:last-child { border:0; }
 .journey-note { border-left:2px solid var(--journey-amber); padding:9px 12px; color:var(--muted-foreground); font-size:12px; line-height:1.6; }
 .journey-field { display:grid; gap:7px; font-size:13px; margin-bottom:16px; }
-.journey-field input, .journey-field textarea, .journey-field select, .journey-select { width:100%; border:1px solid var(--border); border-radius:10px; padding:10px 12px; background:var(--background); color:var(--foreground); }
+.journey-field input, .journey-field textarea, .journey-field [data-slot="select-trigger"], .journey-select { width:100%; border:1px solid var(--border); border-radius:10px; padding:10px 12px; background:var(--background); color:var(--foreground); }
 .journey-field textarea { min-height:90px; resize:vertical; }
+.journey-field [data-slot="select-trigger"] { height:auto; }
 .journey-modal { max-height:85dvh; overflow-y:auto; }
 .journey-modal-footer { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; flex-wrap:wrap; }
 .journey-error { color:var(--destructive); font-size:13px; padding:12px; border:1px solid currentColor; border-radius:12px; margin:12px 0; }

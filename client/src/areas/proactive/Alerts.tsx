@@ -1,3 +1,4 @@
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { useUndoActions } from "@/components/interactions/UndoActions";
 import { AnimatedDetails } from "@/components/interactions/AnimatedDetails";
 import { useEffect, useState } from "react";
@@ -411,8 +412,8 @@ function Events({ onChanged, tick }: { onChanged: () => void; tick: number }) {
           Incident history
         </div>
         <div className="ml-auto flex flex-wrap gap-2 text-xs">
-          <select aria-label="Incident status" className="bg-background rounded border p-1" value={status} onChange={e => { setStatus(e.target.value); setOffset(0); }}><option value="all">All events</option><option value="active">Active incidents</option><option value="unseen">Active, unacknowledged</option><option value="recovered">Recovered incidents</option></select>
-          <select aria-label="Incident history period" className="bg-background rounded border p-1" value={days} onChange={e => { setDays(Number(e.target.value)); setOffset(0); }}><option value={14}>14 days</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={400}>400 days</option></select>
+          <SelectField aria-label="Incident status" className="bg-background rounded border p-1" value={status} onValueChange={(value) => { setStatus(value); setOffset(0); }}><SelectOption value="all">All events</SelectOption><SelectOption value="active">Active incidents</SelectOption><SelectOption value="unseen">Active, unacknowledged</SelectOption><SelectOption value="recovered">Recovered incidents</SelectOption></SelectField>
+          <SelectField aria-label="Incident history period" className="bg-background rounded border p-1" value={days} onValueChange={(value) => { setDays(Number(value)); setOffset(0); }}><SelectOption value={14}>14 days</SelectOption><SelectOption value={30}>30 days</SelectOption><SelectOption value={90}>90 days</SelectOption><SelectOption value={400}>400 days</SelectOption></SelectField>
         </div>
       </div>
 
