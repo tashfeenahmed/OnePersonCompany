@@ -46,6 +46,7 @@ import { pickCaptioner, stripPath, type CaptionStyle } from "./captions.ts";
 import { fetchClip, pexelsKey, type Asset } from "./footage.ts";
 import { END_CARD_SECONDS, writeScript, type Beat, type Script } from "./script.ts";
 import { saveJob } from "./store.ts";
+import { sceneTiming } from "./timing.ts";
 import { VIDEO_PLUGIN, bytesOf, ffmpegFilters, findFfmpeg, findFfprobe, probeDuration } from "./tools.ts";
 
 /** Where every video this box makes lives, one directory per run. */
@@ -177,18 +178,27 @@ export async function facelessVideo(opts: {
   /* --------------------------------------------------- 3. the narration */
   const voice = voiceSettings();
   let narration: string = `none — speech is ${voice.tts === "off" ? "switched off in the voice plugin's settings" : "configured but was not used"}, so the video has no sound.`;
-  const voices = new Map<number, string>();
+  const voices = new Map<number, { path: string; seconds: number }>();
   if (voice.tts !== "off") {
+    if (!ffprobe.path) throw new StepError("narration", "Narration needs ffprobe to measure speech so shots do not cut it short. Install ffprobe alongside ffmpeg.");
     const speakStep = s.startStep("narration", `speaking ${shots.length} lines`);
     let failed: string | null = null;
     for (const [i, shot] of shots.entries()) {
+      if (signal?.aborted) throw new StepError("narration", "the run was cancelled");
+      let clip;
       try {
-        const clip = await speak(shot.beat.voiceover);
-        voices.set(i, clip.path);
+        clip = await speak(shot.beat.voiceover);
       } catch (err) {
         failed = err instanceof Error ? err.message : String(err);
         break;
       }
+      // Speech.ms is request latency, not the duration of the generated audio.
+      const seconds = await probeDuration(ffprobe.path, clip.path, signal);
+      if (seconds === null) {
+        s.endStep(speakStep, `could not measure shot ${i + 1}'s narration`);
+        throw new StepError("narration", `Could not measure shot ${i + 1}'s narration. The video was not rendered with guessed speech timing.`);
+      }
+      voices.set(i, { path: clip.path, seconds });
     }
     /* ALL OR NOTHING, and the reason is in assemble.ts's header: the concat
        demuxer will not join a segment that has an audio track to one that does
@@ -205,6 +215,16 @@ export async function facelessVideo(opts: {
     }
   }
   const narrated = voices.size === shots.length && voices.size > 0;
+  const timings = shots.map((shot, i) => sceneTiming(shot.beat.seconds, voices.get(i)?.seconds ?? null));
+  const heldShots = timings.filter((timing) => timing.holdSeconds > 0);
+  if (heldShots.length) narration += ` ${heldShots.length} shot(s) hold their last frame until narration finishes, with a short pause before the next shot.`;
+  // Persist the actual scene lengths for the Studio script and the run report.
+  // Keep the original cut and speech-file mapping for diagnosis/re-rendering.
+  for (const [i, shot] of shots.entries()) shot.beat.seconds = timings[i]!.seconds;
+  writeFileSync(resolve(dir, "script.json"), JSON.stringify(script, null, 2), "utf8");
+  writeFileSync(resolve(dir, "timings.json"), JSON.stringify(shots.map((shot, i) => ({
+    beatIndex: script.beats.indexOf(shot.beat), ...timings[i]!, audio: voices.get(i)?.path ?? null,
+  })), null, 2), "utf8");
 
   /* ----------------------------------------------------- 4. the captions */
   const captioner = await pickCaptioner();
@@ -238,6 +258,7 @@ export async function facelessVideo(opts: {
       out,
       start: 0,
       seconds: shot.beat.seconds,
+      holdLastFrameAfter: timings[i]!.animationSeconds,
       width: frame.width,
       height: frame.height,
       fit: input.fit,
@@ -245,7 +266,7 @@ export async function facelessVideo(opts: {
       pad: v?.color ?? "#537cc4",
       overlays: strip ? [{ png: strip, from: null, to: null }] : [],
       drawtext: captioner.expr(shot.beat.caption, style),
-      audio: narrated ? (voices.get(i) ?? null) : null,
+      audio: narrated ? (voices.get(i)?.path ?? null) : null,
       silentTrack: false,
       signal,
     });

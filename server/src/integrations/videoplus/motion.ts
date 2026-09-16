@@ -30,7 +30,9 @@ import type { VentureRow } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
 import { readModelJson } from "./json.ts";
 import { settings as voiceSettings, speak } from "../signals/voice/provider.ts";
-import { ASPECTS, FPS, aspectFrame, concat, fromFrames, hasUntile, untileSheet } from "../video/assemble.ts";
+import { ASPECTS, aspectFrame, concat, fromFrames, hasUntile, untileSheet } from "../video/assemble.ts";
+import { sceneTiming } from "../video/timing.ts";
+export { sceneTiming, type SceneTiming } from "../video/timing.ts";
 import { StepError, runDir, type RunSession } from "../video/faceless.ts";
 import { saveJob } from "../video/store.ts";
 import { bytesOf, ffmpegFilters, findFfmpeg, findFfprobe, probeDuration } from "../video/tools.ts";
@@ -155,23 +157,6 @@ export function plan(spec: SceneSpec, fps: number, size: { width: number; height
   return { tiles, frames, sheets: Math.ceil(frames / tiles) };
 }
 
-export type SceneTiming = {
-  animationSeconds: number;
-  narrationSeconds: number | null;
-  seconds: number;
-  holdSeconds: number;
-};
-
-/** Keep the animation's pacing; only its last frame waits for a longer voice.
- * Round up to an output frame and leave a short breath after the last word. */
-export function sceneTiming(animationSeconds: number, narrationSeconds: number | null): SceneTiming {
-  if (!(animationSeconds > 0) || !Number.isFinite(animationSeconds)
-    || (narrationSeconds !== null && (!(narrationSeconds > 0) || !Number.isFinite(narrationSeconds))))
-    throw new Error("Cannot time a scene without a valid animation and narration duration.");
-  const seconds = narrationSeconds === null ? animationSeconds
-    : Math.ceil(Math.max(animationSeconds, narrationSeconds + 0.25) * FPS) / FPS;
-  return { animationSeconds, narrationSeconds, seconds, holdSeconds: Math.max(0, seconds - animationSeconds) };
-}
 
 /**
  * Every frame of one scene, drawn.

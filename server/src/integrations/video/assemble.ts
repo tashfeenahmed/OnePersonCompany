@@ -189,6 +189,7 @@ function videoGraph(opts: {
   drawtext: string | null;
   /** A moving crop applied before the fit, or null for the plain one. */
   track?: Track | null;
+  holdLastFrameAfter?: number;
 }): string {
   const parts: string[] = [
     fitGraph({
@@ -220,7 +221,9 @@ function videoGraph(opts: {
     parts.push(`[${cur}]${opts.drawtext}[vt]`);
     cur = "vt";
   }
-  parts.push(`[${cur}]format=yuv420p[vout]`);
+  // Pad after captions so the complete last frame stays visible through speech.
+  const hold = opts.holdLastFrameAfter === undefined ? "" : "tpad=stop_mode=clone:stop=-1,";
+  parts.push(`[${cur}]${hold}format=yuv420p[vout]`);
   return parts.join(";");
 }
 
@@ -236,10 +239,9 @@ export type SegmentResult = { ok: true; path: string } | { ok: false; error: str
  * accurate version costs a full decode of everything before the cut, which on
  * a forty-minute source is the whole job.
  *
- * `-t` IS APPLIED ON THE OUTPUT AS WELL, because a source shorter than the
- * beat would otherwise produce a segment shorter than the beat, and a video
- * assembled out of segments that are not the length they were asked to be is
- * not the length the owner typed.
+ * Output `-t` caps the segment at its measured duration. Faceless shots also
+ * opt into a last-frame hold: trim footage at the planned cut, then pad video
+ * through the complete narration. Shorts retain their original cut behavior.
  */
 export async function segment(opts: {
   ffmpeg: string;
@@ -247,6 +249,9 @@ export async function segment(opts: {
   out: string;
   start: number;
   seconds: number;
+  /** Stop footage at this planned time and hold its last frame until `seconds`.
+   * Also pads stock footage that ends earlier. Only faceless shots opt in. */
+  holdLastFrameAfter?: number;
   width: number;
   height: number;
   fit: Fit;
@@ -266,7 +271,7 @@ export async function segment(opts: {
 }): Promise<SegmentResult> {
   const args: string[] = ["-y", "-v", "error"];
   if (opts.start > 0) args.push("-ss", opts.start.toFixed(3));
-  args.push("-t", opts.seconds.toFixed(3), "-i", opts.source);
+  args.push("-t", (opts.holdLastFrameAfter ?? opts.seconds).toFixed(3), "-i", opts.source);
   for (const o of opts.overlays) args.push("-i", o.png);
   const overlayInputs = opts.overlays.length;
 
@@ -290,6 +295,7 @@ export async function segment(opts: {
       overlays: opts.overlays,
       drawtext: opts.drawtext,
       track: opts.track ?? null,
+      holdLastFrameAfter: opts.holdLastFrameAfter,
     }),
     "-map", "[vout]",
   );
@@ -297,7 +303,7 @@ export async function segment(opts: {
     args.push("-map", `${audioIndex}:a`);
     /* The narration is padded with silence rather than allowed to end the
        segment. `apad` plus the output `-t` gives every segment exactly the
-       length the script asked for, whether the narration ran short or long. */
+       measured length. The caller must include the full narration duration. */
     args.push("-af", "apad");
     args.push(...A_ARGS);
   } else if (opts.keepSourceAudio) {
