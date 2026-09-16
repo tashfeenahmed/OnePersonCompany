@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { AppSidebar } from "./AppSidebar";
+const COLLAPSED_KEY = "opc-sidebar-collapsed";
 export function NavigationShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(COLLAPSED_KEY) === "true"; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSED_KEY, String(collapsed)); }
+    catch { /* Navigation still works when browser storage is unavailable. */ }
+  }, [collapsed]);
   const location = useLocation();
   const panel = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => { setOpen(false); }, [location.pathname, location.search]);
@@ -23,7 +32,7 @@ export function NavigationShell({ children }: { children: ReactNode }) {
   }, [open]);
   return <div className="flex h-dvh overflow-hidden">
     <div ref={panel} className={`${open ? "flex fixed inset-y-0 left-0 z-50 shadow-xl" : "hidden"} md:static md:flex`}>
-      <AppSidebar />
+      <AppSidebar collapsed={collapsed && !open} onCollapsedChange={setCollapsed} />
       {open && <button className="absolute top-1 right-1 p-2 md:hidden" aria-label="Close navigation" onClick={() => { setOpen(false); trigger.current?.focus(); }}>×</button>}
     </div>
     {open && <button aria-label="Close navigation overlay" tabIndex={-1} className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setOpen(false)} />}

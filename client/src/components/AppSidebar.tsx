@@ -4,6 +4,8 @@ import {
   ChevronDown,
   ChevronsUpDown,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Sun,
@@ -23,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useStore, type Session } from "@/lib/store";
 import { useTheme, type Theme } from "@/lib/theme";
@@ -43,6 +46,7 @@ import { ModuleIcon } from "@/components/ModuleIcon";
 import { pinKey, sidebarPins, type SidebarPin } from "../../../shared/sidebarPins";
 import { orderNav } from "../../../shared/sidebarNav";
 import { sidebarPath } from "../../../shared/navigation";
+import { dashboardDestination } from "../../../shared/dashboardNavigation";
 
 /**
  * ONE LIST, IN THE BUILD'S DEFAULT ORDER. This was five headed groups once —
@@ -114,7 +118,10 @@ const NAV_PATHS = NAV.map(item => item.to);
 const VISIBLE = 5;
 const SESSION_PAGE_SIZE = 20;
 
-export function AppSidebar() {
+export function AppSidebar({ collapsed = false, onCollapsedChange }: {
+  collapsed?: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
+}) {
   const { state, renameSession, removeSession, streamingSessions, togglePinned, reorderPinned, setNavOrder } = useStore();
   const { theme, resolved, setTheme } = useTheme();
   const { pathname } = useLocation();
@@ -294,27 +301,71 @@ export function AppSidebar() {
     />;
   }
 
+  function renderCompactPage(path: string) {
+    const item = NAV.find(item => item.to === path);
+    if (!item) return null;
+    const active = isHere(path);
+    const label = item.label;
+    const className = cn("relative flex size-10 items-center justify-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring", active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground");
+    const hasAlert = path === "/dashboards" && (dashboardAlerts.total.count > 0 || dashboardAlerts.error);
+    const contents = <>
+      <ModuleIcon path={path} className="size-[18px]" />
+      {(hasAlert || (path === "/subagents" && counts[path])) && <span aria-hidden="true" className={cn("absolute right-1.5 top-1.5 size-1.5 rounded-full", hasAlert ? "bg-warn" : "bg-primary")} />}
+    </>;
+    if (path === "/dashboards") return <DropdownMenu key={path}>
+      <Tooltip><TooltipTrigger asChild><DropdownMenuTrigger aria-label={label} className={className}>{contents}</DropdownMenuTrigger></TooltipTrigger><TooltipContent side="right" sideOffset={8}>{label}</TooltipContent></Tooltip>
+      <DropdownMenuContent side="right" align="start" sideOffset={12} className="max-h-[min(70vh,600px)] w-60 overflow-y-auto">
+        <DropdownMenuLabel>Dashboards</DropdownMenuLabel>
+        {state.dashboards.filter(board => !board.ventureId).map(board => {
+          const to = dashboardDestination(board, state.ventures);
+          return to && <DropdownMenuItem key={board.id} asChild><Link to={to} aria-current={pathname === to ? "page" : undefined} className={cn(pathname === to && "bg-accent")}>
+            <span className="min-w-0 flex-1 truncate">{board.name}</span>
+            {dashboardAlerts.byBoard[board.id] && <AlertBadge summary={dashboardAlerts.byBoard[board.id]} stale={!!dashboardAlerts.error} />}
+          </Link></DropdownMenuItem>;
+        })}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild><Link to="/dashboards/new"><Plus className="size-4" />New dashboard</Link></DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>;
+    return <Tooltip key={path}><TooltipTrigger asChild><Link to={path} aria-label={label} aria-current={active ? "page" : undefined} className={className}>{contents}</Link></TooltipTrigger><TooltipContent side="right" sideOffset={8}>{label}{counts[path] ? ` · ${counts[path]}` : ""}</TooltipContent></Tooltip>;
+  }
+
   return (
-    <aside className="bg-sidebar border-sidebar-border flex h-full min-h-0 w-[252px] shrink-0 flex-col border-r px-2.5 pt-3.5 pb-2.5">
-      <div className="flex items-center gap-2.5 px-2 pt-1 pb-3.5">
-        <div className="bg-primary text-primary-foreground grid size-[22px] place-items-center rounded-[9px] text-[12px] font-semibold tracking-tight">
+    <aside aria-label="Main navigation" data-collapsed={collapsed} className={cn("bg-sidebar border-sidebar-border flex h-full min-h-0 shrink-0 flex-col border-r pt-3.5 pb-2.5", collapsed ? "w-16 px-2" : "w-[252px] px-2.5")}>
+      <div className={cn("flex min-h-11 items-center pb-3.5", collapsed ? "justify-center" : "gap-2 px-1")}>
+        {!collapsed && <><div className="bg-primary text-primary-foreground grid size-[22px] shrink-0 place-items-center rounded-[9px] text-[12px] font-semibold tracking-tight">
           1
         </div>
-        <span className="text-[14.5px] font-medium tracking-tight">
+        <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium tracking-tight">
           One Person Company
-        </span>
+        </span></>}
+        <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs"
+          className="hidden shrink-0 text-muted-foreground md:inline-flex"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed} aria-controls="app-sidebar-content"
+          onClick={() => onCollapsedChange(!collapsed)}>
+          {collapsed ? <PanelLeftOpen aria-hidden="true" className="size-4" /> : <PanelLeftClose aria-hidden="true" className="size-4" />}
+        </Button></TooltipTrigger><TooltipContent side={collapsed ? "right" : "bottom"}>{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent></Tooltip>
       </div>
 
+      <Tooltip><TooltipTrigger asChild>
       <Button
         onClick={newChat}
-        className="mb-3 h-auto w-full justify-start gap-2.5 py-2 text-[13.5px]"
+        aria-label="New chat" aria-keyshortcuts="Meta+K Control+K"
+        className={cn("mb-3 text-[13.5px]", collapsed ? "mx-auto size-10 p-0" : "h-auto w-full justify-start gap-2.5 py-2")}
       >
         <Plus className="size-[14px]" strokeWidth={2} />
-        New chat
-        <span className="ml-auto font-mono text-[11.5px] opacity-55">⌘K</span>
+        {!collapsed && <>New chat<span className="ml-auto font-mono text-[11.5px] opacity-55">⌘K</span></>}
       </Button>
+      </TooltipTrigger>{collapsed && <TooltipContent side="right" sideOffset={8}>New chat · ⌘K</TooltipContent>}</Tooltip>
 
-      <ScrollArea data-sidebar-scroll className="-mx-1 min-h-0 flex-1 px-1 [&_[data-slot=scroll-area-viewport]]:overscroll-contain">
+      <ScrollArea id="app-sidebar-content" data-sidebar-scroll className="-mx-1 min-h-0 flex-1 px-1 [&_[data-slot=scroll-area-viewport]]:overscroll-contain">
+      {collapsed ? <>
+        <nav aria-label="Workspace" className="flex flex-col items-center gap-1">{ordered.map(renderCompactPage)}</nav>
+        <div className="mt-3 flex justify-center border-t border-line-soft pt-3">
+          <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-lg" aria-label="Search sessions" className="text-muted-foreground" onClick={() => { onCollapsedChange(false); setSearching(true); setSearch(""); setSessionLimit(SESSION_PAGE_SIZE); }}><Search className="size-[18px]" /></Button></TooltipTrigger><TooltipContent side="right" sideOffset={8}>Search sessions</TooltipContent></Tooltip>
+        </div>
+      </> : <>
       {/* Only when there is something pinned: an empty heading with a hint
           under it is a section asking to be used, and the pin on every row
           already says how. */}
@@ -380,17 +431,18 @@ export function AppSidebar() {
           Show more
         </button>}
       </section>
+      </>}
       </ScrollArea>
 
       {/* The whole row is the trigger — the standalone theme button moved into
           Appearance, so there is one place a preference is changed. */}
       <div className="border-line-soft shrink-0 border-t pt-1.5">
         <DropdownMenu>
-          <DropdownMenuTrigger className="text-muted-foreground hover:bg-accent data-[state=open]:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors">
+          <DropdownMenuTrigger aria-label={`${state.workspace.owner} · Workspace menu`} title={collapsed ? `${state.workspace.owner} · Workspace menu` : undefined} className={cn("text-muted-foreground hover:bg-accent data-[state=open]:bg-accent flex w-full items-center rounded-lg py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", collapsed ? "justify-center px-0" : "gap-2.5 px-2")}>
             <div className="bg-muted text-foreground grid size-[22px] shrink-0 place-items-center rounded-full text-[11.5px] font-semibold">
               {state.workspace.owner.trim()[0]?.toUpperCase() ?? "?"}
             </div>
-            <div className="min-w-0">
+            {!collapsed && <><div className="min-w-0">
               <div className="text-foreground truncate text-[13.5px]">
                 {state.workspace.owner}
               </div>
@@ -400,9 +452,10 @@ export function AppSidebar() {
               className="ml-auto size-[13px] shrink-0"
               strokeWidth={1.6}
             />
+            </>}
           </DropdownMenuTrigger>
 
-          <DropdownMenuContent side="top" align="start" className="w-[232px]">
+          <DropdownMenuContent side={collapsed ? "right" : "top"} align={collapsed ? "end" : "start"} sideOffset={collapsed ? 12 : 4} className="w-[232px]">
             <DropdownMenuLabel className="font-normal">
               <div className="text-[13.5px]">{state.workspace.owner}</div>
               <div className="text-muted-foreground text-[12px]">
