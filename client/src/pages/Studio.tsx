@@ -1,7 +1,7 @@
 import { SelectField, SelectOption } from "@/components/ui/select-field";
 import studioHeader from "@/assets/studio/digital-studio.webp";
 import { Suspense, lazy, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { Link, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Clapperboard,
   ChevronDown,
@@ -77,7 +77,7 @@ const References = lazy(() => import("@/pages/References").then((m) => ({ defaul
  * pipeline needs. Everything ever made, of every kind, sits in the rail on
  * the left, newest first, with Autopilot and Publishing at the top of it:
  * the thing that fills the rail on a schedule, and the place a finished
- * piece goes next. Choosing a row opens it under the form.
+ * piece goes next. Choosing a row opens only that generation’s details.
  *
  * THE RAIL IS THIS PAGE'S OWN NAVIGATION, AND IT NEVER MOVES. Create,
  * Autopilot, Publishing and References are four addresses under
@@ -255,20 +255,14 @@ export function Studio() {
     }
   }
 
-  /* OPENING A GENERATION IS A TRIP BACK TO CREATE. The row can be clicked
-     while Publishing is in the column, so it names the address as well as the
-     row rather than only editing the query — and it carries nothing across
-     but the tab, because a `?tab=assets` left over from the publishing page
-     would land on Create as somebody else's parameter. Replacing rather than
-     pushing only when Create is already showing: from a sub-page the back
-     button should return to that page. */
+  /* A generation is its own view, including when opened from a sub-page.
+     Keep the URL shareable and let Back return to the previous Studio view. */
   function openGeneration(key: string) {
     const search = new URLSearchParams();
     const m = params.get("make");
     if (m) search.set("make", m);
     search.set("open", key);
-    const onCreate = pathname === STUDIO;
-    navigate({ pathname: STUDIO, search: search.toString() }, { replace: onCreate });
+    navigate({ pathname: STUDIO, search: search.toString() });
   }
 
   const create = (
@@ -281,13 +275,13 @@ export function Studio() {
         const next = new URLSearchParams(params);
         next.set("make", v);
         next.delete("spec");
+        next.delete("open");
         setParams(next, { replace: true });
       }}
       ventures={ventures}
       venture={venture}
       onVenture={setChosen}
       readiness={posts.data?.readiness ?? null}
-      open={open}
       onPost={(post) => {
         posts.setData((d) => (d ? { ...d, posts: [post, ...d.posts] } : d));
         setParam("open", `post:${post.id}`);
@@ -296,10 +290,12 @@ export function Studio() {
         reloadRuns();
         setParam("open", `run:${id}`);
       }}
-      onChangedPost={replacePost}
-      onDeletedPost={forgetPost}
     />
   );
+  const column = openKey ? (
+    <GenerationColumn key={openKey} openKey={openKey} generation={open} ventures={ventures}
+      onChangedPost={replacePost} onDeletedPost={forgetPost} />
+  ) : create;
 
   const rail = <Rail
     ventures={ventures} railVenture={railVenture} onRailVenture={setRailVenture}
@@ -338,14 +334,14 @@ export function Studio() {
       */}
       <Suspense fallback={<p role="status" className="p-6">Loading page…</p>}>
         <Routes>
-          <Route index element={create} />
+          <Route index element={column} />
           <Route path="autopilot" element={<Autopilot />} />
           <Route path="publishing" element={<Publishing />} />
           <Route path="publishing/:runId" element={<Publishing />} />
           <Route path="references" element={<References />} />
           <Route path="references/:tab" element={<References />} />
           {/* Anything else under the Studio is the Studio. */}
-          <Route path="*" element={create} />
+          <Route path="*" element={column} />
         </Routes>
       </Suspense>
     </div>
@@ -354,20 +350,16 @@ export function Studio() {
 
 /* ---------------------------------------------------------------- create */
 
-/** The Studio's own screen: the title, the tabs, the composer for whichever
- *  tab is chosen, and the one generation being read under it. */
-function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, open, onPost, onRun, onChangedPost, onDeletedPost }: {
+/** Creation has its own view; selected generations never mount this form. */
+function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, onPost, onRun }: {
   make: Make;
   onMake: (v: string) => void;
   ventures: Venture[];
   venture: Venture | null;
   onVenture: (id: string | null) => void;
   readiness: StudioReadiness | null;
-  open: Generation | null;
   onPost: (post: StudioPost) => void;
   onRun: (id: string) => void;
-  onChangedPost: (post: StudioPost) => void;
-  onDeletedPost: (id: string) => void;
 }) {
   return (
     <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pt-3 pb-20 sm:px-8">
@@ -418,22 +410,47 @@ function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, o
           />
         )}
 
-        {open && (
-          <div className="mt-8">
-            {open.kind === "post" ? (
-              <PostCard
-                post={open.post}
-                palette={(() => { const v = ventures.find((x) => x.id === open.post.ventureId); return v ? palette(v) : undefined; })()}
-                onChanged={onChangedPost}
-                onDeleted={onDeletedPost}
-              />
-            ) : (
-              <RunPanel run={open.run} />
-            )}
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------- generation view */
+
+function GenerationColumn({ openKey, generation, ventures, onChangedPost, onDeletedPost }: {
+  openKey: string;
+  generation: Generation | null;
+  ventures: Venture[];
+  onChangedPost: (post: StudioPost) => void;
+  onDeletedPost: (id: string) => void;
+}) {
+  const runId = openKey.startsWith("run:") ? openKey.slice(4) : "";
+  const postId = openKey.startsWith("post:") ? openKey.slice(5) : "";
+  const post = generation?.kind === "post" ? generation.post : null;
+  // A venture filter may hide the selected post in the rail. It must not
+  // replace its details with Create or prevent a direct link from opening.
+  const fallback = useApi(() => postId && !post
+    ? studioApi.posts().then((result) => result.posts.find((p) => p.id === postId) ?? null)
+    : Promise.resolve(null), [postId, !!post]);
+  const selectedPost = post ?? fallback.data;
+  return (
+    <section aria-label="Generation details" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-6 pb-20 sm:px-8">
+      <div className="mx-auto w-full max-w-[820px]">
+        {runId ? <RunPanel key={runId} runId={runId} /> : selectedPost ? (
+          <PostCard post={selectedPost}
+            palette={(() => { const v = ventures.find((x) => x.id === selectedPost.ventureId); return v ? palette(v) : undefined; })()}
+            onChanged={(next) => { fallback.setData(next); onChangedPost(next); }} onDeleted={onDeletedPost} />
+        ) : postId && fallback.loading ? (
+          <p role="status" className="text-muted-foreground">Loading generation…</p>
+        ) : (
+          <div className="bg-card grid gap-3 rounded-[14px] p-4.5">
+            <p role="alert">{fallback.error ?? "This generation could not be found."}</p>
+            {fallback.error && <Button variant="outline" onClick={fallback.reload}>Try again</Button>}
+            <Link to={STUDIO} className="text-muted-foreground text-sm underline decoration-dotted">Back to Create</Link>
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -457,6 +474,7 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
   const autopilot = useApi(() => autopilotApi.read().catch(() => null), []);
   const queue = useApi(() => publishingApi.items({ status: "draft" }).catch(() => null), []);
   const drafts = queue.data?.counts?.draft;
+  const { pathname } = useLocation();
 
   const doors: { to: string; end?: boolean; label: string; icon: typeof Timer; note: string }[] = [
     /* `end`, so Create stops being the lit row the moment one of the other
@@ -485,26 +503,19 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
        is a place you navigate from, so it gets a surface of its own — white
        in the light theme, and the card token in the dark one, because a rail
        painted literal white in the dark is a lamp. */
-    <aside className="border-line-soft dark:bg-card flex h-full w-full min-w-0 shrink-0 flex-col border-r md:w-[272px] bg-white">
+    <aside aria-label="Studio navigation" className="border-line-soft dark:bg-card flex h-full w-full min-w-0 shrink-0 flex-col border-r md:w-[272px] bg-white">
       <div className="border-line-soft grid gap-0.5 border-b p-2.5">
-        {doors.map((d) => (
-          <NavLink
-            key={d.to}
-            to={d.to}
-            onClick={onNavigate}
-            end={d.end}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
-                isActive ? "bg-accent font-medium" : "hover:bg-accent",
-              )
-            }
-          >
-            <d.icon className="size-4 shrink-0" strokeWidth={1.7} />
-            <span className="text-[13.5px]">{d.label}</span>
-            <span className="text-muted-foreground ml-auto truncate text-[12px] font-normal">{d.note}</span>
-          </NavLink>
-        ))}
+        {doors.map((d) => {
+          const active = d.end ? pathname === d.to && !openKey : pathname === d.to || pathname.startsWith(`${d.to}/`);
+          return (
+            <Link key={d.to} to={d.to} onClick={onNavigate} aria-current={active ? "page" : undefined}
+              className={cn("flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors", active ? "bg-accent font-medium" : "hover:bg-accent")}>
+              <d.icon className="size-4 shrink-0" strokeWidth={1.7} />
+              <span className="text-[13.5px]">{d.label}</span>
+              <span className="text-muted-foreground ml-auto truncate text-[12px] font-normal">{d.note}</span>
+            </Link>
+          );
+        })}
       </div>
 
       <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
@@ -550,7 +561,7 @@ function GenerationRow({ generation: g, active, onClick, onDelete }: { generatio
     const p = g.post;
     return (
       <div className={cn("sidebar-row flex min-w-0 items-center rounded-lg", active ? "bg-accent" : "hover:bg-accent/60")}>
-        <button onClick={onClick} title={p.caption?.split("\n")[0] || p.brief} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left">
+        <button onClick={onClick} aria-current={active ? "true" : undefined} title={p.caption?.split("\n")[0] || p.brief} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left">
           <GenerationThumbnail src={p.imageOnDisk ? p.image : null}>
             <ImageIcon className="text-muted-foreground size-4" strokeWidth={1.6} />
           </GenerationThumbnail>
@@ -576,7 +587,7 @@ function GenerationRow({ generation: g, active, onClick, onDelete }: { generatio
   const details = `${what}${clips} · ${live ? r.status : r.status === "done" ? (g.job?.onDisk === false ? "file gone" : "done") : r.status} · ${ago(r.queuedAt)}`;
   return (
     <div className={cn("sidebar-row flex min-w-0 items-center rounded-lg", active ? "bg-accent" : "hover:bg-accent/60")}>
-      <button onClick={onClick} title={`${title}\n${details}`} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left">
+      <button onClick={onClick} aria-current={active ? "true" : undefined} title={`${title}\n${details}`} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left">
         <GenerationThumbnail src={live ? null : g.job?.thumbnailUrl}>
           {live ? <Loader2 className="text-muted-foreground size-4 animate-spin" strokeWidth={1.6} /> : <Icon className="text-muted-foreground size-4" strokeWidth={1.6} />}
         </GenerationThumbnail>
@@ -1099,11 +1110,11 @@ function YoutubePicker({ keeps, onKeeps }: { keeps: Record<string, Keep>; onKeep
 
 /* ------------------------------------------------------------- run panel */
 
-/** A video run under the form: its state while it moves, the file once it
- *  has stopped, and the door to its own page for everything else. */
-function RunPanel({ run }: { run: RunSummary }) {
-  const live = isLive(run.status);
-  const detail = useApi(() => runsApi.get(run.id).catch(() => null), [run.id, run.status]);
+/** Read the run directly, so links also work outside the rail's latest 60. */
+function RunPanel({ runId }: { runId: string }) {
+  const detail = useApi(() => runsApi.get(runId), [runId]);
+  const run = detail.data;
+  const live = run ? isLive(run.status) : false;
   const reload = detail.reload;
   useEffect(() => {
     if (!live) return;
@@ -1111,8 +1122,15 @@ function RunPanel({ run }: { run: RunSummary }) {
     return () => clearInterval(t);
   }, [live, reload]);
   const d = detail.data;
+  if (!run) return (
+    <div className="bg-card grid gap-3 rounded-[14px] p-4.5">
+      {detail.error ? <><p role="alert">{detail.error}</p><Button variant="outline" onClick={reload}>Try again</Button></>
+        : <p role="status" className="text-muted-foreground">Loading generation…</p>}
+    </div>
+  );
   return (
     <div className="bg-card grid gap-3 rounded-[14px] p-4.5">
+      {detail.error && <p role="alert" className="text-destructive text-sm">Could not refresh this run. {detail.error}</p>}
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-[15px] font-medium">{run.title}</span>
         <span className={cn("text-[12.5px]", run.status === "failed" ? "text-destructive" : "text-muted-foreground")}>
