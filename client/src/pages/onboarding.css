@@ -1211,6 +1211,7 @@
   height: auto;
   aspect-ratio: 1;
   object-fit: contain;
+  transform: scale(0.9);
 }
 @media (prefers-reduced-motion: no-preference) {
   .ob-welcome-copy > :not(.ob-welcome-steps),
