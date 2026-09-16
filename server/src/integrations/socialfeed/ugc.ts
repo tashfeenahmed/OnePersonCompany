@@ -309,16 +309,15 @@ export async function ugcVideo(opts: {
   const chosen = (
     wanted.length ? wanted.map((id) => library.find((a) => a.id === id)).filter((a) => a !== undefined) : library
   ).slice(0, 4);
-  if (!chosen.length) {
-    s.endStep(assetStep, "no reference pictures");
-    throw new StepError(
-      "assets",
-      `${v.name} has no reference pictures in its asset library, and a UGC shot is a picture of a real ` +
-        `product rather than a prompt. Upload a logo or a product photo under Social media → Publishing → Assets.`,
-    );
-  }
-  record("assets", true, `${chosen.length} reference picture${chosen.length === 1 ? "" : "s"} from the library`);
-  s.endStep(assetStep, `${chosen.length} reference${chosen.length === 1 ? "" : "s"}`);
+  if (wanted.some(id => !chosen.some(asset => asset.id === id)))
+    throw new StepError("assets", "A selected reference picture is no longer available. Choose the references again.");
+  if (!chosen.length && !input.brief.trim())
+    throw new StepError("assets", "Describe the opening shot, or add a reference picture.");
+  const referenceNote = chosen.length
+    ? `${chosen.length} reference picture${chosen.length === 1 ? "" : "s"} from the library`
+    : "No reference pictures — generating from the scene description.";
+  record("assets", true, referenceNote);
+  s.endStep(assetStep, referenceNote);
   markUsed(chosen.map((a) => a.id));
 
   /* -------------------------------------------------------- 2. the image */
@@ -354,7 +353,7 @@ export async function ugcVideo(opts: {
     imagePrompt,
     format,
     `ugc-${opts.runId}`,
-    support.supported ? { dataUrls, field: support.field, many: support.many } : undefined,
+    support.supported && dataUrls.length ? { dataUrls, field: support.field, many: support.many } : undefined,
   );
   if (!image.ok || !image.path) {
     s.endStep(imageStep, "the scene could not be made");
@@ -364,13 +363,13 @@ export async function ugcVideo(opts: {
   record(
     "image",
     true,
-    support.supported
+    chosen.length === 0 ? "Generated from the scene description, without reference pictures." : support.supported
       ? `${support.note} The ${chosen.length} reference${chosen.length === 1 ? " was" : "s were"} passed as an image input.`
       : `${support.note}`,
   );
-  s.endStep(imageStep, support.supported ? "the scene, from the references" : "the scene, from words only");
+  s.endStep(imageStep, chosen.length && support.supported ? "the scene, from the references" : "the scene, from words only");
   s.say(
-    support.supported
+    chosen.length === 0 ? "The scene was generated from your description; no reference pictures were supplied." : support.supported
       ? `The image model takes a picture in its \`${support.field}\` input, so the venture's own references went in as pictures.`
       : `**The image model takes no picture as an input.** ${support.note} The scene was made from the prompt alone, which is much weaker than a reference — the product in it is the model's idea of the product.`,
   );
@@ -543,6 +542,7 @@ function buildImagePrompt(v: VentureRow, brief: string, assetTexts: string[], ha
   const lines = [
     `A photorealistic user-generated-content style photograph for ${v.name}${v.website ? ` (${v.website})` : ""}.`,
     brief ? `The scene: ${brief}.` : `The scene: the product in ordinary use, in a real room, in natural light.`,
+    ...(assetTexts.length ? [] : ["No product reference was supplied. Follow the scene description; do not invent a specific product’s appearance, branding or interface."]),
     `Shot as if on a phone by a customer — handheld framing, natural light, no studio lighting, no stock-photo gloss.`,
     /* The same rule the Studio's own image prompt keeps: no text in the
        picture. A model asked for a logo draws a wrong one. */
@@ -581,8 +581,8 @@ function report(ctx: {
   lines.push("");
   lines.push(
     ctx.skipped
-      ? `A still frame, from ${ctx.references} of this venture's own reference picture${ctx.references === 1 ? "" : "s"}. **There is no video.** ${ctx.skipped}`
-      : `A ${ctx.seconds}-second clip, grown from a still made out of ${ctx.references} of this venture's own reference picture${ctx.references === 1 ? "" : "s"}.`,
+      ? `A still frame, ${ctx.references ? `from ${ctx.references} venture reference pictures` : "from the scene description"}. **There is no video.** ${ctx.skipped}`
+      : `A ${ctx.seconds}-second clip, grown from a still ${ctx.references ? `guided by ${ctx.references} venture reference pictures` : "made from the scene description"}.`,
   );
   lines.push("");
   lines.push(`## How it was made`);

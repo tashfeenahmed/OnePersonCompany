@@ -56,8 +56,7 @@ export type Beat = {
   voiceover: string;
   /** Two to four stock search terms, most specific first. */
   terms: string[];
-  /** How long this beat holds. Set by this server rather than by the model —
-   *  see `plan()`. */
+  /** Bounded model timing in auto mode; shared target timing with an override. */
   seconds: number;
 };
 
@@ -89,34 +88,27 @@ export function beatCount(seconds: number): number {
 
 /* --------------------------------------------------------------- the ask */
 
-function ventureFacts(v: VentureRow): string[] {
+function ventureFacts(v: VentureRow | null): string[] {
+  if (!v) return ["No business selected. Explain the subject in the brief; do not invent a business or product."];
   const out = [`Name: ${v.name}`, `Stage: ${v.stage}`];
   if (v.description) out.push(`What the owner says it is: ${v.description}`);
   if (v.website) out.push(`Address: ${v.website}`);
   return out;
 }
 
-/**
- * The script, in one turn.
- *
- * `count` IS THIS SERVER'S NUMBER AND NOT A SUGGESTION. The length of the
- * finished video is a thing the owner typed and the beat count follows from
- * it arithmetically; asking a model to "write about six beats" produces four
- * or nine and a video that is not the length that was asked for. So the count
- * is stated, and a reply with the wrong number of beats is trimmed or padded
- * by the caller rather than re-requested.
- */
+/** The model chooses shots and timing unless the owner supplied a target
+ * duration. Explicit lengths retain the existing fixed-count contract. */
 export async function writeScript(opts: {
-  venture: VentureRow;
+  venture: VentureRow | null;
   brief: string;
-  seconds: number;
+  seconds: number | null;
   signal?: AbortSignal;
 }): Promise<{ script: Script; model: string | null; raw: string }> {
-  const count = beatCount(opts.seconds);
+  const count = opts.seconds === null ? 10 : beatCount(opts.seconds);
   const middle = Math.max(1, count - 2);
 
   const system = [
-    `You write short vertical videos — the kind that plays with the sound off, one line of text on the screen at a time over stock footage. You are writing one for a small software business, from a dashboard that holds what is actually known about it.`,
+    `You write short vertical videos — the kind that plays with the sound off, one line of text on the screen at a time over stock footage. Write about the supplied subject. When business facts are supplied, use only what is actually known about that business.`,
     ``,
     `ANSWER WITH ONE JSON OBJECT AND NOTHING ELSE. No preamble, no explanation, no markdown around it. The object is:`,
     ``,
@@ -127,14 +119,16 @@ export async function writeScript(opts: {
     `  "cta": { "caption": "…", "voiceover": "…", "terms": ["…", "…"] }`,
     `}`,
     ``,
-    `EXACTLY ${middle} entries in "beats" — not more and not fewer. With the hook and the CTA that is ${count} shots, which is the length this video was asked to be.`,
+    opts.seconds === null
+      ? `Choose 1 to 8 entries in "beats", plus the hook and CTA. Use only as many as the subject needs. Set "seconds" on each shot between 3 and 10 so there is time to read and speak it. Keep each voiceover under 20 words. The whole video must stay under 105 seconds.`
+      : `EXACTLY ${middle} entries in "beats". With the hook and CTA that is ${count} shots, for a target length of ${opts.seconds} seconds. Keep each voiceover short enough to speak in its share of the time.`,
     ``,
     `THE RULES, all binding:`,
     `- "caption" is what is BURNED ONTO THE SCREEN. At most nine words. It is read in a second and a half on a phone held at arm's length, so it is a sentence a person says, not a heading. No emoji, no hashtags, no quotation marks, no line breaks.`,
     `- "voiceover" is what a narrator would say over that shot. One or two sentences. It carries the argument; the caption is the part somebody reads.`,
     `- "terms" is two to four STOCK FOOTAGE SEARCH TERMS for that shot, most specific first. A stock library has footage of THINGS AND PEOPLE DOING THINGS. It has none of abstract nouns: "regulatory uncertainty", "scalability", "customer trust" return nothing. Write what the camera would see — "stack of paper documents", "tired office worker at night", "hands typing on laptop". One to three words each, English.`,
     `- The HOOK is the first shot and it has one job: stop the scroll. A question, a number, or a plain statement of the problem. Never "in this video" and never a greeting.`,
-    `- The CTA is the last shot before the end card. It asks for one specific thing — visit the site, try it free, reply — and it names the business.`,
+    `- The CTA is the last shot before the end card. It asks for one specific thing. Name the business when one is supplied; otherwise use a relevant takeaway or question, without inventing a product.`,
     `- NEVER INVENT A FACT ABOUT THIS BUSINESS. You are told its name, the sentence its owner wrote, its stage and its address. You are NOT told its pricing, its customer count, its funding, its launch date or its reviews, and you must not write any of those. A number you were not given is a claim the owner would have to go and make true.`,
     `- A business at stage "idea" or "pre-launch" has no customers and no results. Do not write a script that implies it has either.`,
     `- Plain words. No "unlock", no "revolutionise", no "game-changer", no "in today's fast-paced world".`,
@@ -146,7 +140,7 @@ export async function writeScript(opts: {
      are kept apart because the rule directly above forbids inventing a fact
      and a tone of voice must not read as an exemption from it. Null when
      nothing has been written, and then the prompt is exactly what it was. */
-  const guide = guidePrompt(opts.venture.id);
+  const guide = opts.venture ? guidePrompt(opts.venture.id) : null;
 
   const user = [
     `THE BUSINESS`,
@@ -154,7 +148,7 @@ export async function writeScript(opts: {
     ...(guide ? [``, guide] : []),
     ``,
     `WHAT THIS VIDEO IS ABOUT`,
-    opts.brief.trim() || `Nothing in particular was singled out — make the case for ${opts.venture.name} to somebody who has never heard of it.`,
+    opts.brief.trim() || `Nothing in particular was singled out — make the case for ${opts.venture?.name ?? "the subject"} to somebody who has never heard of it.`,
     ``,
     `Write the JSON object now.`,
   ].join("\n");
@@ -163,7 +157,7 @@ export async function writeScript(opts: {
     signal: opts.signal,
   });
 
-  const parsed = readScript(reply.text, opts.brief, count, opts.seconds);
+  const parsed = readScript(reply.text, opts.brief, count, opts.seconds, opts.venture ? END_CARD_SECONDS : 0);
   if (!parsed)
     throw new Error(
       "The model did not answer with a script this server could read. It was asked for one JSON object with a hook, beats and a CTA; what came back is in the run's report.",
@@ -196,7 +190,9 @@ function readBeat(raw: unknown, role: BeatRole): Beat | null {
        refusing the whole script over one missing array would throw away six
        good beats. */
     terms: terms.length ? terms : [caption.split(/\s+/).slice(0, 3).join(" ")],
-    seconds: 0,
+    seconds: Number.isFinite(Number(o.seconds)) && Number(o.seconds) > 0
+      ? Math.max(3, Math.min(10, Number(o.seconds)))
+      : Math.max(3, Math.min(10, Math.ceil((str(o.voiceover, 600) ?? caption).split(/\s+/).length / 2.5))),
   };
 }
 
@@ -209,7 +205,7 @@ function readBeat(raw: unknown, role: BeatRole): Beat | null {
  * A model that answered with beats that have no captions has not answered, and
  * that is a failure with the raw text kept.
  */
-export function readScript(text: string, brief: string, count: number, seconds: number): Script | null {
+export function readScript(text: string, brief: string, count: number, seconds: number | null, endCardSeconds = END_CARD_SECONDS): Script | null {
   const candidates: unknown[] = [];
   const fenced = fencedJson(text, "script");
   if (fenced) candidates.push(fenced);
@@ -247,11 +243,13 @@ export function readScript(text: string, brief: string, count: number, seconds: 
     ];
     if (!beats.length) continue;
 
-    /* THE LENGTH IS SHARED OUT BY THIS SERVER AND NOT BY THE MODEL. Every beat
-       gets an equal share of what is left after the end card, floored at two
-       seconds — which is the point at which a caption stops being readable. */
-    const each = Math.max(2, (Math.max(6, seconds - END_CARD_SECONDS)) / beats.length);
-    for (const b of beats) b.seconds = Math.round(each * 100) / 100;
+    // An explicit length keeps the existing fixed-duration behavior. In auto
+    // mode preserve the model's bounded timing, with a reading-time fallback.
+    if (seconds !== null) {
+      const each = Math.max(2, (Math.max(6, seconds - endCardSeconds)) / beats.length);
+      for (const b of beats) b.seconds = Math.round(each * 100) / 100;
+    }
+
 
     return { title: str(o.title, 120) ?? beats[0]!.caption, beats, brief };
   }
@@ -268,7 +266,7 @@ export type Window = {
 };
 
 /**
- * Two to four windows out of a long video, chosen from what was said in it.
+ * One to five windows out of a long video, chosen from what was said in it.
  *
  * THE TRANSCRIPT IS THE WHOLE INPUT AND THE ABSENCE OF ONE IS FATAL TO THIS
  * FUNCTION, deliberately. A model asked to pick the best moments of a video it
@@ -293,7 +291,7 @@ export async function pickWindows(opts: {
     `{ "clips": [ { "title": "…", "reason": "…", "start": 0, "end": 0 } ] }`,
     ``,
     `RULES:`,
-    `- Between 2 and ${opts.want} clips. Fewer good ones beats more weak ones.`,
+    `- Choose up to ${opts.want} clip${opts.want === 1 ? "" : "s"}, at least one. Fewer good ones beats more weak ones.`,
     `- "start" and "end" are SECONDS from the beginning of the video, as numbers. They must fall inside 0 and ${Math.floor(opts.duration)}.`,
     `- Each clip is between 15 and ${opts.maxSeconds} seconds long. Under fifteen seconds there is no room for a point to be made.`,
     `- A clip must START AT THE BEGINNING OF A THOUGHT and end at the end of one. A clip that opens mid-sentence is unusable however good the middle of it is.`,

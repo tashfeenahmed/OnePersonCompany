@@ -1,5 +1,5 @@
 /**
- * THE SHORTS PIPELINE — a long video in, two to four vertical clips out.
+ * THE SHORTS PIPELINE — a long video in, one to five vertical clips out.
  *
  * THE ONLY THING THAT MAKES THIS BETTER THAN CUTTING AT RANDOM IS THE
  * TRANSCRIPT, and that is why three quarters of this file is about getting
@@ -37,6 +37,7 @@
  * moment the clips are cut, and the row records the URL rather than the file.
  * The clips themselves are kept because they are what the run produced.
  */
+import { shortsClipCount } from "../../../../shared/studioInputs.ts";
 import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { configValue, type VentureRow } from "../../db.ts";
@@ -401,7 +402,7 @@ export async function shortsVideo(opts: {
     also not a prediction of how a clip will perform.
   */
   const pickStep = s.startStep("highlights", "choosing the moments");
-  const want = Math.max(2, Math.min(4, Math.round(input.clips || 3)));
+  const want = shortsClipCount(input.clips);
   const maxClip = Math.max(15, Math.min(MAX_CLIP_SECONDS, Math.round(input.seconds || 45)));
   let windows: Window[] = [];
   let chosenBy: "transcript" | "words" | "speech" | "density" | "scenes" | "spacing" = "spacing";

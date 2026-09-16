@@ -33,7 +33,7 @@ export const SKILLS: Skill[] = [
       "script written from a venture record, stock footage from Pexels for " +
       "each beat, captions burned in with the venture's own colour and font, " +
       "and an end card. `shorts` is a long video downloaded with yt-dlp and " +
-      "cut into two to four vertical clips. `reel` is a two-voice walkthrough " +
+      "cut into one to five vertical clips. `reel` is a two-voice walkthrough " +
       "over screenshots of the venture's OWN pages, scrolling. `motion` is a " +
       "scene list — a title card, a number, a before/after, a list, a call to " +
       "action — rendered as animated typography in the venture's own colours. Every job carries its script, the " +

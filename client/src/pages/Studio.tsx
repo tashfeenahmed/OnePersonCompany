@@ -4,6 +4,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type Dispatch, type React
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Clapperboard,
+  ChevronDown,
   Film,
   Image as ImageIcon,
   Loader2,
@@ -32,6 +33,7 @@ import { ASPECT_OPTIONS } from "@/data/mediaShapes";
 import { SocialPlatformLabel } from "@/components/SocialPlatform";
 import { GameplayPicker } from "@/components/studio/GameplayPicker";
 import { gameplayLabel } from "../../../shared/gameplay";
+import { shortsClipCount } from "../../../shared/studioInputs";
 import { MotionReadinessNote, NewSceneListButton, SceneListEditor } from "@/components/studio/SceneListEditor";
 import { RunSteps } from "@/components/runs/RunSteps";
 import { VideoResult } from "@/areas/video/VideoResult";
@@ -628,9 +630,10 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const [platform, setPlatform] = useState<string | null>(null);
   const [assetIds, setAssetIds] = useState<string[]>([]);
   const [aspect, setAspect] = useState("9:16");
+  const [aspectChanged, setAspectChanged] = useState(false);
   const [fit, setFit] = useState("cover");
-  const [seconds, setSeconds] = useState(make === "youtube" ? "45" : "30");
-  const [clips, setClips] = useState("3");
+  const [seconds, setSeconds] = useState(make === "youtube" ? "45" : make === "faceless" ? "" : "30");
+  const [clips, setClips] = useState("1");
   const [url, setUrl] = useState("");
   /* THE YOUTUBE TAB'S ONLY STATE UP HERE IS WHAT WAS TICKED. The query, the
      results and which one is playing all belong to the picker below and are
@@ -647,10 +650,13 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const [params, setParams] = useSearchParams();
   const spec = make === "motion" ? (params.get("spec") ?? "") : "";
   const setSpec = (id: string) => {
+    setAspectChanged(false);
     const next = new URLSearchParams(params);
     if (id) next.set("spec", id); else next.delete("spec");
     setParams(next, { replace: true });
   };
+  const [optionsOpen, setOptionsOpen] = useState(!!spec);
+  useEffect(() => { if (spec) setOptionsOpen(true); }, [spec]);
   const [voiceover, setVoiceover] = useState(false);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
@@ -673,12 +679,12 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const [background, setBackground] = useState("");
   const gameplay = stewie.data?.backgrounds ?? footage.data?.backgrounds ?? (stewie.data?.worker?.backgrounds ?? []).map(id => ({ id, label: gameplayLabel(id), thumbnailUrl: null }));
 
-  const needsVenture = make !== "youtube" && make !== "stewie";
+  const needsVenture = make === "image" || make === "ugc" || make === "reel";
   const ready =
     !busy &&
     (!needsVenture || !!venture) &&
-    (make === "image" ? brief.trim().length > 0 : true) &&
-    (make === "ugc" ? assets.length > 0 : true) &&
+    ((make === "motion" || make === "faceless") ? !!venture || !!spec || brief.trim().length > 0 : true) &&
+    (make === "ugc" ? assets.some(a => a.onDisk) || brief.trim().length > 0 : true) &&
     (make === "youtube" ? Object.keys(keeps).length > 0 || url.trim().length > 0 : true) &&
     (make === "stewie" ? (stewie.data?.configured ?? false) && !stewie.data?.running
       && (!background || gameplay.some(item => item.id === background))
@@ -718,7 +724,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
            run, with the clip count from its own field. */
         const sources = [
           ...Object.values(keeps).map((k) => ({ url: k.url, clips: k.clips })),
-          ...(url.trim() ? [{ url: url.trim(), clips: Number(clips) || 3 }] : []),
+          ...(url.trim() ? [{ url: url.trim(), clips: shortsClipCount(clips) }] : []),
         ];
         let last: string | null = null;
         for (const src of sources) {
@@ -738,7 +744,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         const input: Record<string, string> = { format: make, brief: brief.trim(), aspect };
         if (make === "faceless") Object.assign(input, { seconds, fit });
         if (make === "reel") Object.assign(input, { url: url.trim(), seconds });
-        if (make === "motion") Object.assign(input, { spec, voiceover: voiceover ? "true" : "false" });
+        if (make === "motion") Object.assign(input, { spec, aspect: spec && !aspectChanged ? "" : aspect, voiceover: voiceover ? "true" : "false" });
         if (make === "stewie") Object.assign(input, { url: stewieMode === "pages" ? url.trim() : "", background });
         const run = await runsApi.start({ kind: "video", ventureId: venture?.id ?? null, input });
         setSaid(run.status === "running" ? "Started. It shows in the rail while it works." : "Queued behind the runs ahead of it.");
@@ -751,209 +757,141 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     }
   }
 
+  const ventureField = (
+    <Field label={needsVenture ? "For which venture" : "Venture (optional)"}>
+      <VentureSelect ventures={ventures} value={venture?.id ?? null} onChange={(id) => { onVenture(id); setAssetIds([]); setSpec(""); }} none={needsVenture ? null : "No venture"} />
+    </Field>
+  );
+  const briefField = (
+    <Field
+      label={make === "image" ? "What should the post be about? (optional)" : make === "youtube" ? "What to look for (optional)" : make === "ugc" ? "Describe the opening shot" : make === "stewie" ? `What should they explain?${stewieMode === "pages" ? " (optional)" : ""}` : "What should the video be about?"}
+      hint={make === "image" ? "Leave this empty and AI picks an angle from the venture’s saved facts and brand." : make === "youtube" ? "Optional direction for the moments AI selects." : make === "ugc" ? "The person, the setting, and what happens. Reference pictures are optional." : make === "motion" ? "AI writes the scenes and chooses their timing. A saved scene list is optional." : make === "faceless" ? "AI writes the narration and finds matching footage. Length follows the script unless you set a target." : undefined}
+    >
+      <Textarea aria-label={make === "youtube" ? "What to look for" : "Generation brief"} value={brief} onChange={(e) => setBrief(e.target.value)} rows={3} maxLength={make === "stewie" ? 2500 : 2000}
+        placeholder={make === "image" ? "For example, introduce our weekly digests" : make === "youtube" ? "For example, practical advice for first-time founders" : make === "ugc" ? "A person at their desk, holding the product up to the camera…" : make === "faceless" ? "For example, five hidden gems in Lisbon" : make === "motion" ? "For example, three reasons to try our new app" : "One or two lines…"}
+        className="text-[14.5px]" />
+    </Field>
+  );
+  const assetsField = wantsAssets && venture ? (
+    <Field label={make === "ugc" ? "Reference pictures (optional)" : "Visual references (optional)"}
+      hint={assets.length ? (make === "ugc" ? "Choose up to four, or let OPC use available pictures from this venture." : "Choose up to four pictures to guide the look.") : undefined}>
+      {assets.length === 0 ? (
+        <p className="text-muted-foreground text-[12.5px]">
+          <Link to={`${STUDIO}/publishing?tab=assets`} className="underline decoration-dotted">Add reference pictures</Link> to guide the look or show a specific product.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {assets.slice(0, 12).map((a) => (
+            <button key={a.id} type="button" title={a.prompt ?? a.name ?? a.kind} aria-pressed={assetIds.includes(a.id)} disabled={!a.onDisk}
+              onClick={() => setAssetIds((prev) => (prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id].slice(0, 4)))}
+              className={cn("overflow-hidden rounded-[11px] border transition-colors", assetIds.includes(a.id) ? "border-foreground" : "hover:border-line-strong")}>
+              {a.onDisk ? <img src={a.url} alt={a.name ?? a.kind} className="size-12 object-cover" /> : <span className="text-muted-foreground flex size-12 items-center justify-center text-[11px]">missing</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </Field>
+  ) : null;
+  const shownAspect = make === "motion" && spec && !aspectChanged ? specs.data?.specs.find(item => item.id === spec)?.aspect ?? aspect : aspect;
+  const shapeField = <Field label="Shape"><ShapePicker value={shownAspect} onChange={(value) => { setAspect(value); setAspectChanged(true); }} options={ASPECT_OPTIONS} /></Field>;
   const cost = {
-    image: readiness?.image.ready
-      ? `One image, billed through ${readiness.image.providerLabel}.`
-      : "Connect the image provider to include a picture. Otherwise, only the caption is saved.",
-    ugc: "One image prediction always, and one image-to-video prediction if a model is set under Integrations → Social feed. With none set it makes a still and spends nothing on video.",
-    faceless: "A model turn for the script, Pexels for the footage, ffmpeg on this machine. A minute or two.",
-    youtube: "Searching and previewing are free — metadata and YouTube's own player. Cutting is one shorts run per video you ticked, a few minutes each, one at a time.",
-    reel: "Headless Chrome captures each page, a model writes the two voices, the voice plugin speaks them if it is on.",
-    motion: "A model drafts the scene list unless you pick a saved one; Chrome renders the frames. Silent unless the voice plugin is on.",
-    stewie: "Handed to OPC's render relay, which wakes the Dell if it is asleep (about ninety seconds), clones both voices and renders the script written by your workspace LLM. A few minutes, and real power while the Dell is up.",
+    image: readiness?.image.ready ? `One image, billed through ${readiness.image.providerLabel}.` : "Connect an image provider to include a picture. Otherwise, only the caption is saved.",
+    ugc: "Creates a still, then animates it if a video model is connected. Generation uses the connected providers’ credits.",
+    faceless: "Your workspace AI writes the script; stock footage and narration are assembled into a video.",
+    youtube: "AI selects complete moments from the transcript. Clips are vertical by default; missing transcript or framing support is noted in the result.",
+    reel: "OPC captures the pages and writes a two-voice walkthrough.",
+    motion: "AI writes the scene list from your brief. Vertical and silent by default.",
+    stewie: "AI writes both voices. The render worker wakes the Dell if needed; rendering takes a few minutes.",
   }[make];
 
   return (
-    <div className="bg-card grid gap-3.5 rounded-[14px] p-4.5">
+    <div data-studio-composer={make} className="bg-card grid gap-3.5 rounded-[14px] p-4.5">
       {(make === "image" || make === "ugc") && readiness && <ReadinessBanner readiness={readiness} />}
+      {needsVenture && ventureField}
 
-      <Field label={needsVenture ? "For which venture" : "For which venture (optional)"}>
-        <VentureSelect ventures={ventures} value={venture?.id ?? null} onChange={(id) => { onVenture(id); setAssetIds([]); setSpec(""); }} none={needsVenture ? null : "No venture"} />
-      </Field>
-
-      {make === "youtube" && (
-        <>
-          <YoutubePicker keeps={keeps} onKeeps={setKeeps} />
-          <Field label="Or paste a link" hint="A YouTube address or a direct link to a video file, cut alongside anything ticked above.">
-            <div className="flex flex-wrap items-center gap-2">
-              <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" className="min-w-56 flex-1 text-[14px]" />
-              <span className="text-muted-foreground text-[12.5px]">clips</span>
-              <Input type="number" min={2} max={4} value={clips} onChange={(e) => setClips(e.target.value)} className="w-16" />
-            </div>
-          </Field>
-        </>
-      )}
-
-      {make === "stewie" && (
-        <div className="grid gap-3.5">
-          {stewie.data && (!stewie.data.configured || stewie.data.running) && (
-            <p className={cn("text-[12.5px]", stewie.data.configured ? "text-muted-foreground" : "text-destructive")}>
-              {stewie.data.configured ? stewie.data.note : <>{stewie.data.note} <Link to="/integrations/workdash" className="underline decoration-dotted">Connect it</Link>.</>}
-              {stewie.data.running ? " A reel is rendering on the Pi right now; it does one at a time." : ""}
-            </p>
-          )}
-          <Field label="Pictures behind them" hint={stewieMode === "pages" ? "Real screenshots of the pages you list, scrolling — the mode for showing a product." : "A searched picture per line — fine for explaining a concept, useless for showing a product."}>
-            <Chips value={stewieMode} onChange={setStewieMode} options={[{ key: "images", label: "Searched images" }, { key: "pages", label: "Your pages" }]} />
-          </Field>
-          {stewieMode === "pages" && (
-            <Field label="Pages to show" hint="One address per line, up to eight. The page titles become the topic when the brief is empty.">
-              <Textarea value={url} onChange={(e) => setUrl(e.target.value)} rows={3} placeholder="https://…" className="text-[14px]" />
-            </Field>
-          )}
-          <GameplayPicker backgrounds={gameplay} value={background} onChange={setBackground} loading={footage.loading && stewie.loading} />
-        </div>
-      )}
-
-      {make === "reel" && (
-        <Field label="Pages to walk through" hint="One address per line. Empty uses the venture's own website.">
-          <Textarea value={url} onChange={(e) => setUrl(e.target.value)} rows={2} placeholder="https://…" className="text-[14px]" />
-        </Field>
-      )}
-
-      {/*
-        THE SCENE LIST, AND THE EDITOR FOR IT. Picking a saved list opens it
-        below — the whole of what used to be the Motion page, minus its own
-        Render button, because the one at the bottom of this composer is the
-        button that starts the run. Picking nothing keeps the composer as
-        small as every other tab's: a brief, a shape and a switch.
-
-        The list of saved specs is the venture's, so changing venture clears
-        the choice (see the venture field above) rather than leaving an id
-        selected that is no longer in the options.
-      */}
-      {make === "motion" && (
-        <Field label="Scene list" hint="A saved list renders as written. Drafting one from the brief is a model call, and its numbers are claims to read before you publish.">
+      {make === "youtube" && <>
+        <YoutubePicker keeps={keeps} onKeeps={setKeeps} />
+        <Field label="Or paste a video link">
           <div className="flex flex-wrap items-center gap-2">
-            <SelectField aria-label="Scene list" value={spec} onValueChange={(value) => setSpec(value)} className="border-line-soft h-9 rounded-[12px] border bg-transparent px-2.5 text-[13.5px]">
-              <SelectOption value="">Draft one from the brief</SelectOption>
-              {(specs.data?.specs ?? []).map((s) => (
-                <SelectOption key={s.id} value={s.id}>{s.name} · {s.scenes} scenes · {s.aspect}</SelectOption>
-              ))}
-            </SelectField>
-            <NewSceneListButton
-              ventureId={venture?.id ?? null}
-              onCreated={(id) => { setSpec(id); specs.reload(); }}
-            />
+            <Input aria-label="Video link" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" className="min-w-0 flex-1 text-[14px]" />
+            <label className="text-muted-foreground flex items-center gap-2 text-[12.5px]">Clips
+              <Input aria-label="Clips from pasted video" type="number" min={1} max={5} value={clips} onChange={(e) => setClips(e.target.value)} onBlur={() => setClips(String(shortsClipCount(clips)))} className="w-16" />
+            </label>
           </div>
         </Field>
-      )}
+      </>}
+
+      {make === "stewie" && <>
+        {stewie.data && (!stewie.data.configured || stewie.data.running) && (
+          <p className={cn("text-[12.5px]", stewie.data.configured ? "text-muted-foreground" : "text-destructive")}>
+            {stewie.data.configured ? stewie.data.note : <>{stewie.data.note} <Link to="/integrations/workdash" className="underline decoration-dotted">Connect it</Link>.</>}
+          </p>
+        )}
+        <Field label="Pictures behind them">
+          <Chips value={stewieMode} onChange={setStewieMode} options={[{ key: "images", label: "Searched images" }, { key: "pages", label: "Your pages" }]} />
+        </Field>
+        {stewieMode === "pages" && <Field label="Pages to show" hint="One address per line, up to eight. Leave the brief empty to explain what these pages do.">
+          <Textarea aria-label="Pages to show" value={url} onChange={(e) => setUrl(e.target.value)} rows={3} placeholder="https://…" className="text-[14px]" />
+        </Field>}
+      </>}
+
+      {make === "reel" && <Field label="Pages to walk through" hint="One address per line. Empty uses the venture’s website.">
+        <Textarea aria-label="Pages to walk through" value={url} onChange={(e) => setUrl(e.target.value)} rows={2} placeholder="https://…" className="text-[14px]" />
+      </Field>}
+
+      {make !== "youtube" && !(make === "motion" && spec) && briefField}
+      {make === "motion" && spec && <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
+        <span>Using a saved scene list</span><Button variant="ghost" size="sm" onClick={() => setSpec("")}>Write from a prompt instead</Button>
+      </div>}
       {make === "motion" && specs.data && <MotionReadinessNote readiness={specs.data.readiness} />}
+      {make === "ugc" && assetsField}
+      {make === "faceless" && shapeField}
+      {make === "stewie" && <GameplayPicker backgrounds={gameplay} value={background} onChange={setBackground} loading={footage.loading && stewie.loading} />}
+      {make === "image" && <Field label="Written for">
+        <Chips value={platform ?? ""} onChange={(v) => setPlatform(v || null)} options={["", ...PLATFORMS].map((p) => ({ key: p, label: <SocialPlatformLabel platform={p} /> }))} />
+      </Field>}
 
-      {/* Under the picker rather than inside the field, so the field's hint
-          stays next to the control it explains rather than under a text
-          editor sixteen rows tall. Keyed by the spec so switching lists
-          remounts the editor instead of showing one list's text over
-          another's document. */}
-      {make === "motion" && spec && (
-        <SceneListEditor
-          key={spec}
-          id={spec}
-          onChanged={() => specs.reload()}
-          onDeleted={() => { setSpec(""); specs.reload(); }}
-        />
-      )}
-
-      {!(make === "motion" && spec) && (
-        <Field
-          label={make === "image" ? "What the post is about" : make === "youtube" ? "What to look for (optional)" : make === "stewie" ? (stewieMode === "pages" ? "What they should explain (optional)" : "What they should explain") : "What it is about"}
-          hint={make === "image" ? undefined : make === "youtube" ? "The same steer is given to every video you ticked, so keep it about the subject rather than about one of them." : make === "stewie" ? "One or two lines. In pages mode this can be a whole pitch pasted in for the script to lean on." : "Empty makes the general case for the venture."}
-        >
-          <Textarea
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
-            rows={make === "image" ? 3 : 2}
-            maxLength={2000}
-            placeholder={make === "image" ? "One line. “We shipped weekly digests” — not the post itself." : make === "youtube" ? "The moments worth keeping." : "One or two lines."}
-            className="text-[14.5px]"
-          />
-        </Field>
-      )}
-
-      {wantsAssets && venture && (
-        <Field
-          label={make === "ugc" ? "Product pictures" : "Take visual direction from"}
-          hint={assets.length ? (make === "ugc" ? "The clip is made from these. Empty uses the library, up to four." : library.data?.imageModel.note) : undefined}
-        >
-          {assets.length === 0 ? (
-            <p className="text-muted-foreground text-[12.5px]">
-              {venture.name} has no assets yet{make === "ugc" ? ", and a UGC clip is a picture of a real product" : ""}. Upload one under{" "}
-              <Link to={`${STUDIO}/publishing?tab=assets`} className="underline decoration-dotted">Publishing → Assets</Link>.
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {assets.slice(0, 12).map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  title={a.prompt ?? a.name ?? a.kind}
-                  onClick={() => setAssetIds((prev) => (prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id].slice(0, 4)))}
-                  className={cn("overflow-hidden rounded-[11px] border transition-colors", assetIds.includes(a.id) ? "border-foreground" : "hover:border-line-strong")}
-                >
-                  {a.onDisk ? <img src={a.url} alt="" className="size-12 object-cover" /> : <span className="text-muted-foreground flex size-12 items-center justify-center text-[11px]">missing</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </Field>
-      )}
-
-      {make === "image" ? (
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <Field label="Shape">
-            <ShapePicker value={shape} onChange={setShape} options={SHAPES} />
-          </Field>
-          <Field label="Written for">
-            <Chips
-              value={platform ?? ""}
-              onChange={(v) => setPlatform(v || null)}
-              options={["", ...PLATFORMS].map((p) => ({ key: p, label: <SocialPlatformLabel platform={p} /> }))}
-            />
-          </Field>
+      <details open={optionsOpen} onToggle={(e) => setOptionsOpen(e.currentTarget.open)} className="group/options border-line-soft border-t pt-3">
+        <summary className="text-muted-foreground hover:text-foreground flex cursor-pointer list-none items-center gap-2 text-[13px] [&::-webkit-details-marker]:hidden">
+          <ChevronDown className="size-3.5 transition-transform group-open/options:rotate-180" />
+          Optional settings{!needsVenture && venture ? ` · ${venture.name}` : ""}
+        </summary>
+        <div className="grid gap-3.5 pt-4">
+          {!needsVenture && ventureField}
+          {make === "youtube" && briefField}
+          {make === "image" ? <>
+            <Field label="Shape"><ShapePicker value={shape} onChange={setShape} options={SHAPES} /></Field>
+            {assetsField}
+          </> : make !== "stewie" && make !== "faceless" && shapeField}
+          {(make === "faceless" || make === "reel" || make === "youtube") && <Field label={make === "youtube" ? "Maximum clip length" : "Target length (optional)"} hint={make === "faceless" ? "Empty lets AI plan the shots and their timing. Set 10–120 seconds to override." : make === "youtube" ? "An upper limit, not an exact length. AI chooses where each thought starts and ends." : "10–120 seconds for the whole walkthrough."}>
+            <div className="flex items-center gap-2"><Input aria-label={make === "youtube" ? "Maximum clip length" : "Target length"} type="number" min={make === "youtube" ? 15 : 10} max={make === "youtube" ? 90 : 120} value={seconds} onChange={(e) => setSeconds(e.target.value)} placeholder="Auto" className="w-28" /><span className="text-muted-foreground text-[12px]">seconds</span></div>
+          </Field>}
+          {(make === "faceless" || make === "youtube") && <Field label="Framing">
+            <Chips value={fit} onChange={setFit} options={[{ key: "cover", label: "Fill the frame" }, { key: "letterbox", label: "Keep the full picture" }]} />
+          </Field>}
+          {make === "motion" && <>
+            <Field label="Narration"><label className="flex items-center gap-2.5 text-[13.5px]"><Switch checked={voiceover} onCheckedChange={setVoiceover} />Add narration when speech is connected</label></Field>
+            <Field label="Use a saved scene list" hint="Optional. Use this to edit exact scenes instead of asking AI to write them.">
+              <div className="flex flex-wrap items-center gap-2">
+                <SelectField aria-label="Scene list" value={spec} onValueChange={setSpec} className="min-w-0 max-w-full">
+                  <SelectOption value="">Let AI write it from the brief</SelectOption>
+                  {(specs.data?.specs ?? []).map((s) => <SelectOption key={s.id} value={s.id}>{s.name} · {s.scenes} scenes · {s.aspect}</SelectOption>)}
+                </SelectField>
+                <NewSceneListButton ventureId={venture?.id ?? null} onCreated={(id) => { setSpec(id); specs.reload(); }} />
+              </div>
+            </Field>
+            {spec && <SceneListEditor key={spec} id={spec} onChanged={() => specs.reload()} onDeleted={() => { setSpec(""); specs.reload(); }} />}
+          </>}
         </div>
-      ) : make === "stewie" ? null : (
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <Field label="Shape">
-            <ShapePicker value={aspect} onChange={setAspect} options={ASPECT_OPTIONS} />
-          </Field>
-          {(make === "faceless" || make === "reel") && (
-            <Field label="Length in seconds" hint={make === "faceless" ? "10 to 120." : "10 to 120; decides how many lines of dialogue there are."}>
-              <Input type="number" min={10} max={120} value={seconds} onChange={(e) => setSeconds(e.target.value)} className="w-28" />
-            </Field>
-          )}
-          {make === "youtube" && (
-            <Field label="Max seconds" hint="15 to 90 for every clip. How many clips each video gives is set on its own card.">
-              <Input type="number" min={15} max={90} value={seconds} onChange={(e) => setSeconds(e.target.value)} className="w-24" />
-            </Field>
-          )}
-          {make === "motion" && (
-            <Field label="Narration">
-              <label className="flex h-9 items-center gap-2.5 text-[13.5px]">
-                <Switch checked={voiceover} onCheckedChange={setVoiceover} />
-                {voiceover ? "Spoken, if the voice plugin has speech on" : "Silent"}
-              </label>
-            </Field>
-          )}
-          {(make === "faceless" || make === "youtube") && (
-            <Field label="Fit">
-              <Chips value={fit} onChange={setFit} options={[{ key: "cover", label: "Centre crop" }, { key: "letterbox", label: "Letterbox" }]} />
-            </Field>
-          )}
-        </div>
-      )}
+      </details>
 
       <div className="flex flex-wrap items-center gap-2.5">
         <Button disabled={!ready} onClick={() => void go()}>
           {busy ? <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} /> : <Sparkles className="size-[15px]" strokeWidth={1.8} />}
-          {busy
-            ? make === "image"
-              ? "Making it…"
-              : "Queueing…"
-            : make === "youtube"
-              ? (() => { const n = Object.keys(keeps).length + (url.trim() ? 1 : 0); return `Cut ${n || ""} video${n === 1 ? "" : "s"}`; })()
-              : `Make ${MAKES.find((m) => m.key === make)!.label.toLowerCase()}`}
+          {busy ? make === "image" ? "Making it…" : "Queueing…" : make === "youtube" ? (() => { const n = Object.keys(keeps).length + (url.trim() ? 1 : 0); return `Cut ${n || ""} video${n === 1 ? "" : "s"}`; })() : `Make ${MAKES.find((m) => m.key === make)!.label.toLowerCase()}`}
         </Button>
-        <span className="text-muted-foreground text-[13px]">{cost}</span>
       </div>
+      <p className="text-muted-foreground text-[12.5px] leading-relaxed">{cost}</p>
       {said && <p className="text-[13.5px]">{said}</p>}
       {refused && <p className="text-destructive text-[13.5px] leading-relaxed">{refused}</p>}
     </div>
@@ -1111,7 +1049,7 @@ function YoutubePicker({ keeps, onKeeps }: { keeps: Record<string, Keep>; onKeep
                       onKeeps((prev) => {
                         const next = { ...prev };
                         if (next[h.id]) delete next[h.id];
-                        else next[h.id] = { url: h.url, title: h.title, clips: 3 };
+                        else next[h.id] = { url: h.url, title: h.title, clips: 1 };
                         return next;
                       })
                     }
@@ -1124,12 +1062,12 @@ function YoutubePicker({ keeps, onKeeps }: { keeps: Record<string, Keep>; onKeep
                       clips
                       <Input
                         type="number"
-                        min={2}
-                        max={4}
+                        min={1}
+                        max={5}
                         value={keep.clips}
                         onChange={(e) => {
                           const n = Number(e.target.value);
-                          const clips = Number.isFinite(n) ? Math.max(2, Math.min(4, Math.round(n))) : 3;
+                          const clips = shortsClipCount(n);
                           onKeeps((prev) => (prev[h.id] ? { ...prev, [h.id]: { ...prev[h.id]!, clips } } : prev));
                         }}
                         className="h-7 w-14 px-1.5 text-[12.5px] tabular-nums"

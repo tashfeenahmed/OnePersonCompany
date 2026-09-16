@@ -107,7 +107,7 @@ async function readiness() {
       about:
         f === "faceless"
           ? "A script written from the venture, stock footage for each beat, captions in the venture's colours, and an end card. Needs Pexels and a model."
-          : "A long video downloaded and cut into two to four vertical clips, chosen from what was said in it. Needs yt-dlp and a model.",
+          : "A long video downloaded and cut into one to five vertical clips, chosen from what was said in it. Needs yt-dlp and a model.",
     })),
     aspects: Object.entries(ASPECTS).map(([key, a]) => ({ key, width: a.width, height: a.height, about: a.about })),
     note:

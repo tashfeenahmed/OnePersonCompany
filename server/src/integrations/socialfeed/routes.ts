@@ -318,11 +318,10 @@ socialfeedRoutes.get("/ugc", (c) => {
           ? `The animation step will call ${model}, which costs real money per clip.`
           : "No image-to-video model is named, so a UGC job will produce a still image and skip the animation step. Nothing is spent on video.",
     },
-    /* Which ventures could run one at all: a UGC shot is made out of the
-       venture's own reference pictures and there is no substitute for them. */
+    /* Pictures are optional when the owner describes the scene. */
     ventures: ventureRows().map((row) => {
       const assets = assetRows(row.id).length;
-      return { id: row.id, slug: row.slug, name: row.name, assets, canRun: assets > 0 };
+      return { id: row.id, slug: row.slug, name: row.name, assets, canRun: image.ready };
     }),
     jobs: ugcRows(v?.id ?? null, clamp(c.req.query("limit"), 40, 1, 200)).map(shapeUgc),
     note:
@@ -347,21 +346,17 @@ socialfeedRoutes.post("/ugc/start", async (c) => {
     aspect?: unknown;
   };
   const v = ventureOf(typeof body.venture === "string" ? body.venture : undefined);
-  if (!v) return c.json({ error: "A venture is needed: a UGC shot is made out of one business's own pictures." }, 400);
+  if (!v) return c.json({ error: "Choose a venture for this UGC shot." }, 400);
 
   const library = assetRows(v.id);
-  if (!library.length)
-    return c.json(
-      {
-        error:
-          `${v.name} has no reference pictures. Upload a logo or a product photo under Social media → Publishing → ` +
-          `Assets first — a UGC shot is a picture of a real product rather than a prompt.`,
-      },
-      400,
-    );
+  const brief = (typeof body.brief === "string" ? body.brief : "").trim().slice(0, 2000);
+  if (!library.length && !brief)
+    return c.json({ error: "Describe the opening shot, or add a reference picture." }, 400);
 
-  if (!tokenAccounts("socialfeed_ugc_start").length)
-    return c.json({ error: "Replicate is not connected, so no image can be made. Paste an `r8_…` token under Integrations → Replicate." }, 400);
+  const image = imageReadiness();
+  if (!image.ready) return c.json({ error: image.note }, 400);
+  if (videoModel() && !tokenAccounts("socialfeed_ugc_start").length)
+    return c.json({ error: "Connect Replicate to use the configured animation model." }, 400);
 
   const assets = Array.isArray(body.assets)
     ? body.assets.filter((x): x is string => typeof x === "string")
@@ -371,7 +366,6 @@ socialfeedRoutes.post("/ugc/start", async (c) => {
   const unknown = assets.filter((id) => !library.some((a) => a.id === id));
   if (unknown.length) return c.json({ error: `Not assets of ${v.name}: ${unknown.join(", ")}.` }, 400);
 
-  const brief = (typeof body.brief === "string" ? body.brief : "").trim().slice(0, 600);
   const aspect = typeof body.aspect === "string" && ["9:16", "1:1", "16:9"].includes(body.aspect.trim()) ? body.aspect.trim() : "9:16";
 
   const id = mintRunId();

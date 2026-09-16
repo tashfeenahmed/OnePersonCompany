@@ -82,7 +82,7 @@ export class StepError extends Error {
 
 export type FacelessInput = {
   brief: string;
-  seconds: number;
+  seconds: number | null;
   aspect: string;
   fit: Fit;
 };
@@ -90,7 +90,7 @@ export type FacelessInput = {
 export async function facelessVideo(opts: {
   runId: string;
   session: RunSession;
-  venture: VentureRow;
+  venture: VentureRow | null;
   input: FacelessInput;
   signal?: AbortSignal;
 }): Promise<void> {
@@ -106,11 +106,11 @@ export async function facelessVideo(opts: {
   const filters = await ffmpegFilters(ffmpeg.path);
   const blur = blurFilter(filters);
 
-  const brand = readBrand(v.brand);
+  const brand = readBrand(v?.brand ?? null);
   const style: CaptionStyle = {
     width: frame.width,
     height: frame.height,
-    color: v.color,
+    color: v?.color ?? "#537cc4",
     /* The venture's OWN measured font, first. This is the whole reason a video
        for one business does not look like a video for another. Null where the
        site has never been read, and then the typesetter falls through its own
@@ -242,7 +242,7 @@ export async function facelessVideo(opts: {
       height: frame.height,
       fit: input.fit,
       blur,
-      pad: v.color,
+      pad: v?.color ?? "#537cc4",
       overlays: strip ? [{ png: strip, from: null, to: null }] : [],
       drawtext: captioner.expr(shot.beat.caption, style),
       audio: narrated ? (voices.get(i) ?? null) : null,
@@ -258,31 +258,33 @@ export async function facelessVideo(opts: {
   s.endStep(segStep, `${parts.length} shots cut`);
 
   /* ----------------------------------------------------- 6. the end card */
-  const cardStep = s.startStep("endcard", `${v.name}`);
-  const cardPng = await captioner.endCard(
-    [v.name, v.host ?? v.website ?? ""],
-    style,
-    resolve(dir, "endcard.png"),
-    signal,
-  );
   let endCard: string | null = null;
-  if (cardPng) {
-    const res = await still({
-      ffmpeg: ffmpeg.path,
-      png: cardPng,
-      out: resolve(dir, "seg-end.mp4"),
-      seconds: END_CARD_SECONDS,
-      width: frame.width,
-      height: frame.height,
-      silentTrack: narrated,
+  if (v) {
+    const cardStep = s.startStep("endcard", `${v.name}`);
+    const cardPng = await captioner.endCard(
+      [v.name, v.host ?? v.website ?? ""],
+      style,
+      resolve(dir, "endcard.png"),
       signal,
-    });
-    if (res.ok) {
-      endCard = res.path;
-      parts.push(res.path);
+    );
+    if (cardPng) {
+      const res = await still({
+        ffmpeg: ffmpeg.path,
+        png: cardPng,
+        out: resolve(dir, "seg-end.mp4"),
+        seconds: END_CARD_SECONDS,
+        width: frame.width,
+        height: frame.height,
+        silentTrack: narrated,
+        signal,
+      });
+      if (res.ok) {
+        endCard = res.path;
+        parts.push(res.path);
+      }
     }
+    s.endStep(cardStep, endCard ? "end card added" : "no end card — nothing on this box can draw one");
   }
-  s.endStep(cardStep, endCard ? "end card added" : "no end card — nothing on this box can draw one");
 
   /* --------------------------------------------------------- 7. the file */
   const encStep = s.startStep("encode", `joining ${parts.length} shots`);
@@ -307,7 +309,7 @@ export async function facelessVideo(opts: {
 
   saveJob({
     runId: opts.runId,
-    ventureId: v.id,
+    ventureId: v?.id ?? null,
     format: "faceless",
     aspect: input.aspect,
     width: frame.width,
@@ -355,7 +357,7 @@ function sweep(dir: string, parts: string[], assets: Asset[]) {
  * not a credit.
  */
 function report(ctx: {
-  venture: VentureRow;
+  venture: VentureRow | null;
   script: Script;
   shots: { beat: Beat; asset: Asset }[];
   dropped: { beat: Beat; why: string }[];
@@ -371,7 +373,7 @@ function report(ctx: {
   lines.push(`## ${ctx.script.title}`);
   lines.push("");
   lines.push(
-    `A ${ctx.frame.width}×${ctx.frame.height} video for **${ctx.venture.name}**, ` +
+    `A ${ctx.frame.width}×${ctx.frame.height} video${ctx.venture ? ` for **${ctx.venture.name}**` : ""}, ` +
       `${ctx.duration ? `${ctx.duration.toFixed(1)} seconds` : "of a length this box could not read"} long, ` +
       `${ctx.shots.length} shots${ctx.endCard ? " and an end card" : ""}. ` +
       `The file is on the run page above; nothing has been published anywhere.`,

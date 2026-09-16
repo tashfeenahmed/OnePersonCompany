@@ -20,6 +20,7 @@
  * want it gone. Half a video on the disk after a cancel is a few hundred
  * megabytes and an accurate record of what happened.
  */
+import { shortsClipCount } from "../../../../shared/studioInputs.ts";
 import { rmSync } from "node:fs";
 import type { VentureRow } from "../../db.ts";
 import { facelessVideo, runDir, StepError, type RunSession } from "./faceless.ts";
@@ -142,7 +143,7 @@ async function renderVideo(opts: {
         seconds: clampNumber(opts.input.seconds, 45, 15, 90),
         aspect,
         fit,
-        clips: clampNumber(opts.input.clips, 3, 2, 4),
+        clips: shortsClipCount(opts.input.clips),
       },
       signal: opts.signal,
     });
@@ -234,7 +235,8 @@ async function renderVideo(opts: {
       input: {
         specId: (opts.input.spec ?? "").trim(),
         brief,
-        aspect,
+        // A saved list keeps its shape unless the owner overrides it.
+        aspect: opts.input.spec?.trim() && !opts.input.aspect?.trim() ? "" : aspect,
         /* THE SKILLS PROXY SENDS EVERY PARAMETER AS A STRING, so this is
            parsed from the two spellings a form and an agent actually send and
            is false for anything else. A truthiness check on `"false"` would
@@ -245,15 +247,15 @@ async function renderVideo(opts: {
     });
   }
 
-  if (!opts.venture)
-    throw new StepError("input", "A faceless video is made out of a venture — its name, its sentence, its stage and its colours. Choose one.");
+  if (!opts.venture && !brief)
+    throw new StepError("input", "Describe the subject of the faceless video, or choose a venture.");
   return facelessVideo({
     runId: opts.runId,
     session: opts.session,
     venture: opts.venture,
     input: {
       brief,
-      seconds: clampNumber(opts.input.seconds, DEFAULT_SECONDS, 10, 120),
+      seconds: opts.input.seconds?.trim() && opts.input.seconds !== "auto" ? clampNumber(opts.input.seconds, DEFAULT_SECONDS, 10, 120) : null,
       aspect,
       fit,
     },

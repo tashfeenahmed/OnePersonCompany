@@ -198,7 +198,7 @@ export const KINDS: KindDef[] = [
     kind: "video",
     name: "Video",
     what:
-      "Makes a vertical video on this machine. `faceless` writes a script from the venture, finds stock footage on Pexels for every beat, burns captions in the venture's own colour and font, and adds an end card. `shorts` downloads a long video with yt-dlp and cuts two to four vertical clips out of it, choosing the windows from timed words and camera cuts where it can measure them and from even spacing where it cannot — which it says on every clip, and following the subject with the crop where there is something to follow. `reel` screenshots the venture's OWN pages and plays a two-voice walkthrough over them, scrolling. `motion` renders a scene list — a title card, a number, a before/after, a list, a call to action — as animated typography in the venture's own colours. `ugc` takes the venture's own reference pictures out of its asset library, puts the product into a scene with the image model, and animates that still with a Replicate image-to-video model — which is SKIPPED, with a sentence, when no such model is configured, so nothing is spent. `stewie` is the Peter & Stewie two-hander over mobile-game footage with cloned voices — rendered by Workdash's reel worker on the Dell through the Pi, so it needs a Workdash account under Integrations and a few minutes, and copies the mp4 back here. It publishes nothing anywhere: the file lands on this page.",
+      "Makes a vertical video on this machine. `faceless` writes a script from the venture, finds stock footage on Pexels for every beat, burns captions in the venture's own colour and font, and adds an end card. `shorts` downloads a long video with yt-dlp and cuts one to five vertical clips out of it, choosing the windows from timed words and camera cuts where it can measure them and from even spacing where it cannot — which it says on every clip, and following the subject with the crop where there is something to follow. `reel` screenshots the venture's OWN pages and plays a two-voice walkthrough over them, scrolling. `motion` renders a scene list — a title card, a number, a before/after, a list, a call to action — as animated typography in the venture's own colours. `ugc` takes the venture's own reference pictures out of its asset library, puts the product into a scene with the image model, and animates that still with a Replicate image-to-video model — which is SKIPPED, with a sentence, when no such model is configured, so nothing is spent. `stewie` is the Peter & Stewie two-hander over mobile-game footage with cloned voices — rendered by Workdash's reel worker on the Dell through the Pi, so it needs a Workdash account under Integrations and a few minutes, and copies the mp4 back here. It publishes nothing anywhere: the file lands on this page.",
     needsVenture: false,
     inputs: [
       {
@@ -260,18 +260,18 @@ export const KINDS: KindDef[] = [
         key: "seconds",
         label: "Length in seconds",
         hint:
-          "For faceless, how long the whole video is — 10 to 120, and the beats are shared out inside it. For shorts, the LONGEST a single clip may be — 15 to 90. For a reel, how long the whole thing is, which is what decides how many lines of dialogue there are. Motion takes its length from the scene list instead.",
+          "For faceless, leave empty for AI to choose the shots and their timing, or set a 10–120 second target. For shorts, the LONGEST a single clip may be — 15 to 90. For a reel, how long the whole thing is, which is what decides how many lines of dialogue there are. Motion takes its length from the scene list instead.",
         kind: "number",
         required: false,
-        default: "30",
+        default: "",
       },
       {
         key: "clips",
         label: "How many clips",
-        hint: "Shorts only. Two to four.",
+        hint: "Shorts only. One to five, one by default.",
         kind: "number",
         required: false,
-        default: "3",
+        default: "1",
       },
       {
         /* UGC only. Comma-separated asset ids out of the venture's own library;
