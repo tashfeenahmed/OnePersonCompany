@@ -59,6 +59,7 @@ import type { ChatTurn } from "../../chat/backend.ts";
 import { historyBlock, presenceBlock, renderBlocks, ventureBlock, type Block } from "./context.ts";
 import { ventureContext } from "../../routes/ventures.ts";
 import { kindDef, systemBrief } from "./kinds.ts";
+import { saveRunEvidence } from "./artifacts.ts";
 import type { Step } from "./store.ts";
 import {
   daysSince,
@@ -92,6 +93,7 @@ export type RunTools = {
   /** How long the report is right now, for `rewind`. */
   outputLength(): number;
   hasTools: boolean;
+  writerUsesProvider?: boolean;
 };
 
 /* ------------------------------------------------------------ the register */
@@ -710,6 +712,17 @@ export async function competitorsRun(opts: {
       "The investigation turn never answered with JSON, twice. Nothing was written to the register, which is the right outcome — a sweep that cannot say what it found must not overwrite what the last one did.",
     );
   const { answer, dropped } = parsed;
+  // A plain completion cannot re-verify a web source. Preserve the existing
+  // register and dates even if it returns plausible URLs from memory.
+  if (!tools.hasTools) {
+    answer.competitors = [];
+    answer.focusDone = [];
+  }
+  saveRunEvidence(runId, {
+    collectedAt: at, brief: focus, context: blocks,
+    investigation: answer, dropped, hasTools: tools.hasTools,
+    provenance: "Agent-supplied source URLs, not independently captured page contents. Without tools no profiles or verification dates are updated.",
+  });
   tools.endStep(
     dig,
     `${answer.competitors.length} rival(s) described${dropped.length ? `, ${dropped.length} dropped for having no source (${dropped.slice(0, 4).join(", ")})` : ""}`,
@@ -748,7 +761,7 @@ export async function competitorsRun(opts: {
   const writeSystem = systemBrief({
     def,
     ventureName: venture.name,
-    hasTools: tools.hasTools,
+    hasTools: false,
     data: renderBlocks(writeBlocks),
     extra: [
       "THE REGISTER BELOW IS THE EVIDENCE AND IT IS ALL OF IT. Every company you name and every price you quote must be in it. A rival that is not in the register was not verified, and naming one would be inventing a market.",
@@ -770,7 +783,7 @@ export async function competitorsRun(opts: {
         { role: "system", content: writeSystem },
         { role: "user", content: `Write the landscape document for ${venture.name}.` },
       ],
-      { toOutput: true },
+      { toOutput: true, forceProvider: tools.writerUsesProvider },
     )
   ).text;
   if (!looksLikeReport(doc)) {
@@ -786,7 +799,7 @@ export async function competitorsRun(opts: {
           { role: "assistant", content: doc.slice(0, 400) },
           { role: "user", content: DOC_AGAIN },
         ],
-        { toOutput: true },
+        { toOutput: true, forceProvider: tools.writerUsesProvider },
       )
     ).text;
   }

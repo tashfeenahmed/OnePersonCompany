@@ -1,3 +1,4 @@
+import { ArtifactDownload } from "./ArtifactDownload";
 import { FileCode2, FileText, Download } from "lucide-react";
 import { runFileUrl, type Paper } from "@/lib/api/runs";
 import { cn } from "@/lib/utils";
@@ -83,6 +84,7 @@ export function PaperLinks({ paper }: { paper: Paper }) {
         <Download className="size-3.5" strokeWidth={1.6} />
         Markdown
       </a>
+      <ArtifactDownload runId={paper.runId} />
     </>
   );
 }

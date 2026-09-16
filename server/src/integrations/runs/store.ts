@@ -16,6 +16,7 @@
 import type { RunStatus } from "../../../../shared/runStatus.ts";
 import { db, now, ventureRowById } from "../../db.ts";
 import { NOW, settleOpenRows } from "../../shared/settle.ts";
+import { deleteRunEvidence } from "./artifacts.ts";
 import { forgetVideo } from "../video/execute.ts";
 
 /* ------------------------------------------------------------------- rows */
@@ -283,6 +284,7 @@ export function deleteRun(id: string): boolean {
   // A video owns its entire run directory and previews. Remove these before
   // any records, so a filesystem error leaves the generation available to retry.
   forgetVideo(id);
+  deleteRunEvidence(id);
   /* The rows that only exist because of this run go with it. `paper_library`
      does NOT: a paper that exists in the world is not un-published by deleting
      the run that found it, and the next scout would only fetch it again. */

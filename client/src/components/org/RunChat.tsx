@@ -1,3 +1,4 @@
+import { ArtifactDownload } from "@/components/runs/ArtifactDownload";
 import { useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, Loader2, Square, TriangleAlert } from "lucide-react";
@@ -373,6 +374,7 @@ export function RunChat({
                   where the frame does. This one builds a document out of the
                   rendered markdown, which an HTML report does not need — it
                   already is one. */}
+              {!live && !run.paper && ["research", "seo", "competitors"].includes(run.kind) && <ArtifactDownload runId={run.id} />}
               {run.paper ? (
                 <PaperLinks paper={run.paper} />
               ) : !html ? (

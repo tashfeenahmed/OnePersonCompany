@@ -33,6 +33,7 @@ import { budgets, saveBudgets, queuePaused, setQueuePaused, usageReport } from "
  * A route that quietly did both would let a mis-click destroy a report that was
  * two minutes from finishing.
  */
+import { artifactArchive, runArtifactFiles } from "./artifacts.ts";
 import { Hono } from "hono";
 import { sourceDeletionProblem } from "../publishing/sourceDeletion.ts";
 import { existsSync, readFileSync } from "node:fs";
@@ -372,6 +373,23 @@ runRoutes.delete("/:id", (c) => {
   } catch (error) {
     console.error("Run deletion failed", id, error);
     return c.json({ error: "Could not remove all generation files. The generation was kept so you can retry." }, 500);
+  }
+});
+
+runRoutes.get("/:id/artifacts", (c) => {
+  const row = runRow(c.req.param("id"));
+  if (!row) return c.json({ error: "No run by that id." }, 404);
+  if (row.status === "running" || row.status === "queued")
+    return c.json({ error: "The run is still working. Download its artifacts when it stops." }, 409);
+  try {
+    const files = runArtifactFiles(row, row.kind === "papers" ? paperRow(row.id) : undefined);
+    c.header("Content-Type", "application/gzip");
+    c.header("Content-Disposition", `attachment; filename="${row.id}-artifacts.tar.gz"`);
+    c.header("Cache-Control", "private, no-store");
+    return c.body(new Uint8Array(artifactArchive(files)));
+  } catch (error) {
+    console.error("Run artifact export failed", row.id, error);
+    return c.json({ error: "The run's artifacts could not be packaged. Its saved report is still available." }, 500);
   }
 });
 

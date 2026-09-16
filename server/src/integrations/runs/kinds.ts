@@ -69,7 +69,7 @@ export const KINDS: KindDef[] = [
     kind: "research",
     name: "Research",
     what:
-      "Deep research on the venture against the commercial web: investigates with the agent's own tools — web search and this dashboard's skills — and then writes a report. With no agent live it is a raw model reasoning over what this box already measured, and the report says so.",
+      "Deep research on the venture: investigates the product, customers, competition and economics with the agent's tools, saves its evidence notes, then writes a complete HTML report with sources and ranked actions. With no agent live it analyses saved measurements only and says so.",
     needsVenture: true,
     inputs: [
       {

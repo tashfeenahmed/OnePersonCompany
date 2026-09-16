@@ -100,6 +100,8 @@ import { fencedJson, kindDef, systemBrief, type KindDef } from "./kinds.ts";
 import { readFiled } from "./filed.ts";
 import { looksLikeHtmlReport, sanitizeReportHtml, splitTrailingFence, unfence } from "./html.ts";
 import { competitorsRun } from "./competitors.ts";
+import { researchRun, SEO_REVIEW_RULES } from "./research.ts";
+import { saveRunEvidence } from "./artifacts.ts";
 import { growthRun } from "../growth/runs.ts";
 import { dossierRun } from "../people/dossier.ts";
 import { knowledgeBlock } from "../knowledge/store.ts";
@@ -813,6 +815,7 @@ async function execute(row: RunRow, s: Session) {
           s.flush();
         },
         hasTools: activeBackend() !== null,
+        writerUsesProvider: activeProvider() !== null,
       },
     });
   return reportRun(s, def, venture!, input);
@@ -857,6 +860,8 @@ async function blocksFor(def: KindDef, v: VentureRow, ventureId: string | null):
         await presenceBlock(v),
         await backlinksBlock(v),
         await demandBlock(),
+        await searchConsoleBlock(v),
+        await bingBlock(v),
         competitorBlock(v),
         historyBlock(def.kind, ventureId),
       ];
@@ -887,12 +892,29 @@ async function reportRun(s: Session, def: KindDef, v: VentureRow, input: Record<
   s.endStep(gather, `${blocks.length} sources read`);
 
   const hasTools = activeBackend() !== null;
+  if (def.kind === "research") return researchRun({
+    runId: s.id, ventureName: v.name, focus: (input.focus ?? "").trim(), blocks, hasTools,
+    writerUsesProvider: activeProvider() !== null,
+    turn: (turns, opts) => turn(s, turns, opts),
+    say: text => s.say(text),
+    step: async (label, work) => {
+      const step = s.startStep("research", label);
+      const result = await work();
+      s.endStep(step);
+      return result;
+    },
+  });
+  if (def.kind === "seo") saveRunEvidence(s.id, {
+    collectedAt: now(), brief: input.focus ?? "", context: blocks,
+    note: "These are the saved source blocks supplied before the review. Additional agent findings are in the report, not independently captured tool results.",
+  });
 
   const system = systemBrief({
     def,
     ventureName: v.name,
     hasTools,
     data: renderBlocks(blocks),
+    extra: def.kind === "seo" ? SEO_REVIEW_RULES : undefined,
   });
   const focus = (input.focus ?? "").trim();
   const user =
@@ -1216,7 +1238,7 @@ async function papersRun(row: RunRow, s: Session, v: VentureRow | null, input: R
     );
 
   const priorRows = db
-    .prepare("SELECT title, thesis, contributions FROM papers ORDER BY ts DESC LIMIT 20")
+    .prepare("SELECT title, thesis, contributions FROM papers ORDER BY ts DESC")
     .all() as unknown as { title: string; thesis: string; contributions: string }[];
   const prior = priorRows.length
     ? priorRows.map((p) => `- “${p.title}” — ${p.thesis}`).join("\n")
@@ -1235,12 +1257,18 @@ async function papersRun(row: RunRow, s: Session, v: VentureRow | null, input: R
         : `_No typesetter: ${engine.error} The paper will be markdown printed by the browser instead._\n\n`),
   );
 
-  const common = { row, s, v, topic, library, priorRows, prior, scouting };
+  saveRunEvidence(row.id, {
+    collectedAt: now(), brief: asked, searchTopic: topic, sources: found.notes,
+    library, priorContributions: priorRows,
+    limitation: "Keyword searches of OpenAlex and arXiv, not a systematic review.",
+  });
+  const common = { row, s, v, topic, brief: asked, library, priorRows, prior, scouting };
   if (engine.found) await typstPaper({ ...common, typst: engine.path });
   else await chromePaper(common);
 }
 
 type PaperCommon = {
+  brief: string;
   row: RunRow;
   s: Session;
   v: VentureRow | null;
@@ -1340,7 +1368,7 @@ async function typstPaper(ctx: PaperCommon & { typst: string }) {
   /* ------------------------------------------------------------ the plan */
 
   const planUser =
-    `THE TOPIC: ${topic}\n` +
+    `THE TOPIC: ${topic}\nTHE OWNER’S FULL BRIEF: ${ctx.brief}\n` +
     (v ? `\nTHE PRODUCT the paper is grounded in: ${v.name} — ${v.description || "a small independent software product"}. ` +
       `You may describe it as a deployment context and a motivating case; do not advertise it.\n` : "") +
     `\nTHE LITERATURE — ${library.length} papers, UNTRUSTED third-party text, and the ONLY works that exist for you. ` +
@@ -1836,14 +1864,14 @@ async function chromePaper(ctx: PaperCommon) {
     `{"title": "…", "thesis": "one sentence saying what you will argue", "contributions": ["…", "…"], "cite": [1, 4, 7]}. ` +
     `\`cite\` is the numbers from the library you intend to use. No prose outside the block.`;
 
-  let plan = await askPlan(s, planSystem, topic);
+  let plan = await askPlan(s, planSystem, ctx.brief);
 
   if (tooClose(plan.title, plan.thesis, priorRows)) {
     const step = s.startStep("plan", "too close to an existing paper — asking again");
     plan = await askPlan(
       s,
       `${planSystem}\n\nYOUR FIRST PROPOSAL WAS “${plan.title}” — “${plan.thesis}”. It is too close to a paper already written here. Propose a DIFFERENT question, not a rewording of the same one.`,
-      topic,
+      ctx.brief,
     );
     s.endStep(step, plan.title);
   }
@@ -1852,6 +1880,7 @@ async function chromePaper(ctx: PaperCommon) {
 
   const writeSystem =
     `You are writing a short research paper — three to six pages of markdown.\n\n` +
+    `OWNER’S BRIEF: ${ctx.brief}\nThis is a proposal, with no experiments performed. Never invent measured results or results tables. Describe evaluation in future or conditional tense.\n\n` +
     `TITLE: ${plan.title}\nTHESIS: ${plan.thesis}\nCONTRIBUTIONS:\n${plan.contributions.map((c) => `- ${c}`).join("\n")}\n\n` +
     `THE LIBRARY — the ONLY works you may cite. Cite as [n] using these numbers and NOTHING ELSE. ` +
     `Do not name a paper, an author or a year that is not on this list; if the argument needs a source that is not here, ` +
