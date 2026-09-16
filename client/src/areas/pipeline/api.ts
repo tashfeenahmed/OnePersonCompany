@@ -61,9 +61,9 @@ export type Schedule = {
   maxUsd: number | null;
   maxMinutes: number | null;
   nextRunAt: string | null;
-  /** The calendar day the NEXT scheduled night belongs to — after midnight
-   *  starts, that is tomorrow's date, which is what "skip tonight" stores. */
+  /** Local day of the next scheduled attempt, including an unclaimed catch-up. */
   nextNightDay: string;
+  catchUpDay: string | null;
   skipTonight: { day: string; setAt: string; reason: string | null } | null;
   session: string;
   defaults: { hour: number; maxMinutes: number };

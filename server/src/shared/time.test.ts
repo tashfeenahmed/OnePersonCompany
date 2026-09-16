@@ -73,6 +73,13 @@ test("a schedule set to midnight still fires", () => {
   assert.equal(nextRunAt({ enabled: true, hour: 0, timezone: "UTC" }, at), "2026-06-16T00:00:00.000Z");
 });
 
+test("next run matches local minute zero in fractional-offset zones and never returns the past", () => {
+  const at = new Date("2026-06-15T00:14:30Z");
+  assert.equal(nextRunAt({ hour: 6, timezone: "Asia/Kathmandu" }, at), "2026-06-15T00:15:00.000Z");
+  assert.equal(nextRunAt({ hour: 6, timezone: "Asia/Kolkata" }, at), "2026-06-15T00:30:00.000Z");
+  assert.equal(nextRunAt({ hour: 6, timezone: "Asia/Kathmandu" }, new Date("2026-06-15T00:15:01Z")), "2026-06-16T00:15:00.000Z");
+});
+
 test("spring forward: an hour that does not exist locally waits for the next day", () => {
   /* America/New_York, 2026-03-08: 01:59 EST is followed by 03:00 EDT, so
      02:00 never happens. Computing an offset would have fired at the wrong

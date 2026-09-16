@@ -50,6 +50,7 @@ export function PipelineTab() {
   const [said, setSaid] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [latestOpen, setLatestOpen] = useState(false);
   const reload = doc.reload;
   useEffect(() => { const t=setInterval(() => { if(document.visibilityState === "visible") reload(); },5000); return () => clearInterval(t); },[reload]);
 
@@ -90,7 +91,7 @@ export function PipelineTab() {
       />
       </details>
 
-      {doc.data.activity?.running && <div role="status" className="flex items-center gap-3 rounded-xl border border-blue-400/30 bg-blue-500/5 p-4 text-sm"><Loader2 className="size-4 animate-spin" /><span className="flex-1">Workflow running · {stages.find(s => s.id === last?.currentStage)?.title ?? "Preparing the next block"}</span><Button variant="outline" size="sm" onClick={() => void pipelineApi.stop().then(doc.reload)}>Stop run</Button></div>}
+      {doc.data.activity?.running && <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-400/30 bg-blue-500/5 p-4 text-sm"><Loader2 className="size-4 animate-spin" /><span className="flex-1">Workflow running</span><Button variant="outline" size="sm" disabled={busy !== null} onClick={() => go("stop", async () => { await pipelineApi.stop(); return "Stop requested. Finishing cancellation of the active block."; })}>Stop run</Button><div className="w-full"><RunDetail id={doc.data.activity.runId!} /></div></div>}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -138,7 +139,7 @@ export function PipelineTab() {
           }
         >
           <CalendarOff className="size-3.5" strokeWidth={1.6} />
-          {schedule.skipTonight ? "Un-skip tonight" : "Skip tonight"}
+          {schedule.skipTonight ? "Un-skip next night" : "Skip next night"}
         </Button>
         <span className="text-muted-foreground text-[12.5px]">
           {doc.data.workflowSaved ? "Preview spends nothing. Runs use your selected model and runtime budgets." : "Save your workflow to preview or run these blocks."}
@@ -188,7 +189,7 @@ export function PipelineTab() {
       <div>
         <h2 className="mb-2 text-[16px] font-medium">Latest run</h2>
         {last ? (
-          <RunCard run={last} expanded onToggle={() => setOpen(open === last.id ? null : last.id)} />
+          <><RunCard run={last} expanded={latestOpen} onToggle={() => setLatestOpen(value => !value)} />{latestOpen && <RunDetail id={last.id} />}</>
         ) : (
           <p className="text-muted-foreground text-[14.5px]">
             No night has run yet. Plan one above to see what it would do, or switch the schedule on.
@@ -204,7 +205,8 @@ export function PipelineTab() {
               <div key={r.id} className="flex flex-col">
                 <button
                   onClick={() => setOpen(open === r.id ? null : r.id)}
-                  className="border-line-soft bg-card hover:bg-accent/40 flex items-center gap-3 rounded-[14px] px-4 py-2.5 text-left text-[13.5px]"
+                  aria-expanded={open === r.id}
+                  className="border-line-soft bg-card hover:bg-accent/40 flex flex-wrap items-center gap-3 rounded-[14px] px-4 py-2.5 text-left text-[13.5px]"
                 >
                   <ChevronRight
                     className={cn("size-3.5 shrink-0 transition-transform", open === r.id && "rotate-90")}
@@ -293,7 +295,7 @@ function StageRow({
               checked={stage.enabled}
               disabled={busy}
               onChange={(e) => {
-                void pipelineApi.setStage(stage.id, { enabled: e.target.checked }).then(onChanged);
+                onRun(`setting:${stage.id}`, async () => { await pipelineApi.setStage(stage.id, { enabled: e.target.checked }); onChanged(); return null; });
               }}
             />
             <span className="text-muted-foreground text-[12.5px]">on</span>
@@ -342,11 +344,10 @@ function RunCard({ run, expanded, onToggle }: { run: Run; expanded: boolean; onT
       <div className="mt-2 text-[13.5px]">
         <Markdown text={run.summary} />
       </div>
-      {expanded && (
-        <button onClick={onToggle} className="text-muted-foreground mt-1 text-[12.5px] underline">
-          stage by stage
-        </button>
-      )}
+      {run.note && <p className="text-warn-foreground mt-2 text-[13px]">{run.note}</p>}
+      <button onClick={onToggle} aria-expanded={expanded} className="text-muted-foreground mt-1 text-[12.5px] underline">
+        {expanded ? "Hide stages" : "Show stages"}
+      </button>
     </div>
   );
 }
@@ -358,6 +359,8 @@ function RunDetail({ id }: { id: string }) {
   if (!doc.data) return <p className="text-muted-foreground px-3 py-2 text-[13.5px]">Reading…</p>;
   return (
     <div className="border-line-soft mt-1 ml-6 flex flex-col gap-1 border-l pl-3">
+      {doc.data.run.currentStage && <p className="text-blue-400 text-sm">Running: {doc.data.workflowSnapshot?.find(b => b.id === doc.data!.run.currentStage)?.title ?? doc.data.run.currentStage}</p>}
+      {doc.data.run.note && <p className="text-warn-foreground text-sm">{doc.data.run.note}</p>}
       {doc.data.stages.map((s: StageResult, i: number) => (
         <div key={`${s.stageId}-${i}`} className="flex flex-wrap items-baseline gap-2 text-[13px]">
           <span className="w-44 shrink-0 font-medium">{doc.data!.workflowSnapshot?.find(b => b.id===s.stageId)?.title ?? s.stageId}</span>
@@ -398,7 +401,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
   const set = (k: string, v: string) => setValues((old) => ({ ...old, [k]: v }));
 
   return (
-    <div className="border-line-soft bg-card flex flex-col gap-3 rounded-[14px] px-4 py-3.5">
+    <fieldset disabled={saving} className="min-w-0 border-line-soft bg-card flex flex-col gap-3 rounded-[14px] px-4 py-3.5">
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex items-center gap-2 text-[13.5px]">
           <input
@@ -461,7 +464,9 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
           Save the schedule
         </Button>
         <span className="text-muted-foreground text-[12.5px]">
-          {schedule.nextRunAt
+          {schedule.catchUpDay
+            ? `The missed night of ${schedule.catchUpDay} is due on the next available scheduler check.`
+            : schedule.nextRunAt
             ? `Next night: ${when(schedule.nextRunAt, { year: true })}.`
             : "The schedule is off; nothing will run on its own."}{" "}
           {schedule.notes.cost}
@@ -474,7 +479,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
           schedule until it is.
         </p>
       )}
-    </div>
+    </fieldset>
   );
 }
 
@@ -597,7 +602,7 @@ function SynthesisForm({
   const set = (k: string, v: string) => setValues((old) => ({ ...old, [k]: v }));
 
   return (
-    <div className="border-line-soft bg-card mb-2 flex flex-wrap items-end gap-3 rounded-[14px] px-4 py-3.5">
+    <fieldset disabled={saving} className="min-w-0 border-line-soft bg-card mb-2 flex flex-wrap items-end gap-3 rounded-[14px] px-4 py-3.5">
       <Field label="Ventures a night" width="w-24">
         <Input value={values["ventures-per-night"]} onChange={(e) => set("ventures-per-night", e.target.value)} />
       </Field>
@@ -642,6 +647,6 @@ function SynthesisForm({
           until it is.
         </p>
       )}
-    </div>
+    </fieldset>
   );
 }

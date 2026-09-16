@@ -2,22 +2,27 @@ import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { db, now } from "../../db.ts";
 import { nightlyTemplate, newBlock, type WorkflowBlock } from "../../../../shared/workflow.ts";
-import { workflow, validateWorkflow, saveWorkflow } from "./workflow-store.ts";
+import { workflow, workflowOwns, validateWorkflow, saveWorkflow } from "./workflow-store.ts";
 import { installWorkflowEngine, registerWorkflowExecutor } from "./workflow-engine.ts";
 import { agentCandidates, runAgentBlock } from "./workflow-agents.ts";
 import { allStages, type StageContext } from "./registry.ts";
-import { closeInterrupted, pipelineActivity, runNight, stopPipeline } from "./nightly.ts";
+import { closeInterrupted, pipelineActivity, runNight, stopPipeline, tickPipeline } from "./nightly.ts";
+import { ensureTeam, subagentId } from "../subagents/store.ts";
+import { RUNTIME_KEYS, readSetting, writeSetting } from "../../runtime/settings.ts";
+import { setSkipDay, settings } from "./registry.ts";
 import { rotation } from "./synthesis.ts";
 import { refreshForWorkflow, registerCollectors } from "../deploy/scheduler.ts";
-import { startRun, finishRun, upsertPlugin } from "../../db.ts";
+import { startRun, finishRun, upsertPlugin, setConfig } from "../../db.ts";
 import { agentRefusal } from "../security/gate.ts";
 import { insertRun, runRow } from "../runs/store.ts";
 import { dispatch } from "../subagents/routes.ts";
 import { cancelRun } from "../runs/executor.ts";
-import { pipelineRoutes } from "./routes.ts";
+import { nextScheduledNight, pipelineRoutes } from "./routes.ts";
 
 beforeEach(() => {
   db.exec("DELETE FROM pipeline_block_jobs; DELETE FROM pipeline_stage_results; DELETE FROM pipeline_runs; DELETE FROM pipeline_stage_prefs; DELETE FROM pipeline_workflow; DELETE FROM agent_runs; DELETE FROM ventures;");
+  db.exec("DELETE FROM plugin_config WHERE plugin_id='pipeline'; DELETE FROM runtime_settings WHERE key='pipeline-last-due';");
+  setSkipDay(null, null);
   installWorkflowEngine();
 });
 const venture = (id: string, type = "web") => db.prepare("INSERT INTO ventures(id,slug,name,host,stage,color,color_source,created_at,updated_at,position,business_type,business_types) VALUES(?,?,?,?,?,?,?,?,?,0,?,?)")
@@ -100,6 +105,77 @@ test("an agent block waits for completion; synthesis sees the finished report", 
   release(); const result=await out; assert.equal(result.run?.completed,2); assert.equal(synthesised,true);
   const detail=await (await pipelineRoutes.request(`/runs/${result.run!.id}`)).json() as { jobs: { venture_name: string }[] };
   assert.equal(detail.jobs[0]?.venture_name,"Test one");
+});
+
+test("unavailable specialists do not starve later ventures behind a one-venture cap", () => {
+  for (const id of ["a-disabled", "b-busy", "c-ready"]) venture(id);
+  ensureTeam("a-disabled");
+  db.prepare("UPDATE subagents SET enabled=0 WHERE id=?").run(subagentId("a-disabled", "demand"));
+  insertRun({id:"busy", kind:"demand", ventureId:"b-busy", title:"Existing work", input:{}});
+  const block = newBlock("agent", "wf-agent"); block.agent!.limit = 1;
+  assert.deepEqual(agentCandidates(block).map(v => v.id), ["c-ready"]);
+  assert.equal(db.prepare("SELECT id FROM subagents WHERE venture_id='c-ready'").get(), undefined);
+});
+
+test("switching a block's specialist does not reuse the previous role's review cadence", () => {
+  venture("one"); const block = newBlock("agent", "wf-agent");
+  insertRun({id:"prior-role", kind:"demand", ventureId:"one", title:"Old role", input:{}});
+  db.prepare("UPDATE agent_runs SET status='done',finished_at=? WHERE id='prior-role'").run(now());
+  db.prepare("INSERT INTO pipeline_block_jobs VALUES('prior',?,'one','prior-role',?)").run(block.id,now());
+  assert.equal(agentCandidates(block).length, 0);
+  block.agent!.role = "seo";
+  assert.deepEqual(agentCandidates(block).map(v => v.id), ["one"]);
+});
+
+test("a manual walk cannot consume the scheduled claim; a later tick runs it once", async () => {
+  upsertPlugin("pipeline",true); setConfig("pipeline","enabled","on"); setConfig("pipeline","hour","2"); setConfig("pipeline","timezone","UTC");
+  writeSetting(RUNTIME_KEYS.pipelineLastDue,"2026-09-15");
+  let release!: () => void;
+  registerWorkflowExecutor("alerts", async () => { await new Promise<void>(resolve => { release=resolve; }); return {outcome:"completed"}; });
+  write([newBlock("alerts","wf-alerts")]);
+  const manual = runNight({trigger:"manual"});
+  try {
+    assert.equal(await tickPipeline(new Date("2026-09-16T03:00:00Z")), null);
+    assert.equal(readSetting(RUNTIME_KEYS.pipelineLastDue),"2026-09-15");
+  } finally { release(); await manual; }
+  registerWorkflowExecutor("alerts", async () => ({outcome:"completed"}));
+  const scheduled = await tickPipeline(new Date("2026-09-16T03:10:00Z"));
+  assert.equal(scheduled?.ran,true);
+  assert.equal(scheduled?.run?.currentStage,null);
+  assert.equal(readSetting(RUNTIME_KEYS.pipelineLastDue),"2026-09-16");
+  assert.equal(await tickPipeline(new Date("2026-09-16T03:20:00Z")),null);
+});
+
+test("skipping a scheduled night consumes its claim without executing any block", async () => {
+  upsertPlugin("pipeline",true); setConfig("pipeline","enabled","1"); setConfig("pipeline","hour","2"); setConfig("pipeline","timezone","UTC");
+  write([newBlock("memory","wf-memory")]); assert.equal(workflowOwns("memory"),true);
+  setSkipDay("2026-09-16","Fixture skip");
+  registerWorkflowExecutor("memory",async () => { assert.fail("Skipped work must not run"); });
+  assert.equal(await tickPipeline(new Date("2026-09-16T03:00:00Z")),null);
+  assert.equal(readSetting(RUNTIME_KEYS.pipelineLastDue),"2026-09-16");
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM pipeline_runs").get() as {n:number}).n,0);
+});
+
+test("the skip control targets a pending catch-up, then the next night after it is claimed", () => {
+  upsertPlugin("pipeline",true); setConfig("pipeline","enabled","on"); setConfig("pipeline","hour","2"); setConfig("pipeline","timezone","UTC");
+  writeSetting(RUNTIME_KEYS.pipelineLastDue,"2026-09-14");
+  const at = new Date("2026-09-16T01:00:00Z");
+  assert.deepEqual(nextScheduledNight(settings(),at),{day:"2026-09-15",catchUp:true});
+  writeSetting(RUNTIME_KEYS.pipelineLastDue,"2026-09-15");
+  assert.deepEqual(nextScheduledNight(settings(),at),{day:"2026-09-16",catchUp:false});
+  assert.deepEqual(nextScheduledNight(settings(),new Date("2026-09-16T03:00:00Z")),{day:"2026-09-16",catchUp:true});
+  writeSetting(RUNTIME_KEYS.pipelineLastDue,"2026-09-16");
+  assert.deepEqual(nextScheduledNight(settings(),new Date("2026-09-16T03:00:00Z")),{day:"2026-09-17",catchUp:false});
+});
+
+test("latest real run survives more than a page of previews", async () => {
+  write([newBlock("alerts","wf-alerts")]);
+  registerWorkflowExecutor("alerts",async () => ({outcome:"completed"}));
+  const real = await runNight({trigger:"manual"});
+  for (let i=0;i<21;i++) await runNight({trigger:"manual",dry:true});
+  const doc = await (await pipelineRoutes.request("/")).json() as {last:{id:string};runs:{dry:boolean}[]};
+  assert.equal(doc.last.id,real.run!.id);
+  assert.equal(doc.runs.length,20); assert.ok(doc.runs.every(r=>r.dry));
 });
 
 test("stopping cancels the owned queued agent and skips later blocks", async () => {

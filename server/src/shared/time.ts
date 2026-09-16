@@ -21,8 +21,9 @@
  *   3. THE SCHEDULER WALKS, IT DOES NOT COMPUTE. "02:00 in Europe/Berlin" is
  *      not an arithmetic offset from now: the offset changes twice a year, and
  *      a day containing a DST transition is 23 or 25 hours long. So
- *      `nextRunAt` probes the formatter hour by hour for up to 48 hours and
- *      takes the first hour that matches. Fifty probes is microseconds, and it
+ *      `nextRunAt` probes the formatter minute by minute for up to 48 hours and
+ *      takes the first local hour and minute that match. This also handles
+ *      half-hour and quarter-hour offsets, and it
  *      is correct on both transition days by construction rather than by
  *      argument. Forty-eight and not twenty-five, because a spring-forward day
  *      can skip the configured hour entirely and the next occurrence is then
@@ -44,6 +45,7 @@
  */
 
 import { configValue } from "../db.ts";
+import { nextZonedTime } from "../../../shared/zonedTime.ts";
 
 /* ------------------------------------------------------------------ zones */
 
@@ -209,21 +211,15 @@ export function dailySchedule(pluginId: string, keys: ScheduleKeys = {}): DailyS
  * The next moment this schedule is due, as an ISO instant on the hour, or
  * `null` when it is off.
  *
- * Walked, not computed — see rule 3. The returned instant is floored to the
- * hour so two reads a minute apart give the same answer and a page does not
- * redraw a countdown that never settles.
+ * Walked, not computed — see rule 3. Match minute zero in the LOCAL zone,
+ * not UTC; 06:00 in Kathmandu is 00:15 UTC. The instant is always future.
  */
 export function nextRunAt(
   schedule: { enabled?: boolean; hour: number; timezone: string | null },
   at: Date = new Date(),
 ): string | null {
   if (schedule.enabled === false) return null;
-  for (let i = 1; i <= 48; i += 1) {
-    const probe = new Date(at.getTime() + i * 3_600_000);
-    if (wall(schedule.timezone, probe).hour === schedule.hour)
-      return new Date(Math.floor(probe.getTime() / 3_600_000) * 3_600_000).toISOString();
-  }
-  return null;
+  return nextZonedTime(resolveZone(schedule.timezone), schedule.hour, 0, at);
 }
 
 /**

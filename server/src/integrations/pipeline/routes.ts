@@ -29,12 +29,14 @@ import { db, ventureRows } from "../../db.ts";
 import { ROLES } from "../subagents/store.ts";
 import { workflow, saveWorkflow, WorkflowError } from "./workflow-store.ts";
 import { pipelineActivity, stopPipeline } from "./nightly.ts";
-import { nextRunAt, wall } from "../../shared/time.ts";
+import { dueDay, nextRunAt, wall } from "../../shared/time.ts";
+import { RUNTIME_KEYS, readSetting } from "../../runtime/settings.ts";
 import { LAST_RUN_MEANS } from "./builtins.ts";
 import { readBool, refuseDry } from "./params.ts";
 import {
   deliver,
   lastCompleted,
+  latestRealRun,
   plan,
   runNight,
   runRow,
@@ -59,6 +61,7 @@ import {
   skipDay,
   stage as stageById,
   type Cadence,
+  type PipelineSettings,
 } from "./registry.ts";
 
 export const pipelineRoutes = new Hono();
@@ -207,6 +210,7 @@ function schedule() {
   const s = settings();
   const clock = wall(s.timezone);
   const skip = skipDay();
+  const next = nextScheduledNight(s);
   return {
     enabled: s.enabled,
     hour: s.hour,
@@ -222,10 +226,9 @@ function schedule() {
     maxUsd: s.maxUsd,
     maxMinutes: s.maxMinutes,
     nextRunAt: nextRunAt(s),
-    /* The NIGHT's day, not today's — see `dueNight` below. A skip set at
-       nine in the evening is for the night that starts after midnight. */
-    nextNightDay: dueNight(clock.day, clock.hour, s.hour),
-    skipTonight: skip && skip.day === dueNight(clock.day, clock.hour, s.hour) ? skip : null,
+    nextNightDay: next.day,
+    catchUpDay: next.catchUp ? next.day : null,
+    skipTonight: skip && skip.day === next.day ? skip : null,
     session: PIPELINE_SESSION,
     defaults: { hour: DEFAULT_HOUR, maxMinutes: DEFAULT_MAX_MINUTES },
     settingsAt: "/api/plugins/pipeline/config",
@@ -246,13 +249,14 @@ pipelineRoutes.get("/schedule", (c) => c.json(schedule()));
 
 pipelineRoutes.get("/", (c) => {
   const runs = runRows(20).map(shapeRun);
+  const last = latestRealRun();
   return c.json({
     schedule: schedule(),
     ...stageDoc(),
     runs,
     /** The last REAL night, not the last planned one: a plan somebody ran at
      *  noon must not read as last night's result. */
-    last: runs.find((r) => !r.dry) ?? null,
+    last: last ? shapeRun(last) : null,
     workflowSaved: workflow().saved,
     activity: pipelineActivity(),
   });
@@ -350,9 +354,9 @@ pipelineRoutes.post("/plan", (c) => walk(c, true));
  * belongs to tomorrow's date, so pressing Skip at nine in the evening used to
  * store the 6th while the timer, at two in the morning, asked about the 7th —
  * and the night ran anyway, after a page that had said all evening that it
- * would not. `dueNight()` below is the mirror of `dueDay()` in
- * runtime/schedule.ts: past the start hour the next night is tomorrow's,
- * before it the night is still today's.
+ * would not. `nextScheduledNight()` also checks the scheduler watermark: after sleep,
+ * an unclaimed catch-up is the next night that can run. Once it is claimed,
+ * the control targets the next future occurrence.
  *
  * It does not stop a night somebody starts by hand — that is a person
  * deciding, and this is a note to the timer.
@@ -363,11 +367,19 @@ export function dueNight(day: string, hour: number, startHour: number): string {
   return next.toISOString().slice(0, 10);
 }
 
+/** Skip the run the timer will actually attempt next, including an unclaimed
+ * catch-up after sleep. Once claimed, the next occurrence is in the future. */
+export function nextScheduledNight(s: PipelineSettings, at = new Date()) {
+  const clock = wall(s.timezone, at);
+  const due = s.enabled ? dueDay(clock.day, clock.hour, s.hour, readSetting(RUNTIME_KEYS.pipelineLastDue)) : null;
+  const next = nextRunAt({ ...s, enabled: true }, at)!;
+  return { day: due ?? wall(s.timezone, new Date(next)).day, catchUp: due !== null };
+}
+
 pipelineRoutes.post("/skip-tonight", async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const s = settings();
-  const clock = wall(s.timezone);
-  const night = dueNight(clock.day, clock.hour, s.hour);
+  const night = nextScheduledNight(s).day;
 
   if (body && "cancel" in body) {
     const read = readBool(body.cancel, "cancel");

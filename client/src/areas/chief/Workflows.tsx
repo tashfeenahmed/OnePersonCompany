@@ -28,8 +28,8 @@ import { SeoFollowUpsTab } from "@/areas/seoops/SeoFollowUpsTab";
  *
  * A TAB IS AN ADDRESS, the rule every other tabbed page here follows:
  * /workflows/goals is a place you can send somebody, refresh into, and reach
- * with the back button. The bare /workflows lands on Rounds, which is the one
- * that answers "what happened while I was asleep".
+ * with the back button. The bare /workflows lands on the editable nightly
+ * Pipeline; the separate venture Rounds remain available in their own tab.
  */
 
 const TABS: { key: string; label: string; icon: typeof Compass }[] = [
@@ -59,8 +59,8 @@ export function Workflows() {
      saves. */
   const [order, setOrder] = useState(TABS.map((t) => t.key));
 
-  if (!tab) return <Navigate to="/workflows/rounds" replace />;
-  if (!TABS.some((t) => t.key === tab)) return <Navigate to="/workflows/rounds" replace />;
+  if (!tab) return <Navigate to="/workflows/pipeline" replace />;
+  if (!TABS.some((t) => t.key === tab)) return <Navigate to="/workflows/pipeline" replace />;
 
   const tabs: Tab[] = order
     .map((k) => TABS.find((t) => t.key === k))
@@ -71,7 +71,7 @@ export function Workflows() {
     <>
       <TopBar label="Workflows" />
       <PageShell title="Workflows" sub={SUB[tab]} wide>
-        <TabStrip tabs={tabs} activeKey={tab} onReorder={setOrder} className="mb-5" />
+        <TabStrip tabs={tabs} activeKey={tab} onReorder={setOrder} showOnMobile className="mb-5" />
         {tab === "pipeline" && <PipelineTab />}
         {tab === "rounds" && <RoundsTab />}
         {tab === "goals" && <GoalsTab />}

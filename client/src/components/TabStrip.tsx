@@ -60,11 +60,13 @@ export function TabStrip({
   activeKey,
   onReorder,
   className,
+  showOnMobile = false,
 }: {
   tabs: Tab[];
   activeKey: string | null;
   onReorder: (keys: string[]) => void;
   className?: string;
+  showOnMobile?: boolean;
 }) {
   const strip = useRef<HTMLDivElement>(null);
   useReorderMotion(strip, tabs.map(t=>t.key).join("|"), "data-tab-key");
@@ -140,7 +142,8 @@ export function TabStrip({
             onClick={e => { if (swallowClick.current) { e.preventDefault(); swallowClick.current = false; } }}
             className={cn(
               tabItemClass(active),
-              "relative hidden items-center gap-[7px] select-none sm:flex",
+              "relative items-center gap-[7px] select-none",
+              showOnMobile ? "flex" : "hidden sm:flex",
               drop?.key === t.key && "drag-destination",
               dragKey === t.key && "opacity-35",
               drop?.key === t.key &&

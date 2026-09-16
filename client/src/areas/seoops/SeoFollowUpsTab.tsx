@@ -137,7 +137,7 @@ export function SeoFollowUpsTab() {
           <Button
             variant="outline"
             size="sm"
-            disabled={busy === "sweep"}
+            disabled={busy !== null}
             onClick={() => void run(() => seoopsApi.sweep(), "sweep")}
           >
             {busy === "sweep" ? (
@@ -150,7 +150,7 @@ export function SeoFollowUpsTab() {
           <Button
             variant="outline"
             size="sm"
-            disabled={busy === "due"}
+            disabled={busy !== null}
             onClick={() => void run(() => seoopsApi.runDue(), "due")}
           >
             {busy === "due" ? (
@@ -175,11 +175,11 @@ export function SeoFollowUpsTab() {
         <Button
           variant="outline"
           size="sm"
-          disabled={!url.trim() || busy === "track"}
+          disabled={!url.trim() || busy !== null}
           onClick={() =>
             void run(async () => {
               await seoopsApi.track({ url: url.trim() });
-              setUrl("");
+              setUrl(current => current === url ? "" : current);
             }, "track")
           }
         >
@@ -317,7 +317,7 @@ export function SeoFollowUpsTab() {
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={busy === b.id}
+                          disabled={busy !== null}
                           onClick={() => void run(() => seoopsApi.runOne(b.id), b.id)}
                         >
                           {busy === b.id ? (
@@ -332,6 +332,7 @@ export function SeoFollowUpsTab() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          disabled={busy !== null}
                           onClick={() => void run(() => seoopsApi.closeOne(b.id), `close-${b.id}`)}
                         >
                           <X className="size-3.5" strokeWidth={1.8} />

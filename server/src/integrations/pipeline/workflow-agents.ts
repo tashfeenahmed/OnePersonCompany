@@ -10,10 +10,11 @@ import type { StageContext, StageResult } from "./registry.ts";
 
 export function agentCandidates(block: WorkflowBlock) {
   const a = block.agent!;
+  const kind = roleDef(a.role)!.kind;
   const history = db.prepare(`SELECT j.venture_id,MAX(j.created_at) AS attempted,
     MAX(CASE WHEN r.status='done' THEN r.finished_at END) AS completed
-    FROM pipeline_block_jobs j LEFT JOIN agent_runs r ON r.id=j.agent_run_id WHERE j.block_id=? GROUP BY j.venture_id`)
-    .all(block.id) as { venture_id: string; attempted: string; completed: string | null }[];
+    FROM pipeline_block_jobs j JOIN agent_runs r ON r.id=j.agent_run_id WHERE j.block_id=? AND r.kind=? GROUP BY j.venture_id`)
+    .all(block.id, kind) as { venture_id: string; attempted: string; completed: string | null }[];
   const byVenture = new Map(history.map(h => [h.venture_id, h]));
   return ventureRows().filter(v => {
     if (a.ventureIds.length && !a.ventureIds.includes(v.id)) return false;
@@ -21,6 +22,11 @@ export function agentCandidates(block: WorkflowBlock) {
     const types = JSON.parse(v.business_types ?? "[]") as string[];
     if (a.businessTypes.length && !a.businessTypes.some(t => types.includes(t) || v.business_type === t)) return false;
     if (["seo", "serp", "visibility"].includes(a.role) && !v.host) return false;
+    // Apply availability before the cap: a disabled first venture must not
+    // occupy the only slot forever. Reading a preview never creates a team.
+    const specialist = subagentRow(subagentId(v.id, a.role));
+    if (specialist && !specialist.enabled) return false;
+    if (db.prepare("SELECT id FROM agent_runs WHERE venture_id=? AND kind=? AND status IN ('queued','running')").get(v.id, kind)) return false;
     const last = byVenture.get(v.id)?.completed;
     return !last || Date.parse(last) <= Date.now() - a.daysBetween * 86_400_000;
   }).sort((a,b) => (byVenture.get(a.id)?.attempted ?? "").localeCompare(byVenture.get(b.id)?.attempted ?? "") || a.id.localeCompare(b.id)).slice(0, a.limit);
@@ -34,7 +40,7 @@ export async function runAgentBlock(block: WorkflowBlock, ctx: StageContext, io:
 } = { dispatch, read: runRow, cancel: cancelRun, delayMs: 1000 }): Promise<StageResult> {
   const candidates = agentCandidates(block);
   if (ctx.dry) return { outcome: "completed", note: `Would ask ${block.agent!.role} to review ${candidates.length} due ventures, then wait for each report.`, counts: { eligible: candidates.length } };
-  if (!candidates.length) return { outcome: "skipped", reason: "No matching ventures are due for this specialist." };
+  if (!candidates.length) return { outcome: "skipped", reason: "No matching ventures are due with an available, enabled specialist." };
   if (queuePaused()) return { outcome: "failed", error: "The sub-agent queue is paused. Resume it before running this block." };
   const counts = { completed: 0, failed: 0, skipped: 0, dispatched: 0 };
   for (const v of candidates) {

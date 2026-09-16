@@ -35,13 +35,15 @@ export function MemoryTab() {
     setBusy(what);
     setFailure(null);
     setSaid(null);
-    p.then((out) => {
-      const o = out as { note?: string; why?: string | null; merged?: number; dropped?: number; restored?: number };
+    return p.then((out) => {
+      const o = out as { error?: string | null; why?: string | null; merged?: number; dropped?: number; restored?: number };
+      if (o.error) throw new Error(o.error);
       if (typeof o.restored === "number") setSaid(`Put back ${o.restored} notes.`);
       else if (typeof o.merged === "number")
         setSaid(o.why ?? `Merged ${o.merged}, dropped ${o.dropped}.`);
+      return true;
     })
-      .catch((e: unknown) => setFailure(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => { setFailure(e instanceof Error ? e.message : String(e)); return false; })
       .finally(() => {
         setBusy(null);
         doc.reload();
@@ -79,9 +81,9 @@ export function MemoryTab() {
             size="sm"
             variant="outline"
             disabled={busy !== null || !text.trim()}
-            onClick={() => {
-              run("add", memoryApi.add(text.trim()));
-              setText("");
+            onClick={async () => {
+              if (await run("add", memoryApi.add(text.trim())))
+                setText(current => current === text ? "" : current);
             }}
           >
             Remember this
@@ -159,7 +161,7 @@ function NoteRow({
 }: {
   note: MemoryNote;
   busy: boolean;
-  onSave: (text: string) => void;
+  onSave: (text: string) => Promise<boolean>;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -171,6 +173,7 @@ function NoteRow({
         <>
           <Textarea
             value={text}
+            disabled={busy}
             onChange={(e) => setText(e.target.value)}
             rows={2}
             className="text-[14px]"
@@ -180,14 +183,13 @@ function NoteRow({
               size="xs"
               variant="outline"
               disabled={busy || !text.trim()}
-              onClick={() => {
-                onSave(text.trim());
-                setEditing(false);
+              onClick={async () => {
+                if (await onSave(text.trim())) setEditing(false);
               }}
             >
               Save — this becomes your note
             </Button>
-            <Button size="xs" variant="ghost" onClick={() => (setText(note.text), setEditing(false))}>
+            <Button size="xs" variant="ghost" disabled={busy} onClick={() => (setText(note.text), setEditing(false))}>
               Cancel
             </Button>
           </div>
@@ -209,10 +211,10 @@ function NoteRow({
               {note.scope === "venture" && !note.ventureName && " · venture since deleted"}
             </p>
           </div>
-          <Button size="icon-sm" variant="ghost" disabled={busy} onClick={() => setEditing(true)}>
+          <Button size="icon-sm" variant="ghost" aria-label="Edit note" disabled={busy} onClick={() => { setText(note.text); setEditing(true); }}>
             <Pencil className="size-3.5" strokeWidth={1.6} />
           </Button>
-          <Button size="icon-sm" variant="ghost" disabled={busy} onClick={onDelete}>
+          <Button size="icon-sm" variant="ghost" aria-label="Delete note" disabled={busy} onClick={onDelete}>
             <Trash2 className="size-3.5" strokeWidth={1.6} />
           </Button>
         </div>

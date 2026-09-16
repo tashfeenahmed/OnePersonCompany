@@ -245,7 +245,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <div className="border-line-soft bg-card rounded-[14px] p-5">
+    <fieldset disabled={saving} className="min-w-0 border-line-soft bg-card rounded-[14px] p-5">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button
           size="sm"
@@ -321,7 +321,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: () =
         </Button>
         {failure && <span className="text-destructive text-[12.5px]">{failure}</span>}
       </div>
-    </div>
+    </fieldset>
   );
 }
 

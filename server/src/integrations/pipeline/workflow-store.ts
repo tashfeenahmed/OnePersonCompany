@@ -1,4 +1,5 @@
-import { configValue, db, now, ventureRows } from "../../db.ts";
+import { db, now, ventureRows } from "../../db.ts";
+import { dailySchedule } from "../../shared/time.ts";
 import { ROLES } from "../subagents/store.ts";
 import { isBusinessType } from "../../../../shared/ventureJourney.ts";
 import { BLOCK_KINDS, nightlyTemplate, type WorkflowDefinition, type WorkflowDocument } from "../../../../shared/workflow.ts";
@@ -10,7 +11,7 @@ export function workflow(): WorkflowDocument {
 }
 /** Prevent a feature's independent timer duplicating work owned by the night. */
 export function workflowOwns(kind: string): boolean {
-  if (!["on","yes","true"].includes((configValue("pipeline","enabled") ?? "").trim().toLowerCase())) return false;
+  if (!dailySchedule("pipeline").enabled) return false;
   const doc=workflow(); return doc.saved && doc.definition.blocks.some(b => b.kind===kind && b.enabled);
 }
 export class WorkflowError extends Error { status: 400 | 409 = 400; }
@@ -23,7 +24,7 @@ export function validateWorkflow(raw: unknown): WorkflowDefinition {
   if (!Array.isArray(d.blocks) || !d.blocks.length || d.blocks.length > 40) return reject("A workflow needs 1–40 blocks.");
   const ids = new Set<string>(), ventures = new Set(ventureRows().map(v => v.id));
   for (const b of d.blocks) {
-    if (!b || typeof b !== "object" || !/^wf-[a-z0-9-]{1,70}$/.test(b.id) || ids.has(b.id)) return reject("Each block needs a unique workflow ID.");
+    if (!b || typeof b !== "object" || typeof b.id !== "string" || !/^wf-[a-z0-9-]{1,70}$/.test(b.id) || ids.has(b.id)) return reject("Each block needs a unique workflow ID.");
     if (!BLOCK_KINDS.includes(b.kind)) return reject("Choose a supported block type.");
     if (typeof b.title !== "string" || !b.title.trim() || b.title.length > 120) return reject("Each block needs a title of up to 120 characters.");
     if (typeof b.enabled !== "boolean" || typeof b.requireSuccess !== "boolean") return reject("Block switches must be true or false.");

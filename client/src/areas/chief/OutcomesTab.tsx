@@ -92,7 +92,7 @@ export function OutcomesTab() {
             <OutcomeCard
               key={o.id}
               outcome={o}
-              busy={busy === o.id}
+              busy={busy !== null}
               onRead={() => {
                 setBusy(o.id);
                 setFailure(null);
@@ -106,6 +106,7 @@ export function OutcomesTab() {
               }}
               onRemove={() => {
                 setBusy(o.id);
+                setFailure(null);
                 outcomesApi
                   .remove(o.id)
                   .catch((e: unknown) => setFailure(e instanceof Error ? e.message : String(e)))

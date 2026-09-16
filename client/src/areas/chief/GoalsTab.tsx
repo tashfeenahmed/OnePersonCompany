@@ -90,11 +90,12 @@ function Editor({
   onSave: (text: string) => Promise<GoalDoc>;
 }) {
   const [text, setText] = useState(doc.text);
+  const [savedText, setSavedText] = useState(doc.text);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(doc.updatedAt);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const changed = text.trim() !== doc.text.trim();
+  const changed = text.trim() !== savedText.trim();
 
   return (
     <div className="border-line-soft bg-card rounded-[14px] p-5">
@@ -127,7 +128,8 @@ function Editor({
             onSave(text.trim())
               .then((d) => {
                 setSavedAt(d.updatedAt);
-                setText(d.text);
+                setSavedText(d.text);
+                setText(current => current === text ? d.text : current);
               })
               .catch((e: unknown) => setFailure(e instanceof Error ? e.message : String(e)))
               .finally(() => setSaving(false));

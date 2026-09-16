@@ -116,6 +116,10 @@ export function runRow(id: string): RunRow | undefined {
   return db.prepare("SELECT * FROM pipeline_runs WHERE id = ?").get(id) as RunRow | undefined;
 }
 
+export function latestRealRun(): RunRow | undefined {
+  return db.prepare("SELECT * FROM pipeline_runs WHERE dry=0 ORDER BY started_at DESC, rowid DESC LIMIT 1").get() as RunRow | undefined;
+}
+
 export function stageResultRows(runId: string): StageResultRow[] {
   return db
     .prepare("SELECT * FROM pipeline_stage_results WHERE run_id = ? ORDER BY id")
@@ -561,7 +565,7 @@ export async function runNight(
     const summary = summarise({ id, dry, trigger: opts.trigger, counts, usd: usdTotal, stages, titles: new Map(list.map(p => [p.stage.id,p.stage.title])) });
     db.prepare(
       `UPDATE pipeline_runs SET finished_at = ?, planned = ?, completed = ?, skipped = ?, failed = ?,
-              over_budget = ?, usd = ?, ms = ?, summary = ? WHERE id = ?`,
+              over_budget = ?, usd = ?, ms = ?, summary = ?, current_stage = NULL WHERE id = ?`,
     ).run(
       now(),
       stages.length,
@@ -687,6 +691,21 @@ export function closeInterrupted(): number {
   });
 }
 
+/** Claim only when the walker can start. A manual run must not consume the
+ * scheduled night's watermark. The guard and claim are synchronous. */
+export async function tickPipeline(at = new Date()): Promise<NightResult | null> {
+  const s = settings();
+  if (!s.enabled || walking) return null;
+  const { hour, day } = wall(s.timezone, at);
+  const due = dueDay(day, hour, s.hour, readSetting(RUNTIME_KEYS.pipelineLastDue));
+  if (!due) return null;
+  // Persist before starting so a restart never dispatches the same night twice.
+  writeSetting(RUNTIME_KEYS.pipelineLastDue, due);
+  const skip = skipDay();
+  if (skip?.day === due) return null;
+  return runNight({ trigger: "schedule" });
+}
+
 /**
  * THE NIGHTLY TIMER.
  *
@@ -704,37 +723,8 @@ export function startPipeline() {
   timer = setInterval(() => {
     void (async () => {
       try {
-        const s = settings();
-        if (!s.enabled) return;
-        const { hour, day } = wall(s.timezone);
-        const due = dueDay(day, hour, s.hour, readSetting(RUNTIME_KEYS.pipelineLastDue));
-        if (!due) return;
-
-        const claim = () => writeSetting(RUNTIME_KEYS.pipelineLastDue, due);
-
-        const skip = skipDay();
-        if (skip && skip.day === due) {
-          /* The watermark is written anyway. "Skip tonight" means tonight does
-             not happen, not "tonight happens tomorrow morning as well". */
-          claim();
-          console.log(`[pipeline] ${due} skipped by hand${skip.reason ? `: ${skip.reason}` : ""}`);
-          return;
-        }
-
-        /* THE WATERMARK IS CLAIMED BEFORE THE WALK, NOT AFTER IT.
-           It used to be written on the way out, which meant a night the process
-           died inside — and under `node --watch` that is a routine event — was
-           started again from the top at the next tick. Completed stages were
-           protected by their own daily cadence, but a stage killed MID-flight
-           (the rounds, after some dispatches) ran a second time and dispatched
-           again. Claiming first costs a night that crashes in its first second:
-           it is not retried until tomorrow. That is the right trade — one
-           missed night against a queue filled twice — and `closeInterrupted`
-           leaves the evidence on the row either way. */
-        claim();
-
-        const out = await runNight({ trigger: "schedule" });
-        if (out.ran) {
+        const out = await tickPipeline();
+        if (out?.ran) {
           await deliver(out);
           console.log(
             `[pipeline] night ${out.run?.id}: ${out.run?.completed} completed, ${out.run?.skipped} skipped, ${out.run?.failed} failed`,

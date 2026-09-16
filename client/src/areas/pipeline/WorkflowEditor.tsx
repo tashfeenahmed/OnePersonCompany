@@ -58,14 +58,16 @@ export function WorkflowEditor({ onSaved, currentStage }: { onSaved: () => void;
   const selected = definition.blocks.find(b => b.id === editing);
   return <section className="space-y-4" aria-label="Workflow builder">
     <div className="flex flex-wrap items-center gap-3">
-      <div className="flex-1"><div className="mb-1 flex items-center gap-2"><Workflow className="size-4 text-muted-foreground" /><span className="text-xs uppercase tracking-wider text-muted-foreground">Your workflow</span></div>
+      <div className="min-w-0 flex-1 basis-full sm:basis-auto"><div className="mb-1 flex items-center gap-2"><Workflow className="size-4 text-muted-foreground" /><span className="text-xs uppercase tracking-wider text-muted-foreground">Your workflow</span></div>
         <Input aria-label="Workflow name" value={definition.name} onChange={e => edit({ ...definition,name:e.target.value })} className="h-auto border-0 bg-transparent p-0 text-xl font-medium shadow-none" /></div>
       <Button variant="outline" onClick={() => setAdding(true)}><Plus className="size-4" />Add block</Button>
       <Button disabled={!changed || saving} onClick={async () => {
         setSaving(true); setError(null);
         try {
           const saved = await call<WorkflowDocument>("/pipeline/workflow",{ method:"PUT",body:JSON.stringify({ revision:data.revision,definition }) });
-          doc.setData({ ...data,...saved }); setDraft(null); setMessage("Workflow saved. Changes apply to the next run."); onSaved();
+          doc.setData({ ...data,...saved });
+          setDraft(current => current === draft ? null : current);
+          setMessage("Saved the submitted version. Any newer edits still need saving."); onSaved();
         } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
         finally { setSaving(false); }
       }}>{changed ? <Save className="size-4" /> : <Check className="size-4" />}{saving ? "Saving…" : changed ? "Save workflow" : "Saved"}</Button>
