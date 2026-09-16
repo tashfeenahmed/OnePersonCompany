@@ -2,15 +2,15 @@ import { complete, type VisionTurn } from "../../models/provider.ts";
 
 export type PreparedReel = { messages: VisionTurn[]; grounded: boolean; sources: { title: string; url: string }[] };
 
-/** WorkDash supplies its research and format; all inference stays on the
+/** The render relay supplies its research and format; all inference stays on the
  * workspace's central provider, with the same budget, cancellation and policy. */
 export async function writeStewieScript(prepared: PreparedReel, signal?: AbortSignal) {
   if (!Array.isArray(prepared.messages) || !prepared.messages.length || prepared.messages.length > 10 ||
       prepared.messages.some(message => !["system", "user"].includes(message.role) || typeof message.content !== "string" || message.content.length > 40_000)) {
-    throw new Error("WorkDash returned an invalid script brief. Update the WorkDash agent and retry.");
+    throw new Error("The render relay returned an invalid script brief. Update the render relay agent and retry.");
   }
   const reply = await complete(prepared.messages, { signal });
-  // Reject malformed output before WorkDash queues a GPU wake/render.
+  // Reject malformed output before the render relay queues a GPU wake/render.
   if (reply.text.length > 16_000) throw new Error("The script was too long. No render was started; try again.");
   const first = reply.text.indexOf("[");
   const last = reply.text.lastIndexOf("]");

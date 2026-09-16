@@ -112,6 +112,7 @@ const NAV_PATHS = NAV.map(item => item.to);
 /** Rows above the fold: five, the owner's number. The rest are one press
  *  away, and a page dragged above the line stays there. */
 const VISIBLE = 5;
+const SESSION_PAGE_SIZE = 20;
 
 export function AppSidebar() {
   const { state, renameSession, removeSession, streamingSessions, togglePinned, reorderPinned, setNavOrder } = useStore();
@@ -220,6 +221,7 @@ export function AppSidebar() {
 
   const [search, setSearch] = useState("");
   const [searching, setSearching] = useState(false);
+  const [sessionLimit, setSessionLimit] = useState(SESSION_PAGE_SIZE);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -253,11 +255,14 @@ export function AppSidebar() {
     "/alerts": openAlerts,
   };
 
-  const visibleSessions = state.sessions.filter(session => {
+  // Search the full history before limiting the rows shown in the sidebar.
+  const matchingSessions = state.sessions.filter(session => {
     const query = search.trim().toLowerCase();
     if (!query) return !pinnedKeys.has(pinKey({ type: "session", sessionId: session.id }));
     return `${session.title} ${state.ventures.find(venture => venture.id === session.ventureId)?.name ?? ""}`.toLowerCase().includes(query);
   });
+  const visibleSessions = matchingSessions.slice(0, sessionLimit);
+  const remainingSessions = matchingSessions.length - visibleSessions.length;
 
   function renderPage(path: string, accordion = false) {
     const item = NAV.find(item => item.to === path);
@@ -350,20 +355,30 @@ export function AppSidebar() {
           <button
             className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[9px] p-1"
             title="Search sessions"
-            onClick={() => { setSearching(v => !v); setSearch(""); }}
+            onClick={() => { setSearching(v => !v); setSearch(""); setSessionLimit(SESSION_PAGE_SIZE); }}
             aria-expanded={searching}
           >
             <Search className="size-3.5" strokeWidth={1.6} />
           </button>
         </div>
 
-        {searching && <input autoFocus aria-label="Search sessions" placeholder="Search by title or venture…" value={search} onChange={e => setSearch(e.target.value)} className="m-1 w-[95%] rounded border p-2 text-sm" />}
-        <div className="flex flex-col gap-px pt-1">
+        {searching && <input autoFocus aria-label="Search sessions" placeholder="Search by title or venture…" value={search} onChange={e => { setSearch(e.target.value); setSessionLimit(SESSION_PAGE_SIZE); }} className="m-1 w-[95%] rounded border p-2 text-sm" />}
+        <div id="sidebar-session-list" className="flex flex-col gap-px pt-1">
           {!visibleSessions.length && <p className="px-2 py-1.5 text-[12.5px] leading-relaxed text-muted-foreground" role="status">
             {search.trim() ? "No matching sessions." : state.sessions.length ? "All sessions are pinned above." : "No conversations yet. Start a chat to see it here."}
           </p>}
           {visibleSessions.map(session => <div key={session.id}>{renderSession(session)}</div>)}
         </div>
+        {remainingSessions > 0 && <button
+          type="button"
+          aria-controls="sidebar-session-list"
+          aria-label={`Show ${Math.min(SESSION_PAGE_SIZE, remainingSessions)} more sessions`}
+          onClick={() => setSessionLimit(limit => limit + SESSION_PAGE_SIZE)}
+          className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ChevronDown aria-hidden="true" className="size-3.5 shrink-0" strokeWidth={1.75} />
+          Show more
+        </button>}
       </section>
       </ScrollArea>
 

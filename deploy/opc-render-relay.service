@@ -1,0 +1,18 @@
+[Unit]
+Description=OPC Stewie render relay
+After=network-online.target opc.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/onepersoncompany
+ExecStart=/usr/bin/node --experimental-strip-types /opt/onepersoncompany/server/render-relay/service.mjs
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

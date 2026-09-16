@@ -3,14 +3,14 @@
  * footage, with cloned voices and word-by-word subtitles.
  *
  * THIS BOX DOES NOT RENDER IT, AND THAT IS THE WHOLE DESIGN. The format was
- * built in Workdash: the Pi owns the job — the search, the page captures, the
+ * built in the render relay: the Pi owns the job — the search, the page captures, the
  * render, the decision to spend a wake — and the Dell under the desk owns the
  * voice model and the cores. Voice cloning wants a GPU; this machine has none
  * to spare and the Pi has none at all. So the pipeline here is a CLIENT of the
- * Workdash agent's own reel routes, over the LAN, with the agent's service
+ * render relay's own reel routes, over the LAN, with the agent's service
  * key. This workspace writes the script using its selected LLM; it starts the job, watches it, and fetches the file when it is done.
- * Everything Workdash learned about that box — wake it, hold the GPU, sleep it
- * only if we woke it — stays where it was learned.
+ * The rendering engine now runs as OPC’s dedicated relay. It wakes the Dell
+ * when needed and leaves it running when the job finishes.
  *
  * WHAT A RUN HERE ADDS is the ledger: the run row, the steps as the job moves
  * through the Pi's states, the mp4 copied into this box's own video store, and
@@ -25,7 +25,8 @@
  * pages mode the prompt is optional: the page titles are the topic.
  *
  * THE CREDENTIAL IS THE AGENT'S SERVICE KEY, held in the vault under the
- * `workdash` plugin: the agent's base address and the bearer it expects. It is
+ * `workdash` plugin (the retained database ID for Render worker): the relay
+ * address and the bearer it expects. It is
  * read through `accounts.credentialed` with this module's own reader name, so
  * the vault's audit trail says the Stewie pipeline read it, not "video".
  *
@@ -101,17 +102,17 @@ type ReelWorker = {
 };
 type ReelDoc = { items: ReelItem[]; running: boolean; sleepDueAt: number | null; worker: ReelWorker; externalScript?: boolean };
 
-/** The one connected Workdash agent, or a sentence saying why there is none. */
+/** The one connected render relay, or a sentence saying why there is none. */
 export function agent(): { agent: Agent | null; note: string } {
   const { ready, broken } = accounts.credentialed(WORKDASH_PLUGIN, ["url", "key"], READER);
   const first = ready[0];
   if (first) {
     const url = first.values.url!.trim().replace(/\/+$/, "");
-    return { agent: { url, key: first.values.key!.trim(), label: first.account.label }, note: `Workdash agent at ${url}.` };
+    return { agent: { url, key: first.values.key!.trim(), label: first.account.label }, note: `render relay at ${url}.` };
   }
   if (broken.length)
-    return { agent: null, note: `The Workdash account “${broken[0]!.account.label}” is missing ${broken[0]!.missing.join(" and ")}.` };
-  return { agent: null, note: "No Workdash agent is connected. Add one under Integrations → Workdash: the agent's address and its service key." };
+    return { agent: null, note: `The Render worker account “${broken[0]!.account.label}” is missing ${broken[0]!.missing.join(" and ")}.` };
+  return { agent: null, note: "No render relay is connected. Add one under Integrations → Render worker: the agent's address and its service key." };
 }
 
 async function ask<T>(a: Agent, path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {
@@ -162,7 +163,7 @@ export async function capabilities(): Promise<{
   } catch (err) {
     return {
       configured: true,
-      note: `The Workdash agent at ${a.url} did not answer: ${err instanceof Error ? err.message : String(err)}`,
+      note: `The render relay at ${a.url} did not answer: ${err instanceof Error ? err.message : String(err)}`,
       agent: a.url,
       running: false,
       worker: null,
@@ -194,7 +195,7 @@ export async function stewieVideo(opts: {
   mkdirSync(dir, { recursive: true });
 
   /* ------------------------------------------------------- 1. the agent */
-  const agentStep = s.startStep("workdash", "finding the Workdash agent");
+  const agentStep = s.startStep("workdash", "finding the render relay");
   const { agent: a, note } = agent();
   if (!a) {
     s.endStep(agentStep, "none");
@@ -205,7 +206,7 @@ export async function stewieVideo(opts: {
     before = await ask<ReelDoc>(a, "/agent/reel");
   } catch (err) {
     s.endStep(agentStep, "unreachable");
-    throw new StepError("workdash", `The Workdash agent at ${a.url} did not answer: ${err instanceof Error ? err.message : String(err)}`);
+    throw new StepError("workdash", `The render relay at ${a.url} did not answer: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (before.running) {
     s.endStep(agentStep, "busy");
@@ -217,7 +218,7 @@ export async function stewieVideo(opts: {
   const urls = input.urls.split(/\r?\n|,/).map((u) => u.trim()).filter(Boolean);
   const mode = input.mode === "pages" && urls.length ? "pages" : "images";
   if (!before.externalScript) {
-    throw new StepError("script", "Update the WorkDash agent to support workspace-written scripts. This keeps Stewie on your selected LLM.");
+    throw new StepError("script", "Update the render relay to support workspace-written scripts. This keeps Stewie on your selected LLM.");
   }
   const scriptStep = s.startStep("script", "writing with the workspace LLM");
   let script: Awaited<ReturnType<typeof writeStewieScript>>;
@@ -260,11 +261,11 @@ export async function stewieVideo(opts: {
   while (item.status !== "done" && item.status !== "failed") {
     if (signal?.aborted) {
       s.endStep(step, "cancelled here — the Pi's job keeps going");
-      throw new StepError("reel", "Cancelled. The Pi was not told; its reel finishes on its own and stays in Workdash.");
+      throw new StepError("reel", "Cancelled. The Pi was not told; its reel finishes on its own and stays in the render relay.");
     }
     if (Date.now() - began > JOB_TIMEOUT_MS) {
       s.endStep(step, "timed out");
-      throw new StepError("reel", `The Pi's job ${item.id} was still “${item.status}” after ${Math.round(JOB_TIMEOUT_MS / 60_000)} minutes. It may yet finish in Workdash; this run stopped watching.`);
+      throw new StepError("reel", `The Pi's job ${item.id} was still “${item.status}” after ${Math.round(JOB_TIMEOUT_MS / 60_000)} minutes. It may yet finish in the render relay; this run stopped watching.`);
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
     let doc: ReelDoc;
@@ -276,7 +277,7 @@ export async function stewieVideo(opts: {
     const found = doc.items.find((i) => i.id === item.id);
     if (!found) {
       s.endStep(step, "gone");
-      throw new StepError("reel", `The Pi no longer lists job ${item.id}. Its keep-cap may have dropped it, or it was deleted in Workdash.`);
+      throw new StepError("reel", `The Pi no longer lists job ${item.id}. Its keep-cap may have dropped it, or it was deleted in the render relay.`);
     }
     item = found;
     if (item.status !== lastStatus) {
@@ -304,7 +305,7 @@ export async function stewieVideo(opts: {
     await pipeline(Readable.fromWeb(res.body as import("node:stream/web").ReadableStream), createWriteStream(out));
   } catch (err) {
     s.endStep(fetchStep, "failed");
-    throw new StepError("fetch", `The file could not be copied from the Pi: ${err instanceof Error ? err.message : String(err)}. It is still in Workdash as ${item.video}.`);
+    throw new StepError("fetch", `The file could not be copied from the Pi: ${err instanceof Error ? err.message : String(err)}. It is still in the render relay as ${item.video}.`);
   }
   const ffprobe = findFfprobe();
   const duration = ffprobe.path ? await probeDuration(ffprobe.path, out, signal) : null;
@@ -348,7 +349,7 @@ export async function stewieVideo(opts: {
     [
       `## ${title}`,
       ``,
-      `${lines.length} lines, ${duration ? `${duration.toFixed(1)} seconds` : "length unread"}, 1080×1920${item.background ? `, over ${item.background.replace(/_/g, " ")}` : ""}. Rendered by Workdash's reel worker on the Dell and copied here. The file is on this page. Nothing has been published anywhere.`,
+      `${lines.length} lines, ${duration ? `${duration.toFixed(1)} seconds` : "length unread"}, 1080×1920${item.background ? `, over ${item.background.replace(/_/g, " ")}` : ""}. Rendered by OPC's reel worker on the Dell and copied here. The file is on this page. Nothing has been published anywhere.`,
       ``,
       `## The dialogue`,
       ``,

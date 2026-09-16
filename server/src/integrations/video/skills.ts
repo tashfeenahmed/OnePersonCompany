@@ -85,14 +85,14 @@ export const SKILLS: Skill[] = [
         "BOX and `tracked` must never be described as face or subject " +
         "recognition: a speaker who sits still while a slide changes behind " +
         "them is the case it gets wrong.",
-      "A `stewie` VIDEO WAS NOT RENDERED ON THIS BOX. It is Workdash's Peter & " +
+      "A `stewie` VIDEO WAS NOT RENDERED ON THIS BOX. It is OPC's Peter & " +
         "Stewie two-hander — cloned voices over mobile-game footage with " +
         "word-timed subtitles — made by the reel worker on the Dell through " +
         "the Pi, and copied here when done. Its `script.workdash` says which " +
         "Pi job it was and whether that job woke the Dell. Starting one needs " +
-        "a Workdash account under Integrations, takes minutes, and may boot a " +
+        "a Render worker account under Integrations, takes minutes, and may boot a " +
         "machine that draws real power; say so before queueing it for " +
-        "somebody. The lines were written by a model on the Dell.",
+        "somebody. The lines use the selected workspace model.",
       "A `reel` IS A WALKTHROUGH OF THE OWNER'S OWN PAGES AND THE SCROLL IS " +
         "NOT A RECORDING. Each page was rendered ONCE by a headless browser " +
         "into a very tall window and ffmpeg panned a viewport-sized crop down " +

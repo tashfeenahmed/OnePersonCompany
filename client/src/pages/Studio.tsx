@@ -127,7 +127,7 @@ const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[
   { key: "youtube", label: "YouTube Shorts", icon: Scissors, about: "Two to four vertical clips cut out of a long video — search YouTube and tick the keepers, or paste a link." },
   { key: "reel", label: "Reel", icon: Film, about: "Two voices walking through the venture's own pages, scrolling." },
   { key: "motion", label: "Motion", icon: Shapes, about: "Animated typography from a scene list, in the venture's colours." },
-  { key: "stewie", label: "Stewie", icon: Tv, about: "Peter explains, Stewie interrupts, over gameplay footage — cloned voices, rendered by Workdash on the Dell." },
+  { key: "stewie", label: "Stewie", icon: Tv, about: "Peter explains, Stewie interrupts, over gameplay footage — cloned voices, rendered by OPC's worker on the Dell." },
 ];
 
 const PLATFORMS = ["Instagram", "LinkedIn", "X", "Facebook", "TikTok"];
@@ -759,7 +759,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     youtube: "Searching and previewing are free — metadata and YouTube's own player. Cutting is one shorts run per video you ticked, a few minutes each, one at a time.",
     reel: "Headless Chrome captures each page, a model writes the two voices, the voice plugin speaks them if it is on.",
     motion: "A model drafts the scene list unless you pick a saved one; Chrome renders the frames. Silent unless the voice plugin is on.",
-    stewie: "Handed to Workdash's Pi, which wakes the Dell if it is asleep (about ninety seconds), clones both voices and renders the script written by your workspace LLM. A few minutes, and real power while the Dell is up.",
+    stewie: "Handed to OPC's render relay, which wakes the Dell if it is asleep (about ninety seconds), clones both voices and renders the script written by your workspace LLM. A few minutes, and real power while the Dell is up.",
   }[make];
 
   return (

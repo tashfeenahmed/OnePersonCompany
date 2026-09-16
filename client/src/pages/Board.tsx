@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, Plus, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -106,6 +106,7 @@ export function Board() {
      rather than an index, so the filter survives a venture being renamed and
      falls back to All when one is deleted. */
   const [venture, setVenture] = useState<string | null>(null);
+  const [showAllVentures, setShowAllVentures] = useState(false);
 
   /* THE DRAG, held here because a drag crosses columns — see the header.
      `drag` is the card being carried; `drop` is where it would land, said as
@@ -147,6 +148,12 @@ export function Board() {
   for (const [id, v] of Object.entries(data?.ventures ?? {})) {
     const cached = ventures.get(id);
     ventures.set(id, { ...cached, id, name: v.name, color: v.color });
+  }
+  const ventureList = [...ventures.values()];
+  const visibleVentures = showAllVentures ? ventureList : ventureList.slice(0, 4);
+  // Keep the active filter visible when collapsing the list.
+  if (!showAllVentures && venture && ventures.has(venture) && !visibleVentures.some((v) => v.id === venture)) {
+    visibleVentures[3] = ventures.get(venture)!;
   }
 
   /**
@@ -253,16 +260,11 @@ export function Board() {
         </div>
         {error && <p role="status" className="mt-2 text-xs text-muted-foreground">Could not refresh. Showing your last saved board.</p>}
 
-        {/* THE VENTURE FILTER. Chips rather than a dropdown: there are a
-            handful of ventures, the answer is worth having on screen, and a
-            colour is only useful if it is visible before it is chosen. The
-            colours are the store's own, which is what makes a chip here and a
-            chip on a card the same fact. */}
-        <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
+        <div id="board-venture-filters" role="group" aria-label="Filter by venture" className="mt-3.5 flex flex-wrap items-center gap-1.5">
           <Chip active={venture === null} onClick={() => setVenture(null)}>
             All
           </Chip>
-          {[...ventures.values()].map((v) => (
+          {visibleVentures.map((v) => (
             <Chip
               key={v.id}
               active={venture === v.id}
@@ -272,6 +274,18 @@ export function Board() {
               {v.name}
             </Chip>
           ))}
+          {ventureList.length > 4 && (
+            <button
+              type="button"
+              aria-expanded={showAllVentures}
+              aria-controls="board-venture-filters"
+              onClick={() => setShowAllVentures((value) => !value)}
+              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {showAllVentures ? "Show less" : "Show all"}
+              <ChevronDown aria-hidden="true" className={cn("size-3.5 transition-transform", showAllVentures && "rotate-180")} />
+            </button>
+          )}
         </div>
 
         {/* A REFUSED WRITE SAYS SO, IN THE SERVER'S OWN WORDS. The board has
