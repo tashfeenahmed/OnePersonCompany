@@ -442,7 +442,9 @@ export async function fromFrames(opts: {
   const args = ["-y", "-v", "error", "-framerate", String(opts.fps), "-start_number", "0", "-i", resolve(opts.dir, opts.pattern)];
   if (opts.audio) args.push("-i", opts.audio);
   else if (opts.silentTrack) args.push("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo");
-  args.push("-vf", "format=yuv420p", "-map", "0:v");
+  // A narrated scene can outlast its animation. Repeat the final frame until
+  // the caller's measured duration; -t below bounds the otherwise infinite pad.
+  args.push("-vf", "tpad=stop_mode=clone:stop=-1,format=yuv420p", "-map", "0:v");
   if (opts.audio || opts.silentTrack) args.push("-map", "1:a", "-af", "apad", ...A_ARGS);
   else args.push("-an");
   args.push(...V_ARGS, "-t", opts.seconds.toFixed(3), opts.out);

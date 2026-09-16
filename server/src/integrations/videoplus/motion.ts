@@ -30,7 +30,7 @@ import type { VentureRow } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
 import { readModelJson } from "./json.ts";
 import { settings as voiceSettings, speak } from "../signals/voice/provider.ts";
-import { ASPECTS, aspectFrame, concat, fromFrames, hasUntile, untileSheet } from "../video/assemble.ts";
+import { ASPECTS, FPS, aspectFrame, concat, fromFrames, hasUntile, untileSheet } from "../video/assemble.ts";
 import { StepError, runDir, type RunSession } from "../video/faceless.ts";
 import { saveJob } from "../video/store.ts";
 import { bytesOf, ffmpegFilters, findFfmpeg, findFfprobe, probeDuration } from "../video/tools.ts";
@@ -155,6 +155,24 @@ export function plan(spec: SceneSpec, fps: number, size: { width: number; height
   return { tiles, frames, sheets: Math.ceil(frames / tiles) };
 }
 
+export type SceneTiming = {
+  animationSeconds: number;
+  narrationSeconds: number | null;
+  seconds: number;
+  holdSeconds: number;
+};
+
+/** Keep the animation's pacing; only its last frame waits for a longer voice.
+ * Round up to an output frame and leave a short breath after the last word. */
+export function sceneTiming(animationSeconds: number, narrationSeconds: number | null): SceneTiming {
+  if (!(animationSeconds > 0) || !Number.isFinite(animationSeconds)
+    || (narrationSeconds !== null && (!(narrationSeconds > 0) || !Number.isFinite(narrationSeconds))))
+    throw new Error("Cannot time a scene without a valid animation and narration duration.");
+  const seconds = narrationSeconds === null ? animationSeconds
+    : Math.ceil(Math.max(animationSeconds, narrationSeconds + 0.25) * FPS) / FPS;
+  return { animationSeconds, narrationSeconds, seconds, holdSeconds: Math.max(0, seconds - animationSeconds) };
+}
+
 /**
  * Every frame of one scene, drawn.
  *
@@ -162,13 +180,14 @@ export function plan(spec: SceneSpec, fps: number, size: { width: number; height
  * `fromFrames` can take them with one printf pattern and a scene that failed
  * half way leaves the frames it did draw on the disk for somebody to look at.
  */
-async function drawScene(opts: {
+export async function drawScene(opts: {
   browser: string;
   ffmpeg: string;
   spec: SceneSpec;
   index: number;
   dir: string;
   fps: number;
+  holdLastFrame?: boolean;
   size: { width: number; height: number };
   look: ReturnType<typeof lookOf>;
   signal?: AbortSignal;
@@ -182,7 +201,7 @@ async function drawScene(opts: {
     if (opts.signal?.aborted) return { error: "the run was cancelled" };
     const count = Math.min(per, total - from);
     const tiles: Tile[] = [];
-    for (let i = 0; i < count; i++) tiles.push({ scene, t: (from + i) / opts.fps });
+    for (let i = 0; i < count; i++) tiles.push({ scene, t: (from + i) / opts.fps, holdLastFrame: opts.holdLastFrame });
     const name = `sheet-${String(from).padStart(5, "0")}`;
     const shot = await shootSheet({
       browser: opts.browser,
@@ -317,6 +336,7 @@ export async function motionVideo(opts: {
   /* ------------------------------------------------------- 3. narration */
   const voice = voiceSettings();
   const narration: (string | null)[] = spec.scenes.map(() => null);
+  const timings = spec.scenes.map((scene) => sceneTiming(scene.seconds, null));
   let narrationNote: string;
   if (!spec.voiceover) {
     narrationNote = "Voiceover was not asked for, so this video is silent.";
@@ -324,20 +344,28 @@ export async function motionVideo(opts: {
     narrationNote =
       "Voiceover was asked for and speech is off in the voice plugin's settings, so this video is SILENT. Choose FreeLLMAPI, an OpenAI-compatible speech endpoint or Piper in Integrations → Voice first.";
   } else {
+    if (!ffprobe.path) throw new StepError("voice", "Narration needs ffprobe to measure speech so scenes do not cut it short. Install ffprobe alongside ffmpeg.");
     const vStep = s.startStep("voice", `speaking ${spec.scenes.filter((x) => x.say).length} lines`);
     let spoken = 0;
     let failed: string | null = null;
     for (const [i, scene] of spec.scenes.entries()) {
       if (!scene.say) continue;
       if (signal?.aborted) throw new StepError("voice", "the run was cancelled");
+      let clip;
       try {
-        const clip = await speak(scene.say);
-        narration[i] = clip.path;
-        spoken++;
+        clip = await speak(scene.say);
       } catch (err) {
         failed = err instanceof Error ? err.message : String(err);
         break;
       }
+      const seconds = await probeDuration(ffprobe.path, clip.path, signal);
+      if (seconds === null) {
+        s.endStep(vStep, `could not measure scene ${i + 1}'s narration`);
+        throw new StepError("voice", `Could not measure scene ${i + 1}'s narration. The video was not rendered with guessed speech timing.`);
+      }
+      timings[i] = sceneTiming(scene.seconds, seconds);
+      narration[i] = clip.path;
+      spoken++;
     }
     s.endStep(vStep, failed ? `stopped after ${spoken}` : `${spoken} lines`);
     narrationNote = failed
@@ -345,14 +373,17 @@ export async function motionVideo(opts: {
       : `${spoken} scenes were narrated by the voice plugin's ${voice.tts} endpoint.`;
   }
   const hasAudio = narration.some((n) => n !== null);
+  const heldScenes = timings.filter((timing) => timing.holdSeconds > 0);
+  if (heldScenes.length) narrationNote += ` ${heldScenes.length} scene(s) hold their final frame until narration finishes, with a short pause before the next scene.`;
 
   /* ---------------------------------------------------------- 4. frames */
   const look = lookOf(v, spec.accent);
   const parts: string[] = [];
   for (const [i, scene] of spec.scenes.entries()) {
     if (signal?.aborted) throw new StepError("frames", "the run was cancelled");
+    const timing = timings[i]!;
     const sceneDir = resolve(dir, `scene-${String(i + 1).padStart(2, "0")}`);
-    const step = s.startStep("frames", `scene ${i + 1} of ${spec.scenes.length} — ${scene.kind}, ${scene.seconds}s`);
+    const step = s.startStep("frames", `scene ${i + 1} of ${spec.scenes.length} — ${scene.kind}, ${timing.seconds.toFixed(2)}s${timing.holdSeconds > 0 ? " including narration hold" : ""}`);
     const drawn = await drawScene({
       browser: browser.path!,
       ffmpeg: ffmpeg.path,
@@ -360,6 +391,7 @@ export async function motionVideo(opts: {
       index: i,
       dir: sceneDir,
       fps,
+      holdLastFrame: timing.holdSeconds > 0,
       size: frame,
       look,
       signal,
@@ -375,7 +407,7 @@ export async function motionVideo(opts: {
       dir: sceneDir,
       out,
       fps,
-      seconds: scene.seconds,
+      seconds: timing.seconds,
       audio: narration[i] ?? null,
       /* All segments carry audio or none do — see assemble.ts's header. A
          scene with nothing to say gets a silent track when its neighbours
@@ -392,7 +424,7 @@ export async function motionVideo(opts: {
        is sixty frames of about 300 KB, and a six-scene spec that kept them all
        would leave a hundred megabytes of stills beside a two-megabyte file. */
     rmSync(sceneDir, { recursive: true, force: true });
-    s.endStep(step, `${drawn.frames} frames`);
+    s.endStep(step, `${drawn.frames} frames${timing.holdSeconds > 0 ? ` · last frame held ${timing.holdSeconds.toFixed(2)}s for narration` : ""}`);
   }
 
   /* ----------------------------------------------------------- 5. join */
@@ -415,7 +447,7 @@ export async function motionVideo(opts: {
     aspect,
     width: frame.width,
     height: frame.height,
-    script: { motion: spec, specId: input.specId || null, problems, fps, look: { accent: look.accent, background: look.bg, source: look.source } },
+    script: { motion: spec, timings, specId: input.specId || null, problems, fps, look: { accent: look.accent, background: look.bg, source: look.source } },
     assets: [],
     durationS: duration,
     bytes,
@@ -442,6 +474,8 @@ export async function motionVideo(opts: {
       `- Colours: ${look.source} — accent \`${look.accent}\`, background \`${look.bg}\`.`,
       `- Typeface: ${look.font ? `${look.font}, measured off the venture's own site` : "no font was measured off the venture's site, so the system stack was used"}.`,
       `- Narration: ${narrationNote}`,
+      ...(hasAudio ? ["", "## Scene timing", "", ...timings.map((timing, i) =>
+        `- Scene ${i + 1}: ${timing.seconds.toFixed(2)}s total · ${timing.narrationSeconds === null ? "no narration" : `${timing.narrationSeconds.toFixed(2)}s narration`}${timing.holdSeconds > 0 ? ` · final frame held ${timing.holdSeconds.toFixed(2)}s` : ""}.`)] : []),
       ...(problems.length ? ["", `## What the validator changed`, "", ...problems.map((p) => `- ${p}`)] : []),
       ``,
       `## The scene list`,

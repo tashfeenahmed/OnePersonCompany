@@ -220,7 +220,9 @@ export function VideoPanel({ job }: { job: VideoJob }) {
       <div className="text-muted-foreground mt-3.5 flex flex-wrap gap-x-3 gap-y-1 text-[12.5px]">
         <span>
           Captions:{" "}
-          {job.captions === "typst"
+          {job.format === "motion"
+            ? "text is part of each scene"
+            : job.captions === "typst"
             ? "typeset and composited"
             : job.captions === "drawtext"
               ? "burned in by ffmpeg"
@@ -228,11 +230,11 @@ export function VideoPanel({ job }: { job: VideoJob }) {
         </span>
         <span>
           Sound:{" "}
-          {job.narration === "tts"
-            ? "narrated by the voice endpoint"
+          {job.narration === "tts" || job.narration?.startsWith("tts — ")
+            ? job.narration === "tts" ? "narrated by the voice endpoint" : `narrated via ${job.narration.slice(6)}`
             : job.format === "shorts"
               ? "the source's own audio"
-              : "silent — speech is off and nothing copyrighted is bundled"}
+              : "no narration in this video"}
         </span>
         <span>Nothing has been published anywhere.</span>
       </div>

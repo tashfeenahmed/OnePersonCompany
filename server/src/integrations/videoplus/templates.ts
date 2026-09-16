@@ -144,7 +144,7 @@ const family = (name: string | null) => {
 /* ---------------------------------------------------------------- the page */
 
 /** One tile of a sheet: which scene, and at what second inside it. */
-export type Tile = { scene: Scene; t: number };
+export type Tile = { scene: Scene; t: number; holdLastFrame?: boolean };
 
 /**
  * A whole sheet, as one HTML document.
@@ -159,7 +159,7 @@ export function sheetHtml(tiles: Tile[], look: Look, size: { width: number; heig
   const body = tiles
     .map(
       (tile) =>
-        `<div class="tile" style="--t:${tile.t.toFixed(3)};--secs:${tile.scene.seconds}">` +
+        `<div class="tile${tile.holdLastFrame ? " hold-last-frame" : ""}" style="--t:${tile.t.toFixed(3)};--secs:${tile.scene.seconds}">` +
         `<div class="bar"></div>` +
         `<div class="stage">${sceneHtml(tile.scene)}</div>` +
         `</div>`,
@@ -197,6 +197,8 @@ html,body{background:#000;width:max-content}
   animation:exit .35s linear both;animation-play-state:paused;
   animation-delay:calc(-1s * var(--t) + (var(--secs) - .35) * 1s);
 }
+/* Keep the card readable when its final frame waits for speech to finish. */
+.hold-last-frame .stage{animation:none}
 @keyframes exit{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-18px)}}
 .an{animation-name:var(--anim,rise);animation-duration:var(--dur,.65s);
   animation-timing-function:cubic-bezier(.22,1,.36,1);animation-fill-mode:both;
