@@ -71,6 +71,11 @@ const PAGE_CAP_BYTES = 1_500_000;
  *  convention rather than a measurement, which the finding says. */
 const THIN_WORDS = 150;
 
+/** Sitemap URLs kept on the stored document. The set is what the noindex
+ *  finding needs; the list is carried so the stored audit can be re-read
+ *  without the site, and a cap keeps a 200k-URL sitemap out of the database. */
+const SITEMAP_LOC_CAP = 5_000;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -262,6 +267,117 @@ function allowed(robots: Robots, path: string): boolean {
 const tagsOf = (html: string, name: string) =>
   [...html.matchAll(new RegExp(`<${name}\\b[^>]*>`, "gi"))].map((m) => m[0]!);
 
+/**
+ * THE PARTS OF THE DOCUMENT THAT ARE NOT THE DOCUMENT — script, style,
+ * template, noscript and comments — removed before anything reads it.
+ *
+ * WHY THIS IS NOT FUSSINESS. A tag regex run over raw HTML cannot tell an
+ * anchor from a JavaScript string that spells one. freellmapi.co's home page
+ * builds its cards with `'<a class="model-card" href="' + href + '"'` inside
+ * an inline script; the old link pass extracted that as a link to
+ * `/'%20+%20href%20+%20'`, crawled it, got a 404 and reported the site as
+ * having a page error — a fault that exists nowhere but in this crawler. The
+ * same is true of a `<template>` a framework has not instantiated and of a
+ * link commented out. None of them is a link a reader can follow, and a
+ * crawler that follows them is inventing findings.
+ *
+ * A DANGLING OPEN TAG TAKES THE REST OF THE DOCUMENT WITH IT. The body is read
+ * to a byte cap, so a large page can end in the middle of a script; after the
+ * paired pass every remaining `<script>` is by definition unclosed, and what
+ * follows it is script rather than prose.
+ */
+export function stripNonContent(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*$/i, " ");
+}
+
+/**
+ * Every internal link on one page, and the counts of both kinds.
+ *
+ * `html` is expected to have been through `stripNonContent` — it is taken
+ * rather than done here so a caller that also needs the prose does the work
+ * once.
+ */
+export function extractLinks(
+  html: string,
+  pageUrl: string,
+  origin: string,
+): { links: string[]; internal: number; external: number } {
+  const base = (() => {
+    try {
+      return new URL(pageUrl);
+    } catch {
+      return null;
+    }
+  })();
+  const links: string[] = [];
+  let internal = 0;
+  let external = 0;
+  for (const tag of tagsOf(html, "a")) {
+    const href = (attr(tag, "href") ?? "").trim();
+    if (!href || href.startsWith("#") || /^(mailto|tel|javascript):/i.test(href)) continue;
+    if (!base) continue;
+    let abs: URL;
+    try {
+      abs = new URL(href, base);
+    } catch {
+      continue;
+    }
+    if (abs.protocol !== "http:" && abs.protocol !== "https:") continue;
+    abs.hash = "";
+    if (sameHost(abs.hostname, origin)) {
+      internal += 1;
+      links.push(abs.toString());
+    } else external += 1;
+  }
+  return { links, internal, external };
+}
+
+/** How a crawled URL came to be crawled. It decides how loudly a failure on it
+ *  is reported — see `failureCode`. */
+export type Discovery = "start" | "sitemap" | "link";
+
+/**
+ * WHAT A FAILED PAGE IS CALLED, WHICH DEPENDS ON WHO ASKED FOR IT.
+ *
+ * A 404 on the address the owner gave, or on one the site's own sitemap tells
+ * Google to index, is the site failing: it is an error and it is a page error.
+ * A 404 on a URL this crawler only knows about because some page linked to it
+ * is a BROKEN LINK — the same fault the link checker reports, found a different
+ * way — and the useful half of that finding is which page carries the bad link,
+ * which is why it is reported with `linkedFrom` rather than as a naked URL.
+ *
+ * 5xx and transport failures stay errors however they were found: a server
+ * that breaks is a server that breaks, and a link is not to blame for it. So
+ * is any other 4xx — a 403 on a linked page is a permissions question, not a
+ * dead link — which keeps this to the two statuses that mean gone.
+ */
+export function failureCode(
+  status: number,
+  error: string | null,
+  discovery: Discovery,
+): "page-error" | "broken-link" | null {
+  if (error) return "page-error";
+  if (status < 400) return null;
+  if (status >= 500) return "page-error";
+  if (discovery !== "link") return "page-error";
+  return status === 404 || status === 410 ? "broken-link" : "page-error";
+}
+
+/**
+ * HOW LOUD A NOINDEX IS, WHICH THE SITEMAP DECIDES.
+ *
+ * A noindex on a page the sitemap asks Google to index is a site arguing with
+ * itself, and one of the two is wrong. A noindex on a page that is in no
+ * sitemap is what an admin screen, a thank-you page or a login looks like when
+ * somebody did the right thing — freellmapi.co's `/manage` is exactly that —
+ * and reporting it as an error is how a tool teaches its owner to ignore it.
+ */
+export const noindexSeverity = (inSitemap: boolean): "error" | "notice" =>
+  inSitemap ? "error" : "notice";
+
 function attr(tag: string, name: string): string | null {
   const m = new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>\`]+))`, "i").exec(tag);
   return m ? (m[2] ?? m[3] ?? m[4] ?? null) : null;
@@ -340,36 +456,19 @@ function readPage(res: Fetched, origin: string): { report: PageReport; links: st
   const h1s = [...html.matchAll(/<h1\b[^>]*>([\s\S]{0,400}?)<\/h1>/gi)];
   const imgs = tagsOf(html, "img");
 
-  /* Prose only: script and style are not words on the page, and a site with a
-     large inline bundle would otherwise never read as thin. */
-  const text = decode(
-    html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " "),
-  );
+  /* THE DOCUMENT WITHOUT ITS MACHINERY, read once and used twice: for the
+     prose (script and style are not words on the page, and a site with a large
+     inline bundle would otherwise never read as thin) and for the links (a
+     JavaScript string that spells an anchor is not a link — see
+     `stripNonContent`). The head is NOT read from this: the title, the meta
+     tags and the canonical are matched against the document as served, which
+     is what a search engine parses. */
+  const content = stripNonContent(html);
+
+  const text = decode(content.replace(/<[^>]+>/g, " "));
   const words = text.split(/\s+/).filter((w) => /[a-zA-Z0-9]/.test(w)).length;
 
-  const links: string[] = [];
-  let internal = 0;
-  let external = 0;
-  for (const tag of tagsOf(html, "a")) {
-    const href = (attr(tag, "href") ?? "").trim();
-    if (!href || href.startsWith("#") || /^(mailto|tel|javascript):/i.test(href)) continue;
-    if (!base) continue;
-    let abs: URL;
-    try {
-      abs = new URL(href, base);
-    } catch {
-      continue;
-    }
-    if (abs.protocol !== "http:" && abs.protocol !== "https:") continue;
-    abs.hash = "";
-    if (sameHost(abs.hostname, origin)) {
-      internal += 1;
-      links.push(abs.toString());
-    } else external += 1;
-  }
+  const { links, internal, external } = extractLinks(content, res.url, origin);
 
   return {
     report: {
@@ -441,6 +540,13 @@ export type AuditDoc = {
     checked: string[];
     found: string | null;
     urls: number | null;
+    /** The URLs the sitemap actually LISTS, as it lists them, capped. `urls`
+     *  stays the count it always was — on a sitemap index it counts children
+     *  this crawl did not read, so it can be larger than this list. Added so a
+     *  finding can say whether a page the site noindexes is one the site also
+     *  asks Google to index; absent on documents stored before it existed,
+     *  which is why it is optional. */
+    locs?: string[];
     note: string;
   };
   https: { httpRedirectsToHttps: boolean | null; note: string };
@@ -519,6 +625,11 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
   let sitemapUrls: number | null = null;
   let sitemapNote = "";
   const sitemapChecked: string[] = [];
+  /* The URLs the sitemap names, kept rather than counted. A noindex is a
+     mistake when the site is also asking Google to index the page and is
+     usually deliberate when it is not, and nothing but this list can tell the
+     two apart. */
+  const sitemapLocs: string[] = [];
   for (const candidate of [...new Set(sitemapCandidates)].slice(0, 4)) {
     sitemapChecked.push(candidate);
     const res = await get(candidate, "GET", started + 30_000);
@@ -537,6 +648,8 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
         const c = await get(child, "GET", started + 45_000);
         await sleep(GAP_MS);
         total += [...c.body.matchAll(/<loc>/gi)].length;
+        for (const m of c.body.matchAll(/<loc>\s*([^<\s]{1,2000})\s*<\/loc>/gi))
+          if (sitemapLocs.length < SITEMAP_LOC_CAP) sitemapLocs.push(m[1]!);
       }
       sitemapUrls = total;
       sitemapNote =
@@ -545,9 +658,13 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
     } else {
       sitemapUrls = locs.length;
       sitemapNote = `${locs.length} URLs listed.`;
+      sitemapLocs.push(...locs.slice(0, SITEMAP_LOC_CAP));
     }
     break;
   }
+  /* Compared in the one spelling this file compares URLs by, so a sitemap that
+     writes the trailing slash and a page that does not are one page. */
+  const sitemapSet = new Set(sitemapLocs.map(canon));
   if (!sitemapFound)
     sitemapNote =
       "No sitemap answered at any of the addresses tried, and robots.txt names none. " +
@@ -577,6 +694,20 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
   const seen = new Set<string>([canon(startUrl.toString())]);
   const pages: PageReport[] = [];
   const linkSources = new Map<string, Set<string>>();
+  /* HOW EACH URL CAME TO BE CRAWLED, because it decides what a failure on it
+     is called — see `failureCode`. Unknown counts as `start`: the louder
+     reading is the safe default for a provenance this cannot account for. */
+  const discovered = new Map<string, Discovery>([[canon(startUrl.toString()), "start"]]);
+  const discoveryOf = (url: string): Discovery => {
+    const how = discovered.get(url);
+    if (how === "start") return "start";
+    if (sitemapSet.has(url)) return "sitemap";
+    return how ?? "start";
+  };
+  /* A page's report carries the address that ANSWERED; the link that found it
+     and the sitemap that lists it name the address that was ASKED FOR, and on
+     a redirect those differ. */
+  const requestedAs = new Map<string, string>();
   const blocked: string[] = [];
   let infrastructure = 0;
   let stopped = "the site was crawled to its end";
@@ -615,6 +746,7 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
 
     const { report, links } = readPage(res, origin);
     pages.push(report);
+    requestedAs.set(canon(report.url), canon(url));
 
     for (const l of links) {
       const c = canon(l);
@@ -622,6 +754,7 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
       linkSources.get(c)!.add(res.url);
       if (!seen.has(c) && queue.length + pages.length < PAGE_CAP * 4) {
         seen.add(c);
+        if (!discovered.has(c)) discovered.set(c, "link");
         queue.push(l);
       }
     }
@@ -671,8 +804,36 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
     await sleep(GAP_MS);
   }
 
+  /* --- what a failed page is called ------------------------------------ */
+  /**
+   * The pages that did not answer, split by who asked for them.
+   *
+   * A page the crawl only reached by following a link, that answered 404 or
+   * 410, is a BROKEN LINK and not a site error — and the half of it worth
+   * printing is which pages carry the link, which `broken` already has a shape
+   * for. Nothing here is double-reported: `toCheck` above skips every URL that
+   * was crawled, so a page that got here was never HEADed.
+   */
+  const asked = (p: PageReport) => requestedAs.get(canon(p.url)) ?? canon(p.url);
+  const gone: AuditDoc["links"]["broken"] = [];
+  const pageErrors: string[] = [];
+  for (const p of pages) {
+    const requested = asked(p);
+    const code = failureCode(p.status, p.error, discoveryOf(requested));
+    if (code === "page-error") pageErrors.push(p.url);
+    else if (code === "broken-link")
+      gone.push({
+        url: p.url,
+        status: p.status,
+        error: p.error,
+        linkedFrom: [...(linkSources.get(requested) ?? linkSources.get(canon(p.url)) ?? [])].slice(0, 5),
+      });
+  }
+  const allBroken = [...new Map([...broken, ...gone].map((b) => [b.url, b])).values()];
+
   /* --- the findings ---------------------------------------------------- */
   const ok = pages.filter((p) => p.status >= 200 && p.status < 300 && !p.error);
+  const inSitemap = (p: PageReport) => sitemapSet.has(asked(p)) || sitemapSet.has(canon(p.url));
   const findings: Finding[] = [];
   const add = (
     severity: Finding["severity"],
@@ -686,20 +847,42 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
   };
 
   add("error", "page-error", "Pages that did not answer with a 2xx.",
-    pages.filter((p) => p.status >= 400 || p.error).map((p) => p.url),
-    "The status this crawl got, following redirects.");
+    pageErrors,
+    "The status this crawl got, following redirects. The address the audit was given, " +
+      "anything the sitemap lists, every 5xx and every request that failed to complete. " +
+      "A 404 on a URL only some link pointed at is reported as a broken link instead.");
 
   add("error", "no-title", "Pages with no <title> at all.",
     ok.filter((p) => !p.title).map((p) => p.url),
     "No <title> element in the HTML that was served.");
 
-  add("error", "noindex", "Pages that tell search engines not to index them.",
-    ok.filter((p) => p.noindex).map((p) => p.url),
-    "A <meta name=robots> or <meta name=googlebot> carrying `noindex`. On a page you want found, this is the whole problem.");
+  /* NOINDEX IS TWO FINDINGS AND NOT ONE, and the sitemap is what separates
+     them. See `noindexSeverity`: the site asking Google to index a page it
+     also tells Google not to index is a contradiction somebody has to settle;
+     a noindex on a page no sitemap mentions is what a deliberate one looks
+     like, and filing that as an error is how the list stops being read. */
+  const noindexed = ok.filter((p) => p.noindex);
+  add("error", "noindex", "Pages that are noindex but listed in the sitemap.",
+    noindexed.filter((p) => noindexSeverity(inSitemap(p)) === "error").map((p) => p.url),
+    "A <meta name=robots> or <meta name=googlebot> carrying `noindex`, on a URL the site's own " +
+      "sitemap asks Google to index. The site is arguing with itself and one of the two is wrong.");
+
+  add("notice", "noindex", "Pages that tell search engines not to index them.",
+    noindexed.filter((p) => noindexSeverity(inSitemap(p)) === "notice").map((p) => p.url),
+    "A <meta name=robots> or <meta name=googlebot> carrying `noindex`, on a URL no sitemap this " +
+      "crawl read lists. That is usually deliberate — an account area, a checkout, a thank-you " +
+      "page — so it is reported as a fact rather than a fault. On a page you want found it is the " +
+      "whole problem, and it would be an error if the sitemap named it.");
 
   add("error", "broken-link", "Internal links that do not answer.",
     broken.map((b) => b.url),
     `HEAD on each unique internal link once, up to ${LINK_CAP}. A 405 is not counted — plenty of servers refuse HEAD.`);
+
+  add("warning", "broken-link", "Internal links to pages that are gone.",
+    gone.map((b) => b.url),
+    "Fetched during the crawl because a page linked to them, and answered 404 or 410. " +
+      "`links.broken[].linkedFrom` names the pages carrying the link — that is the thing to fix, " +
+      "unless the page was supposed to exist.");
 
   /* Duplicate titles: the same string on more than one page. A template that
      forgot to vary its title is the single most common finding on a small
@@ -829,7 +1012,13 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
     userAgent: UA,
     limits: { pages: PAGE_CAP, links: LINK_CAP, gapMs: GAP_MS, requestMs: REQUEST_MS, crawlMs: CRAWL_MS, linksMs: LINKS_MS },
     robots,
-    sitemap: { checked: sitemapChecked, found: sitemapFound, urls: sitemapUrls, note: sitemapNote },
+    sitemap: {
+      checked: sitemapChecked,
+      found: sitemapFound,
+      urls: sitemapUrls,
+      locs: sitemapLocs.slice(0, SITEMAP_LOC_CAP),
+      note: sitemapNote,
+    },
     https: { httpRedirectsToHttps: httpRedirects, note: httpsNote },
     canonicalHost: {
       requested: v.website,
@@ -851,13 +1040,18 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
     },
     links: {
       checked,
-      broken,
+      broken: allBroken,
       note:
-        !toCheck.length
+        (gone.length
+          ? `${gone.length} of these were fetched by the crawl itself — a page linked to them and ` +
+            "they answered 404 or 410 — so they are here, with the pages that link to them, rather " +
+            `than among the page errors. They are not part of the ${checked} HEAD checks below. `
+          : "") +
+        (!toCheck.length
           ? `Every internal link found points at a page this crawl had already fetched, so there was nothing left to check separately. ${linkSources.size} distinct internal links were seen.`
           : checked < toCheck.length
             ? `${checked} of ${toCheck.length} unique internal links were checked before the ${LINKS_MS / 1000}-second budget ran out. The rest are unknown, not sound.`
-            : `Every one of the ${checked} unique internal links found off the crawled pages was checked.`,
+            : `Every one of the ${checked} unique internal links found off the crawled pages was checked.`),
     },
     search: { property: properties[0] ?? null, note: searchNote, ranked: ranked.slice(0, 25) },
     findings: findings.sort(
