@@ -43,6 +43,7 @@ export type VoiceReport = {
       keyed: boolean;
       ready: boolean;
       why: string | null;
+      check: { at: string; ok: boolean; error: string | null; via: string | null } | null;
     };
     /** The path ffmpeg was found at, or null — no voice note without it. */
     ffmpeg: string | null;

@@ -154,22 +154,22 @@ const voiceConfig = {
     tts: {
       label: "Speech",
       hint:
-        "off, openai or piper. `off` is a real answer and the default: speech " +
+        "off, freellmapi, openai or piper. `off` is a real answer and the default: speech " +
         "costs money on a hosted endpoint and disk on a local one, and a " +
         "dashboard that starts talking because it could is one somebody turns " +
         "off entirely. `openai` is any /v1/audio/speech endpoint; `piper` is a " +
-        "binary on this machine.",
+        "binary on this machine. `freellmapi` reuses the selected FreeLLMAPI account and its saved key.",
       ph: "off",
       check(value: string) {
         if (!value) return null;
-        return ["off", "openai", "piper"].includes(value)
+        return ["off", "freellmapi", "openai", "piper"].includes(value)
           ? null
-          : `“${value}” is not a speech mode. The three are off, openai and piper.`;
+          : `“${value}” is not a speech mode. Choose off, freellmapi, openai or piper.`;
       },
     },
     ttsUrl: { label: "Speech endpoint", hint: "An OpenAI-compatible base url whose /audio/speech returns audio. Only read when Speech is `openai`.", ph: "https://api.openai.com/v1", check: urlCheck },
-    ttsModel: { label: "Speech model", hint: "Empty means `tts-1`.", ph: "tts-1", check: modelIdCheck },
-    ttsVoice: { label: "Voice", hint: "The voice name the speech endpoint publishes. Empty means `alloy`.", ph: "alloy", check: modelIdCheck },
+    ttsModel: { label: "Speech model", hint: "FreeLLMAPI: empty or auto lets the gateway choose an available speech model. Otherwise enter a speech model ID supported by its audio endpoint. OpenAI: empty means tts-1.", ph: "tts-1", check: modelIdCheck },
+    ttsVoice: { label: "Voice", hint: "The voice name supported by the speech model. Empty uses the provider default for FreeLLMAPI, or alloy for OpenAI.", ph: "alloy", check: modelIdCheck },
     piperPath: {
       label: "Piper binary",
       hint:

@@ -58,11 +58,11 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
     setClip(null);
     try {
       setClip(await integrations.speak(text.trim() || DEFAULT_LINE));
-      report.reload();
     } catch (err) {
       setProblem(err instanceof Error ? err.message : String(err));
     } finally {
       setSpeaking(false);
+      report.reload();
     }
   }
 
@@ -127,7 +127,7 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
             <span
               className={cn(
                 "size-1.5 shrink-0 rounded-full",
-                tts.ready ? "bg-ok" : "bg-border",
+                tts.ready && tts.check?.ok ? "bg-ok" : "bg-border",
               )}
             />
             <span className="text-[13.5px] font-medium">Speech</span>
@@ -135,9 +135,10 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
               {tts.mode === "piper" ? "a piper binary on this machine" : (tts.url ?? "no endpoint set")}
             </span>
             <Badge variant="secondary" className="ml-auto font-mono font-normal">
-              {tts.model} · {tts.voice}
+              {tts.mode === "freellmapi" ? "FreeLLMAPI · " : ""}{tts.model}{tts.voice ? ` · ${tts.voice}` : ""}
             </Badge>
           </div>
+          {tts.ready && <p className="text-muted-foreground mt-1 text-[12.5px]">{tts.check ? `Last speech attempt ${tts.check.ok ? "succeeded" : "failed"} ${ago(tts.check.at)}${tts.check.via ? ` via ${tts.check.via}` : ""}.` : "Configured. Speak a test sentence to verify the connection."}</p>}
           {tts.why && (
             <p className="text-muted-foreground mt-1 text-[12.5px]">{tts.why}</p>
           )}
@@ -165,7 +166,7 @@ export function VoicePanel({ onCollected }: { onCollected?: () => void }) {
           <Note>
             Speech is off, which is the default and a real answer: it costs money
             on a hosted endpoint and disk on a local one. Set{" "}
-            <code>tts</code> to <code>openai</code> or <code>piper</code> in
+            <code>tts</code> to <code>freellmapi</code>, <code>openai</code> or <code>piper</code> in
             Settings above to turn it on.
           </Note>
         )}

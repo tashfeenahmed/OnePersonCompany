@@ -18,7 +18,7 @@
  * TTS IS OFF UNTIL IT IS CHOSEN, AND `off` IS A REAL VALUE. Speech out costs
  * money on a hosted endpoint and disk on a local one, and a dashboard that
  * starts talking because it could is a dashboard somebody turns off entirely.
- * Three settings: `off`, `openai` (any /v1/audio/speech endpoint) and `piper`
+ * Modes: `off`, `freellmapi` (the selected account), `openai` (any speech endpoint) and `piper`
  * (a binary on this machine). Piper is not installed here; the code path is
  * written, and `GET /api/voice` says out loud that the binary was not found
  * rather than failing at the moment somebody sends a voice note.
@@ -38,11 +38,12 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DATA_DIR } from "../../../config.ts";
-import { configValue, configValues } from "../../../db.ts";
+import { configValue, configValues, setConfig } from "../../../db.ts";
 import * as accounts from "../../../accounts.ts";
 import { writeVoiceRun } from "../db.ts";
+import { chosen as freeLLMAccount } from "../../../providers/freellmapi.ts";
 
 export const PLUGIN = "voice";
 
@@ -60,7 +61,7 @@ const TIMEOUT_MS = 120_000;
 export type VoiceSettings = {
   sttUrl: string;
   sttModel: string;
-  tts: "off" | "openai" | "piper";
+  tts: "off" | "openai" | "piper" | "freellmapi";
   ttsUrl: string;
   ttsModel: string;
   ttsVoice: string;
@@ -75,14 +76,14 @@ export const DEFAULT_TTS_VOICE = "alloy";
 
 export function settings(): VoiceSettings {
   const c = configValues(PLUGIN);
-  const tts = c.tts === "openai" || c.tts === "piper" ? c.tts : "off";
+  const tts = c.tts === "openai" || c.tts === "piper" || c.tts === "freellmapi" ? c.tts : "off";
   return {
     sttUrl: (c.sttUrl ?? "").trim(),
     sttModel: (c.sttModel ?? "").trim() || DEFAULT_STT_MODEL,
     tts,
     ttsUrl: (c.ttsUrl ?? "").trim(),
-    ttsModel: (c.ttsModel ?? "").trim() || DEFAULT_TTS_MODEL,
-    ttsVoice: (c.ttsVoice ?? "").trim() || DEFAULT_TTS_VOICE,
+    ttsModel: (c.ttsModel ?? "").trim() || (tts === "freellmapi" ? "auto" : DEFAULT_TTS_MODEL),
+    ttsVoice: (c.ttsVoice ?? "").trim() || (tts === "freellmapi" ? "" : DEFAULT_TTS_VOICE),
     piperPath: (c.piperPath ?? "").trim(),
     piperModel: (c.piperModel ?? "").trim(),
     replyWithVoice: (c.replyWithVoice ?? "").trim().toLowerCase() === "on",
@@ -263,65 +264,104 @@ export function clipPath(id: string, format: string): string {
  *  silently became one voice is a reel that reads as a fault. Piper takes its
  *  voice from a model FILE rather than a name, so this is ignored there and
  *  the caller is told. */
+type SpeechEndpoint = { base: string | null; key: string | null };
+function speechEndpoint(s: VoiceSettings): SpeechEndpoint {
+  if (s.tts === "freellmapi") {
+    const account = freeLLMAccount("voice_speech");
+    return { base: account?.baseUrl ?? null, key: account?.key ?? null };
+  }
+  return { base: normaliseBase(s.ttsUrl), key: s.tts === "openai" ? keys("voice_speech").tts : null };
+}
+
+type SpeechCheck = { at: string; ok: boolean; error: string | null; via: string | null };
+// Bind verification to these exact speech settings, including account/key changes.
+// Only a one-way digest is persisted; credentials remain in the encrypted vault.
+function speechFingerprint(s: VoiceSettings, endpoint: SpeechEndpoint): string {
+  return createHash("sha256").update(JSON.stringify([
+    s.tts, endpoint.base, endpoint.key, s.ttsModel, s.ttsVoice, s.piperPath, s.piperModel,
+  ])).digest("hex");
+}
+function speechCheck(s: VoiceSettings, endpoint: SpeechEndpoint): SpeechCheck | null {
+  try {
+    const saved = JSON.parse(configValue(PLUGIN, "speechCheck") ?? "null");
+    if (saved?.fingerprint !== speechFingerprint(s, endpoint)) return null;
+    return { at: saved.at, ok: saved.ok, error: saved.error, via: saved.via };
+  } catch { return null; }
+}
+
 export async function speak(text: string, opts: { voice?: string } = {}): Promise<Speech> {
   const s = settings();
-  if (s.tts === "off")
-    throw new Error(
-      "Speech is off. Set the voice plugin's `tts` setting to `openai` (any " +
-        "/v1/audio/speech endpoint) or `piper` (a binary on this machine) first.",
-    );
+  if (s.tts === "off") throw new Error("Speech is off. Choose FreeLLMAPI, an OpenAI-compatible endpoint or Piper in Integrations → Voice.");
   const body = text.trim();
   if (!body) throw new Error("There is nothing to say.");
   mkdirSync(VOICE_DIR, { recursive: true });
-  const chosen = (opts.voice ?? "").trim();
-  return s.tts === "piper" ? speakPiper(body, s) : speakOpenAI(body, chosen ? { ...s, ttsVoice: chosen } : s);
+  const endpoint = speechEndpoint(s);
+  const voice = (opts.voice ?? "").trim();
+  const fingerprint = speechFingerprint(s, endpoint);
+  const record = (check: Omit<SpeechCheck, "at">) => {
+    // A dialogue's alternative speaker must not overwrite the default voice's check.
+    if (!voice || voice === s.ttsVoice)
+      setConfig(PLUGIN, "speechCheck", JSON.stringify({ ...check, at: new Date().toISOString(), fingerprint }));
+  };
+  const started = Date.now();
+  try {
+    const result = s.tts === "piper" ? await speakPiper(body, s)
+      : await speakOpenAI(body, voice ? { ...s, ttsVoice: voice } : s, endpoint);
+    record({ ok: true, error: null, via: result.via });
+    return result;
+  } catch (err) {
+    const error = err instanceof Error ? err.message : "Speech failed.";
+    writeVoiceRun({ kind: "tts", ms: Date.now() - started, bytes: null, ok: false, error });
+    record({ ok: false, error, via: null });
+    throw err;
+  }
 }
 
-async function speakOpenAI(text: string, s: VoiceSettings): Promise<Speech> {
-  const base = normaliseBase(s.ttsUrl);
-  if (!base)
-    throw new Error(
-      "No speech endpoint is set. Put an OpenAI-compatible base url in the " +
-        "voice plugin's `ttsUrl` setting.",
-    );
-  const key = keys("voice_speak").tts;
+/** Use the actual audio container: FreeLLMAPI may return WAV despite an MP3 request. */
+function audioFormat(bytes: Buffer): "wav" | "ogg" | "mp3" {
+  if (bytes.length > 44 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WAVE") return "wav";
+  if (bytes.length > 27 && bytes.toString("ascii", 0, 4) === "OggS") return "ogg";
+  if (bytes.length > 10 && (bytes.toString("ascii", 0, 3) === "ID3" || (bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0))) return "mp3";
+  throw new Error("The speech endpoint returned empty or unsupported audio; expected MP3, WAV or Ogg.");
+}
+
+async function speakOpenAI(text: string, s: VoiceSettings, { base, key }: SpeechEndpoint): Promise<Speech> {
+  if (!base) throw new Error(s.tts === "freellmapi"
+    ? "FreeLLMAPI is not configured. Connect an account in Integrations → FreeLLMAPI."
+    : "No speech endpoint is set. Set the voice integration's speech endpoint.");
   const started = Date.now();
   let res: Response;
   try {
     res = await fetch(`${base}/audio/speech`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(key ? { Authorization: `Bearer ${key}` } : {}),
-      },
+      headers: { "content-type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) },
       body: JSON.stringify({
         model: s.ttsModel,
-        voice: s.ttsVoice,
+        ...(s.ttsVoice ? { voice: s.ttsVoice } : {}),
         input: text,
         response_format: "mp3",
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
-    const why =
-      err instanceof Error && err.name === "TimeoutError"
-        ? "the speech endpoint did not answer within two minutes"
-        : `could not reach the speech endpoint (${err instanceof Error ? err.name : "error"})`;
-    writeVoiceRun({ kind: "tts", ms: Date.now() - started, bytes: null, ok: false, error: why });
-    throw new Error(why);
+    throw new Error(err instanceof Error && err.name === "TimeoutError"
+      ? "The speech endpoint did not answer within two minutes."
+      : "Could not reach the speech endpoint.");
   }
+  // Never persist an upstream response body, which could echo credentials or input.
   if (!res.ok) {
-    const detail = (await res.text().catch(() => "")).slice(0, 200);
-    const why = `the speech endpoint answered HTTP ${res.status}${detail ? `: ${detail}` : ""}`;
-    writeVoiceRun({ kind: "tts", ms: Date.now() - started, bytes: null, ok: false, error: why });
-    throw new Error(why);
+    await res.body?.cancel();
+    throw new Error(`The speech endpoint answered HTTP ${res.status}. Check the speech model and provider connection.`);
   }
   const bytes = Buffer.from(await res.arrayBuffer());
+  const format = audioFormat(bytes);
   const ms = Date.now() - started;
   const id = randomUUID();
-  writeFileSync(clipPath(id, "mp3"), bytes);
+  writeFileSync(clipPath(id, format), bytes);
   writeVoiceRun({ kind: "tts", ms, bytes: bytes.length, ok: true });
-  return { id, path: clipPath(id, "mp3"), bytes: bytes.length, ms, format: "mp3", via: "openai" };
+  const provider = res.headers.get("x-provider");
+  const via = s.tts === "freellmapi" ? `FreeLLMAPI${provider && /^[a-z0-9_-]{1,60}$/i.test(provider) ? ` · ${provider}` : ""}` : "openai";
+  return { id, path: clipPath(id, format), bytes: bytes.length, ms, format, via };
 }
 
 /**
@@ -353,7 +393,6 @@ async function speakPiper(text: string, s: VoiceSettings): Promise<Speech> {
   const bytes = existsSync(out) ? (await import("node:fs")).statSync(out).size : 0;
   const ms = Date.now() - started;
   if (!bytes) {
-    writeVoiceRun({ kind: "tts", ms, bytes: 0, ok: false, error: "piper wrote no audio" });
     throw new Error("piper wrote no audio.");
   }
   writeVoiceRun({ kind: "tts", ms, bytes, ok: true });
@@ -440,6 +479,7 @@ export type VoiceState = {
     keyed: boolean;
     ready: boolean;
     why: string | null;
+    check: SpeechCheck | null;
   };
   ffmpeg: string | null;
   replyWithVoice: boolean;
@@ -453,12 +493,13 @@ export function state(): VoiceState {
   const hasStt = held.some((e) => e.field === "sttKey");
   const hasTts = held.some((e) => e.field === "ttsKey");
 
+  const endpoint = speechEndpoint(s);
   let ready = false;
   let why: string | null = null;
-  if (s.tts === "off") why = "speech is off — set `tts` to openai or piper";
-  else if (s.tts === "openai") {
-    ready = !!normaliseBase(s.ttsUrl);
-    why = ready ? null : "no speech endpoint is set (`ttsUrl`)";
+  if (s.tts === "off") why = "Speech is off. Connect speech in Integrations → Voice.";
+  else if (s.tts === "openai" || s.tts === "freellmapi") {
+    ready = !!endpoint.base;
+    why = ready ? null : s.tts === "freellmapi" ? "Connect a FreeLLMAPI account in Integrations." : "No speech endpoint is set.";
   } else {
     const bin = s.piperPath && existsSync(s.piperPath);
     const model = s.piperModel && existsSync(s.piperModel);
@@ -473,7 +514,7 @@ export function state(): VoiceState {
       keyed: hasStt,
       configured: !!normaliseBase(s.sttUrl),
     },
-    tts: { mode: s.tts, url: normaliseBase(s.ttsUrl), model: s.ttsModel, voice: s.ttsVoice, keyed: hasTts, ready, why },
+    tts: { mode: s.tts, url: endpoint.base, model: s.ttsModel, voice: s.ttsVoice, keyed: s.tts === "freellmapi" ? !!endpoint.key : hasTts, ready, why, check: ready ? speechCheck(s, endpoint) : null },
     ffmpeg: ffmpegPath(),
     replyWithVoice: s.replyWithVoice,
   };

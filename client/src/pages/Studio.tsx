@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { MotionNarration } from "@/components/studio/MotionNarration";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VentureSelect } from "@/components/VentureSelect";
@@ -654,6 +654,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const [optionsOpen, setOptionsOpen] = useState(!!spec);
   useEffect(() => { if (spec) setOptionsOpen(true); }, [spec]);
   const [voiceover, setVoiceover] = useState(false);
+  const [narrationReady, setNarrationReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
@@ -677,7 +678,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
 
   const needsVenture = make === "image" || make === "ugc" || make === "reel";
   const ready =
-    !busy &&
+    !busy && (make !== "motion" || !voiceover || narrationReady) &&
     (!needsVenture || !!venture) &&
     ((make === "motion" || make === "faceless") ? !!venture || !!spec || brief.trim().length > 0 : true) &&
     (make === "ugc" ? assets.some(a => a.onDisk) || brief.trim().length > 0 : true) &&
@@ -841,6 +842,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         <span>Using a saved scene list</span><Button variant="ghost" size="sm" onClick={() => setSpec("")}>Write from a prompt instead</Button>
       </div>}
       {make === "motion" && specs.data && <MotionReadinessNote readiness={specs.data.readiness} />}
+      {make === "motion" && <MotionNarration checked={voiceover} onCheckedChange={setVoiceover} onReadyChange={setNarrationReady} />}
       {make === "ugc" && assetsField}
       {make === "faceless" && shapeField}
       {make === "stewie" && <GameplayPicker backgrounds={gameplay} value={background} onChange={setBackground} loading={footage.loading && stewie.loading} />}
@@ -867,7 +869,6 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
             <Chips value={fit} onChange={setFit} options={[{ key: "cover", label: "Fill the frame" }, { key: "letterbox", label: "Keep the full picture" }]} />
           </Field>}
           {make === "motion" && <>
-            <Field label="Narration"><label className="flex items-center gap-2.5 text-[13.5px]"><Switch checked={voiceover} onCheckedChange={setVoiceover} />Add narration when speech is connected</label></Field>
             <Field label="Use a saved scene list" hint="Optional. Use this to edit exact scenes instead of asking AI to write them.">
               <div className="flex flex-wrap items-center gap-2">
                 <SelectField aria-label="Scene list" value={spec} onValueChange={setSpec} className="min-w-0 max-w-full">

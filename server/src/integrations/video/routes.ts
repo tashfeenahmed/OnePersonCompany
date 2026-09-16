@@ -31,7 +31,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import { activeProvider } from "../../models/provider.ts";
 import { db, ventureRow } from "../../db.ts";
-import { settings as voiceSettings } from "../signals/voice/provider.ts";
+import { settings as voiceSettings, state as voiceState } from "../signals/voice/provider.ts";
 import { ASPECTS } from "./assemble.ts";
 import { pickCaptioner } from "./captions.ts";
 import { pexelsKey } from "./footage.ts";
@@ -53,6 +53,7 @@ async function readiness() {
   const key = pexelsKey("video_readiness");
   const captioner = await pickCaptioner();
   const voice = voiceSettings();
+  const speech = voiceState().tts;
 
   return {
     /* Four capabilities and not one boolean. "Can this box make a video" has
@@ -82,12 +83,9 @@ async function readiness() {
     },
     captions: { ready: captioner.id !== "none", renderer: captioner.id, note: captioner.note },
     narration: {
-      ready: voice.tts !== "off",
-      mode: voice.tts,
-      note:
-        voice.tts === "off"
-          ? "Speech is off in the voice plugin's settings, so a video made here is silent. Nothing copyrighted is bundled with this dashboard, so there is no music bed either."
-          : `Narration comes from the voice plugin's ${voice.tts} endpoint, one clip per shot. A single failed line drops the sound from the whole video — see the video area's notes on why.`,
+      ready: speech.ready,
+      mode: speech.mode,
+      note: speech.why ?? `Narration uses ${speech.mode}, model ${speech.model}. ${speech.check?.ok ? "Last speech attempt succeeded." : "Use Test voice in Studio to check the connection."}`,
     },
     shorts: {
       ready: !!ytdlp.path,

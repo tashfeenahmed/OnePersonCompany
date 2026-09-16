@@ -297,7 +297,7 @@ export async function motionVideo(opts: {
   /* The aspect on the run's form wins over the one in the spec: the form is
      what the owner touched most recently. */
   const aspect = input.aspect in ASPECTS ? input.aspect : spec.aspect;
-  spec = { ...spec, aspect, voiceover: input.voiceover || spec.voiceover };
+  spec = { ...spec, aspect, voiceover: input.voiceover };
   const frame = aspectFrame(aspect);
   const fps = motionFps();
   const cost = plan(spec, fps, frame);
@@ -322,7 +322,7 @@ export async function motionVideo(opts: {
     narrationNote = "Voiceover was not asked for, so this video is silent.";
   } else if (voice.tts === "off") {
     narrationNote =
-      "Voiceover was asked for and speech is off in the voice plugin's settings, so this video is SILENT. Set `tts` there to `openai` or `piper` first.";
+      "Voiceover was asked for and speech is off in the voice plugin's settings, so this video is SILENT. Choose FreeLLMAPI, an OpenAI-compatible speech endpoint or Piper in Integrations → Voice first.";
   } else {
     const vStep = s.startStep("voice", `speaking ${spec.scenes.filter((x) => x.say).length} lines`);
     let spoken = 0;
