@@ -2,10 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
 import {
   ChevronDown,
+  ChevronLeft,
   ChevronsUpDown,
   Moon,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Search,
   Sun,
@@ -331,20 +330,20 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
   }
 
   return (
-    <aside aria-label="Main navigation" data-collapsed={collapsed} className={cn("bg-sidebar border-sidebar-border flex h-full min-h-0 shrink-0 flex-col border-r pt-3.5 pb-2.5", collapsed ? "w-16 px-2" : "w-[252px] px-2.5")}>
-      <div className={cn("flex min-h-11 items-center pb-3.5", collapsed ? "justify-center" : "gap-2 px-1")}>
-        {!collapsed && <><div className="bg-primary text-primary-foreground grid size-[22px] shrink-0 place-items-center rounded-[9px] text-[12px] font-semibold tracking-tight">
+    <aside aria-label="Main navigation" data-collapsed={collapsed} className={cn("app-sidebar bg-sidebar border-sidebar-border flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r pt-3.5 pb-2.5", collapsed ? "w-16 px-2" : "w-[252px] px-2.5")}>
+      <div className="relative flex min-h-11 items-start px-1 pb-3.5">
+        <div aria-hidden={collapsed || undefined} className="sidebar-brand sidebar-detail flex h-7 min-w-0 flex-1 items-center gap-2 pr-9"><div className="bg-primary text-primary-foreground grid size-[22px] shrink-0 place-items-center rounded-[9px] text-[12px] font-semibold tracking-tight">
           1
         </div>
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium tracking-tight">
           One Person Company
-        </span></>}
+        </span></div>
         <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs"
-          className="hidden shrink-0 text-muted-foreground md:inline-flex"
+          className="absolute right-1 top-0 hidden shrink-0 text-muted-foreground md:inline-flex"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-expanded={!collapsed} aria-controls="app-sidebar-content"
           onClick={() => onCollapsedChange(!collapsed)}>
-          {collapsed ? <PanelLeftOpen aria-hidden="true" className="size-4" /> : <PanelLeftClose aria-hidden="true" className="size-4" />}
+          <ChevronLeft aria-hidden="true" className="sidebar-collapse-icon size-[18px]" strokeWidth={1.75} />
         </Button></TooltipTrigger><TooltipContent side={collapsed ? "right" : "bottom"}>{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent></Tooltip>
       </div>
 
@@ -352,14 +351,16 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
       <Button
         onClick={newChat}
         aria-label="New chat" aria-keyshortcuts="Meta+K Control+K"
-        className={cn("mb-3 text-[13.5px]", collapsed ? "mx-auto size-10 p-0" : "h-auto w-full justify-start gap-2.5 py-2")}
+        className="mb-3 h-10 w-full justify-start gap-2.5 overflow-hidden px-3 text-[13.5px] transition-colors"
       >
         <Plus className="size-[14px]" strokeWidth={2} />
-        {!collapsed && <>New chat<span className="ml-auto font-mono text-[11.5px] opacity-55">⌘K</span></>}
+        <span aria-hidden={collapsed || undefined} className="sidebar-detail min-w-0 flex-1 text-left">New chat</span>
+        <span aria-hidden="true" className="sidebar-detail ml-auto font-mono text-[11.5px] opacity-55">⌘K</span>
       </Button>
       </TooltipTrigger>{collapsed && <TooltipContent side="right" sideOffset={8}>New chat · ⌘K</TooltipContent>}</Tooltip>
 
       <ScrollArea id="app-sidebar-content" data-sidebar-scroll className="-mx-1 min-h-0 flex-1 px-1 [&_[data-slot=scroll-area-viewport]]:overscroll-contain">
+      <div key={collapsed ? "compact" : "expanded"} className="sidebar-content-enter">
       {collapsed ? <>
         <nav aria-label="Workspace" className="flex flex-col items-center gap-1">{ordered.map(renderCompactPage)}</nav>
         <div className="mt-3 flex justify-center border-t border-line-soft pt-3">
@@ -432,6 +433,7 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
         </button>}
       </section>
       </>}
+      </div>
       </ScrollArea>
 
       {/* The whole row is the trigger — the standalone theme button moved into
