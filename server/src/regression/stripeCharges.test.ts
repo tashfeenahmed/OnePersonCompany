@@ -80,3 +80,32 @@ test("charges are kept newest first, replaced by id, and pruned past the walk's 
   assert.equal(limited.rows.length, 1);
   assert.equal(limited.total, 2);
 });
+
+test("what a charge bought, and what came back, survive the write and the rewalk", () => {
+  db.prepare("DELETE FROM plugin_accounts WHERE plugin_id = 'stripe'").run();
+  upsertPlugin("stripe", true, null);
+  const account = insertAccount("stripe", "attribution");
+
+  writeStripeCharges([
+    charge("ch_named", account, 1, { product: "Pro", priceId: "price_pro", amountRefunded: 0 }),
+    /* Neither walk could name it. NULL means "not attributable" and must never
+       become "Other": an unattributed charge counted into somebody's product
+       is one venture's cash on another venture's page. */
+    charge("ch_unnamed", account, 1),
+  ]);
+  let held = stripeRecentCharges(10);
+  const named = held.rows.find((r) => r.id === "ch_named")!;
+  assert.equal(named.product, "Pro");
+  assert.equal(named.price_id, "price_pro");
+  assert.equal(named.amount_refunded, 0);
+  assert.equal(held.rows.find((r) => r.id === "ch_unnamed")!.product, null);
+
+  /* The rolling rewalk is authoritative: a refund that lands today changes a
+     row written weeks ago, and the FIGURE changes with the flag. */
+  writeStripeCharges([
+    charge("ch_named", account, 1, { product: "Pro", priceId: "price_pro", refunded: true, amountRefunded: 5 }),
+  ]);
+  held = stripeRecentCharges(10);
+  assert.equal(held.total, 2, "a rewalk corrects a row rather than adding one");
+  assert.equal(held.rows.find((r) => r.id === "ch_named")!.amount_refunded, 5);
+});

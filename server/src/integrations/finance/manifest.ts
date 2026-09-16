@@ -125,13 +125,14 @@ export const manifest: IntegrationManifest = {
           },
         },
         stripe_split: {
-          label: "Split Stripe revenue per venture",
+          label: "Split the leftover Stripe revenue per venture",
           hint:
-            "“off” or “mrr-share”. Stripe's settled ledger has no product dimension in this box's tables, so a " +
-            "per-venture settled figure is not a measurement. OFF (the default) reports the portfolio's settlement " +
-            "at the portfolio and says so on every venture's P&L. “mrr-share” apportions it by each venture's " +
-            "share of live MRR in that currency and stamps every figure it produces as estimated. Choose it " +
-            "knowing that is what it is.",
+            "“off” or “mrr-share”, and it applies only to what is LEFT OVER. A charge whose product is linked to " +
+            "a venture is already in that venture's P&L as a measurement; the remainder — charges nothing could " +
+            "name, products linked to no venture or to two, and Stripe's fees on the account — is reported at the " +
+            "portfolio as revenue attributed to no venture. OFF (the default) leaves it there. “mrr-share” hands " +
+            "that remainder to the ventures in proportion to their live MRR in that currency and stamps every " +
+            "figure it produces as estimated. Choose it knowing that is what it is.",
           ph: "off",
           check(value) {
             const v = value.trim().toLowerCase();

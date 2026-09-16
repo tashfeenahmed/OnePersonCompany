@@ -62,3 +62,97 @@ test("missing traffic measurements are omitted, not plotted as zero",()=>{
   assert.equal(p.dumbbell?.length,1);
   assert.equal(p.dumbbell?.[0]?.a,20);
 });
+
+/**
+ * THE MARGIN CARD USED TO ADD THE VENTURE ROWS UP, and the venture rows are
+ * the ALLOCATED half of the revenue. A month whose Stripe cash bought products
+ * nobody had linked read as a dollar earned against thousands collected. The
+ * portfolio publishes its own total now; these hold the card to it.
+ */
+const portfolio = (over: Record<string, unknown> = {}) => ({
+  month: "2026-08",
+  actual: true,
+  ventures: [
+    { venture: { id: "v1", slug: "a", name: "A", stage: "launched" }, margin: [{ currency: "USD", revenue: 180, cost: 20, margin: 160 }] },
+  ],
+  revenue: {
+    allocated: { amounts: [{ currency: "USD", amount: 180 }], unpriced: 0, combined: null },
+    unallocated: [{ currency: "USD", amount: 80, charges: 3, note: "three charges named no venture." }],
+    total: { amounts: [{ currency: "USD", amount: 260 }], unpriced: 0, combined: null },
+    basis: "Revenue is settled money, not billings.",
+  },
+  ledger: {
+    monthly: { amounts: [{ currency: "USD", amount: 20 }], unpriced: 0, combined: null },
+    unallocatedShared: { amounts: [{ currency: "USD", amount: 5 }], unpriced: 0, combined: null },
+    unallocatedLines: [{ expenseId: "e1", label: "Box", currency: "USD", monthly: 5, allocated: 0 }],
+    defaultRule: "none",
+  },
+  modelSpend: { usd: 3, tokens: 1000, calls: 2, estimatedCalls: 0, note: "" },
+  power: [],
+  rules: [],
+  ...over,
+});
+
+test("the margin card reads the portfolio's own revenue total, not the sum of the venture rows", () => {
+  const p = build("overview.margin", { profit: portfolio() })!;
+  /* $260 settled, of which $180 reached a venture. The old arithmetic drew
+     $180 and called it the month's revenue. */
+  assert.match(p.value!, /\$235/, "260 earned less 25 spent");
+  assert.deepEqual(p.parts?.map((x) => x.value), [260, 25]);
+  const rows = new Map(p.rows as [string, string][]);
+  assert.match(rows.get("Net revenue")!, /\$260/);
+  assert.match(rows.get("Revenue, allocated to a venture")!, /\$180/);
+  const missing = rows.get("Revenue, not attributed to a venture")!;
+  assert.match(missing, /\$80/);
+  assert.match(missing, /3 charges/);
+  assert.match(missing, /fees/);
+  assert.match(p.caption!, /settled money/);
+});
+
+test("a portfolio whose every charge reached a venture gets no unattributed row", () => {
+  const whole = portfolio({
+    revenue: {
+      allocated: { amounts: [{ currency: "USD", amount: 180 }], unpriced: 0, combined: null },
+      unallocated: [],
+      total: { amounts: [{ currency: "USD", amount: 180 }], unpriced: 0, combined: null },
+      basis: "",
+    },
+  });
+  const rows = new Map(build("overview.margin", { profit: whole })!.rows as [string, string][]);
+  assert.equal(rows.has("Revenue, not attributed to a venture"), false);
+  assert.match(rows.get("Net revenue")!, /\$180/);
+});
+
+test("the runway row says what Stripe is holding where a balance was collected, and never divides it", () => {
+  const summary = {
+    monthly: { amounts: [{ currency: "USD", amount: 20 }], unpriced: 0, combined: null },
+    stripeBalance: {
+      currencies: [{ currency: "USD", available: 900, pending: 100 }],
+      seenAt: new Date().toISOString(),
+    },
+  };
+  const rows = new Map(
+    build("overview.margin", { profit: portfolio(), finance: { summary } })!.rows as [string, string][],
+  );
+  const runway = rows.get("Runway")!;
+  assert.match(runway, /\$900\.00 available/);
+  assert.match(runway, /\$100\.00 pending/);
+  assert.match(runway, /not a runway/);
+
+  /* Stale is worse than absent: a fortnight-old balance read as what is in the
+     account. The sentence that makes no claim comes back. */
+  const stale = {
+    ...summary,
+    stripeBalance: {
+      ...summary.stripeBalance,
+      seenAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+    },
+  };
+  const old = new Map(
+    build("overview.margin", { profit: portfolio(), finance: { summary: stale } })!.rows as [string, string][],
+  );
+  assert.equal(old.get("Runway"), "not computed — this box holds no cash balance");
+  /* And with no Stripe account at all. */
+  const none = new Map(build("overview.margin", { profit: portfolio() })!.rows as [string, string][]);
+  assert.equal(none.get("Runway"), "not computed — this box holds no cash balance");
+});

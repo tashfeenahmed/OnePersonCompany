@@ -2776,6 +2776,27 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE stripe_charges ADD COLUMN price_id TEXT;
     `,
   },
+
+  {
+    name: "405_stripe_charge_refunded_amount",
+    sql: `
+      -- HOW MUCH OF THE CHARGE CAME BACK, which the boolean beside it cannot say.
+      --
+      -- \`refunded\` is a flag, and a flag has two readings once a figure is
+      -- built on it: drop the whole charge (a $5 refund costs a venture the
+      -- other $44) or keep the whole charge (a fully refunded $500 stays in
+      -- somebody's revenue). Both are wrong and one of them is wrong by the
+      -- size of the refund. The walk already reads \`amount_refunded\` from
+      -- Stripe to decide the flag; this keeps the number it decided from.
+      --
+      -- NULLABLE AND BACKFILLED BY THE NEXT COLLECTION, like the two columns
+      -- above: the rolling window rewrites every charge it covers on every
+      -- run, so the rows this migration leaves empty fill themselves in. Null
+      -- reads as "not asked yet" and the readers treat it as no refund, which
+      -- is what the flag beside it already implied for every existing row.
+      ALTER TABLE stripe_charges ADD COLUMN amount_refunded REAL;
+    `,
+  },
 /* SORTED BY NAME, NOT BY POSITION IN THIS FILE. The prefix is the order, and
    it was not: this array ran 017 before 015, and the integration blocks
    concatenated after it ran one area's 3xx steps ahead of another's 1xx. The
@@ -4102,6 +4123,10 @@ export type StripeChargeRecord = {
    *  "no session named one", never "Other" — see 404_stripe_charge_product. */
   product: string | null;
   price_id: string | null;
+  /** How much of `amount` was refunded. Null on a row written before the
+   *  column existed — read as "not asked yet", and the `refunded` flag beside
+   *  it is all such a row can say. See 405_stripe_charge_refunded_amount. */
+  amount_refunded: number | null;
   seen_at: string;
 };
 
@@ -4132,6 +4157,7 @@ export function writeStripeCharges(
     outcomeType: string | null;
     product?: string | null;
     priceId?: string | null;
+    amountRefunded?: number | null;
   }[],
 ) {
   if (!rows.length) return 0;
@@ -4140,8 +4166,8 @@ export function writeStripeCharges(
     `INSERT OR REPLACE INTO stripe_charges
        (id, account_id, amount, currency, status, paid, refunded, created_at,
         description, email_masked, failure_code, failure_message, outcome_type,
-        product, price_id, seen_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        product, price_id, amount_refunded, seen_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   db.exec("BEGIN");
   try {
@@ -4149,7 +4175,7 @@ export function writeStripeCharges(
       stmt.run(
         r.id, r.accountId, r.amount, r.currency, r.status, r.paid ? 1 : 0, r.refunded ? 1 : 0,
         r.createdAt, r.description, r.emailMasked, r.failureCode, r.failureMessage,
-        r.outcomeType, r.product ?? null, r.priceId ?? null, seen,
+        r.outcomeType, r.product ?? null, r.priceId ?? null, r.amountRefunded ?? null, seen,
       );
     db.exec("COMMIT");
   } catch (err) {

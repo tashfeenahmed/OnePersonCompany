@@ -48,7 +48,15 @@ import {
   type Period,
 } from "./money.ts";
 import { allAllocations, defaultRule, shareFor, type AllocationRow } from "./allocations.ts";
-import { stripeSettledMonth, ventureRevenue, ventures, type RevenueLine } from "./attribution.ts";
+import {
+  settledChargeSplit,
+  stripeSettledMonth,
+  unattributedNote,
+  ventureRevenue,
+  ventures,
+  type ChargeSplit,
+  type RevenueLine,
+} from "./attribution.ts";
 import { ledgerMonth, powerLines } from "./power.ts";
 
 /* Re-exported so routes can validate without importing three modules. */
@@ -58,6 +66,29 @@ export const PROJECTION_METHOD =
   "Pro-rata: the measured part of the month divided by the days elapsed, times the days in the month. " +
   "It assumes the rest of the month looks like the part that has happened, which is false for anything " +
   "seasonal. Recurring costs are NOT projected this way — a monthly bill is owed in full whatever the date.";
+
+/**
+ * WHAT "REVENUE" MEANS ON THIS DOCUMENT, in one paragraph, on the wire.
+ *
+ * It is written once and published in three places — the portfolio's own
+ * `revenue.basis`, the rules list, and the card that draws it — because a
+ * basis that is explained on the page and not in the payload is a basis that
+ * drifts the first time somebody rewords the page.
+ */
+export const REVENUE_BASIS = (onLedger: boolean): string =>
+  onLedger
+    ? "Revenue is settled money, not billings. A venture's Stripe line is the GROSS of the charges whose " +
+      "product is linked to it, less refunds, and before Stripe's fees — a charge carries no fee, so a " +
+      "per-venture figure net of fees would be an allocation rather than a measurement. The portfolio's " +
+      "total is the settled LEDGER'S net for the month, so the fees, and every charge that reached no " +
+      "venture, sit in `revenue.unallocated`: honest, because Stripe's fees are a shared cost of one " +
+      "payment account and no venture's margin is carrying them yet. App Store and Play figures are the " +
+      "stores' own net proceeds; AdSense is its own estimate."
+    : "Revenue is settled money, not billings. No Stripe balance report has been collected for this month, " +
+      "so the Stripe figures here are the CHARGES — gross less refunds — and Stripe's fees are not " +
+      "subtracted anywhere. A venture's line is the charges whose product is linked to it; the rest is in " +
+      "`revenue.unallocated` with the reason. App Store and Play figures are the stores' own net proceeds; " +
+      "AdSense is its own estimate.";
 
 /* -------------------------------------------------------------- model spend */
 
@@ -284,13 +315,20 @@ export function marginOf(revenue: CurrencyTotals, costs: CurrencyTotals): { curr
 
 export type VenturePnl = ReturnType<typeof venturePnl>;
 
-export function venturePnl(venture: VentureRow, month: string, nowIso = now()) {
+export function venturePnl(
+  venture: VentureRow,
+  month: string,
+  nowIso = now(),
+  /** The month's Stripe charge split, where the caller already has one — the
+   *  portfolio reads it once for every venture rather than once each. */
+  split: ChargeSplit = settledChargeSplit(month),
+) {
   const total = daysInMonth(month);
   const elapsed = elapsedDays(month, nowIso);
   const closed = elapsed >= total;
   const started = elapsed > 0;
 
-  const revenue = ventureRevenue(venture, month);
+  const revenue = ventureRevenue(venture, month, split);
   const costs = ventureCosts(venture.id, month);
   const model = modelSpend(venture.id, month);
 
@@ -398,24 +436,157 @@ export function portfolioPnl(month: string, nowIso = now()) {
     });
   }
 
-  const perVenture = list.map((v) => {
-    const p = venturePnl(v, month, nowIso);
-    return {
-      venture: p.venture,
-      actual: p.actual,
-      revenueNet: p.revenue.net.amounts,
-      costTotal: p.costs.ledgerTotal.amounts,
-      modelUsd: p.modelSpend.usd,
-      margin: p.margin,
-      complete: p.costs.complete,
-    };
-  });
+  /* ONE READ OF THE CHARGES FOR EVERY VENTURE BELOW. The split is also what
+     the portfolio's own revenue rows are measured against, so computing it
+     here rather than nineteen times inside `venturePnl` is not only cheaper —
+     it is the guarantee that the ventures and the portfolio were told the
+     same thing. */
+  const split = settledChargeSplit(month);
+  const pnls = list.map((v) => venturePnl(v, month, nowIso, split));
+
+  const perVenture = pnls.map((p) => ({
+    venture: p.venture,
+    actual: p.actual,
+    revenueNet: p.revenue.net.amounts,
+    costTotal: p.costs.ledgerTotal.amounts,
+    modelUsd: p.modelSpend.usd,
+    margin: p.margin,
+    complete: p.costs.complete,
+  }));
+
+  /*
+    UNATTRIBUTED MODEL SPEND, so the portfolio's cost is every invoiced dollar.
+
+    The per-venture figure is a share of the providers' invoice by METERED
+    TOKENS, and a call the runtime ran with no venture on it — a scheduled
+    sweep, a chat in the console, an agent working on the box itself — carries
+    tokens and no share. Its dollars were invoiced all the same. Summing the
+    ventures therefore understated the portfolio by exactly the unattributed
+    share, silently, and the bigger the box's own housekeeping the bigger the
+    hole. This is that difference, named beside the shared bills nobody's
+    margin is carrying, because it is the same kind of fact.
+
+    CLAMPED AT ZERO AND SAID SO. The per-venture share is computed from a rate
+    card in one place and an invoice in another; where the shares add up past
+    the invoice the remainder is zero rather than a negative cost, and the rule
+    below says the arithmetic disagreed.
+  */
+  const portfolioModel = modelSpend(null, month);
+  const allocatedModelUsd = pnls.reduce((n, p) => n + (p.modelSpend.usd ?? 0), 0);
+  const allocatedModelTokens = pnls.reduce((n, p) => n + p.modelSpend.tokens, 0);
+  const invoicedModelUsd = portfolioModel.usd ?? 0;
+  const modelOverAllocated = invoicedModelUsd > 0 && allocatedModelUsd > invoicedModelUsd + 0.005;
+  const modelRemainderUsd = money(Math.max(0, invoicedModelUsd - allocatedModelUsd));
+  const modelRemainderTokens = Math.max(0, portfolioModel.tokens - allocatedModelTokens);
+  if (modelRemainderUsd > 0) {
+    addTo(unallocated, "USD", modelRemainderUsd);
+    unallocatedLines.push({
+      expenseId: "model-spend-unattributed",
+      label: `Model spend, not attributed to a venture · ${modelRemainderTokens.toLocaleString()} tokens`,
+      currency: "USD",
+      monthly: modelRemainderUsd,
+      allocated: 0,
+    });
+  }
+
+  /*
+    THE REVENUE SIDE, SHAPED LIKE THE COST SIDE — allocated, unallocated, total.
+
+    THE BASIS, IN ONE SENTENCE: the portfolio's Stripe total is the SETTLED
+    LEDGER'S NET for the month, and the ventures' Stripe lines are the GROSS of
+    the charges attributed to their products, less refunds. The difference
+    between the two — Stripe's fees, plus every charge that reached no venture
+    — is the unallocated row. So the portfolio total is a measurement that ties
+    to the ledger, the per-venture figures are measurements that tie to the
+    charges, and the fees land where they belong: a shared cost of one payment
+    account, carried by nobody's margin until somebody allocates them.
+
+    WITHOUT A LEDGER there is no balance report on the account, and the total
+    falls back to the charges themselves, gross less refunds, with the fees
+    therefore missing from it. The basis text says which of the two this is.
+  */
+  const settled = stripeSettledMonth(month);
+  const onLedger = settled.length > 0;
+
+  const allocatedRevenue = emptyTotals();
+  for (const p of pnls)
+    for (const a of p.revenue.net.amounts) addTo(allocatedRevenue, a.currency, a.amount);
+
+  /* What the mrr-share split already handed to the ventures out of the
+     remainder. It is inside `allocatedRevenue` above, so it must come out of
+     the unallocated figure or the same money appears in both. */
+  const apportioned: Record<string, number> = {};
+  for (const p of pnls)
+    for (const l of p.revenue.lines)
+      if (l.basis === "mrr-share")
+        apportioned[l.currency] = (apportioned[l.currency] ?? 0) + l.net;
+
+  const unattributedByCurrency = new Map(split.unattributed.map((u) => [u.currency, u]));
+  const revenueCurrencies = [
+    ...new Set([
+      ...settled.map((s) => s.currency),
+      ...split.unattributed.map((u) => u.currency),
+      ...Object.keys(split.attributed),
+    ]),
+  ].sort();
+
+  const unallocatedRevenue = revenueCurrencies
+    .map((currency) => {
+      const u = unattributedByCurrency.get(currency);
+      const ledgerNet = settled.find((s) => s.currency === currency)?.net ?? 0;
+      const taken = split.attributed[currency]?.net ?? 0;
+      const given = apportioned[currency] ?? 0;
+      const amount = money(onLedger ? ledgerNet - taken - given : (u?.net ?? 0) - given);
+      return {
+        currency,
+        amount,
+        charges: u?.count ?? 0,
+        note:
+          (onLedger
+            ? `${money(ledgerNet)} ${currency} settled on Stripe's ledger for ${month}, less ${money(taken)} ` +
+              `attributed to ventures by the product their charges paid for` +
+              (given > 0 ? ` and ${money(given)} apportioned by the mrr-share split` : "") +
+              `. What is left is Stripe's fees on the whole account plus any charge that reached no venture`
+            : `No Stripe balance report has been collected for ${month}, so this is the charges themselves, ` +
+              `gross less refunds, and Stripe's fees are not in it`) +
+          (u
+            ? `: ${u.count} charge${u.count === 1 ? "" : "s"} worth ${money(u.net)} ${currency} — ` +
+              `${unattributedNote(u.reasons)}` +
+              (u.products.length ? `; the products nobody has linked are ${u.products.slice(0, 6).join(", ")}` : "")
+            : "; every charge in the month reached a venture") +
+          (amount < 0
+            ? ". This figure is NEGATIVE: the ledger dates money by settlement and a charge by its creation, " +
+              "so a charge made at the end of a month settles in the next one. It is left signed rather than " +
+              "floored, because flooring it would make the total below stop being the ledger's."
+            : "."),
+      };
+    })
+    .filter((r) => r.amount !== 0 || r.charges > 0);
+
+  const totalRevenue = emptyTotals();
+  for (const [currency, amount] of Object.entries(allocatedRevenue.byCurrency))
+    addTo(totalRevenue, currency, amount);
+  for (const r of unallocatedRevenue) addTo(totalRevenue, r.currency, r.amount);
 
   return {
     month,
     actual: elapsedDays(month, nowIso) >= daysInMonth(month),
     generatedAt: nowIso,
     ventures: perVenture,
+    /**
+     * THE PORTFOLIO'S OWN REVENUE, so that nothing has to add the ventures up
+     * and hope. `allocated` is what the ventures earned, `unallocated` is the
+     * settled Stripe cash that reached none of them, and `total` is the two
+     * added WITHIN each currency. A reader that sums `ventures[].margin[]`
+     * gets `allocated` and silently drops the rest, which is the defect this
+     * block exists to make impossible.
+     */
+    revenue: {
+      allocated: shapeTotals(allocatedRevenue),
+      unallocated: unallocatedRevenue,
+      total: shapeTotals(totalRevenue),
+      basis: REVENUE_BASIS(onLedger),
+    },
     ledger: {
       monthly: shapeTotals(ledger),
       unallocatedShared: shapeTotals(unallocated),
@@ -429,8 +600,8 @@ export function portfolioPnl(month: string, nowIso = now()) {
     },
     /** The one Stripe figure on this box that IS dated per-venture-free money.
      *  Reported at the portfolio because that is the only level it is true at. */
-    stripeSettled: stripeSettledMonth(month),
-    modelSpend: modelSpend(null, month),
+    stripeSettled: settled,
+    modelSpend: portfolioModel,
     /*
       THE ELECTRICITY DETAIL BEHIND ROWS THAT ARE ALREADY IN `ledger.monthly`,
       and NOT a second set of euros.
@@ -449,8 +620,12 @@ export function portfolioPnl(month: string, nowIso = now()) {
     })),
     rules: [
       "Currencies are never added, at any level of this document.",
-      "`stripeSettled` is the portfolio's measured settlement. The per-venture lines above do not contain it unless the mrr-share split is switched on, and where they do it is an allocation.",
-      "`unallocatedShared` is real money nobody's margin is carrying. A portfolio with a large figure here has venture margins that are all too good.",
+      REVENUE_BASIS(onLedger),
+      "`stripeSettled` is the portfolio's measured settlement, and `revenue.total` ties to its net. A charge whose product is linked to a venture is in that venture's line; everything else is in `revenue.unallocated`, which names why.",
+      "`unallocatedShared` is real money nobody's margin is carrying — shared bills nobody has allocated, plus the invoiced model spend no venture's tokens account for. A portfolio with a large figure here has venture margins that are all too good. Model spend is not in `ledger.monthly`, which is the expense rate card only.",
+      modelOverAllocated
+        ? `The ventures' model shares add up to ${money(allocatedModelUsd)} against ${money(invoicedModelUsd)} invoiced, so the unattributed remainder is reported as zero rather than as a negative cost. The shares are computed from metered tokens and the invoice from the providers; they are two meters and they have disagreed.`
+        : `Every invoiced model dollar is carried: ${money(allocatedModelUsd)} by the ventures and ${money(modelRemainderUsd)} by nobody, against ${money(invoicedModelUsd)} invoiced.`,
       `\`power\` is the working behind the electricity rows already counted in \`ledger.monthly\` — the same money, not more of it, and never added to the ledger total. It is priced for ${ledgerMonth(nowIso)}, the last complete month, because a ledger row is a run rate and a part-month is not one. \`confidence: metered\` means the HOURS were observed; the watts are always an estimate.`,
     ],
   };

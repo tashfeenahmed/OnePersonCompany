@@ -14,10 +14,21 @@ import {
   upsertPlugin,
   writeAppStorePayouts,
   writeAppStoreReport,
+  writeOpenAiCosts,
   writeStripeCharges,
+  writeStripeLedgerDays,
   writeStripeSubscriptions,
 } from "../../db.ts";
-import { ventureMrr, ventureOneOff, ventureStripeBook } from "./attribution.ts";
+import {
+  chargesForMonth,
+  settledChargeSplit,
+  splitCharges,
+  ventureMrr,
+  ventureOneOff,
+  ventureRevenue,
+  ventureStripeBook,
+  type ChargeMonthRow,
+} from "./attribution.ts";
 import {
   addTo,
   annualOf,
@@ -46,7 +57,7 @@ import {
   type ExpenseRow,
 } from "./expenses.ts";
 import { equalSplit, revenueSplit, setAllocations, shareFor, type AllocationRow } from "./allocations.ts";
-import { marginOf, venturePnl } from "./profit.ts";
+import { findVenture, marginOf, portfolioPnl, venturePnl } from "./profit.ts";
 import { powerLine, profile, saveProfile, seedPower } from "./power.ts";
 
 function reset() {
@@ -530,6 +541,8 @@ test("an always-on line reports no covered hours", () => {
  * Checkout Session, and these hold the arithmetic that reads it to account.
  */
 
+let accounts = 0;
+
 /** One Stripe account, two ventures, and charges with and without a product. */
 function oneOffFixture() {
   db.exec("DELETE FROM stripe_charges; DELETE FROM stripe_subscriptions; DELETE FROM venture_links; DELETE FROM ventures;");
@@ -544,7 +557,9 @@ function oneOffFixture() {
   link.run("v-subs", "stripe", "Pro", null, "owner", now());
 
   upsertPlugin("stripe", true, null);
-  const account = insertAccount("stripe", `stripe-${Date.now()}`);
+  /* A counter rather than the clock: two fixtures built inside one millisecond
+     collide on the account label, which is a unique key. */
+  const account = insertAccount("stripe", `stripe-${++accounts}`);
   const day = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
   const charge = (
     id: string,
@@ -703,4 +718,298 @@ test("a venture billing in two currencies publishes no scalar MRR", () => {
   /* Counting heads never needed a currency. */
   assert.equal(subs.subscribers, 2);
   assert.equal(subs.oneOffCount, 1);
+});
+
+/**
+ * SETTLED STRIPE CASH, WHICH IS MOST OF THE MONEY AND USED TO REACH NOBODY.
+ *
+ * The defect these hold to account: `ventureRevenue` counted store payouts,
+ * AdSense and — only when the owner switched a split on — an apportionment of
+ * the Stripe ledger. The cash Stripe actually collected was in none of them,
+ * and because the portfolio card added the ventures up, it was not in the
+ * portfolio either. A month of thousands could read as a dollar.
+ */
+
+const MONTH = "2026-08";
+
+/** Two linked ventures, one product nobody has linked, one linked to both,
+ *  one charge with no product at all, and a second currency. */
+function settledFixture() {
+  reset();
+  db.exec(
+    "DELETE FROM stripe_charges; DELETE FROM stripe_ledger_days; DELETE FROM stripe_subscriptions; " +
+      "DELETE FROM venture_links; DELETE FROM budget_usage; DELETE FROM openai_costs; " +
+      "DELETE FROM plugin_config WHERE plugin_id = 'finance'",
+  );
+  venture("v-lifetime", "lifetime", "Lifetime Co");
+  venture("v-subs", "subs", "Subs Co");
+  const link = db.prepare(
+    "INSERT INTO venture_links (venture_id, plugin, entity, label, source, created_at) VALUES (?,?,?,?,?,?)",
+  );
+  link.run("v-lifetime", "stripe", "Lifetime Licence", null, "owner", now());
+  link.run("v-subs", "stripe", "Pro", null, "owner", now());
+  /* One product the owner has linked to BOTH businesses. Splitting it would
+     invent a receipt and giving it to the first would caption one company's
+     money with the other's name, so it belongs to neither. */
+  link.run("v-lifetime", "stripe", "Shared Thing", null, "owner", now());
+  link.run("v-subs", "stripe", "Shared Thing", null, "owner", now());
+
+  upsertPlugin("stripe", true, null);
+  upsertPlugin("finance", true, null);
+  const account = insertAccount("stripe", `settled-${++accounts}`);
+  const charge = (
+    id: string,
+    amount: number,
+    product: string | null,
+    over: Record<string, unknown> = {},
+  ) => ({
+    id, accountId: account, amount, currency: "usd", status: "succeeded", paid: true,
+    refunded: false, createdAt: `${MONTH}-14T10:00:00.000Z`, description: null, emailMasked: null,
+    failureCode: null, failureMessage: null, outcomeType: null, product,
+    priceId: product ? "price_x" : null, amountRefunded: 0, ...over,
+  });
+
+  writeStripeCharges([
+    charge("ch_a", 100, "lifetime licence"),
+    /* Partly refunded: worth what stayed, which the boolean beside it cannot say. */
+    charge("ch_b", 50, "Lifetime Licence", { refunded: true, amountRefunded: 10 }),
+    charge("ch_c", 40, "Pro"),
+    /* No walk could name it. */
+    charge("ch_d", 30, null),
+    /* It bought something nobody has linked. */
+    charge("ch_e", 20, "Unlinked Thing"),
+    /* Linked to two ventures: counted for neither. */
+    charge("ch_g", 60, "Shared Thing"),
+    /* Another currency entirely, and it is never added to the above. */
+    charge("ch_eur", 25, "Pro", { currency: "eur" }),
+    /* A declined card is not revenue, and a charge in another month is not
+       this month's. */
+    charge("ch_failed", 999, "Pro", { status: "failed", paid: false }),
+    charge("ch_july", 999, "Pro", { createdAt: "2026-07-14T10:00:00.000Z" }),
+  ]);
+
+  /* The settled ledger: $300 gross, $10 back, $30 of fees, $260 net — so the
+     portfolio's total is $260 and the $80 the ventures do not carry is the
+     $110 of unattributed charges less the account's $30 of fees. */
+  writeStripeLedgerDays([
+    {
+      accountId: account, accountLabel: "acc", day: `${MONTH}-14`, currency: "usd",
+      gross: 300, fees: 30, taxWithheld: 0, feesTotal: 30, refunds: 10, disputes: 0,
+      other: 0, net: 260, count: 6, processing: 30, managedPayments: 0, disputeFees: 0,
+      billing: 0, otherFees: 0,
+    },
+    {
+      accountId: account, accountLabel: "acc", day: `${MONTH}-14`, currency: "eur",
+      gross: 25, fees: 0, taxWithheld: 0, feesTotal: 0, refunds: 0, disputes: 0,
+      other: 0, net: 25, count: 1, processing: 0, managedPayments: 0, disputeFees: 0,
+      billing: 0, otherFees: 0,
+    },
+  ]);
+  return account;
+}
+
+test("a charge reaches the venture whose product it paid for, per currency, less refunds", () => {
+  settledFixture();
+  const split = settledChargeSplit(MONTH);
+
+  assert.deepEqual(split.byVenture.get("v-lifetime"), [
+    /* $150 gross over two charges, $10 of it refunded. */
+    { currency: "USD", count: 2, gross: 150, net: 140 },
+  ]);
+  /* Two currencies, two rows, and nothing adds them. */
+  assert.deepEqual(split.byVenture.get("v-subs"), [
+    { currency: "EUR", count: 1, gross: 25, net: 25 },
+    { currency: "USD", count: 1, gross: 40, net: 40 },
+  ]);
+  assert.deepEqual(split.attributed, {
+    EUR: { currency: "EUR", count: 1, gross: 25, net: 25 },
+    USD: { currency: "USD", count: 3, gross: 190, net: 180 },
+  });
+});
+
+test("what reached no venture is counted with the reason, and never spread over the rest", () => {
+  settledFixture();
+  const [usd, ...rest] = settledChargeSplit(MONTH).unattributed;
+  assert.deepEqual(rest, [], "every euro charge was attributed");
+  assert.equal(usd!.currency, "USD");
+  assert.equal(usd!.count, 3);
+  assert.equal(usd!.net, 110);
+  assert.deepEqual(usd!.reasons, { "no-product": 1, "no-venture": 1, ambiguous: 1 });
+  assert.deepEqual(usd!.products, ["Shared Thing", "Unlinked Thing"]);
+});
+
+test("a declined charge and a charge from another month are not this month's revenue", () => {
+  settledFixture();
+  const rows = chargesForMonth(MONTH);
+  assert.equal(rows.reduce((n, r) => n + r.n, 0), 7, "six dollar charges and one euro one");
+  assert.ok(!rows.some((r) => r.gross >= 999));
+});
+
+test("a charge flagged refunded with no figure is treated as refunded in full", () => {
+  /* The rows written before the amount column existed. Dropping the whole
+     charge is the direction that never flatters revenue, and the rolling
+     rewalk replaces the row with its real figure. */
+  const rows: ChargeMonthRow[] = [{ product: "Pro", currency: "usd", n: 1, gross: 40, refunded: 40 }];
+  const split = splitCharges(rows, new Map([["pro", ["v-subs"]]]));
+  assert.deepEqual(split.byVenture.get("v-subs"), [{ currency: "USD", count: 1, gross: 40, net: 0 }]);
+});
+
+test("the venture P&L now carries settled Stripe cash as a measurement", () => {
+  settledFixture();
+  const revenue = ventureRevenue(findVenture("lifetime")!, MONTH);
+  const line = revenue.lines.find((l) => l.source === "stripe-charges")!;
+  assert.equal(line.currency, "USD");
+  assert.equal(line.gross, 150);
+  assert.equal(line.net, 140);
+  /* Measured, by the stored link, and not an apportionment of anything. */
+  assert.equal(line.basis, "link");
+  assert.equal(line.estimated, false);
+  assert.match(line.note, /BEFORE Stripe's fees/);
+  assert.deepEqual(revenue.net.byCurrency, { USD: 140 });
+  /* With the split off, the remainder is named as the portfolio's and not
+     handed to anybody. */
+  assert.match(revenue.unavailable.join(" "), /reported at the portfolio/);
+});
+
+test("the portfolio's revenue is allocated plus unallocated, and its total is the ledger's net", () => {
+  settledFixture();
+  const p = portfolioPnl(MONTH, "2026-09-01T00:00:00.000Z");
+
+  assert.deepEqual(p.revenue.allocated.amounts, [
+    { currency: "EUR", amount: 25 },
+    { currency: "USD", amount: 180 },
+  ]);
+  /* $260 settled less the $180 the ventures carry. The euro row is absent
+     because nothing was left over in euros — a zero with no charges behind it
+     is not news. */
+  assert.deepEqual(
+    p.revenue.unallocated.map((u) => [u.currency, u.amount, u.charges]),
+    [["USD", 80, 3]],
+  );
+  assert.deepEqual(p.revenue.total.amounts, [
+    { currency: "EUR", amount: 25 },
+    { currency: "USD", amount: 260 },
+  ]);
+
+  /* THE IDENTITY THIS EXISTS FOR: per currency, the portfolio's total is the
+     ledger's settled net, whatever the ventures did or did not carry. */
+  for (const s of p.stripeSettled)
+    assert.equal(
+      p.revenue.total.amounts.find((a) => a.currency === s.currency)!.amount,
+      s.net,
+      s.currency,
+    );
+
+  /* And the old arithmetic — summing the venture rows — is the allocated half
+     and nothing more. That is the defect, held in place. */
+  const summed = p.ventures
+    .flatMap((v) => v.margin)
+    .filter((m) => m.currency === "USD")
+    .reduce((n, m) => n + m.revenue, 0);
+  assert.equal(summed, 180);
+
+  assert.match(p.revenue.unallocated[0]!.note, /no invoice or Checkout Session named/);
+  assert.match(p.revenue.unallocated[0]!.note, /linked to no venture/);
+  assert.match(p.revenue.unallocated[0]!.note, /more than one venture/);
+  assert.match(p.revenue.basis, /settled money, not billings/);
+});
+
+test("the mrr-share split applies to the remainder and never to what was measured", () => {
+  const account = settledFixture();
+  writeStripeSubscriptions([
+    {
+      accountId: account, accountLabel: "acc", id: "sub_live", status: "active", currency: "usd",
+      monthlyUsd: 29, listedMonthlyUsd: 29, interval: "month", intervalCount: 1, product: "Pro",
+      plan: "Pro monthly", createdAt: "2026-01-01T00:00:00.000Z", endedAt: null,
+      cancelAtPeriodEnd: false, cancelAt: null, trialStart: null, trialEnd: null,
+      reason: null, paidCents: 2900,
+    },
+  ]);
+  setConfig("finance", "stripe_split", "mrr-share");
+
+  const subs = ventureRevenue(findVenture("subs")!, MONTH);
+  const share = subs.lines.find((l) => l.basis === "mrr-share")!;
+  /* It holds the whole book's USD MRR, so it is apportioned the whole $80
+     remainder — and NOT the $180 already attributed by product, which would
+     be the same money counted twice. */
+  assert.equal(share.net, 80);
+  assert.equal(share.estimated, true);
+  assert.ok(share.note.includes("180 of it was attributed"), share.note);
+  assert.equal(subs.net.byCurrency.USD, 120, "its own $40 of charges plus the $80 remainder");
+
+  /* The other venture bills nothing, so it is apportioned nothing — and keeps
+     every dollar its own products took. */
+  const lifetime = ventureRevenue(findVenture("lifetime")!, MONTH);
+  assert.equal(lifetime.lines.some((l) => l.basis === "mrr-share"), false);
+  assert.equal(lifetime.net.byCurrency.USD, 140);
+
+  /* And the portfolio still ties to the ledger: the remainder moved into the
+     ventures rather than appearing twice. */
+  const p = portfolioPnl(MONTH, "2026-09-01T00:00:00.000Z");
+  assert.equal(p.revenue.allocated.amounts.find((a) => a.currency === "USD")!.amount, 260);
+  assert.deepEqual(p.revenue.unallocated.filter((u) => u.amount !== 0), []);
+  assert.equal(p.revenue.total.amounts.find((a) => a.currency === "USD")!.amount, 260);
+});
+
+test("without a settled ledger the total is the charges themselves, and says the fees are missing", () => {
+  settledFixture();
+  db.exec("DELETE FROM stripe_ledger_days");
+  const p = portfolioPnl(MONTH, "2026-09-01T00:00:00.000Z");
+  /* $110 of unattributed charges, with no fees to take off them. */
+  assert.deepEqual(
+    p.revenue.unallocated.map((u) => [u.currency, u.amount]),
+    [["USD", 110]],
+  );
+  assert.equal(p.revenue.total.amounts.find((a) => a.currency === "USD")!.amount, 290);
+  assert.match(p.revenue.basis, /No Stripe balance report has been collected/);
+  assert.match(p.revenue.unallocated[0]!.note, /fees are not in it/);
+});
+
+/* ------------------------------------------------ model spend nobody carries */
+
+function meter(month: string, ventureId: string | null, tokens: number) {
+  db.prepare(
+    "INSERT INTO budget_usage (run_id, venture_id, automation, at, tokens, usd, status) VALUES (?,?,?,?,?,?,?)",
+  ).run(`run-${ventureId ?? "none"}`, ventureId, 0, `${month}-14T10:00:00.000Z`, tokens, 0, "reported");
+}
+
+test("model spend no venture's tokens account for is a line nobody's margin is carrying", () => {
+  const account = settledFixture();
+  upsertPlugin("openai", true, null);
+  const openai = insertAccount("openai", `openai-${account}`);
+  writeOpenAiCosts([
+    { accountId: openai, accountLabel: "acc", day: `${MONTH}-14`, projectId: "p", projectName: "p", usd: 100 },
+  ]);
+  /* Half the tokens ran for a venture; the other half is the box's own
+     housekeeping, which was invoiced all the same and reached nobody. */
+  meter(MONTH, "v-lifetime", 1000);
+  meter(MONTH, null, 1000);
+
+  const p = portfolioPnl(MONTH, "2026-09-01T00:00:00.000Z");
+  assert.equal(p.modelSpend.usd, 100, "the invoice is the portfolio's cost");
+  const line = p.ledger.unallocatedLines.find((l) => l.expenseId === "model-spend-unattributed")!;
+  assert.equal(line.monthly, 50);
+  assert.match(line.label, /Model spend, not attributed to a venture/);
+  assert.match(line.label, /1,000 tokens/);
+  assert.equal(p.ledger.unallocatedShared.amounts.find((a) => a.currency === "USD")!.amount, 50);
+  /* Every invoiced dollar is now carried by somebody or named as carried by
+     nobody — $50 in a venture's margin, $50 here. */
+  assert.equal(p.ventures.reduce((n, v) => n + (v.modelUsd ?? 0), 0), 50);
+  assert.ok(p.rules.some((r) => /Every invoiced model dollar is carried/.test(r)));
+});
+
+test("a month whose every token belongs to a venture leaves no remainder, and never a negative one", () => {
+  const account = settledFixture();
+  upsertPlugin("openai", true, null);
+  const openai = insertAccount("openai", `openai-${account}`);
+  writeOpenAiCosts([
+    { accountId: openai, accountLabel: "acc", day: `${MONTH}-14`, projectId: "p", projectName: "p", usd: 100 },
+  ]);
+  meter(MONTH, "v-lifetime", 1000);
+  meter(MONTH, "v-subs", 3000);
+
+  const p = portfolioPnl(MONTH, "2026-09-01T00:00:00.000Z");
+  assert.equal(p.ledger.unallocatedLines.some((l) => l.expenseId === "model-spend-unattributed"), false);
+  assert.deepEqual(p.ledger.unallocatedShared.amounts, []);
+  assert.equal(p.ventures.reduce((n, v) => n + (v.modelUsd ?? 0), 0), 100);
 });

@@ -86,6 +86,14 @@ export type FinanceSummary = {
    *  already passed is counted apart, in `overdue`. */
   renewals: { within90Days: number; undecided: number; overdue: number };
   defaultAllocation: "none" | "equal";
+  /** What Stripe is holding, per currency, as the collector last saw it. NOT a
+   *  runway and never divided by anything: money in Stripe is money Stripe
+   *  has, and nothing on this box knows the burn. Null when no account has
+   *  reported a balance. `seenAt` is the stalest account's reading. */
+  stripeBalance: {
+    currencies: { currency: string; available: number; pending: number }[];
+    seenAt: string;
+  } | null;
   tariff: { perKwh: number | null; currency: string };
   note: string;
 };
@@ -139,7 +147,7 @@ export type AllocationsDoc = {
 };
 
 export type RevenueLine = {
-  source: "appstore" | "playstore" | "adsense" | "stripe";
+  source: "appstore" | "playstore" | "adsense" | "stripe" | "stripe-charges";
   kind: string;
   currency: string;
   gross: number | null;
@@ -225,6 +233,23 @@ export type PortfolioPnl = {
     margin: MarginRow[];
     complete: boolean;
   }[];
+  /**
+   * THE PORTFOLIO'S OWN REVENUE. Read this rather than summing
+   * `ventures[].margin[].revenue`: that sum is `allocated` and silently drops
+   * every settled charge that reached no venture.
+   */
+  revenue: {
+    /** What the ventures earned, per currency. */
+    allocated: Amounts;
+    /** Settled Stripe cash no venture is carrying — Stripe's fees on the whole
+     *  account, plus charges whose product names no venture. `note` says which
+     *  and why; the amount is signed, and a negative one is explained. */
+    unallocated: { currency: string; amount: number; charges: number; note: string }[];
+    /** The two added, within each currency and never across. */
+    total: Amounts;
+    /** What "revenue" means on this document, in one paragraph. */
+    basis: string;
+  };
   ledger: {
     monthly: Amounts;
     unallocatedShared: Amounts;

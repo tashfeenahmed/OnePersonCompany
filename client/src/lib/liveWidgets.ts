@@ -51,7 +51,7 @@ import type {
   UptimeReport,
 } from "@/lib/api/reports";
 import type { Meter, ProfileFigure, ProportionPart, RunwayRow, StatusTone, WaterfallStep, Widget } from "@/data/widgets";
-import type { Expense, FinanceReport, PortfolioPnl } from "@/lib/api/finance";
+import type { Expense, FinanceReport, MarginRow, PortfolioPnl } from "@/lib/api/finance";
 import type { InboxDoc, InboxItem } from "@/lib/api/inbox";
 import type { CaptureReport } from "@/lib/api/ventures";
 import type { LeakageReport, RecentSignup, UserProduct, UsersReport } from "@/lib/api/activity";
@@ -11626,28 +11626,41 @@ Object.assign(LIVE_BUILDERS, {
     subtracted from a dollar subscription anywhere in here, and the currencies
     that are not the lead one get their own rows rather than being folded in.
 
-    THE COST SIDE IS TWO THINGS AND THE CARD SAYS SO. Every venture's margin
-    row already carries its allocated ledger cost with its model spend folded
-    in — that is the P&L's own arithmetic — but the SHARED lines nobody has
-    allocated are outside every venture, so they are added here and named on
-    their own row. Leaving them out would make the portfolio look cheaper than
-    the ledger it is built from.
+    BOTH SIDES ARE TWO THINGS AND THE CARD SAYS SO ON EACH. Every venture's
+    margin row carries its allocated ledger cost with its model spend folded in
+    — that is the P&L's own arithmetic — but the SHARED lines nobody has
+    allocated are outside every venture. The same is true of the money coming
+    in: a Stripe charge whose product no venture is linked to, and the fees
+    Stripe takes off the whole account, belong to no venture either.
 
-    AND THERE IS NO RUNWAY. A runway is a cash balance divided by a burn, and
-    nothing on this box holds a balance: the finance area has a rate card and
-    a month of margin. The row says "not computed" rather than dividing two
-    numbers that do not answer the question.
+    SO THE REVENUE FIGURE IS THE DOCUMENT'S TOTAL AND NOT A SUM OF THE ROWS
+    ABOVE IT. This card used to add up `ventures[].margin[].revenue`, which is
+    the ALLOCATED half; a month in which the box collected thousands through
+    Stripe against products nobody had linked read as a dollar earned. The
+    portfolio publishes `revenue.allocated`, `revenue.unallocated` and
+    `revenue.total`, the total ties to Stripe's settled ledger, and this reads
+    all three.
+
+    AND THERE IS STILL NO RUNWAY. A runway is a cash balance divided by a burn.
+    Where Stripe has reported a balance the row says what the processor is
+    holding and why that is not a runway — money in Stripe is money Stripe has,
+    and nothing here knows the burn. Where it has not, the row says the box
+    holds no cash balance at all. Neither divides two numbers that do not
+    answer the question.
   */
   "overview.margin": ({ profit: P, finance: F }: LiveInputs) => {
     if (!P) return null;
-    const revenue = new Map<string, number>();
-    const allocated = new Map<string, number>();
-    for (const v of P.ventures)
-      for (const m of v.margin) {
-        const key = m.currency.toUpperCase();
-        revenue.set(key, (revenue.get(key) ?? 0) + m.revenue);
-        allocated.set(key, (allocated.get(key) ?? 0) + m.cost);
-      }
+    /* The venture rows, which are the ALLOCATED half of the revenue and the
+       whole of the allocated cost. Kept as the fallback for `revenue` too, so
+       a card pointed at a server that predates the portfolio's own totals
+       draws that half rather than nothing. */
+    const perVenture = (pick: (m: MarginRow) => number) =>
+      byCurrency(P.ventures.flatMap((v) => v.margin.map((m) => ({ currency: m.currency, amount: pick(m) }))));
+    const allocatedRevenue = P.revenue ? byCurrency(P.revenue.allocated.amounts) : perVenture((m) => m.revenue);
+    const unallocatedRevenue = byCurrency(P.revenue?.unallocated);
+    const revenue = P.revenue ? byCurrency(P.revenue.total.amounts) : allocatedRevenue;
+    const allocated = perVenture((m) => m.cost);
+    const unattributedCharges = (P.revenue?.unallocated ?? []).reduce((n, r) => n + r.charges, 0);
     const shared = byCurrency(P.ledger.unallocatedShared.amounts);
     const cost = new Map(allocated);
     for (const [cur, amount] of shared) cost.set(cur, (cost.get(cur) ?? 0) + amount);
@@ -11670,8 +11683,22 @@ Object.assign(LIVE_BUILDERS, {
 
     const rows: [string, string][] = [
       ["Net revenue", inCurrency(earned, lead)],
-      ["Cost, allocated to a venture", inCurrency(allocated.get(lead) ?? 0, lead)],
+      ["Revenue, allocated to a venture", inCurrency(allocatedRevenue.get(lead) ?? 0, lead)],
     ];
+    /* The row that was missing, and the reason this card was wrong. Shown
+       whenever there is money OR a charge behind it: a zero with twelve
+       unattributed charges behind it is still news about the link map. */
+    if ((unallocatedRevenue.get(lead) ?? 0) !== 0 || unattributedCharges > 0)
+      rows.push([
+        "Revenue, not attributed to a venture",
+        also(
+          inCurrency(unallocatedRevenue.get(lead) ?? 0, lead),
+          unattributedCharges > 0
+            ? `${count(unattributedCharges)} charge${unattributedCharges === 1 ? "" : "s"} · and Stripe's fees`
+            : "Stripe's fees on the account",
+        ),
+      ]);
+    rows.push(["Cost, allocated to a venture", inCurrency(allocated.get(lead) ?? 0, lead)]);
     if ((shared.get(lead) ?? 0) > 0)
       rows.push([
         "Cost, shared and unallocated",
@@ -11703,9 +11730,25 @@ Object.assign(LIVE_BUILDERS, {
           F.summary.monthly.unpriced > 0 ? `${count(F.summary.monthly.unpriced)} unpriced` : "",
         ),
       ]);
+    /* THE BALANCE IS SHOWN AND IT IS NOT DIVIDED. Stale is worse than absent
+       here — a fortnight-old balance read as "what is in the account" — so a
+       reading older than a week falls back to the sentence that makes no
+       claim at all. */
+    const balance = F?.summary?.stripeBalance ?? null;
+    const fresh =
+      balance !== null &&
+      balance.currencies.length > 0 &&
+      Date.now() - Date.parse(balance.seenAt) < 7 * 86_400_000;
     rows.push([
       "Runway",
-      "not computed — this box holds no cash balance",
+      fresh
+        ? also(
+            balance!.currencies
+              .map((b) => `${inCurrency(b.available, b.currency)} available · ${inCurrency(b.pending, b.currency)} pending`)
+              .join(" · "),
+            "held at Stripe, not a runway — it is not a bank balance and nothing here knows the burn",
+          )
+        : "not computed — this box holds no cash balance",
     ]);
 
     return {
@@ -11721,13 +11764,20 @@ Object.assign(LIVE_BUILDERS, {
       caption:
         `Summed over ${month} from the rows that were actually collected, per currency and never across ` +
         `two of them — ${lead} is the largest of ${new Set([...revenue.keys(), ...cost.keys()]).size} here and the rest have their own rows. ` +
+        "Revenue is settled money: a venture's share is the charges whose product is linked to it, " +
+        "less refunds and before Stripe's fees, and the figure above is the settled ledger's net — so " +
+        "the fees, and every charge that named no venture, are in the row that says so rather than " +
+        "dropped. " +
         "The cost half is part measurement and part rate card: metered model spend and " +
         "collected provider bills sit beside ledger lines whose price the owner typed, and a " +
         "line nobody has priced is absent rather than free. " +
         (P.actual
           ? "The month has closed, so this is what it did."
           : "The month is still open, so this is what it has done so far and not what it will do.") +
-        " There is no runway on this card because nothing here holds a cash balance to divide by a burn.",
+        (fresh
+          ? " The Stripe balance is shown because it was collected; it is not a runway — money at a processor" +
+            " is not a bank balance, and nothing here knows the burn to divide it by."
+          : " There is no runway on this card because nothing here holds a cash balance to divide by a burn."),
     };
   },
 

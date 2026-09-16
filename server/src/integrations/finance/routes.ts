@@ -17,7 +17,7 @@
  * command, reach a provider or touch another area's tables.
  */
 import { Hono, type Context } from "hono";
-import { configValue, ventureRowById, ventureRows } from "../../db.ts";
+import { configValue, stripeBalances, ventureRowById, ventureRows } from "../../db.ts";
 import {
   PLUGIN,
   allExpenses,
@@ -49,6 +49,7 @@ import {
   currencyCode,
   currentMonth,
   isMonth,
+  money,
   parseRates,
   shapeTotals,
   type Basis,
@@ -139,6 +140,13 @@ financeRoutes.get("/", (c) => {
       overdue: overdue.length,
     },
     defaultAllocation: defaultRule(),
+    /* WHAT THE PROCESSOR IS HOLDING, AND IT IS NOT A RUNWAY. It is here
+       because a card that says "this box holds no cash balance" while a
+       collected balance sits in a table is saying something untrue about its
+       own data. It is not a bank balance — money in Stripe is money Stripe has
+       — and nothing on this box knows the burn, so nothing divides one by the
+       other. Null when no account has reported one. */
+    stripeBalance: stripeBalance(),
     tariff: tariff(),
     note:
       "Every amount is per currency and nothing here adds them. `monthly` normalises a yearly bill to a twelfth; " +
@@ -146,6 +154,37 @@ financeRoutes.get("/", (c) => {
       "amortised. `unpriced` is how many rows have a cost with no price yet; they are excluded from both totals.",
   });
 });
+
+/**
+ * The Stripe balance, per currency, summed across whatever accounts reported
+ * one — never across currencies, like everything else here.
+ *
+ * `seenAt` is the OLDEST account's reading rather than the newest: a card
+ * deciding whether the figure is fresh must be told about the stalest part of
+ * it, or one account collecting happily would vouch for another that has not
+ * answered in a week.
+ */
+function stripeBalance(): {
+  currencies: { currency: string; available: number; pending: number }[];
+  seenAt: string;
+} | null {
+  const rows = stripeBalances();
+  if (!rows.length) return null;
+  const byCurrency = new Map<string, { currency: string; available: number; pending: number }>();
+  for (const r of rows) {
+    const code = currencyCode(r.currency);
+    const t = byCurrency.get(code) ?? { currency: code, available: 0, pending: 0 };
+    t.available += r.available;
+    t.pending += r.pending;
+    byCurrency.set(code, t);
+  }
+  return {
+    currencies: [...byCurrency.values()]
+      .map((t) => ({ ...t, available: money(t.available), pending: money(t.pending) }))
+      .sort((a, b) => a.currency.localeCompare(b.currency)),
+    seenAt: rows.reduce((oldest, r) => (r.seen_at < oldest ? r.seen_at : oldest), rows[0]!.seen_at),
+  };
+}
 
 function countBy<T>(rows: T[], key: (r: T) => string): Record<string, number> {
   const out: Record<string, number> = {};

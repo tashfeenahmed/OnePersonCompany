@@ -22,23 +22,28 @@
  *               "host"` on every row it produces.
  *   Stripe      subscriptions carry a product name, so a venture's MRR is
  *               knowable — but MRR is a RUN RATE this app normalises, not
- *               money that arrived in a month. The settled ledger, which IS
- *               dated money, has no product dimension at all: `stripe_ledger_days`
- *               is per account per day per currency and nothing more.
- *               ONE-OFF PAYMENTS ARE THE EXCEPTION AND ARE MEASURED: since the
- *               collector learned to read Checkout Sessions, a charge carries
- *               the product it bought, so `ventureOneOff` is dated cash with a
- *               product on it — per venture, per currency, not apportioned.
- *               It is not in MRR and never will be.
+ *               money that arrived in a month. THE CHARGES ARE THE MONEY, and
+ *               since the collector learned to read paid invoices and Checkout
+ *               Sessions a charge carries the product it paid for. So
+ *               `ventureSettledCharges` is dated cash with a product on it,
+ *               per venture, per currency, MEASURED — not apportioned, not
+ *               MRR, and never added to it. The settled LEDGER
+ *               (`stripe_ledger_days`) is still per account per day per
+ *               currency with no product on it; it is what the portfolio's
+ *               total is measured against.
  *
- * SO STRIPE'S SETTLED REVENUE IS NOT SPLIT PER VENTURE BY DEFAULT, and the
- * P&L says so in words rather than quietly leaving it out. The owner can
- * switch on `stripe_split = mrr-share`, which apportions the portfolio's
- * settled net by each venture's share of live MRR in that currency; every
- * figure it produces is stamped `estimated: true` with the basis attached. It
- * is off until somebody chooses it because the difference between "this
- * venture settled €412" and "this venture's share of a portfolio figure works
- * out at €412" is the difference between a measurement and an allocation.
+ * WHAT IS LEFT OVER IS REPORTED AND NEVER DROPPED. A charge no walk could name,
+ * a product nobody has linked, a product linked to two ventures: each is a
+ * fact about the link map, counted as unattributed with its reason, and
+ * carried at the portfolio so that the portfolio's total is the ledger's and
+ * not the sum of the ventures. The owner can switch on
+ * `stripe_split = mrr-share`, which apportions THAT REMAINDER — never the
+ * attributed part, which would count the same money twice — by each venture's
+ * share of live MRR in that currency; every figure it produces is stamped
+ * `estimated: true` with the basis attached. It is off until somebody chooses
+ * it because the difference between "this venture settled €412" and "this
+ * venture's share of a portfolio figure works out at €412" is the difference
+ * between a measurement and an allocation.
  */
 import {
   adSenseMonths,
@@ -60,7 +65,7 @@ const owns = (index: Map<string, string[]>, entity: string | null, ventureId: st
   (index.get(normaliseEntity(entity)) ?? []).includes(ventureId);
 
 export type RevenueLine = {
-  source: "appstore" | "playstore" | "adsense" | "stripe";
+  source: "appstore" | "playstore" | "adsense" | "stripe" | "stripe-charges";
   /** What the figure IS, in the source's own words. */
   kind: string;
   currency: string;
@@ -309,6 +314,204 @@ export function ventureOneOff(
   return { days, count, gross, byProduct, window };
 }
 
+/* --------------------------------------- settled Stripe cash, per venture */
+
+/**
+ * A MONTH'S SUCCEEDED CHARGES, GROUPED BY WHAT THEY BOUGHT.
+ *
+ * The calendar-month twin of `oneOffCharges`, which answers a rolling window.
+ * Two functions rather than one with a flag because they answer two different
+ * questions and the P&L only ever asks this one: a month is the unit every
+ * other figure in this area is measured in.
+ *
+ * REFUNDS ARE SUBTRACTED BY THEIR AMOUNT WHERE THERE IS ONE. `amount_refunded`
+ * is what came back; where it is null — a row written before the column
+ * existed — a charge whose `refunded` flag is set is treated as refunded IN
+ * FULL. That is the direction that never flatters revenue, and the rolling
+ * rewalk replaces such a row with its real figure within the window.
+ *
+ * SUCCEEDED ONLY. A declined card is not revenue and a pending one is not
+ * money yet.
+ */
+export type ChargeMonthRow = {
+  /** Null is "neither the invoice walk nor the session walk named this", and
+   *  it is never "Other". */
+  product: string | null;
+  currency: string;
+  n: number;
+  gross: number;
+  refunded: number;
+};
+
+export function chargesForMonth(month: string): ChargeMonthRow[] {
+  return db
+    .prepare(
+      `SELECT product, currency, COUNT(*) AS n,
+              COALESCE(SUM(amount), 0) AS gross,
+              COALESCE(SUM(CASE WHEN amount_refunded IS NOT NULL THEN amount_refunded
+                                WHEN refunded = 1 THEN amount
+                                ELSE 0 END), 0) AS refunded
+         FROM stripe_charges
+        WHERE status = 'succeeded' AND created_at LIKE ?
+        GROUP BY product, currency`,
+    )
+    .all(`${month}%`) as unknown as ChargeMonthRow[];
+}
+
+/** Why a charge reached no venture. Three facts, never one word. */
+export type UnattributedReason =
+  /** No walk could say what the payment bought. */
+  | "no-product"
+  /** It bought something nobody has linked to a venture. */
+  | "no-venture"
+  /** It bought something linked to MORE than one venture. */
+  | "ambiguous";
+
+export type ChargeTotal = { currency: string; count: number; gross: number; net: number };
+
+export type ChargeSplit = {
+  /** Venture id → one row per currency. Only ventures that earned anything. */
+  byVenture: Map<string, ChargeTotal[]>;
+  /** What reached nobody, per currency, with the reasons counted. */
+  unattributed: (ChargeTotal & { reasons: Record<UnattributedReason, number>; products: string[] })[];
+  /** Every attributed charge, per currency: the portfolio's denominator and
+   *  the number the settled remainder is measured against. */
+  attributed: Record<string, ChargeTotal>;
+};
+
+/**
+ * WHICH VENTURE EACH CHARGE BELONGS TO — the whole rule, over rows, with no
+ * database in it so that every branch of it is testable.
+ *
+ * THE JOIN IS `venture_links` ON THE PRODUCT, case-insensitively, which is the
+ * same join `ventureMrr` uses. A venture's subscriptions and its settled cash
+ * therefore agree about which products are its, which they did not when one
+ * side matched exactly and the other did not.
+ *
+ * A PRODUCT LINKED TO TWO VENTURES IS ATTRIBUTED TO NEITHER. Splitting it in
+ * half would invent a receipt, and handing it to the first venture in the list
+ * would caption one business's money with another's name. It is counted as
+ * unattributed with the reason `ambiguous`, which is a fixable fact about the
+ * link map rather than a silent number. Keeping it out of both also keeps the
+ * arithmetic true: the portfolio's attributed total is what the ventures add
+ * up to, exactly, and nothing is counted twice.
+ *
+ * NET IS GROSS LESS REFUNDS AND NOTHING ELSE. A charge row carries no fee —
+ * Stripe's fees are per balance transaction, on the ledger table, with no
+ * product dimension at all — so a per-venture figure net of fees would be an
+ * allocation wearing a measurement's clothes. The fees are real and they are
+ * reported at the portfolio, where they are measured; see `portfolioPnl`.
+ */
+export function splitCharges(rows: ChargeMonthRow[], index: Map<string, string[]>): ChargeSplit {
+  const byVenture = new Map<string, Map<string, ChargeTotal>>();
+  const unattributed = new Map<
+    string,
+    ChargeTotal & { reasons: Record<UnattributedReason, number>; products: string[] }
+  >();
+  const attributed: Record<string, ChargeTotal> = {};
+
+  const bump = (t: ChargeTotal, r: ChargeMonthRow) => {
+    t.count += r.n;
+    t.gross += r.gross;
+    t.net += r.gross - r.refunded;
+  };
+  const blank = (currency: string): ChargeTotal => ({ currency, count: 0, gross: 0, net: 0 });
+
+  for (const r of rows) {
+    const code = currencyCode(r.currency);
+    const owners = r.product === null ? [] : (index.get(normaliseEntity(r.product)) ?? []);
+    const reason: UnattributedReason | null =
+      r.product === null ? "no-product" : owners.length === 0 ? "no-venture" : owners.length > 1 ? "ambiguous" : null;
+
+    if (reason !== null) {
+      const row =
+        unattributed.get(code) ??
+        { ...blank(code), reasons: { "no-product": 0, "no-venture": 0, ambiguous: 0 }, products: [] };
+      bump(row, r);
+      row.reasons[reason] += r.n;
+      if (r.product !== null && !row.products.includes(r.product)) row.products.push(r.product);
+      unattributed.set(code, row);
+      continue;
+    }
+
+    const ventureId = owners[0]!;
+    const mine = byVenture.get(ventureId) ?? new Map<string, ChargeTotal>();
+    const row = mine.get(code) ?? blank(code);
+    bump(row, r);
+    mine.set(code, row);
+    byVenture.set(ventureId, mine);
+
+    const all = attributed[code] ?? blank(code);
+    bump(all, r);
+    attributed[code] = all;
+  }
+
+  /* Rounded once, at the end, like every other total in this area. */
+  const round = (t: ChargeTotal): ChargeTotal => ({ ...t, gross: money(t.gross), net: money(t.net) });
+  return {
+    byVenture: new Map(
+      [...byVenture].map(([id, m]) => [
+        id,
+        [...m.values()].map(round).sort((a, b) => a.currency.localeCompare(b.currency)),
+      ]),
+    ),
+    unattributed: [...unattributed.values()]
+      .map((u) => ({ ...round(u), reasons: u.reasons, products: u.products.sort() }))
+      .sort((a, b) => a.currency.localeCompare(b.currency)),
+    attributed: Object.fromEntries(Object.entries(attributed).map(([c, t]) => [c, round(t)])),
+  };
+}
+
+/** The month's split, read out of the tables. One query and one link index,
+ *  so a caller asking about nineteen ventures asks the database once. */
+export const settledChargeSplit = (month: string): ChargeSplit =>
+  splitCharges(chargesForMonth(month), linkIndex("stripe"));
+
+const WHY_UNATTRIBUTED: Record<UnattributedReason, string> = {
+  "no-product": "no invoice or Checkout Session named what the payment bought",
+  "no-venture": "what it bought is linked to no venture",
+  ambiguous: "what it bought is linked to more than one venture, so it is counted for neither",
+};
+
+/** How a currency's unattributed cash came to be unattributed, in words a
+ *  person can act on — the link map is the thing they would change. */
+export function unattributedNote(reasons: Record<UnattributedReason, number>): string {
+  const parts = (Object.keys(WHY_UNATTRIBUTED) as UnattributedReason[])
+    .filter((k) => reasons[k] > 0)
+    .map((k) => `${reasons[k]} where ${WHY_UNATTRIBUTED[k]}`);
+  return parts.length ? parts.join("; ") : "nothing";
+}
+
+/**
+ * THIS VENTURE'S SETTLED STRIPE CASH FOR THE MONTH — measured, not allocated.
+ *
+ * This is the line that was missing. `ventureRevenue` summed store payouts,
+ * AdSense and (only when the owner switched a split on) an apportionment of
+ * the Stripe ledger; the cash Stripe actually collected reached no venture at
+ * all, and because the portfolio card summed the ventures, it left the
+ * portfolio too. A month of real receipts could read as a dollar earned.
+ */
+export function ventureSettledCharges(
+  ventureId: string,
+  month: string,
+  split: ChargeSplit = settledChargeSplit(month),
+): RevenueLine[] {
+  return (split.byVenture.get(ventureId) ?? []).map((t) => ({
+    source: "stripe-charges" as const,
+    kind: "Stripe charges settled in the month, for products linked to this venture",
+    currency: t.currency,
+    gross: t.gross,
+    net: t.net,
+    basis: "link" as const,
+    estimated: false,
+    note:
+      `${t.count} succeeded charge${t.count === 1 ? "" : "s"} in ${month} whose product is linked to this ` +
+      `venture, ${money(t.gross)} gross less ${money(t.gross - t.net)} refunded. BEFORE Stripe's fees: a ` +
+      `charge carries no fee, the fees are per balance transaction with no product on them, and they are ` +
+      `reported once at the portfolio rather than apportioned here.`,
+  }));
+}
+
 /* ------------------------------------------------- the book, per venture */
 
 /**
@@ -532,39 +735,83 @@ export function stripeSplitMode(): StripeSplitMode {
   return (configValue(PLUGIN, "stripe_split") ?? "").trim().toLowerCase() === "mrr-share" ? "mrr-share" : "off";
 }
 
-function stripeLines(venture: VentureRow, month: string): { lines: RevenueLine[]; unavailable: string | null } {
+/**
+ * THE APPORTIONMENT, AND IT APPLIES TO THE REMAINDER AND NOTHING ELSE.
+ *
+ * `settledRemainder` is the month's settled ledger MINUS what the charge walk
+ * already attributed by product, per currency. That subtraction is the whole
+ * correctness of this function: apportioning the WHOLE ledger while the
+ * measured lines above also count the attributed part of it would report the
+ * same euro twice, once as a receipt and once as a share — and the second copy
+ * would land on ventures that did not earn it.
+ *
+ * FLOORED AT ZERO. The ledger dates money by settlement and a charge by its
+ * creation, so a charge made on the last day of the month settles in the next
+ * one and a remainder can come out negative. A negative pot apportioned by MRR
+ * share would hand ventures negative revenue they did not lose; zero is the
+ * honest floor and the portfolio's own row below reports the difference.
+ */
+function settledRemainder(month: string, split: ChargeSplit): SettledCurrency[] {
+  return stripeSettledMonth(month).map((s) => {
+    const taken = split.attributed[s.currency];
+    return {
+      ...s,
+      gross: money(Math.max(0, s.gross - (taken?.gross ?? 0))),
+      net: money(Math.max(0, s.net - (taken?.net ?? 0))),
+    };
+  });
+}
+
+function stripeLines(
+  venture: VentureRow,
+  month: string,
+  split: ChargeSplit,
+): { lines: RevenueLine[]; unavailable: string | null } {
+  const remainder = settledRemainder(month, split);
+  const left = remainder.filter((s) => s.net > 0 || s.gross > 0);
+
   if (stripeSplitMode() === "off")
     return {
       lines: [],
-      unavailable:
-        "Stripe's settled ledger has no product dimension in this box's tables — it is per account per day per " +
-        "currency — so settled revenue cannot be split per venture from a measurement. This venture's live MRR is " +
-        "reported separately as a run rate. To apportion the portfolio's settled net by each venture's share of " +
-        "MRR, set “Stripe split” to mrr-share on the Finance integration's page; every figure it produces is " +
-        "labelled estimated.",
+      /* Only where there IS a remainder. A month whose settled cash was all
+         attributed by product has nothing to caveat, and a standing paragraph
+         saying Stripe cannot be split would then be false. */
+      unavailable: left.length
+        ? "Stripe's settled ledger has no product dimension in this box's tables — it is per account per day " +
+          "per currency — so the part of it that no charge could be attributed to a product is not split per " +
+          `venture: ${left.map((s) => `${money(s.net)} ${s.currency}`).join(", ")} for ${month}, reported at the ` +
+          "portfolio as revenue attributed to no venture. Charges whose product IS linked to this venture are " +
+          "measured above. To apportion the remainder by each venture's share of live MRR, set “Stripe split” " +
+          "to mrr-share on the Finance integration's page; every figure it produces is labelled estimated."
+        : null,
     };
 
   const mine = ventureMrr(venture.id);
   const whole = portfolioMrr();
   const lines: RevenueLine[] = [];
-  for (const settled of stripeSettledMonth(month)) {
+  for (const settled of remainder) {
     const denominator = whole[settled.currency] ?? 0;
     const numerator = mine[settled.currency] ?? 0;
     if (denominator <= 0 || numerator <= 0) continue;
+    if (settled.net <= 0 && settled.gross <= 0) continue;
     const share = numerator / denominator;
+    const taken = split.attributed[settled.currency];
     lines.push({
       source: "stripe",
-      kind: "Portfolio settled net, apportioned by this venture's share of live MRR",
+      kind: "Portfolio settled net not attributed to any product, apportioned by this venture's share of live MRR",
       currency: settled.currency,
       gross: money(settled.gross * share),
       net: money(settled.net * share),
       basis: "mrr-share",
       estimated: true,
       note:
-        `${(share * 100).toFixed(1)}% of the portfolio's ${settled.currency} settled ledger for ${month}, because ` +
-        `${money(numerator)} of ${money(denominator)} ${settled.currency} of live MRR belongs to products linked to ` +
-        `this venture. An allocation of a measured portfolio figure, not a per-venture receipt: MRR is today's book ` +
-        `and the ledger is that month's cash, so the two do not describe the same period.`,
+        `${(share * 100).toFixed(1)}% of the ${money(settled.net)} ${settled.currency} of ${month}'s settled ` +
+        `ledger that no charge could be attributed to a product` +
+        (taken ? ` (${money(taken.net)} of it was attributed and is not in this figure)` : "") +
+        `, because ${money(numerator)} of ${money(denominator)} ${settled.currency} of live MRR belongs to ` +
+        `products linked to this venture. An allocation of a measured portfolio figure, not a per-venture ` +
+        `receipt: MRR is today's book and the ledger is that month's cash, so the two do not describe the ` +
+        `same period.`,
     });
   }
   return { lines, unavailable: null };
@@ -583,9 +830,20 @@ export type VentureRevenue = {
   unavailable: string[];
 };
 
-export function ventureRevenue(venture: VentureRow, month: string): VentureRevenue {
-  const stripe = stripeLines(venture, month);
-  const lines = [...stripe.lines, ...storeLines(venture, month), ...adsenseLines(venture, month)];
+export function ventureRevenue(
+  venture: VentureRow,
+  month: string,
+  /** The month's charge split, where the caller has one. A portfolio asking
+   *  about nineteen ventures passes it in and the database is read once. */
+  split: ChargeSplit = settledChargeSplit(month),
+): VentureRevenue {
+  const stripe = stripeLines(venture, month, split);
+  const lines = [
+    ...ventureSettledCharges(venture.id, month, split),
+    ...stripe.lines,
+    ...storeLines(venture, month),
+    ...adsenseLines(venture, month),
+  ];
   const gross = emptyTotals();
   const net = emptyTotals();
   for (const l of lines) {

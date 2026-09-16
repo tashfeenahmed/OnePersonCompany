@@ -263,16 +263,19 @@ export type ChargeRow = {
   failureMessage: string | null;
   outcomeType: string | null;
   /**
-   * WHAT A ONE-OFF PAYMENT BOUGHT, from the Checkout Session that made it.
+   * WHAT THIS PAYMENT BOUGHT — from the paid invoice that billed it, or from
+   * the Checkout Session that made it.
    *
-   * Null on everything else, and null is "no completed session named this
-   * payment" rather than "Other" — a subscription invoice, a charge created in
-   * the dashboard, an invoice paid outside Checkout. A charge that cannot be
-   * attributed must stay unattributed: filing it under a product would put one
-   * venture's cash on another venture's page.
+   * Null is "neither walk named this payment" rather than "Other" — a charge
+   * created in the dashboard, a payment with no invoice and no session. A
+   * charge that cannot be attributed must stay unattributed: filing it under a
+   * product would put one venture's cash on another venture's page.
    */
   product: string | null;
   priceId: string | null;
+  /** How much of `amount` came back. `refunded` is the flag; this is the
+   *  figure a revenue line can actually subtract. */
+  amountRefunded: number;
 };
 
 /**
@@ -1065,10 +1068,23 @@ async function collectAccount(
   */
   const charges: ChargeRow[] = [];
   /* BEFORE THE CHARGES, because the charge rows are written with the product
-     the session names and a second pass over them would be a second place for
-     the join to be got wrong. Same window as the rolling walk, so every charge
-     inside it that can be attributed is. */
-  const oneOff = await walkCheckoutSessions(
+     these two walks name and a second pass over them would be a second place
+     for the join to be got wrong. Same window as the rolling walk, so every
+     charge inside it that can be attributed is.
+
+     TWO WALKS BECAUSE THERE ARE TWO WAYS TO BE PAID and neither covers the
+     other. An account selling through Checkout without invoicing has sessions
+     and no invoices; an account billing subscriptions has invoices and no
+     sessions for the renewals. Both cost one request per hundred rows over a
+     window that is already being walked. */
+  const sessions = await walkCheckoutSessions(
+    key,
+    { "created[gte]": rollingFrom },
+    productOf,
+    truncated,
+    notes,
+  );
+  const invoices = await walkInvoices(
     key,
     { "created[gte]": rollingFrom },
     productOf,
@@ -1078,7 +1094,14 @@ async function collectAccount(
   await walkCharges(key, { "created[gte]": rollingFrom }, chargeAcc, truncated, {
     accountId: account.id,
     keep: charges,
-    oneOff,
+    attribution: {
+      byCharge: invoices.byCharge,
+      /* The session map and the invoice map share the payment-intent key. The
+         session is the more specific statement of what was bought — it is the
+         line items the customer actually chose — so it is merged over the
+         invoice's intent entries rather than under them. */
+      byIntent: new Map([...invoices.byIntent, ...sessions]),
+    },
   });
   await walkLedger(key, { "created[gte]": rollingFrom }, ledgerAcc, truncated);
 
@@ -1209,6 +1232,10 @@ async function collectAccount(
  */
 export type OneOffAttribution = { product: string | null; priceId: string | null };
 
+/** The same pair, named for what it now describes: any charge, not only a
+ *  one-off. The invoice walk below attributes subscription renewals too. */
+export type ChargeAttribution = OneOffAttribution;
+
 type StripeCheckoutSession = {
   id: string;
   mode?: string | null;
@@ -1302,6 +1329,175 @@ async function walkCheckoutSessions(
   return out;
 }
 
+/* ------------------------------------------ what an invoiced charge bought */
+
+/**
+ * THE PRODUCT BEHIND EVERY OTHER CHARGE — the half the session walk cannot see.
+ *
+ * A Checkout Session exists only where somebody checked out. A subscription
+ * renewal, a payment made from the dashboard, an invoice sent by hand and a
+ * one-off sold through a Payment Link that bills rather than checks out all
+ * produce a charge with no session behind it, and every one of them was money
+ * this box held and could not name. On an account whose revenue is mostly
+ * renewals that is most of the revenue.
+ *
+ * AN INVOICE NAMES BOTH ENDS, WITH NO EXPANSION. `GET /v1/invoices` returns
+ * `charge`, `payment_intent`, `subscription` and `lines.data[].price` —
+ * including the price's product — so one walk of the paid invoices over the
+ * same window the charges are walked over produces the join, keyed by charge
+ * id AND by payment intent. The charge id is the stronger key: it identifies
+ * the row, where a payment intent can carry a second charge after a retry.
+ *
+ * THE PRODUCT NAME COMES FROM THE PRICE LIST, not from the invoice line's
+ * description. A line description is written for the customer ("1 × Pro (at
+ * $29.00 / month)") and changes with the plan's wording; the price id is
+ * stable and the price list this collector already walked turns it into the
+ * same product name the subscription rows carry — so a venture's
+ * subscriptions and its settled cash join on ONE spelling.
+ *
+ * `status: "paid"` IS BOTH A QUERY FILTER AND AN OBJECT TEST. Stripe documents
+ * it as a filter here, unlike `mode` on sessions, and it is applied again to
+ * what comes back, because an attribution built on a draft or a void invoice
+ * would file money that never arrived under somebody's name.
+ *
+ * A FAILED WALK IS A NOTE AND NOT AN EXCEPTION. The charges are stored either
+ * way; what is lost is the product on them, and a run that says so leaves
+ * every figure below reading "not attributed" rather than reading wrong.
+ */
+type StripePaidInvoice = {
+  id: string;
+  status?: string | null;
+  charge?: string | { id?: string } | null;
+  payment_intent?: string | { id?: string } | null;
+  subscription?: string | { id?: string } | null;
+  amount_paid?: number | null;
+  lines?: { data?: { price?: (StripePrice & { id?: string }) | null }[] } | null;
+};
+
+const refId = (v: string | { id?: string } | null | undefined): string | null =>
+  typeof v === "string" ? v : (v?.id ?? null);
+
+/**
+ * ONE INVOICE, READ — the decisions, split out from the walk for the reason
+ * `sessionAttribution` is: a rule about whose revenue this is must be testable
+ * without a live Stripe account.
+ *
+ * Null means "this invoice cannot put a product on a charge", and each of its
+ * reasons is a fact about the invoice rather than a failure of the walk.
+ */
+export function invoiceAttribution(
+  inv: {
+    status?: string | null;
+    charge?: string | { id?: string } | null;
+    payment_intent?: string | { id?: string } | null;
+    amount_paid?: number | null;
+    lines?: { data?: { price?: { id?: string; product?: unknown } | null }[] } | null;
+  },
+  productOf: Map<string, string>,
+): (ChargeAttribution & { charge: string | null; intent: string | null }) | null {
+  /* A draft, open or void invoice is not money that arrived. */
+  if (inv.status !== "paid") return null;
+  /* A fully discounted invoice settles with no charge at all: nothing to
+     attribute, and a zero is not revenue. */
+  if ((inv.amount_paid ?? 0) <= 0) return null;
+
+  const charge = refId(inv.charge);
+  const intent = refId(inv.payment_intent);
+  /* Nothing to key on: the invoice is real, it just cannot reach a charge row. */
+  if (!charge && !intent) return null;
+
+  const price = inv.lines?.data?.[0]?.price ?? null;
+  const priceId = price?.id ?? null;
+  /* The expanded product's own name first, the price list second — the same
+     order `sessionAttribution` uses, so both walks spell a product one way. An
+     ad-hoc line in neither stays null rather than becoming "Other". */
+  const product = price?.product;
+  const named =
+    product && typeof product === "object"
+      ? ((product as { name?: string | null }).name ?? null)
+      : null;
+  return {
+    charge,
+    intent,
+    priceId,
+    product: named ?? (priceId ? (productOf.get(priceId) ?? null) : null),
+  };
+}
+
+/** Where a charge's product may be looked up, in the order it is looked up. */
+export type AttributionSources = {
+  /** Keyed by charge id — the invoice walk's strong key. */
+  byCharge?: Map<string, ChargeAttribution> | null;
+  /** Keyed by payment intent — what a Checkout Session shares with a charge,
+   *  and the invoice walk's second key. */
+  byIntent?: Map<string, ChargeAttribution> | null;
+};
+
+/**
+ * WHICH SOURCE NAMES THIS CHARGE — one decision, in one place, tested.
+ *
+ * THE CHARGE ID WINS because it identifies this row and nothing else: a
+ * payment intent can carry a second charge after a retry, so an intent-keyed
+ * hit is a hit on the payment and a charge-keyed one is a hit on the money.
+ *
+ * A HIT WITH NO PRODUCT DOES NOT BLOCK ONE THAT HAS A PRODUCT. An invoice for
+ * an ad-hoc line names a charge and cannot name a product; where the session
+ * walk knows what that payment bought, that is the better answer and this
+ * takes it. Only when neither source has a product does the first hit stand,
+ * for its price id — and null when there is no hit at all, which means "not
+ * attributable" and never "Other".
+ */
+export function pickAttribution(
+  chargeId: string | null,
+  intent: string | null,
+  sources: AttributionSources,
+): ChargeAttribution | null {
+  const byCharge = chargeId ? (sources.byCharge?.get(chargeId) ?? null) : null;
+  const byIntent = intent ? (sources.byIntent?.get(intent) ?? null) : null;
+  if (byCharge?.product) return byCharge;
+  if (byIntent?.product) return byIntent;
+  return byCharge ?? byIntent ?? null;
+}
+
+async function walkInvoices(
+  key: string,
+  range: Params,
+  /** price id to product name, from the price list this account already walked. */
+  productOf: Map<string, string>,
+  truncated: Set<string>,
+  notes: string[],
+): Promise<{ byCharge: Map<string, ChargeAttribution>; byIntent: Map<string, ChargeAttribution> }> {
+  const byCharge = new Map<string, ChargeAttribution>();
+  const byIntent = new Map<string, ChargeAttribution>();
+  try {
+    for await (const inv of page<StripePaidInvoice & { id: string }>(
+      "invoices",
+      key,
+      { ...range, status: "paid" },
+      truncated,
+    )) {
+      const bought = invoiceAttribution(inv, productOf);
+      if (!bought) continue;
+      const pair: ChargeAttribution = { product: bought.product, priceId: bought.priceId };
+      if (bought.charge) byCharge.set(bought.charge, pair);
+      /* The intent key is written only where nothing has claimed it: the first
+         invoice to name a payment is the one that charged it, and a re-issue
+         must not rewrite whose product it was. */
+      if (bought.intent && !byIntent.has(bought.intent)) byIntent.set(bought.intent, pair);
+    }
+  } catch (err) {
+    /* Partial maps are worse than none: half the month attributed and half not
+       is a per-venture figure that looks like a collapse in revenue. */
+    byCharge.clear();
+    byIntent.clear();
+    notes.push(
+      `Stripe would not list paid invoices (${describe(err)}), so charges made outside Checkout ` +
+        "have no product this run and are counted as not attributed",
+    );
+  }
+  return { byCharge, byIntent };
+}
+
 type StripeCharge = {
   id: string;
   created: number;
@@ -1330,9 +1526,9 @@ async function walkCharges(
   acc: Map<string, DayAcc>,
   truncated: Set<string>,
   /** Where to keep the rows themselves, when this walk is one whose rows
-   *  will be read again. Absent for the history chunk. `oneOff` is what the
-   *  session walk found, keyed by payment intent. */
-  rows?: { accountId: number; keep: ChargeRow[]; oneOff?: Map<string, OneOffAttribution> },
+   *  will be read again. Absent for the history chunk. `attribution` is what
+   *  the session and invoice walks found — see `pickAttribution`. */
+  rows?: { accountId: number; keep: ChargeRow[]; attribution?: AttributionSources },
 ) {
   for await (const c of page<StripeCharge>("charges", key, range, truncated)) {
     const currency = c.currency ?? "usd";
@@ -1342,7 +1538,7 @@ async function walkCharges(
     if (rows) {
       const intent =
         typeof c.payment_intent === "string" ? c.payment_intent : (c.payment_intent?.id ?? null);
-      const bought = intent ? (rows.oneOff?.get(intent) ?? null) : null;
+      const bought = pickAttribution(c.id, intent, rows.attribution ?? {});
       rows.keep.push({
         id: c.id,
         accountId: rows.accountId,
@@ -1359,6 +1555,9 @@ async function walkCharges(
         outcomeType: c.outcome?.type ?? null,
         product: bought?.product ?? null,
         priceId: bought?.priceId ?? null,
+        /* The figure, not the flag beside it: a partly refunded charge is
+           worth what stayed, and the flag alone cannot say how much that is. */
+        amountRefunded: money(c.amount_refunded ?? 0),
       });
     }
     if (ok) {

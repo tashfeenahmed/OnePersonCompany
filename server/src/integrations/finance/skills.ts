@@ -187,10 +187,21 @@ export const SKILLS: Skill[] = [
       "`subscriptionRunRate` IS NOT REVENUE. It is live MRR for the venture's linked Stripe products: a run rate " +
         "this app normalises from today's subscription book, not money that arrived in that month. It is never " +
         "added to `revenue.net`.",
-      "STRIPE'S SETTLED MONEY IS A PORTFOLIO FIGURE. `stripe_ledger_days` has no product dimension, so a " +
-        "per-venture settled figure does not exist unless the owner switches on the mrr-share split — and where " +
-        "they have, every such line is `estimated: true` with the share it was computed from. `revenue.unavailable` " +
-        "says which sources could not answer and why; quote it rather than reporting a small revenue as the truth.",
+      "STRIPE'S SETTLED CASH IS PER VENTURE WHERE THE PRODUCT IS LINKED, AND AT THE PORTFOLIO WHERE IT IS NOT. A " +
+        "`source: \"stripe-charges\"` line is MEASURED: the charges whose product is linked to this venture, gross " +
+        "less refunds and BEFORE Stripe's fees, because a charge carries no fee. What no charge could be attributed " +
+        "to — no product on it, a product linked to no venture, a product linked to two — plus the account's fees, " +
+        "is the portfolio's `revenue.unallocated`, which names the reason. Where the owner has switched on the " +
+        "mrr-share split it applies to THAT REMAINDER ONLY and every such line is `estimated: true` with its share. " +
+        "`revenue.unavailable` says which sources could not answer and why; quote it rather than reporting a small " +
+        "revenue as the truth.",
+      "AT THE PORTFOLIO, READ `revenue.total` — NEVER THE SUM OF `ventures[]`. Summing the venture rows gives " +
+        "`revenue.allocated` and silently drops every settled charge that reached no venture. `revenue.total` is " +
+        "`allocated` plus `unallocated`, per currency, and where a Stripe balance report exists it ties to " +
+        "`stripeSettled[].net`. `revenue.basis` states the basis in one paragraph; quote it.",
+      "`ledger.unallocatedShared` IS COST NOBODY'S MARGIN CARRIES, and it includes the invoiced model spend that " +
+        "no venture's tokens account for, on its own line. It is NOT inside `ledger.monthly`, which is the expense " +
+        "rate card only.",
       "ALLOCATED COSTS ARE ESTIMATES. A line with `direct: false` is a share of a real bill decided by a rule the " +
         "owner picked — equal, manual, revenue or traffic — and not a measurement of what this venture used. Its " +
         "`basis` and `share` are on the line; say them.",
@@ -210,7 +221,7 @@ export const SKILLS: Skill[] = [
       {
         key: "portfolio",
         path: "/api/finance/profit/portfolio",
-        about: "Every venture's line for a month, plus the portfolio's measured Stripe settlement, the unallocated shared cost and the power lines.",
+        about: "Every venture's line for a month, plus the portfolio's own revenue (allocated, unallocated and total), its measured Stripe settlement, the unallocated shared cost and the power lines.",
         params: [
           { name: "month", type: "string", required: false, about: "YYYY-MM. Defaults to the month in progress, which is a part-month." },
         ],

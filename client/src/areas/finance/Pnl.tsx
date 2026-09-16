@@ -71,7 +71,8 @@ export function Pnl() {
         </SelectField>
         <Badge actual={d.actual} />
         <span className="text-muted-foreground text-[12.5px]">
-          ledger {currencies(d.ledger.monthly)} / month · {currencies(d.ledger.unallocatedShared)} of it unallocated
+          revenue {currencies(d.revenue.total.amounts)} · ledger {currencies(d.ledger.monthly)} / month ·{" "}
+          {currencies(d.ledger.unallocatedShared)} of it unallocated
         </span>
       </div>
 
@@ -122,6 +123,40 @@ export function Pnl() {
       {open && <VentureDetail slug={open} month={month} />}
 
       <section className="mt-6 grid gap-3 sm:grid-cols-2">
+        {/* THE TABLE ABOVE IS THE ALLOCATED HALF AND THIS IS THE WHOLE. Adding
+            up the venture rows gives `revenue.allocated`; a charge whose
+            product no venture is linked to, and the fees Stripe takes off the
+            account, are in neither. They are here, with the reason, because a
+            portfolio figure that quietly drops money is worse than no figure. */}
+        <div className="bg-card rounded-[14px] px-4.5 py-3.5">
+          <div className="text-[13.5px] font-medium">Revenue, at the portfolio</div>
+          <div className="mt-1 text-[20px] tabular-nums">{currencies(d.revenue.total.amounts)}</div>
+          <ul className="mt-1.5 space-y-0.5 text-[13px] tabular-nums">
+            <li>
+              {currencies(d.revenue.allocated.amounts)}{" "}
+              <span className="text-muted-foreground">allocated to a venture</span>
+            </li>
+            {d.revenue.unallocated.map((u) => (
+              <li key={u.currency}>
+                {amount(u.amount, u.currency)}{" "}
+                <span className="text-muted-foreground">
+                  not attributed to a venture
+                  {u.charges > 0 ? ` · ${count(u.charges)} charge${u.charges === 1 ? "" : "s"}` : ""}
+                </span>
+              </li>
+            ))}
+            {d.revenue.unallocated.length === 0 && (
+              <li className="text-muted-foreground">Every measured receipt reached a venture.</li>
+            )}
+          </ul>
+          {d.revenue.unallocated.map((u) => (
+            <p key={u.currency} className="text-muted-foreground mt-1.5 text-[12px] leading-relaxed">
+              {u.note}
+            </p>
+          ))}
+          <p className="text-muted-foreground mt-2 text-[12px] leading-relaxed">{d.revenue.basis}</p>
+        </div>
+
         <div className="bg-card rounded-[14px] px-4.5 py-3.5">
           <div className="text-[13.5px] font-medium">Stripe, settled — the portfolio</div>
           {d.stripeSettled.length === 0 ? (
@@ -136,8 +171,9 @@ export function Pnl() {
             </ul>
           )}
           <p className="text-muted-foreground mt-2 text-[12px] leading-relaxed">
-            Measured here and only here: Stripe's ledger has no product dimension, so a per-venture settled figure is
-            not a measurement.
+            The account's own settlement, dated by the ledger and net of fees. It has no product dimension, so it is
+            what the portfolio total above is measured against; the per-venture figures are measured from the charges
+            instead, which do carry a product and do not carry a fee.
           </p>
         </div>
 
