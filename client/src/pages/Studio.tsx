@@ -536,7 +536,7 @@ function GenerationRow({ generation: g, active, onClick, onDelete }: { generatio
   if (g.kind === "post") {
     const p = g.post;
     return (
-      <div className={cn("flex min-w-0 items-center rounded-lg", active ? "bg-accent" : "hover:bg-accent/60")}>
+      <div className={cn("sidebar-row flex min-w-0 items-center rounded-lg", active ? "bg-accent" : "hover:bg-accent/60")}>
         <button onClick={onClick} title={p.caption?.split("\n")[0] || p.brief} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left">
           <GenerationThumbnail src={p.imageOnDisk ? p.image : null}>
             <ImageIcon className="text-muted-foreground size-4" strokeWidth={1.6} />
@@ -562,7 +562,7 @@ function GenerationRow({ generation: g, active, onClick, onDelete }: { generatio
   const clips = g.job && g.job.clipCount > 0 ? ` · ${g.job.clipCount} clips` : "";
   const details = `${what}${clips} · ${live ? r.status : r.status === "done" ? (g.job?.onDisk === false ? "file gone" : "done") : r.status} · ${ago(r.queuedAt)}`;
   return (
-    <div className={cn("flex min-w-0 items-center rounded-lg", active ? "bg-accent" : "hover:bg-accent/60")}>
+    <div className={cn("sidebar-row flex min-w-0 items-center rounded-lg", active ? "bg-accent" : "hover:bg-accent/60")}>
       <button onClick={onClick} title={`${title}\n${details}`} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left">
         <GenerationThumbnail src={live ? null : g.job?.thumbnailUrl}>
           {live ? <Loader2 className="text-muted-foreground size-4 animate-spin" strokeWidth={1.6} /> : <Icon className="text-muted-foreground size-4" strokeWidth={1.6} />}

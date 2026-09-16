@@ -26,7 +26,7 @@ export function GenerationMenu({ title, live, onDelete }: { title: string; live:
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button ref={trigger} variant="ghost" size="icon-sm" className="text-muted-foreground mr-1 shrink-0" aria-label={`Generation options: ${title}`}>
+          <Button ref={trigger} variant="ghost" size="icon-sm" className="sidebar-row-action text-muted-foreground mr-1 shrink-0 transition-opacity" aria-label={`Generation options: ${title}`}>
             <MoreHorizontal className="size-4" />
           </Button>
         </DropdownMenuTrigger>
