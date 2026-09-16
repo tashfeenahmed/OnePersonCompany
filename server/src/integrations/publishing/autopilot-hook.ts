@@ -20,9 +20,11 @@
  * separable — the Autopilot works with this file absent, and everything here
  * works with the Autopilot switched off.
  */
+import { db } from "../../db.ts";
 import { createItem, proposeSlot } from "./items.ts";
 import { destinationRows } from "./destinations.ts";
-import { settings, wall } from "./settings.ts";
+import { settings } from "./settings.ts";
+import { nextZonedTime } from "../../../../shared/zonedTime.ts";
 
 export type HookResult = {
   itemId: string | null;
@@ -33,7 +35,7 @@ export type HookResult = {
 /**
  * The next occurrence of a local `HH:MM`, never today's if it has passed.
  *
- * WALKED FORWARD AN HOUR AT A TIME rather than computed, which is
+ * WALKED FORWARD A MINUTE AT A TIME rather than computed, which is
  * video/autopilot.ts's argument and it applies here for the same reason:
  * turning "09:30 next Tuesday in Europe/Dublin" into a UTC instant by
  * arithmetic means handling the two nights a year when a local hour happens
@@ -47,20 +49,7 @@ export function nextSlot(
   minute: number,
   from: Date = new Date(),
 ): string {
-  for (let i = 0; i <= 48; i++) {
-    const at = new Date(from.getTime() + i * 3_600_000);
-    const w = wall(tz, at);
-    if (w.hour !== hour) continue;
-    /* Snap to the top of that local hour and add the minutes, then check it is
-       still in the future — the hour that is happening right now may already
-       be past its minute. */
-    const top = new Date(Math.floor(at.getTime() / 3_600_000) * 3_600_000 + minute * 60_000);
-    if (top.getTime() > from.getTime()) return top.toISOString();
-  }
-  /* No matching local hour in the next two days is not possible for a valid
-     zone, but a fallback that is obviously "tomorrow-ish" beats a throw inside
-     a background pass. */
-  return new Date(from.getTime() + 86_400_000).toISOString();
+  return nextZonedTime(tz, hour, minute, from);
 }
 
 /**
@@ -73,9 +62,13 @@ export function nextSlot(
 export function onAutopilotAsset(input: {
   ventureId: string;
   ventureSlug: string;
-  source: { kind: "studio_post" | "video_job"; id: string };
+  source: { kind: "studio_post" | "video_job" | "video_clip"; id: string };
 }): HookResult {
   try {
+    // A retry must preserve a draft someone edited, reassigned or cancelled.
+    const existing = db.prepare("SELECT id, scheduled_for FROM publish_items WHERE venture_id = ? AND source_kind = ? AND source_id = ? ORDER BY created_at, id LIMIT 1")
+      .get(input.ventureId, input.source.kind, input.source.id) as { id: string; scheduled_for: string | null } | undefined;
+    if (existing) return { itemId: existing.id, scheduledFor: existing.scheduled_for, note: "Already filed in Publishing; the existing item was kept." };
     const dests = destinationRows(input.ventureId).filter((d) => d.enabled === 1);
     /* ONE DESTINATION IS UNAMBIGUOUS AND TWO IS NOT. With exactly one enabled
        destination, the draft is addressed; with more, it is a draft with no

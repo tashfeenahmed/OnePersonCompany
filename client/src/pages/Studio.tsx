@@ -8,6 +8,7 @@ import {
   Film,
   Image as ImageIcon,
   Loader2,
+  Menu,
   Play,
   Scissors,
   Search,
@@ -20,6 +21,7 @@ import {
   Video as VideoIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { MotionNarration } from "@/components/studio/MotionNarration";
 import { Textarea } from "@/components/ui/textarea";
@@ -128,7 +130,7 @@ const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[
      somebody else's logo by hand is not a thing to do in a tab strip. A
      magnifying glass is the honest icon anyway: what this tab adds is the
      SEARCH — the cutting is the row above. */
-  { key: "youtube", label: "YouTube Shorts", icon: Scissors, about: "Two to four vertical clips cut out of a long video — search YouTube and tick the keepers, or paste a link." },
+  { key: "youtube", label: "YouTube Shorts", icon: Scissors, about: "One to five vertical clips cut out of a long video — search YouTube and tick the keepers, or paste a link." },
   { key: "motion", label: "Motion", icon: Shapes, about: "Animated typography from a scene list, in the venture's colours." },
   { key: "stewie", label: "Stewie", icon: Tv, about: "Peter explains, Stewie interrupts, over gameplay footage — cloned voices, rendered by OPC's worker on the Dell." },
 ];
@@ -193,6 +195,7 @@ export function Studio() {
 
   /* The rail can show one venture's work or everyone's. Null is everyone. */
   const [railVenture, setRailVenture] = useState<string | null>(null);
+  const [mobileRail, setMobileRail] = useState(false);
 
   const posts = useApi(() => studioApi.posts(railVenture), [railVenture]);
   const runs = useApi(() => runsApi.list({ kind: "video", venture: railVenture, limit: 60 }), [railVenture]);
@@ -298,18 +301,26 @@ export function Studio() {
     />
   );
 
+  const rail = <Rail
+    ventures={ventures} railVenture={railVenture} onRailVenture={setRailVenture}
+    generations={generations} loading={posts.loading || runs.loading}
+    openKey={pathname === STUDIO ? openKey : null}
+    onOpen={key => { openGeneration(key); setMobileRail(false); }}
+    onDelete={deleteGeneration} onNavigate={() => setMobileRail(false)}
+  />;
+
   return (
-    <div className="flex min-h-0 flex-1">
-      <Rail
-        ventures={ventures}
-        railVenture={railVenture}
-        onRailVenture={setRailVenture}
-        generations={generations}
-        loading={posts.loading || runs.loading}
-        openKey={pathname === STUDIO ? openKey : null}
-        onOpen={openGeneration}
-        onDelete={deleteGeneration}
-      />
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
+      <div className="border-line-soft shrink-0 border-b px-4 py-2 md:hidden">
+        <Button size="sm" variant="ghost" onClick={() => setMobileRail(true)}><Menu className="size-4" />Studio menu</Button>
+      </div>
+      <div className="hidden min-h-0 shrink-0 md:flex">{rail}</div>
+      <Sheet open={mobileRail} onOpenChange={setMobileRail}>
+        <SheetContent side="left" className="w-[min(320px,90vw)]! gap-0 p-0 pt-10" aria-describedby={undefined}>
+          <SheetTitle className="sr-only">Studio navigation and generations</SheetTitle>
+          {rail}
+        </SheetContent>
+      </Sheet>
 
       {/*
         THE COLUMN, AND THE FOUR THINGS THAT CAN BE IN IT. Relative paths,
@@ -359,7 +370,7 @@ function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, o
   onDeletedPost: (id: string) => void;
 }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-3 pb-20">
+    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pt-3 pb-20 sm:px-8">
       <div className="mx-auto w-full max-w-[820px]">
         <div className="mt-5">
           <img
@@ -428,7 +439,7 @@ function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, o
 
 /* ------------------------------------------------------------------ rail */
 
-function Rail({ ventures, railVenture, onRailVenture, generations, loading, openKey, onOpen, onDelete }: {
+function Rail({ ventures, railVenture, onRailVenture, generations, loading, openKey, onOpen, onDelete, onNavigate }: {
   ventures: Venture[];
   railVenture: string | null;
   onRailVenture: (id: string | null) => void;
@@ -437,6 +448,7 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
   openKey: string | null;
   onOpen: (key: string) => void;
   onDelete: (generation: Generation) => Promise<void>;
+  onNavigate: () => void;
 }) {
   /* The doors at the top: the screen this page opens on, what fills the rail
      on its own, where a finished piece goes next, and what every generator is
@@ -473,12 +485,13 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
        is a place you navigate from, so it gets a surface of its own — white
        in the light theme, and the card token in the dark one, because a rail
        painted literal white in the dark is a lamp. */
-    <aside className="border-line-soft dark:bg-card flex w-[272px] min-w-0 shrink-0 flex-col border-r bg-white">
+    <aside className="border-line-soft dark:bg-card flex h-full w-full min-w-0 shrink-0 flex-col border-r md:w-[272px] bg-white">
       <div className="border-line-soft grid gap-0.5 border-b p-2.5">
         {doors.map((d) => (
           <NavLink
             key={d.to}
             to={d.to}
+            onClick={onNavigate}
             end={d.end}
             className={({ isActive }) =>
               cn(
@@ -625,6 +638,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const [shape, setShape] = useState<StudioFormat>("square");
   const [platform, setPlatform] = useState<string | null>(null);
   const [assetIds, setAssetIds] = useState<string[]>([]);
+  const [autoReferences, setAutoReferences] = useState(true);
   const [aspect, setAspect] = useState("9:16");
   const [aspectChanged, setAspectChanged] = useState(false);
   const [fit, setFit] = useState("cover");
@@ -694,7 +708,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     setSaid(null);
     try {
       if (make === "image") {
-        const res = await studioApi.create({ ventureId: venture!.id, brief: brief.trim(), format: shape, platform, assetIds });
+        const res = await studioApi.create({ ventureId: venture!.id, brief: brief.trim(), format: shape, platform, assetIds: autoReferences ? undefined : assetIds });
         onPost(res.post);
         setBrief("");
       } else if (make === "ugc") {
@@ -771,15 +785,16 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const assetsField = wantsAssets && venture ? (
     <Field label={make === "ugc" ? "Reference pictures (optional)" : "Visual references (optional)"}
       hint={assets.length ? (make === "ugc" ? "Choose up to four, or let OPC use available pictures from this venture." : "Choose up to four pictures to guide the look.") : undefined}>
+      {make === "image" && <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={autoReferences} onChange={e => { setAutoReferences(e.target.checked); if (e.target.checked) setAssetIds([]); }} />Choose references automatically, rotating through this venture's library</label>}
       {assets.length === 0 ? (
         <p className="text-muted-foreground text-[12.5px]">
-          <Link to={`${STUDIO}/publishing?tab=assets`} className="underline decoration-dotted">Add reference pictures</Link> to guide the look or show a specific product.
+          <Link to={`${STUDIO}/references`} className="underline decoration-dotted">Add reference pictures</Link> to guide the look or show a specific product.
         </p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {assets.slice(0, 12).map((a) => (
             <button key={a.id} type="button" title={a.prompt ?? a.name ?? a.kind} aria-pressed={assetIds.includes(a.id)} disabled={!a.onDisk}
-              onClick={() => setAssetIds((prev) => (prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id].slice(0, 4)))}
+              onClick={() => { setAutoReferences(false); setAssetIds((prev) => (prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id].slice(0, 4))); }}
               className={cn("overflow-hidden rounded-[11px] border transition-colors", assetIds.includes(a.id) ? "border-foreground" : "hover:border-line-strong")}>
               {a.onDisk ? <img src={a.url} alt={a.name ?? a.kind} className="size-12 object-cover" /> : <span className="text-muted-foreground flex size-12 items-center justify-center text-[11px]">missing</span>}
             </button>

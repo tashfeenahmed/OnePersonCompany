@@ -59,7 +59,7 @@ export type ResolvedReferences = {
   field: string | null;
   /** Whether that property takes a list rather than one image. */
   many: boolean;
-  /** One sentence per asset, for the prompt, when the model takes no image. */
+  /** The owner's instructions per asset, alongside images or as a text fallback. */
   texts: string[];
   /** What happened, in words, for the post's `error`/note. */
   note: string;
@@ -72,6 +72,8 @@ export type ReferenceResolver = (
 ) => Promise<ResolvedReferences>;
 
 let referenceResolver: ReferenceResolver | null = null;
+let defaultReferencePicker: (ventureId: string) => string[] = () => [];
+export function setDefaultReferencePicker(picker: typeof defaultReferencePicker) { defaultReferencePicker = picker; }
 
 /** Installed by the publishing area's manifest. Absent, `assetIds` is refused
  *  with a sentence rather than ignored. */
@@ -655,7 +657,7 @@ export async function createPost(input: CreatePostInput): Promise<CreatePostResu
      fix. The prompt still forbids lettering, so on a model that takes a
      picture it shapes the mark; on one that does not it is described. */
   const logo = brandOverrides(v.id).logo;
-  const chosen = (input.assetIds ?? []).slice(0, 4);
+  const chosen = (input.assetIds ?? defaultReferencePicker(v.id)).slice(0, 4);
   const assetIds = logo && !chosen.includes(logo) ? [logo, ...chosen].slice(0, 4) : chosen;
 
   const started = Date.now();
@@ -743,7 +745,7 @@ studioRoutes.post("/posts", async (c) => {
     platform: typeof body.platform === "string" ? body.platform : null,
     assetIds: Array.isArray(body.assetIds)
       ? body.assetIds.filter((a): a is string => typeof a === "string")
-      : [],
+      : undefined,
   });
   if (!made.ok) return c.json({ error: made.error }, made.status);
 

@@ -257,7 +257,7 @@ export function historyRows(opts: {
   args.push(Math.max(1, Math.min(500, Math.floor(opts.limit ?? 100))));
   return db
     .prepare(
-      `SELECT * FROM content_history ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC LIMIT ?`,
+      `SELECT * FROM content_history ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`,
     )
     .all(...args) as unknown as HistoryRow[];
 }

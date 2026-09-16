@@ -20,6 +20,9 @@
  * The database is a fresh temporary one per test worker — see test/setup.mjs —
  * so nothing here touches a developer's rows.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { DATA_DIR } from "../../config.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { db, now } from "../../db.ts";
@@ -115,6 +118,9 @@ test("the owner's colours are hexes or nothing, and an empty string hands a colo
   const id = venture("v-ref-h", "ref-h");
   const bad = saveGuide(id, { primary: "navy" });
   assert.equal(bad.ok, false);
+  const path = resolve(DATA_DIR, "logo.png");
+  mkdirSync(DATA_DIR, { recursive: true }); writeFileSync(path, "fixture");
+  db.prepare("INSERT INTO venture_assets (id,venture_id,kind,path,mime,source,created_at,updated_at) VALUES ('asset-1',?,'logo',?,'image/png','upload',?,?)").run(id,path,now(),now());
   const ok = saveGuide(id, { primary: "#1a2b3c", logo: "asset-1", style: "Photographic, warm." });
   assert.equal(ok.ok, true);
   /* Stored upper-cased, so two spellings of one colour are one value; the

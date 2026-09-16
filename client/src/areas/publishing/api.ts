@@ -290,7 +290,7 @@ export const publishingApi = {
 
   queue: (body: {
     ventureId?: string;
-    sourceKind: "studio_post" | "video_job" | "manual";
+    sourceKind: "studio_post" | "video_job" | "video_clip" | "manual";
     sourceId?: string;
     destinationId?: string | null;
     caption?: string;

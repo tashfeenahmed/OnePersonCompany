@@ -34,11 +34,12 @@ import type { IntegrationManifest } from "../manifest.ts";
 import { upsertPlugin } from "../../db.ts";
 import * as linkedin from "../../providers/linkedin.ts";
 import * as tiktok from "../../providers/tiktok.ts";
-import { setReferenceResolver } from "../ventures/studio.ts";
+import { setReferenceResolver, setDefaultReferencePicker } from "../ventures/studio.ts";
 import {
   assetAsDataUrl,
   assetAsText,
   assetRow,
+  defaultReferenceIds,
   markUsed,
   modelImageInput,
 } from "./assets.ts";
@@ -63,7 +64,8 @@ import { PACKS, SKILLS } from "./skills.ts";
  * that ends up on the post. A reference silently dropped would be the worst of
  * the three, because the post would look like it had been used.
  */
-setReferenceResolver(async (ventureId, assetIds, model) => {
+setDefaultReferencePicker(defaultReferenceIds);
+export async function resolveLibraryReferences(ventureId: string, assetIds: string[], model: string) {
   const rows = assetIds
     .map((id) => assetRow(id))
     .filter((r): r is NonNullable<typeof r> => !!r && r.venture_id === ventureId);
@@ -79,7 +81,8 @@ setReferenceResolver(async (ventureId, assetIds, model) => {
 
   const support = await modelImageInput(model);
   const texts = rows.map(assetAsText);
-  if (!support.supported)
+  if (!support.supported) {
+    markUsed(rows.map(row => row.id));
     return {
       dataUrls: [],
       field: null,
@@ -89,26 +92,28 @@ setReferenceResolver(async (ventureId, assetIds, model) => {
         support.note +
         (missing ? ` ${missing} selected asset(s) were not found for this venture.` : ""),
     };
+  }
 
-  const dataUrls = rows
-    .map((r) => assetAsDataUrl(r.id))
-    .filter((u): u is string => u !== null)
+  const selected = rows
+    .map((row) => ({ row, url: assetAsDataUrl(row.id) }))
+    .filter((item): item is { row: typeof rows[number]; url: string } => item.url !== null)
     /* One image unless the model's field takes a list — sending four to a
        single-image field is a request the model rejects. */
     .slice(0, support.many ? 4 : 1);
-  markUsed(rows.slice(0, dataUrls.length).map((r) => r.id));
+  const dataUrls = selected.map(item => item.url);
+  markUsed(rows.map(row => row.id));
   return {
     dataUrls,
     field: dataUrls.length ? support.field : null,
     many: support.many,
-    /* The words are NOT also sent when the picture was. Describing an image the
-       model can see is how a prompt starts arguing with its own reference. */
-    texts: dataUrls.length ? [] : texts,
+    // The owner's per-image instructions still matter when the model can see it.
+    texts,
     note: dataUrls.length
       ? `${dataUrls.length} reference image(s) passed to ${model} as \`${support.field}\`.`
       : "The selected assets could not be read off disk, so they were described in words instead.",
   };
-});
+}
+setReferenceResolver(resolveLibraryReferences);
 
 /** `connected` for a settings-only plugin means the owner configured
  *  something, and for this one it means there is somewhere to publish TO. A

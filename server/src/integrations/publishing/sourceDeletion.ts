@@ -4,6 +4,8 @@ import { db } from "../../db.ts";
  * their external post and history when the local generation is removed. */
 export function sourceDeletionProblem(kind: "studio_post" | "video_job", id: string): string | null {
   const item = db.prepare(`SELECT id FROM publish_items
-    WHERE source_kind = ? AND source_id = ? AND status NOT IN ('published', 'cancelled') LIMIT 1`).get(kind, id);
+    WHERE ((source_kind = ? AND source_id = ?) OR
+      (? = 'video_job' AND source_kind = 'video_clip' AND substr(source_id, 1, length(?) + 1) = ? || ':'))
+      AND status NOT IN ('published', 'cancelled') LIMIT 1`).get(kind, id, kind, id, id);
   return item ? "This generation is used in Publishing. Remove or cancel its pending publishing items before deleting it." : null;
 }

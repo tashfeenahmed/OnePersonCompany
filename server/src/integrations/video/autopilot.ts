@@ -4,16 +4,11 @@
  *
  * WHAT IT DOES AND, MUCH MORE IMPORTANTLY, WHAT IT DOES NOT. It queues two
  * kinds of thing: a Studio post for a venture, and a video run for a venture.
- * That is all. IT NEVER PUBLISHES ANYTHING ANYWHERE. There is no social
- * credential in this vault, no upload route on this server, and nothing here
- * that would use one if there were. What comes out of a pass is a post in the
- * Studio gallery and a video on its run page, waiting for the owner. An
- * automation that posted on somebody's behalf on a schedule is a different
- * product and a much worse idea, and the rules on the `autopilot` skill say so
- * to the agent as well as to the reader.
+ * Finished assets are filed as Publishing drafts. Autopilot does not approve
+ * or publish them; the owner reviews each item in Publishing.
  *
  * OFF UNTIL IT IS TURNED ON, like the nightly backup and for the same reason:
- * this spends the owner's Replicate credit and their Pexels quota, and a
+ * this uses the owner's generation providers and media quota, and a
  * process that started doing that at nine in the morning because a default
  * said so would be a surprise somebody pays for.
  *
@@ -63,6 +58,7 @@
  * from the venture's name.
  */
 import { randomUUID } from "node:crypto";
+import { nextZonedTime } from "../../../../shared/zonedTime.ts";
 import { configValue, db, now, ventureRows, type VentureRow } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
 import { createPost } from "../ventures/studio.ts";
@@ -75,6 +71,7 @@ import { ensureTeam, subagentId, subagentRow } from "../subagents/store.ts";
    thing a setting there can do is propose a date. The claim in this file's
    header stands: nothing here publishes anything anywhere. */
 import { onAutopilotAsset } from "../publishing/autopilot-hook.ts";
+import { ownerZone } from "../publishing/settings.ts";
 /* THE TWO LINES THAT CONNECT THIS TO SOURCING AND NOVELTY, added 2026-09-06 by
    the socialfeed area. Both are ordinary static imports of modules that reach
    nothing but db.ts and the providers — neither closes a manifest cycle, and
@@ -84,6 +81,7 @@ import { checkTopic, historyRows, remember } from "../socialfeed/novelty.ts";
 import { findSource } from "../socialfeed/sourcing.ts";
 
 export const AUTOPILOT_PLUGIN = "autopilot";
+export const AUTOPILOT_FORMATS = ["faceless", "shorts", "motion", "stewie", "ugc"] as const;
 
 /** The session id every autopilot dispatch is filed under, so a run it started
  *  is distinguishable in the ledger from one the owner asked for in a chat.
@@ -113,10 +111,7 @@ export type Schedule = {
   timezone: string;
   /** Stage names, lower case. A venture at one of these is skipped. */
   quiet: string[];
-  /** Which video formats a pass may queue. `shorts` needs a source URL, and
-   *  since 2026-09-06 the pass can find one — see integrations/socialfeed/
-   *  sourcing.ts — so both are useful. Only the FIRST is used per pass; a list
-   *  of two is not "make both". */
+  /** Rotate through these formats per venture, within the existing cadence. */
   formats: string[];
   cap: number;
 };
@@ -148,15 +143,14 @@ export function validZone(tz: string): boolean {
 }
 
 export function schedule(): Schedule {
-  const tz = (configValue(AUTOPILOT_PLUGIN, "timezone") ?? "").trim();
   return {
     enabled: (configValue(AUTOPILOT_PLUGIN, "enabled") ?? "").trim().toLowerCase() === "on",
     posts: num("posts", DEFAULT_POSTS, 0, 21),
     videos: num("videos", DEFAULT_VIDEOS, 0, 14),
     hour: num("hour", DEFAULT_HOUR, 0, 23),
-    timezone: tz && validZone(tz) ? tz : localZone(),
+    timezone: ownerZone(),
     quiet: list("quiet", DEFAULT_QUIET),
-    formats: list("formats", "faceless"),
+    formats: [...new Set(list("formats", "faceless").filter(f => (AUTOPILOT_FORMATS as readonly string[]).includes(f)))],
     cap: num("cap", DEFAULT_CAP, 1, 50),
   };
 }
@@ -182,32 +176,21 @@ export function wall(tz: string, at: Date = new Date()): { day: string; hour: nu
 /**
  * When the next pass would be, as an instant.
  *
- * WALKED FORWARD AN HOUR AT A TIME RATHER THAN COMPUTED. Turning "09:00 next
+ * WALKED FORWARD A MINUTE AT A TIME RATHER THAN COMPUTED. Turning "09:00 next
  * Tuesday in Europe/Dublin" into a UTC instant by arithmetic means handling
  * the two nights a year where the local hour happens twice or not at all, and
  * getting that wrong is a schedule that silently skips a day in March. Walking
  * forward and asking Intl what the local hour is at each step cannot be wrong
- * about a transition it does not have to model. Forty-eight steps.
+ * about a transition it does not have to model. Up to forty-eight hours, including fractional UTC offsets.
  */
 export function nextRunAt(s: Schedule, from: Date = new Date()): string | null {
   if (!s.enabled) return null;
   const today = wall(s.timezone, from);
   const done = lastPassDay();
-  for (let i = 0; i <= 48; i++) {
-    const at = new Date(from.getTime() + i * 3_600_000);
-    const w = wall(s.timezone, at);
-    if (w.hour !== s.hour) continue;
-    /* The hour that is happening RIGHT NOW does not count as "next" once the
-       pass for that day has run — otherwise the page would say the next run is
-       four minutes ago. */
-    if (i === 0 && w.day === today.day && done === w.day) continue;
-    if (w.day === done) continue;
-    /* Truncated to the top of that local hour: the pass fires on the first
-       ten-minute tick inside it, and reporting the minute this happened to be
-       called would be reporting the wrong thing. */
-    return new Date(Math.floor(at.getTime() / 3_600_000) * 3_600_000).toISOString();
-  }
-  return null;
+  if (today.hour === s.hour && today.day !== done) return from.toISOString();
+  let next = nextZonedTime(s.timezone, s.hour, 0, from);
+  if (wall(s.timezone, new Date(next)).day === done) next = nextZonedTime(s.timezone, s.hour, 0, new Date(next));
+  return next;
 }
 
 /* ---------------------------------------------------------------- the log */
@@ -267,15 +250,17 @@ function queuedInWeek(ventureId: string, kind: "post" | "video"): number {
 }
 
 /** Everything queued by any pass today, against the day cap. */
-function queuedToday(tz: string): number {
-  const day = wall(tz).day;
-  const row = db
-    .prepare("SELECT COUNT(*) AS n FROM video_autopilot_log WHERE action = 'queued' AND ts >= ?")
-    .get(`${day}T00:00:00.000Z`) as { n: number } | undefined;
-  /* A UTC-shaped comparison against a local day is deliberately generous by
-     up to a day's offset: the cap is a brake, and a brake that occasionally
-     brakes early is the correct direction to be wrong in. */
-  return row?.n ?? 0;
+export function queuedToday(tz: string, at = new Date()): number {
+  const day = wall(tz, at).day;
+  const rows = db.prepare("SELECT ts FROM video_autopilot_log WHERE action = 'queued' AND kind IN ('post','video') AND ts >= ? AND ts <= ?")
+    .all(new Date(at.getTime() - 26 * 3_600_000).toISOString(), at.toISOString()) as { ts: string }[];
+  return rows.filter(row => wall(tz, new Date(row.ts)).day === day).length;
+}
+
+export function nextVideoFormat(ventureId: string, formats: string[]): string | null {
+  if (!formats.length) return null;
+  const previous = historyRows({ ventureId, limit: 100 }).find(row => formats.includes(row.format));
+  return formats[previous ? (formats.indexOf(previous.format) + 1) % formats.length : 0]!;
 }
 
 /* ------------------------------------------------------------- the topic */
@@ -524,7 +509,8 @@ export async function runPass(trigger: "clock" | "manual"): Promise<PassResult> 
         } else {
           /* THE FORMAT IS DECIDED BEFORE THE TOPIC, so the prompt and the gate
              read the same history. See deriveTopic. */
-          const format = s.formats[0] ?? "faceless";
+          const format = nextVideoFormat(v.id, s.formats);
+          if (!format) { record({ v, kind: "video", action: "skipped", note: "No supported video format is selected. Choose formats in Autopilot settings." }); continue; }
           const topic = await deriveTopic(v, "video", format);
           if ("error" in topic) record({ v, kind: "video", action: "failed", note: `no topic could be derived — ${topic.error}` });
           else {

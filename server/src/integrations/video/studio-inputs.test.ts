@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { shortsClipCount } from "../../../../shared/studioInputs.ts";
 import { readScript, readWindows, writeScript, pickWindows } from "./script.ts";
 import { registerProvider, setProviderChoiceReader } from "../../models/provider.ts";
-import { createPost } from "../ventures/studio.ts";
+import { createPost, studioRoutes, setDefaultReferencePicker, setReferenceResolver } from "../ventures/studio.ts";
 import { ventureRoutes } from "../../routes/ventures.ts";
 import { socialfeedRoutes } from "../socialfeed/routes.ts";
 import { db, upsertPlugin } from "../../db.ts";
@@ -71,6 +71,21 @@ test("automatic inputs use workspace AI, preserve explicit briefs, and queue ref
   const bad = await createPost({ ventureId: v.id, brief: "" });
   assert.equal(bad.ok, false);
   assert.equal(modelCalls, 1, "Invalid model topic must not continue to paid generation");
+
+  const selections: string[][] = [];
+  setDefaultReferencePicker(() => ["rotating-reference"]);
+  setReferenceResolver(async (_venture, ids) => {
+    selections.push(ids);
+    return { dataUrls: [], field: null, many: false, texts: ["Keep the blue hands"], note: "fixture" };
+  });
+  const auto = await studioRoutes.request("/posts", init({ ventureId: v.id, brief: "Explicit topic" }));
+  assert.equal(auto.status, 201);
+  assert.deepEqual(selections, [["rotating-reference"]], "Omitted assetIds must reach the automatic picker through HTTP");
+  const none = await studioRoutes.request("/posts", init({ ventureId: v.id, brief: "Explicit topic", assetIds: [] }));
+  assert.equal(none.status, 201);
+  assert.equal(selections.length, 1, "An explicit empty selection opts out");
+  setDefaultReferencePicker(() => []);
+  modelCalls = 1;
 
   upsertPlugin("openrouter", true);
   const account = accounts.create("openrouter", "Fake test account");

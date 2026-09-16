@@ -23,10 +23,9 @@
  *
  * TWO DELIVERIES, AND THE DRAFT IS THE IMPORTANT ONE. The message is a
  * courtesy; the draft in the publishing queue is what makes the asset usable.
- * Both are recorded on one row so neither happens twice, and a failure is
- * recorded as a failure with its reason rather than retried forever — the
- * reasons here (no bot paired, no venture, the file has gone) are all things
- * a person has to change.
+ * Successful filing is recorded once. Filing failures remain eligible for a
+ * later sweep; already filed clips are idempotent. Notification failures are
+ * recorded after filing rather than repeatedly interrupting the owner.
  *
  * THE TELEGRAM IMPORT IS DYNAMIC AND GUARDED. `telegram/bridge.ts` reaches
  * `routes/chat.ts`, which reaches `routes/pluginConfig.ts`, which calls
@@ -35,7 +34,7 @@
  * server that does not boot.
  */
 import { configValue, db, now, ventureRowById } from "../../db.ts";
-import { createItem } from "../publishing/items.ts";
+import { onAutopilotAsset } from "../publishing/autopilot-hook.ts";
 import { SOCIALFEED_PLUGIN } from "./novelty.ts";
 
 /**
@@ -131,22 +130,23 @@ async function sweepOnce(): Promise<SweepResult> {
     /* THE DRAFT FIRST. If the publishing queue refuses the item there is
        nothing worth telling somebody about, and the reason it refused is the
        thing to record. */
-    const filed = createItem({
-      ventureId: row.venture_id,
-      source: { kind: "video_job", id: row.ref },
-      caption: row.title,
-    });
-    const publishItem = filed.ok ? filed.item.id : null;
+    const clips = db.prepare("SELECT idx FROM video_clips WHERE run_id = ? ORDER BY idx").all(row.ref) as { idx: number }[];
+    const sources = clips.length
+      ? clips.map(clip => ({ kind: "video_clip" as const, id: `${row.ref}:${clip.idx}` }))
+      : [{ kind: "video_job" as const, id: row.ref }];
+    const filed = venture ? sources.map(source => onAutopilotAsset({ ventureId: venture.id, ventureSlug: venture.slug, source })) : [];
+    const publishItem = filed.find(item => item.itemId)?.itemId ?? null;
+    const filingError = !venture ? "The video's venture no longer exists." : filed.filter(item => !item.itemId).map(item => item.note).join(" · ") || null;
 
     const text =
       `<b>${escapeHtml(venture?.name ?? "A venture")}</b> — a video the autopilot made is ready.\n` +
       `${escapeHtml(row.title.slice(0, 200))}\n` +
       (publishItem
-        ? `Filed as draft <code>${publishItem}</code> in the publishing queue. Nothing has been posted.`
-        : `It could not be filed in the publishing queue: ${escapeHtml(filed.ok ? "" : filed.error)}`);
+        ? `Filed ${filed.filter(item => item.itemId).length} draft(s) in the publishing queue. Nothing has been posted.${filingError ? ` Some clips could not be filed: ${escapeHtml(filingError)}` : ""}`
+        : `It could not be filed in the publishing queue: ${escapeHtml(filingError ?? "No draft was created.")}`);
 
     let sent = false;
-    let reason: string | null = filed.ok ? null : filed.error;
+    let reason: string | null = filingError;
     const to = channel();
     let where: string | null = to;
     if (to === "off") {
@@ -155,7 +155,7 @@ async function sweepOnce(): Promise<SweepResult> {
       reason = [reason, "the delivery channel is switched off, so no message was sent"]
         .filter(Boolean)
         .join(" · ");
-    } else {
+    } else if (!filingError) {
       try {
         const { notify } = await import("../../telegram/bridge.ts");
         const res = await notify(text, { html: true });
@@ -167,7 +167,9 @@ async function sweepOnce(): Promise<SweepResult> {
       }
     }
 
-    db.prepare(
+    // A temporary filing failure must be retried by the next sweep. Successful
+    // clips are idempotent, so a partial batch does not duplicate drafts.
+    if (!filingError) db.prepare(
       "INSERT OR REPLACE INTO socialfeed_deliveries (ref, kind, venture_id, at, channel, sent, reason, publish_item) VALUES (?,?,?,?,?,?,?,?)",
     ).run(row.ref, "video", row.venture_id, now(), where, sent ? 1 : 0, reason, publishItem);
 

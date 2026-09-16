@@ -387,8 +387,9 @@ export function removeAsset(id: string): { ok: boolean; error?: string } {
   try {
     if (existsSync(row.path)) unlinkSync(row.path);
   } catch {
-    /* a file that will not delete is not a reason to keep the row */
+    return { ok: false, error: "The file could not be removed. The reference was kept so you can retry." };
   }
+  db.prepare("UPDATE style_guides SET logo_asset_id = NULL, updated_at = ? WHERE logo_asset_id = ?").run(now(), id);
   db.prepare("DELETE FROM venture_assets WHERE id = ?").run(id);
   return { ok: true };
 }
@@ -408,22 +409,23 @@ export function updateAsset(
     const target = db.prepare("SELECT id FROM ventures WHERE id = ?").get(patch.ventureId) as { id: string } | undefined;
     if (!target) return { ok: false, error: "No venture by that id to move it to." };
   }
-  db.prepare(
-    `UPDATE venture_assets
-        SET kind = COALESCE(?, kind), name = COALESCE(?, name),
-            prompt = COALESCE(?, prompt), notes = COALESCE(?, notes),
-            venture_id = COALESCE(?, venture_id), updated_at = ?
-      WHERE id = ?`,
-  ).run(
-    patch.kind ?? null,
-    patch.name === undefined ? null : (patch.name ?? "").slice(0, 120) || null,
-    patch.prompt === undefined ? null : (patch.prompt ?? "").slice(0, 600) || null,
-    patch.notes === undefined ? null : (patch.notes ?? "").slice(0, 600) || null,
-    patch.ventureId ?? null,
-    now(),
-    id,
-  );
+  const fields: Record<string, string | null> = { updated_at: now() };
+  if (patch.kind !== undefined) fields.kind = patch.kind;
+  if (patch.ventureId !== undefined) fields.venture_id = patch.ventureId;
+  for (const [key, limit] of [["name", 120], ["prompt", 600], ["notes", 600]] as const) {
+    if (patch[key] !== undefined) fields[key] = (patch[key] ?? "").trim().slice(0, limit) || null;
+  }
+  db.prepare(`UPDATE venture_assets SET ${Object.keys(fields).map(key => `${key} = ?`).join(", ")} WHERE id = ?`)
+    .run(...Object.values(fields), id);
+  if ((patch.ventureId !== undefined && patch.ventureId !== row.venture_id) || (patch.kind !== undefined && patch.kind !== "logo"))
+    db.prepare("UPDATE style_guides SET logo_asset_id = NULL, updated_at = ? WHERE logo_asset_id = ?").run(now(), id);
   return { ok: true, asset: assetRow(id)! };
+}
+
+/** Workdash rotates references by least recent use; never cross ventures. */
+export function defaultReferenceIds(ventureId: string): string[] {
+  return (db.prepare("SELECT id, path FROM venture_assets WHERE venture_id = ? AND kind = 'reference' ORDER BY last_used_at ASC, created_at ASC, id ASC")
+    .all(ventureId) as { id: string; path: string }[]).filter(row => existsSync(row.path)).slice(0, 3).map(row => row.id);
 }
 
 export function markUsed(ids: string[]) {

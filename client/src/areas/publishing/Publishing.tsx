@@ -46,6 +46,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { SelectField, SelectOption } from "@/components/ui/select-field";
 import { VentureSelect } from "@/components/VentureSelect";
 import { SocialPlatformIcon, SocialPlatformLabel } from "@/components/SocialPlatform";
 import { useApi } from "@/hooks/useApi";
@@ -87,7 +88,7 @@ export function Publishing() {
   const { state } = useStore();
   const ventures = state.ventures;
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") ?? "queue") as TabKey;
+  const tab = TABS.find(t => t.key === params.get("tab"))?.key ?? "queue";
 
   /* THE VENTURE IS IN THE URL TOO, and for the tab's reason: a queue somebody
      is looking at is a queue they will want to send to somebody, and half an
@@ -277,7 +278,14 @@ function ItemCard({
   const [refused, setRefused] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [result, setResult] = useState<PublishResult | null>(null);
-  const [at, setAt] = useState("");
+  const [at, setAt] = useState(() => {
+    if (!item.scheduledFor) return "";
+    const date = new Date(item.scheduledFor);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  const [editing, setEditing] = useState(false);
+  const [caption, setCaption] = useState(item.caption ?? "");
+  const [destinationId, setDestinationId] = useState(item.destinationId ?? "");
   /* TWO CLICKS FOR EITHER BUTTON THAT REACHES AN AUDIENCE. Publishing cannot
      be undone from here — deleting the post afterwards is a different act on a
      different site — and one stray click was, in this area's own history, all
@@ -295,8 +303,10 @@ function ItemCard({
       const res = (await fn()) as { note?: string | null } | null;
       if (res && typeof res === "object" && typeof res.note === "string") setSaid(res.note);
       onChanged();
+      return true;
     } catch (err) {
       setRefused(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setBusy(null);
       setArmed(null);
@@ -309,7 +319,7 @@ function ItemCard({
     !item.externalId;
 
   return (
-    <div className="bg-card border-line-soft grid gap-2.5 rounded-[14px] p-4.5">
+    <div data-publishing-item={item.id} className="bg-card border-line-soft grid gap-2.5 rounded-[14px] p-4.5">
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <span className={cn("font-medium", STATUS_TONE[item.status])}>{item.status}</span>
         <span className="text-muted-foreground">·</span>
@@ -342,6 +352,9 @@ function ItemCard({
             className="border-line-soft h-24 w-24 shrink-0 rounded-[11px] border object-cover"
           />
         )}
+        {item.media.kind === "video" && item.media.onDisk && item.media.url && (
+          <video src={item.media.url} controls preload="metadata" className="max-h-56 w-36 shrink-0 rounded-[11px] bg-black" />
+        )}
         <div className="min-w-0 flex-1">
           <p className="text-[14.5px] leading-relaxed whitespace-pre-wrap">
             {item.caption ?? <span className="text-muted-foreground">no caption</span>}
@@ -356,6 +369,20 @@ function ItemCard({
           </p>
         </div>
       </div>
+
+      {editing ? <fieldset disabled={busy !== null} className="grid gap-2.5">
+        <Textarea aria-label="Publishing caption" value={caption} onChange={e => setCaption(e.target.value)} rows={5} />
+        <SelectField aria-label="Publishing destination" value={destinationId} onValueChange={setDestinationId}>
+          <SelectOption value="">Choose a destination</SelectOption>
+          {destinations.filter(d => d.ventureId === item.ventureId && (d.enabled || d.id === item.destinationId)).map(d =>
+            <SelectOption key={d.id} value={d.id} disabled={!d.enabled}>{d.label} — {d.handle ?? d.id}{!d.enabled ? " (disabled)" : ""}</SelectOption>)}
+        </SelectField>
+        {(item.status === "approved" || item.status === "scheduled") && <p className="text-muted-foreground text-[12.5px]">Saving changes returns this to a draft and removes its schedule. Review and approve it again when ready.</p>}
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => void act("edit", () => publishingApi.patchItem(item.id, { caption, destinationId: destinationId || null })).then(ok => { if (ok) setEditing(false); })}>Save changes</Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel editing</Button>
+        </div>
+      </fieldset> : item.status !== "published" && item.status !== "publishing" && !item.externalId && <Button size="sm" variant="outline" disabled={busy !== null} className="justify-self-start" onClick={() => { setCaption(item.caption ?? ""); setDestinationId(item.destinationId ?? ""); setEditing(true); }}>Edit caption & destination</Button>}
 
       {item.problems.length > 0 && (
         <ul className="grid gap-1">
@@ -381,7 +408,7 @@ function ItemCard({
         </a>
       )}
 
-      {!item.destination && destinations.length > 0 && item.status !== "published" && (
+      {!editing && !item.destination && destinations.length > 0 && item.status !== "published" && item.status !== "publishing" && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">Send to</span>
           {destinations
@@ -389,6 +416,7 @@ function ItemCard({
             .map((d) => (
               <button
                 key={d.id}
+                disabled={busy !== null}
                 onClick={() => void act("dest", () => publishingApi.patchItem(item.id, { destinationId: d.id }))}
                 className="hover:border-line-strong inline-flex items-center gap-2 rounded-[12px] border px-2.5 py-1 text-[13px]"
               >
@@ -399,7 +427,7 @@ function ItemCard({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <fieldset disabled={busy !== null || item.status === "publishing"} className={cn("flex flex-wrap items-center gap-2", editing && "hidden")}>
         {canApprove && (
           <Button size="sm" onClick={() => void act("approve", () => publishingApi.approve(item.id))}>
             {busy === "approve" ? (
@@ -414,6 +442,8 @@ function ItemCard({
           <>
             <Input
               type="datetime-local"
+              aria-label="Publish at (your local time)"
+              title={`Your local time (${Intl.DateTimeFormat().resolvedOptions().timeZone})`}
               value={at}
               onChange={(e) => setAt(e.target.value)}
               className="h-8 w-[200px] text-[13.5px]"
@@ -507,7 +537,7 @@ function ItemCard({
             Cancel
           </Button>
         )}
-      </div>
+      </fieldset>
 
       {refused && <p className="text-destructive text-[13.5px] leading-relaxed">{refused}</p>}
       {said && <p className="text-warn text-[13.5px] leading-relaxed">{said}</p>}

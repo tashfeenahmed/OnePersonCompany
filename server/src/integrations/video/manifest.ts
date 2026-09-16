@@ -30,6 +30,7 @@ import { videoRoutes } from "./routes.ts";
 import { autopilotRoutes } from "./autopilot-routes.ts";
 import {
   AUTOPILOT_PLUGIN,
+  AUTOPILOT_FORMATS,
   DEFAULT_CAP,
   DEFAULT_HOUR,
   DEFAULT_QUIET,
@@ -38,7 +39,7 @@ import {
   validZone,
 } from "./autopilot.ts";
 import { VIDEO_PLUGIN } from "./tools.ts";
-import { FORMATS } from "./execute.ts";
+
 import { SKILLS, PACKS } from "./skills.ts";
 
 const path = (value: string): string | null => {
@@ -279,18 +280,18 @@ export const manifest: IntegrationManifest = {
         formats: {
           label: "Video formats it may queue",
           hint:
-            `Comma separated, out of ${FORMATS.join(", ")}. Default “faceless”. ` +
-            `Only the FIRST is used per pass — a list of two is not “make both”. ` +
+            `Comma separated, out of ${AUTOPILOT_FORMATS.join(", ")}. Default “faceless”. ` +
+            `Formats rotate per venture across passes, within the weekly cadence. ` +
             `“shorts” now works unattended: the pass finds its own source video ` +
             `through the SearXNG node and refuses anything it has already cut ` +
             `up (Integrations → Social feed holds the duration band and the ` +
             `novelty window). With SearXNG not connected a shorts pass logs a ` +
-            `skip saying there was nowhere to search. “ugc” needs the venture ` +
-            `to have reference pictures in its asset library and is better ` +
-            `started by hand, from the Studio. “reel” and “motion” also work ` +
-            `unattended — a reel walks the venture's own website and a motion ` +
+            `skip saying there was nowhere to search. “ugc” generates an opening ` +
+            `image from the brief, then animates it when animation is connected. ` +
+            `“motion” also works ` +
+            `unattended — a motion ` +
             `video drafts its own scene list from the topic. “stewie” hands ` +
-            `the job to Workdash's Pi, which may wake the Dell — better ` +
+            `the job to OPC's render relay, which may wake the Dell — better ` +
             `started by hand from the Studio.`,
           ph: "faceless",
           check(value) {
@@ -298,8 +299,8 @@ export const manifest: IntegrationManifest = {
               .split(/[,\n]/)
               .map((s) => s.trim().toLowerCase())
               .filter(Boolean)
-              .filter((s) => !FORMATS.includes(s as (typeof FORMATS)[number]));
-            return bad.length ? `Not formats: ${bad.join(", ")}. The formats are ${FORMATS.join(", ")}.` : null;
+              .filter((s) => !AUTOPILOT_FORMATS.includes(s as (typeof AUTOPILOT_FORMATS)[number]));
+            return bad.length ? `Not formats: ${bad.join(", ")}. The formats are ${AUTOPILOT_FORMATS.join(", ")}.` : null;
           },
         },
         cap: {

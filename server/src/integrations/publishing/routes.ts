@@ -290,9 +290,9 @@ publishingRoutes.post("/items", async (c) => {
   const sourceObj = (body.source ?? {}) as { kind?: unknown; id?: unknown };
   const kind = String(sourceObj.kind ?? body.sourceKind ?? "manual");
   const id = typeof sourceObj.id === "string" ? sourceObj.id : typeof body.sourceId === "string" ? body.sourceId : null;
-  if (kind !== "studio_post" && kind !== "video_job" && kind !== "manual")
-    return c.json(bad('A source kind is "studio_post", "video_job" or "manual".'), 400);
-  if (kind !== "manual" && !id) return c.json(bad("A studio_post or video_job source needs an id."), 400);
+  if (kind !== "studio_post" && kind !== "video_job" && kind !== "video_clip" && kind !== "manual")
+    return c.json(bad('A source kind is "studio_post", "video_job", "video_clip" or "manual".'), 400);
+  if (kind !== "manual" && !id) return c.json(bad("A studio_post, video_job or video_clip source needs an id."), 400);
 
   const source = (kind === "manual" ? { kind: "manual", id: null } : { kind, id: id! }) as Source;
   const created = createItem({

@@ -1,5 +1,5 @@
 import { SelectField, SelectOption } from "@/components/ui/select-field";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
@@ -204,7 +204,10 @@ function RefLibrary({ ventures }: { ventures: Venture[] }) {
 
   return (
     <div>
-      <div className="bg-card grid gap-3 rounded-[14px] p-4.5">
+      <div className="bg-card grid gap-3 rounded-[14px] p-4.5"
+        onDragOver={e => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+        onDrop={e => { if (!e.dataTransfer.files.length) return; e.preventDefault(); if (busy === null) void onFiles(e.dataTransfer.files); }}
+      >
         <div>
           <div className="text-[14.5px] font-medium">Reference images</div>
           <p className="text-muted-foreground text-[13px]">
@@ -238,7 +241,7 @@ function RefLibrary({ ventures }: { ventures: Venture[] }) {
           <p className="text-muted-foreground text-[12.5px]">
             {busy
               ? busy.startsWith("fetching") ? "Fetching the URL…" : `Uploading ${busy}…`
-              : "Tick the venture first, then add pictures any way you like — the picker, a URL, or just Ctrl+V an image or an image link anywhere on this tab. png, jpeg or webp."}
+              : "Tick the venture first, then add pictures any way you like — drop them here, use the picker or a URL, or just Ctrl+V an image or an image link anywhere on this tab. png, jpeg or webp."}
           </p>
           {error && <p className="text-destructive text-[12.5px]">{error}</p>}
         </div>
@@ -309,7 +312,7 @@ function RefCard({ refItem, ventures, onChanged }: { refItem: Asset; ventures: V
       </SelectField>
       <div className="text-muted-foreground flex items-center justify-between text-[12px]">
         <span>{saved ? "saved" : problem ? <span className="text-destructive">{problem}</span> : `used ${refItem.usedCount} time${refItem.usedCount === 1 ? "" : "s"}`}</span>
-        <button type="button" className="hover:text-foreground hover:underline" onClick={() => void publishingApi.removeAsset(refItem.id).then(onChanged)}>
+        <button type="button" className="hover:text-foreground hover:underline" onClick={() => void publishingApi.removeAsset(refItem.id).then(onChanged).catch(err => setProblem(err instanceof Error ? err.message : String(err)))}>
           Remove
         </button>
       </div>
@@ -408,14 +411,17 @@ function BrandCard({ venture, row, logos, onSaved }: { venture: Venture; row: Re
   const keys = Object.keys(base) as (keyof Draft)[];
   const dirty = keys.some((k) => draft[k] !== base[k]);
 
-  /* The card follows the server after a save or a re-read, but only when
-     nothing is half-typed: a measured colour that landed while this card was
-     open should appear, and a sentence the owner is mid-way through must not
-     vanish under it. */
+  const previousBase = useRef(base);
+  // Refresh untouched fields while preserving edits made during a re-read.
   useEffect(() => {
-    if (!dirty) setDraft(draftOf(guide, brand));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [guide.updatedAt, brand.enrichedAt, guide.logo]);
+    const before = previousBase.current;
+    const next = draftOf(guide, brand);
+    setDraft(current => Object.fromEntries(Object.keys(next).map(k => {
+      const key = k as keyof Draft;
+      return [key, current[key] === before[key] ? next[key] : current[key]];
+    })) as Draft);
+    previousBase.current = next;
+  }, [guide, brand]);
 
   const field = (k: keyof Draft, value: string) => setDraft((d) => ({ ...d, [k]: value }));
   const active = guide.logo && logos.some((l) => l.id === guide.logo) ? guide.logo : null;
@@ -424,7 +430,13 @@ function BrandCard({ venture, row, logos, onSaved }: { venture: Venture; row: Re
     setState("saving");
     setMessage(null);
     try {
-      await referencesApi.saveGuide(venture.slug, patch);
+      const submitted = draft;
+      const result = await referencesApi.saveGuide(venture.slug, patch);
+      const saved = draftOf(result.guide, brand);
+      setDraft(current => Object.fromEntries(Object.keys(current).map(k => {
+        const key = k as keyof Draft;
+        return [key, Object.hasOwn(patch, key) && current[key] === submitted[key] ? saved[key] : current[key]];
+      })) as Draft);
       setState("saved");
       onSaved();
     } catch (err) {
@@ -527,7 +539,7 @@ function BrandCard({ venture, row, logos, onSaved }: { venture: Venture; row: Re
                 <button
                   type="button"
                   title="remove this logo"
-                  onClick={() => void publishingApi.removeAsset(l.id).then(onSaved)}
+                  onClick={() => void publishingApi.removeAsset(l.id).then(onSaved).catch(err => { setState("error"); setMessage(err instanceof Error ? err.message : String(err)); })}
                   className="border-line-soft bg-card text-muted-foreground hover:text-destructive absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full border text-[10px]"
                 >
                   ×

@@ -188,7 +188,7 @@ autopilotRoutes.get("/", (c) => {
     })),
     note:
       "The autopilot QUEUES work and never publishes any of it. A post lands in the Studio gallery and a video lands on its run page; " +
-      "there is no credential for any social or video platform in this vault and no route here that would upload one. " +
+      "Finished assets are filed in Publishing as drafts for review. " +
       "`made` is what the autopilot itself queued in the last seven days — a post the owner made by hand is not counted and does not use up the cadence.",
   });
 });

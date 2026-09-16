@@ -1,4 +1,10 @@
-import { Download, Film } from "lucide-react";
+import { Download, Film, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { SelectField, SelectOption } from "@/components/ui/select-field";
+import { publishingApi } from "@/areas/publishing/api";
+import { useStore } from "@/lib/store";
 import { bytes } from "@/lib/format";
 import { useApi } from "@/hooks/useApi";
 import { videoApi, type VideoJob } from "@/lib/api/video";
@@ -88,6 +94,7 @@ export function VideoPanel({ job }: { job: VideoJob }) {
             <Download className="size-[13px]" strokeWidth={1.8} />
             Download the file
           </a>
+          <QueueVideo key={job.runId} job={job} />
         </div>
       ) : job.clips.length ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -144,6 +151,7 @@ export function VideoPanel({ job }: { job: VideoJob }) {
                   Download clip {c.index}
                 </a>
               )}
+              {c.file && c.onDisk && <QueueVideo key={`${job.runId}:${c.index}`} job={job} clipIndex={c.index} />}
             </div>
           ))}
         </div>
@@ -242,6 +250,34 @@ export function VideoPanel({ job }: { job: VideoJob }) {
       {job.error && <p className="text-destructive mt-2 text-[13px]">{job.error}</p>}
     </div>
   );
+}
+
+function QueueVideo({ job, clipIndex }: { job: VideoJob; clipIndex?: number }) {
+  const { state } = useStore();
+  const [ventureId, setVentureId] = useState(job.ventureId ?? "");
+  const [busy, setBusy] = useState(false);
+  const [queued, setQueued] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function queue() {
+    if (!ventureId || busy) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await publishingApi.queue({ ventureId, sourceKind: clipIndex ? "video_clip" : "video_job", sourceId: clipIndex ? `${job.runId}:${clipIndex}` : job.runId });
+      setQueued(result.created ? "Draft added" : "Already in Publishing");
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  }
+  return <div className="grid gap-2">
+    {!job.ventureId && !queued && <SelectField aria-label="Publishing venture" value={ventureId} onValueChange={setVentureId} disabled={busy}>
+      <SelectOption value="">Choose a venture</SelectOption>
+      {state.ventures.map(v => <SelectOption key={v.id} value={v.id}>{v.name}</SelectOption>)}
+    </SelectField>}
+    {queued ? <Link to={`/social/studio/publishing?venture=${state.ventures.find(v => v.id === ventureId)?.slug ?? "all"}`} className="text-[13px] underline decoration-dotted">{queued} · Open Publishing</Link>
+      : <Button variant="outline" size="sm" disabled={!ventureId || busy} onClick={() => void queue()}>
+        {busy && <Loader2 className="size-3.5 animate-spin" />} Add {clipIndex ? `clip ${clipIndex}` : "video"} to Publishing
+      </Button>}
+    {error && <p className="text-destructive text-[13px]">{error}</p>}
+  </div>;
 }
 
 const stamp = (s: number) =>

@@ -56,7 +56,7 @@ export function Autopilot() {
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") ?? "schedule") as (typeof TABS)[number]["key"];
+  const tab = TABS.find(t => t.key === params.get("tab"))?.key ?? "schedule";
 
   async function now() {
     setBusy(true);
@@ -130,7 +130,7 @@ export function Autopilot() {
             <span className="text-muted-foreground text-[13px]">
               {busy
                 ? "Writing captions and pictures takes about twenty seconds each."
-                : "The same pass the clock runs, with the same limits. It spends Replicate credit and Pexels quota."}
+                : "Uses the connected generation providers and the same cadence and daily limits as the schedule."}
             </span>
           </div>
           {said && <p className="mt-2 text-[13.5px]">{said}</p>}
@@ -226,9 +226,9 @@ function Schedule({ doc }: { doc: AutopilotDoc }) {
         : "Switched off",
       note: s.enabled
         ? doc.nextRunAt
-          ? `Next pass ${ago(doc.nextRunAt)}. It is ${String(doc.now.local.hour).padStart(2, "0")}:00 there now.`
+          ? `Next pass: ${new Intl.DateTimeFormat(undefined, { timeZone: s.timezone, dateStyle: "medium", timeStyle: "short" }).format(new Date(doc.nextRunAt))} (${s.timezone}).`
           : "On, but no next pass could be worked out."
-        : "Nothing is queued while it is off. `nextRunAt` is null, which means off rather than unknown.",
+        : "The daily schedule is off. You can still run a pass manually.",
       fix: { to: "/integrations/autopilot", label: s.enabled ? "Settings" : "Turn it on" },
     },
     {
@@ -241,7 +241,7 @@ function Schedule({ doc }: { doc: AutopilotDoc }) {
       note:
         s.postsPerVenturePerWeek + s.videosPerVenturePerWeek === 0
           ? "So a pass queues nothing, even switched on. Set a cadence in the settings."
-          : `At most ${s.dailyCap} things in any one day across every venture, and videos are not added while the run queue already has work waiting.`,
+          : `At most ${s.dailyCap} items per local day. Video formats rotate per venture: ${s.formats.join(", ") || "none selected"}. Videos wait when two jobs are already queued.`,
       fix:
         s.postsPerVenturePerWeek + s.videosPerVenturePerWeek === 0
           ? { to: "/integrations/autopilot", label: "Set a cadence" }
@@ -293,7 +293,7 @@ function LogLine({ entry }: { entry: AutopilotEntry }) {
     entry.kind === "video" && entry.ref
       ? `/social/video/${entry.ref}`
       : entry.kind === "post" && entry.ref
-        ? `/social/studio`
+        ? `/social/studio?open=${encodeURIComponent(`post:${entry.ref}`)}`
         : null;
   return (
     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-0.5 text-[13px]">

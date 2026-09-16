@@ -35,6 +35,7 @@
  * a judgement do not share a writer. See migrations.ts.
  */
 import { db, now, ventureRowById } from "../../db.ts";
+import { existsSync } from "node:fs";
 
 /**
  * The fields, and the ceiling on each.
@@ -177,9 +178,15 @@ export function saveGuide(
     }
     if (typeof raw !== "string") return { ok: false, error: `\`${field}\` is text — send a string, or null to clear it.` };
     const value = field === "logo" ? raw.trim() : raw.trim().toUpperCase();
+    if (!value) { brand[BRAND_COLUMN[field]] = null; continue; }
     if (field !== "logo" && !HEX.test(value))
       return { ok: false, error: `\`${field}\` is a colour and has to be a six-digit hex like #1A2B3C; “${raw.slice(0, 20)}” is not.` };
     if (field === "logo" && value.length > 64) return { ok: false, error: "`logo` is an asset id." };
+    if (field === "logo") {
+      const asset = db.prepare("SELECT venture_id, kind, path FROM venture_assets WHERE id = ?").get(value) as { venture_id: string; kind: string; path: string } | undefined;
+      if (!asset || asset.venture_id !== ventureId || asset.kind !== "logo" || !existsSync(asset.path))
+        return { ok: false, error: "Choose an available logo from this venture's logo library." };
+    }
     brand[BRAND_COLUMN[field]] = value;
   }
 

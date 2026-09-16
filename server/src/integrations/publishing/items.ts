@@ -130,6 +130,7 @@ export function mimeFromPath(path: string): string {
 export type Source =
   | { kind: "studio_post"; id: string }
   | { kind: "video_job"; id: string }
+  | { kind: "video_clip"; id: string }
   | { kind: "manual"; id: null };
 
 export type ResolvedSource = {
@@ -175,6 +176,16 @@ export function resolveSource(source: Source): ResolvedSource {
       mediaPath: onDisk ? row.image_path : null,
       error: null,
     };
+  }
+
+  if (source.kind === "video_clip") {
+    const match = /^(.+):([1-9]\d*)$/.exec(source.id);
+    const clip = match ? db.prepare(`SELECT c.path, c.title, j.venture_id FROM video_clips c
+      JOIN video_jobs j ON j.run_id = c.run_id WHERE c.run_id = ? AND c.idx = ?`)
+      .get(match[1]!, Number(match[2])) as { path: string | null; title: string; venture_id: string | null } | undefined : undefined;
+    const onDisk = !!clip?.path && existsSync(clip.path);
+    return { ventureId: clip?.venture_id ?? null, caption: clip?.title ?? null, mediaKind: onDisk ? "video" : "none",
+      mediaPath: onDisk ? clip!.path : null, error: !clip ? "No clip by that run and index." : onDisk ? null : "The clip file is no longer on disk." };
   }
 
   const job = db
@@ -374,6 +385,8 @@ export function createItem(input: {
   const ventureId = input.ventureId ?? resolved.ventureId;
   if (!ventureId) return { ok: false, error: "An item needs a venture." };
   if (!ventureRowById(ventureId)) return { ok: false, error: `There is no venture ${ventureId}.` };
+  if (resolved.ventureId && ventureId !== resolved.ventureId)
+    return { ok: false, error: "That source belongs to a different venture." };
 
   let destination: DestinationRow | undefined;
   if (input.destinationId) {
