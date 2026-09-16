@@ -71,7 +71,7 @@ const References = lazy(() => import("@/pages/References").then((m) => ({ defaul
  * redirects here (see App.tsx).
  *
  * THE SHAPE. A title, one row of tabs — Image post, UGC clip, Faceless,
- * Shorts, Reel, Motion — and under the chosen tab the fewest fields that
+ * Shorts, Motion, Stewie — and under the chosen tab the fewest fields that
  * pipeline needs. Everything ever made, of every kind, sits in the rail on
  * the left, newest first, with Autopilot and Publishing at the top of it:
  * the thing that fills the rail on a schedule, and the place a finished
@@ -117,7 +117,8 @@ const References = lazy(() => import("@/pages/References").then((m) => ({ defaul
  * page; the queue is where somebody approves a thing against a real account.
  */
 
-type Make = "image" | "ugc" | "faceless" | "youtube" | "reel" | "motion" | "stewie";
+// Reel creation is retired from Studio; existing Reel runs remain in history.
+type Make = "image" | "ugc" | "faceless" | "youtube" | "motion" | "stewie";
 
 const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[] = [
   { key: "image", label: "Image post", icon: ImageIcon, about: "A caption and a picture in the venture's own brand." },
@@ -128,7 +129,6 @@ const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[
      magnifying glass is the honest icon anyway: what this tab adds is the
      SEARCH — the cutting is the row above. */
   { key: "youtube", label: "YouTube Shorts", icon: Scissors, about: "Two to four vertical clips cut out of a long video — search YouTube and tick the keepers, or paste a link." },
-  { key: "reel", label: "Reel", icon: Film, about: "Two voices walking through the venture's own pages, scrolling." },
   { key: "motion", label: "Motion", icon: Shapes, about: "Animated typography from a scene list, in the venture's colours." },
   { key: "stewie", label: "Stewie", icon: Tv, about: "Peter explains, Stewie interrupts, over gameplay footage — cloned voices, rendered by OPC's worker on the Dell." },
 ];
@@ -174,7 +174,7 @@ export function Studio() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
 
-  /* WHICH TAB AND WHICH ROW ARE IN THE ADDRESS, so a link to "make a reel"
+  /* WHICH TAB AND WHICH ROW ARE IN THE ADDRESS, so a link to "make a video"
      or to one finished post is a link. */
   const make: Make = isMake(params.get("make")) ? (params.get("make") as Make) : "image";
   const openKey = params.get("open");
@@ -676,7 +676,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const [background, setBackground] = useState("");
   const gameplay = stewie.data?.backgrounds ?? footage.data?.backgrounds ?? (stewie.data?.worker?.backgrounds ?? []).map(id => ({ id, label: gameplayLabel(id), thumbnailUrl: null }));
 
-  const needsVenture = make === "image" || make === "ugc" || make === "reel";
+  const needsVenture = make === "image" || make === "ugc";
   const ready =
     !busy && (make !== "motion" || !voiceover || narrationReady) &&
     (!needsVenture || !!venture) &&
@@ -740,7 +740,6 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
       } else {
         const input: Record<string, string> = { format: make, brief: brief.trim(), aspect };
         if (make === "faceless") Object.assign(input, { seconds, fit });
-        if (make === "reel") Object.assign(input, { url: url.trim(), seconds });
         if (make === "motion") Object.assign(input, { spec, aspect: spec && !aspectChanged ? "" : aspect, voiceover: voiceover ? "true" : "false" });
         if (make === "stewie") Object.assign(input, { url: stewieMode === "pages" ? url.trim() : "", background });
         const run = await runsApi.start({ kind: "video", ventureId: venture?.id ?? null, input });
@@ -796,7 +795,6 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     ugc: "Creates a still, then animates it if a video model is connected. Generation uses the connected providers’ credits.",
     faceless: "Your workspace AI writes the script; stock footage and narration are assembled into a video.",
     youtube: "AI selects complete moments from the transcript. Clips are vertical by default; missing transcript or framing support is noted in the result.",
-    reel: "OPC captures the pages and writes a two-voice walkthrough.",
     motion: "AI writes the scene list from your brief. Vertical and silent by default.",
     stewie: "AI writes both voices. The render worker wakes the Dell if needed; rendering takes a few minutes.",
   }[make];
@@ -833,10 +831,6 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         </Field>}
       </>}
 
-      {make === "reel" && <Field label="Pages to walk through" hint="One address per line. Empty uses the venture’s website.">
-        <Textarea aria-label="Pages to walk through" value={url} onChange={(e) => setUrl(e.target.value)} rows={2} placeholder="https://…" className="text-[14px]" />
-      </Field>}
-
       {make !== "youtube" && !(make === "motion" && spec) && briefField}
       {make === "motion" && spec && <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
         <span>Using a saved scene list</span><Button variant="ghost" size="sm" onClick={() => setSpec("")}>Write from a prompt instead</Button>
@@ -862,7 +856,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
             <Field label="Shape"><ShapePicker value={shape} onChange={setShape} options={SHAPES} /></Field>
             {assetsField}
           </> : make !== "stewie" && make !== "faceless" && shapeField}
-          {(make === "faceless" || make === "reel" || make === "youtube") && <Field label={make === "youtube" ? "Maximum clip length" : "Target length (optional)"} hint={make === "faceless" ? "Empty lets AI plan the shots and their timing. Set 10–120 seconds to override." : make === "youtube" ? "An upper limit, not an exact length. AI chooses where each thought starts and ends." : "10–120 seconds for the whole walkthrough."}>
+          {(make === "faceless" || make === "youtube") && <Field label={make === "youtube" ? "Maximum clip length" : "Target length (optional)"} hint={make === "faceless" ? "Empty lets AI plan the shots and their timing. Set 10–120 seconds to override." : "An upper limit, not an exact length. AI chooses where each thought starts and ends."}>
             <div className="flex items-center gap-2"><Input aria-label={make === "youtube" ? "Maximum clip length" : "Target length"} type="number" min={make === "youtube" ? 15 : 10} max={make === "youtube" ? 90 : 120} value={seconds} onChange={(e) => setSeconds(e.target.value)} placeholder="Auto" className="w-28" /><span className="text-muted-foreground text-[12px]">seconds</span></div>
           </Field>}
           {(make === "faceless" || make === "youtube") && <Field label="Framing">
