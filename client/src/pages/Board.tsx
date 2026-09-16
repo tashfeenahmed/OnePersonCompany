@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { completedBoardMove } from "@/lib/boardCompletion";
+import { burstConfetti, clearConfetti } from "@/lib/confetti";
 import { Archive, ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -101,6 +103,7 @@ type VentureChip = {
  */
 export function Board() {
   const { state } = useStore();
+  useEffect(() => clearConfetti, []);
 
   /* WHICH VENTURE'S WORK IS SHOWING — null is "all of it". A venture id
      rather than an index, so the filter survives a venture being renamed and
@@ -170,10 +173,12 @@ export function Board() {
    */
   async function mutate(call: () => Promise<BoardDoc>, optimistic?: BoardDoc) {
     try {
-      await writeBoard(call, optimistic);
+      const saved = await writeBoard(call, optimistic);
       setRefused(null);
+      return saved;
     } catch (e) {
       setRefused(e instanceof Error ? e.message : String(e));
+      return null;
     }
   }
 
@@ -194,7 +199,7 @@ export function Board() {
     );
   }
 
-  function onDrop(columnId: number, before: number | null) {
+  async function onDrop(columnId: number, before: number | null, at: { x: number; y: number }) {
     const id = drag;
     setDrag(null);
     setDrop(null);
@@ -203,10 +208,11 @@ export function Board() {
        answers this with the board unchanged, but a request for a no-op is a
        request that can fail for no reason. */
     if (before === id) return;
-    void mutate(
+    const saved = await mutate(
       () => api.boardMoveCard(id, columnId, before),
       applyMove(data, id, columnId, before),
     );
+    if (saved && completedBoardMove(data, saved, id)) burstConfetti(at.x, at.y);
   }
 
   /* ---- the three states this page actually has, before any board is drawn */
@@ -332,7 +338,7 @@ export function Board() {
               setDrop(null);
             }}
             onDragOver={(before) => pointAt(column.id, before)}
-            onDrop={(before) => onDrop(column.id, before)}
+            onDrop={(before, at) => void onDrop(column.id, before, at)}
             onOpen={setOpened}
             onAdd={(title) =>
               mutate(() =>
@@ -499,7 +505,7 @@ function Column({
   onDragStart: (id: number) => void;
   onDragEnd: () => void;
   onDragOver: (before: number | null) => void;
-  onDrop: (before: number | null) => void;
+  onDrop: (before: number | null, at: { x: number; y: number }) => void;
   onOpen: (id: number) => void;
   onAdd: (title: string) => void;
   onRename: (title: string) => void;
@@ -558,7 +564,7 @@ function Column({
       onDrop={(e) => {
         if (drag === null) return;
         e.preventDefault();
-        onDrop(drop === undefined ? null : drop);
+        onDrop(drop === undefined ? null : drop, { x: e.clientX, y: e.clientY });
       }}
     >
       <header className="flex shrink-0 items-center gap-1.5 px-2.5 py-2">
@@ -682,7 +688,7 @@ function Column({
               onDragStart={() => onDragStart(card.id)}
               onDragEnd={onDragEnd}
               onDragOver={(below) => onDragOver(below ? after(i) : card.id)}
-              onDrop={(below) => onDrop(below ? after(i) : card.id)}
+              onDrop={(below, at) => onDrop(below ? after(i) : card.id, at)}
             />
             {i === shown.length - 1 && drop === null && <Insertion />}
           </div>
@@ -806,7 +812,7 @@ function CardTile({
   onDragEnd: () => void;
   /** True when the pointer is in the bottom half — "below this card". */
   onDragOver: (below: boolean) => void;
-  onDrop: (below: boolean) => void;
+  onDrop: (below: boolean, at: { x: number; y: number }) => void;
 }) {
   const urgency = URGENCY[card.urgency] ?? URGENCY[1]!;
   const overdue = card.due !== null && card.due < today();
@@ -838,7 +844,7 @@ function CardTile({
         e.preventDefault();
         e.stopPropagation();
         const r = e.currentTarget.getBoundingClientRect();
-        onDrop(e.clientY > r.top + r.height / 2);
+        onDrop(e.clientY > r.top + r.height / 2, { x: e.clientX, y: e.clientY });
       }}
       className={cn(
         "bg-card hover:bg-card-hover my-1 cursor-grab rounded-[12px] px-3 py-2.5 transition-colors",

@@ -45,7 +45,8 @@ export function useBoard(paused: boolean) {
     if (optimistic) setData(optimistic);
     try {
       const next = await call();
-      if (alive.current && ticket === generation.current) { setData(next); setError(null); }
+      if (alive.current && ticket === generation.current) { setData(next); setError(null); return next; }
+      return null;
     } catch (e) {
       if (alive.current && ticket === generation.current && optimistic) setData(previous);
       throw e;
