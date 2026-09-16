@@ -38,6 +38,7 @@
  * The clips themselves are kept because they are what the run produced.
  */
 import { shortsClipCount } from "../../../../shared/studioInputs.ts";
+import { downloadWithRefresh, youtubeRuntimeArgs, ytdlpFailure } from "./ytdlp.ts";
 import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { configValue, type VentureRow } from "../../db.ts";
@@ -58,7 +59,6 @@ import {
   probeDuration,
   probeSize,
   run,
-  tail,
 } from "./tools.ts";
 import {
   chooseMoments,
@@ -115,7 +115,7 @@ export async function shortsVideo(opts: {
      hint on that setting says why: what YouTube requires of a downloader
      changes every few months, the fix is always a flag, and a dashboard that
      needed a release to carry one would be broken for weeks at a time. */
-  const extra = readExtraArgs();
+  const extra = [...youtubeRuntimeArgs(input.url), ...readExtraArgs()];
 
   /* --------------------------------------------------------- 1. the probe */
   const probeStep = s.startStep("probe", "asking what is at that address");
@@ -126,7 +126,7 @@ export async function shortsVideo(opts: {
   );
   if (!meta.ok) {
     s.endStep(probeStep, "the address could not be read");
-    throw new StepError("probe", meta.error ?? (tail(meta.stderr) || "yt-dlp would not describe that URL"));
+    throw new StepError("probe", ytdlpFailure(meta, "yt-dlp would not describe that URL"));
   }
   let info: { title?: unknown; duration?: unknown; is_live?: unknown; extractor?: unknown; webpage_url?: unknown };
   try {
@@ -170,13 +170,13 @@ export async function shortsVideo(opts: {
   s.endStep(probeStep, `${title.slice(0, 60)} · ${unknownLength ? "length not reported" : `${Math.round(sourceSeconds! / 60)} min`}`);
 
   /* ------------------------------------------------------ 2. the download */
-  const dlStep = s.startStep(
+  let dlStep = s.startStep(
     "download",
     unknownLength
       ? `fetching — nothing said how long it is, so this is capped at ${Math.min(2048, Math.round(maxMinutes * 30))} MB (best-effort: a fragmented download ignores that) and checked against the ${maxMinutes}-minute limit afterwards`
       : `fetching ${Math.round(sourceSeconds! / 60)} minutes`,
   );
-  const dl = await run(
+  const { result: dl, refreshed } = await downloadWithRefresh(
     ytdlp.path,
     [
       "--no-playlist", "--no-warnings", "--no-progress",
@@ -211,12 +211,15 @@ export async function shortsVideo(opts: {
       ...extra,
       input.url,
     ],
-    { timeoutMs: 1_800_000, signal },
+    { timeoutMs: 1_800_000, signal, onRefresh: () => {
+      s.endStep(dlStep, "YouTube refused a media link (403)");
+      dlStep = s.startStep("download", "refreshing YouTube's media links and retrying once");
+    } },
   );
   const source = findFile(dir, /^source\.(mp4|mkv|webm|mov)$/);
-  if (!source) {
-    s.endStep(dlStep, "nothing was downloaded");
-    throw new StepError("download", dl.error ?? (tail(dl.stderr) || "yt-dlp exited without writing a video file"));
+  if (!dl.ok || !source) {
+    s.endStep(dlStep, "download did not complete");
+    throw new StepError("download", ytdlpFailure(dl, "yt-dlp exited without writing a video file"));
   }
   const actual = ffprobe.path ? await probeDuration(ffprobe.path, source, signal) : sourceSeconds;
   const duration = actual ?? sourceSeconds;
@@ -237,7 +240,7 @@ export async function shortsVideo(opts: {
       `That video turned out to be ${Math.round(duration / 60)} minutes and the limit is ${maxMinutes}. Nothing said how long it was before the download, so it was checked after. The file has been deleted.`,
     );
   }
-  s.endStep(dlStep, `${((bytesOf(source) ?? 0) / 1024 / 1024).toFixed(0)} MB · ${Math.round(duration)}s`);
+  s.endStep(dlStep, `${((bytesOf(source) ?? 0) / 1024 / 1024).toFixed(0)} MB · ${Math.round(duration)}s${refreshed ? " · downloaded after refreshing links" : ""}`);
 
   /* ----------------------------------------------------- 3. the transcript */
   const trStep = s.startStep("transcript", "looking for what was said");

@@ -12,6 +12,13 @@ npm start
 
 Open http://127.0.0.1:8787. The server serves both the API and the built client.
 
+For YouTube Shorts, install a current official yt-dlp executable (or
+`yt-dlp[default]` in an isolated Python environment) and set its path in the
+Video integration. OPC enables its Node runtime and the official EJS solver
+for YouTube downloads, and refreshes extraction once after a media HTTP 403.
+An outdated downloader or a system Python dependency conflict can break downloads
+even when YouTube search still works. See [yt-dlp's runtime and EJS setup](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+
 ## Configuration
 
 

@@ -90,7 +90,8 @@ export const manifest: IntegrationManifest = {
           label: "yt-dlp",
           hint:
             "Needed only for the shorts format, which downloads a long video " +
-            "and cuts it up. Blank probes as above.",
+            "and cuts it up. Use a current yt-dlp release with its EJS scripts. " +
+            "OPC enables its Node runtime and official EJS solver for YouTube. Blank probes as above.",
           ph: "/opt/homebrew/bin/yt-dlp",
           check: (v) => path(v),
         },
