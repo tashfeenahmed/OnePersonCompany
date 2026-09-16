@@ -100,6 +100,20 @@ export type CompleteOptions = {
    * on compatible routers, without changing the workspace's chat settings. */
   jsonObject?: boolean;
   /**
+   * MORE OUTPUT ROOM THAN THE WORKSPACE DEFAULT, for this one call.
+   *
+   * A structured writer is not a chat turn. Asked for a scene list, a reasoning
+   * model can spend the workspace's whole `maxOutputTokens` thinking and emit no
+   * JSON at all — which is what happened on run r-c4k493, and what 179 of 486
+   * stored checkpoints stopping at exactly 4096 completion tokens look like.
+   *
+   * ONLY UPWARDS, AND ONLY SO FAR. `runtime/budgets.ts` raises a smaller request
+   * back to the workspace default and clamps a larger one to
+   * `OUTPUT_TOKENS_CEILING`, and reserves what is actually asked for — so the
+   * daily and venture budgets see the real number before the call is made.
+   */
+  maxOutputTokens?: number;
+  /**
    * WHAT THE IMAGES IN THIS CALL ARE WORTH, IN TOKENS.
    *
    * `runtime/budgets.ts` reserves a call at the UTF-8 byte length of its turns,
@@ -365,9 +379,12 @@ function budgetShape(turns: VisionTurn[], imageTokens?: number): unknown {
  */
 export async function complete(turns: VisionTurn[], opts: CompleteOptions = {}): Promise<ProviderReply> {
   const work = () =>
-    budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: activeProvider()?.id, ...(opts.jsonObject ? { jsonObject: true } : {}) }, maxOutputTokens =>
+    /* The allowance is part of the request, so it is part of the budget shape
+       the checkpoint key is hashed from: a resumed run must not replay the
+       truncated reply a smaller allowance produced. */
+    budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: activeProvider()?.id, ...(opts.jsonObject ? { jsonObject: true } : {}), ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}) }, maxOutputTokens =>
       completeUnmetered(turns, opts, maxOutputTokens),
-    );
+    false, opts.maxOutputTokens);
   if (runContext.getStore()) return work();
   return runContext.run({ id: `direct:${randomUUID()}`, venture: null, automation: true, signal: opts.signal ?? AbortSignal.timeout(budgets().runSeconds * 1000), sequence: 0, resume: false }, work);
 }
@@ -397,6 +414,22 @@ async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, max
       body: {
         ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
         ...(opts.jsonObject ? { response_format: { type: "json_object" } } : {}),
+        /* `"none"` AND NOT `"minimal"`, checked against the router's own source
+           rather than guessed. FreeLLMAPI accepts the whole OpenAI scale —
+           `REASONING_EFFORTS = ['none','minimal','low','medium','high']` in its
+           lib/sampling-params.ts — and `normalizeReasoningEffort` never throws:
+           a value it does not know is DROPPED, not turned into a 400 (its #619).
+           Per upstream, the same file then either strips the knob (mistral,
+           cohere, cloudflare, aihorde), clamps it to the nearest value that
+           upstream takes (github and radeon both land on `low`, and sail's
+           adapter lifts none/minimal to `low` for gpt-oss), or — for Gemini —
+           maps it through `toGeminiExtendedConfig`, where 'none' and 'minimal'
+           BOTH become `thinkingBudget: 0`. So "minimal" buys no extra safety
+           anywhere and costs thinking tokens on every upstream that honours the
+           full scale, which is exactly the ones this flag exists for. The
+           2026-08-31 incident where `none` was rejected and `minimal` worked was
+           OpenRouter's own API, not this router — and OpenRouter is handled on
+           its own line below. */
         ...(opts.jsonObject && p.id === "freellmapi" ? { reasoning_effort: "none" } : {}),
         ...(opts.jsonObject && p.id === "openrouter" ? { reasoning: { enabled: false } } : {}),
         ...(opts.jsonObject && p.id === "local" ? { chat_template_kwargs: { enable_thinking: false } } : {}),
@@ -489,9 +522,9 @@ export async function completeTooled(
   opts: ToolCompleteOptions = {},
 ): Promise<ToolProviderReply> {
   const work = () =>
-    budgeted({ turns, model: opts.model, provider: activeProvider()?.id }, (maxOutputTokens) =>
+    budgeted({ turns, model: opts.model, provider: activeProvider()?.id, ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}) }, (maxOutputTokens) =>
       completeTooledUnmetered(turns, opts, maxOutputTokens),
-    );
+    false, opts.maxOutputTokens);
   /* A caller already inside a run context keeps it — which is the whole point
      for a tool loop: every round of one turn reserves against ONE run id, so
      the per-run call and dollar ceilings bound the loop rather than each of

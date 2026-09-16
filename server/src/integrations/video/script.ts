@@ -153,8 +153,12 @@ export async function writeScript(opts: {
     `Write the JSON object now.`,
   ].join("\n");
 
+  /* `jsonObject`: the brief asks for one JSON object and `readScript` below
+     rejects anything that is not one (`Array.isArray(c)` is skipped), so the
+     flag can only agree with what this writer already requires. */
   const reply = await complete([{ role: "system", content: system }, { role: "user", content: user }], {
     signal: opts.signal,
+    jsonObject: true,
   });
 
   const parsed = readScript(reply.text, opts.brief, count, opts.seconds, opts.venture ? END_CARD_SECONDS : 0);
@@ -311,8 +315,12 @@ export async function pickWindows(opts: {
     `Choose the clips now.`,
   ].join("\n");
 
+  /* `jsonObject`: the system prompt above asks for `{ "clips": [...] }` and
+     nothing else. `readWindows` would also take a bare array, but it is not
+     what was asked for and nothing depends on it. */
   const reply = await complete([{ role: "system", content: system }, { role: "user", content: user }], {
     signal: opts.signal,
+    jsonObject: true,
   });
   return { windows: readWindows(reply.text, opts.duration, opts.maxSeconds, opts.want), model: reply.model, raw: reply.text };
 }

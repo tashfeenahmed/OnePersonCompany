@@ -131,10 +131,17 @@ export async function writeSceneSpec(opts: {
   let feedback = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     opts.signal?.throwIfAborted();
+    /* ROOM TO THINK AND STILL ANSWER. A scene list is a few hundred tokens of
+       JSON, so 8192 is not about the answer being long — it is about the answer
+       arriving at all. `jsonObject` asks the router to turn optional thinking
+       off, but a model whose reasoning is not optional spends it first anyway,
+       and on the workspace's 4096 default that left run r-c4k493 with a full
+       charge and no JSON. runtime/budgets.ts clamps the figure and reserves it,
+       so the larger ask is visible to the budget rather than hidden from it. */
     const reply = await complete([
       { role: "system", content: system },
       { role: "user", content: feedback ? `${user}\n\nYour previous answer was rejected: ${feedback}. Send a complete, corrected JSON object only, with no reasoning.` : user },
-    ], { signal: opts.signal, jsonObject: true });
+    ], { signal: opts.signal, jsonObject: true, maxOutputTokens: 8192 });
     const raw = readModelJson(reply.text, "scenes");
     const checked = readSceneSpec(raw, opts.limits);
     if (checked.spec) return { raw, model: reply.model, text: reply.text };

@@ -9,6 +9,13 @@ export async function writeStewieScript(prepared: PreparedReel, signal?: AbortSi
       prepared.messages.some(message => !["system", "user"].includes(message.role) || typeof message.content !== "string" || message.content.length > 40_000)) {
     throw new Error("The render relay returned an invalid script brief. Update the render relay agent and retry.");
   }
+  /* NO `jsonObject` HERE, DELIBERATELY. The other video writers in this folder
+     set it; this one must not. `response_format: {type:"json_object"}` obliges
+     the model to answer with an OBJECT, and what this function validates — and
+     what the render relay's own prompt asks for — is a BARE ARRAY of six lines
+     (`Array.isArray(lines)` below). Turning the flag on here would make every
+     render fail. The prompt is the relay's, not ours, so it cannot be moved to
+     an object from this side either. */
   const reply = await complete(prepared.messages, { signal });
   // Reject malformed output before the render relay queues a GPU wake/render.
   if (reply.text.length > 16_000) throw new Error("The script was too long. No render was started; try again.");

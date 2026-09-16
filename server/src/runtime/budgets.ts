@@ -29,13 +29,41 @@ export function hasMeteredLimits(p = budgets()) { return !!(p.runTokens || p.dai
 export function assertMeterable(kind: string) {
   if (hasMeteredLimits() && ["video", "shotsqa"].includes(kind)) throw new Error("This job can use tools whose costs are not metered. It is blocked while token or dollar budgets are enabled.");
 }
-function reserve(turns: unknown, agent: boolean) {
+/**
+ * THE MOST OUTPUT ANY ONE CALL MAY ASK FOR, however loud the caller is.
+ *
+ * The workspace's `maxOutputTokens` is a budget setting and the right default
+ * for a chat turn. It is the wrong number for a STRUCTURED writer: a reasoning
+ * model asked for a scene list spends the whole allowance thinking out loud and
+ * the run ends with no JSON at all and a full charge (run r-c4k493, and 179 of
+ * 486 stored checkpoints stopping at exactly 4096 completion tokens).
+ *
+ * So a caller may ask for more — and only more. The request is raised to the
+ * workspace default when it is smaller (a caller must not quietly tighten an
+ * owner's budget) and lowered to this ceiling when it is larger (an allowance
+ * is also a reservation: every token asked for is charged against the daily and
+ * venture limits before the call is made, so an unbounded one would let a
+ * single writer swallow the day's budget).
+ */
+export const OUTPUT_TOKENS_CEILING = 16_000;
+
+/** The output allowance one call actually gets: the workspace default, or a
+ *  caller's larger request clamped to `OUTPUT_TOKENS_CEILING`. */
+export function outputAllowance(request?: number, p = budgets()): number {
+  if (request === undefined || !Number.isFinite(request) || request <= p.maxOutputTokens) return p.maxOutputTokens;
+  return Math.max(p.maxOutputTokens, Math.min(OUTPUT_TOKENS_CEILING, Math.floor(request)));
+}
+
+function reserve(turns: unknown, agent: boolean, maxOutputTokens?: number) {
   const ctx = runContext.getStore(); if (!ctx) return null;
   ctx.signal.throwIfAborted();
   const p = budgets();
   if (agent && hasMeteredLimits(p)) throw new Error("This agent cannot guarantee usage limits across its tools. Select a direct model provider or disable token and dollar budgets for this work.");
   // UTF-8 bytes plus output allowance conservatively reserve a text request.
-  const tokens = Buffer.byteLength(JSON.stringify(turns), "utf8") + p.maxOutputTokens + 1024;
+  // The allowance is what the call will REQUEST, not the workspace default, so
+  // a writer that asked for more is reserved and charged for what it asked for.
+  const output = outputAllowance(maxOutputTokens, p);
+  const tokens = Buffer.byteLength(JSON.stringify(turns), "utf8") + output + 1024;
   const usd = tokens * p.usdPerMillion / 1_000_000;
   const start = now().slice(0, 10) + "T00:00:00.000Z";
   db.exec("BEGIN IMMEDIATE");
@@ -49,10 +77,10 @@ function reserve(turns: unknown, agent: boolean) {
       [p.runUsd, run.usd, usd, "job dollar"], [p.dailyUsd, daily.usd, usd, "daily dollar"], [p.ventureDailyUsd, venture.usd, usd, "venture dollar"],
     ] as [number, number, number, string][]) if (limit > 0 && used + increment > limit) throw new Error(`This request would exceed the ${label} budget, including in-flight reservations.`);
     const result = db.prepare("INSERT INTO budget_usage (run_id, venture_id, automation, at, tokens, usd, status) VALUES (?,?,?,?,?,?,?)").run(ctx.id, ctx.venture, Number(ctx.automation), now(), tokens, usd, agent ? "unmetered-agent" : "reserved");
-    db.exec("COMMIT"); return { id: Number(result.lastInsertRowid), tokens, usd, price: p.usdPerMillion, output: p.maxOutputTokens };
+    db.exec("COMMIT"); return { id: Number(result.lastInsertRowid), tokens, usd, price: p.usdPerMillion, output };
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
-export async function budgeted<T extends { usage?: { prompt: number; completion: number } | null }>(turns: unknown, work: (maxOutputTokens?: number) => Promise<T>, agent = false): Promise<T> {
+export async function budgeted<T extends { usage?: { prompt: number; completion: number } | null }>(turns: unknown, work: (maxOutputTokens?: number) => Promise<T>, agent = false, maxOutputTokens?: number): Promise<T> {
   const ctx = runContext.getStore();
   const key = ctx ? `${ctx.sequence++}:${createHash("sha256").update(JSON.stringify(turns)).digest("hex")}` : null;
   // Only AI visibility has a fully replayable, direct-model pipeline.
@@ -60,7 +88,7 @@ export async function budgeted<T extends { usage?: { prompt: number; completion:
     const cached = db.prepare("SELECT reply FROM run_checkpoints WHERE run_id=? AND step_key=?").get(ctx.id, key) as {reply: string} | undefined;
     if (cached) return JSON.parse(cached.reply) as T;
   }
-  const reservation = reserve(turns, agent);
+  const reservation = reserve(turns, agent, maxOutputTokens);
   try {
     const result = await work(reservation?.output);
     if (reservation) {
