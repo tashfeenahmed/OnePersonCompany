@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { completedBoardMove } from "@/lib/boardCompletion";
 import { burstConfetti, clearConfetti } from "@/lib/confetti";
 import { Archive, ChevronDown, Plus, Trash2 } from "lucide-react";
@@ -474,6 +474,8 @@ function applyMove(
 /*  A lane                                                                */
 /* ====================================================================== */
 
+const COLUMN_PAGE_SIZE = 50;
+
 function Column({
   column,
   ventures,
@@ -519,6 +521,14 @@ function Column({
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(column.title);
   const [limiting, setLimiting] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(COLUMN_PAGE_SIZE);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Each lane pages independently. Polling keeps its place; a new filter starts over.
+  useLayoutEffect(() => {
+    setVisibleLimit(COLUMN_PAGE_SIZE);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [filter]);
 
   /* WHAT THIS LANE IS SHOWING, which is not always what it HOLDS. The filter
      hides cards; the count in the header is the column's own, from the server,
@@ -529,16 +539,26 @@ function Column({
     ? column.cards.filter((c) => c.ventureId === filter)
     : column.cards;
   const hidden = column.cards.length - shown.length;
+  const visible = shown.slice(0, visibleLimit);
+  const remaining = shown.length - visible.length;
+  const showMore = () => setVisibleLimit(Math.min(shown.length, visibleLimit + COLUMN_PAGE_SIZE));
 
-  /** The next visible card after this one, which is what "drop below this
-   *  card" means in the wire's own vocabulary. The dragged card is skipped
-   *  because it is about to leave wherever it is. */
+  /** The next matching card, including the next page, anchors a drop below
+   *  this card. Skip the dragged card because it is leaving its old position. */
   function after(index: number): number | null {
     for (let i = index + 1; i < shown.length; i++) {
       const next = shown[i]!;
       if (next.id !== drag) return next.id;
     }
     return null;
+  }
+  // A drop at the visible page's end goes before the next unloaded card,
+  // preserving its position instead of jumping past every remaining page.
+  const endBefore = after(visible.length - 1);
+  function dropAt(before: number | null, at: { x: number; y: number }) {
+    // Reveal the next batch so a card dropped at the boundary stays visible.
+    if (remaining > 0 && before === endBefore) showMore();
+    onDrop(before, at);
   }
 
   function commitRename() {
@@ -559,12 +579,12 @@ function Column({
       onDragOver={(e) => {
         if (drag === null) return;
         e.preventDefault();
-        onDragOver(null);
+        onDragOver(endBefore);
       }}
       onDrop={(e) => {
         if (drag === null) return;
         e.preventDefault();
-        onDrop(drop === undefined ? null : drop, { x: e.clientX, y: e.clientY });
+        dropAt(endBefore, { x: e.clientX, y: e.clientY });
       }}
     >
       <header className="flex shrink-0 items-center gap-1.5 px-2.5 py-2">
@@ -654,7 +674,15 @@ function Column({
       {/* The only part of a lane that scrolls. Everything above and below it is
           `shrink-0`, so forty cards never take the column's name off screen. */}
       <div
+        ref={scrollRef}
+        role="region"
+        aria-label={`${column.title} cards`}
+        tabIndex={0}
         className="min-h-0 flex-1 overflow-y-auto px-2"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (remaining > 0 && el.scrollHeight - el.scrollTop - el.clientHeight < 160) showMore();
+        }}
         /* A DRAG CANNOT SCROLL A LIST BY ITSELF, so holding a card near an
            edge nudges it. Without this, a drop point below the fold is
            unreachable: the card is held by the pointer, the wheel is doing
@@ -677,7 +705,7 @@ function Column({
           else if (e.clientY > r.bottom - EDGE) el.scrollTop += 14;
         }}
       >
-        {shown.map((card, i) => (
+        {visible.map((card, i) => (
           <div key={card.id}>
             {drop === card.id && <Insertion />}
             <CardTile
@@ -688,11 +716,25 @@ function Column({
               onDragStart={() => onDragStart(card.id)}
               onDragEnd={onDragEnd}
               onDragOver={(below) => onDragOver(below ? after(i) : card.id)}
-              onDrop={(below, at) => onDrop(below ? after(i) : card.id, at)}
+              onDrop={(below, at) => dropAt(below ? after(i) : card.id, at)}
             />
-            {i === shown.length - 1 && drop === null && <Insertion />}
+            {i === visible.length - 1 && drop === endBefore && <Insertion />}
           </div>
         ))}
+
+        {remaining > 0 && (
+          <div className="grid gap-1 py-3 text-center text-[12px] text-muted-foreground">
+            <span>{visible.length} of {shown.length} shown</span>
+            <button
+              type="button"
+              onClick={showMore}
+              aria-label={`Show ${Math.min(COLUMN_PAGE_SIZE, remaining)} more cards in ${column.title}`}
+              className="hover:text-foreground rounded-md px-2 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Show {Math.min(COLUMN_PAGE_SIZE, remaining)} more
+            </button>
+          </div>
+        )}
 
         {!shown.length && (
           <div className="text-muted-foreground rounded-lg border border-dashed px-3 py-6 text-center text-[13px] leading-relaxed">
