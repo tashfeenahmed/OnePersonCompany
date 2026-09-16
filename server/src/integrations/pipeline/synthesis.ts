@@ -515,6 +515,26 @@ export function renderPacket(p: EvidencePacket): string {
 
   section("revenue", p.revenue, () => {
     const r = p.revenue.measured!;
+    const one = r.oneOff;
+    /* ONE-OFF CASH GETS ITS OWN LINE AND ITS OWN WORDS. It is settled money
+       over a window, not a run rate, and a model that reads it next to MRR
+       without the label will add the two and quote a monthly figure that was
+       never billed monthly. Nothing is printed when the window found none —
+       an empty line reading "0 purchases" invites "sales have stopped" about a
+       business that never sold one-offs. */
+    const oneOffLines = one.count
+      ? [
+          `One-off purchases (settled cash, NOT a run rate and not in MRR): ${one.count} in ` +
+            `${one.days} days, ` +
+            `${Object.entries(one.gross)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([c, n]) => `${n} ${c}`)
+              .join("; ") || "no amount reported"}.`,
+          ...one.byProduct.map(
+            (b) => `- ${b.product}: ${b.count} purchase(s), ${b.gross} ${b.currency}.`,
+          ),
+        ]
+      : [];
     return [
       `Window: ${r.window}.`,
       /* Per currency, each on its own line. One "MRR: $412" across a book
@@ -527,6 +547,7 @@ export function renderPacket(p: EvidencePacket): string {
             `MRR now ${r.mrr[c] ?? 0} ${c}; ${r.previous[c] ?? 0} ${c} thirty days ago; ` +
             `change ${r.delta[c]} ${c}.`,
         ),
+      ...oneOffLines,
       `Products: ${r.products.join(", ")}.`,
       r.note,
     ];
@@ -547,9 +568,21 @@ export function renderPacket(p: EvidencePacket): string {
 
   section("alerts", p.alerts, () => {
     const a = p.alerts.measured!;
+    /* WHAT IS WATCHING comes before WHAT HAS TRIPPED. "Nothing is open" means
+       something quite different under a rule that watches this venture's MRR
+       than under one that watches a domain's expiry date. */
+    const watching = a.watching.length
+      ? `${a.watching.length} rule(s) watch this venture: ${a.watching
+          .map((r) => `“${r.name}” (${r.skill} ${r.path}${r.enabled ? "" : ", disabled"})`)
+          .join("; ")}.`
+      : "No alert rule watches this venture.";
     return a.open.length
-      ? [`Window: ${a.window}.`, ...a.open.map((e) => `- ${e.ts.slice(0, 10)} ${e.rule}: ${e.message}`)]
-      : [`Window: ${a.window}. Nothing is open.`];
+      ? [
+          `Window: ${a.window}.`,
+          watching,
+          ...a.open.map((e) => `- ${e.ts.slice(0, 10)} ${e.rule}: ${e.message}`),
+        ]
+      : [`Window: ${a.window}. Nothing is open.`, watching];
   });
 
   section("tasks", p.tasks, () => {

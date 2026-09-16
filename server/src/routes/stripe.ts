@@ -39,7 +39,7 @@ import {
   type StripeSubscriptionRecord,
 } from "../db.ts";
 import { HISTORY_CHUNK_DAYS, WALK_DAYS, isBilling } from "../providers/stripe.ts";
-import { stripeSettled } from "../integrations/finance/attribution.ts";
+import { stripeSettled, ventureStripeBook } from "../integrations/finance/attribution.ts";
 import { currencyCode, money } from "../shared/money.ts";
 import * as accounts from "../accounts.ts";
 
@@ -442,6 +442,51 @@ function recentSection() {
   };
 }
 
+/* ------------------------------------------------------------ per venture */
+
+/**
+ * THE SAME BOOK, CUT BY BUSINESS — and the only cut on this document an alert
+ * rule can name.
+ *
+ * WHY IT IS AN OBJECT KEYED BY VENTURE ID rather than the array every other
+ * breakdown here is. A rule is an address: skill, view, parameters and a
+ * dotted path, and the path language addresses object keys and NUMERIC array
+ * indexes. `byVenture.v-abc123.mrr` means one business for as long as that
+ * business exists; `byVenture[2].mrr` would quietly become a different one the
+ * day a venture is added above it, and the rule would go on tripping under the
+ * old name.
+ *
+ * ONLY VENTURES WITH A LINKED STRIPE PRODUCT APPEAR. A venture nobody has
+ * linked would be published as a row of zeroes, which reads as "this business
+ * earns nothing" rather than "this box has not been told which products are
+ * its" — the same distinction between null and zero the whole document keeps.
+ *
+ * WHAT A RULE SHOULD WATCH, said here because this is where somebody writing
+ * one will look. `mrrAbsDelta` is the thirty-day move without its sign: the
+ * engine's threshold operators compare in one direction and revenue moving is
+ * a two-directional question, so `byVenture.<id>.mrrAbsDelta > 20` is "this
+ * business's MRR moved by more than twenty" either way. `mrrMovePct` is the
+ * same move as a percentage, for an owner who would rather write `> 10`.
+ * `mrr` itself is the figure to watch with `changed`, and `oneOffCount` is the
+ * one that notices that the lifetime purchases stopped.
+ */
+function ventureSection(days: number) {
+  const rows = ventureStripeBook(days);
+  return {
+    byVenture: Object.fromEntries(rows.map((r) => [r.ventureId, r])),
+    byVentureNote:
+      "One entry per venture with a Stripe product linked to it, keyed by venture id so an " +
+      "alert rule can address it (byVenture.<ventureId>.mrrAbsDelta). `mrr` is this venture's " +
+      "share of the MRR above, on the same normalisation; `previousMrr` is the same figure " +
+      "reconstructed as it stood " + days + " days ago from subscription start and end dates, " +
+      "so it sees subscriptions that started or stopped and cannot see a price that changed. " +
+      "`oneOff` is SETTLED CASH over the same window — lifetime and other one-off purchases, " +
+      "which are not in MRR and never will be — and the two are never added. A scalar money " +
+      "field is null where the venture bills in more than one currency; `mrrByCurrency` and " +
+      "`oneOffByCurrency` hold the truth in that case, and null here means asked and not told.",
+  };
+}
+
 /* ------------------------------------------------------------------- route */
 
 stripeRoutes.get("/", (c) => {
@@ -549,6 +594,7 @@ stripeRoutes.get("/", (c) => {
       ).length,
     },
     churn: churnSection(subs, nowMs),
+    ...ventureSection(days),
     revenue: revenueSection(days, nowMs),
     charges: chargeSection(days, nowMs),
     ...recentSection(),
@@ -628,7 +674,7 @@ stripeRoutes.get("/", (c) => {
      *  it. Each line is a question a reader will ask of these figures. */
     cannot: [
       "MRR as Stripe's own number — Stripe publishes none. It is computed here from subscription prices, and the normalisation is stated with every figure.",
-      "revenue by product beyond subscriptions — a one-off payment has no subscription, so it is in gross and in net and can never be in MRR or in the product mix.",
+      "revenue by product for a one-off paid OUTSIDE Checkout — an invoice settled by hand, a charge made in the dashboard. Those carry no session and so no product, and they are counted in gross and in net and in nobody's product. A one-off bought through Checkout or a Payment Link does carry its product, and is in `byVenture[].oneOff`; none of it is in MRR or in the subscription product mix, and it never will be.",
       "when the next payout lands — Stripe publishes no schedule, and on this account payouts are pressed by hand.",
       "churn to the cent — the starting book is reconstructed and cannot see upgrades or downgrades, which is why every churn row carries approximate.",
     ],

@@ -2744,6 +2744,38 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
     sql: `ALTER TABLE chat_messages ADD COLUMN report_run_id TEXT
           REFERENCES agent_runs(id) ON DELETE SET NULL;`,
   },
+
+  {
+    name: "404_stripe_charge_product",
+    sql: `
+      -- WHAT THE ONE-OFF PAYMENT WAS FOR, which the charge object never says.
+      --
+      -- A subscription carries its product: the price is on the subscription
+      -- item and the collector's price list turns it into a name, which is why
+      -- MRR can be split per venture at all. A ONE-OFF PAYMENT carries nothing
+      -- of the kind — \`description\` is null on every one of them here — so a
+      -- lifetime licence and a research study are indistinguishable rows of
+      -- money in \`stripe_charges\`, and every per-venture revenue figure on
+      -- this box silently left them out. On this account that is most of the
+      -- cash one venture takes.
+      --
+      -- THE NAME IS COPIED FROM THE CHECKOUT SESSION, not guessed. The
+      -- collector lists the completed Checkout Sessions of the same rolling
+      -- window it walks charges over, takes the product of the first line
+      -- item, and files it against the session's payment intent. A charge with
+      -- no session — an invoice paid outside Checkout, a payment made in the
+      -- dashboard — keeps NULL, which here means "not attributable" and never
+      -- "Other": an unattributed charge must not be counted into somebody's
+      -- product.
+      --
+      -- BOTH COLUMNS ARE NULLABLE AND BACKFILLED BY THE NEXT COLLECTION. Every
+      -- run rewrites the whole rolling window by primary key, so the rows this
+      -- migration leaves empty fill in on the next walk rather than needing a
+      -- one-off script — and rows older than that window are pruned anyway.
+      ALTER TABLE stripe_charges ADD COLUMN product TEXT;
+      ALTER TABLE stripe_charges ADD COLUMN price_id TEXT;
+    `,
+  },
 /* SORTED BY NAME, NOT BY POSITION IN THIS FILE. The prefix is the order, and
    it was not: this array ran 017 before 015, and the integration blocks
    concatenated after it ran one area's 3xx steps ahead of another's 1xx. The
@@ -4066,6 +4098,10 @@ export type StripeChargeRecord = {
   failure_code: string | null;
   failure_message: string | null;
   outcome_type: string | null;
+  /** The product the Checkout Session sold, for a one-off payment. Null is
+   *  "no session named one", never "Other" — see 404_stripe_charge_product. */
+  product: string | null;
+  price_id: string | null;
   seen_at: string;
 };
 
@@ -4094,6 +4130,8 @@ export function writeStripeCharges(
     failureCode: string | null;
     failureMessage: string | null;
     outcomeType: string | null;
+    product?: string | null;
+    priceId?: string | null;
   }[],
 ) {
   if (!rows.length) return 0;
@@ -4101,8 +4139,9 @@ export function writeStripeCharges(
   const stmt = db.prepare(
     `INSERT OR REPLACE INTO stripe_charges
        (id, account_id, amount, currency, status, paid, refunded, created_at,
-        description, email_masked, failure_code, failure_message, outcome_type, seen_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        description, email_masked, failure_code, failure_message, outcome_type,
+        product, price_id, seen_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   db.exec("BEGIN");
   try {
@@ -4110,7 +4149,7 @@ export function writeStripeCharges(
       stmt.run(
         r.id, r.accountId, r.amount, r.currency, r.status, r.paid ? 1 : 0, r.refunded ? 1 : 0,
         r.createdAt, r.description, r.emailMasked, r.failureCode, r.failureMessage,
-        r.outcomeType, seen,
+        r.outcomeType, r.product ?? null, r.priceId ?? null, seen,
       );
     db.exec("COMMIT");
   } catch (err) {

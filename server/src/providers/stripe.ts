@@ -16,6 +16,7 @@
  *   GET /v1/subscriptions          — status=all, the whole book, live and dead
  *   GET /v1/invoices?subscription= — did THIS cancelled subscription ever bill
  *   GET /v1/charges                — the attempts, succeeded and failed
+ *   GET /v1/checkout/sessions      — what a ONE-OFF payment was for
  *   GET /v1/balance_transactions   — the ledger: fees, tax, refunds, net
  *
  * TWO WALKS THAT LOOK ALIKE AND ARE NOT. The charge walk measures ATTEMPTS —
@@ -261,6 +262,17 @@ export type ChargeRow = {
   failureCode: string | null;
   failureMessage: string | null;
   outcomeType: string | null;
+  /**
+   * WHAT A ONE-OFF PAYMENT BOUGHT, from the Checkout Session that made it.
+   *
+   * Null on everything else, and null is "no completed session named this
+   * payment" rather than "Other" — a subscription invoice, a charge created in
+   * the dashboard, an invoice paid outside Checkout. A charge that cannot be
+   * attributed must stay unattributed: filing it under a product would put one
+   * venture's cash on another venture's page.
+   */
+  product: string | null;
+  priceId: string | null;
 };
 
 /**
@@ -1052,9 +1064,21 @@ async function collectAccount(
     whatever it looked like that day; the collector prunes to the same edge.
   */
   const charges: ChargeRow[] = [];
+  /* BEFORE THE CHARGES, because the charge rows are written with the product
+     the session names and a second pass over them would be a second place for
+     the join to be got wrong. Same window as the rolling walk, so every charge
+     inside it that can be attributed is. */
+  const oneOff = await walkCheckoutSessions(
+    key,
+    { "created[gte]": rollingFrom },
+    productOf,
+    truncated,
+    notes,
+  );
   await walkCharges(key, { "created[gte]": rollingFrom }, chargeAcc, truncated, {
     accountId: account.id,
     keep: charges,
+    oneOff,
   });
   await walkLedger(key, { "created[gte]": rollingFrom }, ledgerAcc, truncated);
 
@@ -1152,9 +1176,137 @@ async function collectAccount(
   };
 }
 
+/* ------------------------------------------------- what a one-off bought */
+
+/**
+ * THE PRODUCT BEHIND A ONE-OFF PAYMENT, WHICH THE CHARGE OBJECT DOES NOT HOLD.
+ *
+ * A subscription's product is reachable: the item carries a price and the
+ * price list above turns a price id into a name. A one-off payment carries
+ * NOTHING — on this account every such charge has `description: null` — so the
+ * settled cash of a venture that sells a lifetime licence was, until this
+ * walk, money with no product, no venture and no page it could appear on.
+ *
+ * THE SESSION IS WHERE THE PRODUCT STILL EXISTS. A Checkout Session (and a
+ * Payment Link, which creates one) holds the line items that were bought and
+ * the payment intent that paid for them, and the charge holds the same payment
+ * intent. So: one walk of the sessions over the window the charges are walked
+ * over, keyed by payment intent, and the charge walk looks itself up.
+ *
+ * TWO THINGS ARE FILTERED HERE RATHER THAN IN THE QUERY, deliberately. Stripe's
+ * list endpoint documents `status`, `created`, `customer`, `payment_intent`,
+ * `payment_link` and `subscription` as filters and does NOT document `mode` or
+ * `payment_status`, so those two are applied to the objects that come back. A
+ * filter invented in a query string either 400s or is ignored, and the second
+ * of those is the dangerous one — it would silently count subscription
+ * checkouts as one-off cash.
+ *
+ * THE EXPANSION HAS A FALLBACK. `expand[]=data.line_items` is what makes this
+ * one request per hundred sessions rather than one per session; if Stripe
+ * refuses the expansion on the list endpoint, the walk is repeated without it
+ * and the run attributes nothing rather than making a per-session request each
+ * time. That is a caveat in `notes` and never a wrong product.
+ */
+export type OneOffAttribution = { product: string | null; priceId: string | null };
+
+type StripeCheckoutSession = {
+  id: string;
+  mode?: string | null;
+  status?: string | null;
+  payment_status?: string | null;
+  payment_intent?: string | { id?: string } | null;
+  line_items?: {
+    data?: { price?: (StripePrice & { id?: string }) | null }[];
+  } | null;
+};
+
+/**
+ * ONE SESSION, READ — split out from the walk because this is the part with the
+ * decisions in it, and a decision that cannot be tested without a live Stripe
+ * account is a decision nobody checks.
+ *
+ * Null means "this session is not one-off cash, or cannot be joined to a
+ * charge", and every one of its reasons is a fact about the session rather
+ * than a failure.
+ */
+export function sessionAttribution(
+  sess: {
+    mode?: string | null;
+    payment_status?: string | null;
+    payment_intent?: string | { id?: string } | null;
+    line_items?: { data?: { price?: { id?: string; product?: unknown } | null }[] } | null;
+  },
+  productOf: Map<string, string>,
+): (OneOffAttribution & { intent: string }) | null {
+  /* A subscription checkout is not one-off cash, and an unpaid completed
+     session is not cash at all. */
+  if (sess.mode !== "payment" || sess.payment_status !== "paid") return null;
+  const intent =
+    typeof sess.payment_intent === "string"
+      ? sess.payment_intent
+      : (sess.payment_intent?.id ?? null);
+  if (!intent) return null;
+
+  const price = sess.line_items?.data?.[0]?.price ?? null;
+  const priceId = price?.id ?? null;
+  /* The expanded product's own name first; the price list second, for a
+     session whose price came back as an id. An ad-hoc `price_data` line is in
+     neither, and stays null rather than being filed under "Other". */
+  const product = price?.product;
+  const named =
+    product && typeof product === "object"
+      ? ((product as { name?: string | null }).name ?? null)
+      : null;
+  return {
+    intent,
+    priceId,
+    product: named ?? (priceId ? (productOf.get(priceId) ?? null) : null),
+  };
+}
+
+async function walkCheckoutSessions(
+  key: string,
+  range: Params,
+  /** price id to product name, from the price list this account already walked. */
+  productOf: Map<string, string>,
+  truncated: Set<string>,
+  notes: string[],
+): Promise<Map<string, OneOffAttribution>> {
+  const out = new Map<string, OneOffAttribution>();
+
+  const walk = async (expand: boolean) => {
+    const params: Params = { ...range, status: "complete" };
+    if (expand) params["expand[]"] = "data.line_items";
+    for await (const sess of page<StripeCheckoutSession & { id: string }>(
+      "checkout/sessions",
+      key,
+      params,
+      truncated,
+    )) {
+      const bought = sessionAttribution(sess, productOf);
+      if (bought) out.set(bought.intent, { product: bought.product, priceId: bought.priceId });
+    }
+  };
+
+  try {
+    await walk(true);
+  } catch (err) {
+    if (!(err instanceof StripeError) || err.status !== 400) throw err;
+    out.clear();
+    notes.push(
+      "Stripe would not expand line items while listing Checkout Sessions, so one-off " +
+        "payments have no product this run",
+    );
+    await walk(false);
+  }
+  return out;
+}
+
 type StripeCharge = {
   id: string;
   created: number;
+  /** The one id a charge and its Checkout Session share. */
+  payment_intent?: string | { id?: string } | null;
   amount?: number;
   amount_refunded?: number;
   currency?: string;
@@ -1178,15 +1330,19 @@ async function walkCharges(
   acc: Map<string, DayAcc>,
   truncated: Set<string>,
   /** Where to keep the rows themselves, when this walk is one whose rows
-   *  will be read again. Absent for the history chunk. */
-  rows?: { accountId: number; keep: ChargeRow[] },
+   *  will be read again. Absent for the history chunk. `oneOff` is what the
+   *  session walk found, keyed by payment intent. */
+  rows?: { accountId: number; keep: ChargeRow[]; oneOff?: Map<string, OneOffAttribution> },
 ) {
   for await (const c of page<StripeCharge>("charges", key, range, truncated)) {
     const currency = c.currency ?? "usd";
     const k = `${utcDay(c.created)}|${currency}`;
     const row = acc.get(k) ?? emptyDay();
     const ok = Boolean(c.paid) && c.status === "succeeded";
-    if (rows)
+    if (rows) {
+      const intent =
+        typeof c.payment_intent === "string" ? c.payment_intent : (c.payment_intent?.id ?? null);
+      const bought = intent ? (rows.oneOff?.get(intent) ?? null) : null;
       rows.keep.push({
         id: c.id,
         accountId: rows.accountId,
@@ -1201,7 +1357,10 @@ async function walkCharges(
         failureCode: c.failure_code ?? null,
         failureMessage: c.failure_message ?? null,
         outcomeType: c.outcome?.type ?? null,
+        product: bought?.product ?? null,
+        priceId: bought?.priceId ?? null,
       });
+    }
     if (ok) {
       row.gross += c.amount ?? 0;
       row.succeeded += 1;

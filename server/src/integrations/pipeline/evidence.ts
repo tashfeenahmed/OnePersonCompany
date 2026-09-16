@@ -36,9 +36,9 @@ import { stripeSubscriptions } from "../../db.ts";
 import { ventureGoal } from "../chief/goals.ts";
 import { notes } from "../chief/memory.ts";
 import { linkedEntities } from "../ventures/links.ts";
-import { ventureMrr } from "../finance/attribution.ts";
-import { openEventsForVenture, ruleCountForVenture } from "../proactive/store.ts";
-import { currencyCode, money } from "../../shared/money.ts";
+import { ventureMrr, ventureMrrPrevious, ventureOneOff } from "../finance/attribution.ts";
+import { openEventsForVenture, rulesForVenture } from "../proactive/store.ts";
+import { money } from "../../shared/money.ts";
 /* PORT rather than `apiBase()` from the skill registry, and the difference is
    a module cycle: the registry imports `integrations/index.ts`, which imports
    this area's manifest, which imports this file. proactive/catalogue.ts makes
@@ -76,6 +76,23 @@ export type EvidencePacket = {
     mrr: Record<string, number>;
     previous: Record<string, number>;
     delta: Record<string, number>;
+    /**
+     * SETTLED ONE-OFF CASH, which is not a run rate and is not in the three
+     * fields above.
+     *
+     * A lifetime licence or a single study is money that ARRIVED — dated,
+     * measured, per currency — and on at least one business here it is most of
+     * the cash it takes. MRR cannot hold it: counted in as recurring it would
+     * have to come back out as churn the following month. So it sits beside
+     * MRR with its own window and its own label, and nothing adds the two.
+     */
+    oneOff: {
+      window: string;
+      days: number;
+      count: number;
+      gross: Record<string, number>;
+      byProduct: { product: string; currency: string; count: number; gross: number }[];
+    };
     note: string;
   }>;
   traffic: Measure<{
@@ -89,7 +106,14 @@ export type EvidencePacket = {
       visitors: number | null;
     }[];
   }>;
-  alerts: Measure<{ window: string; open: { ts: string; rule: string; message: string }[] }>;
+  alerts: Measure<{
+    window: string;
+    /** WHAT IS ACTUALLY BEING WATCHED for this venture. Without it the packet
+     *  said "nothing is open" and a reader could not tell whether that meant
+     *  all is well or nothing is looking. */
+    watching: { name: string; skill: string; path: string; enabled: boolean }[];
+    open: { ts: string; rule: string; message: string }[];
+  }>;
   tasks: Measure<{ open: { title: string; column: string; due: string | null; urgency: number }[] }>;
   goals: Measure<{ text: string; updatedAt: string | null; tailorTo: string | null }>;
   memory: Measure<{ notes: { text: string; ageDays: number; source: string }[] }>;
@@ -162,22 +186,31 @@ function revenue(v: VentureRow): EvidencePacket["revenue"] {
       `Stripe products ${products.join(", ")} are linked, but the collector holds no subscription rows for them.`,
     );
 
-  const then = Date.now() - REVENUE_WINDOW_DAYS * 86_400_000;
-  const previous: Record<string, number> = {};
-  for (const s of mine) {
-    /* Status is deliberately NOT tested here: it is today's status, and a
-       subscription cancelled last week was billing thirty days ago. Testing it
-       would make the past figure a subset of the present one, so the delta
-       could never be negative. */
-    if (Date.parse(s.created_at) > then) continue;
-    if (s.ended_at && Date.parse(s.ended_at) <= then) continue;
-    previous[currencyCode(s.currency)] =
-      (previous[currencyCode(s.currency)] ?? 0) + (Number(s.monthly_usd) || 0);
-  }
+  /* THE RECONSTRUCTION IS THE FINANCE AREA'S, not a second copy here. The
+     Stripe document publishes the same delta per venture for alert rules to
+     watch, and two reconstructions of one figure is how the rule that fires
+     and the proposal that is written come to disagree about the same night. */
+  const previous = ventureMrrPrevious(v.id, REVENUE_WINDOW_DAYS, subs);
 
   const delta: Record<string, number> = {};
   for (const code of new Set([...Object.keys(mrr), ...Object.keys(previous)]))
     delta[code] = money((mrr[code] ?? 0) - (previous[code] ?? 0));
+
+  /* THE OTHER HALF OF THE MONEY. Counted from the charge rows, whose product
+     comes off the Checkout Session that sold it, so this is settled cash with
+     a product on it rather than an allocation. It never touches `mrr`. */
+  let oneOff: ReturnType<typeof ventureOneOff>;
+  try {
+    oneOff = ventureOneOff(v.id, REVENUE_WINDOW_DAYS);
+  } catch {
+    oneOff = {
+      days: REVENUE_WINDOW_DAYS,
+      count: 0,
+      gross: {},
+      byProduct: [],
+      window: "the charge table could not be read",
+    };
+  }
 
   return {
     measured: {
@@ -186,11 +219,23 @@ function revenue(v: VentureRow): EvidencePacket["revenue"] {
       mrr: Object.fromEntries(Object.entries(mrr).map(([c, n]) => [c, money(n)])),
       previous: Object.fromEntries(Object.entries(previous).map(([c, n]) => [c, money(n)])),
       delta,
+      oneOff: {
+        window: oneOff.window,
+        days: oneOff.days,
+        count: oneOff.count,
+        gross: oneOff.gross,
+        byProduct: oneOff.byProduct,
+      },
       note:
         "The past figure is reconstructed from subscription start and end dates, " +
         "so it sees subscriptions that started or stopped and cannot see a price " +
         "that changed. Currencies are kept apart: each plan was normalised to a " +
-        "month in its own currency and nothing here converts.",
+        "month in its own currency and nothing here converts. LIFETIME AND OTHER " +
+        "ONE-OFF PURCHASES ARE EXCLUDED FROM MRR BY DESIGN — they are money that " +
+        "arrived once, not money contracted to arrive again — and are reported in " +
+        "`oneOff` as settled cash over its own window. Do not add the two, and do " +
+        "not describe one-off cash as a run rate. A one-off charge this box could " +
+        "not attribute to a product is in neither figure.",
     },
     why: null,
   };
@@ -272,12 +317,28 @@ function alerts(v: VentureRow): EvidencePacket["alerts"] {
     return missing("the alert tables could not be read.");
   }
   /* "No rule watches this" and "nothing has tripped" are different findings,
-     and only one of them is about the business. */
-  if (!ruleCountForVenture(v.id))
+     and only one of them is about the business. The rules are NAMED rather
+     than counted: "nothing is open" under two rules about payments and
+     "nothing is open" under one rule about a domain expiring are different
+     assurances, and a packet that reported only a count let the model treat
+     the second as the first. */
+  let watchers: ReturnType<typeof rulesForVenture>;
+  try {
+    watchers = rulesForVenture(v.id);
+  } catch {
+    return missing("the alert rules could not be read.");
+  }
+  if (!watchers.length)
     return missing("no alert rule on this box names this venture, so nothing is being watched for it.");
   return {
     measured: {
       window: `open trips and unreadable readings in the last ${RECENT_DAYS} days`,
+      watching: watchers.map((r) => ({
+        name: r.name,
+        skill: r.skill,
+        path: r.path,
+        enabled: r.enabled === 1,
+      })),
       open: rows.map((r) => ({ ts: r.ts, rule: r.rule, message: r.message })),
     },
     why: null,

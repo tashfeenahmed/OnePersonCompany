@@ -6,7 +6,18 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { db, insertAccount, now, setConfig, upsertPlugin, writeAppStorePayouts, writeAppStoreReport } from "../../db.ts";
+import {
+  db,
+  insertAccount,
+  now,
+  setConfig,
+  upsertPlugin,
+  writeAppStorePayouts,
+  writeAppStoreReport,
+  writeStripeCharges,
+  writeStripeSubscriptions,
+} from "../../db.ts";
+import { ventureMrr, ventureOneOff, ventureStripeBook } from "./attribution.ts";
 import {
   addTo,
   annualOf,
@@ -507,4 +518,189 @@ test("an always-on line reports no covered hours", () => {
   assert.equal(line.hours!.covered, 0);
   assert.equal(line.hours!.inMonth, 720);
   assert.equal(line.confidence, "estimated");
+});
+
+
+/* ======================================================= one-off purchases ==
+ *
+ * The failure these are about: 191 succeeded $49 charges in thirty days — most
+ * of one business's cash — were invisible to every per-venture figure on this
+ * box, because a charge had no product and MRR is the only thing Stripe's
+ * tables could attribute. The collector now copies the product off the
+ * Checkout Session, and these hold the arithmetic that reads it to account.
+ */
+
+/** One Stripe account, two ventures, and charges with and without a product. */
+function oneOffFixture() {
+  db.exec("DELETE FROM stripe_charges; DELETE FROM stripe_subscriptions; DELETE FROM venture_links; DELETE FROM ventures;");
+  venture("v-lifetime", "lifetime", "Lifetime Co");
+  venture("v-subs", "subs", "Subs Co");
+  const link = db.prepare(
+    "INSERT INTO venture_links (venture_id, plugin, entity, label, source, created_at) VALUES (?,?,?,?,?,?)",
+  );
+  /* Linked in one case, and in the CASE THE OTHER SIDE DOES NOT USE: the
+     charge says "lifetime licence" and the link says "Lifetime Licence". */
+  link.run("v-lifetime", "stripe", "Lifetime Licence", null, "owner", now());
+  link.run("v-subs", "stripe", "Pro", null, "owner", now());
+
+  upsertPlugin("stripe", true, null);
+  const account = insertAccount("stripe", `stripe-${Date.now()}`);
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+  const charge = (
+    id: string,
+    amount: number,
+    product: string | null,
+    ageDays: number,
+    status = "succeeded",
+  ) => ({
+    id,
+    accountId: account,
+    amount,
+    currency: "usd",
+    status,
+    paid: status === "succeeded",
+    refunded: false,
+    createdAt: day(ageDays),
+    description: null,
+    emailMasked: null,
+    failureCode: null,
+    failureMessage: null,
+    outcomeType: null,
+    product,
+    priceId: product ? "price_x" : null,
+  });
+
+  writeStripeCharges([
+    charge("ch_1", 49, "lifetime licence", 2),
+    charge("ch_2", 49, "lifetime licence", 9),
+    charge("ch_3", 49, "Lifetime Licence", 29),
+    /* Outside the window by a day. */
+    charge("ch_old", 49, "lifetime licence", 31),
+    /* Declined: not money. */
+    charge("ch_failed", 49, "lifetime licence", 3, "failed"),
+    /* Paid outside Checkout, so no session named a product. Nobody's. */
+    charge("ch_unattributed", 500, null, 4),
+    /* Somebody else's product entirely. */
+    charge("ch_other", 19, "Pro", 5),
+  ]);
+  return account;
+}
+
+test("one-off cash reaches the venture that sold it, and only that venture", () => {
+  oneOffFixture();
+  const mine = ventureOneOff("v-lifetime", 30);
+  assert.equal(mine.count, 3);
+  assert.deepEqual(mine.gross, { USD: 147 });
+  /* One product, however the owner capitalised the link. */
+  assert.deepEqual(mine.byProduct.map((b) => [b.product, b.count, b.gross]), [
+    ["lifetime licence", 2, 98],
+    ["Lifetime Licence", 1, 49],
+  ]);
+
+  /* The $500 charge with no product is in NOBODY's figure: unattributed is a
+     fact, and spreading it would invent a receipt. */
+  const other = ventureOneOff("v-subs", 30);
+  assert.equal(other.count, 1);
+  assert.deepEqual(other.gross, { USD: 19 });
+});
+
+test("a venture with no linked Stripe product gets no one-off money", () => {
+  oneOffFixture();
+  venture("v-none", "none", "Unlinked Co");
+  const none = ventureOneOff("v-none", 30);
+  assert.equal(none.count, 0);
+  assert.deepEqual(none.gross, {});
+  assert.deepEqual(none.byProduct, []);
+});
+
+test("the window is the caller's, and a charge outside it is not in it", () => {
+  oneOffFixture();
+  assert.equal(ventureOneOff("v-lifetime", 3).count, 1);
+  assert.equal(ventureOneOff("v-lifetime", 90).count, 4);
+  assert.match(ventureOneOff("v-lifetime", 90).window, /90 days/);
+});
+
+test("one-off cash is never folded into MRR", () => {
+  oneOffFixture();
+  /* Three lifetime purchases, no subscription: MRR is empty and the cash is
+     not. The one figure this whole change exists to keep apart. */
+  assert.deepEqual(ventureMrr("v-lifetime"), {});
+  assert.equal(ventureOneOff("v-lifetime", 30).count, 3);
+});
+
+/* ------------------------------------------------- the book, per venture */
+
+test("the per-venture book publishes only linked ventures, with the money apart", () => {
+  const account = oneOffFixture();
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+  writeStripeSubscriptions([
+    {
+      accountId: account, accountLabel: "acc", id: "sub_live", status: "active", currency: "usd",
+      monthlyUsd: 29, listedMonthlyUsd: 29, interval: "month", intervalCount: 1, product: "Pro",
+      plan: "Pro monthly", createdAt: day(200), endedAt: null, cancelAtPeriodEnd: false,
+      cancelAt: null, trialStart: null, trialEnd: null, reason: null, paidCents: 2900,
+    },
+    {
+      /* Cancelled last week: out of today's MRR, in the figure from thirty
+         days ago, which is what makes the delta negative. */
+      accountId: account, accountLabel: "acc", id: "sub_gone", status: "canceled", currency: "usd",
+      monthlyUsd: 50, listedMonthlyUsd: 50, interval: "month", intervalCount: 1, product: "Pro",
+      plan: "Pro monthly", createdAt: day(300), endedAt: day(7), cancelAtPeriodEnd: false,
+      cancelAt: null, trialStart: null, trialEnd: null, reason: null, paidCents: 5000,
+    },
+  ]);
+
+  const book = ventureStripeBook(30);
+  const ids = book.map((r) => r.ventureId).sort();
+  /* v-none is not in the fixture here; the two linked ventures are, and a
+     venture with no link would never be. */
+  assert.deepEqual(ids, ["v-lifetime", "v-subs"]);
+
+  const subs = book.find((r) => r.ventureId === "v-subs")!;
+  assert.equal(subs.mrr, 29);
+  assert.equal(subs.subscribers, 1);
+  assert.equal(subs.previousMrr, 79);
+  assert.equal(subs.mrrDelta, -50);
+  /* The field the seeded rule watches: the move without its sign, so one
+     threshold catches a loss and a gain. */
+  assert.equal(subs.mrrAbsDelta, 50);
+  assert.equal(subs.mrrMovePct, 63.29);
+  assert.equal(subs.oneOff, 19);
+  assert.equal(subs.currency, "USD");
+
+  const lifetime = book.find((r) => r.ventureId === "v-lifetime")!;
+  /* No subscription at all: a real, empty book — and $147 of cash beside it. */
+  assert.equal(lifetime.mrr, 0);
+  assert.equal(lifetime.subscribers, 0);
+  assert.equal(lifetime.oneOff, 147);
+  assert.equal(lifetime.oneOffCount, 3);
+});
+
+test("a venture billing in two currencies publishes no scalar MRR", () => {
+  const account = oneOffFixture();
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+  const row = (id: string, currency: string, amount: number) => ({
+    accountId: account, accountLabel: "acc", id, status: "active", currency,
+    monthlyUsd: amount, listedMonthlyUsd: amount, interval: "month", intervalCount: 1,
+    product: "Pro", plan: "Pro monthly", createdAt: day(200), endedAt: null,
+    cancelAtPeriodEnd: false, cancelAt: null, trialStart: null, trialEnd: null,
+    reason: null, paidCents: 100,
+  });
+  writeStripeSubscriptions([row("sub_usd", "usd", 29), row("sub_eur", "eur", 19)]);
+
+  const subs = ventureStripeBook(30).find((r) => r.ventureId === "v-subs")!;
+  /* Null is "asked and not told" — an alert rule records an unreadable rather
+     than reading a collapse to zero — and the truth is beside it. EVERY scalar
+     goes, including the one-off cash, because a dollar figure printed beside a
+     null euro one is the addition this rule exists to prevent. */
+  assert.equal(subs.currency, null);
+  assert.equal(subs.mrr, null);
+  assert.equal(subs.mrrDelta, null);
+  assert.equal(subs.mrrAbsDelta, null);
+  assert.equal(subs.oneOff, null);
+  assert.deepEqual(subs.mrrByCurrency, { EUR: 19, USD: 29 });
+  assert.deepEqual(subs.oneOffByCurrency, { USD: 19 });
+  /* Counting heads never needed a currency. */
+  assert.equal(subs.subscribers, 2);
+  assert.equal(subs.oneOffCount, 1);
 });

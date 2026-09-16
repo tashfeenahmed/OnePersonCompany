@@ -406,15 +406,25 @@ export function openEventsForVenture(
     .all(...args) as unknown as ReturnType<typeof openEventsForVenture>;
 }
 
-/** Whether any rule on this box names a venture at all. "No rule watches this"
- *  and "nothing has tripped" are different findings and only one of them is
- *  about the business. */
+/**
+ * THE RULES THAT NAME THIS VENTURE, not a count of them.
+ *
+ * "No rule watches this" and "nothing has tripped" are different findings and
+ * only one of them is about the business — but so are "nothing tripped, and
+ * two rules are watching the money" and "nothing tripped, and the only rule is
+ * about a domain expiring". A count could not tell those apart, and the
+ * evidence packet was quietly presenting the second as the first. Whatever
+ * reads this may say what is being watched, in the rule's own name.
+ */
+export const rulesForVenture = (ventureId: string): RuleRow[] =>
+  db
+    .prepare("SELECT * FROM alert_rules WHERE venture_id = ? ORDER BY id ASC")
+    .all(ventureId) as unknown as RuleRow[];
+
+/** How many of them there are. Kept as its own name because "is anything
+ *  watching this at all" is a question several surfaces ask. */
 export const ruleCountForVenture = (ventureId: string): number =>
-  Number(
-    (db.prepare("SELECT COUNT(*) AS n FROM alert_rules WHERE venture_id = ?").get(ventureId) as {
-      n: number;
-    }).n,
-  );
+  rulesForVenture(ventureId).length;
 
 export function openEventCount(): number {
   const row = db

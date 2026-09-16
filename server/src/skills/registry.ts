@@ -261,6 +261,19 @@ const BUILTIN_ENTRIES: Skill[] = [
       "Trials, past-due subscriptions and one-off payments are NOT in MRR and " +
         "can never be. This account sells one-off research studies beside a " +
         "subscription; those are in gross, in net, and in no product's MRR.",
+      "ONE-OFF CASH IS MEASURED SEPARATELY AND IS NOT A RUN RATE. A purchase " +
+        "made through Checkout or a Payment Link carries the product it bought, " +
+        "so `byVenture.<ventureId>.oneOff` and `oneOffCount` are settled money " +
+        "over the window — a lifetime licence is most of some businesses' cash. " +
+        "Never add it to MRR and never call it monthly. A one-off paid outside " +
+        "Checkout carries no product and is in neither figure.",
+      "`byVenture` is keyed by VENTURE ID and holds only ventures with a Stripe " +
+        "product linked to them. `mrr` is null where a venture bills in more " +
+        "than one currency — asked and not told, not zero — and " +
+        "`mrrByCurrency` holds it. `mrrDelta` is signed against thirty days " +
+        "ago, `mrrAbsDelta` is that move without its sign and `mrrMovePct` is " +
+        "it as a percentage; the past half is reconstructed from subscription " +
+        "start and end dates and cannot see a price that changed.",
       "`charges` is payment ATTEMPTS and `revenue` is SETTLEMENT. They are dated " +
         "differently and nothing crosses them. Net revenue is always the ledger's " +
         "answer, never the charge walk's.",
@@ -280,7 +293,9 @@ const BUILTIN_ENTRIES: Skill[] = [
       {
         key: "default",
         path: "/api/stripe",
-        about: "The whole book: MRR, subscriptions, churn, revenue, charges, balance, payouts.",
+        about:
+          "The whole book: MRR, subscriptions, churn, revenue, charges, balance, payouts, " +
+          "and `byVenture` — the same book cut by business, keyed by venture id.",
         params: [
           {
             name: "days",
@@ -295,6 +310,7 @@ const BUILTIN_ENTRIES: Skill[] = [
     asks: [
       "What is my MRR right now, and how much of it is annual plans counted as a twelfth?",
       "What did Stripe actually settle last 30 days, net of its fee?",
+      "Which venture's revenue moved this month, and how much of its money is one-off rather than recurring?",
     ],
   },
 

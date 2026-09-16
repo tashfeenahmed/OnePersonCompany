@@ -25,6 +25,11 @@
  *               money that arrived in a month. The settled ledger, which IS
  *               dated money, has no product dimension at all: `stripe_ledger_days`
  *               is per account per day per currency and nothing more.
+ *               ONE-OFF PAYMENTS ARE THE EXCEPTION AND ARE MEASURED: since the
+ *               collector learned to read Checkout Sessions, a charge carries
+ *               the product it bought, so `ventureOneOff` is dated cash with a
+ *               product on it — per venture, per currency, not apportioned.
+ *               It is not in MRR and never will be.
  *
  * SO STRIPE'S SETTLED REVENUE IS NOT SPLIT PER VENTURE BY DEFAULT, and the
  * P&L says so in words rather than quietly leaving it out. The owner can
@@ -42,6 +47,7 @@ import {
   stripeLedgerDays,
   stripeSubscriptions,
   ventureRows,
+  type StripeSubscriptionRecord,
   type VentureRow,
 } from "../../db.ts";
 import { linkedEntities, linkIndex, normaliseEntity } from "../ventures/links.ts";
@@ -142,16 +148,290 @@ function adsenseLines(venture: VentureRow, month: string): RevenueLine[] {
 
 /* ---------------------------------------------------------------- stripe */
 
+/**
+ * THE SUBSCRIPTIONS WHOSE PRODUCT IS LINKED TO THIS VENTURE, live and dead.
+ *
+ * `rows` and `index` are parameters with defaults rather than reads, so a
+ * caller asking about nineteen ventures reads the table ONCE and every figure
+ * below is computed off the same array. The default keeps every existing
+ * caller's one-liner working.
+ */
+function subsOf(
+  ventureId: string,
+  rows: StripeSubscriptionRecord[],
+  index: Map<string, string[]>,
+): StripeSubscriptionRecord[] {
+  return rows.filter((s) => owns(index, s.product, ventureId));
+}
+
 /** A venture's live MRR per currency, from the subscriptions whose PRODUCT is
  *  linked to it. A run rate, never a receipt. */
-export function ventureMrr(ventureId: string): Record<string, number> {
-  const products = linkIndex("stripe");
+export function ventureMrr(
+  ventureId: string,
+  rows: StripeSubscriptionRecord[] = stripeSubscriptions(),
+  index: Map<string, string[]> = linkIndex("stripe"),
+): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const s of stripeSubscriptions()) {
+  for (const s of subsOf(ventureId, rows, index)) {
     if (!isBilling(s.status)) continue;
-    if (!owns(products, s.product, ventureId)) continue;
     const code = currencyCode(s.currency);
     out[code] = (out[code] ?? 0) + s.monthly_usd;
+  }
+  return out;
+}
+
+/** How many live subscriptions a venture's linked products carry. Beside the
+ *  MRR rather than inside it: a $99 plan and a $1 plan are one row each here
+ *  and nothing alike above. */
+export function ventureSubscribers(
+  ventureId: string,
+  rows: StripeSubscriptionRecord[] = stripeSubscriptions(),
+  index: Map<string, string[]> = linkIndex("stripe"),
+): number {
+  return subsOf(ventureId, rows, index).filter((s) => isBilling(s.status)).length;
+}
+
+/**
+ * THE SAME FIGURE AS IT STOOD `days` AGO, RECONSTRUCTED FROM THE ROWS.
+ *
+ * A subscription counts in the past figure if it had been created by then and
+ * had not ended by then. TODAY'S STATUS IS DELIBERATELY NOT TESTED: a
+ * subscription cancelled last week WAS billing thirty days ago, and testing it
+ * would make the past figure a subset of the present one — so the delta could
+ * never be negative and a venture could never be seen to lose money.
+ *
+ * IT IS A RECONSTRUCTION AND IT HAS ONE BLIND SPOT, which every caller repeats
+ * to its reader: it sees a subscription that STARTED or STOPPED and cannot see
+ * a plan whose PRICE changed, because the subscription object keeps no record
+ * of what it used to cost.
+ *
+ * It lives here rather than in the evidence packet because the packet and the
+ * Stripe document both publish this delta, and two reconstructions of one
+ * figure is how the alert and the proposal come to disagree about the same
+ * business on the same night.
+ */
+export function ventureMrrPrevious(
+  ventureId: string,
+  days = 30,
+  rows: StripeSubscriptionRecord[] = stripeSubscriptions(),
+  index: Map<string, string[]> = linkIndex("stripe"),
+): Record<string, number> {
+  const then = Date.now() - days * 86_400_000;
+  const out: Record<string, number> = {};
+  for (const s of subsOf(ventureId, rows, index)) {
+    if (Date.parse(s.created_at) > then) continue;
+    if (s.ended_at && Date.parse(s.ended_at) <= then) continue;
+    const code = currencyCode(s.currency);
+    out[code] = (out[code] ?? 0) + (Number(s.monthly_usd) || 0);
+  }
+  return out;
+}
+
+/**
+ * SETTLED ONE-OFF CASH, which is the half of Stripe this area could not see
+ * until the charge rows learned what they were for.
+ *
+ * WHY IT IS A SEPARATE FIGURE AND NOT PART OF MRR. A lifetime licence is money
+ * that arrived once. MRR is a RUN RATE — what the book is contracted to bill
+ * every month — and a one-off folded into it would be revenue this business
+ * has to earn again next month or report as churn. They are two measurements
+ * of two things and this box keeps them apart everywhere, so this returns its
+ * own object and nothing adds it to `ventureMrr`.
+ *
+ * IT IS MEASURED, NOT ALLOCATED. The join is the same one the rest of this
+ * file uses — `venture_links` on the product name, case-insensitively — and
+ * the product on a charge row is the one its Checkout Session named. A charge
+ * with no product is not counted for anybody: unattributed is a fact, and
+ * spreading it over the ventures that do have products would invent a receipt.
+ *
+ * NINETY DAYS IS ALL THERE IS. `stripe_charges` holds the collector's rolling
+ * walk and is pruned to its edge, so a window wider than that is a floor and
+ * `window` says what was asked for rather than implying it was answered.
+ *
+ * GROSS IS PER CURRENCY, like every other money figure here. There is no
+ * `gross_usd`: a single scalar is the shape that silently adds a euro to a
+ * dollar the day a second currency appears.
+ */
+export type OneOffChargeRow = {
+  product: string;
+  currency: string;
+  n: number;
+  gross: number;
+};
+
+/** Every attributed one-off charge in the window, grouped once. Exported so a
+ *  caller asking about every venture makes one query rather than nineteen. */
+export function oneOffCharges(days = 30): OneOffChargeRow[] {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  return db
+    .prepare(
+      `SELECT product, currency, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS gross
+         FROM stripe_charges
+        WHERE status = 'succeeded' AND product IS NOT NULL AND created_at >= ?
+        GROUP BY product, currency`,
+    )
+    .all(since) as unknown as OneOffChargeRow[];
+}
+
+export type VentureOneOff = {
+  days: number;
+  /** Succeeded charges whose product is linked to this venture. */
+  count: number;
+  /** Gross per currency code, succeeded charges only. */
+  gross: Record<string, number>;
+  byProduct: { product: string; currency: string; count: number; gross: number }[];
+  window: string;
+};
+
+export function ventureOneOff(
+  ventureId: string,
+  days = 30,
+  rows: OneOffChargeRow[] = oneOffCharges(days),
+): VentureOneOff {
+  const window =
+    `settled one-off purchases in the last ${days} days, dated by the charge and ` +
+    `attributed by the product its Checkout Session sold`;
+  const products = linkedEntities(ventureId, "stripe");
+  if (!products.length) return { days, count: 0, gross: {}, byProduct: [], window };
+
+  const wanted = new Set(products.map((e) => normaliseEntity(e)));
+  const gross: Record<string, number> = {};
+  const byProduct: VentureOneOff["byProduct"] = [];
+  let count = 0;
+  for (const r of rows) {
+    if (!wanted.has(normaliseEntity(r.product))) continue;
+    const code = currencyCode(r.currency);
+    gross[code] = money((gross[code] ?? 0) + r.gross);
+    count += r.n;
+    byProduct.push({ product: r.product, currency: code, count: r.n, gross: money(r.gross) });
+  }
+  byProduct.sort((a, b) => b.gross - a.gross || a.product.localeCompare(b.product));
+  return { days, count, gross, byProduct, window };
+}
+
+/* ------------------------------------------------- the book, per venture */
+
+/**
+ * ONE ROW PER VENTURE THAT HAS A STRIPE PRODUCT LINKED TO IT — the shape the
+ * Stripe document publishes so that an alert rule can name a business.
+ *
+ * WHY IT EXISTS. Every rule on this box is an address: a skill, a view, some
+ * parameters and a path into the document. The Stripe document published `mrr`
+ * for the whole account and `products[].mrr` per product, and NOTHING keyed by
+ * venture — so "tell me when THIS business's revenue moves" was unwritable,
+ * and the evidence packet's "no alert rule names this venture" was a sentence
+ * nobody could act on for revenue. This is that missing key.
+ *
+ * KEYED BY VENTURE ID IN THE DOCUMENT, because the path language addresses
+ * object keys and numeric array indexes — `byVenture.v-abc123.mrr` resolves and
+ * survives a venture being added, where `byVenture[2].mrr` would silently
+ * become a different business.
+ *
+ * A SCALAR `mrr` ONLY WHERE THERE IS ONE CURRENCY. Where a venture bills in
+ * two, the scalar is null and `mrrByCurrency` holds the truth: null reads as
+ * "asked and not told" everywhere on this box, and a rule against it records
+ * an unreadable rather than a collapse to zero. Adding the two would invent an
+ * exchange rate.
+ */
+export type VentureStripeRow = {
+  ventureId: string;
+  name: string;
+  slug: string;
+  products: string[];
+  /** The single currency all of this venture's Stripe money is in, or null
+   *  where it spans two (or where none has arrived yet). Every scalar money
+   *  field below is null exactly when this is null AND there is money. */
+  currency: string | null;
+  mrr: number | null;
+  mrrByCurrency: Record<string, number>;
+  subscribers: number;
+  /** MRR as it stood `days` ago, reconstructed — see `ventureMrrPrevious`. */
+  previousMrr: number | null;
+  /** Signed: negative is revenue lost. */
+  mrrDelta: number | null;
+  /** The same move without its sign, because the engine's threshold operators
+   *  compare in ONE direction and "the money moved" is a two-directional
+   *  question. This is the field the seeded per-venture rule watches. */
+  mrrAbsDelta: number | null;
+  /** That move as a percentage of the earlier figure, or null where the
+   *  earlier figure was zero — a percentage of nothing is not a figure. */
+  mrrMovePct: number | null;
+  oneOffCount: number;
+  oneOff: number | null;
+  oneOffByCurrency: Record<string, number>;
+  days: number;
+};
+
+/**
+ * THE ONE CURRENCY A VENTURE'S STRIPE MONEY IS IN, across all of it.
+ *
+ * Asked of MRR, the figure from thirty days ago AND the one-off cash together,
+ * because the scalars are only publishable at all if they mean the same
+ * currency: `mrr: 29` beside `oneOff: 19` in another currency is two numbers a
+ * reader will add. Where there is more than one, every scalar is null and the
+ * per-currency maps beside them hold the truth. Where there is none — a linked
+ * venture that has not billed anybody yet — the currency is null and the
+ * scalars are a real zero.
+ */
+function oneCurrency(...maps: Record<string, number>[]): string | null {
+  const codes = new Set(maps.flatMap((m) => Object.keys(m)));
+  return codes.size === 1 ? [...codes][0]! : null;
+}
+
+export function ventureStripeBook(days = 30): VentureStripeRow[] {
+  const index = linkIndex("stripe");
+  const subs = stripeSubscriptions();
+  const charges = oneOffCharges(days);
+  const out: VentureStripeRow[] = [];
+
+  for (const v of ventures()) {
+    const products = linkedEntities(v.id, "stripe");
+    /* A venture with no linked product is not published here at all. Every
+       field would be a zero that reads as "this business earns nothing"
+       rather than "nobody has told this box which products are its". */
+    if (!products.length) continue;
+
+    const mrrByCurrency = ventureMrr(v.id, subs, index);
+    const previousByCurrency = ventureMrrPrevious(v.id, days, subs, index);
+    const one = ventureOneOff(v.id, days, charges);
+
+    const currency = oneCurrency(mrrByCurrency, previousByCurrency, one.gross);
+    const blended =
+      currency === null &&
+      [mrrByCurrency, previousByCurrency, one.gross].some((m) => Object.keys(m).length);
+    /* Null where the venture's money spans currencies — asked and not told,
+       which a rule records as unreadable — and a real zero where it has simply
+       taken none. */
+    const scalar = (m: Record<string, number>): number | null =>
+      blended ? null : money(m[currency ?? ""] ?? 0);
+
+    const nowMrr = scalar(mrrByCurrency);
+    const beforeMrr = scalar(previousByCurrency);
+    const delta = nowMrr !== null && beforeMrr !== null ? money(nowMrr - beforeMrr) : null;
+
+    out.push({
+      ventureId: v.id,
+      name: v.name,
+      slug: v.slug,
+      products,
+      currency,
+      mrr: nowMrr,
+      mrrByCurrency: Object.fromEntries(
+        Object.entries(mrrByCurrency).map(([c, n]) => [c, money(n)]),
+      ),
+      subscribers: ventureSubscribers(v.id, subs, index),
+      previousMrr: beforeMrr,
+      mrrDelta: delta,
+      mrrAbsDelta: delta === null ? null : Math.abs(delta),
+      mrrMovePct:
+        delta === null || !beforeMrr
+          ? null
+          : Number(((Math.abs(delta) / Math.abs(beforeMrr)) * 100).toFixed(2)),
+      oneOffCount: one.count,
+      oneOff: scalar(one.gross),
+      oneOffByCurrency: one.gross,
+      days,
+    });
   }
   return out;
 }
