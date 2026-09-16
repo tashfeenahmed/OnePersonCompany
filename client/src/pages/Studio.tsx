@@ -388,10 +388,6 @@ function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, o
             ))}
           </TabsList>
         </Tabs>
-        <p className="text-muted-foreground mt-3 mb-5 text-center text-[13.5px]">
-          {MAKES.find((m) => m.key === make)?.about}
-        </p>
-
         {ventures.length === 0 ? (
           <p className="text-muted-foreground text-center text-[14px]">
             There are no ventures yet, and everything here is made out of one — the name,
@@ -805,7 +801,8 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   }[make];
 
   return (
-    <div data-studio-composer={make} className="bg-card grid gap-3.5 rounded-[14px] p-4.5">
+    <div data-studio-composer={make} className="bg-card mt-5 grid gap-3.5 rounded-[14px] p-4.5">
+      <p className="text-muted-foreground text-[13.5px]">{MAKES.find((item) => item.key === make)?.about}</p>
       {(make === "image" || make === "ugc") && readiness && <ReadinessBanner readiness={readiness} />}
       {needsVenture && ventureField}
 

@@ -315,8 +315,14 @@
 .app-sidebar[data-collapsed="true"] .sidebar-detail { opacity: 0; }
 .sidebar-brand { overflow: hidden; white-space: nowrap; }
 .sidebar-collapse-icon {
-  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease;
 }
+.sidebar-collapse-mark { opacity: 0; transition: opacity 140ms ease; }
+.app-sidebar[data-collapsed="true"] .sidebar-collapse-mark { opacity: 1; }
+.app-sidebar[data-collapsed="true"] .sidebar-collapse-icon { opacity: 0; }
+.app-sidebar[data-collapsed="true"] .sidebar-collapse-button:is(:hover, :focus-visible) .sidebar-collapse-mark { opacity: 0; }
+.app-sidebar[data-collapsed="true"] .sidebar-collapse-button:is(:hover, :focus-visible) .sidebar-collapse-icon { opacity: 1; }
+.sidebar-new-chat { transition: width 240ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 140ms ease; }
 .app-sidebar[data-collapsed="true"] .sidebar-collapse-icon { transform: rotate(180deg); }
 .sidebar-content-enter { animation: sidebar-content-enter 180ms ease-out both; }
 @keyframes sidebar-content-enter {
@@ -324,7 +330,7 @@
   to { opacity: 1; transform: translateX(0); }
 }
 @media (max-width: 767px), (prefers-reduced-motion: reduce) {
-  .app-sidebar, .sidebar-detail, .sidebar-collapse-icon { transition: none; }
+  .app-sidebar, .sidebar-detail, .sidebar-collapse-icon, .sidebar-collapse-mark, .sidebar-new-chat { transition: none; }
   .sidebar-content-enter { animation: none; }
 }
 

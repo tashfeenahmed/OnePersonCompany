@@ -79,6 +79,7 @@ export async function writeSceneSpec(opts: {
     `You write SHORT MOTION-GRAPHICS VIDEOS: five or six cards of typography, one idea each, read on a phone with the sound off.`,
     ``,
     `ANSWER WITH ONE JSON OBJECT AND NOTHING ELSE. No preamble, no markdown fence, no explanation.`,
+    `Do not output reasoning or planning. Put the complete scene list in the final answer immediately.`,
     ``,
     `{`,
     `  "title": "a short working name for this video",`,
@@ -123,8 +124,21 @@ export async function writeSceneSpec(opts: {
     `Write the JSON object now.`,
   ].join("\n");
 
-  const reply = await complete([{ role: "system", content: system }, { role: "user", content: user }], { signal: opts.signal });
-  return { raw: readModelJson(reply.text, "scenes"), model: reply.model, text: reply.text };
+  // Workdash gave its spec writer one correction attempt. Keep both attempts
+  // on the shared provider so cancellation and model budgets still apply.
+  let feedback = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    opts.signal?.throwIfAborted();
+    const reply = await complete([
+      { role: "system", content: system },
+      { role: "user", content: feedback ? `${user}\n\nYour previous answer was rejected: ${feedback}. Send a complete, corrected JSON object only, with no reasoning.` : user },
+    ], { signal: opts.signal, jsonObject: true });
+    const raw = readModelJson(reply.text, "scenes");
+    const checked = readSceneSpec(raw, opts.limits);
+    if (checked.spec) return { raw, model: reply.model, text: reply.text };
+    feedback = checked.problems.join(" ").slice(0, 600);
+  }
+  throw new Error(`The model could not produce a usable scene list after two attempts. ${feedback} No rendering was started.`);
 }
 
 

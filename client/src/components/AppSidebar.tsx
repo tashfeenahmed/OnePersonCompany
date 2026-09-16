@@ -339,10 +339,11 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
           One Person Company
         </span></div>
         <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs"
-          className="absolute right-1 top-0 hidden shrink-0 text-muted-foreground md:inline-flex"
+          className={cn("sidebar-collapse-button absolute top-0 hidden shrink-0 text-muted-foreground md:inline-flex", collapsed ? "left-1/2 -translate-x-1/2" : "right-1")}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-expanded={!collapsed} aria-controls="app-sidebar-content"
           onClick={() => onCollapsedChange(!collapsed)}>
+          <span aria-hidden="true" className="sidebar-collapse-mark bg-primary text-primary-foreground absolute grid size-[22px] place-items-center rounded-[9px] text-[12px] font-semibold">1</span>
           <ChevronLeft aria-hidden="true" className="sidebar-collapse-icon size-[18px]" strokeWidth={1.75} />
         </Button></TooltipTrigger><TooltipContent side={collapsed ? "right" : "bottom"}>{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent></Tooltip>
       </div>
@@ -351,11 +352,11 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
       <Button
         onClick={newChat}
         aria-label="New chat" aria-keyshortcuts="Meta+K Control+K"
-        className="mb-3 h-10 w-full justify-start gap-2.5 overflow-hidden px-3 text-[13.5px] transition-colors"
+        className={cn("sidebar-new-chat mb-3 h-10 overflow-hidden text-[13.5px]", collapsed ? "mx-auto w-10 justify-center gap-0 p-0" : "w-full justify-start gap-2.5 px-3")}
       >
         <Plus className="size-[14px]" strokeWidth={2} />
-        <span aria-hidden={collapsed || undefined} className="sidebar-detail min-w-0 flex-1 text-left">New chat</span>
-        <span aria-hidden="true" className="sidebar-detail ml-auto font-mono text-[11.5px] opacity-55">⌘K</span>
+        {!collapsed && <><span className="sidebar-detail min-w-0 flex-1 text-left">New chat</span>
+        <span aria-hidden="true" className="sidebar-detail ml-auto font-mono text-[11.5px] opacity-55">⌘K</span></>}
       </Button>
       </TooltipTrigger>{collapsed && <TooltipContent side="right" sideOffset={8}>New chat · ⌘K</TooltipContent>}</Tooltip>
 

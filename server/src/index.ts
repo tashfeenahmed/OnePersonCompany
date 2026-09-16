@@ -342,6 +342,7 @@ for (const m of MANIFESTS) for (const r of m.routes ?? []) app.route(r.path, r.a
 const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
 if (existsSync(`${clientDist}/index.html`)) {
   app.use("/assets/*", serveStatic({ root: clientDist }));
+  app.get("/favicon.svg", serveStatic({ root: clientDist, path: "favicon.svg" }));
   app.get("*", async (c, next) => {
     if (c.req.path.startsWith("/api/") || c.req.path.startsWith("/assets/")) return next();
     return serveStatic({ root: clientDist, path: "index.html" })(c, next);

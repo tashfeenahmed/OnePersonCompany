@@ -96,6 +96,9 @@ export type CompleteOptions = {
   /** Override the provider's default model for this call. */
   model?: string;
   signal?: AbortSignal;
+  /** For short structured writers: request JSON and suppress optional thinking
+   * on compatible routers, without changing the workspace's chat settings. */
+  jsonObject?: boolean;
   /**
    * WHAT THE IMAGES IN THIS CALL ARE WORTH, IN TOKENS.
    *
@@ -362,7 +365,7 @@ function budgetShape(turns: VisionTurn[], imageTokens?: number): unknown {
  */
 export async function complete(turns: VisionTurn[], opts: CompleteOptions = {}): Promise<ProviderReply> {
   const work = () =>
-    budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: activeProvider()?.id }, maxOutputTokens =>
+    budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: activeProvider()?.id, ...(opts.jsonObject ? { jsonObject: true } : {}) }, maxOutputTokens =>
       completeUnmetered(turns, opts, maxOutputTokens),
     );
   if (runContext.getStore()) return work();
@@ -391,12 +394,18 @@ async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, max
       service: `${p.label} (${endpoint.label})`,
       timeoutMs: p.policy.timeoutMs,
       signal: opts.signal ?? runContext.getStore()?.signal,
-      body: maxOutputTokens ? { max_tokens: maxOutputTokens } : undefined,
+      body: {
+        ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
+        ...(opts.jsonObject ? { response_format: { type: "json_object" } } : {}),
+        ...(opts.jsonObject && p.id === "freellmapi" ? { reasoning_effort: "none" } : {}),
+        ...(opts.jsonObject && p.id === "openrouter" ? { reasoning: { enabled: false } } : {}),
+        ...(opts.jsonObject && p.id === "local" ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+      },
     });
     const text = readText(doc);
-    if (text === null) throw new Error(`${p.label} answered with no text.`);
+    if (text === null && !opts.jsonObject) throw new Error(`${p.label} answered with no text.`);
     return {
-      text,
+      text: text ?? "",
       provider: p.id,
       endpoint: endpoint.label,
       model: readModel(doc) ?? model,
