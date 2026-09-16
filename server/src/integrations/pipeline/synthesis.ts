@@ -20,23 +20,41 @@
  * clock — a rule that can only be observed by running a nightly is a rule
  * nobody checks.
  *
- * SIX REFUSALS, IN THE ORDER THEY FIRE:
+ * NINE REFUSALS, IN THE ORDER THEY FIRE:
  *
  *   1. AN EMPTY OR ONE-WORD ACTION. "Improve marketing" is not an instruction.
  *   2. EVIDENCE THAT IS NOT MEASURED. The proposal names the packet key it
  *      rests on; if that key is null for this venture, the proposal is a guess
  *      wearing a citation and it is dropped by name. This is the rule the whole
  *      evidence packet exists to make enforceable.
- *   3. ALREADY ON THE BOARD. Compared against the venture's OWN open cards by
+ *   3. A TITLE THAT IS A VERB AND A SHRUG. "Analyze subscription data for
+ *      growth opportunities" opens with a looking-at verb and names nothing the
+ *      evidence line actually says. Refused unless what follows the verb shares
+ *      a word with the finding — "Review the noindex tag on /manage" is a real
+ *      instruction and survives.
+ *   4. EVIDENCE THAT DISMISSES ITSELF. A finding that says "the noindex is
+ *      defensible" or "this is by design" is the model telling the owner there
+ *      is nothing to do; filing a card off it is filing his own caveat back at
+ *      him. Read off the quoted line and the proposal's own rationale, by
+ *      phrase list, with no second model call.
+ *   5. ALREADY ON THE BOARD. Compared against the venture's OWN open cards by
  *      normalised title — figures stripped, stopwords dropped, 60% of the
  *      remaining words shared. Re-proposing a card the owner is already looking
  *      at is the fastest way to teach him to stop reading these.
- *   4. ALREADY PROPOSED RECENTLY, filed or dropped. A proposal he declined last
+ *   6. ALREADY PROPOSED RECENTLY, filed or dropped. A proposal he declined last
  *      Tuesday is not improved by being re-offered on Friday.
- *   5. THE SAME ACTION TWICE INSIDE ONE ANSWER. A model asked for three
+ *   7. THE SAME ACTION TWICE INSIDE ONE ANSWER. A model asked for three
  *      sometimes gives one of them in two wordings, and nothing above catches
  *      that because neither copy is on the board yet.
- *   6. OVER THE CAP, per venture and per night. Three good actions a night is a
+ *   8. EVIDENCE ALREADY SPENT. One finding buys ONE card. Three actions off one
+ *      revenue line — analyse it, instrument it, alert on it — share about one
+ *      word each, so every title rule above passes them and the owner gets
+ *      three cards for one fact. Enforced against the proposals already
+ *      accepted in this answer AND against the findings the venture's open
+ *      cards are already resting on. It fires after the title rules rather than
+ *      before them so that two wordings of ONE action are still reported as
+ *      that, which is the more useful sentence of the two.
+ *   9. OVER THE CAP, per venture and per night. Three good actions a night is a
  *      morning's work; thirty is a list nobody opens.
  *
  * EVERY REFUSAL IS RECORDED WITH ITS REASON. `synthesis_proposals` holds the
@@ -165,6 +183,111 @@ export type Proposal = {
   evidenceLine: string;
 };
 
+/* ------------------------------------------------------ one finding, one card */
+
+/**
+ * THE FINDING A PROPOSAL RESTS ON, as one comparable string.
+ *
+ * NOT the packet key on its own. "revenue" is a section, and a venture's
+ * revenue section holds several facts; refusing every second proposal that says
+ * "revenue" would throw away a real second action about a real second figure.
+ * NOT the quoted line verbatim either: two proposals off the same fact quote it
+ * with different rounding and different punctuation, and a string compare would
+ * call them different findings.
+ *
+ * So it is the section plus the line NORMALISED the way titles are — figures
+ * out, punctuation out, stopwords out — which makes "MRR now $589.83 … change
+ * $341.25" and "MRR now $589.83 across 372 active subscription(s)" the same
+ * finding they plainly are, and a traffic line about a different site a
+ * different one.
+ *
+ * A proposal that quoted nothing keys on its section alone, deliberately: an
+ * uncited action is the case the cap most needs to catch, not least.
+ */
+export function evidenceKey(p: { evidence: string; evidenceLine?: string | null }): string {
+  const section = String(p.evidence ?? "").trim().toLowerCase();
+  const line = normalise(String(p.evidenceLine ?? ""));
+  return line ? `${section}|${line}` : section;
+}
+
+/* ------------------------------------------------------ evidence that says no */
+
+/**
+ * THE PHRASES A FINDING USES TO DISMISS ITSELF.
+ *
+ * The case that produced this list: a run reported "…the noindex is
+ * defensible, but…", the model quoted that sentence as its evidence, and a card
+ * saying "Review the noindex tag on the /manage page" reached the board. The
+ * analyst had already answered the question the card asks. Filing it is handing
+ * the owner back his own caveat with a checkbox on it.
+ *
+ * ONE LIST, EXPORTED, AND NO MODEL CALL. The gate is deterministic on purpose —
+ * asking a second model "does this evidence dismiss itself" would make the rule
+ * unobservable except by running a night. The cost of a phrase list is that it
+ * reads sentiment by keyword and will miss a caveat phrased a new way; the
+ * benefit is that every miss and every false positive is a one-line diff to a
+ * constant that has a test beside it.
+ */
+export const DISMISSALS = [
+  "is defensible",
+  "is expected",
+  "by design",
+  "intentional",
+  "not a problem",
+  "no action needed",
+  "working as intended",
+  "likely fine",
+  "can be ignored",
+] as const;
+
+/** The dismissal a text contains, or null. Case-insensitive, and on word
+ *  boundaries so "unintentional" is not read as "intentional". */
+export function dismissal(...texts: (string | null | undefined)[]): string | null {
+  const hay = texts.map((t) => String(t ?? "")).join(" \n ").toLowerCase();
+  for (const phrase of DISMISSALS) {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`).test(hay)) return phrase;
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------ a verb and a shrug */
+
+/** Verbs that describe LOOKING AT something rather than doing anything to it.
+ *  Fine in a real instruction — "Review the noindex tag on /manage" — and the
+ *  whole of a useless one. */
+export const VAGUE_VERBS = [
+  "analyze",
+  "analyse",
+  "review",
+  "explore",
+  "investigate",
+  "look into",
+  "consider",
+] as const;
+
+/**
+ * IS THIS TITLE A VERB AND A SHRUG?
+ *
+ * True when the title OPENS with one of the looking-at verbs and nothing after
+ * the verb appears in the evidence line it cites. "Analyze subscription data
+ * for growth opportunities" against a line about MRR names data, growth and
+ * opportunities — three words the finding never uses — and is a card the owner
+ * cannot start. "Review the noindex tag on /manage" against a line naming the
+ * noindex and /manage is an instruction with a place in it, and passes.
+ *
+ * Only the LEADING verb counts. "Rewrite the pricing page and review the copy"
+ * is doing something; a rule matching the verb anywhere would refuse it.
+ */
+export function genericTitle(title: string, evidenceLine: string): boolean {
+  const t = String(title ?? "").trim().toLowerCase();
+  const verb = VAGUE_VERBS.find((v) => new RegExp(`^${v}(?![a-z])`).test(t));
+  if (!verb) return false;
+  const line = tokens(evidenceLine);
+  for (const w of tokens(t.slice(verb.length))) if (line.has(w)) return false;
+  return true;
+}
+
 export type Verdict =
   | { accept: true; proposal: Proposal }
   | { accept: false; proposal: Proposal; reason: string };
@@ -173,7 +296,7 @@ export type Verdict =
  * SHOULD THIS PROPOSAL BECOME A CARD?
  *
  * Pure. No database, no clock of its own, no provider — everything it decides
- * on is passed in. That is what makes the five refusals testable, and testing
+ * on is passed in. That is what makes the nine refusals testable, and testing
  * them is the point: this function is the difference between a feature that
  * files three useful cards a week and one the owner switches off in a
  * fortnight.
@@ -186,6 +309,10 @@ export function gate(input: {
   proposals: Proposal[];
   measured: string[];
   openCardTitles: string[];
+  /** The findings — `evidenceKey()` — the venture's OPEN cards already rest on.
+   *  Absent means "none known", which is what a caller with no proposal history
+   *  gets and what every row filed before the column existed reads as. */
+  openEvidenceKeys?: string[];
   recentProposalTitles: { title: string; at: string; verdict: string }[];
   perVenture: number;
   /** How many the night has left across every venture. */
@@ -194,6 +321,12 @@ export function gate(input: {
 }): Verdict[] {
   const at = input.now ?? Date.now();
   const out: Verdict[] = [];
+  /* The findings already spent: on the board before tonight, and on the
+     proposals accepted so far in this same answer. Two collections rather than
+     one because the refusal has to say WHICH, and "it is already a card" and
+     "you said this two lines ago" send the owner to different places. */
+  const onTheBoard = new Set((input.openEvidenceKeys ?? []).filter(Boolean));
+  const takenHere = new Map<string, string>();
   let accepted = 0;
 
   for (const p of input.proposals) {
@@ -215,6 +348,35 @@ export function gate(input: {
         reason:
           `it rests on "${p.evidence || "nothing"}", which is not measured for this venture. ` +
           `The measured evidence tonight is ${input.measured.join(", ") || "nothing at all"}.`,
+      });
+      continue;
+    }
+
+    /* A VERB AND A SHRUG. Before the board checks, because this one is about
+       the proposal alone and costs nothing: a title that names nothing the
+       evidence says is not improved by being new. */
+    if (genericTitle(title, p.evidenceLine)) {
+      out.push({
+        accept: false,
+        proposal: p,
+        reason:
+          `the title is generic — it opens with a looking-at verb and names nothing the evidence line says. ` +
+          `The evidence is: "${String(p.evidenceLine ?? "").slice(0, 160)}". Name the thing to change and where it is.`,
+      });
+      continue;
+    }
+
+    /* THE FINDING ALREADY SAID THERE WAS NOTHING TO DO. Read off the quoted
+       line and off the model's own rationale, because the caveat lands in
+       either one. */
+    const says = dismissal(p.evidenceLine, p.why);
+    if (says) {
+      out.push({
+        accept: false,
+        proposal: p,
+        reason:
+          `the evidence dismisses itself — it says "${says}" about the very finding this rests on. ` +
+          `The line is: "${String(p.evidenceLine ?? "").slice(0, 160)}".`,
       });
       continue;
     }
@@ -255,6 +417,36 @@ export function gate(input: {
       continue;
     }
 
+    /* ONE FINDING, ONE CARD.
+       The 6 September pass for one venture filed three cards — analyse the
+       subscription data, track price changes in the collector, alert on MRR
+       milestones — all three resting on the SAME single revenue line. Every
+       title rule above passed them: they share about one word, so the Jaccard
+       is 0.09 and nothing keyed on the evidence at all. The owner got three
+       morning cards for one fact he already knew. */
+    const key = evidenceKey(p);
+    if (onTheBoard.has(key)) {
+      out.push({
+        accept: false,
+        proposal: p,
+        reason:
+          `evidence already carries an open card — the finding it rests on ("${String(p.evidenceLine ?? "").slice(0, 120)}") ` +
+          `is already on the board as its own card. One finding is worth one action.`,
+      });
+      continue;
+    }
+    const alreadyHere = takenHere.get(key);
+    if (alreadyHere) {
+      out.push({
+        accept: false,
+        proposal: p,
+        reason:
+          `evidence already carries an accepted proposal from this same answer: "${alreadyHere.slice(0, 120)}" ` +
+          `rests on the same finding. One finding is worth one action.`,
+      });
+      continue;
+    }
+
     if (accepted >= input.perVenture) {
       out.push({
         accept: false,
@@ -273,6 +465,7 @@ export function gate(input: {
     }
 
     accepted += 1;
+    takenHere.set(key, title);
     out.push({ accept: true, proposal: p });
   }
 
@@ -374,7 +567,13 @@ export function renderPacket(p: EvidencePacket): string {
 
   section("runs", p.runs, () => {
     const r = p.runs.measured!;
-    return [`Window: ${r.window}.`, ...r.finished.map((f) => `- ${f.kind} "${f.title}": ${f.headline}`)];
+    /* A headline is now several whole lines rather than one cut one, so the
+       continuations are indented under their bullet: the model has to be able
+       to tell which run a finding belongs to. */
+    return [
+      `Window: ${r.window}.`,
+      ...r.finished.map((f) => `- ${f.kind} "${f.title}": ${f.headline.replace(/\n/g, "\n  ")}`),
+    ];
   });
 
   return lines.filter((l) => l !== "").join("\n");
@@ -395,6 +594,12 @@ function ask(p: EvidencePacket, s: SynthesisSettings, recent: { title: string }[
     `- rest on ONE of the measured sections above — name it in "evidence" using exactly one of: ` +
       `${measuredKeys(p).join(", ") || "(nothing is measured, so propose nothing)"};`,
     `- quote the figure or sentence it rests on in "evidenceLine", copied from above rather than recalled;`,
+    `- rest on a DIFFERENT quoted line from every other action here — one finding buys one action, so ` +
+      `three actions off one revenue figure will be refused down to one;`,
+    `- not rest on a line that already says the thing is fine — "defensible", "by design", "expected", ` +
+      `"no action needed" — that is the evidence telling you there is nothing to do;`,
+    `- name what to change and where. A title that opens with analyse, review, explore, investigate or ` +
+      `consider and then names nothing the quoted line says will be refused as generic;`,
     `- not repeat anything already on the board or in the recent list.`,
     "",
     "If the honest answer is that nothing is worth doing this week, return an empty list. That is a valid and useful answer.",
@@ -483,6 +688,42 @@ function recentProposals(ventureId: string, days: number): { title: string; at: 
       "SELECT title, at, verdict FROM synthesis_proposals WHERE venture_id = ? AND at >= ? ORDER BY at DESC LIMIT 60",
     )
     .all(ventureId, since) as unknown as { title: string; at: string; verdict: string }[];
+}
+
+/**
+ * THE FINDINGS THE VENTURE'S OPEN CARDS ARE ALREADY RESTING ON.
+ *
+ * Joined through `card_origin`, which is the board's own idempotency key and
+ * the only honest link between a proposal and the card it became: a card the
+ * owner has since archived, finished or deleted stops counting the moment he
+ * moves it, which is right — once it is off his board the finding is free to
+ * buy another action.
+ *
+ * ROWS FILED BEFORE `evidence_key` EXISTED HAVE NULL AND ARE SKIPPED. The
+ * column cannot be backfilled honestly — the fingerprint is computed from the
+ * quoted line by the same normaliser the gate uses, and inventing it in SQL
+ * would key old rows differently from new ones. So the rule fails OPEN on
+ * history and closed on everything filed from now on, which costs at most one
+ * repeat per old card and never refuses a good action.
+ */
+export function openEvidenceKeys(ventureId: string): string[] {
+  try {
+    return (
+      db
+        .prepare(
+          `SELECT DISTINCT p.evidence_key AS key
+             FROM synthesis_proposals p
+             JOIN board_cards c ON c.origin = p.card_origin
+             JOIN board_columns col ON col.id = c.column_id
+            WHERE p.venture_id = ? AND p.verdict = 'filed'
+              AND p.evidence_key IS NOT NULL AND p.evidence_key <> ''
+              AND c.archived_at IS NULL AND col.key <> 'done'`,
+        )
+        .all(ventureId) as unknown as { key: string }[]
+    ).map((r) => r.key);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -613,6 +854,7 @@ export async function passForVenture(
        the top of his board is exactly the one he has forgotten and would be
        most annoyed to be offered again. */
     openCardTitles: openCards(v.id, { all: true }).map((c) => c.title),
+    openEvidenceKeys: openEvidenceKeys(v.id),
     recentProposalTitles: recent,
     perVenture: s.perVenture,
     remainingTonight: opts.remainingTonight ?? s.perNight,
@@ -654,8 +896,8 @@ export async function passForVenture(
         ok = false;
       }
       db.prepare(
-        `INSERT INTO synthesis_proposals (run_id, at, venture_id, rank, title, rationale, evidence_line, evidence, verdict, reason, card_origin)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO synthesis_proposals (run_id, at, venture_id, rank, title, rationale, evidence_line, evidence, evidence_key, verdict, reason, card_origin)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         opts.runId ?? null,
         at,
@@ -665,6 +907,7 @@ export async function passForVenture(
         p.why,
         p.evidenceLine,
         JSON.stringify({ key: p.evidence, packet }),
+        evidenceKey(p),
         ok ? "filed" : "dropped",
         ok ? null : "the board refused the card (no Backlog column, or the origin already existed).",
         ok ? origin : null,
@@ -680,8 +923,8 @@ export async function passForVenture(
     } else {
       dropped += 1;
       db.prepare(
-        `INSERT INTO synthesis_proposals (run_id, at, venture_id, rank, title, rationale, evidence_line, evidence, verdict, reason, card_origin)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'dropped', ?, NULL)`,
+        `INSERT INTO synthesis_proposals (run_id, at, venture_id, rank, title, rationale, evidence_line, evidence, evidence_key, verdict, reason, card_origin)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'dropped', ?, NULL)`,
       ).run(
         opts.runId ?? null,
         at,
@@ -691,6 +934,7 @@ export async function passForVenture(
         p.why,
         p.evidenceLine,
         JSON.stringify({ key: p.evidence, packet }),
+        evidenceKey(p),
         verdict.reason,
       );
       shaped.push({ title: p.title, verdict: "dropped", reason: verdict.reason, evidence: p.evidence });
@@ -826,6 +1070,9 @@ export type ProposalRow = {
   rationale: string;
   evidence_line: string | null;
   evidence: string;
+  /** The finding fingerprint — see `evidenceKey()`. NULL on rows filed before
+   *  the column existed. */
+  evidence_key: string | null;
   verdict: string;
   reason: string | null;
   card_origin: string | null;
@@ -878,8 +1125,13 @@ export function shapeProposal(r: ProposalRow, opts: { packet?: boolean } = {}) {
     rank: r.rank,
     title: r.title,
     why: r.rationale,
+    /** The packet SECTION, as the page has always shown it. Not the finding
+     *  fingerprint below, which is an internal identity and not a label. */
     evidenceKey: (evidence as { key?: string })?.key ?? null,
     evidenceLine: r.evidence_line,
+    /** Section plus normalised line: what the one-finding-one-card rule keys
+     *  on. Null on rows filed before the column existed. */
+    evidenceFingerprint: r.evidence_key ?? null,
     verdict: r.verdict as "filed" | "dropped",
     reason: r.reason,
     cardOrigin: r.card_origin,

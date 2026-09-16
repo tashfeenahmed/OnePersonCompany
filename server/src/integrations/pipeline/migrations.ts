@@ -239,4 +239,35 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
     ALTER TABLE pipeline_runs ADD COLUMN workflow_snapshot TEXT;
     ALTER TABLE pipeline_runs ADD COLUMN current_stage TEXT;
   ` },
+
+  {
+    name: "485_synthesis_evidence_key",
+    sql: `
+      -- ONE FINDING, ONE CARD — the column that makes the rule enforceable
+      -- across nights as well as inside one answer.
+      --
+      -- On 6 September one venture got three cards in one pass, all three
+      -- resting on the SAME revenue line: analyse the subscription data, track
+      -- price changes in the collector, alert on MRR milestones. Every rule in
+      -- the gate passed them, because every rule compared TITLES and those
+      -- three titles share about one word. Nothing keyed on the evidence.
+      --
+      -- \`evidence_key\` IS THE SECTION PLUS THE NORMALISED LINE, written by
+      -- \`evidenceKey()\` in synthesis.ts with the same normaliser the titles
+      -- use — figures out, punctuation out, stopwords out — so the same fact
+      -- quoted twice with different rounding keys the same, and two different
+      -- alerts under one section key differently.
+      --
+      -- IT IS NOT BACKFILLED, deliberately. The fingerprint comes from a
+      -- normaliser that does not exist in SQL, and a SQL approximation would
+      -- key history differently from everything filed afterwards — which is
+      -- worse than a null, because it would refuse good actions for findings it
+      -- only appears to match. Old rows read as "no finding known" and the rule
+      -- fails open on them, which costs at most one repeat per pre-existing
+      -- card.
+      ALTER TABLE synthesis_proposals ADD COLUMN evidence_key TEXT;
+      CREATE INDEX IF NOT EXISTS synthesis_proposals_evidence
+        ON synthesis_proposals(venture_id, evidence_key);
+    `,
+  },
 ];

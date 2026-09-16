@@ -363,15 +363,67 @@ function memory(v: VentureRow): EvidencePacket["memory"] {
 /* --------------------------------------------------------------------- runs */
 
 /**
- * Recently finished sub-agent runs, with the FIRST few hundred characters of
- * each report as a headline.
+ * THE HEAD OF A RUN'S REPORT, CUT ONLY WHERE THE REPORT ITSELF BREAKS.
  *
- * A headline and not the report. A research run's output is thousands of words;
- * seven of them in a prompt would be the whole context window spent on last
- * week's reading, and the pass's job is to notice that a run happened and what
- * it concluded, not to re-read it. The run id is in the packet so the owner —
- * or the agent, through the runs skill — can open the real thing.
+ * It used to be `output.replace(/\s+/g," ").slice(0, 400)`, and both halves of
+ * that were wrong in the same way. Collapsing the newlines destroyed the one
+ * structure a report has — its findings are LINES — and a blind 400 then cut
+ * the survivor mid-word:
+ *
+ *   "- [error] page-error — one URL (`/'%20+%20href%20+%20'`) retu"
+ *
+ * The synthesis model read that fragment, could not see "returned 404", and
+ * invented a server error. A truncation that can end mid-word is a truncation
+ * that can change what the evidence says, and the whole pass rests on the
+ * evidence saying what it says.
+ *
+ * SO: whole lines or nothing. The first few findings, each one entire, up to a
+ * character budget that is checked BEFORE a line is added rather than after —
+ * and an ellipsis when anything was left behind, so the model can see it is
+ * reading a head and not a report.
+ *
+ * Still a headline and not the report: a research run's output is thousands of
+ * words and six of those in a prompt would be the context window spent on last
+ * week's reading. The run id is in the packet so the owner — or the agent,
+ * through the runs skill — can open the real thing.
  */
+export const HEADLINE_LINES = 6;
+export const HEADLINE_CHARS = 1_200;
+
+export function headline(output: string): string {
+  const lines = String(output ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean);
+  if (!lines.length) return "";
+
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    if (kept.length >= HEADLINE_LINES) break;
+    /* The FIRST line is always taken whole, whatever it costs: a report that is
+       one long paragraph has no line boundary to stop at, and returning nothing
+       would be worse than returning it. Every line after it has to fit. */
+    if (kept.length && used + line.length + 1 > HEADLINE_CHARS) break;
+    kept.push(line);
+    used += line.length + 1;
+  }
+
+  /* THE ONE-PARAGRAPH REPORT, the only case where a cut inside a line is the
+     lesser evil. It is made at a SPACE, so the last thing the model reads is
+     still a whole word. */
+  let cutInside = false;
+  if (kept.length === 1 && kept[0]!.length > HEADLINE_CHARS) {
+    const head = kept[0]!.slice(0, HEADLINE_CHARS);
+    const space = head.lastIndexOf(" ");
+    kept[0] = space > 0 ? head.slice(0, space) : head;
+    cutInside = true;
+  }
+
+  return kept.join("\n") + (cutInside || kept.length < lines.length ? " …" : "");
+}
+/** Recently finished sub-agent runs, each with the head of its report — see
+ *  `headline` above for why that is measured in whole lines. */
 function runs(v: VentureRow): EvidencePacket["runs"] {
   const since = new Date(Date.now() - RECENT_DAYS * 86_400_000).toISOString();
   let rows: { id: string; kind: string; title: string; finished_at: string | null; output: string }[];
@@ -396,7 +448,7 @@ function runs(v: VentureRow): EvidencePacket["runs"] {
         kind: r.kind,
         title: r.title,
         finishedAt: r.finished_at,
-        headline: r.output.replace(/\s+/g, " ").trim().slice(0, 400),
+        headline: headline(r.output),
       })),
     },
     why: null,

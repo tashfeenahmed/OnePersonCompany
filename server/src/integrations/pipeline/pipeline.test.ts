@@ -211,11 +211,15 @@ test("the overnight summary separates skips from failures and says when cost is 
 
 /* ------------------------------------------------------------ synthesis gate */
 
-const proposal = (title: string, evidence = "traffic"): Proposal => ({
+/* The evidence LINE is a parameter because one finding buys one card: two
+   proposals quoting the same sentence are the same finding twice, and the gate
+   refuses the second. Fixtures that mean two different actions have to quote
+   two different findings, exactly as a real pass would. */
+const proposal = (title: string, evidence = "traffic", evidenceLine = "pageviews fell 40%"): Proposal => ({
   title,
   why: "because",
   evidence,
-  evidenceLine: "pageviews fell 40%",
+  evidenceLine,
 });
 
 const gateInput = (over: Partial<Parameters<typeof gate>[0]> = {}) => ({
@@ -287,9 +291,9 @@ test("the per-venture cap refuses the fourth good action", () => {
     gateInput({
       perVenture: 2,
       proposals: [
-        proposal("Publish a comparison page against the main competitor"),
-        proposal("Instrument the checkout funnel with events"),
-        proposal("Write onboarding email for trial signups"),
+        proposal("Publish a comparison page against the main competitor", "traffic", "pageviews fell 40%"),
+        proposal("Instrument the checkout funnel with events", "traffic", "the checkout page had 12 views and no conversions"),
+        proposal("Write onboarding email for trial signups", "traffic", "the trial signup page was the second most visited"),
       ],
     }),
   );
