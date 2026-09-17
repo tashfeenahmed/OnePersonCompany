@@ -54,7 +54,7 @@ import { appForKind, runPage, subagentPage } from "../../../../shared/runRoutes.
  * the kind would 404 and nothing would tell it why.
  */
 import { db, now, ventureRow, ventureRowById, type VentureRow } from "../../db.ts";
-import { kindDef } from "../runs/kinds.ts";
+import { kindDef, type InputSpec, type KindDef } from "../runs/kinds.ts";
 import { runTallies, shapeRun, type RunKind, type RunRow, type RunTally } from "../runs/store.ts";
 import { readBrand } from "../../ventures/enrich.ts";
 
@@ -159,6 +159,24 @@ export function roleDef(role: string): RoleDef | null {
    the client rail reads, so a kind cannot resolve to two places. */
 export { appForKind };
 
+/**
+ * WHICH FIELD A BRIEF GOES IN.
+ *
+ * A kind's inputs are not interchangeable. Four of them have exactly one
+ * free-text field (`focus`) and it is handed straight to the model as the user
+ * turn — that is a brief, and it is what this is for. The others are
+ * different: `geo` has `questions`, asked of a model verbatim; `papers` has
+ * `topic`, sent to OpenAlex and arXiv as a literature-search query; `serp` has
+ * `queries`, searched for as typed; `aso` has `store`, one of two words.
+ *
+ * So the rule is: the first `textarea` input, falling back to the first input
+ * of any kind. It lives here rather than in routes.ts because the ROSTER has to
+ * publish it too — see `roleInfo`.
+ */
+export function briefField(def: KindDef): InputSpec | null {
+  return def.inputs.find((i) => i.kind === "textarea") ?? def.inputs[0] ?? null;
+}
+
 /** The roles, each with the sentence the kind already publishes about itself.
  *  Quoted from `kinds.ts` rather than restated here: two descriptions of one
  *  job drift, and the run's own is the one the agent doing it will read. */
@@ -168,6 +186,18 @@ function roleInfo(r: RoleDef) {
     kind: r.kind,
     title: r.title,
     what: kindDef(r.kind)?.what ?? "",
+    /* WHAT THIS ROLE'S BRIEF IS USED AS, in the kind's own words. A dispatcher
+       that is a model writes every brief as an instruction — "Check the AI
+       visibility of Acme: ask the provider what it knows…" — and the worker
+       uses it literally: run r-4ddfp6 asked a model that sentence as its fourth
+       question, and r-rl9k4h searched OpenAlex for a paragraph and found
+       nothing. Publishing the field's label and hint beside the role is what
+       lets the dispatcher write the right thing, or nothing. */
+    brief: (() => {
+      const def = kindDef(r.kind);
+      const field = def ? briefField(def) : null;
+      return field ? { field: field.key, label: field.label, hint: field.hint, required: field.required } : null;
+    })(),
     /* DERIVED, not stored on the role. The slug is a property of the KIND —
        two roles running one kind must land on one page — and keeping a column
        here was what let this roster drift from the router. */

@@ -204,12 +204,24 @@ const skills: Skill[] = [
           {
             name: "brief",
             type: "string",
-            required: true,
+            /* Optional on the wire because it is optional on the route: only
+               the roles whose brief IS the subject (a campaign's goal, a
+               dossier's person) refuse an empty one, and they say so. Marking
+               it required here made every dispatcher invent a brief, and an
+               invented brief is used literally. */
+            required: false,
             about:
-              "What to look into, in a line or two — this is handed to the " +
-              "worker as its brief, in front of everything this box already " +
-              "measured about the venture. The owner's standing instructions " +
-              "for that worker are prepended to it automatically. FOR THE PAPER " +
+              "THE WORKER'S INPUT, USED LITERALLY — not a note to the worker. " +
+              "Each role in the roster's `roles` list carries `brief`: the label " +
+              "and hint of the field this text lands in, and whether it is " +
+              "required. For the analysts it is a focus — what to look into, in " +
+              "a line or two. For the AI visibility analyst it is EXTRA QUESTIONS " +
+              "put to a model word for word, one per line. For the SERP analyst " +
+              "it is SEARCH QUERIES, one per line. For the store listing auditor " +
+              "it is `appstore` or `play`. When it is optional and the owner " +
+              "gave no such detail, LEAVE IT OUT: the worker knows its standard " +
+              "job, and a restated job is asked or searched for as typed. The " +
+              "owner's standing instructions are prepended automatically. FOR THE PAPER " +
               "WRITER IT IS THE SUBJECT OF THE LITERATURE SEARCH — a topic of " +
               "three to ten words, `LLM-based code generation with persistent " +
               "project memory`, never instructions: it is sent to OpenAlex and " +

@@ -25,6 +25,12 @@ export const DELEGATION_RULES = [
     "refresh for the worker; put any data freshness needs in its brief. " +
     "If no role covers the task, handle it " +
     "yourself using the available tools. Choose by capability, not by keywords.",
+  "THE BRIEF IS THE WORKER'S INPUT, NOT A NOTE TO THE WORKER. Each role below says " +
+    "what its brief is USED AS — extra questions put to a model word for word, a " +
+    "literature-search phrase, search queries, a store name, a focus. Write exactly " +
+    "that and nothing else. When the brief is optional and the owner gave no such " +
+    "detail, send NO brief: every worker already knows its standard job, and a job " +
+    "description sent as the brief is asked, searched for or matched literally.",
   TASK_AUTHORIZATION_RULE,
   "Resolve the venture from the owner's message or the selected venture. No venture " +
     "selected in the header does not prevent delegation when the message names a known " +
@@ -52,7 +58,8 @@ export function delegationLines(sessionId: string, managed: boolean, cliPath?: s
     ...DELEGATION_RULES,
     "",
     "Specialist roles available in this workspace (check the worker's current enabled state):",
-    ...roleInfos().map(r => `- role \`${r.role}\` — ${r.title}; ${r.portfolio ? "no venture" : "requires a venture"}. ${r.what}`),
+    ...roleInfos().map(r => `- role \`${r.role}\` — ${r.title}; ${r.portfolio ? "no venture" : "requires a venture"}. ${r.what}` +
+      (r.brief ? ` BRIEF = ${r.brief.label}${r.brief.required ? " (required)" : " (optional)"}: ${r.brief.hint}` : "")),
     "",
     managed
       ? `Use the installed CLI directly; the terminal may reset PATH. Read \`${command} help subagents\`, then \`${command} subagents roster --venture <id-or-slug> ` +

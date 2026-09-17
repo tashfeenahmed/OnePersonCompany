@@ -52,6 +52,15 @@ export type InputSpec = {
   default: string;
   /** Only for `select`. `value` is what is sent; `label` is what is drawn. */
   options?: { value: string; label: string }[];
+  /**
+   * TRUE WHEN THE TEXT IS USED AS TYPED — asked of a model line by line, sent
+   * to a search engine, matched against a closed word — rather than read by a
+   * model as prose. Nothing may be added to such a field: a dispatch used to
+   * prepend the venture's goals and the owner's standing instructions to
+   * whichever field the brief landed in, which made them AI-visibility
+   * "questions", a literature-search query, SERP queries and a store name.
+   */
+  literal?: boolean;
 };
 
 export type KindDef = {
@@ -150,6 +159,7 @@ export const KINDS: KindDef[] = [
       },
       {
         key: "questions",
+        literal: true,
         label: "Extra questions",
         hint: "One per line. These are asked as well as the three standard ones, not instead of them.",
         kind: "textarea",
@@ -167,6 +177,7 @@ export const KINDS: KindDef[] = [
     inputs: [
       {
         key: "topic",
+        literal: true,
         label: "Topic",
         hint: "What the paper is about, in the words a literature search would use. With a venture chosen and this left empty, the venture's own subject is the topic.",
         kind: "text",
@@ -331,6 +342,7 @@ export const KINDS: KindDef[] = [
     inputs: [
       {
         key: "queries",
+        literal: true,
         label: "Queries to tear down",
         hint: "One per line, up to five. Empty takes the venture's Search Console queries sitting between positions 5 and 20 — the ones where a page already exists and only the pages above it are in the way — and, with no Search Console property, derives one from the venture's own description and says so.",
         kind: "textarea",
@@ -356,6 +368,7 @@ export const KINDS: KindDef[] = [
     inputs: [
       {
         key: "store",
+        literal: true,
         label: "Which store",
         hint: "Empty audits every listing this venture has. `appstore` or `play` narrows it to one.",
         kind: "text",

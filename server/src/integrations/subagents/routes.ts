@@ -34,7 +34,7 @@ import * as inflight from "../../chat/inflight.ts";
 import { configValue, db, now } from "../../db.ts";
 import { activeBackend } from "../../chat/backend.ts";
 import { activeProvider } from "../../models/provider.ts";
-import { dossierTitle, kindDef, type InputSpec, type KindDef } from "../runs/kinds.ts";
+import { dossierTitle, kindDef } from "../runs/kinds.ts";
 import { pump } from "../runs/executor.ts";
 import { goalBriefLine } from "../chief/goals.ts";
 import { workspaceOwnerName } from "../../routes/workspace.ts";
@@ -48,6 +48,7 @@ import {
   isPortfolioRole,
   orgChart,
   roleDef,
+  briefField,
   roleInfos,
   runChild,
   shapeSubagent,
@@ -84,24 +85,6 @@ const MAX_TITLE = 80;
 const MAX_SESSION_ID = 200;
 
 /* ------------------------------------------------------------------ shapes */
-
-/**
- * WHICH FIELD A BRIEF GOES IN.
- *
- * A kind's inputs are not interchangeable. Four of the six have exactly one
- * free-text field (`focus`) and it is handed straight to the model as the user
- * turn — that is a brief, and it is what this is for. The other two are
- * different: `geo` has `category`, a phrase SUBSTITUTED INTO the question a
- * model is asked, and `questions`, its free-text slot; `papers` has `topic`,
- * which is sent to OpenAlex and arXiv as a literature-search query.
- *
- * So the rule is: the first `textarea` input, falling back to the first input
- * of any kind. That puts a brief in `focus`, in `questions`, and in `topic`,
- * which is the right field in all six cases — a paper's brief IS its topic.
- */
-function briefField(def: KindDef): InputSpec | null {
-  return def.inputs.find((i) => i.kind === "textarea") ?? def.inputs[0] ?? null;
-}
 
 /**
  * HOW MANY SKILLS THE CHIEF OF STAFF CAN ACTUALLY READ.
@@ -478,7 +461,12 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
      instructions still knows the task is the whole job and not the orders. */
   const asked =
     brief || `Nothing in particular has been singled out for this ${def.name.toLowerCase()} — cover what matters most.`;
-  input[field.key] = preface.length ? `${preface.join("\n\n")}\n\n${asked}` : brief ? brief : "";
+  /* A LITERAL FIELD TAKES THE BRIEF AND NOTHING ELSE — see `literal` in
+     runs/kinds.ts. The goals and the standing orders are prose for a model to
+     read; in a field that is asked, searched or matched as typed they are not
+     context, they are the query. Those workers lose the preface rather than
+     have it corrupt the run (r-4ddfp6 asked a model the brief as a question). */
+  input[field.key] = field.literal ? brief : preface.length ? `${preface.join("\n\n")}\n\n${asked}` : brief ? brief : "";
   if (!input[field.key]) delete input[field.key];
 
   const v = portfolio ? null : venture(row.venture_id);

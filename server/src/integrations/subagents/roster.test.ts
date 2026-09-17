@@ -80,3 +80,26 @@ test("roster busy state includes jobs started outside chat delegation", async ()
   assert.equal(worker.lastRun?.status, "running");
   assert.ok(worker.lastRun?.url.includes("run-existing"));
 });
+
+test("every role tells a dispatcher what its brief is used as, and a standard job needs none", async () => {
+  const { roleInfos } = await import("./store.ts");
+  const { delegationLines } = await import("./delegation.ts");
+  const roles = Object.fromEntries(roleInfos().map((r) => [r.role, r.brief]));
+  assert.equal(roles.visibility?.field, "questions");
+  assert.equal(roles.visibility?.required, false);
+  assert.equal(roles.writer?.field, "topic");
+  assert.equal(roles.campaigns?.required, true);
+  const lines = delegationLines("s-1", true).join("\n");
+  assert.match(lines, /role `visibility`[^\n]*BRIEF = Extra questions \(optional\)/);
+  assert.match(lines, /role `campaigns`[^\n]*\(required\)/);
+
+  /* And the route agrees: no brief is a run, not a 400, where the field is optional. */
+  const res = await subagentRoutes.request("/dispatch", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ role: "visibility", venture: "business-1" }),
+  });
+  assert.equal(res.status, 201);
+  const made = await res.json() as { run: { id: string } };
+  const row = db.prepare("SELECT input FROM agent_runs WHERE id=?").get(made.run.id) as { input: string };
+  assert.ok(!JSON.parse(row.input).questions);
+});
