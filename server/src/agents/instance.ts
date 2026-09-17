@@ -368,6 +368,9 @@ type Plan = {
   baseUrl: string;
   key: string | null;
   model: string;
+  /** How long the owner lets ONE completion on this provider take — the
+   *  provider's `policy.timeoutMs`. The agent's own helper calls inherit it. */
+  timeoutMs: number;
   /** The door key — the bearer the DASHBOARD uses to talk to the agent. */
   door: string;
   pointed: Pointed;
@@ -868,6 +871,7 @@ async function plan(s: Spec): Promise<Plan> {
     baseUrl: endpoint.baseUrl,
     key: endpoint.key,
     model,
+    timeoutMs: p.policy.timeoutMs,
     door: doorKey(s),
     pointed: {
       provider: p.id,
@@ -891,7 +895,7 @@ async function plan(s: Spec): Promise<Plan> {
  */
 function fingerprint(pl: Plan): string {
   const keyPart = pl.key ? digest(pl.key) : "none";
-  return `${pl.baseUrl}|${pl.model}|${keyPart}`;
+  return `${pl.baseUrl}|${pl.model}|${keyPart}|${pl.timeoutMs}`;
 }
 
 /** A short, stable, non-reversible digest. Not a password hash and does not
@@ -921,6 +925,43 @@ function digest(value: string): string {
  * secret appears, and neither is ever passed as an argument: `ps` is readable
  * by every process on this machine.
  */
+/**
+ * HERMES' HELPER CALLS GET THE WORKSPACE MODEL'S PATIENCE, NOT THIRTY SECONDS.
+ *
+ * Beside the conversation, Hermes makes small "auxiliary" completions against
+ * the same endpoint — the smart-approval guardian that vets a flagged terminal
+ * command, and a session title — each with a hard-coded 30s timeout. A hosted
+ * model answers those in two seconds and nobody ever sees them. A 27B on one
+ * GPU does not: measured on 2026-09-17, every guarded command cost 4 x 30s of
+ * timeouts and came back `pending_approval`, so the agent re-issued it and a
+ * four-minute SEO run could not finish in fifteen. The owner has already said
+ * how slow one completion may be (the provider's `policy.timeoutMs`), so the
+ * guardian is given that long and told not to think out loud about a one-word
+ * verdict. The guardian itself stays ON — turning approvals off is the
+ * owner's decision, not a performance tweak.
+ *
+ * The title is switched off outright: this dashboard titles its own
+ * conversations and never reads Hermes', so it was a completion per session
+ * that competed with the answer for the model and was then thrown away.
+ */
+export function hermesAuxiliaryYaml(timeoutMs: number, provider: string): string[] {
+  const seconds = Math.max(30, Math.round(timeoutMs / 1000));
+  return [
+    "auxiliary:",
+    "  approval:",
+    `    timeout: ${seconds}`,
+    '    reasoning_effort: "none"',
+    /* A llama.cpp/vLLM chat template takes its thinking switch here and knows
+       no `reasoning_effort` — the same knob models/provider.ts sends for a
+       local JSON call. Local only: a hosted API refuses a field it does not
+       know with a 400, and that would turn every verdict into a failure. */
+    ...(provider === "local" ? ["    extra_body:", "      chat_template_kwargs:", "        enable_thinking: false"] : []),
+    "  title_generation:",
+    "    enabled: false",
+    "",
+  ];
+}
+
 function configureHermes(s: Spec, pl: Plan) {
   const dir = hermesHome(s);
   mkdirSync(dir, { recursive: true });
@@ -949,6 +990,7 @@ function configureHermes(s: Spec, pl: Plan) {
     ...(pl.key ? [`  api_key: ${JSON.stringify(pl.key)}`] : []),
     `  default: ${JSON.stringify(pl.model)}`,
     "",
+    ...hermesAuxiliaryYaml(pl.timeoutMs, pl.pointed.provider),
     "# This dashboard's own data reaches the agent through the `opc` command on",
     "# the terminal's PATH and the skill packs under skills/ that teach it. No",
     "# mcp_servers block, on purpose: the terminal is the tool.",
