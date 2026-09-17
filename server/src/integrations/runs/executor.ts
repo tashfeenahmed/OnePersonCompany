@@ -417,7 +417,12 @@ export function pump() {
   const started = Date.now();
   const session = new Session(row.id);
   const abort = live!.abort;
-  const timeout = setTimeout(() => abort.abort(new Error("Job runtime budget exceeded.")), budgets().runSeconds * 1000);
+  /* Remembered, because the abort surfaces from whatever was in flight in ITS
+     words — a budget-killed Hermes run was filed as "The Hermes stream was
+     cancelled", which nobody had done and which named no setting to change. */
+  let outOfTime = false;
+  const runSeconds = budgets().runSeconds;
+  const timeout = setTimeout(() => { outOfTime = true; abort.abort(new Error("Job runtime budget exceeded.")); }, runSeconds * 1000);
   timeout.unref();
   const parent = db.prepare("SELECT parent_session_id AS id FROM agent_runs WHERE id=?").get(row.id) as {id: string | null} | undefined;
   void runContext.run({ id: row.id, venture: row.venture_id, automation: parent?.id === "rounds" || parent?.id === "pipeline", signal: abort.signal, sequence: 0, resume: !!row.resume_checkpoints }, async () => {
@@ -457,8 +462,12 @@ export function pump() {
     })
     .catch((err: unknown) => {
       const cancelled = live?.cancelling === true;
-      const message =
+      const raw =
         err instanceof Error ? err.message : typeof err === "string" ? err : "The run stopped for a reason it did not give.";
+      const message = outOfTime && !cancelled
+        ? `The job ran out of time: its ${runSeconds.toLocaleString()}-second runtime limit ended before the work did. ` +
+          "What it had written is kept. Raise the runtime limit under Settings → Usage limits, or use a faster model."
+        : raw;
       finishRunRow(row.id, {
         status: cancelled ? "cancelled" : "failed",
         /* The partial output is KEPT on both. Words that were written were
