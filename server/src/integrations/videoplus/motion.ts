@@ -225,6 +225,7 @@ export async function drawScene(opts: {
       pattern: "f-%05d.png",
       tiles: count,
       start: from,
+      height: opts.size.height,
       signal: opts.signal,
     });
     if (!cut.ok) return { error: `the sheet of frames ${from}–${from + count - 1} could not be cut apart: ${cut.error}` };
@@ -574,6 +575,7 @@ export async function previewSpec(opts: {
       pattern: "p-%03d.png",
       tiles: count,
       start: from,
+      height: size.height,
       signal: opts.signal,
     });
     rmSync(shot.path, { force: true });

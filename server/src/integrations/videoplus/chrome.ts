@@ -29,10 +29,12 @@
  * component updates — and it is made once per page per run rather than once
  * per shot.
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
   baseArgs,
+  dump,
   findBrowser,
   shoot,
   withProfile,
@@ -77,6 +79,55 @@ export type Shot = ShotResult;
  * rather than played — so nothing about the picture depends on how much
  * virtual time passed. Two seconds is layout and paint with room to spare.
  */
+/**
+ * HOW MUCH SHORTER THAN ITS WINDOW THIS BROWSER DRAWS A PAGE.
+ *
+ * `--window-size=1080,1920` is the WINDOW. Chromium's new headless mode on
+ * Linux keeps room for a toolbar it never draws, so the page is laid out
+ * 1080x1833 and the screenshot's last 87 rows are the bare canvas: every frame
+ * of every motion video made on the Pi carried a black band along the bottom
+ * (run r-bbs8m4, measured 2026-09-17 on Chromium 146). On macOS the two agree
+ * and the answer is 0.
+ *
+ * MEASURED, NOT ASSUMED: a probe page writes its own `innerHeight` into its
+ * title, once per browser per process. A probe that fails answers 0, which is
+ * exactly the old behaviour.
+ */
+const deficits = new Map<string, Promise<number>>();
+export function viewportDeficit(browser: string): Promise<number> {
+  let known = deficits.get(browser);
+  if (!known) {
+    known = (async () => {
+      const dir = mkdtempSync(resolve(tmpdir(), "vplus-probe-"));
+      try {
+        const page = resolve(dir, "probe.html");
+        writeFileSync(page, "<!doctype html><title>?</title><script>document.title='h='+innerHeight</script>", "utf8");
+        const asked = 600;
+        const got = await withProfile(
+          (profile) =>
+            dump({
+              bin: browser,
+              args: [...baseArgs({ profile, width: 800, height: asked, virtualTimeMs: 1_000, timeoutMs: LOCAL_MS }), "--dump-dom", `file://${page}`],
+              budgetMs: LOCAL_MS,
+            }),
+          "vplus-",
+        );
+        const inner = Number(/<title>h=(\d+)<\/title>/.exec(got.html)?.[1]);
+        const gap = asked - inner;
+        return Number.isFinite(gap) && gap > 0 && gap < 400 ? gap : 0;
+      } catch {
+        return 0;
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    })();
+    deficits.set(browser, known);
+  }
+  return known;
+}
+
+/** The sheet PNG is `height + viewportDeficit` rows tall — the page fills the
+ *  first `height` of them. Callers cut the rest off (`untileSheet`'s `height`). */
 export async function shootSheet(opts: {
   browser: string;
   html: string;
@@ -91,6 +142,7 @@ export async function shootSheet(opts: {
   const out = resolve(opts.dir, `${opts.name}.png`);
   writeFileSync(page, opts.html, "utf8");
   rmSync(out, { force: true });
+  const extra = await viewportDeficit(opts.browser);
   return withProfile(
     (profile) =>
       shoot({
@@ -99,7 +151,7 @@ export async function shootSheet(opts: {
           ...baseArgs({
             profile,
             width: opts.width,
-            height: opts.height,
+            height: opts.height + extra,
             virtualTimeMs: 2_000,
             timeoutMs: LOCAL_MS,
           }),

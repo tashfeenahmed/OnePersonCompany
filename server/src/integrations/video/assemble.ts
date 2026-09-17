@@ -559,12 +559,17 @@ export async function untileSheet(opts: {
   pattern: string;
   tiles: number;
   start: number;
+  /** The frame's own height. A sheet may be taller than its frames — see
+   *  `viewportDeficit` in videoplus/chrome.ts — and the rows below this are the
+   *  browser's bare canvas, cut off before the sheet is divided. */
+  height?: number;
   signal?: AbortSignal;
 }): Promise<SegmentResult> {
   const out = resolve(opts.dir, opts.pattern);
+  const crop = opts.height && opts.height > 0 ? `crop=iw:${Math.floor(opts.height)}:0:0,` : "";
   const r = await run(
     opts.ffmpeg,
-    ["-y", "-v", "error", "-i", opts.sheet, "-vf", `untile=${opts.tiles}x1`, "-start_number", String(opts.start), out],
+    ["-y", "-v", "error", "-i", opts.sheet, "-vf", `${crop}untile=${opts.tiles}x1`, "-start_number", String(opts.start), out],
     { timeoutMs: 120_000, signal: opts.signal },
   );
   return finish(r, out);
