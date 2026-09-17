@@ -207,7 +207,7 @@ function roleInfo(r: RoleDef) {
       const field = def ? briefField(def) : null;
       return (def?.inputs ?? [])
         .filter((i) => i.key !== field?.key)
-        .map((i) => ({ key: i.key, label: i.label, ...(i.options ? { options: i.options.map((o) => o.value) } : {}), default: i.default }));
+        .map((i) => ({ key: i.key, label: i.label, hint: i.hint, ...(i.options ? { options: i.options.map((o) => o.value) } : {}), default: i.default }));
     })(),
     /* DERIVED, not stored on the role. The slug is a property of the KIND —
        two roles running one kind must land on one page — and keeping a column

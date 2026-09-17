@@ -242,7 +242,10 @@ const skills: Skill[] = [
               "`{\"channels\":\"linkedin,ig\"}` for a campaign. Each role's " +
               "`inputs` in the roster lists the keys and, for a closed list, the " +
               "values. Anything left out takes the same default the run form " +
-              "shows. The brief's own field is never sent here.",
+              "shows, which is right nearly every time: set a key ONLY when the " +
+              "owner asked for that thing, and never write content into one — " +
+              "the worker writes the script, the scenes and the posts itself. " +
+              "The brief's own field is never sent here.",
           },
           {
             name: "parentSessionId",

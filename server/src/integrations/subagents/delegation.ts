@@ -60,7 +60,12 @@ export function delegationLines(sessionId: string, managed: boolean, cliPath?: s
     "Specialist roles available in this workspace (check the worker's current enabled state):",
     ...roleInfos().map(r => `- role \`${r.role}\` — ${r.title}; ${r.portfolio ? "no venture" : "requires a venture"}. ${r.what}` +
       (r.brief ? ` BRIEF = ${r.brief.label}${r.brief.required ? " (required)" : " (optional)"}: ${r.brief.hint}` : "") +
-      (r.inputs.length ? ` OTHER INPUTS (optional, sent as \`input\`): ${r.inputs.map(i => `${i.key}${i.options ? ` = ${i.options.join(" | ")}` : ""}`).join("; ")}.` : "")),
+      /* ONLY THE CLOSED LISTS. Naming every input here invited a model to fill
+         them: run r-l0w3rc got a whole invented scene list in `spec`, which is
+         the id of a SAVED spec. A choice with listed values cannot be
+         misread; a free-text field with no explanation can, so those stay in
+         the roster (with their hints) for a dispatcher that has a reason. */
+      (r.inputs.some(i => i.options) ? ` CHOICES (optional, sent as \`input\` JSON; set one ONLY when the owner asked for it): ${r.inputs.filter(i => i.options).map(i => `${i.key} = ${i.options!.join(" | ")}`).join("; ")}.` : "")),
     "",
     managed
       ? `Use the installed CLI directly; the terminal may reset PATH. Read \`${command} help subagents\`, then \`${command} subagents roster --venture <id-or-slug> ` +
