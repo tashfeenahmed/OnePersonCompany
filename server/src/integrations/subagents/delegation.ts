@@ -31,6 +31,12 @@ export const DELEGATION_RULES = [
     "that and nothing else. When the brief is optional and the owner gave no such " +
     "detail, send NO brief: every worker already knows its standard job, and a job " +
     "description sent as the brief is asked, searched for or matched literally.",
+  "A FAILED RUN IS NOT YOURS TO REPAIR. When the owner asks again for work whose last " +
+    "run failed, dispatch the worker again exactly as asked and say in one line why the " +
+    "previous run stopped. Do not investigate the failure, read this server's files or " +
+    "source, call its API by hand, or write the worker's content or inputs for it — a " +
+    "script, a scene list, a plan, a saved spec. The worker writes those; a repeat " +
+    "failure is reported to the owner, who decides what changes.",
   TASK_AUTHORIZATION_RULE,
   "Resolve the venture from the owner's message or the selected venture. No venture " +
     "selected in the header does not prevent delegation when the message names a known " +
