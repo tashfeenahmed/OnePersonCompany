@@ -129,6 +129,7 @@ export async function writeSceneSpec(opts: {
   // Workdash gave its spec writer one correction attempt. Keep both attempts
   // on the shared provider so cancellation and model budgets still apply.
   let feedback = "";
+  let lastText = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     opts.signal?.throwIfAborted();
     /* ROOM TO THINK AND STILL ANSWER. A scene list is a few hundred tokens of
@@ -142,12 +143,18 @@ export async function writeSceneSpec(opts: {
       { role: "system", content: system },
       { role: "user", content: feedback ? `${user}\n\nYour previous answer was rejected: ${feedback}. Send a complete, corrected JSON object only, with no reasoning.` : user },
     ], { signal: opts.signal, jsonObject: true, maxOutputTokens: 8192 });
+    lastText = reply.text;
     const raw = readModelJson(reply.text, "scenes");
     const checked = readSceneSpec(raw, opts.limits);
     if (checked.spec) return { raw, model: reply.model, text: reply.text };
     feedback = checked.problems.join(" ").slice(0, 600);
   }
-  throw new Error(`The model could not produce a usable scene list after two attempts. ${feedback} No rendering was started.`);
+  /* The reply travels with the refusal so the report can show it. "This is not
+     an object" about text nobody kept is a failure nobody can diagnose. */
+  throw Object.assign(
+    new Error(`The model could not produce a usable scene list after two attempts. ${feedback} No rendering was started.`),
+    { modelReply: lastText },
+  );
 }
 
 
@@ -301,6 +308,9 @@ export async function motionVideo(opts: {
     } catch (err) {
       if (err instanceof StepError) throw err;
       s.endStep(specStep, "the scene list could not be written");
+      const sent = (err as { modelReply?: unknown } | null)?.modelReply;
+      if (typeof sent === "string")
+        s.say(`## What the model sent instead of a scene list\n\n\`\`\`\n${sent.slice(0, 4000) || "(nothing at all — an empty reply)"}\n\`\`\`\n`);
       throw new StepError("spec", err instanceof Error ? err.message : String(err));
     }
   }
