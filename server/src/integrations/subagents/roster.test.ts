@@ -103,3 +103,15 @@ test("every role tells a dispatcher what its brief is used as, and a standard jo
   const row = db.prepare("SELECT input FROM agent_runs WHERE id=?").get(made.run.id) as { input: string };
   assert.ok(!JSON.parse(row.input).questions);
 });
+
+test("a dispatch carries the form's defaults, so a campaign asked for in chat has a channel", async () => {
+  const res = await subagentRoutes.request("/dispatch", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ role: "campaigns", venture: "business-2", brief: "Win the first 100 users." }),
+  });
+  assert.equal(res.status, 201);
+  const made = await res.json() as { run: { id: string } };
+  const input = JSON.parse((db.prepare("SELECT input FROM agent_runs WHERE id=?").get(made.run.id) as { input: string }).input);
+  assert.equal(input.channels, "page");
+  assert.match(input.goal, /Win the first 100 users\.$/);
+});

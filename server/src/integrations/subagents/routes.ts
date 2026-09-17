@@ -422,6 +422,24 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
     if (t) input[spec.key] = t;
   }
 
+  /* THE FORM'S DEFAULTS, FOR A CALLER THAT IS NOT THE FORM. The run page
+     prefills every input with its `default`, so a run started there always
+     carries `channels: "page"`; a dispatch carries only what the dispatcher
+     thought to send, and a campaign asked for in chat died in nine
+     milliseconds with "A campaign needs at least one channel" (r-optkfj). The
+     kind already says what an unset field means, so that is what is sent — and
+     a required field with no default is refused HERE, with its hint, where the
+     dispatcher can still correct it, rather than as a failed run nobody reads. */
+  for (const spec of def.inputs) {
+    if (spec.key === field.key || input[spec.key]) continue;
+    if (spec.default.trim()) input[spec.key] = spec.default.trim();
+    else if (spec.required)
+      return {
+        status: 400 as const,
+        json: { error: `${spec.label} is required for a ${def.name} run. ${spec.hint} Send it in \`input\` as "${spec.key}".` },
+      };
+  }
+
   /*
     THE STANDING INSTRUCTIONS GO IN FRONT OF THE BRIEF, in the same field,
     labelled as the owner's. They are prepended rather than appended because
