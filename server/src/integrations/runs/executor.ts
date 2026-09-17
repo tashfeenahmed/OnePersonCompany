@@ -650,7 +650,9 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolea
        guard have one author. Everything below is what a RUN does differently
        from a chat, which is all this file ever needed to say. */
     const turn = await consumeTurn(
-      backend.stream(turns, { channel: "run", sessionId: `run:${s.id}`, signal }),
+      /* `maxMs` is the run's own budget: the ten-minute chat cap underneath it
+         ended every slow-model run at 600s whatever `runSeconds` said. */
+      backend.stream(turns, { channel: "run", sessionId: `run:${s.id}`, signal, maxMs: budgets().runSeconds * 1000 }),
       {
         delta: (text) => {
           if (opts.toOutput) s.append(text);

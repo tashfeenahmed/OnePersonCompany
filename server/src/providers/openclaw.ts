@@ -64,7 +64,6 @@ import * as accounts from "../accounts.ts";
 import * as vault from "../vault.ts";
 import { configValue } from "../db.ts";
 import {
-  ASK_TIMEOUT_MS,
   PROBE_TIMEOUT_MS,
   WireError,
   chatCompletion,
@@ -81,6 +80,7 @@ import {
 } from "../chat/wire.ts";
 import { parseFrame } from "../chat/sse.ts";
 import {
+  askTimeoutMs,
   registerBackend,
   type ChatBackend,
   type ChatReply,
@@ -355,7 +355,7 @@ registerBackend("openclaw", (): ChatBackend | null => {
            distinguishable in ITS logs as well as ours. */
         extra: { "x-openclaw-message-channel": opts?.channel ?? "web" },
         body: user ? { user } : {},
-        timeoutMs: ASK_TIMEOUT_MS,
+        timeoutMs: askTimeoutMs(),
         signal: opts?.signal,
       });
       const ms = Date.now() - started;
@@ -436,6 +436,7 @@ registerBackend("openclaw", (): ChatBackend | null => {
         service: SERVICE,
         extra: { "x-openclaw-message-channel": opts?.channel ?? "web" },
         body: user ? { user } : {},
+        maxMs: opts?.maxMs,
         signal: opts?.signal,
       })) {
         /* Named events are not part of this gateway's documented stream. Left

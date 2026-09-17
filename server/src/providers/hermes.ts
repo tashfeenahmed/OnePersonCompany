@@ -54,7 +54,6 @@ import * as accounts from "../accounts.ts";
 import * as vault from "../vault.ts";
 import { configValue } from "../db.ts";
 import {
-  ASK_TIMEOUT_MS,
   PROBE_TIMEOUT_MS,
   WireError,
   chatCompletion,
@@ -70,6 +69,7 @@ import {
 } from "../chat/wire.ts";
 import { parseFrame } from "../chat/sse.ts";
 import {
+  askTimeoutMs,
   registerBackend,
   type ChatBackend,
   type ChatReply,
@@ -307,7 +307,7 @@ registerBackend("hermes", (): ChatBackend | null => {
         model,
         turns,
         service: SERVICE,
-        timeoutMs: ASK_TIMEOUT_MS,
+        timeoutMs: askTimeoutMs(),
         signal: opts?.signal,
       });
       const ms = Date.now() - started;
@@ -397,6 +397,7 @@ registerBackend("hermes", (): ChatBackend | null => {
         model,
         turns,
         service: SERVICE,
+        maxMs: opts?.maxMs,
         signal: opts?.signal,
       })) {
         /* The tool events, which are the reason for the frame reader. Named

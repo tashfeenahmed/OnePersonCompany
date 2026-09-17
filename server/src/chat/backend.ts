@@ -42,7 +42,8 @@
  * asked, and the caller is the right place to decide that a raw model is
  * better than nothing.
  */
-import type { ProviderId } from "../models/provider.ts";
+import { activeProvider, type ProviderId } from "../models/provider.ts";
+import { ASK_TIMEOUT_MS } from "./wire.ts";
 
 export type ChatBackendId = "hermes" | "openclaw";
 
@@ -112,7 +113,35 @@ export type AskOptions = {
    */
   channel?: "web" | "telegram" | "run";
   signal?: AbortSignal;
+  /**
+   * The hard cap on ONE streamed turn, when the caller has a better number than
+   * chat/wire.ts's ten minutes.
+   *
+   * That cap is a chat's: a person is watching, and an agent still writing at
+   * ten minutes is a runaway. A queued RUN already has a whole-job deadline —
+   * the owner's `runSeconds`, enforced by the run's own signal — and a second,
+   * shorter one underneath it failed every agent run on a slow local model at
+   * exactly 600 seconds however large the budget had been set (run r-wzd6ml).
+   * So the executor passes the run's budget here and the adapters forward it.
+   * The idle deadline is NOT widened: silence is a fault at any speed.
+   */
+  maxMs?: number;
 };
+
+/**
+ * HOW LONG A NON-STREAMING TURN MAY TAKE.
+ *
+ * Sixty seconds is the right patience for a hosted model. It is the wrong one
+ * for an agent whose model is a 27B on a box under the desk, where one tool-using
+ * turn is a few minutes: every Telegram message and every `POST /api/chat` ended
+ * in "did not answer within 60 seconds" while the agent carried on working and
+ * its answer was never stored. The owner has already said how slow the workspace
+ * model is allowed to be — the active provider's `policy.timeoutMs` — so an
+ * agent turn built out of those completions gets at least that long.
+ */
+export function askTimeoutMs(): number {
+  return Math.max(ASK_TIMEOUT_MS, activeProvider()?.policy.timeoutMs ?? 0);
+}
 
 /**
  * ONE TOOL CALL, AS THE AGENT REPORTS IT WHILE IT IS HAPPENING.
