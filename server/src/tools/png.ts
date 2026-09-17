@@ -1,4 +1,5 @@
-import { inflateSync } from "node:zlib";
+import { crc32, deflateSync, inflateSync } from "node:zlib";
+import { readFileSync, writeFileSync } from "node:fs";
 import { imageDimensions } from "./chrome.ts";
 
 export type PixelStats = {
@@ -168,3 +169,87 @@ export function decodePng(bytes: Buffer): Decoded {
   };
 }
 
+
+
+/**
+ * A PNG WITH ITS BOTTOM ROWS CUT OFF, in plain JavaScript.
+ *
+ * WHY THIS IS POSSIBLE WITHOUT AN IMAGE LIBRARY. A PNG's pixel stream is one
+ * filtered scanline after another, and every filter refers only to the row
+ * ABOVE. So the first N scanlines of the inflated stream are, byte for byte, a
+ * complete N-row image: truncate, deflate again, rewrite IHDR's height, done.
+ * Nothing is decoded to pixels and nothing is re-filtered.
+ *
+ * WHY IT EXISTS. Chromium's new headless mode on Linux lays a page out shorter
+ * than the window it is given and screenshots the WINDOW, so the picture ends
+ * in rows of bare canvas — see `viewportDeficit` in tools/chrome.ts. The
+ * callers ask for a taller window and cut the surplus off with this.
+ *
+ * Non-interlaced only, which is what Chrome writes. Anything it cannot handle
+ * comes back UNCHANGED: a picture with a blank strip beats no picture.
+ */
+export function cropPngHeight(bytes: Buffer, height: number): Buffer {
+  try {
+    for (let i = 0; i < PNG_SIG.length; i++) if (bytes[i] !== PNG_SIG[i]) return bytes;
+    let at = 8;
+    let ihdr: Buffer | null = null;
+    const idat: Buffer[] = [];
+    const before: Buffer[] = [];
+    const after: Buffer[] = [];
+    while (at + 12 <= bytes.length) {
+      const len = bytes.readUInt32BE(at);
+      const type = bytes.toString("latin1", at + 4, at + 8);
+      const end = at + 12 + len;
+      if (end > bytes.length) return bytes;
+      const data = bytes.subarray(at + 8, at + 8 + len);
+      if (type === "IHDR") ihdr = Buffer.from(data);
+      else if (type === "IDAT") idat.push(data);
+      else if (type !== "IEND") (idat.length ? after : before).push(bytes.subarray(at, end));
+      at = end;
+      if (type === "IEND") break;
+    }
+    if (!ihdr || ihdr.length !== 13 || !idat.length) return bytes;
+    const width = ihdr.readUInt32BE(0);
+    const full = ihdr.readUInt32BE(4);
+    const depth = ihdr[8]!;
+    const channels = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 } as Record<number, number>)[ihdr[9]!];
+    if (!channels || ihdr[12] !== 0 || !(height > 0) || height >= full) return bytes;
+
+    const row = 1 + Math.ceil((width * channels * depth) / 8);
+    const raw = inflateSync(Buffer.concat(idat));
+    if (raw.length < row * height) return bytes;
+    const packed = deflateSync(raw.subarray(0, row * height));
+    ihdr.writeUInt32BE(height, 4);
+
+    const chunk = (type: string, data: Buffer) => {
+      const head = Buffer.alloc(8);
+      head.writeUInt32BE(data.length, 0);
+      head.write(type, 4, "latin1");
+      const tail = Buffer.alloc(4);
+      tail.writeUInt32BE(crc32(data, crc32(head.subarray(4))) >>> 0, 0);
+      return Buffer.concat([head, data, tail]);
+    };
+    return Buffer.concat([
+      bytes.subarray(0, 8),
+      chunk("IHDR", ihdr),
+      ...before,
+      chunk("IDAT", packed),
+      ...after,
+      chunk("IEND", Buffer.alloc(0)),
+    ]);
+  } catch {
+    return bytes;
+  }
+}
+
+/** `cropPngHeight`, on a file, in place. Silent when there is nothing to cut or
+ *  the file cannot be read: the screenshot is still a screenshot. */
+export function trimPngFile(path: string, height: number): void {
+  try {
+    const bytes = readFileSync(path);
+    const cut = cropPngHeight(bytes, height);
+    if (cut !== bytes) writeFileSync(path, cut);
+  } catch {
+    /* Left as the browser wrote it. */
+  }
+}

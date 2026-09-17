@@ -93,6 +93,7 @@ import { homedir, userInfo } from "node:os";
 import { agentUser, agentWorkDir } from "../integrations/deploy/isolation.ts";
 import { dirname, join } from "node:path";
 import { DATA_DIR } from "../config.ts";
+import { OUTPUT_TOKENS_CEILING } from "../runtime/budgets.ts";
 import { configValue, getPlugin, setConfig, upsertPlugin } from "../db.ts";
 import * as accounts from "../accounts.ts";
 import { getJson, readModelIds } from "../chat/wire.ts";
@@ -989,6 +990,12 @@ function configureHermes(s: Spec, pl: Plan) {
     `  base_url: ${JSON.stringify(pl.baseUrl)}`,
     ...(pl.key ? [`  api_key: ${JSON.stringify(pl.key)}`] : []),
     `  default: ${JSON.stringify(pl.model)}`,
+    /* THE MOST ONE REPLY MAY RUN TO. Unset, Hermes lets the model write to its
+       native ceiling, and a reasoning model that loses the thread thinks until
+       the run's clock stops it: one SERP write-up took a whole fifteen-minute
+       job in a single call and returned nothing (run r-9xeyvi). This is the
+       ceiling the app's own writers are held to — runtime/budgets.ts. */
+    `  max_tokens: ${OUTPUT_TOKENS_CEILING}`,
     "",
     ...hermesAuxiliaryYaml(pl.timeoutMs, pl.pointed.provider),
     "# This dashboard's own data reaches the agent through the `opc` command on",

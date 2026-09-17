@@ -45,7 +45,8 @@
  * asks for it.
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { DATA_DIR } from "../config.ts";
 import { findBinary, type Binary, type ConfigKey } from "./find-binary.ts";
@@ -294,6 +295,58 @@ export async function dump(opts: RunOpts): Promise<DumpResult> {
   return got.ok
     ? { ok: true, html: got.stdout, error: null }
     : { ok: false, html: got.stdout, error: got.error };
+}
+
+/**
+ * HOW MUCH SHORTER THAN ITS WINDOW THIS BROWSER DRAWS A PAGE.
+ *
+ * `--window-size=1080,1920` is the WINDOW. Chromium's new headless mode on
+ * Linux keeps room for a toolbar it never draws, so the page is laid out
+ * 1080x1833 and the screenshot's last 87 rows are the bare canvas: every frame
+ * of every motion video made on a Linux box carried a black band along the
+ * bottom, and every 1280x800 site capture was really 1280x713 of page over a
+ * blank strip (measured 2026-09-17 on Chromium 146). On macOS the two agree and
+ * the answer is 0.
+ *
+ * WHAT A CALLER DOES WITH IT: ask for a window `height + deficit` tall, so the
+ * PAGE is the height that was wanted, then cut the surplus rows off the
+ * picture — `trimPngFile` in tools/png.ts, or ffmpeg's crop for a frame sheet.
+ *
+ * MEASURED, NOT ASSUMED: a probe page writes its own `innerHeight` into its
+ * title, once per browser per process. A probe that fails answers 0, which is
+ * exactly the old behaviour.
+ */
+const deficits = new Map<string, Promise<number>>();
+export function viewportDeficit(browser: string): Promise<number> {
+  let known = deficits.get(browser);
+  if (!known) {
+    known = (async () => {
+      const dir = mkdtempSync(resolve(tmpdir(), "opc-viewport-"));
+      try {
+        const page = resolve(dir, "probe.html");
+        writeFileSync(page, "<!doctype html><title>?</title><script>document.title='h='+innerHeight</script>", "utf8");
+        const asked = 600;
+        const got = await withProfile(
+          (profile) =>
+            dump({
+              bin: browser,
+              args: [...baseArgs({ profile, width: 800, height: asked, virtualTimeMs: 1_000, timeoutMs: 20_000 }), "--dump-dom", `file://${page}`],
+              budgetMs: 20_000,
+            }),
+          "probe-",
+        );
+        const inner = Number(/<title>h=(\d+)<\/title>/.exec(got.html)?.[1]);
+        const gap = asked - inner;
+        return Number.isFinite(gap) && gap > 0 && gap < 400 ? gap : 0;
+      } catch {
+        return 0;
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    })();
+    deficits.set(browser, known);
+  }
+  return known;
 }
 
 function runBrowser(opts: RunOpts, want: { file: string; dom?: boolean } | { dom: true }): Promise<ShotResult> {

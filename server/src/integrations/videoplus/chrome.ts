@@ -29,18 +29,18 @@
  * component updates — and it is made once per page per run rather than once
  * per shot.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   baseArgs,
-  dump,
   findBrowser,
   shoot,
+  viewportDeficit,
   withProfile,
   type Browser,
   type ShotResult,
 } from "../../tools/chrome.ts";
+import { trimPngFile } from "../../tools/png.ts";
 
 export { findBrowser, type Browser };
 
@@ -79,53 +79,6 @@ export type Shot = ShotResult;
  * rather than played — so nothing about the picture depends on how much
  * virtual time passed. Two seconds is layout and paint with room to spare.
  */
-/**
- * HOW MUCH SHORTER THAN ITS WINDOW THIS BROWSER DRAWS A PAGE.
- *
- * `--window-size=1080,1920` is the WINDOW. Chromium's new headless mode on
- * Linux keeps room for a toolbar it never draws, so the page is laid out
- * 1080x1833 and the screenshot's last 87 rows are the bare canvas: every frame
- * of every motion video made on the Pi carried a black band along the bottom
- * (run r-bbs8m4, measured 2026-09-17 on Chromium 146). On macOS the two agree
- * and the answer is 0.
- *
- * MEASURED, NOT ASSUMED: a probe page writes its own `innerHeight` into its
- * title, once per browser per process. A probe that fails answers 0, which is
- * exactly the old behaviour.
- */
-const deficits = new Map<string, Promise<number>>();
-export function viewportDeficit(browser: string): Promise<number> {
-  let known = deficits.get(browser);
-  if (!known) {
-    known = (async () => {
-      const dir = mkdtempSync(resolve(tmpdir(), "vplus-probe-"));
-      try {
-        const page = resolve(dir, "probe.html");
-        writeFileSync(page, "<!doctype html><title>?</title><script>document.title='h='+innerHeight</script>", "utf8");
-        const asked = 600;
-        const got = await withProfile(
-          (profile) =>
-            dump({
-              bin: browser,
-              args: [...baseArgs({ profile, width: 800, height: asked, virtualTimeMs: 1_000, timeoutMs: LOCAL_MS }), "--dump-dom", `file://${page}`],
-              budgetMs: LOCAL_MS,
-            }),
-          "vplus-",
-        );
-        const inner = Number(/<title>h=(\d+)<\/title>/.exec(got.html)?.[1]);
-        const gap = asked - inner;
-        return Number.isFinite(gap) && gap > 0 && gap < 400 ? gap : 0;
-      } catch {
-        return 0;
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    })();
-    deficits.set(browser, known);
-  }
-  return known;
-}
-
 /** The sheet PNG is `height + viewportDeficit` rows tall — the page fills the
  *  first `height` of them. Callers cut the rest off (`untileSheet`'s `height`). */
 export async function shootSheet(opts: {
@@ -196,7 +149,8 @@ export async function shootPage(opts: {
   mkdirSync(opts.dir, { recursive: true });
   const out = resolve(opts.dir, `${opts.name}.png`);
   rmSync(out, { force: true });
-  return withProfile(
+  const surplus = await viewportDeficit(opts.browser);
+  const shot = await withProfile(
     (profile) =>
       shoot({
         bin: opts.browser,
@@ -204,7 +158,7 @@ export async function shootPage(opts: {
           /* The default virtual-time budget, which is a venture capture's:
              enough for a framework to mount and for an intro animation to
              land. */
-          ...baseArgs({ profile, width: opts.width, height: opts.height, timeoutMs: REMOTE_MS }),
+          ...baseArgs({ profile, width: opts.width, height: opts.height + surplus, timeoutMs: REMOTE_MS }),
           `--screenshot=${out}`,
           opts.url,
         ],
@@ -214,4 +168,7 @@ export async function shootPage(opts: {
       }),
     "vplus-",
   );
+  /* Cut back to the height that was asked for; reel.ts pans by arithmetic on it. */
+  if (shot.ok && surplus) trimPngFile(shot.path, opts.height);
+  return shot;
 }

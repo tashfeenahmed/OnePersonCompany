@@ -29,6 +29,7 @@
  * finished rather than one post on each — a campaign of two complete arguments
  * is usable and a campaign of six first drafts is not.
  */
+import { readModelJson } from "../videoplus/json.ts";
 import { randomUUID } from "node:crypto";
 import { db, now, type VentureRow } from "../../db.ts";
 import { createPost } from "../ventures/studio.ts";
@@ -229,8 +230,8 @@ export function shapeConcepts(raw: unknown, want: number): { theme: string; desc
   const out: { theme: string; description: string; imageNote: string }[] = [];
   for (const item of doc?.concepts ?? []) {
     if (out.length >= want) break;
-    const c = item as { theme?: unknown; description?: unknown; imageNote?: unknown };
-    const theme = String(c?.theme ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+    const c = item as { theme?: unknown; title?: unknown; name?: unknown; description?: unknown; imageNote?: unknown };
+    const theme = String(c?.theme ?? c?.title ?? c?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
     if (!theme) continue;
     const key = theme.toLowerCase();
     if (seen.has(key)) continue;
@@ -433,6 +434,7 @@ export async function campaignRun(args: {
     .join("\n");
 
   let concepts: { theme: string; description: string; imageNote: string }[] = [];
+  let planReply = "";
   try {
     const reply = await tools.turn(
       [
@@ -444,7 +446,12 @@ export async function campaignRun(args: {
          it is about to do roughly half the time. */
       { toOutput: false, forceProvider: true },
     );
+    planReply = reply.text;
+    /* The strict reader first, then the tolerant one the video writers use: a
+       smaller model sends the concepts as a bare array, or as `{…},{…}` with
+       no wrapper at all, and both are a plan. */
     concepts = shapeConcepts(parseJson(reply.text), wanted);
+    if (!concepts.length) concepts = shapeConcepts(readModelJson(reply.text, "concepts"), wanted);
   } catch (err) {
     patch(campaign.id, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     throw err;
@@ -453,7 +460,13 @@ export async function campaignRun(args: {
 
   if (!concepts.length) {
     patch(campaign.id, { status: "failed", error: "The planner returned no usable concept." });
-    tools.say("\nThe planner returned no usable concept, so nothing was produced.\n");
+    /* WITH WHAT IT SAID. "No usable concept" about a reply nobody kept cannot be
+       diagnosed: run r-i1yose failed this way, passed on the next try, and left
+       nothing to compare. */
+    tools.say(
+      "\nThe planner returned no usable concept, so nothing was produced.\n\n" +
+        `## What the planner sent instead\n\n\`\`\`\n${planReply.slice(0, 4000) || "(nothing at all — an empty reply)"}\n\`\`\`\n`,
+    );
     throw new Error("The planner returned no usable concept — nothing was rendered.");
   }
 

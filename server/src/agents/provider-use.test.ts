@@ -51,6 +51,7 @@ test("central backend wrapper releases after errors and early stream closure", a
   const use = new ProviderUse();
   setChoiceReader(() => "hermes");
   let active = 0;
+  let failing = true;
   setBackendPreparation(async () => {
     const end = await use.acquire(async () => {}); active++;
     return () => { active--; end(); };
@@ -58,11 +59,14 @@ test("central backend wrapper releases after errors and early stream closure", a
   registerBackend("hermes", () => ({
     id: "hermes", label: "Test",
     async ask() { throw new Error("upstream failed"); },
-    async *stream() { yield { type: "delta" as const, text: "hello" }; yield { type: "delta" as const, text: "world" }; },
+    /* `ask` reads the stream when there is one (chat/backend.ts, `askOverStream`),
+       so the failure it has to release after is the stream's. */
+    async *stream() { if (failing) throw new Error("upstream failed"); yield { type: "delta" as const, text: "hello" }; yield { type: "delta" as const, text: "world" }; },
   }));
   try {
     await assert.rejects(activeBackend()!.ask([]), /upstream failed/);
     assert.equal(active, 0);
+    failing = false;
     for await (const event of activeBackend()!.stream!([])) { assert.equal(event.type, "delta"); assert.equal(active, 1); break; }
     assert.equal(active, 0);
     await use.configure(async () => {});

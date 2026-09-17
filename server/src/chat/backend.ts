@@ -43,7 +43,7 @@
  * better than nothing.
  */
 import { activeProvider, type ProviderId } from "../models/provider.ts";
-import { ASK_TIMEOUT_MS } from "./wire.ts";
+import { ASK_TIMEOUT_MS, WireError } from "./wire.ts";
 
 export type ChatBackendId = "hermes" | "openclaw";
 
@@ -271,6 +271,44 @@ let readReadiness: (id: ChatBackendId) => BackendReadiness | null = () => null;
 export function setBackendReadiness(fn: typeof readReadiness) { readReadiness = fn; }
 export function backendReadiness(id: ChatBackendId): BackendReadiness | null { return readReadiness(id); }
 
+/**
+ * A WHOLE TURN, READ OFF THE AGENT'S STREAM.
+ *
+ * WHY THE NON-STREAMING DOOR STREAMS UNDERNEATH. An agent gateway stops working
+ * when a streaming client goes away — Hermes logs `SSE client disconnected;
+ * interrupted agent task` — and does NOT when a plain request is abandoned. So
+ * a `POST /api/chat` or a Telegram message that timed out left the agent
+ * running with nobody listening: on 2026-09-17 one carried on, dispatched a
+ * sub-agent run, and its answer was never stored (run r-wzd6ml). Reading the
+ * same turn as a stream makes the timeout a disconnect the agent can see.
+ *
+ * The caller still gets one `ChatReply` and the same 504 sentence. An endpoint
+ * that refuses to stream (406) is asked the old way.
+ */
+async function askOverStream(backend: ChatBackend, turns: ChatTurn[], opts?: AskOptions): Promise<ChatReply> {
+  const limit = askTimeoutMs();
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), limit);
+  const signal = opts?.signal ? AbortSignal.any([deadline.signal, opts.signal]) : deadline.signal;
+  const started = Date.now();
+  let text = "";
+  try {
+    for await (const event of backend.stream!(turns, { ...opts, signal, maxMs: limit })) {
+      if (event.type === "delta") text += event.text;
+      else if (event.type === "done")
+        return { text: event.text || text, backend: backend.id, model: event.model, usage: event.usage, ms: event.ms };
+    }
+    return { text, backend: backend.id, model: null, usage: null, ms: Date.now() - started };
+  } catch (err) {
+    if (deadline.signal.aborted && !opts?.signal?.aborted)
+      throw new WireError(504, `${backend.label} did not answer within ${Math.round(limit / 1000)} seconds.`);
+    if (err instanceof WireError && err.status === 406) return backend.ask(turns, opts);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function activeBackend(): ChatBackend | null {
   const id = readChoice();
   if (!id) return null;
@@ -281,7 +319,7 @@ export function activeBackend(): ChatBackend | null {
     ...backend,
     async ask(turns, opts) {
       const release = await prepare(id, opts?.signal);
-      try { return await backend.ask(turns, opts); }
+      try { return backend.stream ? await askOverStream(backend, turns, opts) : await backend.ask(turns, opts); }
       finally { release(); }
     },
     ...(backend.stream ? {

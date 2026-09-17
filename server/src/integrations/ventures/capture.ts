@@ -53,7 +53,9 @@ import {
   shoot,
   withProfile,
   type Browser,
+  viewportDeficit,
 } from "../../tools/chrome.ts";
+import { trimPngFile } from "../../tools/png.ts";
 import { captureRendered, RENDER_RETRY_MS } from "./capture-browser.ts";
 import { captureError } from "./capture-validation.ts";
 import { assignRoles, type ColourCount } from "../../ventures/enrich.ts";
@@ -207,12 +209,17 @@ async function takePicture(v: VentureRow): Promise<CaptureResult> {
     mkdirSync(SHOTS_DIR, { recursive: true });
     // Read the rendered DOM alongside the image, so an offline page cannot
     // count as success simply because Chrome wrote a PNG of it.
+    /* THE PAGE IS 800 TALL, NOT THE WINDOW — see `viewportDeficit`. On a Linux
+       box the window has to be taller for the page to get its 800 rows, and
+       the surplus is bare canvas that is cut off before anything reads it. */
+    const surplus = await viewportDeficit(browser.path);
     let res = await withProfile((profile) => shoot({
       bin: browser.path,
-      args: [...baseArgs({ profile, timeoutMs: RUN_MS }), "--dump-dom", `--screenshot=${file}`, v.website!],
+      args: [...baseArgs({ profile, timeoutMs: RUN_MS, height: SHOT_VIEWPORT.height + surplus }), "--dump-dom", `--screenshot=${file}`, v.website!],
       out: file,
       requireDom: true,
     }));
+    if (surplus) trimPngFile(file, SHOT_VIEWPORT.height);
     let bytes = existsSync(file) ? readFileSync(file) : null;
     let error = !res.ok ? res.error : !bytes?.length
       ? "The browser ran and wrote no image."
