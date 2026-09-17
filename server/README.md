@@ -1384,7 +1384,7 @@ a URL is a key in an access log.
 
 The URL is a **setting** (`plugin_config`, read back on the plugin page) and
 not a constant: the node is self-hosted on the owner's own box and its hostname
-carries that box's IP (`178-105-187-189.sslip.io`), so a constant in the source
+carries that box's IP (`searxng.203-0-113-10.sslip.io`, say), so a constant in the source
 is a dashboard that quietly stops searching the day the box moves. The default
 is where it lives today. The registry reads the setting on its way past, so a
 key is verified against the endpoint it will later collect from.
@@ -2180,7 +2180,7 @@ which one answers a click rather than a re-paste.
 
 | | |
 | --- | --- |
-| **hosted** | an instance running elsewhere. The owner's is on the Hetzner box at `https://freellm.178-105-187-189.sslip.io/v1` — the same endpoint the previous system's own completion client completes against, which is where that placeholder comes from. Its key is the `freellmapi-key` already in the Pi's vault |
+| **hosted** | an instance running elsewhere. The owner's is on a rented box at an address like `https://freellm.example.test/v1` — the same endpoint the previous system's own completion client completes against, which is where that placeholder comes from. Its key is the `freellmapi-key` already in the Pi's vault |
 | **managed** | cloned into `data/freellmapi/`, built, and run as a child of this process on `127.0.0.1:3001`. Nothing is pasted: it mints its own key |
 
 ### Three facts that are constantly confused, and are kept apart

@@ -33,6 +33,6 @@ application files and a database backup for rollback.
 Before retiring Workdash, check authenticated status, script preparation, an
 existing video download, and worker health. Verify OPC's Telegram bridge has
 actually handled a message and sent a Hermes reply. Stop and disable only units
-whose executable belongs to Workdash; preserve unrelated bots and CircleChat.
+whose executable belongs to Workdash; preserve every unrelated service on the box.
 
 Run checks with `node --import ./server/test/setup.mjs --experimental-strip-types --test 'server/render-relay/*.test.mjs'`.

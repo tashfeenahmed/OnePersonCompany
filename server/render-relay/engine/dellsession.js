@@ -12,8 +12,8 @@
  * unchanged in substance and are still the rules reel.js established:
  *
  * WE POWER OFF EXACTLY WHAT WE POWERED ON. If `powerState()` said anything but
- * "off" when a job started, the box is up for somebody else's reasons — the
- * bots, planintel — and this dashboard is a guest that leaves it running.
+ * "off" when a job started, the box is up for somebody else's reasons — other
+ * jobs the owner runs on it — and this dashboard is a guest that leaves it running.
  *
  * OWNERSHIP OUTLIVES A JOB. Reel A wakes the box and schedules a sleep; job B
  * two minutes later honestly finds it "already-awake", but the machine is only

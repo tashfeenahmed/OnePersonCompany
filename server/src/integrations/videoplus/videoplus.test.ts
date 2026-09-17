@@ -356,7 +356,7 @@ test("the refusal happens in readUrls, is named in the note, and covers the vent
 
   /* THE OWNER'S OWN FIELD GETS THE SAME CHECK. "The owner typed it" is not a
      reason to screenshot a LAN box and send the picture to a model endpoint. */
-  const lanVenture = readUrls("", { website: "http://192.168.1.50:3000" } as never, 4);
+  const lanVenture = readUrls("", { website: "http://192.168.0.20:3000" } as never, 4);
   assert.deepEqual(lanVenture.urls, []);
   assert.match(lanVenture.note, /will not capture/);
 });

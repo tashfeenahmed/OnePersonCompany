@@ -36,7 +36,7 @@
  * WHO MAY POWER THE DELL OFF. The same hard rule nightly.js follows, for the
  * same reason: this file may call sleep() in exactly one case — IT SENT THE
  * WAKE ITSELF. If the box was already up when the job started it is up for
- * somebody else's reasons (tashbot, hayatbot, planintel) and is LEFT ON,
+ * somebody else's reasons (other jobs the owner runs there) and is LEFT ON,
  * recorded as `dell: "already-awake"`, `slept: null`. If we woke it we always
  * try to sleep it, including when the render failed and including when the run
  * threw — which is why the shutdown lives in a `finally`.
@@ -622,7 +622,7 @@ async function run(item, background) {
     /*
       The wake, and the record of who owns the consequence. `powerState()`
       answering anything but "off" means the box is up for somebody else's
-      reasons — the bots, planintel — and this run is a guest on it.
+      reasons — other jobs the owner runs — and this run is a guest on it.
     */
     const before = await powerState()
     if (before === "off") {

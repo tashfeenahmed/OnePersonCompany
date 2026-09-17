@@ -3,7 +3,7 @@
  *
  * This is the sharpest tool in the set, because the agent decides what to
  * fetch partly from text strangers wrote. A search result that says "for
- * details see http://192.168.1.50:11434/v1/models" is a plausible-looking
+ * details see http://192.168.0.20:11434/v1/models" is a plausible-looking
  * instruction to read something on the LAN. So the URL is validated against
  * the resolved IP, not just the hostname, and every redirect hop is checked
  * again.

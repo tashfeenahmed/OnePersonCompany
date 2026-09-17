@@ -61,8 +61,8 @@ export function wake() {
 }
 
 /**
- * Manual only — deliberately never called on a timer. The Dell runs other
- * work (the Pi's tashbot/hayatbot depend on ornith, planintel runs every
+ * Manual only — deliberately never called on a timer. The render box runs
+ * other work (chat bots that depend on its model server, a job that runs every
  * minute), so an idle-timeout shutdown would kill jobs that have nothing to
  * do with this dashboard.
  *

@@ -28,17 +28,24 @@
  * check is what makes "is the box up" and "is the dashboard up" different
  * sentences when this goes wrong at half past eleven at night.
  *
- * THE URL IS AN ARGUMENT BECAUSE IT IS A SETTING. The node is self-hosted and
- * its hostname carries the box's IP address, so the default below is where it
- * lives TODAY and not a constant anybody should rely on. Whatever is used here
+ * THE URL IS AN ARGUMENT BECAUSE IT IS A SETTING, AND THERE IS NO DEFAULT. The
+ * node is self-hosted, so any address written here would be one person's box —
+ * and a default somebody else's install would quietly send its searches to.
+ * Pass it as the first argument or in SEARXNG_URL. Whatever is used here
  * is written to the plugin's settings first, so the API verifies the key
  * against the same endpoint it will later collect from.
  */
 
 const API = process.env.OPC_API ?? "http://127.0.0.1:8787";
-const DEFAULT_URL = "https://searxng-api.178-105-187-189.sslip.io/search";
 
-const url = (process.argv[2] ?? process.env.SEARXNG_URL ?? DEFAULT_URL).trim();
+const url = (process.argv[2] ?? process.env.SEARXNG_URL ?? "").trim();
+if (!url) {
+  console.error(
+    "No SearXNG address. Pass your own node's search URL:\n" +
+      "  ssh you@the-box 'print-the-searxng-key' | node scripts/connect-searxng.mjs https://searxng.example.test/search",
+  );
+  process.exit(1);
+}
 
 /** The key, from stdin, and from nowhere else. */
 const key = (
@@ -53,7 +60,7 @@ const key = (
 if (!key) {
   console.error(
     "No key on stdin. Pipe it in:\n" +
-      "  ssh you@the-box 'print-the-searxng-key' | node scripts/connect-searxng.mjs [url]",
+      "  ssh you@the-box 'print-the-searxng-key' | node scripts/connect-searxng.mjs <url>",
   );
   process.exit(1);
 }
