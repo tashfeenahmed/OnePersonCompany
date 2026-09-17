@@ -81,28 +81,32 @@ async function sweep() {
         const existing = db.prepare("SELECT id,origin,title,venture_id FROM board_cards").all() as {
           id: number; origin: string | null; title: string; venture_id: string | null;
         }[];
-        const held = new Set((db.prepare("SELECT origin FROM board_automation_filings").all() as { origin: string }[]).map(r => r.origin));
+        // Receipts survive card deletion. Alternate source IDs must consult
+        // them too, not just the cards that still exist on the board.
+        const held = new Map((db.prepare("SELECT origin,card_id FROM board_automation_filings").all() as { origin: string; card_id: number | null }[]).map(r => [r.origin, r.card_id]));
         for (const c of candidates) {
           if (filed >= 25) break;
           if (!c.origin || c.origin.length > 180 || !c.title?.trim() || !c.detail?.trim() ||
               !/^\/(?!\/)/.test(c.href) || !Number.isFinite(Date.parse(c.observedAt))) continue;
           if (held.has(c.origin)) continue;
+          const origins = new Set([c.origin, ...(c.aliases ?? [])]);
+          const receipt = [...origins].find(origin => held.has(origin));
           // Also respect a card filed manually from the same source or report.
-          const duplicate = existing.find(r => r.origin === c.origin || (r.origin !== null && c.aliases?.includes(r.origin)) ||
-            (r.origin === null && r.venture_id === (c.ventureId ?? null) && titleKey(r.title) === titleKey(c.title.slice(0, 200))));
-          let id = duplicate?.id;
-          if (!id) {
+          const duplicate = existing.find(r => (r.origin !== null && origins.has(r.origin)) ||
+            (r.origin === null && r.venture_id === (c.ventureId ?? null) && titleKey(r.title) === titleKey(c.title.trim().slice(0, 200))));
+          let id = receipt !== undefined ? held.get(receipt)! : duplicate?.id ?? null;
+          if (receipt === undefined && !duplicate) {
             const result = fileCard({ origin: c.origin, title: c.title,
               body: `${c.detail.slice(0, 7000)}\n\n[View source](${c.href})\n\nFiled automatically from ${source.label}. Snapshot observed ${c.observedAt}; figures are not live.`,
               ventureId: c.ventureId, urgency: Math.max(0, Math.min(3, Math.round(c.urgency ?? 1))) });
             if (result.filed) filed++;
             const row = db.prepare("SELECT id FROM board_cards WHERE origin=?").get(c.origin) as { id: number };
             id = row.id;
-            existing.push({ id, origin: c.origin, title: c.title.slice(0, 200), venture_id: c.ventureId ?? null });
+            existing.push({ id, origin: c.origin, title: c.title.trim().slice(0, 200), venture_id: c.ventureId ?? null });
           }
           db.prepare("INSERT INTO board_automation_filings(origin,card_id,source,filed_at) VALUES(?,?,?,?) ON CONFLICT(origin) DO UPDATE SET card_id=excluded.card_id")
             .run(c.origin, id, source.id, now());
-          held.add(c.origin);
+          held.set(c.origin, id);
         }
         db.exec("COMMIT");
       } catch (error) { db.exec("ROLLBACK"); filed = filedBeforeSource; throw error; }

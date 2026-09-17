@@ -39,7 +39,8 @@ export function BoardAutomation({ onChecked }: { onChecked: () => void }) {
           {data.sources.map(source => <label key={source.id} className="flex items-center justify-between gap-3 text-sm">{source.label}<Switch aria-label={source.label} checked={source.enabled} disabled={busy} onCheckedChange={enabled => void update({ sources: { [source.id]: enabled } })} /></label>)}
         </div>
         <p className="text-sm text-muted-foreground">Checks every minute while the app server is running. Cards keep their source and snapshot date. Your edits and completed work stay intact.</p>
-        <p className="text-xs text-muted-foreground">{data.checkedAt ? `Last checked ${new Date(data.checkedAt).toLocaleString()} · ${data.lastFiled} added` : "Waiting for the first check"} · {data.totalFiled} tracked</p>
+        <p className="text-sm text-muted-foreground">Previously filed automatic cards are skipped, even after you archive or delete them. Separate source events can still create new cards.</p>
+        <p className="text-xs text-muted-foreground">{data.checkedAt ? `Last checked ${new Date(data.checkedAt).toLocaleString()} · ${data.lastFiled} added` : "Waiting for the first check"} · {data.totalFiled} sources tracked</p>
         {data.errors.map(message => <p key={message} role="alert" className="text-sm text-destructive">{message}</p>)}
         <div className="flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">Uses collected data. No new AI calls.</p><Button disabled={busy || !data.enabled || data.running} onClick={() => void update()}><RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} />{busy ? "Checking…" : "Check now"}</Button></div>
       </>}

@@ -856,10 +856,9 @@ boardRoutes.post("/columns/:id/move", async (c) => {
  * caller that had to do that itself would have to read the board first, which
  * is a race it cannot win.
  *
- * WHAT IS DELIBERATELY NOT HERE: the ranking, the snoozing, the re-filing of a
- * card somebody already dealt with, and any notion of a card the owner cannot
- * delete. A board that manages itself is a different product decision than the
- * one being made here, and filing a card is as far as this goes.
+ * Automatic filing receipts survive deletion. Check those as well so filing
+ * the same source through another surface cannot undo the owner's decision.
+ * Aliases are explicit source identities, never a fuzzy title match.
  */
 export function fileCard(input: {
   origin: string;
@@ -867,17 +866,21 @@ export function fileCard(input: {
   body?: string | null;
   ventureId?: string | null;
   urgency?: number;
+  aliases?: string[];
 }): { filed: boolean } {
   const column = resolveColumn(BACKLOG);
   if (!column) throw new Error("The board has no Backlog column to file into.");
 
   const ts = now();
+  const origins = JSON.stringify([input.origin, ...(input.aliases ?? [])]);
   const res = db
     .prepare(
       `INSERT INTO board_cards
          (column_id, position, title, body, venture_id, urgency, due, done_at,
           created_at, updated_at, origin)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+       SELECT ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?
+       WHERE NOT EXISTS (SELECT 1 FROM board_cards WHERE origin IN (SELECT value FROM json_each(?)))
+         AND NOT EXISTS (SELECT 1 FROM board_automation_filings WHERE origin IN (SELECT value FROM json_each(?)))
        ON CONFLICT(origin) DO NOTHING`,
     )
     .run(
@@ -890,6 +893,8 @@ export function fileCard(input: {
       ts,
       ts,
       input.origin,
+      origins,
+      origins,
     );
   return { filed: Number(res.changes) > 0 };
 }

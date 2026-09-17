@@ -72,7 +72,13 @@ actionInboxRoutes.post("/:id/:action", async c => {
   const item = inboxItems().find(item => item.id === id);
   if (!item) return c.json({ error: "This item has already changed. Refresh the inbox." }, 409);
   if (action === "board") {
-    const result = fileCard({ origin: `inbox:${id}`, title: item.title, body: `${item.detail}\n\n[Source](${item.href})`, ventureId: item.venture, urgency: item.priority === 1 ? 3 : 1 });
+    // Automatic health cards use stable issue IDs; the inbox uses alert event
+    // IDs. Both surfaces must recognise the same already-filed work.
+    const aliases = item.source === "Alert"
+      ? (await (await import("../board/sources.ts")).healthCandidates())
+        .filter(candidate => candidate.aliases?.includes(`inbox:${id}`)).map(candidate => candidate.origin)
+      : [];
+    const result = fileCard({ origin: `inbox:${id}`, aliases, title: item.title, body: `${item.detail}\n\n[Source](${item.href})`, ventureId: item.venture, urgency: item.priority === 1 ? 3 : 1 });
     return c.json({ ok: true, ...result, href: "/board" });
   }
   const ts = now();

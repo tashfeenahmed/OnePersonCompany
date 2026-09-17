@@ -1,7 +1,9 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { db, insertAccount, upsertPlugin } from "../db.ts";
 import { boardRoutes, fileCard } from "../routes/board.ts";
+import { actionInboxRoutes } from "../routes/actionInbox.ts";
 import { ackEvent, insertEvent, insertRule } from "../integrations/proactive/store.ts";
 import { boardAutomationStatus, configureBoardAutomation, registerBoardSource, syncBoardCards, type BoardCandidate } from "./automation.ts";
 import { boardAutomationRoutes } from "./routes.ts";
@@ -43,6 +45,78 @@ test("manual and completed cards block automatic duplicates, including explicit 
 test("distinct source items are not merged solely because they share a headline", async () => {
   registerBoardSource({ id: "test", label: "Test feed", read: () => [candidate(1), { ...candidate(2), title: candidate(1).title }] });
   assert.equal((await syncBoardCards()).filed,2); assert.equal(count(),2);
+});
+
+test("distinct issues sharing a portfolio alert alias do not suppress one another", async () => {
+  registerBoardSource({ id: "test", label: "Test feed", read: () => [candidate(1), candidate(2)].map(c=>({...c,aliases:["inbox:alert:999"]})) });
+  assert.equal((await syncBoardCards()).filed, 2);
+  assert.equal((await syncBoardCards()).filed, 0);
+  assert.equal(count(), 2);
+});
+
+test("a new server process respects the saved receipt after card deletion", async () => {
+  registerBoardSource({ id: "test", label: "Test feed", read: () => [candidate(1)] });
+  await syncBoardCards();
+  db.exec("DELETE FROM board_cards");
+  const script = `
+    import {registerBoardSource,syncBoardCards} from ${JSON.stringify(new URL("./automation.ts", import.meta.url).href)};
+    registerBoardSource({id:"test",label:"Test feed",read:()=>[${JSON.stringify(candidate(1))}]});
+    const result = await syncBoardCards();
+    if (result.filed !== 0 || result.errors.length) throw new Error("A restart refiled deleted work");
+  `;
+  execFileSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", script], { env: process.env, stdio: "pipe" });
+  assert.equal(count(), 0);
+});
+
+test("alternate source IDs honour durable receipts after the original card is deleted", async () => {
+  registerBoardSource({ id: "test", label: "Test feed", read: () => [candidate(1)] });
+  assert.equal((await syncBoardCards()).filed, 1);
+  db.exec("DELETE FROM board_cards");
+  registerBoardSource({ id: "test", label: "Test feed", read: () => [{ ...candidate(2), aliases: [candidate(1).origin] }] });
+  assert.equal((await syncBoardCards()).filed, 0);
+  assert.equal(count(), 0);
+  assert.equal((db.prepare("SELECT card_id FROM board_automation_filings WHERE origin=?").get(candidate(2).origin) as { card_id: number | null }).card_id, null);
+  // The alternate identity also remains held after a restart/source stops
+  // supplying the old alias, and cannot be bypassed by a different filer.
+  registerBoardSource({ id: "test", label: "Test feed", read: () => [candidate(2)] });
+  assert.equal((await syncBoardCards()).filed, 0);
+  assert.equal(fileCard({ origin: candidate(2).origin, title: "Try another filing path" }).filed, false);
+  assert.equal(fileCard({ origin: "test:3", aliases: [candidate(1).origin], title: "Another alias" }).filed, false);
+  assert.equal(count(), 0);
+});
+
+test("edits and completed or archived cards survive changes to snapshots and alternate IDs", async () => {
+  registerBoardSource({ id: "test", label: "Test feed", read: () => [candidate(1)] });
+  await syncBoardCards();
+  db.exec("UPDATE board_cards SET title='Owner title',body='Owner notes',done_at='2026-09-01',archived_at='2026-09-02',column_id=(SELECT id FROM board_columns WHERE key='done')");
+  const before = db.prepare("SELECT * FROM board_cards").get();
+  registerBoardSource({ id: "test", label: "Test feed", read: () => [{ ...candidate(2), title: "Fresh measurements", detail: "Changed figures", aliases: [candidate(1).origin] }] });
+  assert.equal((await syncBoardCards()).filed, 0);
+  assert.deepEqual(db.prepare("SELECT * FROM board_cards").get(), before);
+});
+
+test("inbox filing cannot duplicate automatic health cards, including deleted cards", async () => {
+  const rule=insertRule({name:"Test app errors",skill:"stability",view:"default",params:{},path:"errors",op:">",threshold:5,windowMinutes:null,enabled:true,ventureId:null,cooldownMinutes:0});
+  const event=insertEvent({ruleId:rule.id,kind:"trip",observed:10,previous:0,message:"Test app has 10 errors"});
+  configureBoardAutomation({ sources: { test: false, health: true } });
+  assert.equal((await syncBoardCards()).filed, 1);
+  const response=await actionInboxRoutes.request(`/alert:${event.id}/board`,{method:"POST"});
+  assert.equal(response.status, 200); assert.equal(((await response.json()) as { filed: boolean }).filed, false); assert.equal(count(), 1);
+  db.exec("DELETE FROM board_cards");
+  const retry=await actionInboxRoutes.request(`/alert:${event.id}/board`,{method:"POST"});
+  assert.equal(retry.status, 200); assert.equal(((await retry.json()) as { filed: boolean }).filed, false); assert.equal(count(), 0);
+});
+
+test("a later alert event still recognises work filed from an earlier event of the rule", async () => {
+  const rule=insertRule({name:"Test app errors",skill:"stability",view:"default",params:{},path:"errors",op:">",threshold:5,windowMinutes:null,enabled:true,ventureId:null,cooldownMinutes:0});
+  const first=insertEvent({ruleId:rule.id,kind:"trip",observed:10,previous:0,message:"Test app has 10 errors"});
+  fileCard({origin:`inbox:alert:${first.id}`,title:"An earlier health issue"});
+  const second=insertEvent({ruleId:rule.id,kind:"trip",observed:20,previous:10,message:"Test app now has 20 errors"});
+  const candidate=(await healthCandidates()).find(c=>c.origin===`health:rule:${rule.id}`)!;
+  assert.ok(candidate.aliases?.includes(`inbox:alert:${first.id}`));
+  assert.ok(candidate.aliases?.includes(`inbox:alert:${second.id}`));
+  configureBoardAutomation({ sources: { test: false, health: true } });
+  assert.equal((await syncBoardCards()).filed, 0); assert.equal(count(), 1);
 });
 
 test("a disabled source and pausing while a source loads cannot file cards", async () => {

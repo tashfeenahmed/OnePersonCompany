@@ -37,13 +37,23 @@ export async function healthCandidates(): Promise<BoardCandidate[]> {
       id: number; rule_id: number; acknowledged_at: string | null; resolved_at: string | null; snoozed_until: string | null;
       seeded: number; skill: string; path: string;
     }[];
-  const matchingEvents = (id: string) => events.filter(e => id === `rule:${e.rule_id}` || (e.seeded && (
+  type EventIdentity = Pick<(typeof events)[number], "id" | "rule_id" | "seeded" | "skill" | "path">;
+  const matches = (id: string, e: EventIdentity) => id === `rule:${e.rule_id}` || (e.seeded && (
     (e.skill === "fleet" && e.path === "totals.fullestDisk.percent" && /^fleet:.*:disk:/.test(id)) ||
     (e.skill === "domains" && e.path === "summary.expiring30" && id.startsWith("domain:")) ||
-    (e.skill === "uptime" && e.path === "summary.down" && id.startsWith("uptime:") && id.endsWith(":down")))));
+    (e.skill === "uptime" && e.path === "summary.down" && id.startsWith("uptime:") && id.endsWith(":down"))));
+  const matchingEvents = (id: string) => events.filter(e => matches(id, e));
+  // A rule can produce a new event ID after its earlier event was filed.
+  // Latest events decide visibility; older filed events still prove identity.
+  // Historical portfolio summaries do not identify individual hosts/domains:
+  // a new affected entity must not be hidden by an old aggregate alert.
+  const filedEvents = db.prepare(`SELECT e.id,e.rule_id,r.seeded,r.skill,r.path
+    FROM alert_events e JOIN alert_rules r ON r.id=e.rule_id
+    WHERE EXISTS (SELECT 1 FROM board_cards b WHERE b.origin='inbox:alert:'||e.id)
+       OR EXISTS (SELECT 1 FROM board_automation_filings f WHERE f.origin='inbox:alert:'||e.id)`).all() as EventIdentity[];
   return doc.alerts.filter(a => a.actionable !== false && !a.id.startsWith("source:") &&
     !matchingEvents(a.id).some(e => e.acknowledged_at || e.resolved_at || (e.snoozed_until && Date.parse(e.snoozed_until) > Date.now())))
-    .map(a => ({ origin: `health:${a.id}`, aliases: matchingEvents(a.id).map(e => `inbox:alert:${e.id}`), title: a.title, detail: a.detail || "Review the current health reading.",
+    .map(a => ({ origin: `health:${a.id}`, aliases: [...new Set([...matchingEvents(a.id), ...filedEvents.filter(e => a.id === `rule:${e.rule_id}`)].map(e => `inbox:alert:${e.id}`))], title: a.title, detail: a.detail || "Review the current health reading.",
       href: a.href ?? (a.sources.includes("fleet") ? "/dashboards/servers" : a.sources.includes("domains") ? "/dashboards/domains" : "/alerts"),
       observedAt: doc.asOf, ventureId: a.ventureId ?? (a.entity && a.entity.kind !== "server" ? ventureForHost(a.entity.id, ventures)?.id : null), urgency: a.severity === "critical" ? 3 : 2 }));
 }
