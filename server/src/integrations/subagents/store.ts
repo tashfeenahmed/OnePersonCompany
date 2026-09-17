@@ -198,6 +198,17 @@ function roleInfo(r: RoleDef) {
       const field = def ? briefField(def) : null;
       return field ? { field: field.key, label: field.label, hint: field.hint, required: field.required } : null;
     })(),
+    /* THE KIND'S OTHER INPUTS — what goes in a dispatch's `input` object. An
+       owner who asks for "a motion video" named a `format`; a dispatcher that
+       cannot see the field puts the word in the brief and gets the default
+       format instead (run r-ly9ks1). Closed lists carry their values. */
+    inputs: (() => {
+      const def = kindDef(r.kind);
+      const field = def ? briefField(def) : null;
+      return (def?.inputs ?? [])
+        .filter((i) => i.key !== field?.key)
+        .map((i) => ({ key: i.key, label: i.label, ...(i.options ? { options: i.options.map((o) => o.value) } : {}), default: i.default }));
+    })(),
     /* DERIVED, not stored on the role. The slug is a property of the KIND —
        two roles running one kind must land on one page — and keeping a column
        here was what let this roster drift from the router. */

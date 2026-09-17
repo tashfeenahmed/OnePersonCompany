@@ -163,10 +163,23 @@ export async function writeScript(opts: {
 
   const parsed = readScript(reply.text, opts.brief, count, opts.seconds, opts.venture ? END_CARD_SECONDS : 0);
   if (!parsed)
-    throw new Error(
+    throw new UnreadableScript(
       "The model did not answer with a script this server could read. It was asked for one JSON object with a hook, beats and a CTA; what came back is in the run's report.",
+      reply.text,
     );
   return { script: parsed, model: reply.model, raw: reply.text };
+}
+
+/** The refusal above promises the reply "is in the run's report", and it never
+ *  was: the throw happened before anybody held the text (run r-ly9ks1 failed
+ *  with an empty report). The error carries it so the caller can keep its word. */
+export class UnreadableScript extends Error {
+  raw: string;
+  constructor(message: string, raw: string) {
+    super(message);
+    this.name = "UnreadableScript";
+    this.raw = raw;
+  }
 }
 
 /** A string field, trimmed and capped. Empty becomes null so the caller can
@@ -178,6 +191,11 @@ const str = (v: unknown, cap: number): string | null => {
 };
 
 function readBeat(raw: unknown, role: BeatRole): Beat | null {
+  /* A BARE STRING IS A CAPTION. A smaller model asked for `{caption, voiceover,
+     terms}` regularly writes `"hook": "Stop paying for AI"` — a complete beat
+     with two optional fields left out, and every one of those already has a
+     fallback below. Refusing it threw away whole scripts. */
+  if (typeof raw === "string") raw = { caption: raw };
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
   const caption = str(o.caption, 160);

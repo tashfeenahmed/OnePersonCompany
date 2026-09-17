@@ -1132,6 +1132,27 @@ export function Chat() {
     const t = setInterval(() => void syncRail(), 5_000);
     return () => clearInterval(t);
   }, [anyLive, syncRail]);
+  /*
+    AND CONVERSATIONS THAT STARTED SOMEWHERE ELSE ARRIVE WITHOUT A RELOAD.
+
+    The rail was read once, on load, and again only while THIS browser's own
+    sessions had live children. A chat begun on Telegram, on a phone, by the
+    nightly rounds or by a script against the API is a real conversation on the
+    server and stayed invisible here until somebody pressed reload — so work the
+    owner was told was happening could not be watched from the page built for
+    watching it. Twenty seconds, and only while the tab is visible: it is one
+    indexed read, and a hidden tab has nobody to show it to.
+  */
+  /* Through a ref, because `syncRail` is rebuilt on every state change and an
+     interval keyed on it would be reset by each streamed word and never fire. */
+  const syncRailRef = useRef(syncRail);
+  syncRailRef.current = syncRail;
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") void syncRailRef.current();
+    }, 20_000);
+    return () => clearInterval(t);
+  }, []);
   const openLive = sessionId
     ? liveChildren.split("|").filter((k) => k.startsWith(`${sessionId}:`)).length
     : 0;

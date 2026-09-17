@@ -115,3 +115,14 @@ test("a dispatch carries the form's defaults, so a campaign asked for in chat ha
   assert.equal(input.channels, "page");
   assert.match(input.goal, /Win the first 100 users\.$/);
 });
+
+test("a dispatch reads its other inputs from a JSON string, which is all the CLI can carry", async () => {
+  const res = await subagentRoutes.request("/dispatch", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ role: "producer", venture: "business-3", input: '{"format":"motion"}' }),
+  });
+  assert.equal(res.status, 201);
+  const made = await res.json() as { run: { id: string } };
+  const input = JSON.parse((db.prepare("SELECT input FROM agent_runs WHERE id=?").get(made.run.id) as { input: string }).input);
+  assert.equal(input.format, "motion");
+});

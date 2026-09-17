@@ -59,7 +59,8 @@ export function delegationLines(sessionId: string, managed: boolean, cliPath?: s
     "",
     "Specialist roles available in this workspace (check the worker's current enabled state):",
     ...roleInfos().map(r => `- role \`${r.role}\` — ${r.title}; ${r.portfolio ? "no venture" : "requires a venture"}. ${r.what}` +
-      (r.brief ? ` BRIEF = ${r.brief.label}${r.brief.required ? " (required)" : " (optional)"}: ${r.brief.hint}` : "")),
+      (r.brief ? ` BRIEF = ${r.brief.label}${r.brief.required ? " (required)" : " (optional)"}: ${r.brief.hint}` : "") +
+      (r.inputs.length ? ` OTHER INPUTS (optional, sent as \`input\`): ${r.inputs.map(i => `${i.key}${i.options ? ` = ${i.options.join(" | ")}` : ""}`).join("; ")}.` : "")),
     "",
     managed
       ? `Use the installed CLI directly; the terminal may reset PATH. Read \`${command} help subagents\`, then \`${command} subagents roster --venture <id-or-slug> ` +

@@ -44,7 +44,7 @@ import type { Step } from "../runs/store.ts";
 import { aspectFrame, blurFilter, concat, segment, still, type Fit } from "./assemble.ts";
 import { pickCaptioner, stripPath, type CaptionStyle } from "./captions.ts";
 import { fetchClip, pexelsKey, type Asset } from "./footage.ts";
-import { END_CARD_SECONDS, writeScript, type Beat, type Script } from "./script.ts";
+import { END_CARD_SECONDS, UnreadableScript, writeScript, type Beat, type Script } from "./script.ts";
 import { saveJob } from "./store.ts";
 import { sceneTiming } from "./timing.ts";
 import { VIDEO_PLUGIN, bytesOf, ffmpegFilters, findFfmpeg, findFfprobe, probeDuration } from "./tools.ts";
@@ -129,6 +129,9 @@ export async function facelessVideo(opts: {
     scriptModel = written.model;
   } catch (err) {
     s.endStep(scriptStep, "the script could not be written");
+    /* The refusal says the reply is in the report, so put it there. */
+    if (err instanceof UnreadableScript)
+      s.say(`## What the model sent instead of a script\n\n\`\`\`\n${err.raw.slice(0, 4000) || "(nothing at all — an empty reply)"}\n\`\`\`\n`);
     throw new StepError("script", err instanceof Error ? err.message : String(err));
   }
   writeFileSync(resolve(dir, "script.json"), JSON.stringify(script, null, 2), "utf8");
