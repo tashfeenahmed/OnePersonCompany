@@ -202,7 +202,7 @@ export async function drawScene(opts: {
     const tiles: Tile[] = [];
     for (let i = 0; i < count; i++) tiles.push({ scene, t: (from + i) / opts.fps, holdLastFrame: opts.holdLastFrame });
     const name = `sheet-${String(from).padStart(5, "0")}`;
-    const shot = await shootSheet({
+    const sheet = {
       browser: opts.browser,
       html: sheetHtml(tiles, opts.look, opts.size),
       dir: opts.dir,
@@ -210,7 +210,13 @@ export async function drawScene(opts: {
       width: opts.size.width * count,
       height: opts.size.height,
       signal: opts.signal,
-    });
+    };
+    /* ONE MORE TRY BEFORE THE VIDEO IS LOST. A sheet is the same local file
+       either time, so a failure is the machine — a small box that was busy for
+       twenty seconds — and not the page. Run r-gc062x drew 98 frames and was
+       thrown away over the 99th; the second launch costs seconds. */
+    let shot = await shootSheet(sheet);
+    if (!shot.ok && !opts.signal?.aborted) shot = await shootSheet(sheet);
     if (!shot.ok) return { error: `the browser could not draw frames ${from}–${from + count - 1}: ${shot.error}` };
     const cut = await untileSheet({
       ffmpeg: opts.ffmpeg,
