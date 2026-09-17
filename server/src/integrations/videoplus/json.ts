@@ -63,6 +63,13 @@ export function readModelJson(text: string, key: string): Record<string, unknown
   const last = text.lastIndexOf("}");
   if (first >= 0 && last > first) candidates.push(parse(text.slice(first, last + 1)));
 
+  /* A BARE RUN OF OBJECTS — `{…},\n{…},\n{…}` — which is what a model writes
+     when it remembers the rows and forgets both the wrapper and the brackets
+     (run r-t2iq7h: five good scenes, refused as "not an object"). Bracketed, it
+     is the array candidate below; if it is not that shape the parse fails and
+     nothing is added. */
+  if (first >= 0 && last > first) candidates.push(parse(`[${text.slice(first, last + 1)}]`));
+
   const openBracket = text.indexOf("[");
   const closeBracket = text.lastIndexOf("]");
   if (openBracket >= 0 && closeBracket > openBracket) candidates.push(parse(text.slice(openBracket, closeBracket + 1)));

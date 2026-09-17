@@ -225,7 +225,24 @@ function readScene(raw: unknown, n: number, limits: SpecLimits, problems: string
     return null;
   }
   const o = raw as Record<string, unknown>;
-  const kindRaw = str(o.kind, 20)?.toLowerCase() ?? "";
+  let kindRaw = str(o.kind, 20)?.toLowerCase() ?? "";
+  if (!kindRaw) {
+    /* NO KIND AT ALL IS READ OFF THE FIELDS, which is not guessing: each kind
+       has a field no other kind has, so a scene carrying `title` and no `kind`
+       can only be a title card. A kind that was WRITTEN and has no template is
+       still refused below — that is the rule the header keeps. */
+    const inferred: SceneKind | null =
+      typeof o.title === "string" ? "title"
+      : typeof o.headline === "string" ? "cta"
+      : Array.isArray(o.items) ? "list"
+      : o.left && o.right ? "compare"
+      : o.value !== undefined && typeof o.label === "string" ? "stat"
+      : null;
+    if (inferred) {
+      kindRaw = inferred;
+      problems.push(`Scene ${n} named no kind; its fields are a “${inferred}” scene's, so it was read as one.`);
+    }
+  }
   if (!SCENE_KINDS.includes(kindRaw as SceneKind)) {
     /* THE ONE HARD REFUSAL. See the header. */
     problems.push(
