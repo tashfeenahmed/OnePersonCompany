@@ -37,6 +37,7 @@ const Board = lazy(() => import("@/pages/Board").then(m => ({ default: m.Board }
 const Email = lazy(() => import("@/pages/Email").then(m => ({ default: m.Email })));
 const SocialSection = lazy(() => import("@/pages/SectionPages").then(m => ({ default: m.SocialSection })));
 const Subagents = lazy(() => import("@/pages/Subagents").then(m => ({ default: m.Subagents })));
+const OutputsPage = lazy(() => import("@/pages/Outputs").then(m => ({ default: m.OutputsPage })));
 const Alerts = lazy(() => import("@/areas/proactive/Alerts").then(m => ({ default: m.Alerts })));
 const Login = lazy(() => import("@/areas/security/Login").then(m => ({ default: m.Login })));
 const Workflows = lazy(() => import("@/areas/chief/Workflows").then(m => ({ default: m.Workflows })));
@@ -350,11 +351,13 @@ function WorkspaceApplication() {
                         password it says so instead of drawing a form — see
                         areas/security/Login.tsx. */}
                     <Route path="/login" element={<Login />} />
-                    {/* The outputs are the Sub-agents page's third tab; the
-                        addresses stay, so links to a report keep landing. */}
-                    <Route path="/outputs" element={<Subagents />} />
-                    <Route path="/outputs/:output" element={<Subagents />} />
-                    <Route path="/outputs/:output/:runId" element={<Subagents />} />
+                    {/* The outputs: nine report pages behind one sidebar row,
+                        each with the ventures down its side. The addresses
+                        are the ones they have always had, so links to a
+                        report keep landing. */}
+                    <Route path="/outputs" element={<OutputsPage />} />
+                    <Route path="/outputs/:output" element={<OutputsPage />} />
+                    <Route path="/outputs/:output/:runId" element={<OutputsPage />} />
                     {/* Existing bookmarks and generated reports retain their destinations. */}
                     <Route path="/apps" element={<LegacyApp />} />
                     <Route path="/apps/:app" element={<LegacyApp />} />

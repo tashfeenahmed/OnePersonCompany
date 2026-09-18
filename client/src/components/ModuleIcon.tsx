@@ -1,6 +1,6 @@
 import {
   Activity, Bell, CalendarDays, ChartNoAxesCombined, Columns3, FolderKanban, Inbox,
-  LayoutDashboard, Mail, MessageSquare, Network, Palette, Plug,
+  LayoutDashboard, Mail, MessageSquare, Network, Palette, Plug, ScrollText,
   Server, Settings, Workflow, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ const icons: Record<string, LucideIcon> = {
   "/alerts": Bell,
   "/calendar": CalendarDays,
   "/dashboards": LayoutDashboard,
+  "/outputs": ScrollText,
   "/subagents": Network,
   "/integrations": Plug,
   "/ops": Server,

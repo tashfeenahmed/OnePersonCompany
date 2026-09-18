@@ -191,6 +191,29 @@ export type RunList = {
   kinds: KindInfo[];
 };
 
+/** One venture's tally of runs of a kind, over the whole ledger. */
+export type CoverageBucket = {
+  ventureId: string | null;
+  count: number;
+  done: number;
+  failed: number;
+  running: number;
+  queued: number;
+  /** When the newest run was queued — in flight counts as recent. */
+  lastAt: string | null;
+  lastStatus: string | null;
+};
+
+/** Who has been looked at, for one kind. The Outputs page's venture rail. */
+export type Coverage = {
+  kind: string;
+  needsVenture: boolean;
+  /** Newest first. A venture with no runs of this kind is not in it. */
+  ventures: CoverageBucket[];
+  /** The runs filed under no venture, or null when there are none. */
+  none: CoverageBucket | null;
+};
+
 /* ------------------------------------------------------- the accumulations */
 
 /**
@@ -438,6 +461,8 @@ export const runsApi = {
     ),
 
   get: (id: string) => call<RunDetail>(`/runs/${seg(id)}`),
+
+  coverage: (kind: string) => call<Coverage>(`/runs/coverage${qs({ kind })}`),
 
   /** Answers 201 with the run as it now is — queued, or running when nothing
    *  else was. The page does not have to guess which. */

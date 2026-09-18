@@ -318,6 +318,50 @@ runRoutes.post("/:id/resume", c => {
   pump(); return c.json(shapeRun(runRow(row.id)!));
 });
 
+/**
+ * WHO HAS BEEN LOOKED AT, for one kind: a tally per venture, plus the runs
+ * that belong to none. The Outputs page draws this as its venture rail — the
+ * list it filters by — and a rail built from the forty-row page of runs would
+ * say a venture had nothing when its reports were simply older than the page.
+ * Counted in SQL over the whole ledger, like `runTallies`, and in one
+ * statement: the rail is drawn on every visit to every report page.
+ *
+ * `lastAt` IS THE LAST TIME ANYTHING WAS QUEUED, not finished, so a run in
+ * flight counts as recent — "looked at just now" is true of a venture whose
+ * review is being written. `lastStatus` says which it was.
+ */
+runRoutes.get("/coverage", (c) => {
+  const kind = (c.req.query("kind") ?? "").trim();
+  const def = kindDef(kind);
+  if (!def) return c.json({ error: `No kind called "${kind}".` }, 404);
+  const rows = db
+    .prepare(
+      `SELECT venture_id, status, COUNT(*) AS n, MAX(queued_at) AS last_at
+         FROM agent_runs WHERE kind = ? GROUP BY venture_id, status`,
+    )
+    .all(kind) as { venture_id: string | null; status: string; n: number; last_at: string }[];
+  type Bucket = { ventureId: string | null; count: number; done: number; failed: number; running: number; queued: number; lastAt: string | null; lastStatus: string | null };
+  const buckets = new Map<string | null, Bucket>();
+  for (const r of rows) {
+    const b = buckets.get(r.venture_id) ?? { ventureId: r.venture_id, count: 0, done: 0, failed: 0, running: 0, queued: 0, lastAt: null, lastStatus: null };
+    b.count += r.n;
+    if (r.status === "done") b.done += r.n;
+    else if (r.status === "failed") b.failed += r.n;
+    else if (r.status === "running") b.running += r.n;
+    else if (r.status === "queued") b.queued += r.n;
+    if (!b.lastAt || r.last_at > b.lastAt) { b.lastAt = r.last_at; b.lastStatus = r.status; }
+    buckets.set(r.venture_id, b);
+  }
+  const none = buckets.get(null) ?? null;
+  buckets.delete(null);
+  return c.json({
+    kind,
+    needsVenture: def.needsVenture,
+    ventures: [...buckets.values()].sort((a, b) => (b.lastAt ?? "").localeCompare(a.lastAt ?? "")),
+    none,
+  });
+});
+
 runRoutes.get("/:id", (c) => {
   const row = runRow(c.req.param("id"));
   if (!row) return c.json({ error: "No run by that id." }, 404);

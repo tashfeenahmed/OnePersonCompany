@@ -39,6 +39,9 @@ import { SortableList } from "@/components/SortableList";
 import { SidebarPinButton } from "@/components/SidebarPinButton";
 import { SidebarDashboards } from "@/components/SidebarDashboards";
 import { SidebarDashboardRow } from "@/components/SidebarDashboardRow";
+import { SidebarOutputs } from "@/components/SidebarOutputs";
+import { orderedOutputs } from "@/data/outputs";
+import { appPage } from "../../../shared/navigation";
 import { SidebarSessionRow } from "@/components/SidebarSessionRow";
 import { WorkspaceModelMenu } from "@/components/WorkspaceModelMenu";
 import { ModuleIcon } from "@/components/ModuleIcon";
@@ -85,9 +88,12 @@ const NAV = [
   ...SOCIAL_PAGES,
   ...MAIL_PAGES,
   { to: "/dashboards", label: "Dashboards" },
-  /* `also`: addresses that are this page under another name — the outputs
-     tab lives at /outputs so a report keeps its address. */
-  { to: "/subagents", label: "Sub-agents", also: ["/outputs"] },
+  /* OUTPUTS IS A ROW OF ITS OWN, since 2026-09-18, and it unfolds like
+     Dashboards into the nine report pages. It was the Sub-agents page's
+     third tab, four presses from a report; a report is the thing the workers
+     exist to make and it deserves a door. See components/SidebarOutputs.tsx. */
+  { to: "/outputs", label: "Outputs" },
+  { to: "/subagents", label: "Sub-agents" },
 ];
 
 /**
@@ -136,8 +142,7 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
 
   const here = (p: string) => pathname === p || pathname.startsWith(`${p}/`);
   const isHere = (path: string) => {
-    const item = NAV.find(item => item.to === path);
-    const mine = here(path) || (!!item && "also" in item && (item.also ?? []).some(here));
+    const mine = here(path);
     /* THE DEEPEST ROW WINS. A row is "here" for everything under it, which is
        what keeps a run page lighting the page it belongs to — but Publishing
        lives at /social/studio/publishing now, so the Studio's own row matched
@@ -277,6 +282,7 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
     const active = isHere(path);
     const pin: SidebarPin = { type: "page", path };
     if (path === "/dashboards" && accordion) return <SidebarDashboards pinned={pinnedKeys.has(pinKey(pin))} onTogglePin={() => togglePinned(pin)} />;
+    if (path === "/outputs" && accordion) return <SidebarOutputs pinned={pinnedKeys.has(pinKey(pin))} onTogglePin={() => togglePinned(pin)} />;
     return <div className={cn("sidebar-row flex min-w-0 items-center gap-0.5 rounded-lg pr-1 transition-colors focus-within:bg-accent", active ? "bg-accent font-medium" : "hover:bg-accent")}>
       <Link to={path} aria-current={active ? "page" : undefined} title={label} draggable={false}
         className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-1.5 text-[13.5px] outline-none"
@@ -324,6 +330,23 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
         })}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild><Link to="/dashboards/new"><Plus className="size-4" />New dashboard</Link></DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>;
+    /* The same fly-out Dashboards has, for the same reason: a collapsed rail
+       cannot unfold, and a row that opens onto nine pages needs somewhere to
+       list them. */
+    if (path === "/outputs") return <DropdownMenu key={path}>
+      <Tooltip><TooltipTrigger asChild><DropdownMenuTrigger aria-label={label} className={className}>{contents}</DropdownMenuTrigger></TooltipTrigger><TooltipContent side="right" sideOffset={8}>{label}</TooltipContent></Tooltip>
+      <DropdownMenuContent side="right" align="start" sideOffset={12} className="max-h-[min(70vh,600px)] w-60 overflow-y-auto">
+        <DropdownMenuLabel>Outputs</DropdownMenuLabel>
+        {orderedOutputs(state.appOrder).map(output => {
+          const to = appPage(output.slug);
+          const on = pathname === to || pathname.startsWith(`${to}/`);
+          return <DropdownMenuItem key={output.slug} asChild><Link to={to} aria-current={on ? "page" : undefined} className={cn(on && "bg-accent")}>
+            <output.icon className="size-4" strokeWidth={1.6} />
+            <span className="min-w-0 flex-1 truncate">{output.name}</span>
+          </Link></DropdownMenuItem>;
+        })}
       </DropdownMenuContent>
     </DropdownMenu>;
     return <Tooltip key={path}><TooltipTrigger asChild><Link to={path} aria-label={label} aria-current={active ? "page" : undefined} className={className}>{contents}</Link></TooltipTrigger><TooltipContent side="right" sideOffset={8}>{label}{counts[path] ? ` · ${counts[path]}` : ""}</TooltipContent></Tooltip>;

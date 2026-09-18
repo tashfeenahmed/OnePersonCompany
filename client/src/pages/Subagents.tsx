@@ -1,14 +1,13 @@
 import { appPage } from "../../../shared/navigation";
 import { useEffect, useState } from "react";
 import { WORK_CHANGED } from "@/hooks/useRunQueue";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { Tiles } from "@/components/integrations/Panel";
 import { QueueControls } from "@/components/runs/QueueControls";
 import { PageShell, TopBar } from "@/components/PageShell";
 import { SubTabs } from "@/components/TabStrip";
 import { OrgChart } from "@/components/org/OrgChart";
-import { OutputsTab } from "@/pages/Outputs";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { runAddress } from "@/components/org/roleLook";
 import {
@@ -61,21 +60,18 @@ import { subagentApi, type Org } from "@/lib/api/subagents";
  * front of one queue.
  */
 
+/* TWO TABS, since 2026-09-18. The third — Outputs — is a row of its own in
+   the sidebar now, unfolding into the nine report pages; see pages/Outputs.tsx
+   for why. What is left here is the org and the queue: who works here and
+   what they are doing. */
 const TABS = [
   { key: "roster", label: "Roster", to: "/subagents", title: "The org chart: the owner, the chief of staff and every venture's workers." },
   { key: "runs", label: "Runs", to: "/subagents?tab=runs", title: "What is running, what is waiting, and everything that has run." },
-  { key: "outputs", label: "Outputs", to: "/outputs", title: "The reports: research, competitors, demand, AI visibility and papers." },
 ] as const;
 
 export function Subagents() {
   const [params] = useSearchParams();
-  const { pathname } = useLocation();
-  const tab =
-    pathname === "/outputs" || pathname.startsWith("/outputs/")
-      ? "outputs"
-      : params.get("tab") === "runs"
-        ? "runs"
-        : "roster";
+  const tab = params.get("tab") === "runs" ? "runs" : "roster";
 
   const [tick, setTick] = useState(0);
   const doc = useApi(() => runsApi.list({ limit: 50 }), [tick]);
@@ -130,29 +126,22 @@ export function Subagents() {
     <>
       <TopBar label="Sub-agents">
         <SubTabs tabs={TABS} activeKey={tab} className="mb-0" />
-        {/* The report pages poll for themselves, so the button is for the two
-            tabs this page reads on its own. */}
-        {tab !== "outputs" && (
-          <button
-            onClick={() => {
-              setTick((n) => n + 1);
-              setOrgTick((n) => n + 1);
-            }}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground ml-2 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
-          >
-            <RefreshCw
-              className={cn("size-3.5", doc.loading && !doc.data && "animate-spin")}
-              strokeWidth={1.6}
-            />
-            Refresh
-          </button>
-        )}
+        <button
+          onClick={() => {
+            setTick((n) => n + 1);
+            setOrgTick((n) => n + 1);
+          }}
+          className="text-muted-foreground hover:bg-accent hover:text-foreground ml-2 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px]"
+        >
+          <RefreshCw
+            className={cn("size-3.5", doc.loading && !doc.data && "animate-spin")}
+            strokeWidth={1.6}
+          />
+          Refresh
+        </button>
       </TopBar>
 
-      {tab === "outputs" ? (
-        <OutputsTab />
-      ) : (
-        <PageShell
+      <PageShell
           wide
           title="Sub-agents"
           sub={
@@ -175,7 +164,6 @@ export function Subagents() {
             />
           )}
         </PageShell>
-      )}
     </>
   );
 }

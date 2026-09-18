@@ -1,7 +1,7 @@
 import { appPage } from "../../../../shared/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Loader2, Play } from "lucide-react";
+import { ChevronDown, Loader2, Play, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,13 +29,13 @@ import {
 /**
  * THE SHAPE EVERY RUN APP HAS, WRITTEN ONCE.
  *
- * Six apps — Research, Competitors, SEO, Demand, AI visibility, Papers — are
- * the same page with a different `kind` string: pick a venture, fill in what
- * the kind asks for, press once, then watch a report being written. The pages
- * in `pages/runs/` are four lines each because the DIFFERENCES between the
+ * Nine apps — Research, Competitors, SEO, Demand, AI visibility, SERP, ASO,
+ * Papers, People — are the same page with a different `kind` string: the
+ * runs, one open below them, and a brief to start another. The pages in
+ * `pages/runs/` are four lines each because the DIFFERENCES between the
  * kinds live on the server: `GET /api/runs` sends a `KindInfo` per kind with
  * its name, its sentence, whether a venture is required and which inputs to
- * draw, and this builds itself out of that. A seventh kind is a server change
+ * draw, and this builds itself out of that. A tenth kind is a server change
  * and a routing entry; nothing in here has to learn about it.
  *
  * WHAT EACH APP ADDS IS AN `extras` SLOT AND NOT A FORK. Competitors has a
@@ -46,6 +46,27 @@ import {
  *
  * ---------------------------------------------------------------------------
  *
+ * THE RUNS ARE AT THE TOP AND THE REPORT IS UNDER THEM, since 2026-09-18.
+ * It was the other way round — brief, then the open report, then the history
+ * — and opening a run pushed the list off the bottom of the screen, so
+ * reading three reports in a row meant scrolling back up past each one to
+ * find the next. The list is the thing you navigate by; it stays where it is.
+ * The report grows downward under it, which is where a document you chose
+ * from a list belongs.
+ *
+ * THE BRIEF FOLDS. It is the form for starting a run, and on a page whose
+ * job is mostly reading, a form on top of every visit is furniture. It is
+ * open when there is nothing to read — no runs for this venture, no report
+ * open — and one press away otherwise. Nothing typed into it is lost by
+ * folding it.
+ *
+ * WHICH VENTURE IS THE ADDRESS. The Outputs page's rail writes `?venture=`
+ * and this reads it: a slug or an id filters the list to that venture and
+ * pre-fills the brief with it; `all` or nothing is every venture; `none` is
+ * the runs filed under no venture, which only a kind that allows that ever
+ * has. The old "this venture / every venture" toggle is gone — the rail is
+ * that toggle, and a filtered list is a URL somebody can send.
+ *
  * IT POLLS, AND THE ALTERNATIVE WAS WORSE. A run is minutes of work that
  * survives the tab closing; a page holding an EventSource would tie the work's
  * visibility to one browser connection, and a refresh mid-research would leave
@@ -54,10 +75,10 @@ import {
  * at all when nothing is. The report is flushed to the row as it grows, which
  * is what makes polling look like streaming.
  *
- * THE RUN IS ADDRESSED, at `/apps/<app>/<run id>`. A report somebody wants a
- * second opinion on is a link, and the back button walks the history list the
- * way it walks anything else. Starting a run navigates to its address, so the
- * URL is right from the first second rather than only after it finished.
+ * THE RUN IS ADDRESSED, at `/outputs/<app>/<run id>`. A report somebody wants
+ * a second opinion on is a link, and the back button walks the history list
+ * the way it walks anything else. Starting a run navigates to its address, so
+ * the URL is right from the first second rather than only after it finished.
  *
  * ONE AT A TIME, AND THE PAGE SAYS SO RATHER THAN HIDING IT. There is one
  * queue on this box and it drains in series — a research run and a paper
@@ -81,9 +102,9 @@ export function RunApp({
    *  they are only offline. The server's name wins the moment it arrives, so
    *  this is a fallback rather than a second source of truth. */
   name: string;
-  /** Whatever this app has that is not a run — drawn between the open report
-   *  and the history, which is where an accumulation belongs: under the thing
-   *  that produced it and above the log of when. */
+  /** Whatever this app has that is not a run — drawn under the open report,
+   *  which is where an accumulation belongs: under the thing that produced
+   *  it. */
   extras?: (ctx: {
     venture: Venture | null;
     input: Record<string, string>;
@@ -103,40 +124,51 @@ export function RunApp({
   const [params] = useSearchParams();
 
   /*
-    WHICH VENTURE — the address wins, then the workspace's default, then the
-    first one. `?venture=` is how the venture Overview's links arrive here, and
-    it accepts an id or a slug because both are in the wild: the Overview knows
-    the id, a link somebody typed knows the slug.
+    THE FILTER, READ OFF THE ADDRESS. `?venture=` is a slug or an id (both are
+    in the wild: the rail writes slugs, the venture Overview's links know the
+    id), or `all`, or `none`, or absent — which is `all`. An unknown value
+    filters to nothing rather than to everything: a link to a venture that was
+    deleted should show an empty list, not the whole portfolio dressed as that
+    venture's.
   */
-  const asked = params.get("venture");
-  /*
-    THREE STATES, NOT TWO. `undefined` is "nobody has picked", which is what
-    lets the address and the workspace default keep applying; `null` is "the
-    owner chose no venture", which they may do on a kind that does not need
-    one. Collapsing those two into null would mean pressing "No venture" put
-    the page straight back onto the default.
+  const asked = params.get("venture") ?? "all";
+  const filterVenture =
+    asked === "all" || asked === "none"
+      ? null
+      : (ventures.find((v) => v.id === asked || v.slug === asked) ?? null);
+  const filter: "all" | "none" | "venture" | "missing" =
+    asked === "all" ? "all" : asked === "none" ? "none" : filterVenture ? "venture" : "missing";
+  const search = params.toString() ? `?${params.toString()}` : "";
 
-    RESOLVED AT RENDER rather than seeded, so a `?venture=` link still lands on
-    the right business when the ventures arrive AFTER this mounted — which is
-    the ordinary case on a cold browser, where the store fetches them.
+  /*
+    WHICH VENTURE THE BRIEF IS FOR — the filter when there is one, else what
+    the owner picked in the form, else the workspace's default, else the first.
+    THREE STATES, NOT TWO: `undefined` is "nobody has picked", which is what
+    lets the address and the default keep applying; `null` is "the owner chose
+    no venture", which they may do on a kind that does not need one.
   */
   const [picked, setPicked] = useState<string | null | undefined>(undefined);
   const chosen =
-    picked !== undefined
-      ? picked
-      : (ventures.find((v) => v.id === asked || v.slug === asked)?.id ??
-        state.workspace.defaultVentureId);
+    filter === "venture"
+      ? filterVenture!.id
+      : filter === "none" && picked === undefined
+        ? null
+        : picked !== undefined
+          ? picked
+          : state.workspace.defaultVentureId;
   const venture = ventures.find((v) => v.id === chosen) ?? null;
 
   const [values, setValues] = useState<Record<string, string>>({});
   const [starting, setStarting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [busyRun, setBusyRun] = useState(false);
-  const [scope, setScope] = useState<"venture" | "all">("venture");
   const [reload, setReload] = useState(0);
+  /* Null until the owner presses the fold, so the default below applies. */
+  const [composing, setComposing] = useState<boolean | null>(null);
 
-  /* The kind's own runs and, on the same document, every kind's description —
-     so one fetch configures the page and fills its history. */
+  /* The kind's own runs — for this venture when one is chosen, so the page
+     is forty of ITS runs rather than forty of everybody's with a filter over
+     them — and, on the same document, every kind's description. */
   /*
     POLLED BY RELOADING, NOT BY CHANGING A DEPENDENCY. `useApi` empties its
     document the moment a dependency changes, so a tick in the list made the
@@ -145,9 +177,10 @@ export function RunApp({
     lost their place on every tool call. `reload()` keeps the last document
     on screen until the next one lands, which is what a poll is.
   */
+  const listVenture = filter === "venture" ? filterVenture!.id : null;
   const list = useApi(
-    () => runsApi.list({ kind, limit: 40 }),
-    [kind, reload],
+    () => runsApi.list({ kind, venture: listVenture, limit: 40 }),
+    [kind, listVenture, reload],
   );
   const info: KindInfo | null =
     list.data?.kinds.find((k) => k.kind === kind) ?? null;
@@ -212,6 +245,11 @@ export function RunApp({
   const canStart =
     !!info && !starting && (!needsVenture || !!venture) && !missing.length;
 
+  /* Where a run this page starts, opens or closes lands: the same address,
+     with the same filter, so starting a run for ScallopBot leaves you on
+     ScallopBot's list with the new run open at the top of it. */
+  const here = (id?: string) => `${appPage(slug, id)}${search}`;
+
   async function start() {
     if (!info) return;
     setStarting(true);
@@ -228,7 +266,8 @@ export function RunApp({
         input,
       });
       setReload((n) => n + 1);
-      navigate(appPage(slug, run.id));
+      setComposing(false);
+      navigate(here(run.id));
     } catch (err) {
       setRefused(err instanceof Error ? err.message : String(err));
     } finally {
@@ -240,7 +279,7 @@ export function RunApp({
     if (!detail) return;
     if (!confirm(resume ? "Resume this job using completed model checkpoints?" : "Start a new job with the same inputs? This may repeat paid work.")) return;
     setBusyRun(true);
-    try { const result = await (resume ? runsApi.resume(detail.id) : runsApi.retry(detail.id)); setReload(n => n + 1); navigate(appPage(slug, result.id)); }
+    try { const result = await (resume ? runsApi.resume(detail.id) : runsApi.retry(detail.id)); setReload(n => n + 1); navigate(here(result.id)); }
     catch (error) { setRefused(error instanceof Error ? error.message : String(error)); }
     finally { setBusyRun(false); }
   }
@@ -266,7 +305,7 @@ export function RunApp({
     try {
       await runsApi.remove(detail.id);
       setReload((n) => n + 1);
-      navigate(appPage(slug));
+      navigate(here());
     } catch (err) {
       setRefused(err instanceof Error ? err.message : String(err));
     } finally {
@@ -274,16 +313,19 @@ export function RunApp({
     }
   }
 
-  /* Filtered at render rather than memoised: it is forty rows, and a useMemo
-     over an array this page rebuilds every poll memoises nothing. */
+  /* The server already narrowed to the venture; `none` and `missing` are the
+     two it cannot express, so they are applied here. Forty rows at most. */
   const shown =
-    scope === "venture" && venture
-      ? runs.filter((r) => r.ventureId === venture.id)
-      : runs;
+    filter === "none" ? runs.filter((r) => r.ventureId === null)
+    : filter === "missing" ? []
+    : runs;
 
   const running = list.data?.running ?? null;
   const busyHere =
     !!detail && isLive(detail.status) && detail.kind === kind;
+
+  /* The fold's default: open when there is nothing else to look at. */
+  const composeOpen = composing ?? (!runId && shown.length === 0 && !!list.data);
 
   /* What the fields actually hold — typed values over the server's defaults —
      rather than only what somebody touched. An `extras` slot that filtered on
@@ -292,12 +334,21 @@ export function RunApp({
   const resolved: Record<string, string> = {};
   for (const f of info?.inputs ?? []) resolved[f.key] = valueOf(f);
 
+  const scopeWord =
+    filter === "venture" ? filterVenture!.name
+    : filter === "none" ? "no venture"
+    : filter === "missing" ? `“${asked}”, which is not a venture here`
+    : "every venture";
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-16">
       <div className="mx-auto w-full max-w-[940px]">
-        <div className="mt-2 mb-6">
+        <div className="mt-2 mb-5">
           <h1 className="mb-1 text-[27px] font-normal tracking-[-0.025em]">
             {info?.name ?? name}
+            {filter === "venture" && (
+              <span className="text-muted-foreground"> · {filterVenture!.name}</span>
+            )}
           </h1>
           <p className="text-muted-foreground text-[14.5px]">
             {info?.what ??
@@ -315,153 +366,224 @@ export function RunApp({
 
         {/* ------------------------------------------------------ the brief */}
         {info && (
-          <div className="bg-card grid gap-3.5 rounded-[14px] p-4.5">
-            <div className="grid gap-1.5">
-              <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-                {needsVenture ? "For which venture" : "About which venture"}
-              </div>
-              {ventures.length === 0 ? (
-                <p className="text-muted-foreground text-[13.5px]">
-                  There are no ventures yet, and this run is made out of one —
-                  the name, the sentence you wrote, the stage, the site. Add a
-                  venture first.
-                </p>
+          <div className="bg-card rounded-[14px]">
+            <button
+              type="button"
+              aria-expanded={composeOpen}
+              onClick={() => setComposing(!composeOpen)}
+              className="flex w-full items-center gap-2 px-4.5 py-3 text-left"
+            >
+              {composeOpen ? (
+                <ChevronDown className="text-muted-foreground size-4 shrink-0" strokeWidth={1.7} />
               ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {/* A menu, not chips: nineteen chips was a wall. */}
-                  <VentureSelect
-                    ventures={ventures}
-                    value={venture?.id ?? null}
-                    onChange={setPicked}
-                    none={needsVenture ? null : "No venture"}
-                    className="w-72"
-                  />
-                </div>
+                <Plus className="text-muted-foreground size-4 shrink-0" strokeWidth={1.7} />
               )}
-              {!needsVenture && (
-                <p className="text-muted-foreground text-[12.5px]">
-                  Optional here. Without one the run is about whatever you type
-                  below and is filed under no venture.
-                </p>
+              <span className="text-[14px] font-medium tracking-tight">
+                {busyHere ? "A run is in progress" : "New run"}
+              </span>
+              {!composeOpen && venture && (
+                <span className="text-muted-foreground text-[12.5px]">for {venture.name}</span>
               )}
-            </div>
-
-            {info.inputs.map((f) => (
-              <div key={f.key} className="grid gap-1.5">
-                <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-                  {f.label}
-                  {!f.required && (
-                    <span className="ml-1.5 tracking-normal normal-case">
-                      optional
-                    </span>
+            </button>
+            {composeOpen && (
+              <div className="grid gap-3.5 px-4.5 pb-4.5">
+                <div className="grid gap-1.5">
+                  <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
+                    {needsVenture ? "For which venture" : "About which venture"}
+                  </div>
+                  {ventures.length === 0 ? (
+                    <p className="text-muted-foreground text-[13.5px]">
+                      There are no ventures yet, and this run is made out of one —
+                      the name, the sentence you wrote, the stage, the site. Add a
+                      venture first.
+                    </p>
+                  ) : filter === "venture" ? (
+                    /* The rail chose. Changing it here would start a run for a
+                       venture whose list you are not looking at, which is how a
+                       report ends up "missing". Pick another venture in the rail. */
+                    <p className="text-[13.5px]">{filterVenture!.name}</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      <VentureSelect
+                        ventures={ventures}
+                        value={venture?.id ?? null}
+                        onChange={setPicked}
+                        none={needsVenture ? null : "No venture"}
+                        className="w-72"
+                      />
+                    </div>
+                  )}
+                  {!needsVenture && filter !== "venture" && (
+                    <p className="text-muted-foreground text-[12.5px]">
+                      Optional here. Without one the run is about whatever you type
+                      below and is filed under no venture.
+                    </p>
                   )}
                 </div>
-                {/* A CLOSED LIST WHERE THE SERVER PUBLISHED ONE. Buttons
-                    rather than a <select> because there are two or three of
-                    them and the hint under each one is worth reading — and
-                    because everything else on this page is a chip. A `select`
-                    with no options falls through to the text input below,
-                    which is the honest fallback for a field this client does
-                    not understand. */}
-                {f.kind === "select" && f.key === "aspect" && f.options?.length && f.options.every((o) => ASPECT_OPTIONS.some((a) => a.key === o.value)) ? (
-                  <div className="max-w-sm">
-                    <ShapePicker
-                      label={f.label}
-                      value={valueOf(f)}
-                      onChange={(value) => setValues((v) => ({ ...v, [f.key]: value }))}
-                      options={f.options.map((o) => ASPECT_OPTIONS.find((a) => a.key === o.value)!)}
-                    />
-                  </div>
-                ) : f.kind === "select" && f.options?.length ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {f.options.map((o) => (
-                      <button
-                        key={o.value}
-                        onClick={() =>
-                          setValues((v) => ({ ...v, [f.key]: o.value }))
+
+                {info.inputs.map((f) => (
+                  <div key={f.key} className="grid gap-1.5">
+                    <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
+                      {f.label}
+                      {!f.required && (
+                        <span className="ml-1.5 tracking-normal normal-case">
+                          optional
+                        </span>
+                      )}
+                    </div>
+                    {/* A CLOSED LIST WHERE THE SERVER PUBLISHED ONE. Buttons
+                        rather than a <select> because there are two or three of
+                        them and the hint under each one is worth reading — and
+                        because everything else on this page is a chip. A `select`
+                        with no options falls through to the text input below,
+                        which is the honest fallback for a field this client does
+                        not understand. */}
+                    {f.kind === "select" && f.key === "aspect" && f.options?.length && f.options.every((o) => ASPECT_OPTIONS.some((a) => a.key === o.value)) ? (
+                      <div className="max-w-sm">
+                        <ShapePicker
+                          label={f.label}
+                          value={valueOf(f)}
+                          onChange={(value) => setValues((v) => ({ ...v, [f.key]: value }))}
+                          options={f.options.map((o) => ASPECT_OPTIONS.find((a) => a.key === o.value)!)}
+                        />
+                      </div>
+                    ) : f.kind === "select" && f.options?.length ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {f.options.map((o) => (
+                          <button
+                            key={o.value}
+                            onClick={() =>
+                              setValues((v) => ({ ...v, [f.key]: o.value }))
+                            }
+                            className={cn(
+                              "rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
+                              valueOf(f) === o.value
+                                ? "border-foreground"
+                                : "hover:border-line-strong",
+                            )}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : f.kind === "textarea" ? (
+                      <Textarea
+                        value={valueOf(f)}
+                        onChange={(e) =>
+                          setValues((v) => ({ ...v, [f.key]: e.target.value }))
                         }
-                        className={cn(
-                          "rounded-[12px] border px-2.5 py-1.5 text-[13.5px] transition-colors",
-                          valueOf(f) === o.value
-                            ? "border-foreground"
-                            : "hover:border-line-strong",
-                        )}
-                      >
-                        {o.label}
-                      </button>
-                    ))}
+                        rows={3}
+                        maxLength={4000}
+                        placeholder={f.hint}
+                        className="text-[14.5px]"
+                      />
+                    ) : (
+                      <Input
+                        type={f.kind === "number" ? "number" : "text"}
+                        value={valueOf(f)}
+                        onChange={(e) =>
+                          setValues((v) => ({ ...v, [f.key]: e.target.value }))
+                        }
+                        placeholder={f.hint}
+                        className="text-[14.5px]"
+                      />
+                    )}
                   </div>
-                ) : f.kind === "textarea" ? (
-                  <Textarea
-                    value={valueOf(f)}
-                    onChange={(e) =>
-                      setValues((v) => ({ ...v, [f.key]: e.target.value }))
-                    }
-                    rows={3}
-                    maxLength={4000}
-                    placeholder={f.hint}
-                    className="text-[14.5px]"
-                  />
-                ) : (
-                  <Input
-                    type={f.kind === "number" ? "number" : "text"}
-                    value={valueOf(f)}
-                    onChange={(e) =>
-                      setValues((v) => ({ ...v, [f.key]: e.target.value }))
-                    }
-                    placeholder={f.hint}
-                    className="text-[14.5px]"
-                  />
+                ))}
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <Button
+                    disabled={!canStart || busyHere}
+                    onClick={() => void start()}
+                  >
+                    {starting || busyHere ? (
+                      <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} />
+                    ) : (
+                      <Play className="size-[15px]" strokeWidth={1.8} />
+                    )}
+                    {busyHere
+                      ? detail?.status === "queued"
+                        ? position === null
+                          ? "Queued"
+                          : position === 1
+                            ? "Next in the queue"
+                            : `${ordinal(position)} in the queue`
+                        : "Working…"
+                      : starting
+                        ? "Starting…"
+                        : "Start the run"}
+                  </Button>
+                  <span className="text-muted-foreground text-[13px]">
+                    {busyHere && detail?.status === "queued" && running
+                      ? `One run at a time on this box — ${running.title} is working.`
+                      : busyHere
+                        ? "It carries on if you close the tab. Come back to this address."
+                        : needsVenture && !venture
+                          ? "Pick a venture first."
+                          : missing.length
+                            ? `${missing.map((f) => f.label).join(" and ")} still to fill in.`
+                            : "Minutes, not seconds. It runs on the server and survives the tab closing."}
+                  </span>
+                </div>
+
+                {refused && (
+                  <p className="text-destructive text-[13.5px] leading-relaxed">
+                    {refused}
+                  </p>
                 )}
               </div>
-            ))}
-
-            <div className="flex flex-wrap items-center gap-2.5">
-              <Button
-                disabled={!canStart || busyHere}
-                onClick={() => void start()}
-              >
-                {starting || busyHere ? (
-                  <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} />
-                ) : (
-                  <Play className="size-[15px]" strokeWidth={1.8} />
-                )}
-                {busyHere
-                  ? detail?.status === "queued"
-                    ? position === null
-                      ? "Queued"
-                      : position === 1
-                        ? "Next in the queue"
-                        : `${ordinal(position)} in the queue`
-                    : "Working…"
-                  : starting
-                    ? "Starting…"
-                    : "Start the run"}
-              </Button>
-              <span className="text-muted-foreground text-[13px]">
-                {busyHere && detail?.status === "queued" && running
-                  ? `One run at a time on this box — ${running.title} is working.`
-                  : busyHere
-                    ? "It carries on if you close the tab. Come back to this address."
-                    : needsVenture && !venture
-                      ? "Pick a venture first."
-                      : missing.length
-                        ? `${missing.map((f) => f.label).join(" and ")} still to fill in.`
-                        : "Minutes, not seconds. It runs on the server and survives the tab closing."}
-              </span>
-            </div>
-
-            {refused && (
-              <p className="text-destructive text-[13.5px] leading-relaxed">
-                {refused}
-              </p>
             )}
+          </div>
+        )}
+
+        {/* ------------------------------------------------------- the runs */}
+        <div className="mt-6 mb-2 flex flex-wrap items-baseline gap-2">
+          <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
+            Runs
+          </div>
+          <span className="text-muted-foreground text-[12.5px]">for {scopeWord}</span>
+          <span className="text-muted-foreground ml-auto text-[12.5px]">
+            {info
+              ? `${info.counts.done} finished · ${info.counts.failed} failed${
+                  info.counts.running + info.counts.queued > 0
+                    ? ` · ${info.counts.running + info.counts.queued} in flight`
+                    : ""
+                } across every venture`
+              : list.loading
+                ? "loading…"
+                : ""}
+          </span>
+        </div>
+
+        {shown.length === 0 ? (
+          <p className="text-muted-foreground text-[14px]">
+            {list.loading && !list.data
+              ? "Reading the history…"
+              : filter === "venture"
+                ? `Nothing has been run for ${filterVenture!.name} yet.`
+                : filter === "none"
+                  ? "Nothing has been run without a venture."
+                  : filter === "missing"
+                    ? "No venture by that name, so there is nothing to list."
+                    : "Nothing has been run here yet."}
+          </p>
+        ) : (
+          <div className="flex flex-col gap-px">
+            {shown.map((r) => (
+              <HistoryRow
+                key={r.id}
+                run={r}
+                open={r.id === runId}
+                showVenture={filter !== "venture"}
+                onOpen={() => navigate(r.id === runId ? here() : here(r.id))}
+              />
+            ))}
           </div>
         )}
 
         {/* ---------------------------------------------------- the open run */}
         {runId && (
-          <div className="mt-5">
+          <div className="border-line-soft mt-6 border-t pt-5">
             {open.error ? (
               <p className="text-muted-foreground text-[14px]">
                 No run at this address.{" "}
@@ -488,87 +610,32 @@ export function RunApp({
             {extras({ venture, input: resolved, settled })}
           </div>
         )}
-
-        {/* ------------------------------------------------------ the history */}
-        <div className="mt-7 mb-3 flex flex-wrap items-baseline gap-2">
-          <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
-            Past runs
-          </div>
-          {venture && (
-            <div className="flex gap-1.5">
-              {(
-                [
-                  ["venture", venture.name],
-                  ["all", "Every venture"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setScope(key)}
-                  className={cn(
-                    "rounded-[9px] px-1.5 py-0.5 text-[12.5px] transition-colors",
-                    scope === key
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-          <span className="text-muted-foreground ml-auto text-[12.5px]">
-            {info
-              ? `${info.counts.done} finished · ${info.counts.failed} failed${
-                  info.counts.running + info.counts.queued > 0
-                    ? ` · ${info.counts.running + info.counts.queued} in flight`
-                    : ""
-                }`
-              : list.loading
-                ? "loading…"
-                : ""}
-          </span>
-        </div>
-
-        {shown.length === 0 ? (
-          <p className="text-muted-foreground text-[14px]">
-            {list.loading && !list.data
-              ? "Reading the history…"
-              : venture && scope === "venture"
-                ? `Nothing has been run for ${venture.name} yet.`
-                : "Nothing has been run here yet."}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-px">
-            {shown.map((r) => (
-              <HistoryRow
-                key={r.id}
-                run={r}
-                open={r.id === runId}
-                onOpen={() => navigate(appPage(slug, r.id))}
-              />
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
-/** One past run: what it was about, how it ended, and what wrote it. */
+/** One run: what it was about, how it ended, and what wrote it. Pressing the
+ *  open one closes it — the list is the control, and a control that can only
+ *  open is half a control. */
 function HistoryRow({
   run,
   open,
+  showVenture,
   onOpen,
 }: {
   run: RunSummary;
   open: boolean;
+  /** Off when the whole list is one venture's: its name on every row would
+   *  be the heading repeated forty times. */
+  showVenture: boolean;
   onOpen: () => void;
 }) {
   const took = duration(run.ms, { nullText: "" });
   return (
     <button
       onClick={onOpen}
+      aria-expanded={open}
       className={cn(
         "hover:bg-accent -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors",
         open && "bg-accent",
@@ -578,7 +645,7 @@ function HistoryRow({
         className={cn("size-1.5 shrink-0 rounded-full", statusTone(run.status))}
       />
       <span className="min-w-0 flex-1 truncate text-[13.5px]">{run.title}</span>
-      {run.ventureName && (
+      {showVenture && run.ventureName && (
         <span className="text-muted-foreground hidden shrink-0 text-[12.5px] sm:block">
           {run.ventureName}
         </span>
