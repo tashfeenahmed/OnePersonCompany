@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { db, now } from "../../db.ts";
+import { db } from "../../db.ts";
 import { runRoutes } from "./routes.ts";
 
 function run(id: string, kind: string, ventureId: string | null, status: string, queuedAt: string) {
