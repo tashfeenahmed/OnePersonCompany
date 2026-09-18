@@ -6,6 +6,11 @@ import { OUTPUT_TOKENS_CEILING, budgets, budgeted, runContext } from "../runtime
  *  prefill. The run's own budget still bounds it; this is only the wire's
  *  backstop, and it is only this wide for a `document` turn. */
 const DOCUMENT_TIMEOUT_MS = 1_800_000;
+/** How long a document stream may be silent before it is given up on. A local
+ *  server sends nothing while it prefills a 16k-token brief, and on a P40
+ *  that is minutes; the chat's ninety seconds would call an honest first
+ *  token a dead gateway. */
+const DOCUMENT_IDLE_MS = 600_000;
 /**
  * MODEL PROVIDERS — where the completions actually come from, and how many at
  * once.
@@ -39,13 +44,18 @@ const DOCUMENT_TIMEOUT_MS = 1_800_000;
  */
 import {
   chatCompletion,
+  chatCompletionStream,
+  deltaText,
   getJson,
   readModel,
   readModelIds,
   readText,
   readUsage,
+  WireError,
+  type StreamChunk,
   type WireTurn,
 } from "../chat/wire.ts";
+import { parseFrame } from "../chat/sse.ts";
 
 export type ProviderId = "freellmapi" | "local" | "openai" | "openrouter";
 
@@ -421,23 +431,15 @@ async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, max
   try {
     (opts.signal ?? runContext.getStore()?.signal)?.throwIfAborted();
     const model = await modelFor(p, endpoint, opts.model);
-    const doc = await chatCompletion({
-      base: endpoint.baseUrl,
-      key: endpoint.key,
-      model,
-      /* The one cast in this file. `chatCompletion` types its messages as
-         `WireTurn[]` and serialises them straight onto the wire; a content
-         ARRAY is what the OpenAI image shape is, and widening wire.ts's own
-         type would touch every caller that reads `turn.content` as a string
-         for no gain. Contained here, beside the reason. */
-      turns: turns as unknown as WireTurn[],
-      service: `${p.label} (${endpoint.label})`,
-      /* A document on a slow local model is minutes of generation after a
-         long prefill; the policy's timeout is sized for a chat reply. The
-         run's own abort signal is the real bound on a run. */
-      timeoutMs: opts.document ? Math.max(p.policy.timeoutMs, DOCUMENT_TIMEOUT_MS) : p.policy.timeoutMs,
-      signal: opts.signal ?? runContext.getStore()?.signal,
-      body: {
+    const service = `${p.label} (${endpoint.label})`;
+    const signal = opts.signal ?? runContext.getStore()?.signal;
+    /* The one cast in this file. `chatCompletion` types its messages as
+       `WireTurn[]` and serialises them straight onto the wire; a content
+       ARRAY is what the OpenAI image shape is, and widening wire.ts's own
+       type would touch every caller that reads `turn.content` as a string
+       for no gain. Contained here, beside the reason. */
+    const wireTurns = turns as unknown as WireTurn[];
+    const body: Record<string, unknown> = {
         ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
         ...(opts.jsonObject ? { response_format: { type: "json_object" } } : {}),
         /* `"none"` AND NOT `"minimal"`, checked against the router's own source
@@ -461,7 +463,43 @@ async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, max
         ...((opts.jsonObject || opts.document) && p.id === "freellmapi" ? { reasoning_effort: "none" } : {}),
         ...((opts.jsonObject || opts.document) && p.id === "openrouter" ? { reasoning: { enabled: false } } : {}),
         ...((opts.jsonObject || opts.document) && p.id === "local" ? { chat_template_kwargs: { enable_thinking: false } } : {}),
-      },
+    };
+
+    /*
+      A DOCUMENT IS STREAMED, AND NOT FOR THE READER'S SAKE — nobody watches a
+      raw provider write. It is streamed because Node's fetch gives up on a
+      response whose HEADERS take more than five minutes to arrive (undici's
+      headersTimeout), and a whole page from a 27B model on a P40 is longer
+      than that: the competitor landscape r-l0e44a died four and a half
+      minutes into its write with `Could not reach … (TypeError)` while the
+      Dell was still generating, whatever the deadline above said. A stream
+      answers its headers at once and then takes as long as it takes, bounded
+      by the idle and hard timers the stream reader already has. An endpoint
+      that will not stream says so with a 406 (or refuses `stream_options`
+      with a 400) and gets the plain request instead.
+    */
+    if (opts.document) {
+      try {
+        const streamed = await documentStream({ base: endpoint.baseUrl, key: endpoint.key, model, turns: wireTurns, service, body, signal });
+        if (!streamed.text) throw new Error(`${p.label} answered with no text.`);
+        return { text: streamed.text, provider: p.id, endpoint: endpoint.label, model: streamed.model ?? model, usage: streamed.usage, ms: Date.now() - started, queuedMs };
+      } catch (err) {
+        if (!(err instanceof WireError && (err.status === 406 || err.status === 400))) throw err;
+      }
+    }
+
+    const doc = await chatCompletion({
+      base: endpoint.baseUrl,
+      key: endpoint.key,
+      model,
+      turns: wireTurns,
+      service,
+      /* A document on a slow local model is minutes of generation after a
+         long prefill; the policy's timeout is sized for a chat reply. The
+         run's own abort signal is the real bound on a run. */
+      timeoutMs: opts.document ? Math.max(p.policy.timeoutMs, DOCUMENT_TIMEOUT_MS) : p.policy.timeoutMs,
+      signal,
+      body,
     });
     const text = readText(doc);
     if (text === null && !opts.jsonObject) throw new Error(`${p.label} answered with no text.`);
@@ -477,6 +515,49 @@ async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, max
   } finally {
     release();
   }
+}
+
+/**
+ * One streamed completion, gathered back into a reply. The chunk reading is
+ * providers/hermes.ts's, minus the tool events a raw provider never sends:
+ * content deltas are the answer, the model's reasoning is kept apart and
+ * used only when there was no content at all — the same fallback `readText`
+ * makes for an unstreamed reply — and `usage` arrives on the last chunk when
+ * the server honours `stream_options.include_usage`.
+ */
+async function documentStream(args: {
+  base: string; key: string | null; model: string; turns: WireTurn[]; service: string;
+  body: Record<string, unknown>; signal: AbortSignal | undefined;
+}): Promise<{ text: string; model: string | null; usage: { prompt: number; completion: number } | null }> {
+  let text = "";
+  let thinking = "";
+  let model: string | null = null;
+  let usage: { prompt: number; completion: number } | null = null;
+  for await (const frame of chatCompletionStream({
+    base: args.base, key: args.key, model: args.model, turns: args.turns, service: args.service,
+    body: { ...args.body, stream_options: { include_usage: true } },
+    idleMs: DOCUMENT_IDLE_MS, maxMs: DOCUMENT_TIMEOUT_MS, signal: args.signal,
+  })) {
+    if (frame.event && frame.event !== "message") continue;
+    if (frame.data === "[DONE]") break;
+    const chunk = parseFrame<StreamChunk>(frame.data);
+    if (!chunk) continue;
+    const err = chunk.error;
+    if (err) {
+      const message = typeof err === "string" ? err : (err.message ?? "");
+      throw new WireError(502, `${args.service} stopped mid-answer${message ? ` — ${message}` : "."}`);
+    }
+    if (chunk.model) model = chunk.model;
+    if (chunk.usage) {
+      const u = readUsage({ usage: chunk.usage });
+      if (u) usage = u;
+    }
+    const delta = chunk.choices?.[0]?.delta;
+    text += deltaText(delta);
+    const r = delta?.reasoning ?? delta?.reasoning_content;
+    if (typeof r === "string") thinking += r;
+  }
+  return { text: text.trim() ? text : thinking, model, usage };
 }
 
 /* ------------------------------------------------------- completion with tools */

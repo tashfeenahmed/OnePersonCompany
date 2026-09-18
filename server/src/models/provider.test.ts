@@ -164,3 +164,19 @@ test("document turns thinking off the way jsonObject does, asks for the ceiling,
     assert.equal(sent[sent.length - 1]!.max_tokens, 6000);
   } finally { restore(); }
 });
+
+test("a document is asked for as a stream first, and an endpoint that will not stream gets the plain request", async () => {
+  const sent: Record<string, unknown>[] = [];
+  const restore = stub(sent); /* the stub answers JSON, which is a 406 to the stream reader */
+  try {
+    use("local");
+    const reply = await complete([{ role: "user", content: "write the page" }], { document: true });
+    assert.equal(reply.text, '{"scenes":[]}', "the plain request's answer came back");
+    const [streamed, plain] = sent.slice(-2);
+    assert.equal(streamed!.stream, true);
+    assert.deepEqual(streamed!.stream_options, { include_usage: true });
+    assert.deepEqual(streamed!.chat_template_kwargs, { enable_thinking: false });
+    assert.notEqual(plain!.stream, true, "the fallback is not a stream");
+    assert.equal(plain!.max_tokens, OUTPUT_TOKENS_CEILING);
+  } finally { restore(); }
+});
