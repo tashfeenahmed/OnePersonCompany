@@ -87,7 +87,7 @@ export type RunTools = {
   say(text: string): void;
   startStep(tool: string, label: string | null): Step;
   endStep(step: Step, label?: string | null): void;
-  turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean }): Promise<{ text: string }>;
+  turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean; document?: boolean }): Promise<{ text: string }>;
   /** Undoes what a failed writing turn streamed into the report, back to the
    *  length the report was before it. The retry below needs it: a document
    *  that was refused must not be left above the one that replaced it. */
@@ -779,7 +779,10 @@ export async function competitorsRun(opts: {
     { role: "system", content: writeSystem },
     { role: "user", content: `Write the landscape document for ${venture.name}.` },
   ];
-  let written = (await tools.turn(ask, { toOutput: true, forceProvider: tools.writerUsesProvider })).text;
+  /* `document`: the whole page in one reply, thinking off, the output
+     ceiling — see CompleteOptions.document for the run that needed it. */
+  const writing = { toOutput: true, forceProvider: tools.writerUsesProvider, document: true } as const;
+  let written = (await tools.turn(ask, writing)).text;
   let page = reportIn(written);
   if (!page) {
     /* THE REFUSED DRAFT IS UNWRITTEN BEFORE THE RETRY. It was streamed into
@@ -789,7 +792,7 @@ export async function competitorsRun(opts: {
     written = (
       await tools.turn(
         [...ask, { role: "assistant", content: written.slice(0, 400) }, { role: "user", content: DOCUMENT_AGAIN }],
-        { toOutput: true, forceProvider: tools.writerUsesProvider },
+        writing,
       )
     ).text;
     page = reportIn(written);

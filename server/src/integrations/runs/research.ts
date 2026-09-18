@@ -77,7 +77,7 @@ const isReport = (doc: string): boolean =>
 
 export async function researchRun(opts: {
   runId: string; ventureName: string; focus: string; blocks: Block[]; hasTools: boolean; writerUsesProvider: boolean;
-  turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean }): Promise<{ text: string }>;
+  turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean; document?: boolean }): Promise<{ text: string }>;
   say(text: string): void;
   step<T>(label: string, work: () => Promise<T>): Promise<T>;
 }) {
@@ -99,7 +99,10 @@ export async function researchRun(opts: {
   await opts.step("Writing the research document", async () => {
     const drafts: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
-      const result = await opts.turn(turns, { toOutput: false, forceProvider: opts.writerUsesProvider });
+      /* `document`: thinking off and the output ceiling on the raw provider —
+         see CompleteOptions.document. Without it a local reasoning model spent
+         its 4,096 tokens thinking and answered with the scratchpad. */
+      const result = await opts.turn(turns, { toOutput: false, forceProvider: opts.writerUsesProvider, document: true });
       const found = extractHtmlDocument(result.text);
       if (found && isReport(found.doc)) {
         /* The tail is the cards fence, when the model wrote one where it was

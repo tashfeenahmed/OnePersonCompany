@@ -565,10 +565,15 @@ type TurnResult = { text: string; backend: string; model: string | null };
  * turn stream into `output`, would put a JSON plan and a scoring table in the
  * middle of the document the owner reads.
  */
+/** What a run's turn may ask for. `document` reaches the raw provider only —
+ *  see `CompleteOptions.document` — an agent has its own output and thinking
+ *  settings in its config and ignores it. */
+export type TurnOpts = { toOutput: boolean; forceProvider?: boolean; document?: boolean };
+
 async function turn(
   s: Session,
   turns: ChatTurn[],
-  opts: { toOutput: boolean; forceProvider?: boolean },
+  opts: TurnOpts,
 ): Promise<TurnResult> {
   const backend = opts.forceProvider ? null : activeBackend();
   if (backend) return budgeted(turns, () => agentTurn(s, turns, opts), true);
@@ -657,7 +662,7 @@ function cleanedHtml(s: Session, text: string, toOutput: boolean): string {
   return html;
 }
 
-async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean }): Promise<TurnResult & { usage?: {prompt: number; completion: number} | null }> {
+async function agentTurn(s: Session, turns: ChatTurn[], opts: TurnOpts): Promise<TurnResult & { usage?: {prompt: number; completion: number} | null }> {
   const before = { ...s.usage };
   const signal = live?.id === s.id ? live.abort.signal : undefined;
   const backend = opts.forceProvider ? null : activeBackend();
@@ -721,7 +726,7 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: { toOutput: boolea
     throw new Error(
       "Nothing will answer: no agent is live and no model provider is chosen. Connect one under Integrations and pick a default under Models.",
     );
-  const r = await complete(turns, { signal });
+  const r = await complete(turns, { signal, ...(opts.document ? { document: true } : {}) });
   await noteOutcome(r.provider, r.endpoint, null);
   s.backend = `provider:${r.provider}`;
   s.model = r.model ?? s.model;

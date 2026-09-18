@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { budgets, budgeted, runContext } from "../runtime/budgets.ts";
+import { OUTPUT_TOKENS_CEILING, budgets, budgeted, runContext } from "../runtime/budgets.ts";
+
+/** How long one document completion may take on the wire: thirty minutes,
+ *  which is a 27B model on a single P40 writing a full page after a long
+ *  prefill. The run's own budget still bounds it; this is only the wire's
+ *  backstop, and it is only this wide for a `document` turn. */
+const DOCUMENT_TIMEOUT_MS = 1_800_000;
 /**
  * MODEL PROVIDERS — where the completions actually come from, and how many at
  * once.
@@ -99,6 +105,21 @@ export type CompleteOptions = {
   /** For short structured writers: request JSON and suppress optional thinking
    * on compatible routers, without changing the workspace's chat settings. */
   jsonObject?: boolean;
+  /**
+   * THE REPLY IS A FINISHED DOCUMENT — a whole HTML page — and not a chat turn.
+   *
+   * Two things follow, and both were learned from a failed run. Thinking is
+   * switched off on the routers that take the knob, exactly as `jsonObject`
+   * does: the competitor landscape on a local 27B reasoning model spent its
+   * whole allowance in the scratchpad, emitted no content, and the wire's
+   * fallback returned the scratchpad as the report (run r-c9zwqm — "The user
+   * wants only the completed HTML document. Let me draft…"). And the output
+   * allowance is the ceiling rather than the workspace default, because a
+   * designed page with its own stylesheet and tables is several thousand
+   * tokens and a 4,096 cap cuts it off before `</html>`. The wire deadline is
+   * widened for the same reason; the run's own budget still bounds it.
+   */
+  document?: boolean;
   /**
    * MORE OUTPUT ROOM THAN THE WORKSPACE DEFAULT, for this one call.
    *
@@ -378,13 +399,15 @@ function budgetShape(turns: VisionTurn[], imageTokens?: number): unknown {
  * reading the same endpoint agree about what it said.
  */
 export async function complete(turns: VisionTurn[], opts: CompleteOptions = {}): Promise<ProviderReply> {
+  /* A document asks for the ceiling unless the caller named a number. */
+  const want = opts.maxOutputTokens ?? (opts.document ? OUTPUT_TOKENS_CEILING : undefined);
   const work = () =>
     /* The allowance is part of the request, so it is part of the budget shape
        the checkpoint key is hashed from: a resumed run must not replay the
        truncated reply a smaller allowance produced. */
-    budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: activeProvider()?.id, ...(opts.jsonObject ? { jsonObject: true } : {}), ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}) }, maxOutputTokens =>
+    budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: activeProvider()?.id, ...(opts.jsonObject ? { jsonObject: true } : {}), ...(want ? { maxOutputTokens: want } : {}) }, maxOutputTokens =>
       completeUnmetered(turns, opts, maxOutputTokens),
-    false, opts.maxOutputTokens);
+    false, want);
   if (runContext.getStore()) return work();
   return runContext.run({ id: `direct:${randomUUID()}`, venture: null, automation: true, signal: opts.signal ?? AbortSignal.timeout(budgets().runSeconds * 1000), sequence: 0, resume: false }, work);
 }
@@ -409,7 +432,10 @@ async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, max
          for no gain. Contained here, beside the reason. */
       turns: turns as unknown as WireTurn[],
       service: `${p.label} (${endpoint.label})`,
-      timeoutMs: p.policy.timeoutMs,
+      /* A document on a slow local model is minutes of generation after a
+         long prefill; the policy's timeout is sized for a chat reply. The
+         run's own abort signal is the real bound on a run. */
+      timeoutMs: opts.document ? Math.max(p.policy.timeoutMs, DOCUMENT_TIMEOUT_MS) : p.policy.timeoutMs,
       signal: opts.signal ?? runContext.getStore()?.signal,
       body: {
         ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
@@ -430,9 +456,11 @@ async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, max
            2026-08-31 incident where `none` was rejected and `minimal` worked was
            OpenRouter's own API, not this router — and OpenRouter is handled on
            its own line below. */
-        ...(opts.jsonObject && p.id === "freellmapi" ? { reasoning_effort: "none" } : {}),
-        ...(opts.jsonObject && p.id === "openrouter" ? { reasoning: { enabled: false } } : {}),
-        ...(opts.jsonObject && p.id === "local" ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+        /* A document turns thinking off the same three ways — see `document`
+           on CompleteOptions for the run that showed why. */
+        ...((opts.jsonObject || opts.document) && p.id === "freellmapi" ? { reasoning_effort: "none" } : {}),
+        ...((opts.jsonObject || opts.document) && p.id === "openrouter" ? { reasoning: { enabled: false } } : {}),
+        ...((opts.jsonObject || opts.document) && p.id === "local" ? { chat_template_kwargs: { enable_thinking: false } } : {}),
       },
     });
     const text = readText(doc);

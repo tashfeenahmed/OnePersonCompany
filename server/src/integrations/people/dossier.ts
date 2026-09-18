@@ -76,7 +76,7 @@ export type RunTools = {
   endStep(step: Step, label?: string | null): void;
   /** One turn on whoever is answering — an agent when one is live, the raw
    *  provider when not. `toOutput` streams it into the report. */
-  turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean }): Promise<{ text: string }>;
+  turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean; document?: boolean }): Promise<{ text: string }>;
   /** Whether whatever is answering can go and look things up. It is the whole
    *  difference between a dossier and an essay, and the brief says so either
    *  way rather than letting the reader assume the good case. */
@@ -593,7 +593,9 @@ export async function dossierRun(opts: {
       { role: "system", content: system },
       { role: "user", content: brief },
     ],
-    { toOutput: true },
+    /* A whole designed page: thinking off and the output ceiling when a raw
+       provider writes it — see CompleteOptions.document. */
+    { toOutput: true, document: true },
   );
   tools.endStep(write, `${res.text.length} characters`);
 }

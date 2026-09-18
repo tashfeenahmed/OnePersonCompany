@@ -142,3 +142,25 @@ test("the budget reserves what the call actually asks for, not the default", asy
     db.exec("DELETE FROM budget_usage");
   }
 });
+
+test("document turns thinking off the way jsonObject does, asks for the ceiling, and never asks for JSON", async () => {
+  const sent: Record<string, unknown>[] = [];
+  const restore = stub(sent);
+  try {
+    for (const id of IDS) {
+      use(id);
+      await complete([{ role: "user", content: "write the page" }], { document: true });
+      const body = sent[sent.length - 1]!;
+      assert.equal(body.max_tokens, OUTPUT_TOKENS_CEILING, `${id} did not get the ceiling`);
+      assert.equal("response_format" in body, false, `${id} asked for JSON on a document`);
+      if (id === "freellmapi") assert.equal(body.reasoning_effort, "none");
+      if (id === "openrouter") assert.deepEqual(body.reasoning, { enabled: false });
+      if (id === "local") assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false });
+      if (id === "openai") for (const key of ["reasoning_effort", "reasoning", "chat_template_kwargs"]) assert.equal(key in body, false, `openai was sent ${key}`);
+    }
+    /* A caller's own number still wins over the ceiling. */
+    use("local");
+    await complete([{ role: "user", content: "write the page" }], { document: true, maxOutputTokens: 6000 });
+    assert.equal(sent[sent.length - 1]!.max_tokens, 6000);
+  } finally { restore(); }
+});
