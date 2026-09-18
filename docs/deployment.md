@@ -141,9 +141,10 @@ those describe the machine.
 
 
 Settings → Usage limits caps job runtime, model calls, output tokens, and
-job/daily/per-venture token or dollar allowances. Defaults are 900 seconds and
-100 calls per job, 1,000 daily calls, and 4,096 output tokens per call; token
-and dollar caps start disabled.
+job/daily/per-venture token or dollar allowances. Defaults are 7,200 seconds
+(two hours — a local model on modest hardware needs well over fifteen minutes
+for an agent run with tools) and 100 calls per job, 1,000 daily calls, and
+4,096 output tokens per call; token and dollar caps start disabled.
 
 Capacity is reserved before a managed request, including concurrent ones, and
 provider-reported usage settles the reservation. Dollar accounting uses a price

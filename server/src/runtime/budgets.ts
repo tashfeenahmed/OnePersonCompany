@@ -2,7 +2,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { db, now } from "../db.ts";
 import { RUNTIME_KEYS, readFlag, readJson, writeFlag, writeJson } from "./settings.ts";
-export const DEFAULT_BUDGETS = { runSeconds: 900, runCalls: 100, dailyCalls: 1000, automationDailyCalls: 100,
+/* `runSeconds` WAS 900 AND IT WAS TOO SHORT FOR A LOCAL MODEL. A competitor
+   sweep on a P40 running a 27B model spent five minutes on its first tool call
+   and three to four on each one after, and the investigation turn alone hit
+   the cap at nine calls — the owner never saw a report. The limit exists to
+   catch a runaway, not to ration honest work, so the default is two hours:
+   long enough that a slow box finishes, short enough that a loop that will
+   never finish still ends. Anyone who wants it tighter has the setting. */
+export const DEFAULT_BUDGETS = { runSeconds: 7200, runCalls: 100, dailyCalls: 1000, automationDailyCalls: 100,
   runTokens: 0, dailyTokens: 0, ventureDailyTokens: 0, runUsd: 0, dailyUsd: 0, ventureDailyUsd: 0,
   usdPerMillion: 0, maxOutputTokens: 4096 };
 export type Budgets = typeof DEFAULT_BUDGETS;
