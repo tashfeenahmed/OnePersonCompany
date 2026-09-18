@@ -67,10 +67,8 @@ export type Role =
   | "demand"
   | "visibility"
   | "writer"
-  | "producer"
   | "serp"
   | "aso"
-  | "campaigns"
   /* The first role with no venture behind it. See `PORTFOLIO_ROLES`. */
   | "people";
 
@@ -105,12 +103,16 @@ export const ROLES: RoleDef[] = [
   { role: "demand", kind: "demand", title: "Demand analyst", suffix: "Demand Analyst" },
   { role: "visibility", kind: "geo", title: "AI visibility analyst", suffix: "Visibility Analyst" },
   { role: "writer", kind: "papers", title: "Academic paper writer", suffix: "Paper Writer" },
-  { role: "producer", kind: "video", title: "Video producer", suffix: "Video Producer" },
   { role: "serp", kind: "serp", title: "SERP analyst", suffix: "SERP Analyst" },
   { role: "aso", kind: "aso", title: "Store listing auditor", suffix: "ASO Auditor" },
-  /* The campaign planner, owned by integrations/publishing/. A worker per
-     venture, so switching one off is how the owner says "not this business". */
-  { role: "campaigns", kind: "campaign", title: "Campaign planner", suffix: "Campaign Planner" },
+  /* RETIRED 2026-09-18: `producer` (kind `video`) and `campaigns` (kind
+     `campaign`). Both KINDS are untouched and both apps still run from their
+     own pages — Studio makes videos, Publishing plans campaigns — and every
+     run either of them ever produced is still in the ledger, because a run is
+     attributed by kind plus venture and never by the worker. What is gone is
+     the STAFF: nobody on the org chart owns that work, so the Chief of Staff
+     cannot dispatch it and the nightly rounds cannot schedule it. Putting
+     either back is this line and its row in migration 486. */
 ];
 
 /**
@@ -199,9 +201,10 @@ function roleInfo(r: RoleDef) {
       return field ? { field: field.key, label: field.label, hint: field.hint, required: field.required } : null;
     })(),
     /* THE KIND'S OTHER INPUTS — what goes in a dispatch's `input` object. An
-       owner who asks for "a motion video" named a `format`; a dispatcher that
-       cannot see the field puts the word in the brief and gets the default
-       format instead (run r-ly9ks1). Closed lists carry their values. */
+       owner who asks for "the top eight pages per query" named `results`; a
+       dispatcher that cannot see the field puts the number in the brief, where
+       it is searched for as typed, and gets the default instead (run
+       r-ly9ks1 lost a format this way). Closed lists carry their values. */
     inputs: (() => {
       const def = kindDef(r.kind);
       const field = def ? briefField(def) : null;

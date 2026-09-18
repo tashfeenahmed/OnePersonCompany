@@ -393,12 +393,12 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
     return { status: 500 as const, json: { error: `${def.name} runs take no input, so there is nowhere to put a brief.` } };
 
   /* A STRING IS ACCEPTED AND PARSED, because the skill door and the `opc` CLI
-     carry only strings and numbers: `--input '{"format":"motion"}'` is the only
-     way an agent can say which format it was asked for. */
+     carry only strings and numbers: `--input '{"results":"8"}'` is the only
+     way an agent can say which setting it was asked for. */
   let extra = (body.input ?? {}) as Record<string, unknown> | string;
   if (typeof extra === "string") {
     try { extra = (extra.trim() ? JSON.parse(extra) : {}) as Record<string, unknown>; }
-    catch { return { status: 400 as const, json: { error: "`input` could not be read as JSON. Send an object such as {\"format\":\"motion\"}." } }; }
+    catch { return { status: 400 as const, json: { error: "`input` could not be read as JSON. Send an object such as {\"results\":\"8\"}." } }; }
   }
   if (typeof extra !== "object" || extra === null || Array.isArray(extra))
     return { status: 400 as const, json: { error: "`input` is an object of the kind's other fields, or absent." } };

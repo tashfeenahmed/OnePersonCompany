@@ -74,7 +74,7 @@ const GAP_X = 16;
  * grew by a line on its own would take its stem with it. It was a constant
  * sized for exactly six rows, and when a seventh role was provisioned the
  * chart quietly clipped four workers off every venture — a roster that says
- * the Video Producer does not exist. The header is measured in the same
+ * the newest worker does not exist. The header is measured in the same
  * units the rows are drawn in; the slack at the foot is where a line-height
  * change goes instead of into the last row.
  */

@@ -88,10 +88,14 @@ test("every role tells a dispatcher what its brief is used as, and a standard jo
   assert.equal(roles.visibility?.field, "questions");
   assert.equal(roles.visibility?.required, false);
   assert.equal(roles.writer?.field, "topic");
-  assert.equal(roles.campaigns?.required, true);
+  assert.equal(roles.people?.required, true);
+  /* The retired roles do not come back through the roster. */
+  assert.equal(roles.producer, undefined);
+  assert.equal(roles.campaigns, undefined);
   const lines = delegationLines("s-1", true).join("\n");
   assert.match(lines, /role `visibility`[^\n]*BRIEF = Extra questions \(optional\)/);
-  assert.match(lines, /role `campaigns`[^\n]*\(required\)/);
+  assert.match(lines, /role `people`[^\n]*\(required\)/);
+  assert.doesNotMatch(lines, /role `(producer|campaigns)`/);
 
   /* And the route agrees: no brief is a run, not a 400, where the field is optional. */
   const res = await subagentRoutes.request("/dispatch", {
@@ -104,25 +108,41 @@ test("every role tells a dispatcher what its brief is used as, and a standard jo
   assert.ok(!JSON.parse(row.input).questions);
 });
 
-test("a dispatch carries the form's defaults, so a campaign asked for in chat has a channel", async () => {
+test("a dispatch carries the form's defaults, so a teardown asked for in chat reads the default number of pages", async () => {
   const res = await subagentRoutes.request("/dispatch", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ role: "campaigns", venture: "business-2", brief: "Win the first 100 users." }),
+    body: JSON.stringify({ role: "serp", venture: "business-2", brief: "free llm api" }),
   });
   assert.equal(res.status, 201);
   const made = await res.json() as { run: { id: string } };
   const input = JSON.parse((db.prepare("SELECT input FROM agent_runs WHERE id=?").get(made.run.id) as { input: string }).input);
-  assert.equal(input.channels, "page");
-  assert.match(input.goal, /Win the first 100 users\.$/);
+  assert.equal(input.results, "5");
+  /* `queries` is literal — the brief lands as typed, with no preface. */
+  assert.equal(input.queries, "free llm api");
 });
 
 test("a dispatch reads its other inputs from a JSON string, which is all the CLI can carry", async () => {
   const res = await subagentRoutes.request("/dispatch", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ role: "producer", venture: "business-3", input: '{"format":"motion"}' }),
+    body: JSON.stringify({ role: "serp", venture: "business-3", input: '{"results":"8"}' }),
   });
   assert.equal(res.status, 201);
   const made = await res.json() as { run: { id: string } };
   const input = JSON.parse((db.prepare("SELECT input FROM agent_runs WHERE id=?").get(made.run.id) as { input: string }).input);
-  assert.equal(input.format, "motion");
+  assert.equal(input.results, "8");
+});
+
+test("a dispatch to a retired role is refused, and the migration leaves no worker behind for it", async () => {
+  for (const role of ["producer", "campaigns"]) {
+    const res = await subagentRoutes.request("/dispatch", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ role, venture: "business-1", brief: "anything" }),
+    });
+    assert.notEqual(res.status, 201, role);
+    assert.equal((await subagentRoutes.request(`/roster?role=${role}`)).status, 400, role);
+  }
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS n FROM subagents WHERE role IN ('producer','campaigns')").get() as { n: number }).n,
+    0,
+  );
 });

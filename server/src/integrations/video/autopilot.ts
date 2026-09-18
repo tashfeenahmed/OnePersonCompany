@@ -62,9 +62,9 @@ import { nextZonedTime } from "../../../../shared/zonedTime.ts";
 import { configValue, db, now, ventureRows, type VentureRow } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
 import { createPost } from "../ventures/studio.ts";
-import { queuedCount, runningRow } from "../runs/store.ts";
-import { dispatch, type DispatchBody } from "../subagents/routes.ts";
-import { ensureTeam, subagentId, subagentRow } from "../subagents/store.ts";
+import { insertRun, mintRunId, queuedCount, runningRow } from "../runs/store.ts";
+import { kindDef } from "../runs/kinds.ts";
+import { pump } from "../runs/executor.ts";
 /* THE ONE LINE THAT CONNECTS THIS TO PUBLISHING, added 2026-09-06. A finished
    post is filed into the publishing queue AS A DRAFT — see
    integrations/publishing/autopilot-hook.ts, which explains why the strongest
@@ -83,7 +83,7 @@ import { findSource } from "../socialfeed/sourcing.ts";
 export const AUTOPILOT_PLUGIN = "autopilot";
 export const AUTOPILOT_FORMATS = ["faceless", "shorts", "motion", "stewie", "ugc"] as const;
 
-/** The session id every autopilot dispatch is filed under, so a run it started
+/** The session id every autopilot run is filed under, so a run it started
  *  is distinguishable in the ledger from one the owner asked for in a chat.
  *  It is not a real conversation and nothing streams into it — see
  *  `childrenBySession`, which will simply never be asked about this key. */
@@ -597,19 +597,31 @@ async function makePost(v: VentureRow, brief: string): Promise<{ id: string } | 
 }
 
 /**
- * One video run, through the sub-agent dispatch.
+ * One video run, queued straight onto the run queue.
  *
- * NOT `POST /api/runs`, and the difference matters. A dispatch files the run
- * against the venture's own Video Producer and against a parent session, so
- * the run appears in the org chart as that worker's work and in the ledger as
- * something that was dispatched rather than started by hand. `parentSessionId`
- * is the constant `autopilot`: not a conversation, and deliberately a name a
- * person reading the row will recognise.
+ * IT USED TO GO THROUGH A SUB-AGENT DISPATCH, against each venture's own Video
+ * Producer, so that the run appeared in the org chart as that worker's work and
+ * switching the worker off was how the owner said "not this venture". The Video
+ * Producer role was retired on 2026-09-18 (see subagents/store.ts and migration
+ * 486), and a pass that dispatched a worker nobody employs would have failed
+ * every venture with "has no video producer" the moment the autopilot was
+ * switched on.
  *
- * A WORKER THE OWNER SWITCHED OFF REFUSES THE JOB, which is the whole reason
- * this goes through the dispatch: switching off a venture's Video Producer is
- * how the owner says "not this one", and a path that went round it would make
- * that switch a decoration.
+ * SO IT QUEUES THE RUN ITSELF, the same way the Studio's own pages do —
+ * videoplus/routes.ts and socialfeed/routes.ts both mint an id, insert a
+ * `video` run and pump the queue, and this is now the third caller of that
+ * same three lines rather than a new way of starting work.
+ *
+ * WHAT IS LOST WITH THE DISPATCH, said out loud rather than discovered later:
+ * there is no longer a per-venture switch for autopilot video. The cadence, the
+ * quiet stages and the format list are the brakes, and an owner who wants one
+ * venture left alone sets its stage quiet. `subagent_id` on these runs is now
+ * NULL, which is true — no worker was given this job.
+ *
+ * WHAT IS KEPT: `parent_session_id` is still the constant `autopilot`, so a run
+ * this pass started is still distinguishable in the ledger from one the owner
+ * started by hand, and the kind's own defaults are still filled in — a run
+ * started here and a run started from the Studio form carry the same input.
  */
 function queueVideo(
   v: VentureRow,
@@ -619,21 +631,28 @@ function queueVideo(
    *  every format that does not need one. */
   url: string | null = null,
 ): { id: string } | { error: string } {
-  ensureTeam(v.id);
-  const row = subagentRow(subagentId(v.id, "producer"));
-  if (!row) return { error: `${v.name} has no video producer.` };
-  const body: DispatchBody = {
-    brief,
-    parentSessionId: AUTOPILOT_SESSION,
-    input: url ? { format, url } : { format },
-  };
-  const res = dispatch(row, body);
-  if (res.status !== 201) {
-    const json = res.json as { error?: unknown };
-    return { error: typeof json.error === "string" ? json.error : `the dispatch was refused (${res.status})` };
-  }
-  const json = res.json as { run: { id: string } };
-  return { id: json.run.id };
+  const def = kindDef("video");
+  if (!def) return { error: "this box knows no video runs" };
+
+  /* THE FORM'S DEFAULTS, FOR A CALLER THAT IS NOT THE FORM — the argument
+     subagents/routes.ts makes about a dispatch, which applies here for the
+     same reason: the run page prefills every input, so a run started anywhere
+     else must fill them too or the executor reads an empty field as a choice.
+     `brief`, `format` and `url` are set after, because those are ours. */
+  const input: Record<string, string> = {};
+  for (const spec of def.inputs) if (spec.default.trim()) input[spec.key] = spec.default.trim();
+  input.format = format;
+  input.brief = brief;
+  if (url) input.url = url;
+
+  const id = mintRunId();
+  insertRun({ id, kind: "video", ventureId: v.id, title: `${def.name} — ${v.name}`, input });
+  db.prepare("UPDATE agent_runs SET parent_session_id = ? WHERE id = ?").run(AUTOPILOT_SESSION, id);
+  /* Started now rather than at the next tick, so a box with a free slot is
+     already encoding by the time the pass writes its log line. A no-op when
+     something else holds the slot. */
+  pump();
+  return { id };
 }
 
 /* --------------------------------------------------------------- the timer */

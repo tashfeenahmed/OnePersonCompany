@@ -114,4 +114,35 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE agent_runs ADD COLUMN brief TEXT;
     `,
   },
+  {
+    name: "486_subagents_retire_producer_campaigns",
+    sql: `
+      -- THE VIDEO PRODUCER AND THE CAMPAIGN PLANNER ARE NO LONGER ROLES.
+      --
+      -- \`ensureTeam\` provisions what is in \`ROLES\` and prunes rows whose
+      -- VENTURE is gone; it has never pruned rows whose ROLE is gone, and it
+      -- should not — see \`shapeSubagent\`, which shapes such a row rather than
+      -- hiding it precisely so a hand-edited database does not lose the
+      -- owner's words without anybody being told. That leniency is right for
+      -- an accident and wrong for a decision. A role retired in a release
+      -- leaves one row per venture behind, and on this box that was
+      -- forty-eight workers the org chart still drew, the roster still paged
+      -- through and a dispatch by id still reached — a staff nobody could
+      -- explain and every agent reading the org had to read past.
+      --
+      -- SO THE DELETION IS A MIGRATION AND NOT A RULE. It names the two roles
+      -- and runs once, which is the difference between retiring a role and
+      -- teaching the roster to forget any role it does not recognise. The
+      -- second would quietly bin the owner's standing instructions on the day
+      -- somebody made a typo in \`ROLES\`.
+      --
+      -- THE RUNS STAY, all of them. \`agent_runs\` has no foreign key here for
+      -- exactly this case (see 081): the work these workers did is attributed
+      -- by kind and venture, so every video and every campaign still has its
+      -- report, its page and its place in the ledger. \`subagent_id\` on the
+      -- runs they were dispatched for now points at a row that is gone, which
+      -- is what that column has always meant when a worker is pruned.
+      DELETE FROM subagents WHERE role IN ('producer', 'campaigns');
+    `,
+  },
 ];

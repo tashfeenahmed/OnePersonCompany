@@ -238,13 +238,13 @@ const skills: Skill[] = [
             required: false,
             about:
               "The role's OTHER inputs, as a JSON object in a string — " +
-              "`{\"format\":\"motion\"}` for a motion video, " +
-              "`{\"channels\":\"linkedin,ig\"}` for a campaign. Each role's " +
+              "`{\"category\":\"support chatbot\"}` for an AI visibility check, " +
+              "`{\"results\":\"8\"}` for a SERP teardown. Each role's " +
               "`inputs` in the roster lists the keys and, for a closed list, the " +
               "values. Anything left out takes the same default the run form " +
               "shows, which is right nearly every time: set a key ONLY when the " +
               "owner asked for that thing, and never write content into one — " +
-              "the worker writes the script, the scenes and the posts itself. " +
+              "the worker writes its own report. " +
               "The brief's own field is never sent here.",
           },
           {
