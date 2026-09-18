@@ -4,7 +4,7 @@ import { researchRun } from "./research.ts";
 import { runArtifactFiles } from "./artifacts.ts";
 
 const html = '<!doctype html><html><head><title>A finding</title></head><body><h1>A finding</h1><p>Supported conclusion. The supplied Search Console snapshot records 34 clicks over 28 days. No customer interviews were available, which limits the conclusions.</p></body></html>';
-const base = { ventureName: "Example", focus: "Compare acquisition options", blocks: [{ source: "Search Console", text: "34 clicks over 28 days" }], writerUsesProvider: true, step: async <T>(_label: string, work: () => Promise<T>) => work() };
+const base = { ventureName: "Example", focus: "Compare acquisition options", blocks: [{ source: "Search Console", text: "34 clicks over 28 days" }], writerUsesProvider: true, runSeconds: 7200, step: async <T>(_label: string, work: () => Promise<T>) => work() };
 
 test("research separates investigation from writing and retains evidence even across a formatting retry", async () => {
   const outputs: string[] = []; let calls = 0;

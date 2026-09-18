@@ -922,6 +922,7 @@ async function reportRun(s: Session, def: KindDef, v: VentureRow, input: Record<
   if (def.kind === "research") return researchRun({
     runId: s.id, ventureName: v.name, focus: (input.focus ?? "").trim(), blocks, hasTools,
     writerUsesProvider: activeProvider() !== null,
+    runSeconds: budgets().runSeconds,
     turn: (turns, opts) => turn(s, turns, opts),
     say: text => s.say(text),
     step: async (label, work) => {
