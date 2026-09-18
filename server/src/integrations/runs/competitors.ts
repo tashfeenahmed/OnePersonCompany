@@ -56,7 +56,8 @@
  */
 import { db, now, type VentureRow } from "../../db.ts";
 import type { ChatTurn } from "../../chat/backend.ts";
-import { historyBlock, presenceBlock, renderBlocks, ventureBlock, type Block } from "./context.ts";
+import { auditBlock, backlinksBlock, historyBlock, presenceBlock, renderBlocks, ventureBlock, type Block } from "./context.ts";
+import { knowledgeBlock } from "../knowledge/store.ts";
 import { ventureContext } from "../../routes/ventures.ts";
 import { kindDef, systemBrief } from "./kinds.ts";
 import { extractHtmlDocument } from "./html.ts";
@@ -96,6 +97,9 @@ export type RunTools = {
   outputLength(): number;
   hasTools: boolean;
   writerUsesProvider?: boolean;
+  /** The `opc` wrapper's path, so the investigation can read every
+   *  measurement this box holds. See `systemBrief`'s `cli`. */
+  cli?: string | null;
 };
 
 /* ------------------------------------------------------------ the register */
@@ -651,9 +655,21 @@ export async function competitorsRun(opts: {
       text: `TODAY IS ${today}. Every date you write must be consistent with it, and "last verified N days ago" below is counted from it.`,
     },
     ventureBlock(venture, stage),
+    /* WHAT THE PRODUCT ACTUALLY IS, before anything about its rivals. The
+       sweep used to be given the venture's own one-line description and
+       nothing else, and then asked to say how we compare — so "how we
+       compare" was drawn from a sentence the owner wrote once. This is the
+       repository's and the plugins' own statement of the product with its
+       tiers, which is what a comparison table's OUR ROW has to come from.
+       Research has had it since it was written; see runs/context.ts. */
+    knowledgeBlock(venture),
     registryBlock(previous.slice(0, REGISTRY_IN_BRIEF)),
     focusBrief(open),
     await presenceBlock(venture),
+    /* What the site actually says and what the world links to — the two
+       measured readings a rival comparison is judged against. */
+    await auditBlock(venture),
+    await backlinksBlock(venture),
     historyBlock("competitors", venture.id),
   ];
   tools.endStep(
@@ -666,6 +682,7 @@ export async function competitorsRun(opts: {
     def,
     ventureName: venture.name,
     hasTools: tools.hasTools,
+    cli: tools.cli,
     data: renderBlocks(blocks),
     extra: [
       "NEVER INVENT A COMPETITOR. Every company you name must appear in a search result you received or on a page you actually read. One that does not is deleted in code before it reaches the register, along with everything you said about it.",

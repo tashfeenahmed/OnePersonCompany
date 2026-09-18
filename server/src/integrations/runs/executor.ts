@@ -565,6 +565,27 @@ type TurnResult = { text: string; backend: string; model: string | null };
  * turn stream into `output`, would put a JSON plan and a scoring table in the
  * middle of the document the owner reads.
  */
+/**
+ * THE `opc` WRAPPER'S PATH FOR WHOEVER IS ANSWERING, or null.
+ *
+ * Only a MANAGED agent has one: this server installed it, on that agent's own
+ * PATH, carrying the agent key. A remote agent runs somewhere this box does
+ * not manage and has its own credentials, and a raw provider has no shell at
+ * all — both get the HTTP sentence instead. See `systemBrief`'s `cli`.
+ *
+ * THE IMPORT IS LATE, for `unfiled`'s reason: `agents/instance.ts` reaches
+ * this file through the manifests, and a static import here is a cycle that
+ * leaves a route table half-built at load.
+ */
+async function runCli(): Promise<string | null> {
+  const backend = activeBackend();
+  if (!backend) return null;
+  const id = backend.id;
+  if (id !== "hermes" && id !== "openclaw") return null;
+  const { managedCliPath, readMode } = await import("../../agents/instance.ts");
+  return readMode(id) === "managed" ? managedCliPath(id) : null;
+}
+
 /** How long an agent may be silent mid-run before the turn is given up on.
  *  Wider than a chat's ninety seconds because a run's tools are slower and
  *  nobody is waiting: Hermes holds a flagged shell command for approval for
@@ -825,6 +846,7 @@ async function execute(row: RunRow, s: Session) {
         endStep: (step, label) => s.endStep(step, label),
         turn: (turns, opts) => turn(s, turns, opts),
         hasTools: activeBackend() !== null,
+        cli: await runCli(),
       },
     });
   /* THE ONE KIND THAT ACCUMULATES, owned by integrations/runs/competitors.ts.
@@ -853,6 +875,7 @@ async function execute(row: RunRow, s: Session) {
         },
         hasTools: activeBackend() !== null,
         writerUsesProvider: activeProvider() !== null,
+        cli: await runCli(),
       },
     });
   return reportRun(s, def, venture!, input);
@@ -929,8 +952,9 @@ async function reportRun(s: Session, def: KindDef, v: VentureRow, input: Record<
   s.endStep(gather, `${blocks.length} sources read`);
 
   const hasTools = activeBackend() !== null;
+  const cli = await runCli();
   if (def.kind === "research") return researchRun({
-    runId: s.id, ventureName: v.name, focus: (input.focus ?? "").trim(), blocks, hasTools,
+    runId: s.id, ventureName: v.name, focus: (input.focus ?? "").trim(), blocks, hasTools, cli,
     writerUsesProvider: activeProvider() !== null,
     runSeconds: budgets().runSeconds,
     turn: (turns, opts) => turn(s, turns, opts),
@@ -951,6 +975,7 @@ async function reportRun(s: Session, def: KindDef, v: VentureRow, input: Record<
     def,
     ventureName: v.name,
     hasTools,
+    cli,
     data: renderBlocks(blocks),
     extra: def.kind === "seo" ? SEO_REVIEW_RULES : undefined,
   });

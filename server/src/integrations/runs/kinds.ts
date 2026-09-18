@@ -550,6 +550,20 @@ export function systemBrief(opts: {
    * Optional and defaulted, so every existing caller keeps the shape it has.
    */
   shape?: string;
+  /**
+   * THE `opc` WRAPPER'S PATH, when a managed agent is answering — and it is
+   * the difference between a worker that can read this box and one that goes
+   * looking for a key.
+   *
+   * The brief used to name `GET /api/skills` and nothing else. That route
+   * wants a key the run never handed over, so the agent worked it out for
+   * itself: run r-wt5uag spent four tool calls shelling `cat …/service-key`,
+   * tripped the approval guardian twice and read the OWNER key off disk to do
+   * it. The wrapper already exists, is on the agent's PATH, and carries the
+   * AGENT key — which opens every skill and is refused on the owner surface.
+   * Naming it costs one line and removes the scavenger hunt.
+   */
+  cli?: string | null;
 }): string {
   const { def, ventureName, hasTools, data } = opts;
   const head = [
@@ -560,9 +574,27 @@ export function systemBrief(opts: {
     ``,
   ];
 
+  /* THE DOOR TO THIS BOX'S OWN DATA, named rather than left to be found. The
+     wrapper carries the agent key, so it needs no credential hunt and no
+     header; the HTTP route is the fallback for a remote agent that has no
+     wrapper installed and its own key to send. */
+  const cli = opts.cli ? `'${opts.cli.replace(/'/g, `'\\''`)}'` : null;
+  const door = cli
+    ? [
+        `EVERY MEASUREMENT THIS BOX HOLDS IS ONE COMMAND AWAY. The wrapper ${cli} is installed and carries its own key — you need no header, no token and no key file, and you must not go looking for one.`,
+        `- \`${cli}\` on its own lists every connected source, each with its parameters.`,
+        `- \`${cli} help <id>\` explains one, including the rules for reading its document.`,
+        `- \`${cli} <id> [--flags]\` reads it. \`ventures --key <slug>\` is the venture record itself; \`gsc\`, \`bing\`, \`umami\`, \`uptime\`, \`stripe\`, \`mobile\`, \`adsense\`, \`costs\`, \`demand\`, \`search\`, \`github\`, \`npm\`, \`meta\`, \`cloudflare\`, \`domains\`, \`hetzner\` and \`insights\` are the ones a report about a business usually wants.`,
+        `The blocks below were read for you from the same source; anything NOT below is a command away rather than a gap to write around.`,
+      ]
+    : [
+        `THIS DASHBOARD'S OWN MEASUREMENTS ARE AT http://127.0.0.1:${PORT}/api/skills, which lists every skill and its data route, each with the rules for reading its own document. It needs the \`x-opc-key\` header.`,
+      ];
+
   const tools = hasTools
     ? [
-        `YOU HAVE TOOLS. Use them: web search for anything about the outside world, and this dashboard's own skills — GET http://127.0.0.1:${PORT}/api/skills lists them, each with the rules for reading its own document — for anything about the owner's own measurements. What is already below was fetched for you so you do not have to; go and get what is missing rather than guessing at it.`,
+        `YOU HAVE TOOLS. Use them: web search and page fetching for anything about the outside world, and this dashboard's own data for anything about the owner's own measurements. Go and get what is missing rather than guessing at it.`,
+        ...door,
         ``,
         `YOUR REPLY IS THE DOCUMENT. Write the whole report as your answer, in full, in this conversation. Do not write it to a file, do not save it anywhere on disk, and do not answer with a summary, a path, or a note saying where it was written — the owner reads what you reply with and nothing else, so a reply that names a file instead of containing the report is a failed run.`,
       ]

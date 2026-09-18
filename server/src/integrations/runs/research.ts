@@ -94,6 +94,9 @@ export async function researchRun(opts: {
   runId: string; ventureName: string; focus: string; blocks: Block[]; hasTools: boolean; writerUsesProvider: boolean;
   /** The run's whole time budget. The investigation is told a share of it. */
   runSeconds: number;
+  /** The `opc` wrapper's path, so the investigation can read every
+   *  measurement this box holds. See `systemBrief`'s `cli`. */
+  cli?: string | null;
   turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean; document?: boolean }): Promise<{ text: string }>;
   say(text: string): void;
   step<T>(label: string, work: () => Promise<T>): Promise<T>;
@@ -108,7 +111,7 @@ export async function researchRun(opts: {
     calls: 25,
   });
   const notes = hasTools ? await opts.step("Investigating the product, market and economics", async () => (await opts.turn([
-    { role: "system", content: systemBrief({ def, ventureName, hasTools, data: renderBlocks(blocks), shape: investigation }) },
+    { role: "system", content: systemBrief({ def, ventureName, hasTools, cli: opts.cli, data: renderBlocks(blocks), shape: investigation }) },
     { role: "user", content: focus || `Investigate where ${ventureName} stands and what to do next.` },
   ], { toOutput: false })).text) : "No agent tools were available. This run uses only the supplied saved context; no external investigation occurred.";
   if (!notes.trim()) throw new Error("Research returned no evidence notes; no report was written.");

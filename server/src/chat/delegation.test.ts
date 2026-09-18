@@ -74,6 +74,28 @@ test("the assigned specialist's prompt owns execution rather than another handof
   assert.match(system,/YOUR REPLY IS THE DOCUMENT/);
 });
 
+test("a run with a managed agent is handed the opc wrapper, and one without is told the HTTP route instead", () => {
+  const withCli = systemBrief({def:kindDef("research")!,ventureName:"Cedar Studio",hasTools:true,data:"x",cli:"/opt/opc/bin/opc"});
+  /* The path is quoted for a shell and named three ways: list, help, read. */
+  assert.match(withCli,/`'\/opt\/opc\/bin\/opc'` on its own lists every connected source/);
+  assert.match(withCli,/help <id>/);
+  assert.match(withCli,/ventures --key <slug>/);
+  /* And the key hunt is refused in terms: the wrapper carries its own. */
+  assert.match(withCli,/carries its own key/);
+  assert.match(withCli,/must not go looking for one/);
+  assert.doesNotMatch(withCli,/x-opc-key/);
+
+  const withoutCli = systemBrief({def:kindDef("research")!,ventureName:"Cedar Studio",hasTools:true,data:"x"});
+  assert.match(withoutCli,/api\/skills/);
+  assert.match(withoutCli,/x-opc-key/);
+  assert.doesNotMatch(withoutCli,/lists every connected source/);
+
+  /* A run with no agent is told it has nothing, whatever the wrapper says. */
+  const noTools = systemBrief({def:kindDef("research")!,ventureName:"Cedar Studio",hasTools:false,data:"x",cli:"/opt/opc/bin/opc"});
+  assert.match(noTools,/YOU HAVE NO TOOLS/);
+  assert.doesNotMatch(noTools,/lists every connected source/);
+});
+
 test("selected teams include the owner's disabled state and delegation failure is not silent fallback", () => {
   ensureTeam(ventureId);
   db.prepare("UPDATE subagents SET enabled=0 WHERE id=?").run(subagentId(ventureId,"competitors"));

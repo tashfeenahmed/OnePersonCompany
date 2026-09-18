@@ -77,6 +77,8 @@ export type RunTools = {
   /** One turn on whoever is answering — an agent when one is live, the raw
    *  provider when not. `toOutput` streams it into the report. */
   turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean; document?: boolean }): Promise<{ text: string }>;
+  /** The `opc` wrapper's path. See `systemBrief`'s `cli`. */
+  cli?: string | null;
   /** Whether whatever is answering can go and look things up. It is the whole
    *  difference between a dossier and an essay, and the brief says so either
    *  way rather than letting the reader assume the good case. */
@@ -571,6 +573,7 @@ export async function dossierRun(opts: {
        the first invented fact in a document about not inventing facts. */
     ventureName: null,
     hasTools: tools.hasTools,
+    cli: tools.cli,
     data: renderBlocks(blocks),
     extra: [
       "NEVER STATE A FACT ABOUT THIS PERSON THAT IS NOT IN A BLOCK ABOVE OR ON A PAGE YOU ACTUALLY READ. Not their employer, not their title, not their location, not what they founded. This is a profile of a real person and a plausible sentence about them is a false one.",
