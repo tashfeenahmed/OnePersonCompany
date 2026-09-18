@@ -123,9 +123,23 @@ export type AskOptions = {
    * shorter one underneath it failed every agent run on a slow local model at
    * exactly 600 seconds however large the budget had been set (run r-wzd6ml).
    * So the executor passes the run's budget here and the adapters forward it.
-   * The idle deadline is NOT widened: silence is a fault at any speed.
    */
   maxMs?: number;
+  /**
+   * How long the stream may be SILENT before it is given up on, when the
+   * caller has a better number than chat/wire.ts's ninety seconds.
+   *
+   * Ninety seconds is a chat's: a person is waiting, and an agent that has
+   * said nothing for a minute and a half has lost its model. It was kept for
+   * runs too — "silence is a fault at any speed" — until a research run on
+   * the Dell died at ninety seconds of silence while Hermes was holding a
+   * shell command for approval (run r-wt5uag): the guardian waits up to ten
+   * minutes, sends no keepalive while it waits, and the tool then returns an
+   * error and the agent carries on. That is not a dead gateway, it is a slow
+   * tool, and a run has a whole-job deadline above it. So the executor passes
+   * a longer idle allowance for the `run` channel; a chat keeps the default.
+   */
+  idleMs?: number;
 };
 
 /**

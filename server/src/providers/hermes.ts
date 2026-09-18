@@ -398,6 +398,7 @@ registerBackend("hermes", (): ChatBackend | null => {
         turns,
         service: SERVICE,
         maxMs: opts?.maxMs,
+        idleMs: opts?.idleMs,
         signal: opts?.signal,
       })) {
         /* The tool events, which are the reason for the frame reader. Named

@@ -437,6 +437,7 @@ registerBackend("openclaw", (): ChatBackend | null => {
         extra: { "x-openclaw-message-channel": opts?.channel ?? "web" },
         body: user ? { user } : {},
         maxMs: opts?.maxMs,
+        idleMs: opts?.idleMs,
         signal: opts?.signal,
       })) {
         /* Named events are not part of this gateway's documented stream. Left

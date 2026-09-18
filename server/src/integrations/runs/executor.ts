@@ -565,6 +565,14 @@ type TurnResult = { text: string; backend: string; model: string | null };
  * turn stream into `output`, would put a JSON plan and a scoring table in the
  * middle of the document the owner reads.
  */
+/** How long an agent may be silent mid-run before the turn is given up on.
+ *  Wider than a chat's ninety seconds because a run's tools are slower and
+ *  nobody is waiting: Hermes holds a flagged shell command for approval for
+ *  up to ten minutes and sends nothing meanwhile, and a fetch to a slow host
+ *  can take a minute or two. Twelve minutes outlasts both; the run's own
+ *  budget still bounds the whole job. */
+const RUN_IDLE_MS = 720_000;
+
 /** What a run's turn may ask for. `document` reaches the raw provider only —
  *  see `CompleteOptions.document` — an agent has its own output and thinking
  *  settings in its config and ignores it. */
@@ -676,8 +684,10 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: TurnOpts): Promise
        from a chat, which is all this file ever needed to say. */
     const turn = await consumeTurn(
       /* `maxMs` is the run's own budget: the ten-minute chat cap underneath it
-         ended every slow-model run at 600s whatever `runSeconds` said. */
-      backend.stream(turns, { channel: "run", sessionId: `run:${s.id}`, signal, maxMs: budgets().runSeconds * 1000 }),
+         ended every slow-model run at 600s whatever `runSeconds` said.
+         `idleMs` is a run's too — see AskOptions.idleMs for the tool that
+         waited on approval for longer than a chat's ninety seconds. */
+      backend.stream(turns, { channel: "run", sessionId: `run:${s.id}`, signal, maxMs: budgets().runSeconds * 1000, idleMs: RUN_IDLE_MS }),
       {
         delta: (text) => {
           if (opts.toOutput) s.append(text);
