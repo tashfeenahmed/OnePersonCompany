@@ -151,6 +151,7 @@ import {
   type RunRow,
   type Step,
 } from "./store.ts";
+import { fileRunCards } from "./cards.ts";
 
 /**
  * RECORDING A PROVIDER'S OUTCOME, THROUGH AN IMPORT THAT IS DELIBERATELY LATE.
@@ -458,6 +459,16 @@ export function pump() {
         ms: Date.now() - started,
         usage: session.sawUsage ? session.usage : null,
       });
+      /* THE CARDS GO ON THE BOARD NOW — see cards.ts. After the row is written
+         and before the parent is told, so a chat that reads the report on the
+         next turn finds the cards already in Backlog. A board that refuses is
+         logged, not fatal: the report is done whatever the board says. */
+      try {
+        const { filed, total } = fileRunCards(row.id);
+        if (total) console.log(`[runs] ${row.id} (${row.kind}) filed ${filed} of ${total} cards in Backlog`);
+      } catch (err) {
+        console.error(`[runs] ${row.id} (${row.kind}) could not file its cards — ${err instanceof Error ? err.message : String(err)}`);
+      }
       reportToParent(row.id, Date.now() - started);
     })
     .catch((err: unknown) => {

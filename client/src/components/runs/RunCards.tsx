@@ -8,41 +8,39 @@ import type { RunCard } from "@/lib/api/runs";
 import { URGENCY } from "@/components/runs/format";
 
 /**
- * WHAT THE RUN THINKS YOU SHOULD DO, AS CARDS NOBODY HAS FILED YET.
+ * WHAT THE RUN PUT ON THE BOARD — or, for an older run, what it only proposed.
  *
- * Every kind's brief ends by asking for a fenced json block of suggestions, and
- * THE SERVER DOES NOT FILE THEM. That is the product decision this panel is
- * the whole mechanism for: a board that fills itself is a different thing than
- * the one being built here — every card on that board is one somebody meant to
- * put there — so a run proposes and a person presses. The alternative was ten
- * cards appearing overnight from a report nobody read, which is how a board
- * becomes a feed you scroll past.
+ * Every kind's brief ends by asking for a fenced json block of cards, and
+ * SINCE 2026-09-18 THE SERVER FILES THEM into Backlog the moment the run is
+ * done (see server integrations/runs/cards.ts). The owner asked for that: a
+ * worker that found something should write it down, not offer it in chat and
+ * wait. So on a new run this panel is a RECORD — the cards, each marked filed,
+ * and a link to the board — and there is nothing to press.
  *
- * CHECKED BY DEFAULT, because somebody who opened a finished report and got to
- * the bottom of it has already read the suggestions; making them tick six
- * boxes to agree with what they just read is friction pretending to be
- * consent. Unticking is one press, and the button says exactly how many will
- * be written.
+ * THE BUTTON IS STILL HERE FOR THE RUNS THAT PREDATE THAT. A report finished
+ * under the old rule was never filed, and the server does not file it
+ * retroactively — a hundred cards from a fortnight of test runs appearing in
+ * Backlog on the day of a deploy is a feed, not a board. For those,
+ * `filedByServer` is zero and the panel behaves as it always did: checked by
+ * default, one press files the ticked ones, filed ones go grey and stay.
  *
- * FILED ONES GO GREY AND STAY, they do not vanish. A card that disappeared on
- * being filed would leave the reader unsure whether it was written or lost,
- * and re-reading the report later would show a shorter list than the report
- * actually produced. The panel is part of the record of the run.
- *
- * IT FILES INTO BACKLOG AND SETS THE VENTURE. Nothing here picks a column: the
- * board's own default for a card typed in a hurry is Backlog, and a run that
- * decided which column its suggestions belonged in would be making a
- * scheduling claim it has no standing for.
+ * IT FILES INTO BACKLOG AND SETS THE VENTURE, whichever side does the filing.
+ * Nothing here picks a column: a run that decided which column its cards
+ * belonged in would be making a scheduling claim it has no standing for.
  */
 export function RunCards({
   cards,
   ventureId,
+  filedByServer = 0,
 }: {
   cards: RunCard[];
   /** The run's venture, stamped on every card so they land under it on the
    *  board. Null for a run that named no venture — a papers run on a typed
    *  topic — and the cards are filed unfiled, which is the truth. */
   ventureId: string | null;
+  /** How many of these the server already put in Backlog when the run
+   *  finished. Positive means the panel is a record, not a form. */
+  filedByServer?: number;
 }) {
   const [chosen, setChosen] = useState<Set<number>>(
     () => new Set(cards.map((_, i) => i)),
@@ -53,6 +51,7 @@ export function RunCards({
 
   if (!cards.length) return null;
 
+  const record = filedByServer > 0;
   const pending = [...chosen].filter((i) => !filed.has(i));
 
   async function file() {
@@ -87,43 +86,47 @@ export function RunCards({
     <div className="bg-card mt-5 rounded-[14px] p-4.5">
       <div className="mb-2.5 flex flex-wrap items-baseline gap-2">
         <span className="text-[14px] font-medium tracking-tight">
-          File these on the board
+          {record ? "Filed on the board" : "File these on the board"}
         </span>
         <span className="text-muted-foreground text-[12.5px]">
-          {cards.length} {cards.length === 1 ? "suggestion" : "suggestions"} from
-          this run. Nothing has been written until you press.
+          {record
+            ? `${filedByServer} ${filedByServer === 1 ? "card" : "cards"} from this run ${filedByServer === 1 ? "is" : "are"} in Backlog.`
+            : `${cards.length} ${cards.length === 1 ? "suggestion" : "suggestions"} from this run. Nothing has been written until you press.`}
         </span>
       </div>
 
       <div className="flex flex-col gap-px">
         {cards.map((card, i) => {
-          const isFiled = filed.has(i);
+          const isFiled = record || filed.has(i);
           return (
             <label
               key={i}
               className={cn(
-                "hover:bg-accent -mx-1.5 flex cursor-pointer items-start gap-2.5 rounded-md px-1.5 py-1.5",
-                isFiled && "cursor-default opacity-55 hover:bg-transparent",
+                "-mx-1.5 flex items-start gap-2.5 rounded-md px-1.5 py-1.5",
+                record ? "cursor-default" : "hover:bg-accent cursor-pointer",
+                isFiled && !record && "cursor-default opacity-55 hover:bg-transparent",
               )}
             >
-              <input
-                type="checkbox"
-                /* The browser's own checkbox, unstyled. Nothing else in this
-                    app has one, so there is no house checkbox to match — and a
-                    hand-drawn box would have to reimplement the focus ring and
-                    the indeterminate state for six rows. */
-                className="mt-[3px] size-3.5 shrink-0"
-                checked={isFiled || chosen.has(i)}
-                disabled={isFiled || busy}
-                onChange={(e) =>
-                  setChosen((s) => {
-                    const next = new Set(s);
-                    if (e.target.checked) next.add(i);
-                    else next.delete(i);
-                    return next;
-                  })
-                }
-              />
+              {!record && (
+                <input
+                  type="checkbox"
+                  /* The browser's own checkbox, unstyled. Nothing else in this
+                      app has one, so there is no house checkbox to match — and a
+                      hand-drawn box would have to reimplement the focus ring and
+                      the indeterminate state for six rows. */
+                  className="mt-[3px] size-3.5 shrink-0"
+                  checked={isFiled || chosen.has(i)}
+                  disabled={isFiled || busy}
+                  onChange={(e) =>
+                    setChosen((s) => {
+                      const next = new Set(s);
+                      if (e.target.checked) next.add(i);
+                      else next.delete(i);
+                      return next;
+                    })
+                  }
+                />
+              )}
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-baseline gap-2">
                   <span className="text-[14px] leading-snug">{card.title}</span>
@@ -151,21 +154,22 @@ export function RunCards({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2.5">
-        <Button disabled={busy || !pending.length} onClick={() => void file()}>
-          {busy && <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} />}
-          {pending.length === 0
-            ? filed.size
-              ? "All filed"
-              : "Nothing ticked"
-            : `File ${pending.length} on the board`}
-        </Button>
-        {filed.size > 0 && (
+        {!record && (
+          <Button disabled={busy || !pending.length} onClick={() => void file()}>
+            {busy && <Loader2 className="size-[15px] animate-spin" strokeWidth={1.8} />}
+            {pending.length === 0
+              ? filed.size
+                ? "All filed"
+                : "Nothing ticked"
+              : `File ${pending.length} on the board`}
+          </Button>
+        )}
+        {(record || filed.size > 0) && (
           <Link
             to="/board"
             className="text-muted-foreground hover:text-foreground text-[13px]"
           >
-            {filed.size} {filed.size === 1 ? "card is" : "cards are"} in Backlog —
-            open the board
+            {record ? "Open the board" : `${filed.size} ${filed.size === 1 ? "card is" : "cards are"} in Backlog — open the board`}
           </Link>
         )}
       </div>

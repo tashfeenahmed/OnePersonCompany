@@ -75,7 +75,7 @@ const skills: Skill[] = [
         "result is NOT missing. Follow nextOffset for more roster pages. Never " +
         "construct a sub-agent id from a venture slug; use the returned id. If " +
         "running or queued, read that worker's detail before starting more work.",
-      "THE PAPER WRITER'S BRIEF IS A SEARCH SUBJECT, NOT A TASK. It goes to " +
+      "THE DISCOVERY SCIENTIST'S BRIEF IS A SEARCH SUBJECT, NOT A TASK. It goes to " +
         "OpenAlex and arXiv as typed, so it is three to ten words naming the " +
         "field — `AI coding agents with persistent project memory` — and never " +
         "'conduct research on…, scout…, prepare a write-up…'. Instructions " +
@@ -221,8 +221,8 @@ const skills: Skill[] = [
               "it is `appstore` or `play`. When it is optional and the owner " +
               "gave no such detail, LEAVE IT OUT: the worker knows its standard " +
               "job, and a restated job is asked or searched for as typed. The " +
-              "owner's standing instructions are prepended automatically. FOR THE PAPER " +
-              "WRITER IT IS THE SUBJECT OF THE LITERATURE SEARCH — a topic of " +
+              "owner's standing instructions are prepended automatically. FOR THE DISCOVERY " +
+              "SCIENTIST IT IS THE SUBJECT OF THE LITERATURE SEARCH — a topic of " +
               "three to ten words, `LLM-based code generation with persistent " +
               "project memory`, never instructions: it is sent to OpenAlex and " +
               "arXiv as typed, and a paragraph returns nothing and fails the run. " +

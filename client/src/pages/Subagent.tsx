@@ -1568,7 +1568,7 @@ function briefHint(role: string, venture: string, person: string | null): string
     case "visibility":
       return `e.g. "Ask the models what they say about ${venture} and who they name instead."`;
     case "writer":
-      return `The subject of the literature search, in three to ten words — e.g. "AI coding agents with persistent project memory".`;
+      return `The field to push on, in three to ten words — e.g. "AI coding agents with persistent project memory". It searches the literature for exactly this.`;
     /* The one role whose brief is a PERSON rather than a subject, and the
        hint says so in the first three words — the venture is not mentioned
        because this worker has none.

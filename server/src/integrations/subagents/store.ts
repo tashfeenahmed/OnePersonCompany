@@ -102,7 +102,12 @@ export const ROLES: RoleDef[] = [
   { role: "seo", kind: "seo", title: "SEO analyst", suffix: "SEO Analyst" },
   { role: "demand", kind: "demand", title: "Demand analyst", suffix: "Demand Analyst" },
   { role: "visibility", kind: "geo", title: "AI visibility analyst", suffix: "Visibility Analyst" },
-  { role: "writer", kind: "papers", title: "Academic paper writer", suffix: "Paper Writer" },
+  /* RENAMED 2026-09-18 from "Academic paper writer / Paper Writer". The role
+     id and the kind stay `writer` / `papers` — they are addresses, in worker
+     ids and in run pages — and only what the owner sees changed: the job is
+     to find what is not yet known, not to write papers. Migration 487 renamed
+     the rows that still carried the old default name. */
+  { role: "writer", kind: "papers", title: "Discovery scientist", suffix: "Discovery Scientist" },
   { role: "serp", kind: "serp", title: "SERP analyst", suffix: "SERP Analyst" },
   { role: "aso", kind: "aso", title: "Store listing auditor", suffix: "ASO Auditor" },
   /* RETIRED 2026-09-18: `producer` (kind `video`) and `campaigns` (kind

@@ -224,7 +224,7 @@ export function RunReport({
         </p>
       )}
 
-      {cards.length > 0 && <RunCards cards={cards} ventureId={run.ventureId} />}
+      {cards.length > 0 && <RunCards cards={cards} ventureId={run.ventureId} filedByServer={run.cardsFiled} />}
 
       <div className="text-muted-foreground border-line-soft mt-3.5 border-t pt-2.5 text-[12.5px]">
         {backendPhrase(run)}

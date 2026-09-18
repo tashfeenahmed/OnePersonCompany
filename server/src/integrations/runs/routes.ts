@@ -42,6 +42,7 @@ import { activeBackend } from "../../chat/backend.ts";
 import { activeProvider } from "../../models/provider.ts";
 import { KINDS, dossierTitle, fencedJson, kindDef } from "./kinds.ts";
 import { cancelRun, pump } from "./executor.ts";
+import { runCardsFiled } from "./cards.ts";
 import { libraryRows } from "./scout.ts";
 import { lastFocus, openFocus, readChanges, type FocusRow } from "./competitors.ts";
 import { daysSince, hostOf } from "./competitorsMerge.ts";
@@ -336,6 +337,13 @@ runRoutes.get("/:id", (c) => {
        drew "0 suggestions" for a run that never got that far would be
        reporting a result it does not have. */
     cards: Array.isArray(cards) ? cards : null,
+    /* HOW MANY OF THOSE ARE ON THE BOARD. Since 2026-09-18 a finished run
+       files its own cards into Backlog (see cards.ts), so on a new run this
+       equals the card count and the page draws the panel as a record. Zero
+       on a run that finished before that, and the page still offers the
+       button for those — a report written under the old rule was never
+       filed, and it is not this route's place to file it retroactively. */
+    cardsFiled: runCardsFiled(row.id),
     /* THE PAPER, ON THE RUN THAT WROTE IT. A papers run's `output` is a note
        ABOUT the paper — the paper is the PDF and the source beside it — so a
        page that only had the markdown would have to guess whether there is a

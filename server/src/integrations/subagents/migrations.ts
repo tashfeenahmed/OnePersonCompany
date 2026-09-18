@@ -145,4 +145,46 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       DELETE FROM subagents WHERE role IN ('producer', 'campaigns');
     `,
   },
+  {
+    name: "487_subagents_default_names",
+    sql: `
+      -- TWO CORRECTIONS TO NAMES THE OWNER NEVER TYPED.
+      --
+      -- A worker's name is "<Venture> <Suffix>" at provisioning, and the org
+      -- chart takes the venture's name off the front WHEN IT MATCHES so a card
+      -- headed "ScallopBot" does not say ScallopBot eight more times. Both
+      -- statements below touch only rows still carrying a DEFAULT name; a name
+      -- the owner changed is theirs and is not matched.
+      --
+      -- 1. THE VENTURE WAS RENAMED AFTER ITS TEAM WAS MADE. ScallopBot's rows
+      --    were provisioned as "Scallopbot Researcher" and the venture is now
+      --    spelled "ScallopBot", so the strip missed and that one card drew
+      --    the venture's name on every row while the other twenty-three did
+      --    not. The prefix is re-cased to the venture's current spelling
+      --    wherever it matches ignoring case. (The client strips
+      --    case-insensitively now too, so this cannot recur on the chart; the
+      --    row is fixed as well so the roster and the chat say the same name.)
+      --
+      -- 2. THE PAPER WRITER IS THE DISCOVERY SCIENTIST. Rows still named
+      --    "<Venture> Paper Writer" with the default title take the new
+      --    default; the role id is unchanged and so is every worker's id.
+      UPDATE subagents
+         SET name = (SELECT v.name FROM ventures v WHERE v.id = subagents.venture_id)
+                 || substr(name, length((SELECT v.name FROM ventures v WHERE v.id = subagents.venture_id)) + 1)
+       WHERE venture_id <> ''
+         AND EXISTS (SELECT 1 FROM ventures v WHERE v.id = subagents.venture_id)
+         AND lower(substr(name, 1, length((SELECT v.name FROM ventures v WHERE v.id = subagents.venture_id)) + 1))
+             = lower((SELECT v.name FROM ventures v WHERE v.id = subagents.venture_id) || ' ')
+         AND substr(name, 1, length((SELECT v.name FROM ventures v WHERE v.id = subagents.venture_id)))
+             <> (SELECT v.name FROM ventures v WHERE v.id = subagents.venture_id);
+
+      UPDATE subagents
+         SET name = substr(name, 1, length(name) - length('Paper Writer')) || 'Discovery Scientist'
+       WHERE role = 'writer' AND name LIKE '% Paper Writer';
+
+      UPDATE subagents
+         SET title = 'Discovery scientist'
+       WHERE role = 'writer' AND title = 'Academic paper writer';
+    `,
+  },
 ];

@@ -28,9 +28,17 @@ export const runAddress = (run: { kind: string; id: string }): string =>
  * stripped WHEN IT IS THERE — a name the owner has changed to something else
  * is drawn exactly as they typed it, which is the whole reason this trims a
  * prefix rather than falling back to the role's title.
+ *
+ * IGNORING CASE, since 2026-09-18. A venture renamed after its team was
+ * provisioned — "Scallopbot" became "ScallopBot" — left one card on the chart
+ * saying the venture's name on every row while the other twenty-three did
+ * not. A capital letter is not the owner renaming a worker.
  */
 export function shortName(name: string, venture: string): string {
-  return name.startsWith(`${venture} `) ? name.slice(venture.length + 1) : name;
+  const prefix = `${venture} `;
+  return name.length > prefix.length && name.slice(0, prefix.length).toLowerCase() === prefix.toLowerCase()
+    ? name.slice(prefix.length)
+    : name;
 }
 
 /** A worker's page. Built from the venture's slug rather than the worker's id,

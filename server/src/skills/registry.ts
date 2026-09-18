@@ -1372,9 +1372,16 @@ const BUILTIN_ENTRIES: Skill[] = [
         "here is a window onto what a provider reported; these are the owner's own " +
         "words and nothing collects them. A card lost is work lost.",
       "THIS ONE WRITES, through the five actions below and through nothing else. " +
-        "Never create, move, edit, archive or delete a card the owner did not ask " +
-        "you to. \"While I was in there I tidied the column\" is the failure this " +
-        "rule exists to prevent, and it is not recoverable from a chat transcript.",
+        "YOU MAY CREATE A BACKLOG CARD WITHOUT ASKING: when you or a worker find " +
+        "something that needs doing — a broken page, a rival's move, a customer " +
+        "waiting, a fix worth making — write it into Backlog with the venture set " +
+        "and say you did, with the id. The owner wants findings on the board, not " +
+        "offered in chat; asking \"shall I add that?\" is the failure. Never file " +
+        "a card into any other column, and never file a finding twice.",
+      "EVERYTHING ELSE STILL NEEDS THE ASK. Never move, edit, archive or delete a " +
+        "card the owner did not ask you to. \"While I was in there I tidied the " +
+        "column\" is the failure this rule exists to prevent, and it is not " +
+        "recoverable from a chat transcript.",
       "ASK BEFORE YOU ARCHIVE AND ASK AGAIN BEFORE YOU DELETE. Archiving hides a " +
         "card from every read of the board; deleting removes the row and there is " +
         "no undo anywhere in this app. Where either would do, archive.",

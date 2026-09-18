@@ -124,6 +124,10 @@ export type RunDetail = RunSummary & {
    * Null means the run proposed none, which is not the same as an empty list.
    */
   cards: unknown[] | null;
+  /** How many of those cards the server has already put in Backlog. A run
+   *  finished since 2026-09-18 files its own; the panel draws those as a
+   *  record. Zero on an older run, and the panel still offers the button. */
+  cardsFiled: number;
   /**
    * THE PAPER THIS RUN WROTE, on the run that wrote it.
    *

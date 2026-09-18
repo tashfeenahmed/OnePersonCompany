@@ -60,7 +60,7 @@ import { isLive, readCards, runsApi } from "@/lib/api/runs";
  * A PAPER RUN PUTS THE PAPER FIRST AND THE REPORT SECOND — the one place this
  * reply is not the same for every kind, and it is a fork on whether the server
  * sent a `paper`, not on the kind. For every other worker the report IS the
- * work; for the paper writer the report is a note about a document ("5 pages,
+ * work; for the discovery scientist the report is a note about a document ("5 pages,
  * at /data/papers/…"), and a reply that led with the note was exactly the bug
  * the owner saw: "it didn't show the pdf here on this page". The old run page
  * drew the paper and this view did not, so the paper is drawn here the way it
@@ -399,7 +399,7 @@ export function RunChat({
             </span>
           </div>
 
-          {cards.length > 0 && <RunCards cards={cards} ventureId={run.ventureId} />}
+          {cards.length > 0 && <RunCards cards={cards} ventureId={run.ventureId} filedByServer={run.cardsFiled} />}
         </div>
       )}
     </div>
