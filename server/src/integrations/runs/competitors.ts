@@ -59,6 +59,8 @@ import type { ChatTurn } from "../../chat/backend.ts";
 import { historyBlock, presenceBlock, renderBlocks, ventureBlock, type Block } from "./context.ts";
 import { ventureContext } from "../../routes/ventures.ts";
 import { kindDef, systemBrief } from "./kinds.ts";
+import { extractHtmlDocument } from "./html.ts";
+import { DOCUMENT_AGAIN, DOCUMENT_OPENING, SELF_CONTAINED_RULES, designRules } from "./htmlReportSpec.ts";
 import { saveRunEvidence } from "./artifacts.ts";
 import type { Step } from "./store.ts";
 import {
@@ -454,25 +456,16 @@ function reportShape(opts: { today: string; hasChanges: boolean; hasPrices: bool
 
 Write the competitive landscape as ONE COMPLETE, SELF-CONTAINED HTML DOCUMENT — not to a file, not with a tool, not as a note about where you saved one, and nothing before it and nothing after it.
 
-Start with <!doctype html>. Then <html>, a <head> with <meta charset="utf-8">, a <title> that names THE SINGLE BIGGEST FINDING about this market (never "Competitor Report on X"), ONE <style> block, and a <body>. The first characters of your answer are the doctype. No preamble, no markdown fence, no sentence introducing the document.
+${DOCUMENT_OPENING}
 
-SELF-CONTAINED IS A HARD RULE, not a preference. The document is rendered in a sandbox that fetches nothing and runs nothing:
-- ONE inline <style> block, and no other styling. No <link>, no external stylesheet, no web font, no icon file — anything from off this box does not arrive and leaves a broken page with no error anywhere.
-- NO <script>, of any kind, for any reason, and no event handlers (onclick and the rest). They are stripped before anybody sees the document.
-- CHARTS ARE INLINE <svg> THAT YOU DRAW YOURSELF, built ONLY from numbers in the brief above. Label the axes and print the value on every mark. ${
+${SELF_CONTAINED_RULES}
+${
     hasPrices
-      ? "A price comparison across the rivals whose prices are actually recorded is the natural one here, with our own row on it."
-      : "There are almost no prices on file, so there may be nothing a chart could honestly show — draw only what the data earns, and no chart at all is the right answer to no numbers."
-  } Never draw a bar you cannot label with a real figure.
-- Images only via https: URLs that appear in the brief. Never construct or guess one. Using none is fine.
+      ? "The chart this page earns: a price comparison across the rivals whose prices are actually recorded, with our own row on it."
+      : "There are almost no prices on file, so there may be nothing a chart could honestly show — no chart at all is the right answer to no numbers."
+  }
 
-MAKE IT LOOK DESIGNED, NOT TYPED. Near-black text on white, one grey, one calm accent colour (#4f63d2 unless you have a reason to pick another), used consistently for the header rule, the section markers and the links:
-- a centred column about 46rem wide, system-ui, 14px/1.6 body text, generous whitespace, print-like restraint;
-- a HEADER BLOCK: an <h1> carrying the finding at about 26px and 650 weight, under it a muted dateline reading ${today}, and a 3px accent rule beneath the block;
-- <h2>s at 15px and 600 weight, each with a short accent-coloured left border and space above it;
-- tables with thin rules, 10px uppercase muted column heads, and no vertical borders;
-- every source link showing its HOSTNAME ONLY — <a href="https://example.com/a/long/path">example.com</a> — accent-coloured, underlined only on hover;
-- a muted 12px footer naming the date the document was written and how many sources it used.
+${designRules(today)}
 
 THE SECTIONS, IN THIS ORDER. The <h2> wording is yours and it should name the FINDING — "Everyone here is $9–29 and nobody does vertical video" — rather than the category. What each section is:
 
@@ -497,24 +490,29 @@ KEEP IT TIGHT. This is a briefing the owner reads in five minutes, not an encycl
 Write like a sharp analyst who wants to be read.`;
 }
 
-/** The refusal, when the writing turn kept investigating. */
-const DOC_AGAIN =
-  "STOP. That was not the report — it reads as more investigating, and there " +
-  "is nothing left to call. The investigation is over. Answer again with ONLY " +
-  "the finished HTML document. The first characters of your answer must be " +
-  "exactly: <!doctype html>";
-
 /* --------------------------------------------------------------- the writes */
 
-/** Whether the writing turn produced a page rather than more narration. The
- *  shape gate, not a length floor: an answer full of tool-call markup passes a
- *  length floor easily and is not a report. */
-const looksLikeReport = (html: string): boolean =>
-  html.length >= 200 &&
-  !html.includes("<tool_call") &&
-  !html.includes('"tool_code"') &&
-  /^\s*<!doctype\s+html/i.test(html) &&
-  /<(h1|h2|p|section|table|article)\b/i.test(html);
+/**
+ * THE PAGE IN THE WRITING TURN'S ANSWER, or null.
+ *
+ * It used to be a gate on the whole answer — did it START with a doctype —
+ * and two live reports from a free hosted model failed it twice over one
+ * sentence of introduction, were filed as done anyway (nothing threw), and
+ * were drawn as raw markup. `extractHtmlDocument` finds the document inside
+ * whatever was written around it; the shape test then asks only whether
+ * what it found is a page rather than more investigating.
+ */
+function reportIn(answer: string): { doc: string; trimmed: boolean } | null {
+  const found = extractHtmlDocument(answer);
+  if (!found) return null;
+  const { doc } = found;
+  const page =
+    doc.length >= 200 &&
+    !doc.includes("<tool_call") &&
+    !doc.includes('"tool_code"') &&
+    /<(h1|h2|p|section|table|article)\b/i.test(doc);
+  return page ? { doc, trimmed: found.trimmed || found.tail.trim().length > 0 } : null;
+}
 
 /**
  * The merged register, written back.
@@ -777,32 +775,43 @@ export async function competitorsRun(opts: {
 
   const w = tools.startStep("write", `the landscape — ${venture.name}`);
   const before = tools.outputLength();
-  let doc = (
-    await tools.turn(
-      [
-        { role: "system", content: writeSystem },
-        { role: "user", content: `Write the landscape document for ${venture.name}.` },
-      ],
-      { toOutput: true, forceProvider: tools.writerUsesProvider },
-    )
-  ).text;
-  if (!looksLikeReport(doc)) {
+  const ask: ChatTurn[] = [
+    { role: "system", content: writeSystem },
+    { role: "user", content: `Write the landscape document for ${venture.name}.` },
+  ];
+  let written = (await tools.turn(ask, { toOutput: true, forceProvider: tools.writerUsesProvider })).text;
+  let page = reportIn(written);
+  if (!page) {
     /* THE REFUSED DRAFT IS UNWRITTEN BEFORE THE RETRY. It was streamed into
        the report as it arrived — that is what `toOutput` does — and leaving it
        above the document that replaced it would publish the failure. */
     tools.rewind(before);
-    doc = (
+    written = (
       await tools.turn(
-        [
-          { role: "system", content: writeSystem },
-          { role: "user", content: `Write the landscape document for ${venture.name}.` },
-          { role: "assistant", content: doc.slice(0, 400) },
-          { role: "user", content: DOC_AGAIN },
-        ],
+        [...ask, { role: "assistant", content: written.slice(0, 400) }, { role: "user", content: DOCUMENT_AGAIN }],
         { toOutput: true, forceProvider: tools.writerUsesProvider },
       )
     ).text;
+    page = reportIn(written);
   }
+  if (!page) {
+    /* TWO ANSWERS AND NO PAGE IN EITHER: the run fails, and says so, rather
+       than filing the second draft as a finished landscape. What was streamed
+       stays in the row — a failed run keeps its partial output — so the draft
+       can be read; the register and the focus list above were already written
+       and are not lost with it. */
+    tools.endStep(w, "no document");
+    throw new Error("The landscape was not written as an HTML document after one repair. The register was still updated; the refused draft is in the report.");
+  }
+  if (page.trimmed) {
+    /* A PAGE WRAPPED IN NARRATION IS UNWRAPPED. The sentence of introduction
+       the model wrote before the doctype, or the note after </html>, was
+       streamed into the row along with the document; the row gets the
+       document alone. */
+    tools.rewind(before);
+    tools.say(page.doc);
+  }
+  const doc = page.doc;
   tools.endStep(w, `${doc.length} characters`);
 
   /* THE CARDS, APPENDED AFTER THE DOCUMENT. They were proposed in turn one

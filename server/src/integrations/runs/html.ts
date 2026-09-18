@@ -136,6 +136,44 @@ export function looksLikeHtmlReport(text: string): boolean {
   return MARKUP.test(t) && DOCUMENT.test(t);
 }
 
+/* ------------------------------------------------ the document inside the answer */
+
+const DOC_OPEN = /<!doctype\s+html[^>]*>|<html[\s>]/i;
+
+/**
+ * THE DOCUMENT A MODEL WROTE, CUT OUT OF WHATEVER IT WROTE AROUND IT.
+ *
+ * Told to answer with a page and nothing else, a model still — often enough
+ * to matter — says something first: "The user is right, I need to produce the
+ * finished HTML document. Let me compose it carefully." and THEN the doctype.
+ * Two competitor reports on the live box arrived exactly like that from a free
+ * hosted model, passed the length floor, were filed as done, and were drawn
+ * as raw markup because the client's framing test asks whether the answer
+ * STARTS with a tag — which is the right test for "is this whole answer a
+ * document" and the wrong one for "is there a document in here".
+ *
+ * So this finds the first opening a document has and the last `</html>`, and
+ * hands back what lies between — plus whatever follows the close, byte for
+ * byte, because the competitor sweep and the research writer both put a
+ * ```json cards``` fence there on purpose (see `splitTrailingFence`). Null
+ * when there is no complete document: no opening, or an opening with no
+ * close, which is a page still being written or one that was cut off, and
+ * either way not something to frame as finished.
+ *
+ * IT DOES NOT SANITISE. That is `sanitizeReportHtml`'s job and every caller
+ * still does it; this only decides where the document is.
+ */
+export function extractHtmlDocument(text: string): { doc: string; tail: string; trimmed: boolean } | null {
+  const t = unfence(text);
+  const open = DOC_OPEN.exec(t);
+  if (!open) return null;
+  const { doc: upToClose, tail } = splitTrailingFence(t);
+  if (upToClose === t && !/<\/html\s*>\s*$/i.test(t)) return null;
+  const doc = upToClose.slice(open.index);
+  if (!doc.trim()) return null;
+  return { doc, tail, trimmed: open.index > 0 || doc !== upToClose.slice(open.index) };
+}
+
 /* ----------------------------------------------------------------- the strip */
 
 /**

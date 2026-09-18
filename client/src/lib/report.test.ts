@@ -70,3 +70,23 @@ test("titleOfHtml prefers the title, falls back to the first h1, and says null f
   assert.equal(titleOfHtml("<html><body><p>nothing named</p></body></html>"), null);
   assert.equal(titleOfHtml("<title>   </title>"), null);
 });
+
+test("a complete document wrapped in a model's narration is framed as the document", () => {
+  const wrapped =
+    "The user is right — I need to produce the finished HTML document. Let me compose it carefully.\n\n" +
+    DOC +
+    "\n\nThat is the complete landscape.";
+  assert.equal(unfenceHtml(wrapped), DOC);
+  assert.equal(isHtmlReport(wrapped), true);
+  assert.equal(titleOfHtml(unfenceHtml(wrapped)), "Jane Doe");
+  /* Markdown that quotes a page is still markdown: no doctype, no unwrap. */
+  const quoted = "## Snapshot\nHer markup is `<html><h1>Acme</h1><p>x</p></html>`.";
+  assert.equal(unfenceHtml(quoted), quoted);
+  assert.equal(isHtmlReport(quoted), false);
+  /* A doctype quoted in a short example is not a page either. */
+  const example = "## Note\nA page starts `<!doctype html><html></html>` like this.";
+  assert.equal(isHtmlReport(example), false);
+  /* A page still open is left as it is. */
+  const open = "Let me write it.\n\n<!doctype html><html><head></head><body><h1>x</h1>";
+  assert.equal(unfenceHtml(open), open);
+});

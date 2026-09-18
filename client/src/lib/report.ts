@@ -44,11 +44,39 @@ const DOCUMENT = /<!doctype\s+html|<html[\s>]|<style[\s>]|<body[\s>]/i;
 const FENCE_OPEN = /^```[ \t]*(?:html|xml)?[ \t]*\r?\n/i;
 const FENCE_CLOSE = /\r?\n?[ \t]*```[ \t]*$/;
 
-/** The document, with a markdown fence taken off it if it had one. */
+/** Where a document opens, wherever in the answer that is. THE DOCTYPE ONLY:
+ *  a bare `<html>` inside prose is how markdown quotes a snippet, and a
+ *  report that quoted one would otherwise be framed as the snippet. Every
+ *  writer on this box is told to open with the doctype, so the doctype is
+ *  the mark of a document somebody meant to write. */
+const DOC_OPEN = /<!doctype\s+html[^>]*>/i;
+/** The last close, after which nothing is markup. */
+const DOC_CLOSE = /<\/html\s*>/gi;
+
+/**
+ * The document, with a markdown fence taken off it if it had one — AND with
+ * anything a model wrote around it taken off too.
+ *
+ * Two reports on the live box arrived as "The user is right — I need to
+ * produce the finished HTML document. Let me compose it carefully." followed
+ * by a complete page. The server now cuts the page out before filing a run
+ * (see its `extractHtmlDocument`), but those two rows predate that and a
+ * renderer that draws them as raw markup forever because of one sentence of
+ * preamble is a renderer being literal at the reader's expense. So: if the
+ * answer holds a complete document — an opening and a closing `</html>` —
+ * that document is what this returns. An answer with no complete document
+ * is returned as it was, which is what the markdown path expects.
+ */
 export function unfenceHtml(text: string): string {
-  const t = text.trim();
-  if (!FENCE_OPEN.test(t)) return t;
-  return t.replace(FENCE_OPEN, "").replace(FENCE_CLOSE, "").trim();
+  let t = text.trim();
+  if (FENCE_OPEN.test(t)) t = t.replace(FENCE_OPEN, "").replace(FENCE_CLOSE, "").trim();
+  const open = DOC_OPEN.exec(t);
+  if (!open || open.index === 0) return t;
+  let end = -1;
+  for (const m of t.matchAll(DOC_CLOSE)) end = m.index + m[0].length;
+  /* Long enough to be a page and not an example: a designed document is
+     hundreds of characters of stylesheet before its first heading. */
+  return end - open.index >= 200 ? t.slice(open.index, end) : t;
 }
 
 /** An opening that only a document has. */

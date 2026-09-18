@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  extractHtmlDocument,
   isScriptUrl,
   looksLikeHtmlReport,
   sanitizeReportHtml,
@@ -8,6 +9,28 @@ import {
   textOfHtml,
   unfence,
 } from "./html.ts";
+
+test("extractHtmlDocument cuts the page out of the narration a model wrote around it", () => {
+  const wrapped = `The user is right — I need to produce the finished HTML document. Let me compose it carefully.\n\n${DOC}\n\nThat is the complete landscape.`;
+  const found = extractHtmlDocument(wrapped);
+  assert.ok(found);
+  assert.equal(found.doc, DOC);
+  assert.equal(found.trimmed, true);
+  /* The cards fence after the close is the tail, byte for byte. */
+  const withCards = `${DOC}\n\n\`\`\`json cards\n[{"title":"ship <10s clips"}]\n\`\`\`\n`;
+  const kept = extractHtmlDocument(withCards);
+  assert.equal(kept?.doc, DOC);
+  /* `unfence` trims the answer's ends, so the fence keeps its shape and not
+     the newline the model put after it. */
+  assert.equal(kept?.tail, `\n\n\`\`\`json cards\n[{"title":"ship <10s clips"}]\n\`\`\``);
+  /* A clean answer is itself, untrimmed. */
+  assert.deepEqual(extractHtmlDocument(DOC), { doc: DOC, tail: "", trimmed: false });
+  assert.equal(extractHtmlDocument("```html\n" + DOC + "\n```")?.doc, DOC, "fenced is unfenced first");
+  /* No complete document, no answer: markdown, or a page still open. */
+  assert.equal(extractHtmlDocument("## Findings\n\nNothing here."), null);
+  assert.equal(extractHtmlDocument("<!doctype html><html><body><h1>Half</h1><p>a page"), null);
+  assert.equal(extractHtmlDocument("Let me write it.\n\n<!doctype html><html><head></head><body><h1>x</h1>"), null);
+});
 
 const DOC =
   `<!doctype html><html><head><style>body{font:14px system-ui}</style></head>` +
