@@ -81,6 +81,8 @@ test("duration reads milliseconds and durationS reads seconds", () => {
   assert.equal(durationS(4), "4s");
   assert.equal(duration(240), "240ms");
   assert.equal(duration(95_000), "1m 35s");
+  assert.equal(duration(3_599_600), "1h 0m", "the seconds round up into the hour rather than rendering 59m 60s");
+  assert.equal(duration(3_598_600), "59m 59s");
   assert.equal(duration(3_960_000), "1h 6m");
   assert.equal(durationS(3960), "1h");
   assert.equal(duration(-1), DASH, "a negative elapsed time is a clock problem, not a duration");
