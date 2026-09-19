@@ -101,6 +101,7 @@ import { chat } from "./routes/chat.ts";
 */
 import { models } from "./routes/models.ts";
 import { searchRoutes, searxngRoutes } from "./routes/searxng.ts";
+import { findRoutes } from "./routes/find.ts";
 /*
   THE MODEL GATEWAY, AND THIS IMPORT IS LOAD-BEARING FOR THE SAME REASON THE
   CHAT ONE ABOVE IS.
@@ -298,6 +299,9 @@ app.route("/api/agents", agentRoutes);
   fetch a URL can use it, and so can a person with curl.
 */
 app.route("/api/search", searchRoutes);
+/* The other search: inward, over what this box keeps. See routes/find.ts for
+   why it is not the route above. */
+app.route("/api/find", findRoutes);
 /*
   THE BOARD — the first route here that stores what the OWNER typed rather than
   what a provider reported. Every other route on this server is a window onto a

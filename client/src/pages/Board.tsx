@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { completedBoardMove } from "@/lib/boardCompletion";
 import { burstConfetti, clearConfetti } from "@/lib/confetti";
 import { Archive, ChevronDown, Plus, Trash2 } from "lucide-react";
@@ -133,6 +134,19 @@ export function Board() {
   const [addingColumn, setAddingColumn] = useState(false);
   const [removingColumn, setRemovingColumn] = useState<BoardColumn | null>(null);
   const { data, error, loading, reload, mutate: writeBoard } = useBoard(drag !== null || opened !== null);
+
+  /* `?card=<id>` OPENS THAT CARD — it is how search lands on one. The address
+     is spent as it is read: the dialog's state is `opened`, and a parameter
+     left behind would reopen the card on every Back. A card that is not on
+     the board (archived since, or deleted) opens nothing. */
+  const [params, setParams] = useSearchParams();
+  const wanted = params.get("card");
+  useEffect(() => {
+    if (!wanted || !data) return;
+    const id = Number(wanted);
+    if (data.columns.some((c) => c.cards.some((card) => card.id === id))) setOpened(id);
+    setParams((now) => { const next = new URLSearchParams(now); next.delete("card"); return next; }, { replace: true });
+  }, [wanted, data, setParams]);
 
   /*
     THE BOARD'S OWN ANSWER WINS, THE CACHE FILLS IN THE REST.

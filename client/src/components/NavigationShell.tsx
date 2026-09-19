@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { AppSidebar } from "./AppSidebar";
+import { Spotlight } from "./Spotlight";
 const COLLAPSED_KEY = "opc-sidebar-collapsed";
 export function NavigationShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -40,5 +41,6 @@ export function NavigationShell({ children }: { children: ReactNode }) {
       <div className="border-b p-2 md:hidden"><button ref={trigger} aria-label="Open navigation" aria-expanded={open} onClick={() => setOpen(true)} className="rounded border px-3 py-1.5">☰ Menu</button></div>
       {children}
     </main>
+    <Spotlight />
   </div>;
 }

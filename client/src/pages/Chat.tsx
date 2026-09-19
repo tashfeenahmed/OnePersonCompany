@@ -1165,10 +1165,34 @@ export function Chat() {
     prevOpenLive.current = openLive;
   }, [openLive, sessionId, reread]);
 
+  /* `?m=<message id>` — search lands on the message that matched, not on the
+     end of a long conversation it would then have to be found in again. Spent
+     once it has been shown, so a turn sent afterwards follows the bottom as
+     usual. */
+  const wantedMessage = new URLSearchParams(location.search).get("m");
+  const shownMessage = useRef<string | null>(null);
+
   /* New turns arrive at the bottom, which is where the eye is. */
   useEffect(() => {
+    const key = `${sessionId}:${wantedMessage}`;
+    if (wantedMessage && shownMessage.current !== key) {
+      const el = document.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(wantedMessage)}"]`);
+      if (el) {
+        shownMessage.current = key;
+        el.scrollIntoView({ block: "center" });
+        /* A wash that fades: it says "here" and then gets out of the way. */
+        if (!matchMedia("(prefers-reduced-motion: reduce)").matches) el.animate(
+          [{ backgroundColor: "color-mix(in oklab, var(--primary) 18%, transparent)" }, { backgroundColor: "transparent" }],
+          { duration: 2200, easing: "ease-out" },
+        );
+        return;
+      }
+      /* Not read yet. A transcript that HAS been read and does not hold the
+         message — deleted since — falls through to the bottom as usual. */
+      if (!messages.length) return;
+    }
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, busyHere]);
+  }, [messages.length, busyHere, wantedMessage, sessionId]);
 
   /**
    * A GROWING ANSWER FOLLOWS THE BOTTOM — UNLESS THE OWNER HAS SCROLLED UP.
@@ -1980,13 +2004,13 @@ export function Chat() {
                     bulleted list is the interface editing what somebody said.
                     Whitespace is preserved for the same reason.
                   */
-                  <div key={m.id} className="flex justify-end">
+                  <div key={m.id} data-message-id={m.id} className="flex justify-end">
                     <div className="bg-card max-w-[85%] rounded-[16px] px-4.5 py-3 text-[14.5px] whitespace-pre-wrap">
                       {m.content}
                     </div>
                   </div>
                 ) : (
-                  <div key={m.id}>
+                  <div key={m.id} data-message-id={m.id}>
                     {m.report ? (
                       <ReportCard report={m.report} />
                     ) : (

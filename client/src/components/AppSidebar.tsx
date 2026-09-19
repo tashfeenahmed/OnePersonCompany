@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
 import {
   ChevronDown,
@@ -33,7 +33,8 @@ import { useOpenAlerts } from "@/hooks/useOpenAlerts";
 import { useDashboardAlerts } from "@/hooks/useDashboardAlerts";
 import { AlertBadge } from "@/components/AlertBadge";
 import { api } from "@/lib/api";
-import { MAIL_PAGES, SOCIAL_PAGES } from "@/data/navigation";
+import { MENU, NAV } from "@/data/navigation";
+import { NEW_CHAT_KEYS, SEARCH_KEYS, openSpotlight } from "@/lib/spotlight";
 
 import { SortableList } from "@/components/SortableList";
 import { SidebarPinButton } from "@/components/SidebarPinButton";
@@ -50,72 +51,6 @@ import { orderNav } from "../../../shared/sidebarNav";
 import { sidebarPath } from "../../../shared/navigation";
 import { dashboardDestination } from "../../../shared/dashboardNavigation";
 
-/**
- * ONE LIST, IN THE BUILD'S DEFAULT ORDER. This was five headed groups once —
- * Manage, Insights, Work, Mail, Social media — each folding on its own; see
- * shared/sidebarNav.ts for why it is one list now. The order here is the
- * default the owner's own order (state.navOrder) is laid over: the daily
- * work first, then mail, then social, then the readings about the business,
- * then the machinery. What is above the fold with nothing dragged is the
- * first `VISIBLE` of these.
- *
- * SOCIAL IS ONE ROW. It was six — Studio, Autopilot, Video, Motion,
- * Publishing, Posts — and every one of the other five is now a place INSIDE
- * the Studio: two draw in its column, two are tabs, and a video run is opened
- * from its own rail. A rail listing six doors to one screen was teaching a
- * menu that had stopped existing. Their paths still resolve as redirects (see
- * App.tsx); they are simply not rows, so a saved order or a pin naming one is
- * dropped rather than translated — see shared/navigation.ts.
- *
- * MAIL IS ONE ROW, for the same reason and by the same move. It was four —
- * Email, Triage, Outbox, Nurture — and all four are tabs of one page at /mail
- * now, along with the mailbox's Sent mode and every tab People had: Contacts,
- * Stale, Brief and Commitments are questions about mail, so People stopped
- * being a row too and /people redirects onto them (see App.tsx). The row is
- * "here" for every address under it, which is what `isHere` below already does
- * for a prefix.
- *
- * ACTIVITY, ALERTS, INTEGRATIONS AND OPS ARE NOT ROWS EITHER — see MENU
- * below the list.
- */
-const NAV = [
-  { to: "/board", label: "Board" },
-  { to: "/ventures", label: "Ventures" },
-  { to: "/calendar", label: "Calendar" },
-  { to: "/workflows", label: "Workflows" },
-  /* Social is one row now — the Studio — and it is the day's making, so it
-     sits above the mail pages and above the fold. */
-  ...SOCIAL_PAGES,
-  ...MAIL_PAGES,
-  { to: "/dashboards", label: "Dashboards" },
-  /* OUTPUTS IS A ROW OF ITS OWN, since 2026-09-18, and it unfolds like
-     Dashboards into the nine report pages. It was the Sub-agents page's
-     third tab, four presses from a report; a report is the thing the workers
-     exist to make and it deserves a door. See components/SidebarOutputs.tsx. */
-  { to: "/outputs", label: "Outputs" },
-  { to: "/subagents", label: "Sub-agents" },
-];
-
-/**
- * THE MACHINERY LIVES IN THE OWNER'S MENU, not the rail. The action inbox,
- * Activity, Alerts, Integrations and Ops are about the box rather than the
- * business — what it wants of him, what it did, what tripped, what it is
- * connected to, what it is running on — and the owner reaches for them the
- * way he reaches for Settings: seldom, and from the bottom. They sit between
- * Settings and Appearance in the menu on his name, in the order a check-up
- * runs. Customers stopped being a page altogether; its readings live on the
- * dashboards. Their addresses still resolve; a
- * saved order or a pin naming one is dropped, as for every other row that
- * stopped being a row.
- */
-const MENU = [
-  { to: "/action-inbox", label: "Action inbox" },
-  { to: "/activity", label: "Activity" },
-  { to: "/insights", label: "Insights" },
-  { to: "/alerts", label: "Alerts" },
-  { to: "/integrations", label: "Integrations" },
-  { to: "/ops", label: "Ops" },
-];
 const NAV_PATHS = NAV.map(item => item.to);
 
 /** Rows above the fold: five, the owner's number. The rest are one press
@@ -192,8 +127,9 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
    * there IS the empty composer, and the row in the rail is still created by
    * the first message and named after it.
    *
-   * It stays a `navigate` rather than reverting to a Link because ⌘K binds to
-   * the same action below, and one function is one behaviour.
+   * The keys for it — ⌃N, and ⌘N where a browser lets it through — are bound
+   * in components/Spotlight.tsx, beside ⌘K, which was this button's shortcut
+   * until search took it. One place listens to the keyboard.
    *
    * IT DOES NOT TOUCH ANYTHING IN FLIGHT. An answer being written belongs to
    * its own session and goes on arriving — the mark stays on its row here, and
@@ -203,32 +139,6 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
   const newChat = useCallback(() => {
     navigate("/");
   }, [navigate]);
-
-  /**
-   * ⌘K, WHICH THIS BUTTON HAS BEEN PROMISING SINCE THE PROTOTYPE.
-   *
-   * The shortcut was printed on the button and bound to nothing: the label
-   * said one thing and the keyboard did another, which is worse than no label
-   * at all. It is bound here, beside the control it describes, rather than in
-   * a global key-handling layer this app does not have.
-   *
-   * `preventDefault` because ⌘K is the browser's own — a search field in
-   * Firefox, the address bar in Chrome — and a shortcut that opens a new chat
-   * AND hijacks the URL bar is not a shortcut. Ctrl is taken beside Meta so
-   * the same key works on the other two platforms. It deliberately fires from
-   * inside the composer as well: reaching for a new chat with your hands
-   * already in a text field is the case it exists for.
-   */
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key.toLowerCase() !== "k") return;
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
-      e.preventDefault();
-      newChat();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [newChat]);
 
   const [search, setSearch] = useState("");
   const [searching, setSearching] = useState(false);
@@ -374,22 +284,34 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
       <Tooltip><TooltipTrigger asChild>
       <Button
         onClick={newChat}
-        aria-label="New chat" aria-keyshortcuts="Meta+K Control+K"
-        className={cn("sidebar-new-chat mb-3 h-10 overflow-hidden text-[13.5px]", collapsed ? "mx-auto w-10 justify-center gap-0 p-0" : "w-full justify-start gap-2.5 px-3")}
+        aria-label="New chat" aria-keyshortcuts="Control+N Meta+N"
+        className={cn("sidebar-new-chat mb-1.5 h-10 overflow-hidden text-[13.5px]", collapsed ? "mx-auto w-10 justify-center gap-0 p-0" : "w-full justify-start gap-2.5 px-3")}
       >
         <Plus className="size-[14px]" strokeWidth={2} />
         {!collapsed && <><span className="sidebar-detail min-w-0 flex-1 text-left">New chat</span>
-        <span aria-hidden="true" className="sidebar-detail ml-auto font-mono text-[11.5px] opacity-55">⌘K</span></>}
+        <span aria-hidden="true" className="sidebar-detail ml-auto font-mono text-[11.5px] opacity-55">{NEW_CHAT_KEYS}</span></>}
       </Button>
-      </TooltipTrigger>{collapsed && <TooltipContent side="right" sideOffset={8}>New chat · ⌘K</TooltipContent>}</Tooltip>
+      </TooltipTrigger>{collapsed && <TooltipContent side="right" sideOffset={8}>New chat · {NEW_CHAT_KEYS}</TooltipContent>}</Tooltip>
+
+      {/* SEARCH IS EVERYTHING, NOT THE SESSION FILTER BELOW. That field narrows
+          the rail's own list by title; this opens the palette over chats,
+          cards, reports, ventures and pages — see components/Spotlight.tsx. */}
+      <Tooltip><TooltipTrigger asChild>
+      <Button
+        type="button" variant="ghost" onClick={openSpotlight}
+        aria-label="Search" aria-keyshortcuts="Meta+K Control+K"
+        className={cn("mb-3 h-9 overflow-hidden text-[13.5px] font-normal text-muted-foreground", collapsed ? "mx-auto w-10 justify-center gap-0 p-0" : "w-full justify-start gap-2.5 px-3")}
+      >
+        <Search className="size-[14px]" strokeWidth={1.8} />
+        {!collapsed && <><span className="sidebar-detail min-w-0 flex-1 text-left">Search</span>
+        <span aria-hidden="true" className="sidebar-detail ml-auto font-mono text-[11.5px] opacity-70">{SEARCH_KEYS}</span></>}
+      </Button>
+      </TooltipTrigger>{collapsed && <TooltipContent side="right" sideOffset={8}>Search · {SEARCH_KEYS}</TooltipContent>}</Tooltip>
 
       <ScrollArea id="app-sidebar-content" data-sidebar-scroll className="-mx-1 min-h-0 flex-1 px-1 [&_[data-slot=scroll-area-viewport]]:overscroll-contain">
       <div key={collapsed ? "compact" : "expanded"} className="sidebar-content-enter">
       {collapsed ? <>
         <nav aria-label="Workspace" className="flex flex-col items-center gap-1">{ordered.map(renderCompactPage)}</nav>
-        <div className="mt-3 flex justify-center border-t border-line-soft pt-3">
-          <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-lg" aria-label="Search sessions" className="text-muted-foreground" onClick={() => { onCollapsedChange(false); setSearching(true); setSearch(""); setSessionLimit(SESSION_PAGE_SIZE); }}><Search className="size-[18px]" /></Button></TooltipTrigger><TooltipContent side="right" sideOffset={8}>Search sessions</TooltipContent></Tooltip>
-        </div>
       </> : <>
       {/* Only when there is something pinned: an empty heading with a hint
           under it is a section asking to be used, and the pin on every row
