@@ -203,13 +203,17 @@ const skills: Skill[] = [
             required: false,
             about:
               "For geo: the category to ask for a recommendation in, in the words " +
-              "a stranger would use. Absent takes them from the venture's description.",
+              "a stranger would use. Absent takes them from the venture's " +
+              "description. It is also what the run's GENERATED generic questions " +
+              "are written about — the ones a stranger asks without naming the product.",
           },
           {
             name: "questions",
             type: "string",
             required: false,
-            about: "For geo: extra questions, one per line, asked as well as the three standard ones.",
+            about:
+              "For geo: extra questions, one per line, asked as well as the three " +
+              "standard product-specific ones and the generic ones the run generates.",
           },
         ],
       },

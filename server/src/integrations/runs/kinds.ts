@@ -129,7 +129,7 @@ export const KINDS: KindDef[] = [
     kind: "demand",
     name: "Demand",
     what:
-      "Reads the demand signals already collected — Reddit, Hacker News, the search node — for the watch phrases, and writes what strangers are actually asking for. It searches nothing itself; the watch list is a setting the owner wrote.",
+      "Reads the demand signals already collected — Reddit, Hacker News, the search node — then, with an agent live, goes out and investigates how strangers actually phrase the need, and writes a designed HTML report: their asks quoted verbatim with source and date, threads per watch phrase, the phrases nobody uses, and what to do, ranked. With no agent it analyses the saved signals only and says so. It never edits the watch list — that is a setting the owner wrote, and the run only proposes phrases for it.",
     needsVenture: true,
     inputs: [
       {
@@ -146,7 +146,7 @@ export const KINDS: KindDef[] = [
     kind: "geo",
     name: "AI visibility",
     what:
-      "Asks the active model provider — no tools, no web — what it knows about the venture and its host, scores mention, accuracy and recommendation, and keeps every answer. This one deliberately never uses an agent: the measurement is what a model says unaided.",
+      "Asks the active model provider — no tools, no web — both the questions that NAME the venture and a set of GENERATED generic ones a stranger with the problem would ask without knowing it exists, judges every answer for mention, accuracy, recommendation and which rivals were named instead, and writes a visual report carrying the prompt, the answer verbatim, what it means and what to do for each. This one deliberately never uses an agent: the measurement is what a model says unaided.",
     needsVenture: true,
     inputs: [
       {
@@ -161,7 +161,7 @@ export const KINDS: KindDef[] = [
         key: "questions",
         literal: true,
         label: "Extra questions",
-        hint: "One per line. These are asked as well as the three standard ones, not instead of them.",
+        hint: "One per line. These are asked as well as the standard and generated ones, not instead of them.",
         kind: "textarea",
         required: false,
         default: "",

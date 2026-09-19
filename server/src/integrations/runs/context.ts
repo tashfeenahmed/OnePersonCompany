@@ -178,34 +178,121 @@ export async function backlinksBlock(v: VentureRow): Promise<Block> {
   return { source: "Backlinks", text: trim(lines.join("\n")) };
 }
 
+/**
+ * THE DEMAND SIGNALS, AND — SINCE THE DEMAND RUN LEARNED TO DRAW — A TALLY
+ * COMPUTED HERE RATHER THAN COUNTED BY A MODEL.
+ *
+ * The block used to be two lists of thread titles and nothing else, and the
+ * report written from it said "several threads mention X", because counting
+ * twenty-five bullet points by eye is exactly the arithmetic a language model
+ * is worst at and most confident about. The demand report now draws a bar per
+ * watch phrase, and a bar is a claim about a number: so the numbers are
+ * computed here, in TypeScript, from the rows, and the writer is told to use
+ * these and never to recount the list.
+ *
+ * DISTINCT THREAD IDS, NOT ROWS. Two watch phrases that both found the same
+ * Reddit thread found ONE conversation; `/api/demand` counts its own totals
+ * that way (see `section()` in routes/demand.ts) and a per-phrase tally that
+ * counted rows would not add up against them.
+ *
+ * A ZERO IS ONLY A ZERO WHEN THE QUERY RAN. The per-phrase outcome travels
+ * beside every count for the reason the whole demand integration exists:
+ * `ok · 0 items` means the source was asked and nobody had posted, while
+ * `throttled`, `failed`, `skipped` and `unasked` mean nobody looked — and a
+ * chart that drew those as an empty bar would be inventing a finding. The
+ * counts carry their status and the "not evidence" sentence is spelled out
+ * below, because the report is told to quote it.
+ *
+ * THE OUTCOMES LIVE UNDER EACH SOURCE. They are `reddit.queries` and
+ * `hn.queries`, each row carrying `status`, not a top-level list of
+ * `outcome`s — which is what this block used to read, and why the failed
+ * phrases have been silently missing from every brief that quoted it. A
+ * top-level list is still accepted so an older document still surfaces them.
+ */
 export async function demandBlock(): Promise<Block> {
+  type Query = { term: string; status?: string; items?: number | null; error?: string | null; askedAt?: string | null };
+  /** One thread. `points` is the score on both sides — Reddit's upvotes come
+   *  from the Arctic Shift lookup, Hacker News's from Algolia — and both are
+   *  null where the tier that found the row could not score it. */
+  type Signal = { id?: string; term?: string; title: string; url?: string; context?: string | null; createdAt?: string | null; points?: number | null; comments?: number | null };
+  type Side = { connected?: boolean; signals?: Signal[]; threads?: number; unscored?: number; queries?: Query[]; seenAt?: string | null };
   type Doc = {
     windowDays: number;
     terms: string[];
-    reddit?: { connected: boolean; signals?: { term?: string; title: string; score?: number | null; url?: string }[] };
-    hn?: { connected: boolean; signals?: { term?: string; title: string; points?: number | null; url?: string }[] };
+    reddit?: Side;
+    hn?: Side;
+    /** Only older documents. See the header. */
     queries?: { term: string; source: string; outcome: string; note?: string | null }[];
   };
   const doc = await get<Doc>("/api/demand");
   if (failed(doc)) return { source: "Demand", text: doc.error };
+
+  /* Labelled once, because every line below — the tally, the two lists and the
+     failures — has to say WHICH source it is talking about, and a chart drawn
+     from a tally that said "reddit" in one place and "Reddit" in another would
+     grow two series for one source. `unit` is the word each service uses for
+     its own score: Reddit has upvotes and Hacker News has points. */
+  const sides = [
+    { label: "Reddit", unit: "upvotes", side: doc.reddit },
+    { label: "Hacker News", unit: "points", side: doc.hn },
+  ] as const;
+
+  const threads = (side: Side | undefined, term: string) =>
+    new Set((side?.signals ?? []).filter((s) => s.term === term).map((s) => s.id ?? s.url ?? s.title)).size;
+
   const lines = [
     `Window ${doc.windowDays} days. Watch phrases: ${doc.terms.join(", ") || "none"}.`,
     `Thread counts span the sources; UPVOTES ARE NEVER ADDED across Reddit and Hacker News.`,
     ``,
-    `Reddit threads:`,
-    ...(doc.reddit?.signals ?? []).slice(0, 25).map((s) => `- ${s.term ? `[${s.term}] ` : ""}${s.title}${s.score === null || s.score === undefined ? "" : ` (${s.score})`}${s.url ? ` ${s.url}` : ""}`),
-    ``,
-    `Hacker News threads:`,
-    ...(doc.hn?.signals ?? []).slice(0, 25).map((s) => `- ${s.term ? `[${s.term}] ` : ""}${s.title}${s.points === null || s.points === undefined ? "" : ` (${s.points} points)`}${s.url ? ` ${s.url}` : ""}`),
+    `THREADS PER WATCH PHRASE, counted on this box from the rows below by distinct thread id inside the window. These are the figures to quote and to chart; do not recount the lists yourself, and do not add the two sources together.`,
+    `A count beside \`ok\` is a measurement — a zero there means the source was asked and nothing came back. A count marked NOT MEASURED is not a zero and must never be drawn as one.`,
+    ...(doc.terms.length
+      ? doc.terms.map((term) =>
+          `- ${term} — ${sides
+            .map(({ label, side }) => {
+              const query = (side?.queries ?? []).find((q) => q.term === term);
+              const status = query?.status ?? "unasked";
+              return `${label} ${threads(side, term)}${status === "ok" ? "" : ` NOT MEASURED (${status}${query?.error ? `: ${query.error}` : ""})`}`;
+            })
+            .join("; ")}`,
+        )
+      : [`- no watch phrases are configured, so nothing was asked of either source.`]),
+    `Totals for the window, de-duplicated across phrases by the source itself: ${sides
+      .map(({ label, side }) => `${label} ${side?.threads ?? "not recorded"}`)
+      .join(", ")}.`,
+    ...sides.flatMap(({ label, unit, side }) => [
+      ``,
+      `${label} threads${side?.connected === false ? " (this source is not connected; what follows is whatever was collected before)" : ""}:`,
+      ...(side?.signals ?? [])
+        .slice(0, 25)
+        .map(
+          (s) =>
+            `- ${s.term ? `[${s.term}] ` : ""}${s.title}${s.points === null || s.points === undefined ? ` (${unit} not recorded)` : ` (${s.points} ${unit})`}${s.context ? ` — ${s.context}` : ""}${s.createdAt ? ` — ${s.createdAt.slice(0, 10)}` : " — undated"}${s.url ? ` ${s.url}` : ""}`,
+        ),
+    ]),
   ];
-  const skipped = (doc.queries ?? []).filter((q) => q.outcome !== "ok");
+
+  const skipped = [
+    ...sides.flatMap(({ label, side }) =>
+      (side?.queries ?? [])
+        .filter((q) => (q.status ?? "unasked") !== "ok")
+        .map((q) => `- ${q.term} via ${label}: ${q.status ?? "unasked"}${q.error ? ` — ${q.error}` : ""}`),
+    ),
+    ...(doc.queries ?? []).filter((q) => q.outcome !== "ok").map((q) => `- ${q.term} via ${q.source}: ${q.outcome}${q.note ? ` — ${q.note}` : ""}`),
+  ];
   if (skipped.length)
     lines.push(
       ``,
       `Phrases nobody would let us ask, or that failed — these are NOT evidence that nobody is talking about them:`,
-      ...skipped.slice(0, 15).map((q) => `- ${q.term} via ${q.source}: ${q.outcome}${q.note ? ` — ${q.note}` : ""}`),
+      ...skipped.slice(0, 20),
     );
-  return { source: "Demand — Reddit, Hacker News, the search node", text: trim(lines.join("\n"), 4_000) };
+  /* SIX THOUSAND RATHER THAN FOUR, and only because the tally was added above
+     it. Twenty watch phrases is a page and a half of counted lines that the
+     report is required to chart; trimming them away would leave the writer the
+     fifty thread titles the tally was computed FROM and no numbers, which is
+     the failure this block was rewritten to remove. The thread lists are still
+     capped at twenty-five a side, so the block cannot run away. */
+  return { source: "Demand — Reddit, Hacker News, the search node", text: trim(lines.join("\n"), 6_000) };
 }
 
 export async function searchConsoleBlock(v: VentureRow): Promise<Block> {

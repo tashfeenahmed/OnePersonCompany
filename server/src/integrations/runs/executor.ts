@@ -954,7 +954,10 @@ async function blocksFor(def: KindDef, v: VentureRow, ventureId: string | null):
         historyBlock(def.kind, ventureId),
       ];
     case "demand":
-      return [...base, await demandBlock(), competitorBlock(v), historyBlock(def.kind, ventureId)];
+      /* THE PRODUCT BEFORE THE MARKET, for research's reason: a demand
+         report that only knows the venture's one-line description cannot
+         tell an ask the product already answers from an unmet need. */
+      return [...base, knowledgeBlock(v), await demandBlock(), competitorBlock(v), historyBlock(def.kind, ventureId)];
     default:
       return [...base, historyBlock(def.kind, ventureId)];
   }

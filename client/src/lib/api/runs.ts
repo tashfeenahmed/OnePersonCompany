@@ -415,6 +415,22 @@ export type GeoAnswer = {
   accurate: boolean | null;
   recommended: boolean | null;
   ts: string;
+  /**
+   * WHAT THE QUESTION WAS FOR, and the axis the panel reads along. `generic`
+   * is the one that matters — a question a stranger with the problem would
+   * ask without knowing the product exists, generated per run — `direct`
+   * names the product, `extra` is one the owner typed. NULL on every row
+   * asked before the server recorded the difference (migration 077); those
+   * are drawn as "not recorded" and never guessed at.
+   */
+  kind: "generic" | "direct" | "extra" | null;
+  /** The products the answer named instead of, or beside, this one. `[]` is
+   *  the judge saying it named none; null is the judge not answering. */
+  rivals: string[] | null;
+  /** The judge's reading of what the answer actually said, and its one
+   *  sentence on what to do about it. Null where it did not answer. */
+  explanation: string | null;
+  action: string | null;
 };
 
 export type GeoDoc = {

@@ -352,4 +352,49 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX competitor_focus_venture ON competitor_focus(venture_id, created_at DESC);
     `,
   },
+
+  {
+    name: "077_geo_answer_reading",
+    sql: `
+      -- WHAT THE ANSWER MEANT, BESIDE WHETHER IT MENTIONED US.
+      --
+      -- 072 stored the measurement: the question, the answer, and three
+      -- columns saying whether the name appeared and whether a judge thought
+      -- the answer accurate and the product recommended. That was enough to
+      -- count and not enough to ACT ON. "recommended: no" is a fact nobody can
+      -- do anything with; "it named Intercom, Drift and Zendesk instead, so a
+      -- buyer reading this never learns you exist" plus "get listed on the two
+      -- comparison pages that rank for this category" is the same fact with a
+      -- next step on it. The judge was already reading every answer to fill in
+      -- the two booleans, so it is now asked for the reading as well and these
+      -- four columns are where it lands.
+      --
+      -- \`kind\` IS THE AXIS THE WHOLE REPORT IS READ ALONG: \`direct\` names
+      -- the product ("What is X?"), \`generic\` is what a stranger who has
+      -- never heard of it would ask ("what's the best tool for …"), \`extra\`
+      -- is a question the owner typed. They answer different questions and
+      -- averaging them answers neither — "mentioned in 4 of 5" is worthless
+      -- when four of the five put the name in the question. The generic ones
+      -- are GENERATED per run from the venture record, so this is not a
+      -- property of the question text that could be derived later; it has to
+      -- be written down when the question is asked.
+      --
+      -- EVERY ONE OF THEM IS NULLABLE AND NONE IS BACK-FILLED. A row written
+      -- before this migration was asked without any of this and there is no
+      -- honest way to invent it afterwards: a NULL \`kind\` means "asked before
+      -- the run knew the difference", and the client draws it as "not
+      -- recorded" rather than guessing a kind from the wording. Same rule the
+      -- judged columns in 072 already follow — null is asked-and-not-told.
+      --
+      -- \`rivals\` IS A JSON ARRAY AND ITS EMPTY CASE IS NOT ITS NULL CASE.
+      -- \`[]\` is "the judge read the answer and it named nobody else"; NULL is
+      -- "the judge did not answer for this row". Those are different findings
+      -- and a single column that spelled them the same way would quietly turn
+      -- a failed judge into a clean sheet.
+      ALTER TABLE geo_answers ADD COLUMN kind        TEXT;
+      ALTER TABLE geo_answers ADD COLUMN rivals      TEXT;
+      ALTER TABLE geo_answers ADD COLUMN explanation TEXT;
+      ALTER TABLE geo_answers ADD COLUMN action      TEXT;
+    `,
+  },
 ];

@@ -837,7 +837,25 @@ geoRoutes.get("/", (c) => {
     accurate: number | null;
     recommended: number | null;
     ts: string;
+    kind: string | null;
+    rivals: string | null;
+    explanation: string | null;
+    action: string | null;
   }[];
+
+  /* THE RIVALS COLUMN IS JSON IN A TEXT COLUMN AND IT IS READ DEFENSIVELY.
+     NULL is "the judge did not answer for this row" and stays null on the
+     wire; anything that does not parse to an array of strings is treated the
+     same way, because a half-written array is not a shorter list of rivals. */
+  const rivalsOf = (raw: string | null): string[] | null => {
+    if (raw === null) return null;
+    try {
+      const v: unknown = JSON.parse(raw);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : null;
+    } catch {
+      return null;
+    }
+  };
 
   const answers = rows.map((r) => ({
     runId: r.run_id,
@@ -853,6 +871,13 @@ geoRoutes.get("/", (c) => {
     accurate: r.accurate === null ? null : r.accurate === 1,
     recommended: r.recommended === null ? null : r.recommended === 1,
     ts: r.ts,
+    /* NULL ON EVERY ROW WRITTEN BEFORE MIGRATION 077 and never back-filled —
+       see the migration for why a kind cannot honestly be guessed from the
+       wording afterwards. The client draws these as "not recorded". */
+    kind: r.kind,
+    rivals: rivalsOf(r.rivals),
+    explanation: r.explanation,
+    action: r.action,
   }));
 
   /* Grouped by provider, because "which model does not know you exist" is the
@@ -878,8 +903,13 @@ geoRoutes.get("/", (c) => {
     generatedAt: now(),
     note:
       "`mentioned` is measured — the name or the host appearing in the answer. " +
-      "`accurate` and `recommended` were judged by a second completion and are " +
-      "null where it did not answer for that row: null means asked and not " +
-      "told, never no. Every answer was given with no tools and no web access.",
+      "`accurate`, `recommended`, `rivals`, `explanation` and `action` were " +
+      "judged by a second completion and are null where it did not answer for " +
+      "that row: null means asked and not told, never no. `rivals: []` is the " +
+      "judge saying the answer named nobody else, which is not the same as " +
+      "null. `kind` is `generic` for a question a stranger would ask without " +
+      "knowing the product exists, `direct` for one that names it, `extra` for " +
+      "one the owner typed, and null on rows asked before the run recorded the " +
+      "difference. Every answer was given with no tools and no web access.",
   });
 });
