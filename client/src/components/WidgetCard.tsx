@@ -107,6 +107,7 @@ export function WidgetCard({
   onRemove,
   onMove,
   onSetParam,
+  onSetHidden,
   onToggleDetail,
   dragHandlers,
   dropSide,
@@ -120,6 +121,10 @@ export function WidgetCard({
   /** A per-project card's venture, chosen from its header in edit mode.
    *  Undefined clears it back to "pick a venture". */
   onSetParam?: (param: string | undefined) => void;
+  /** The fleet card's hidden hosts (`PlacedWidget.hidden`), rewritten whole
+   *  when one of its server cards is removed or restored in edit mode. Only
+   *  the fleet widget draws more than one thing, so only it uses this. */
+  onSetHidden?: (ids: string[]) => void;
   onToggleDetail?: () => void;
   /** The grab handle's attributes — a pointerdown and a data id, from BoardView. */
   dragHandlers?: React.HTMLAttributes<HTMLDivElement>;
@@ -312,6 +317,7 @@ export function WidgetCard({
     portfolioWide={!!scope && !narrowed}
     stale={!!failedSource || !!live.error} error={live.sourceErrors[failedSource ?? sourceKey] ?? live.error}
     editing={editing} onCycleWidth={onCycleWidth} onRemove={onRemove} onMove={onMove} onToggleDetail={onToggleDetail}
+    onSetHidden={onSetHidden}
     dragHandlers={dragHandlers} dragging={dragging} dropSide={dropSide} />;
   if (base.presentation) return <OverviewWidget def={def} title={title} placed={placed} empty={empty}
     stale={!!failedSource || !!live.error} error={live.sourceErrors[failedSource ?? sourceKey] ?? live.error}

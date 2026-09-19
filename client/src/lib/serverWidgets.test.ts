@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { meanServerLoad, serverCard, serverFleet, serverAddress, SERVER_BUILDERS } from "./serverWidgets.ts";
+import { meanServerLoad, serverCard, serverFleet, serverAddress, visibleHosts, hiddenHostCount, SERVER_BUILDERS } from "./serverWidgets.ts";
 import { WIDGETS } from "../data/widgets.ts";
 import { measuredWidget } from "./widgetView.ts";
 import { isWorkspacePreferences } from "../../../shared/workspace.ts";
@@ -103,4 +103,20 @@ test("a saved detail section retains pinned widget identities and survives works
   const saved={...prefs,plugins:{},ventures:[]} as unknown as StoreState;
   assert.deepEqual(migrateWorkspace(saved,28).dashboards,prefs.dashboards);
   assert.equal(isWorkspacePreferences({...prefs,dashboards:[{...prefs.dashboards[0],widgets:[{...prefs.dashboards[0]!.widgets[1],detail:"yes"}]}]}),false);
+});
+test("hiding a server card is per board, reversible while editing, and never miscounts the fleet",()=>{
+  const cards=[{id:"1",status:"healthy"},{id:"2",status:"healthy"},{id:"3",status:"down"}];
+  assert.deepEqual(visibleHosts(cards,["2"],false).map(c=>c.id),["1","3"]);
+  assert.deepEqual(visibleHosts(cards,["2"],true).map(c=>c.id),["1","2","3"],"a removed card stays on screen while editing so it goes back with one click");
+  assert.deepEqual(visibleHosts(cards,undefined,false).map(c=>c.id),["1","2","3"],"a board saved before hidden lists existed draws every host");
+  assert.deepEqual(visibleHosts(cards,[],false).map(c=>c.id),["1","2","3"]);
+  assert.equal(hiddenHostCount(cards,["2","3"]),2);
+  assert.equal(hiddenHostCount(cards,["99"]),0,"an id left behind by a box that has left the fleet is not a missing card");
+  assert.equal(hiddenHostCount(cards,undefined),0);
+  const prefs={workspace:{name:"One",owner:"Owner"},sessions:[],dashboards:[{id:"d",name:"Servers",slug:"servers",widgets:[
+    {id:"fleet",type:"servers.cards",w:4 as const,hidden:["52"]},
+  ]}]};
+  assert.equal(isWorkspacePreferences(prefs),true);
+  assert.equal(isWorkspacePreferences({...prefs,dashboards:[{...prefs.dashboards[0],widgets:[{id:"fleet",type:"servers.cards",w:4,hidden:"52"}]}]}),false);
+  assert.equal(isWorkspacePreferences({...prefs,dashboards:[{...prefs.dashboards[0],widgets:[{id:"fleet",type:"servers.cards",w:4,hidden:[""]}]}]}),false);
 });

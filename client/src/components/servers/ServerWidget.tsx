@@ -6,6 +6,7 @@ import { Activity, AlertTriangle, ArrowLeft, ArrowRight, Banknote, Check, Chevro
 import type { Widget } from "@/data/widgets";
 import type { PlacedWidget } from "@/lib/store";
 import type { ServerCardData, ServerFleetData, ServerMeter, ServerStatus } from "@/lib/serverWidgets";
+import { hiddenHostCount, visibleHosts } from "@/lib/serverWidgets";
 import { ago } from "@/lib/format";
 import { countryFlag, countryName } from "@/lib/serverRegions";
 import { widgetSpan, widgetSpanClass } from "@/lib/widgetLayout";
@@ -34,7 +35,21 @@ function Meter({meter}:{meter:ServerMeter}) {
   </div>;
 }
 
-function HostCard({card, inspection = false}:{card:ServerCardData; inspection?: boolean}) {
+/**
+ * ONE BOX, AND IN EDIT MODE THE ONE CONTROL THAT TAKES IT OFF THIS BOARD.
+ *
+ * The fleet card is a single placed widget drawing every host, so the widget's
+ * own Remove button can only take the whole wall down. `onHide` is the missing
+ * per-card control: it drops this box from THIS dashboard (see
+ * `PlacedWidget.hidden`) and nothing else — the box is still collected, still
+ * in the portfolio-wide figures, still on other boards. A hidden card stays on
+ * screen while editing, dimmed and with Restore, so the removal is undone with
+ * one click instead of from memory.
+ */
+function HostCard({card, inspection = false, editing = false, hidden = false, onHide, onRestore}:{
+  card:ServerCardData; inspection?: boolean; editing?: boolean; hidden?: boolean;
+  onHide?:()=>void; onRestore?:()=>void;
+}) {
   const [copied,setCopied]=useState(false);
   const [copyError,setCopyError]=useState(false);
   const flag=countryFlag(card.country);
@@ -44,8 +59,11 @@ function HostCard({card, inspection = false}:{card:ServerCardData; inspection?: 
     try {await navigator.clipboard.writeText(card.address);setCopied(true);setCopyError(false);}
     catch {setCopyError(true);}
   }
-  return <article className={cn("group relative server-host-card",card.status==="down"&&"ring-1 ring-destructive/35")} aria-label={card.name}>
-    <div className={cn("flex items-start gap-2.5", !inspection && "pr-7")}>
+  const hideControl=editing && !inspection && (hidden
+    ? <button type="button" onClick={onRestore} onPointerDown={e=>e.stopPropagation()} aria-label={`Restore ${card.name} to this dashboard`} title={`Restore ${card.name} to this dashboard`} className="rounded px-1.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground">Restore</button>
+    : <button type="button" onClick={onHide} onPointerDown={e=>e.stopPropagation()} aria-label={`Remove ${card.name} from this dashboard`} title={`Remove ${card.name} from this dashboard`} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><Trash2 className="size-3.5"/></button>);
+  return <article className={cn("group relative server-host-card",card.status==="down"&&"ring-1 ring-destructive/35",hidden&&"opacity-45")} aria-label={card.name}>
+    <div className={cn("flex items-start gap-2.5", !inspection && (hideControl ? (hidden ? "pr-24" : "pr-16") : "pr-7"))}>
       <span role="img" aria-label={regionLabel} title={regionLabel} data-server-region={card.country ?? "unknown"} className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-muted text-[22px] leading-none text-muted-foreground">{flag ?? <Globe2 aria-hidden="true" className="size-5" strokeWidth={1.6}/>}</span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><h3 className="min-w-0 flex-1 text-[15px] font-semibold tracking-tight">{card.name}</h3><span className={cn("inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium",statusClass[card.status])}><span className={cn("size-1.5 rounded-full",statusDot[card.status])}/>{card.statusLabel}</span></div>
@@ -58,7 +76,7 @@ function HostCard({card, inspection = false}:{card:ServerCardData; inspection?: 
         <p className="mt-0.5 text-[10px] text-muted-foreground">{[card.location,card.provider,card.specs].filter(Boolean).join(" · ")}</p>
       </div>
     </div>
-    {!inspection && <div className="absolute right-3 top-3"><InspectButton title={card.name} description={`Last probe ${ago(card.seenAt)} · ${card.loadSpan}`}><HostCard card={card} inspection/></InspectButton></div>}
+    {!inspection && <div className="absolute right-3 top-3 flex items-center gap-0.5">{hideControl}<InspectButton title={card.name} description={`Last probe ${ago(card.seenAt)} · ${card.loadSpan}`}><HostCard card={card} inspection/></InspectButton></div>}
     {card.note && <p className={cn("mt-3 rounded-xl bg-muted/60 px-3 py-2 text-[11px] leading-relaxed",statusClass[card.status])}>{card.note}</p>}
     <dl className="mt-4 grid grid-cols-3 gap-x-3 gap-y-3">{card.meters.filter((m,i)=>i<3 || !m.label.startsWith("/boot") || (m.value!==null && m.value>=m.warn)).map(m=><Meter key={m.label} meter={m}/>)}</dl>
     <div className="mt-4 border-t pt-3">
@@ -76,12 +94,24 @@ function HostCard({card, inspection = false}:{card:ServerCardData; inspection?: 
   </article>;
 }
 
-function FleetCards({fleet}:{fleet:ServerFleetData}) {
+function FleetCards({fleet,editing=false,hidden,onHideHost,onRestoreHost}:{
+  fleet:ServerFleetData; editing?:boolean; hidden?:string[];
+  onHideHost?:(id:string)=>void; onRestoreHost?:(id:string)=>void;
+}) {
   const [filter,setFilter]=useState<ServerStatus|"all">("all");
   const [query,setQuery]=useState("");
-  const counts=(status:ServerStatus)=>fleet.cards.filter(c=>c.status===status).length;
+  /* EVERY FIGURE ON THIS WIDGET COUNTS THE SAME LIST THE OWNER CAN SEE. The
+     status tallies, "N shown" and the "N servers" footer all read `pool`, so
+     a board with a box hidden never says four servers over three cards. Only
+     the fleet-wide summaries elsewhere — the mean-CPU chart and the figures
+     table — stay portfolio-wide, because those are statements about the fleet
+     rather than a wall of cards. */
+  const off=new Set(hidden ?? []);
+  const pool=visibleHosts(fleet.cards,hidden,editing);
+  const hiddenCount=hiddenHostCount(fleet.cards,hidden);
+  const counts=(status:ServerStatus)=>pool.filter(c=>c.status===status).length;
   const needle=query.trim().toLowerCase();
-  const visible=fleet.cards.filter(c=>(filter==="all"||c.status===filter) && (!needle || [c.name,c.address,c.hostname,c.location,c.country,countryName(c.country),c.provider,...c.containers.map(x=>`${x.name} ${x.image ?? ""}`),...c.counters.map(x=>x.label)].some(s=>s?.toLowerCase().includes(needle))));
+  const visible=pool.filter(c=>(filter==="all"||c.status===filter) && (!needle || [c.name,c.address,c.hostname,c.location,c.country,countryName(c.country),c.provider,...c.containers.map(x=>`${x.name} ${x.image ?? ""}`),...c.counters.map(x=>x.label)].some(s=>s?.toLowerCase().includes(needle))));
   return <>
     <div className="mb-3 flex flex-wrap items-center gap-2.5">
       <div role="group" aria-label="Filter servers by status" className="flex max-w-full flex-wrap rounded-full bg-muted p-1">
@@ -92,26 +122,42 @@ function FleetCards({fleet}:{fleet:ServerFleetData}) {
     </div>
     <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">{[["var(--ok)","fine"],["var(--warn)","watch"],["var(--destructive)","act"]].map(([color,label])=><span key={label} className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{background:color}}/>{label}</span>)}<span>Watch / act: CPU {fleet.thresholds.cpu.warn}/{fleet.thresholds.cpu.critical}%, memory {fleet.thresholds.memory.warn}/{fleet.thresholds.memory.critical}%, disk {fleet.thresholds.disk.warn}/{fleet.thresholds.disk.critical}%.</span></div>
     <p className="mb-4 text-[10px] leading-relaxed text-muted-foreground">Meters show the latest probe. Changes are percentage points between available samples; disks have no stored trend. CPU charts show evenly spaced readings; hover for exact times.</p>
-    {visible.length ? <div className="server-host-grid">{visible.map(c=><HostCard key={c.id} card={c}/>)}</div> : <div className="rounded-3xl bg-card px-4 py-14 text-center"><p className="text-sm font-medium">No servers match</p><button type="button" onClick={()=>{setQuery("");setFilter("all");}} className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><X className="size-3"/>Clear filters</button></div>}
-    <div className="mt-4 flex flex-wrap justify-between gap-2 text-[11px] text-muted-foreground"><span>{fleet.cards.length} servers · probed every {fleet.cadenceMinutes} minutes</span><Link to="/ops?tab=snapshots" className="underline underline-offset-4 hover:text-foreground">Open diagnostic snapshots</Link></div>
+    {visible.length ? <div className="server-host-grid">{visible.map(c=><HostCard key={c.id} card={c} editing={editing} hidden={off.has(c.id)} onHide={onHideHost&&(()=>onHideHost(c.id))} onRestore={onRestoreHost&&(()=>onRestoreHost(c.id))}/>)}</div>
+      /* A BOARD WITH EVERY BOX HIDDEN IS NOT A BOARD WITH NO FILTER MATCHES.
+         Clearing the filters would do nothing here, so the empty panel says
+         what actually happened and where the boxes went. */
+      : !pool.length && hiddenCount>0 ? <div className="rounded-3xl bg-card px-4 py-14 text-center"><p className="text-sm font-medium">Every server is hidden on this dashboard</p><p className="mt-1 text-xs text-muted-foreground">They are still collected and still on other boards. Edit this dashboard to restore them.</p></div>
+      : <div className="rounded-3xl bg-card px-4 py-14 text-center"><p className="text-sm font-medium">No servers match</p><button type="button" onClick={()=>{setQuery("");setFilter("all");}} className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><X className="size-3"/>Clear filters</button></div>}
+    <div className="mt-4 flex flex-wrap justify-between gap-2 text-[11px] text-muted-foreground"><span className="flex flex-wrap items-center gap-x-2 gap-y-0.5"><span>{pool.length} servers · probed every {fleet.cadenceMinutes} minutes</span>{/* WHY THE NOTE: a box removed from this board is still in the fleet, and
+        a footer that quietly counted one fewer would read as a box that had
+        vanished. The count says the boxes are hidden, and where to get them
+        back. */}
+      {hiddenCount>0 && <span className="text-[10px]">{hiddenCount} hidden · {editing?"dimmed here, click Restore":"Edit to restore"}</span>}</span><Link to="/ops?tab=snapshots" className="underline underline-offset-4 hover:text-foreground">Open diagnostic snapshots</Link></div>
   </>;
 }
 
-export function ServerWidget({def,placed,empty,stale,error,editing,onCycleWidth,onRemove,onMove,onToggleDetail,dragHandlers,dragging,dropSide,portfolioWide}: {
+export function ServerWidget({def,placed,empty,stale,error,editing,onCycleWidth,onRemove,onMove,onToggleDetail,onSetHidden,dragHandlers,dragging,dropSide,portfolioWide}: {
   def:Widget;placed:PlacedWidget;empty:string|null;stale:boolean;error?:string|null;editing:boolean;
   onCycleWidth:()=>void;onRemove:()=>void;onMove?:(direction:-1|1)=>void;
   onToggleDetail?:()=>void;
+  /** The new `PlacedWidget.hidden` for this board's fleet card — the per-card
+   *  Remove and Restore controls both go through here, so the board keeps one
+   *  way of writing a widget and this file keeps none. */
+  onSetHidden?:(ids:string[])=>void;
   portfolioWide?:boolean;
   dragHandlers?:HTMLAttributes<HTMLDivElement>;dragging?:boolean;dropSide?:"before"|"after"|null;
 }) {
   const Icon=statIcons[placed.type as keyof typeof statIcons] ?? Server;
   const cards=def.presentation==="server-fleet";
+  const hidden=placed.hidden;
+  const hideHost=onSetHidden && ((id:string)=>onSetHidden([...new Set([...(hidden ?? []),id])]));
+  const restoreHost=onSetHidden && ((id:string)=>onSetHidden((hidden ?? []).filter(x=>x!==id)));
   const controls=editing && <div className="widget-action ml-auto flex shrink-0 gap-0.5">{[[ArrowLeft,()=>onMove?.(-1),"Move earlier"],[ArrowRight,()=>onMove?.(1),"Move later"],[UnfoldHorizontal,onCycleWidth,"Resize"],[Trash2,onRemove,"Remove"]].map(([Glyph,action,label])=>{const G=Glyph as typeof ArrowLeft;return <button type="button" key={String(label)} aria-label={`${label} ${def.name}`} title={`${label} ${def.name}`} onClick={action as ()=>void} onPointerDown={e=>e.stopPropagation()} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><G className="size-3.5"/></button>;})}</div>;
   return <section {...dragHandlers} aria-label={def.name} data-span={widgetSpan(placed,def)} className={cn("group server-widget min-w-0",widgetSpanClass(placed,def),cards?"server-fleet-widget":def.presentation==="server-stat"?"server-summary-card":"server-load-card",editing&&"cursor-grab touch-none select-none",dragging&&"opacity-35",dropSide&&"drag-destination")}>
     {portfolioWide && <p className="mb-2 text-[10px] text-muted-foreground">All servers · portfolio-wide</p>}
     {editing && onToggleDetail && <button type="button" className="mb-2 text-[10px] text-muted-foreground" aria-label={`${placed.detail ? "Show on main dashboard" : "Move to details"}: ${def.name}`} onClick={onToggleDetail}>{placed.detail ? "Show on main dashboard" : "Move to details"}</button>}
     {(!cards||editing) && <div className="mb-2 flex items-center gap-2">{def.presentation==="server-stat"&&<Icon className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.6}/>}<h2 className={cn("min-w-0",def.presentation==="server-stat"?"text-[11px] text-muted-foreground":"text-sm font-semibold")}>{def.name}</h2>{def.presentation==="server-load"&&<span className="ml-auto text-[10px] text-muted-foreground">{def.serverFleet?.span}</span>}{controls}</div>}
-    {empty ? <p className="py-5 text-xs text-muted-foreground">{empty}</p> : cards && def.serverFleet ? <FleetCards fleet={def.serverFleet}/> : def.presentation==="server-load" && def.serverFleet ? <>
+    {empty ? <p className="py-5 text-xs text-muted-foreground">{empty}</p> : cards && def.serverFleet ? <FleetCards fleet={def.serverFleet} editing={editing} hidden={hidden} onHideHost={hideHost} onRestoreHost={restoreHost}/> :def.presentation==="server-load" && def.serverFleet ? <>
       <ServerLoadChart points={def.serverFleet.points} label="Fleet mean CPU" height={104}/>
       <p className="mt-3 text-[10px] leading-relaxed text-muted-foreground">{def.caption}</p>
       <AnimatedDetails className="server-disclosure mt-3"><summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground"><ChevronDown className="size-3"/>Figures</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-[11px]"><thead><tr>{["Server","CPU now","Memory","Root disk","Mean CPU","Peak"].map(h=><th key={h} className="border-b py-2 pr-3 font-medium text-muted-foreground">{h}</th>)}</tr></thead><tbody>{def.serverFleet.cards.map(c=><tr key={c.id} className="border-b last:border-0"><td className="py-2.5 pr-3">{c.name}</td>{[c.meters[0]?.value ?? null,c.meters[1]?.value ?? null,c.meters[2]?.value ?? null,c.load.length?c.load.reduce((n,p)=>n+p.value,0)/c.load.length:null,c.load.length?Math.max(...c.load.map(p=>p.value)):null].map((v,i)=><td key={i} className="py-2.5 pr-3 tabular-nums text-muted-foreground">{pct(v)}</td>)}</tr>)}</tbody></table></div></AnimatedDetails>

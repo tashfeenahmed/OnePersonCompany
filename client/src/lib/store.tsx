@@ -152,6 +152,29 @@ export type PlacedWidget = {
    * by shape. A pinned card with no value says which kind to pick.
    */
   param?: string;
+  /**
+   * THE HOSTS THIS BOARD'S FLEET CARD DOES NOT DRAW, by fleet account id.
+   *
+   * The Servers fleet widget (`servers.cards`) is one placed widget that draws
+   * every box in the fleet as its own card, so "remove this widget" is far too
+   * blunt a control for "I stopped caring about that one box": it takes the
+   * whole wall down. This list is the per-board exception to the fleet — the
+   * ids in it (`ServerCardData.id`, which is the collector's account id and
+   * not a hostname, for the same reason `param` is an id: a box that moves
+   * address keeps its account) are drawn dimmed with a Restore control in edit
+   * mode and not drawn at all outside it.
+   *
+   * PER BOARD, NOT PER FLEET. Hiding a box here says nothing about the box:
+   * it is still collected, still counted by the portfolio-wide summaries, and
+   * still on every other dashboard that carries the fleet card. Only this
+   * arrangement of it changes, which is the same promise the rest of edit mode
+   * makes.
+   *
+   * Optional and absent on every board placed before it existed, so no
+   * migration and no change to an old board; an id for a box that has since
+   * left the fleet is a line that matches nothing, never an invalid document.
+   */
+  hidden?: string[];
   /** Keep this widget in the dashboard's expandable details section. */
   detail?: boolean;
 };

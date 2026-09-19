@@ -44,6 +44,13 @@ export function isWorkspacePreferences(v: unknown): boolean {
     && list(d.widgets, x => text(x.id, 200) && !!x.id && text(x.type, 200) && [1, 2, 4].includes(Number(x.w)) && typeof x.w === "number"
       && (x.span === undefined || (typeof x.span === "number" && [3, 4, 5, 6, 7, 8, 9, 12].includes(x.span)))
       && (x.param === undefined || (text(x.param, 200) && !!x.param))
+      /* `hidden` is the fleet card's per-board exception list — the fleet
+         account ids that this board does not draw. Same reasoning as `param`,
+         one list deep: ids only, bounded, and an id for a box that has since
+         left the fleet is a line matching nothing rather than an invalid
+         document. Bounded at 500 because that is the widget cap too: a board
+         can hide at most a fleet's worth of boxes. */
+      && (x.hidden === undefined || (Array.isArray(x.hidden) && x.hidden.length <= 500 && x.hidden.every(id => text(id, 200) && !!id)))
       && (x.detail === undefined || typeof x.detail === "boolean"), 500), 200)) return false;
   const slugs = (v.dashboards as Obj[]).map(d => `${d.ventureId ?? ""}/${d.slug}`);
   return new Set(slugs).size === slugs.length;

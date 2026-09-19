@@ -80,6 +80,35 @@ export function meanServerLoad(boxes: readonly {id:string;load:ServerPoint[]}[],
   });
 }
 
+/**
+ * WHICH HOSTS THE FLEET CARD DRAWS, given one board's hidden list.
+ *
+ * In edit mode every host is still on the wall — a hidden one is dimmed and
+ * carries a Restore control, because removing a card is meant to be undone
+ * with one click rather than remembered and retyped. Outside edit mode the
+ * hidden ones are simply not there, and everything the widget counts (the
+ * status tallies, "N shown", "N servers") counts this list, so the footer can
+ * never claim a box the owner cannot see.
+ *
+ * Pure and id-only so it can be tested without a fleet: `hidden` is
+ * `PlacedWidget.hidden`, a list of `ServerCardData.id`.
+ */
+export function visibleHosts<T extends {id: string}>(cards: readonly T[], hidden: readonly string[] | undefined, editing: boolean): T[] {
+  if (editing || !hidden?.length) return [...cards];
+  const off = new Set(hidden);
+  return cards.filter(c => !off.has(c.id));
+}
+
+/** How many of this board's hidden ids are boxes the fleet still reports. An
+ *  id left behind by a box that has since gone is not a missing card and must
+ *  not be counted in the "N hidden" note, or the note would outlive the fleet
+ *  it explains. */
+export function hiddenHostCount(cards: readonly {id: string}[], hidden: readonly string[] | undefined): number {
+  if (!hidden?.length) return 0;
+  const off = new Set(hidden);
+  return cards.filter(c => off.has(c.id)).length;
+}
+
 export function serverCard(box: FleetBox, input: LiveInputs, now = Date.now()): ServerCardData {
   const limits = serverThresholds(input.boxes);
   const cadenceMinutes = input.boxes?.cadenceMinutes ?? 30;

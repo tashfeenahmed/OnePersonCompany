@@ -286,6 +286,18 @@ export function BoardView({
           list.map((x) => (x.id === w.id ? { ...x, param } : x)),
         )
       }
+      /* Removing a server card from the fleet widget is a widget edit like any
+         other, so it takes the same road as width, order and param rather
+         than reaching into the store from the card. An empty list drops the
+         field again, so a board whose hidden hosts have all been restored is
+         byte-for-byte the board it was before anything was hidden. */
+      onSetHidden={(ids) =>
+        mutate((list) =>
+          list.map((x) =>
+            x.id === w.id ? { ...x, hidden: ids.length ? ids : undefined } : x,
+          ),
+        )
+      }
       dragHandlers={{
         "data-widget-id": w.id,
         onPointerDown: (e) => grab(e, w.id),
