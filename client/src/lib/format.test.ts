@@ -225,6 +225,14 @@ test("compact uses one casing for one magnitude", () => {
   assert.equal(compact(820_000), "820k");
   assert.equal(compact(9512), "9,512", "below ten thousand the digits still fit");
   assert.equal(compact(-1_500_000), "-1.5M");
+  /* The rounding carries into the next unit: 999,500 rounds to a thousand
+     thousand, which is a million and no longer fits a "k". */
+  assert.equal(compact(999_499), "999k");
+  assert.equal(compact(999_500), "1M");
+  assert.equal(compact(-999_500), "-1M");
+  assert.equal(compact(999_949_999), "999.9M");
+  assert.equal(compact(999_499_999), "999.5M");
+  assert.equal(compact(999_950_000), "1B", "and the same carry at the top");
 });
 
 test("splitMoney parts a currency string at the cents and nothing else", () => {
