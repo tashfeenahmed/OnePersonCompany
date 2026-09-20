@@ -531,7 +531,7 @@ function reportIn(answer: string): { doc: string; trimmed: boolean } | null {
  * row that has to move, and an INSERT alone would leave the old name behind as
  * a ghost with the same domain and half the history.
  */
-function writeRegistry(
+export function writeRegistry(
   ventureId: string,
   runId: string,
   touched: (Known & { previousName?: string })[],
