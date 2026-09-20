@@ -85,8 +85,12 @@ export function duration(ms: Maybe, opts: Absent = {}): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   const s = ms / 1000;
   if (s < 90) return `${s.toFixed(1)}s`;
-  const m = Math.floor(s / 60);
-  const rest = Math.round(s - m * 60);
+  /* Round the seconds ONCE, then split, so a rest of 60 cannot survive:
+     rounding after the split rendered 3,599,600 ms as "59m 60s" — the minute
+     the run had already reached, minus a minute, plus a sixty-second second. */
+  const total = Math.round(s);
+  const m = Math.floor(total / 60);
+  const rest = total - m * 60;
   return m < 60 ? `${m}m ${rest}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
