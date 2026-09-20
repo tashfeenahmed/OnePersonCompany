@@ -21,9 +21,8 @@ export type SpotlightItem = {
   /** A quiet word after the title: the venture a card is for, "3 messages". */
   detail?: string;
   snippet?: string;
-  /** Where Enter goes — or, for an action, what it does. */
+  /** Where Enter goes. */
   to?: string;
-  action?: "new-chat";
   /** A path ModuleIcon knows, when the row is a page. */
   icon?: string;
   ventureId?: string | null;
@@ -67,7 +66,25 @@ function best<T>(rows: T[], name: (row: T) => string, words: string[]): T[] {
     .slice(0, PER_GROUP).map(entry => entry.row);
 }
 
-const NEW_CHAT: SpotlightItem = { key: "action:new-chat", group: "Actions", title: "New chat", action: "new-chat", icon: "/chat" };
+/**
+ * WHAT CAN BE MADE, written once: the New button's menu draws these rows and
+ * the palette offers them as actions. `key` is the letter that picks the row
+ * while the menu is open — see components/NewMenu.tsx.
+ */
+export const NEW_ITEMS = [
+  { id: "chat", group: "chat", title: "New chat", short: "Chat", to: "/", icon: "/chat", key: "c" },
+  { id: "dashboard", group: "other", title: "New dashboard", short: "Dashboard", to: "/dashboards/new", icon: "/dashboards", key: "d" },
+  { id: "venture-idea", group: "venture", title: "New venture: idea", short: "Idea", to: "/ventures/new?stage=idea", icon: "/ventures", key: "i" },
+  { id: "venture-pre-launch", group: "venture", title: "New venture: pre-launch", short: "Pre-launch", to: "/ventures/new?stage=pre-launch", icon: "/ventures", key: "p" },
+  { id: "venture-launched", group: "venture", title: "New venture: launched", short: "Launched", to: "/ventures/new?stage=launched", icon: "/ventures", key: "l" },
+] as const;
+
+export function newItemForKey(key: string) {
+  return key.length === 1 ? NEW_ITEMS.find(item => item.key === key.toLowerCase()) : undefined;
+}
+
+const ACTIONS: SpotlightItem[] = NEW_ITEMS.map(item => ({ key: `action:${item.id}`, group: "Actions", title: item.title, to: item.to, icon: item.icon }));
+const NEW_CHAT = ACTIONS[0];
 
 /** What the store can answer by itself. With nothing typed it is the start
  *  screen: the one action, the last few chats, every page. */
@@ -80,7 +97,9 @@ export function localItems(query: string, sources: SpotlightSources): SpotlightI
 
   const runs = sources.sessions.flatMap(s => (s.children ?? []).filter(c => c.to).map(c => ({ ...c, from: s.title })));
   return [
-    ...(nameScore(NEW_CHAT.title, words) ? [NEW_CHAT] : []),
+    /* An action has to be asked for by the start of one of its words: "board"
+       is the Board page, not the tail of "New dashboard" sitting above it. */
+    ...best(ACTIONS, a => a.title, words).filter(a => nameScore(a.title, words) >= 2),
     ...best(sources.pages, p => `${p.label} ${p.also ?? ""}`, words).map(page),
     ...best(sources.ventures, v => v.name, words).map((v): SpotlightItem => ({ key: `venture:${v.id}`, group: "Ventures", title: v.name, to: `/ventures/${encodeURIComponent(v.slug)}`, ventureId: v.id })),
     ...best(sources.dashboards, d => d.name, words).map((d): SpotlightItem => ({ key: `dashboard:${d.id}`, group: "Dashboards", title: d.name, detail: ventureName(d.ventureId), to: d.to, icon: "/dashboards", ventureId: d.ventureId })),
@@ -151,4 +170,6 @@ export const SEARCH_KEYS = IS_MAC ? "⌘K" : "Ctrl K";
  *  own new window and never shows it to the page; ⌃N is the one that arrives
  *  in a tab. A label naming a key that does nothing is the bug ⌘K used to be
  *  when it was printed on New chat and bound to nothing. */
-export const NEW_CHAT_KEYS = IS_MAC ? "⌃N" : "Ctrl N";
+export const NEW_MENU_KEYS = IS_MAC ? "⌃N" : "Ctrl N";
+/** ⌃N opens the New menu rather than acting — see components/NewMenu.tsx. */
+export const OPEN_NEW_MENU = "opc:open-new-menu";
