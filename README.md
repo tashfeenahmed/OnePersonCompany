@@ -18,11 +18,14 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
+  <a href="#see-it-in-action">Videos</a> ·
   <a href="#what-you-can-do">Features</a> ·
   <a href="#connect-your-stack">Integrations</a> ·
   <a href="#documentation">Documentation</a> ·
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
+
+https://github.com/user-attachments/assets/a579d27a-30f5-417d-91c0-e742222ab64f
 
 One Person Company is a self-hosted workspace for solo founders and independent businesses. It brings together venture planning, revenue, analytics, infrastructure, work tracking, and AI assistance—so your next decision starts with the context already in front of you.
 
@@ -30,7 +33,74 @@ Connect the services you use, arrange the widgets that matter, and keep your ope
 
 ![Overview dashboard with revenue summaries and charts in a fictional demo workspace](docs/assets/overview.png)
 
-*Screenshots show the real application with fictional demo data. A new installation starts with your own empty portfolio; connected services supply the live numbers.*
+*Screenshots and recordings show the real application with fictional demo data. A new installation starts with your own empty portfolio; connected services supply the live numbers.*
+
+## See it in action
+
+Short screen recordings of the real application running on fictional demo data: one founder, six ventures. Press play on any of them.
+
+<table>
+  <tr>
+    <td width="38%" valign="top"><h3>The whole business, briefly</h3>Combined yearly revenue across Stripe and both app stores, net collected, page views, MRR movement, users per venture, fleet health and portfolio margin on one page.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/a579d27a-30f5-417d-91c0-e742222ab64f" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Ventures and the venture page</h3>Every venture with its stage and linked sources, the org chart, then one venture in depth: this week's focus, connections, the site's brand reading, a technical audit and the knowledge the agents work from.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/df71ecf0-22e7-4814-bb06-0a2246781570" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>The board</h3>Cards filed by you and by the agents, with urgency, due dates and the evidence behind each one. Filter to a single venture in one click.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/bcf79fc2-6389-4f55-ac54-cc5c69cb13fa" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Chat with your Chief of Staff</h3>Ask what changed and what to do about it. Answers come with tables, the steps taken, a dispatched specialist and a drafted customer email.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/30a072a1-3b8f-48dc-a670-583a2a765a71" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>A team of specialists</h3>One set of workers per venture: researcher, competitor analyst, SEO, demand, visibility, SERP and store listing. See the roster, the run queue and a worker's own thread.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/40191171-eec0-4c13-8617-b04c7a148422" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Reports you can read</h3>Finished runs become designed reports with charts and tables: an SEO review, a competitor table that flags what changed, and market research.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/5d41242f-7bfb-4613-b810-43f49bd9d4cf" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Revenue and payments</h3>MRR, churn, payouts, app-store proceeds, failed payments, disputes and the money still on the floor, over 7 days, 30 days, 90 days or all time.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/9cb17172-c867-413c-8d75-285357c2820b" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Search, SEO and analytics</h3>Google and Bing clicks and impressions per property, top queries and pages, page-two opportunities, audits, and privacy-friendly web analytics.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/1846b6c5-9953-4916-b228-7b0111eebc17" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Studio</h3>Make on-brand image posts and short videos per venture, queue them for publishing, and let autopilot keep a steady cadence.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/81cb3b90-6428-4cb5-a114-dd6be9e480e2" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Email</h3>One mail page: the inbox across ventures, triage with reasons, the commitments you made, drafts waiting for approval and nurture sequences.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/2b04c0d1-5d5e-4184-aa38-675aba50cbaf" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Calendar and workflows</h3>Your week at a glance, and the nightly workflow that refreshes data, checks alerts, runs the specialists and proposes actions.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/4e302bf8-435f-4459-8e3b-26c6b8db7f89" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Costs, servers and domains</h3>Where the money goes, model spend by project and key, server load and disks, and every domain with its renewal date.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/0c0c116c-06a6-4252-acfe-b4bb5dfe9c9d" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Search, alerts and insights</h3>Find anything with ⌘K, review incidents and recoveries, read pace projections and anomalies, and clear the action inbox.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/bf0cfc36-7b4e-41a5-a9bc-f14d20d690c1" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>A venture before launch</h3>The pre-launch page: launch date, first-week plan, a checklist with evidence, and facts gathered from the repository and the store.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/951aea3e-2a4a-47e2-8297-2e443ed9f4c2" controls muted playsinline width="600"></video></td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top"><h3>Mobile apps and users</h3>Downloads, installs, ratings and versions for iOS and Android, plus signups, active users and paying share across products.</td>
+    <td width="62%"><video src="https://github.com/user-attachments/assets/c94edf43-2147-463c-88da-55850fe5d4ef" controls muted playsinline width="600"></video></td>
+  </tr>
+</table>
 
 ## What you can do
 
