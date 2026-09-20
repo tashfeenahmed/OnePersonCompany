@@ -368,9 +368,24 @@ export function compact(n: Maybe, opts: Absent = {}): string {
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
   const trim = (s: string) => s.replace(/\.0$/, "");
+  /* ROUND FIRST, THEN PICK THE UNIT. A magnitude test on the RAW value is the
+     bug this closes: 999,500 passes the ≥10k test, rounds to 1,000 thousand,
+     and printed "1000k" — four characters of a unit the value had already
+     outgrown — while 1,000,001 one step away printed "1M". The same carry at
+     the top: 999,950,000 is not "1000.0M". What gets compared to a threshold
+     is the ROUNDED figure, so a number crosses a unit exactly when it stops
+     fitting in the one below. */
   if (abs >= 1e9) return `${sign}${trim((abs / 1e9).toFixed(1))}B`;
-  if (abs >= 1e6) return `${sign}${trim((abs / 1e6).toFixed(1))}M`;
-  if (abs >= 10_000) return `${sign}${Math.round(abs / 1000)}k`;
+  if (abs >= 1e6) {
+    const millions = (abs / 1e6).toFixed(1);
+    if (millions === "1000.0") return `${sign}1B`;
+    return `${sign}${trim(millions)}M`;
+  }
+  if (abs >= 10_000) {
+    const thousands = Math.round(abs / 1000);
+    if (thousands >= 1000) return `${sign}1M`;
+    return `${sign}${thousands}k`;
+  }
   return count(n);
 }
 
