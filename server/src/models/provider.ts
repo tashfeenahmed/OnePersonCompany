@@ -109,6 +109,9 @@ export type ProviderReply = {
 };
 
 export type CompleteOptions = {
+  /** Answer with this connected provider instead of the workspace's — see
+   *  `providerFor`. */
+  provider?: ProviderId;
   /** Override the provider's default model for this call. */
   model?: string;
   signal?: AbortSignal;
@@ -220,6 +223,21 @@ export function activeProvider(): ModelProvider | null {
   const id = readChoice();
   if (!id) return null;
   return factories.get(id)?.() ?? null;
+}
+
+/**
+ * ONE CALL, ONE NAMED PROVIDER — `CompleteOptions.provider`.
+ *
+ * The workspace has one model on purpose, and nearly every caller should keep
+ * using it. The exception is work whose shape the workspace choice cannot
+ * serve: a live conversation cannot wait behind a single-slot local model that
+ * is an hour into a report. Such a caller names a connected provider for ITS
+ * call; the workspace choice, the limiter and the budget are all unchanged.
+ * A name that is not connected falls back to the workspace's, rather than
+ * failing a call over a setting.
+ */
+export function providerFor(id?: ProviderId | null): ModelProvider | null {
+  return (id ? factories.get(id)?.() : null) ?? activeProvider();
 }
 
 export function providers(): { id: ProviderId; connected: boolean; label: string | null; endpoints: number; policy: Policy | null }[] {
@@ -415,14 +433,14 @@ export async function complete(turns: VisionTurn[], opts: CompleteOptions = {}):
     /* The allowance is part of the request, so it is part of the budget shape
        the checkpoint key is hashed from: a resumed run must not replay the
        truncated reply a smaller allowance produced. */
-    budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: activeProvider()?.id, ...(opts.jsonObject ? { jsonObject: true } : {}), ...(want ? { maxOutputTokens: want } : {}) }, maxOutputTokens =>
+    budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: providerFor(opts.provider)?.id, ...(opts.jsonObject ? { jsonObject: true } : {}), ...(want ? { maxOutputTokens: want } : {}) }, maxOutputTokens =>
       completeUnmetered(turns, opts, maxOutputTokens),
     false, want);
   if (runContext.getStore()) return work();
   return runContext.run({ id: `direct:${randomUUID()}`, venture: null, automation: true, signal: opts.signal ?? AbortSignal.timeout(budgets().runSeconds * 1000), sequence: 0, resume: false }, work);
 }
 async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, maxOutputTokens?: number): Promise<ProviderReply> {
-  const p = activeProvider();
+  const p = providerFor(opts.provider);
   if (!p) throw new NoProviderError();
   if (!p.endpoints.length) throw new Error(`${p.label} has no endpoint configured.`);
 
@@ -631,7 +649,7 @@ export async function completeTooled(
   opts: ToolCompleteOptions = {},
 ): Promise<ToolProviderReply> {
   const work = () =>
-    budgeted({ turns, model: opts.model, provider: activeProvider()?.id, ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}) }, (maxOutputTokens) =>
+    budgeted({ turns, model: opts.model, provider: providerFor(opts.provider)?.id, ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}) }, (maxOutputTokens) =>
       completeTooledUnmetered(turns, opts, maxOutputTokens),
     false, opts.maxOutputTokens);
   /* A caller already inside a run context keeps it — which is the whole point
@@ -657,7 +675,7 @@ async function completeTooledUnmetered(
   opts: ToolCompleteOptions,
   maxOutputTokens?: number,
 ): Promise<ToolProviderReply> {
-  const p = activeProvider();
+  const p = providerFor(opts.provider);
   if (!p) throw new NoProviderError();
   if (!p.endpoints.length) throw new Error(`${p.label} has no endpoint configured.`);
 

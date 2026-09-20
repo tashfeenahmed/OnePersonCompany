@@ -1,0 +1,502 @@
+/**
+ * THE IDEA CALL · every rule in this file is scoped under `.idea-call`.
+ *
+ * The design this came from is a standalone page, and it says so: it styles
+ * `body`, `header`, `main` and `footer` directly, sets `overflow:hidden` on the
+ * document and resets every element on it. None of that can survive the move
+ * into a dashboard — a `main{flex:1}` leaking out of here would rearrange every
+ * other page in the app the moment this stylesheet is imported, and the import
+ * is permanent whether or not a call is open. So the page's own elements became
+ * classes, and the root `.idea-call` element is the fixed, full-screen surface
+ * the design assumed the document was.
+ *
+ * THE TWO THEMES ARE THE SAME DESIGN, NOT AN INVERSION. The dark one is the
+ * mockup exactly. The light one keeps the layout, the type and the alphas and
+ * swaps the two ends: paper `#f6f4ee` and ink `#16150f`, with every dim, faint,
+ * ghost and hair value being that ink at the alpha the dark theme used on its
+ * own foreground. Anything that cannot survive that swap — the orb's additive
+ * white — is handled in `orb.ts`, not here.
+ */
+
+.idea-call {
+  --ic-serif: "Instrument Serif", ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --ic-gut: clamp(24px, 6vw, 90px);
+  --ic-big: clamp(28px, 4.4vw, 56px);
+  --ic-e: cubic-bezier(0.22, 0.68, 0.16, 1);
+  --ic-d: 680ms;
+
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ic-bg);
+  color: var(--ic-fg);
+  font-family: var(--ic-serif);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.2;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.idea-call *,
+.idea-call *::before,
+.idea-call *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.idea-call[data-theme="dark"] {
+  --ic-bg: #000;
+  --ic-fg: #f4f2ec;
+  --ic-dim: rgba(244, 242, 236, 0.42);
+  --ic-faint: rgba(244, 242, 236, 0.18);
+  --ic-ghost: rgba(244, 242, 236, 0.11);
+  --ic-hair: rgba(244, 242, 236, 0.1);
+  --ic-edge: rgba(244, 242, 236, 0.26);
+  --ic-live: rgba(244, 242, 236, 0.55);
+  --ic-ring: rgba(244, 242, 236, 0.35);
+  --ic-me: rgba(244, 242, 236, 0.6);
+}
+
+.idea-call[data-theme="light"] {
+  --ic-bg: #f6f4ee;
+  --ic-fg: #16150f;
+  --ic-dim: rgba(22, 21, 15, 0.42);
+  --ic-faint: rgba(22, 21, 15, 0.18);
+  --ic-ghost: rgba(22, 21, 15, 0.11);
+  --ic-hair: rgba(22, 21, 15, 0.1);
+  --ic-edge: rgba(22, 21, 15, 0.26);
+  --ic-live: rgba(22, 21, 15, 0.55);
+  --ic-ring: rgba(22, 21, 15, 0.35);
+  --ic-me: rgba(22, 21, 15, 0.6);
+}
+
+/* Used for one frame while the column is remeasured at full size. */
+.idea-call.ic-noanim * {
+  transition: none !important;
+}
+
+/* ── header ──────────────────────────────────────────────────────────────── */
+/* The gutter is spent on the buttons' own padding so their glyphs, not their
+   hit areas, line up with the column below. */
+.ic-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px calc(var(--ic-gut) - 10px) 0;
+  flex: 0 0 auto;
+}
+.ic-head-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ic-answering {
+  margin-left: 10px;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ic-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+}
+.ic-icon {
+  background: none;
+  border: 0;
+  padding: 10px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: inherit;
+  opacity: 0.55;
+  transition: opacity 0.4s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ic-icon:hover {
+  opacity: 0.95;
+}
+.ic-icon svg {
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 0.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ic-icon.ic-quiet svg {
+  width: 21px;
+  height: 21px;
+}
+/* Larger glyph, thinner stroke: it scales up without gaining weight. */
+.ic-icon.ic-dismiss {
+  opacity: 0.9;
+}
+.ic-icon.ic-dismiss svg {
+  width: 31px;
+  height: 31px;
+}
+.ic-icon.ic-dismiss:hover {
+  opacity: 1;
+}
+
+/* ── orb ─────────────────────────────────────────────────────────────────── */
+.ic-orbwrap {
+  position: relative;
+  flex: 0 0 auto;
+  height: clamp(190px, 28vh, 290px);
+  margin-top: 2px;
+}
+.ic-orb {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ic-fallback {
+  display: none;
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 112px;
+  height: 112px;
+  border: 1px solid var(--ic-faint);
+  border-radius: 50%;
+  animation: ic-breathe 3.4s ease-in-out infinite;
+}
+.idea-call[data-orb="off"] .ic-orb {
+  visibility: hidden;
+}
+.idea-call[data-orb="off"] .ic-fallback {
+  display: block;
+}
+@keyframes ic-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.9;
+  }
+}
+
+.ic-caption {
+  height: 16px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 var(--ic-gut);
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ic-dim);
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.7s var(--ic-e);
+}
+.ic-caption.ic-on {
+  opacity: 1;
+}
+.ic-caption i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.25;
+  flex: 0 0 auto;
+}
+.ic-caption.ic-on i {
+  animation: ic-tick 1.5s ease-in-out infinite;
+}
+.ic-caption i:nth-of-type(2) {
+  animation-delay: 0.22s;
+}
+.ic-caption i:nth-of-type(3) {
+  animation-delay: 0.44s;
+}
+/* A transient "what just got written down" line borrows the caption's voice
+   but not its dots: nothing is still running. */
+.ic-caption[data-dots="0"] i {
+  display: none;
+}
+@keyframes ic-tick {
+  0%,
+  60%,
+  100% {
+    opacity: 0.18;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+/* ── thread ──────────────────────────────────────────────────────────────── */
+/* One column, no scrollbar: the wheel moves a focus point and every message
+   re-scales around it, so looking back brings a turn forward. */
+.ic-main {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+.ic-thread {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 0 var(--ic-gut);
+  transition: transform var(--ic-d) var(--ic-e);
+}
+.ic-col {
+  max-width: 1000px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.ic-msg {
+  --h: 0;
+  --s: 1;
+  width: 100%;
+  height: calc(var(--h) * var(--s) * 1px + 2px);
+  margin-bottom: calc(10px + 24px * var(--s));
+  overflow: hidden;
+  transition:
+    height var(--ic-d) var(--ic-e),
+    opacity var(--ic-d) var(--ic-e),
+    margin var(--ic-d) var(--ic-e);
+}
+.ic-msg.ic-me {
+  align-self: flex-end;
+  text-align: right;
+}
+.ic-inner {
+  width: 100%;
+}
+.ic-body {
+  font-size: calc(var(--ic-big) * var(--s));
+  line-height: 1.26;
+  max-width: 16em;
+  transition: font-size var(--ic-d) var(--ic-e);
+}
+.ic-msg.ic-me .ic-body {
+  font-size: calc(var(--ic-big) * var(--s) * 0.8);
+  font-style: italic;
+  color: var(--ic-me);
+  margin-left: auto;
+}
+.ic-msg[data-dim="1"] .ic-body {
+  color: var(--ic-dim);
+}
+.ic-w {
+  display: inline-block;
+  opacity: 0;
+  filter: blur(14px);
+  transform: translateY(0.2em);
+  animation: ic-rise 1s var(--ic-e) forwards;
+}
+@keyframes ic-rise {
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+
+/* ── footer ──────────────────────────────────────────────────────────────── */
+.ic-foot {
+  padding: 14px var(--ic-gut) 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.ic-jump {
+  background: none;
+  border: 0;
+  font-family: var(--ic-serif);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ic-dim);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  padding: 6px;
+  margin-bottom: 16px;
+  transition: opacity 0.45s var(--ic-e);
+}
+.idea-call.ic-behind .ic-jump {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ic-dock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* The dock takes focus on mount so the call starts with the keyboard in the
+   right place. It is a container, not a control, and Chrome draws a ring round
+   programmatically focused containers: its buttons carry their own focus. */
+.ic-dock:focus {
+  outline: none;
+}
+.ic-field {
+  width: 0;
+  opacity: 0;
+  margin-right: 0;
+  padding: 0;
+  overflow: hidden;
+  flex: 0 0 auto;
+  height: 68px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--ic-hair);
+  border-radius: 34px;
+  transition:
+    width 0.62s var(--ic-e),
+    opacity 0.4s var(--ic-e),
+    margin 0.62s var(--ic-e),
+    padding 0.62s var(--ic-e),
+    border-color 0.4s;
+}
+.ic-dock.ic-open .ic-field {
+  width: min(520px, 54vw);
+  opacity: 1;
+  margin-right: 14px;
+  padding: 0 30px;
+}
+.ic-field:focus-within {
+  border-color: var(--ic-edge);
+}
+.ic-input {
+  width: 100%;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--ic-fg);
+  font-family: var(--ic-serif);
+  font-size: 21px;
+  height: 100%;
+}
+.ic-input::placeholder {
+  color: var(--ic-ghost);
+  font-style: italic;
+  opacity: 1;
+}
+
+.ic-btn {
+  position: relative;
+  border: 1px solid var(--ic-hair);
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  transition:
+    border-color 0.4s,
+    opacity 0.4s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ic-btn:hover:not(:disabled) {
+  border-color: var(--ic-edge);
+}
+.ic-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.ic-btn svg {
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 0.4s;
+}
+.ic-mic {
+  width: 76px;
+  height: 76px;
+  margin-right: 14px;
+}
+.ic-mic svg {
+  width: 24px;
+  height: 24px;
+}
+.ic-key {
+  width: 60px;
+  height: 60px;
+}
+.ic-key svg {
+  width: 22px;
+  height: 22px;
+}
+.ic-dock.ic-open .ic-key {
+  border-color: var(--ic-edge);
+}
+.ic-mic.ic-live {
+  border-color: var(--ic-live);
+}
+.ic-mic.ic-live::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1px solid var(--ic-ring);
+  animation: ic-ping 1.7s ease-out infinite;
+}
+@keyframes ic-ping {
+  from {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ic-w {
+    opacity: 1;
+    filter: none;
+    transform: none;
+    animation: none;
+  }
+  .ic-fallback,
+  .ic-caption.ic-on i,
+  .ic-mic.ic-live::after {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .ic-dock.ic-open .ic-field {
+    width: min(520px, 42vw);
+    padding: 0 22px;
+    height: 60px;
+  }
+  .ic-mic {
+    width: 64px;
+    height: 64px;
+  }
+  .ic-key {
+    width: 52px;
+    height: 52px;
+  }
+  .ic-foot {
+    padding-bottom: 28px;
+  }
+}
