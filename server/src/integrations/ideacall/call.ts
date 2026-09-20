@@ -52,18 +52,20 @@ const HOSTED: ProviderId[] = ["freellmapi", "openrouter", "openai"];
  * is entitled to know which is happening. `provider` under the ideacall
  * settings pins it either way — "local" included.
  */
-export function callProvider(): { id: ProviderId; label: string; reason: string | null } | null {
+export function callProvider(): { id: ProviderId; label: string; reason: string | null; model: string | null } | null {
   const connected = providers().filter(p => p.connected);
   const named = (id: ProviderId) => connected.find(p => p.id === id);
   const pinned = configValue(IDEACALL_PLUGIN, "provider") as ProviderId | null;
-  if (pinned && named(pinned)) return { id: pinned, label: named(pinned)!.label ?? pinned, reason: null };
+  /* A model is only ever chosen TOGETHER with its provider, so it is only
+     applied to that provider: a model id means nothing to a different one. */
+  if (pinned && named(pinned)) return { id: pinned, label: named(pinned)!.label ?? pinned, reason: null, model: configValue(IDEACALL_PLUGIN, "model")?.trim() || null };
   const active = activeProvider();
   if (!active) return null;
   if (active.id === "local" && active.policy.mode === "series") {
     const hosted = HOSTED.map(named).find(Boolean);
-    if (hosted) return { id: hosted.id, label: hosted.label ?? hosted.id, reason: `${active.label} answers one job at a time, so the call is with ${hosted.label ?? hosted.id} instead.` };
+    if (hosted) return { id: hosted.id, label: hosted.label ?? hosted.id, model: null, reason: `${active.label} answers one job at a time, so the call is with ${hosted.label ?? hosted.id} instead.` };
   }
-  return { id: active.id, label: active.label, reason: null };
+  return { id: active.id, label: active.label, reason: null, model: null };
 }
 
 export type CallTurn = { id: number; role: "user" | "assistant"; text: string; at: string };
@@ -146,12 +148,12 @@ export async function* callTurn(venture: VentureRow, message: string | null, sig
     : "(The call has just connected. Greet them in one short sentence and ask your first question — about whatever on the idea page is weakest or missing.)";
 
   let toolsOn = true;
-  const provider = callProvider()?.id;
+  const on = callProvider(), provider = on?.id, model = on?.model ?? undefined;
   const wire: ToolWireTurn[] = [{ role: "system", content: brief(venture, true) }, ...past, { role: "user", content: stage }];
   /* One object, reused, so every round of the turn is charged to one run and
      to this venture — see `directTurn` in integrations/runtime/loop.ts. */
   const ctx = { id: `idea-call:${venture.id}:${Date.now().toString(36)}`, venture: venture.id, automation: false, signal: bounded, sequence: 0, resume: false };
-  const ask = (tools: boolean) => runContext.run(ctx, () => completeTooled(wire, { provider, tools: tools ? TOOLS : undefined, toolChoice: tools ? "auto" : undefined, signal: bounded, maxOutputTokens: 1200 }));
+  const ask = (tools: boolean) => runContext.run(ctx, () => completeTooled(wire, { provider, model, tools: tools ? TOOLS : undefined, toolChoice: tools ? "auto" : undefined, signal: bounded, maxOutputTokens: 1200 }));
 
   const update = emptyUpdate();
   const research: string[] = [];
@@ -204,7 +206,7 @@ export async function finishCall(venture: VentureRow, signal?: AbortSignal): Pro
     () => complete([
       { role: "system", content: `You keep the notes for a call in which a founder refined a business idea. Compare the transcript with the idea page and return ONLY what the call settled that the page does not say yet, or now says wrongly. Reply with one JSON object and nothing else. Keys, all optional: "description", ${IDEA_FIELDS.map(k => `"${k}" (${PROFILE_FIELDS[k]})`).join(", ")} — each a string of one to three plain sentences in the founder's words; and "competitors": an array of {"name","url","positioning","pricing"} for real companies named in the call WITH a website that was actually seen, never guessed. Leave a key out when the page is already right or the call did not settle it. {} is a good answer.` },
       { role: "user", content: `THE IDEA PAGE\n${pageBlock(venture)}\n\nTHE CALL\n${transcript}` },
-    ], { provider: callProvider()?.id, jsonObject: true, maxOutputTokens: 2000, signal }),
+    ], { provider: callProvider()?.id, model: callProvider()?.model ?? undefined, jsonObject: true, maxOutputTokens: 2000, signal }),
   );
   const match = /\{[\s\S]*\}/.exec(reply.text);
   if (!match) return update;
