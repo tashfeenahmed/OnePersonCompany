@@ -16,6 +16,23 @@ export function readJourney(venture: VentureRow): JourneyDocument {
 export function recordStageChange(id: string, from: string, to: string, note: string, at: string) {
   if (from !== to) db.prepare("INSERT INTO venture_stage_history (venture_id,from_stage,to_stage,note,ts) VALUES (?,?,?,?,?)").run(id, from, to, note, at);
 }
+/**
+ * A COMMAND FROM THIS SIDE OF THE WIRE — the idea call writing what was settled.
+ * The route below takes a revision because two browser windows can hold two
+ * copies of the plan; a caller in this process holds none, reads the current
+ * document inside the transaction, and cannot be stale. Returns the refusal in
+ * the route's own words, or null when it was written.
+ */
+export function writeJourneyCommand(venture: VentureRow, command: JourneyCommand): string | null {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const doc = readJourney(venture), at = new Date().toISOString();
+    const problem = applyJourneyCommand(doc.state, command, at);
+    if (problem) { db.exec("ROLLBACK"); return problem; }
+    db.prepare(`INSERT INTO venture_journeys (venture_id,revision,state,updated_at) VALUES (?,?,?,?) ON CONFLICT(venture_id) DO UPDATE SET revision=excluded.revision,state=excluded.state,updated_at=excluded.updated_at`).run(venture.id, doc.revision + 1, JSON.stringify(doc.state), at);
+    db.exec("COMMIT"); return null;
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+}
 const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const line = (v: unknown, max: number, required = false): v is string => typeof v === "string" && v.length <= max && (!required || !!v.trim());
 /** Commands change only named fields. A revision guards all paths, including custom API clients. */

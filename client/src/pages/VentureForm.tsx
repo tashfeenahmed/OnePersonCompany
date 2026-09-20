@@ -192,7 +192,7 @@ function Form({ venture }: { venture?: Venture }) {
           </div>
 
           <div className="grid gap-1.5">
-            <Label htmlFor="venture-site">Website</Label>
+            <Label htmlFor="venture-site">Website <span className="text-muted-foreground font-normal">· optional</span></Label>
             <Input
               id="venture-site"
               value={website}
@@ -201,8 +201,9 @@ function Form({ venture }: { venture?: Venture }) {
               onChange={(e) => setWebsite(e.target.value)}
             />
             <p className="text-muted-foreground text-[12.5px]">
-              The favicon and colours are read from here. It also narrows this
-              venture&rsquo;s dashboards to that host.
+              {stage === "idea" && !website.trim()
+                ? "An idea rarely has one yet. Leave it empty and add it when there is a site; only the name is needed to start."
+                : "The favicon and colours are read from here. It also narrows this venture\u2019s dashboards to that host."}
             </p>
           </div>
 
@@ -216,7 +217,7 @@ function Form({ venture }: { venture?: Venture }) {
             have already clicked past.
           */}
           <div className="grid gap-1.5">
-            <Label id="venture-business-types">Business types · select all that apply</Label>
+            <Label id="venture-business-types">Business types · select all that apply <span className="text-muted-foreground font-normal">· optional</span></Label>
             <div className="flex flex-wrap gap-2" role="group" aria-labelledby="venture-business-types">
               {BUSINESS_TYPES.map(t => {
                 const Icon = BUSINESS_TYPE_ICONS[t.id];
@@ -255,7 +256,7 @@ function Form({ venture }: { venture?: Venture }) {
           </div>
 
           <div className="grid gap-1.5">
-            <Label>Colour</Label>
+            <Label>Colour <span className="text-muted-foreground font-normal">· optional</span></Label>
             <div className="flex flex-wrap items-center gap-1.5">
               {VENTURE_COLORS.map((c) => (
                 <button

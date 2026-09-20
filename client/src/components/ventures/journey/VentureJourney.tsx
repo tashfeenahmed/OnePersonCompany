@@ -1,17 +1,22 @@
 import { businessTypesOf, toggleBusinessType } from "../../../../../shared/businessTypes";
-import { useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ArrowUpRight, Check, Download, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Check, Download, Phone, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { useApi } from "@/hooks/useApi";
 import { journeyApi } from "@/lib/api/ventureJourney";
 import { useStore } from "@/lib/store";
+import { api } from "@/lib/api";
 import type { Venture } from "@/lib/api";
 import { appPage } from "../../../../../shared/navigation";
 import { businessLabel, BUSINESS_TYPES, JOURNEY_STAGES, STAGE_LABELS, PROFILE_FIELDS, journeyTasks, journeyReadiness, journeyExport, type BusinessType, type JourneyCommand, type JourneyProfile, type JourneyStage, type JourneyTask, type NameCandidate } from "../../../../../shared/ventureJourney";
 import { CustomTaskEditor, ErrorNotice, JourneyModal, NameEditor, ProfileEditor, StageEditor, TaskEditor } from "./JourneyForms";
 import { JourneyPerformance } from "./JourneyPerformance";
+import { IdeaAlternatives } from "./IdeaAlternatives";
+/* Lazy, because the call brings three.js with it and most visits to this page
+   never place one. */
+const IdeaCall = lazy(() => import("@/components/ventures/ideacall/IdeaCall").then(m => ({ default: m.IdeaCall })));
 import "./journey.css";
 const COPY = {
   idea: { eyebrow: "Explore & validate", title: "Give the idea a little more shape.", sub: "Find the right customer, test the problem, and decide what is worth building.", checklist: "Your idea-to-evidence plan", focus: "A little evidence beats a lot of guessing.", focusText: "Choose one assumption that could change your decision. Test it with a real person before building more." },
@@ -35,7 +40,17 @@ function download(name: string, data: unknown) {
 }
 export function VentureJourney({ venture, children }: { venture: Venture; children: ReactNode }) {
   const request = useApi(() => journeyApi.read(venture.id), [venture.id]);
-  const { updateVenture } = useStore();
+  const { updateVenture, reconcileVentures } = useStore();
+  /* THE REFINE CALL. It writes into this page from the server — the plan's
+     fields, the alternatives, the name shortlist, the venture's description —
+     so hanging up re-reads all four rather than trusting what is on screen. */
+  const [calling, setCalling] = useState(false), [alternativesKey, setAlternativesKey] = useState(0);
+  const endCall = (changed: boolean) => {
+    setCalling(false);
+    if (!changed) return;
+    request.reload(); setAlternativesKey(k => k + 1);
+    void api.ventures.list().then(doc => reconcileVentures(doc.ventures)).catch(() => {});
+  };
   const [busy, setBusy] = useState(false), saving = useRef(false);
   const [error, setError] = useState<string | null>(null), [editor, setEditor] = useState<Editor | null>(null);
   const [filter, setFilter] = useState("all");
@@ -64,7 +79,8 @@ export function VentureJourney({ venture, children }: { venture: Venture; childr
   const brief = `Venture: ${venture.name}. Stage: ${STAGE_LABELS[stage]}. Types: ${types.map(businessLabel).join(", ") || "Not chosen"}. Read its venture journey using venture ID ${venture.id} before making recommendations. Use the saved assumptions and evidence; distinguish unknowns from facts.`;
   const ask = (prompt: string) => `/?venture=${encodeURIComponent(venture.id)}&q=${encodeURIComponent(`${brief}\n\n${prompt}`)}`;
   return <div className="venture-journey min-h-0 flex-1 overflow-y-auto px-5 pb-16 md:px-8"><div className="mx-auto w-full max-w-[1220px]">
-    <div className="journey-top"><div><div className="journey-eyebrow">{venture.name} / {copy.eyebrow}</div><h1>{copy.title}</h1><p className="journey-muted max-w-[660px]">{copy.sub}</p></div><div className="flex shrink-0 flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => download(`${venture.slug}-journey.json`, journeyExport(venture.name, doc))}><Download className="size-3.5" />Export plan</Button><Button size="sm" disabled={busy} onClick={() => edit({ kind: "stage", target: next ?? "idea" })}>Change status</Button></div></div>
+    {calling && <Suspense fallback={null}><IdeaCall venture={venture} onClose={endCall} /></Suspense>}
+    <div className="journey-top"><div><div className="journey-eyebrow">{venture.name} / {copy.eyebrow}</div><h1>{copy.title}</h1><p className="journey-muted max-w-[660px]">{copy.sub}</p></div><div className="flex shrink-0 flex-wrap items-center gap-2">{stage === "idea" && <Button onClick={() => setCalling(true)}><Phone className="size-4" />Refine idea</Button>}<Button variant="outline" size="sm" onClick={() => download(`${venture.slug}-journey.json`, journeyExport(venture.name, doc))}><Download className="size-3.5" />Export plan</Button><Button size="sm" variant={stage === "idea" ? "outline" : "default"} disabled={busy} onClick={() => edit({ kind: "stage", target: next ?? "idea" })}>Change status</Button></div></div>
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-2" role="group" aria-label="Business types"><span className="text-xs text-muted-foreground">Business types</span>{BUSINESS_TYPES.map(t => <button key={t.id} className={`rounded-lg border px-2.5 py-1.5 text-xs ${types.includes(t.id) ? "bg-accent text-foreground" : "text-muted-foreground"}`} aria-pressed={types.includes(t.id)} disabled={busy || request.loading} onClick={() => { void setType(t.id); }}>{t.label}</button>)}</div><span className="journey-muted" role="status">{busy ? "Saving…" : doc.updatedAt ? "Plan saved" : "Your plan is ready to start"}</span></div>
     <nav className="journey-steps" aria-label="Venture stages">{JOURNEY_STAGES.map((s, i) => <button key={s} className="journey-step" aria-current={s === stage ? "step" : undefined} disabled={busy} onClick={() => { if (s !== stage) edit({ kind: "stage", target: s }); }}><span className="journey-step-number">{s === stage ? <span>{i + 1}</span> : i + 1}</span><span><strong className="font-medium">{STAGE_LABELS[s]}</strong><span className="journey-muted block text-xs!">{COPY[s].eyebrow}</span></span>{s === stage && <span className="journey-tag ml-auto hidden sm:inline-flex">Current</span>}</button>)}</nav>
     {!editor && <ErrorNotice error={error} />}<ErrorNotice error={request.error} />{(error || request.error) && <button className="journey-muted mb-4 underline" disabled={busy} onClick={() => { request.reload(); }}>Reload saved plan</button>}
@@ -75,6 +91,7 @@ export function VentureJourney({ venture, children }: { venture: Venture; childr
     </div>}
     <div className="journey-grid"><div className="journey-stack">
       <section className="journey-card"><div className="journey-card-header"><h2>{stage === "idea" ? "Start with the problem, then the product." : stage === "pre-launch" ? "The first week, thought through." : "One useful focus for this week."}</h2><button onClick={() => edit({ kind: "profile", fields: FIELDS[stage] })}>Edit plan</button></div><dl className="journey-brief">{FIELDS[stage].map(field => <div key={field}><dt>{PROFILE_FIELDS[field]}</dt><dd>{profile[field] || <button className="text-muted-foreground text-left" onClick={() => edit({ kind: "profile", fields: FIELDS[stage] })}>Add {PROFILE_FIELDS[field].toLowerCase()} <span aria-hidden>↗</span></button>}</dd></div>)}</dl></section>
+      {stage === "idea" && <IdeaAlternatives venture={venture} refreshKey={alternativesKey} onCall={() => setCalling(true)} />}
       <section className="journey-card"><div className="journey-card-header"><div><h2>{copy.checklist}</h2><p className="journey-muted mt-1">{types.length ? types.map(businessLabel).join(" + ") : "Common foundations"} · {readiness.done} complete{readiness.skipped ? ` · ${readiness.skipped} skipped with a reason` : ""}</p></div><button onClick={() => edit({ kind: "custom" })} className="flex items-center gap-1"><Plus className="size-3.5" />Add step</button></div>
         {!type && <p className="journey-note">Choose a business type above to add the right steps for your venture.</p>}
         <div className="mt-4 flex gap-2" aria-label="Checklist filter">{[["all", "All steps"], ["open", "To do"], ["required", "Essentials"]].map(([value, label]) => <button key={value} className={`rounded-lg px-3 py-1.5 text-xs ${filter === value ? "bg-accent text-foreground" : "text-muted-foreground"}`} aria-pressed={filter === value} onClick={() => setFilter(value!)}>{label}</button>)}</div>
