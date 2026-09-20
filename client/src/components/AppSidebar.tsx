@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
 import {
   ChevronDown,
@@ -34,7 +34,8 @@ import { useDashboardAlerts } from "@/hooks/useDashboardAlerts";
 import { AlertBadge } from "@/components/AlertBadge";
 import { api } from "@/lib/api";
 import { MENU, NAV } from "@/data/navigation";
-import { NEW_CHAT_KEYS, SEARCH_KEYS, openSpotlight } from "@/lib/spotlight";
+import { SEARCH_KEYS, openSpotlight } from "@/lib/spotlight";
+import { NewMenu } from "@/components/NewMenu";
 
 import { SortableList } from "@/components/SortableList";
 import { SidebarPinButton } from "@/components/SidebarPinButton";
@@ -114,31 +115,6 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
    * `encodeURIComponent` on the way out.
    */
   const openSessionId = useMatch("/chat/:sessionId")?.params.sessionId ?? null;
-
-  /**
-   * NEW CHAT IS AN ADDRESS NOW, WHICH IS WHAT FINALLY MADE IT HONEST.
-   *
-   * It was a `<Link to="/">` once, and that was a real bug: `/` and the chat
-   * being read were the same address, so the router matched the same route,
-   * rendered the same component, and the store still named the same active
-   * session — the "new" chat opened with the last conversation in it. The fix
-   * at the time was to clear `activeSessionId` first. With the session in the
-   * URL there is nothing to clear: `/` names no conversation, so arriving
-   * there IS the empty composer, and the row in the rail is still created by
-   * the first message and named after it.
-   *
-   * The keys for it — ⌃N, and ⌘N where a browser lets it through — are bound
-   * in components/Spotlight.tsx, beside ⌘K, which was this button's shortcut
-   * until search took it. One place listens to the keyboard.
-   *
-   * IT DOES NOT TOUCH ANYTHING IN FLIGHT. An answer being written belongs to
-   * its own session and goes on arriving — the mark stays on its row here, and
-   * pressing New chat while one is streaming is how you ask a second question,
-   * not how you cancel the first.
-   */
-  const newChat = useCallback(() => {
-    navigate("/");
-  }, [navigate]);
 
   const [search, setSearch] = useState("");
   const [searching, setSearching] = useState(false);
@@ -281,17 +257,7 @@ export function AppSidebar({ collapsed = false, onCollapsedChange }: {
         </Button></TooltipTrigger><TooltipContent side={collapsed ? "right" : "bottom"}>{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent></Tooltip>
       </div>
 
-      <Tooltip><TooltipTrigger asChild>
-      <Button
-        onClick={newChat}
-        aria-label="New chat" aria-keyshortcuts="Control+N Meta+N"
-        className={cn("sidebar-new-chat mb-1.5 h-10 overflow-hidden text-[13.5px]", collapsed ? "mx-auto w-10 justify-center gap-0 p-0" : "w-full justify-start gap-2.5 px-3")}
-      >
-        <Plus className="size-[14px]" strokeWidth={2} />
-        {!collapsed && <><span className="sidebar-detail min-w-0 flex-1 text-left">New chat</span>
-        <span aria-hidden="true" className="sidebar-detail ml-auto font-mono text-[11.5px] opacity-55">{NEW_CHAT_KEYS}</span></>}
-      </Button>
-      </TooltipTrigger>{collapsed && <TooltipContent side="right" sideOffset={8}>New chat · {NEW_CHAT_KEYS}</TooltipContent>}</Tooltip>
+      <NewMenu collapsed={collapsed} />
 
       {/* SEARCH IS EVERYTHING, NOT THE SESSION FILTER BELOW. That field narrows
           the rail's own list by title; this opens the palette over chats,

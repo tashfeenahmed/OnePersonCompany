@@ -6,7 +6,7 @@ import { ModuleIcon } from "@/components/ModuleIcon";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { find, type FindHit } from "@/lib/api/find";
-import { IS_MAC, OPEN_SPOTLIGHT, localItems, markParts, mergeItems, spotlightWords, type SpotlightItem, type SpotlightSources } from "@/lib/spotlight";
+import { IS_MAC, OPEN_NEW_MENU, OPEN_SPOTLIGHT, localItems, markParts, mergeItems, spotlightWords, type SpotlightItem, type SpotlightSources } from "@/lib/spotlight";
 import { orderedOutputs } from "@/data/outputs";
 import { MENU, NAV } from "@/data/navigation";
 import { appPage } from "../../../shared/navigation";
@@ -19,8 +19,9 @@ const DEBOUNCE_MS = 140;
  *
  * It lives in the shell rather than beside a button because it belongs to no
  * page: the keys work with the rail collapsed, in the mobile drawer, and with
- * the hands in the composer. ⌘K used to start a new chat; that is ⌃N / ⌘N now,
- * bound here too so there is one place the app listens to the keyboard.
+ * the hands in the composer. ⌘K used to start a new chat; ⌃N / ⌘N opens the
+ * New menu now (components/NewMenu.tsx), and is heard here too so there is one
+ * place the app listens to the keyboard.
  *
  * NAMES ARE INSTANT, WORDS ARRIVE. See lib/spotlight.ts for the two sources
  * and how they are merged.
@@ -48,14 +49,14 @@ export function Spotlight() {
       } else if (key === "n") {
         e.preventDefault();
         setOpen(false);
-        navigate("/");
+        window.dispatchEvent(new Event(OPEN_NEW_MENU));
       }
     }
     const onOpen = () => setOpen(true);
     window.addEventListener("keydown", onKey);
     window.addEventListener(OPEN_SPOTLIGHT, onOpen);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener(OPEN_SPOTLIGHT, onOpen); };
-  }, [navigate]);
+  }, []);
 
   /* Every opening starts empty: the last question is not this one. */
   useEffect(() => { if (open) { setQuery(""); setActive(0); setFailed(false); } }, [open]);
@@ -109,7 +110,7 @@ export function Spotlight() {
   }, [current, items.length]);
 
   const go = useCallback((item: SpotlightItem, newTab = false) => {
-    const to = item.action === "new-chat" ? "/" : item.to;
+    const to = item.to;
     if (!to) return;
     if (newTab) { window.open(to, "_blank", "noopener"); return; }
     setOpen(false);

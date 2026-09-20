@@ -1,7 +1,7 @@
 import { businessTypesOf, toggleBusinessType } from "../../../shared/businessTypes";
 import { BUSINESS_TYPES, type BusinessType } from "../../../shared/ventureJourney";
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ExternalLink, RefreshCw, Trash2 } from "lucide-react";
 import { BUSINESS_TYPE_ICONS } from "@/data/businessTypeIcons";
 import { when } from "@/lib/format";
@@ -70,7 +70,15 @@ function Form({ venture }: { venture?: Venture }) {
   const [name, setName] = useState(venture?.name ?? "");
   const [description, setDescription] = useState(venture?.description ?? "");
   const [website, setWebsite] = useState(venture?.website ?? "");
-  const [stage, setStage] = useState<VentureStage>(venture?.stage ?? "idea");
+  /* `?stage=` — the New menu opens this form already at Idea, Pre-launch or
+     Launched. The starting value; an edit ignores it. */
+  const [params] = useSearchParams();
+  const asked = VENTURE_STAGES.find(s => s.id === params.get("stage"))?.id;
+  const [stage, setStage] = useState<VentureStage>(venture?.stage ?? asked ?? "idea");
+  /* Asked again while the form is already open — the menu, a second time, for
+     a different stage — moves the stage and leaves what was typed alone. */
+  const [answered, setAnswered] = useState(asked);
+  if (asked !== answered) { setAnswered(asked); if (!venture && asked) setStage(asked); }
   const [businessTypes, setBusinessTypes] = useState<BusinessType[]>(venture ? businessTypesOf(venture) : []);
   const [expectedUpdatedAt] = useState(venture?.updatedAt);
   /* Null means "whatever the site says" — the option that sends `color: null`
