@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { localItems, markParts, mergeItems, nameScore, type SpotlightSources } from "./spotlight.ts";
+import { localItems, markParts, mergeItems, nameScore, newItemForKey, type SpotlightSources } from "./spotlight.ts";
 
 const sources: SpotlightSources = {
   pages: [{ to: "/board", label: "Board" }, { to: "/dashboards", label: "Dashboards" }, { to: "/outputs/research", label: "Research", also: "outputs reports" }],
@@ -14,7 +14,8 @@ const sources: SpotlightSources = {
 
 test("nothing typed is the start screen: the action, recent chats, every page", () => {
   const items = localItems("", sources);
-  assert.equal(items[0].action, "new-chat");
+  assert.deepEqual([items[0].key, items[0].to], ["action:chat", "/"]);
+  assert.equal(items.filter(i => i.group === "Actions").length, 1, "the start screen offers the one action made daily");
   assert.deepEqual(items.filter(i => i.group === "Chats").map(i => i.key), ["chat:s1", "chat:s2"]);
   assert.equal(items.filter(i => i.group === "Pages").length, 3);
 });
@@ -28,7 +29,10 @@ test("names match on every word, and a name that starts with it comes first", ()
   assert.deepEqual(items.filter(i => i.group === "Pages").map(i => i.title), ["Board", "Dashboards"]);
   assert.deepEqual(items.map(i => i.group).filter((g, i, all) => all.indexOf(g) === i), ["Pages", "Ventures", "Dashboards", "Chats", "Reports"]);
   assert.equal(localItems("reports", sources)[0].title, "Research", "a page answers to what it is as well as its name");
-  assert.equal(localItems("new", sources)[0].action, "new-chat");
+  assert.deepEqual(localItems("new", sources).filter(i => i.group === "Actions").map(i => i.key), ["action:chat", "action:dashboard", "action:venture-idea", "action:venture-pre-launch", "action:venture-launched"]);
+  assert.equal(localItems("venture launched", sources)[0].to, "/ventures/new?stage=launched");
+  assert.equal(newItemForKey("P")?.id, "venture-pre-launch");
+  assert.equal(newItemForKey("Enter"), undefined);
 });
 
 test("a chat both sides found is one row: the server's address, the owner's title", () => {
