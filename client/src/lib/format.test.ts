@@ -168,6 +168,9 @@ test("inDays says the distance in words, with the tail units", () => {
   assert.equal(inDays(-12), "12d ago");
   assert.equal(inDays(200), "in 7mo");
   assert.equal(inDays(500), "in 1.4y");
+  /* A year of months is a year: the old cut at 400 days printed "in 13mo". */
+  assert.equal(inDays(370), "in 1.0y");
+  assert.equal(inDays(334), "in 11mo");
 });
 
 /* ---------------------------------------------------------------- money */

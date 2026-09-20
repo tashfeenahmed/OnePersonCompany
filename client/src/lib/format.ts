@@ -255,7 +255,10 @@ export function inDays(days: Maybe, opts: Absent = {}): string {
   if (n === 0) return "today";
   if (n < 0) return `${Math.abs(n)}d ago`;
   if (n < 45) return `in ${n}d`;
-  if (n < 400) return `in ${Math.round(n / 30.44)}mo`;
+  /* A year starts where months stop: thirteen of them is one year, and the
+     old 400-day cut let 45..399 days print "in 12mo" and "in 13mo" right
+     where a year reads truer. */
+  if (n < 365) return `in ${Math.round(n / 30.44)}mo`;
   return `in ${(n / 365.25).toFixed(1)}y`;
 }
 
