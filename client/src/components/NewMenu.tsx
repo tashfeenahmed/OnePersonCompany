@@ -26,6 +26,16 @@ import { NEW_ITEMS, NEW_MENU_KEYS, OPEN_NEW_MENU, newItemForKey } from "@/lib/sp
  * pretending to be one. The key itself is heard in components/Spotlight.tsx,
  * the one place this app listens to the keyboard, and arrives here as an event.
  *
+ * THE SEAM IS AN OPAQUE MIX, NOT A TINT. Every Button here has a transparent
+ * one-pixel border with its fill clipped inside it, so where two halves meet
+ * the rail shows through — black, in dark mode, on a near-white button. A
+ * translucent line drawn over that gap is a tint of the RAIL. So the chat half
+ * gives up its right border, the caret gives up its left, and the line is an
+ * inset shadow in the button's own two colours mixed: a hairline a shade off
+ * the fill in either theme. A shadow and not a border, because a border spans
+ * the whole box and would stand a pixel proud of the clipped fill above and
+ * below.
+ *
  * COLLAPSED, THERE IS NO ROOM FOR TWO HALVES, so the one square button opens
  * the menu and New chat is its first row.
  */
@@ -79,14 +89,14 @@ export function NewMenu({ collapsed }: { collapsed: boolean }) {
       <div className={cn("sidebar-new-chat mb-1.5 flex h-10 overflow-hidden rounded-lg", collapsed ? "mx-auto w-10" : "w-full")}>
         {!collapsed && <Button
           onClick={() => go(chat.to)} aria-label="New chat"
-          className="h-10 min-w-0 flex-1 justify-start gap-2.5 rounded-r-none px-3 text-[13.5px]"
+          className="h-10 min-w-0 flex-1 justify-start gap-2.5 rounded-r-none border-r-0 px-3 text-[13.5px]"
         >
           <Plus className="size-[14px]" strokeWidth={2} />
           <span className="sidebar-detail min-w-0 flex-1 text-left">New chat</span>
         </Button>}
         <Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild>
           <Button ref={trigger} aria-label={collapsed ? "New" : "More to create"} aria-keyshortcuts="Control+N Meta+N"
-            className={cn("h-10 text-[11.5px]", collapsed ? "w-10 justify-center p-0" : "gap-1 rounded-l-none border-l border-primary-foreground/15 px-2.5")}>
+            className={cn("h-10 text-[11.5px]", collapsed ? "w-10 justify-center p-0" : "gap-1 rounded-l-none border-l-0 px-2.5 shadow-[inset_1px_0_0_color-mix(in_oklab,var(--primary-foreground)_14%,var(--primary))]")}>
             {collapsed ? <Plus className="size-[14px]" strokeWidth={2} /> : <>
               <span aria-hidden="true" className="sidebar-detail font-mono opacity-55">{NEW_MENU_KEYS}</span>
               <ChevronDown aria-hidden="true" className="size-3.5 opacity-70" strokeWidth={2} />
