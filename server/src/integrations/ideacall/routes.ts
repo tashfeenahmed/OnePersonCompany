@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { setConfig, upsertPlugin, ventureRow } from "../../db.ts";
-import { providers, type ProviderId } from "../../models/provider.ts";
-import { state as voiceState } from "../signals/voice/provider.ts";
+import { configValue, setConfig, upsertPlugin, ventureRow } from "../../db.ts";
+import { HTTPS_PORT } from "../../config.ts";
+import { providerModels, providers, type ProviderId } from "../../models/provider.ts";
+import { speak, state as voiceState, transcribe, voiceModels } from "../signals/voice/provider.ts";
 import { IDEACALL_PLUGIN, callProvider, callTurn, callTurns, finishCall, resetCall } from "./call.ts";
 
 const MAX_MESSAGE = 4000;
@@ -13,25 +14,83 @@ const answering = new Set<string>();
 
 export const ideaCallRoutes = new Hono();
 
-/** Pin which connected provider takes the call, or `null` to let it choose —
- *  see `callProvider`. Declared before `/:key` so "settings" is not a venture. */
+/* ------------------------------------------------------------- settings --
+
+   WHO THINKS, WHO HEARS, WHO SPEAKS — the three models of a call, chosen from
+   inside the call. All three are declared before `/:key`, so "settings",
+   "listen" and "say" are not read as ventures.
+
+   The text model is this area's own choice (see `callProvider`). Hearing and
+   speaking belong to the voice integration — its endpoints, its keys — and
+   what is chosen here is only WHICH MODEL on those endpoints this call uses,
+   stored as an override so Telegram's voice notes and the videos keep theirs.
+   Whether the BROWSER hears and speaks instead is the browser's business and
+   is kept there; this side only says what the box can offer. */
+const pick = (key: string) => configValue(IDEACALL_PLUGIN, key)?.trim() || null;
+
+async function settingsDoc() {
+  const connected = providers().filter(p => p.connected);
+  const voice = (() => { try { return voiceState(); } catch { return null; } })();
+  const [lists, models] = await Promise.all([Promise.all(connected.map(p => providerModels(p.id))), voice ? voiceModels() : { stt: [], tts: [] }]);
+  return {
+    text: { provider: pick("provider"), model: pick("model"), answering: callProvider(), providers: connected.map((p, i) => ({ id: p.id, label: p.label ?? p.id, models: lists[i] })) },
+    listen: { configured: !!voice?.stt.configured, model: pick("sttModel") ?? voice?.stt.model ?? null, chosen: pick("sttModel"), models: models.stt },
+    speak: { ready: !!voice?.tts.ready, mode: voice?.tts.mode ?? "off", model: pick("ttsModel") ?? voice?.tts.model ?? null, voice: pick("ttsVoice") ?? voice?.tts.voice ?? null, chosenModel: pick("ttsModel"), chosenVoice: pick("ttsVoice"), models: models.tts },
+    /* The port the same app answers on over TLS, or null — what a page on a
+       plain LAN address needs to know to send the owner somewhere the
+       microphone is allowed. */
+    secure: { httpsPort: HTTPS_PORT || null },
+  };
+}
+
+ideaCallRoutes.get("/settings", async (c) => c.json(await settingsDoc()));
+
 ideaCallRoutes.put("/settings", async (c) => {
-  const body = await c.req.json().catch(() => null) as { provider?: unknown } | null;
-  const id = body?.provider;
-  if (id !== null && !providers().some(p => p.connected && p.id === id)) return c.json({ error: "Choose a connected provider, or null." }, 400);
+  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+  if (!body) return c.json({ error: "Expected JSON." }, 400);
+  const text = (key: string, max = 200) => body[key] === null ? "" : typeof body[key] === "string" ? (body[key] as string).trim().slice(0, max) : undefined;
+  if (body.provider !== undefined && body.provider !== null && !providers().some(p => p.connected && p.id === body.provider)) return c.json({ error: "Choose a connected provider, or null." }, 400);
   upsertPlugin(IDEACALL_PLUGIN, true, null);
-  setConfig(IDEACALL_PLUGIN, "provider", (id as ProviderId | null) ?? "");
-  return c.json({ answering: callProvider() });
+  if (body.provider !== undefined) {
+    setConfig(IDEACALL_PLUGIN, "provider", (body.provider as ProviderId | null) ?? "");
+    /* A new provider, or none: the old provider's model goes with it. */
+    if (body.model === undefined) setConfig(IDEACALL_PLUGIN, "model", "");
+  }
+  for (const key of ["model", "sttModel", "ttsModel", "ttsVoice"]) { const value = text(key); if (value !== undefined) setConfig(IDEACALL_PLUGIN, key, value); }
+  return c.json(await settingsDoc());
+});
+
+/** What was said, from a recording — the mic path that does not depend on
+ *  which browser it is. multipart, field `file`. */
+ideaCallRoutes.post("/listen", async (c) => {
+  const form = await c.req.formData().catch(() => null);
+  const file = form?.get("file");
+  if (!(file instanceof File) || !file.size) return c.json({ error: "Send the recording as multipart field `file`." }, 400);
+  try {
+    const heard = await transcribe(new Uint8Array(await file.arrayBuffer()), file.name || "speech.webm", { reader: "idea_call", model: pick("sttModel") ?? undefined });
+    return c.json({ text: heard.text.trim(), ms: heard.ms, model: heard.model });
+  } catch (err) { return c.json({ error: err instanceof Error ? err.message : String(err) }, 502); }
+});
+
+/** A spoken clip of one paragraph, with this call's model and voice. */
+ideaCallRoutes.post("/say", async (c) => {
+  const body = await c.req.json().catch(() => null) as { text?: unknown } | null;
+  const words = typeof body?.text === "string" ? body.text.trim().slice(0, 1500) : "";
+  if (!words) return c.json({ error: "Expected { text }." }, 400);
+  try {
+    const clip = await speak(words, { voice: pick("ttsVoice") ?? undefined, model: pick("ttsModel") ?? undefined });
+    return c.json({ url: `/api/voice/clip/${clip.id}.${clip.format}`, ms: clip.ms, via: clip.via });
+  } catch (err) { return c.json({ error: err instanceof Error ? err.message : String(err) }, 502); }
 });
 
 ideaCallRoutes.get("/:key", (c) => {
   const venture = ventureRow(c.req.param("key"));
   if (!venture) return c.json({ error: "Venture not found." }, 404);
   const answering = callProvider(), ready = !!answering;
-  let tts = false;
-  try { tts = voiceState().tts.ready; } catch { /* no voice plugin is not a reason to refuse the call */ }
+  let tts = false, stt = false;
+  try { const v = voiceState(); tts = v.tts.ready; stt = v.stt.configured; } catch { /* no voice plugin is not a reason to refuse the call */ }
   return c.json({
-    ventureId: venture.id, turns: callTurns(venture.id), voice: { tts }, ready,
+    ventureId: venture.id, turns: callTurns(venture.id), voice: { tts, stt }, ready, secure: { httpsPort: HTTPS_PORT || null },
     /* Which model is on the line, and why if it is not the workspace's. */
     answering: answering && { ...answering, choices: providers().filter(p => p.connected).map(p => ({ id: p.id, label: p.label ?? p.id })) },
     note: ready ? null : "No model is connected, so there is nobody to take the call. Connect one under Settings, then call again.",

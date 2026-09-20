@@ -109,3 +109,21 @@ test("the routes answer: the document, a refused empty message, an unknown ventu
 test("spoken text carries no markup", () => {
   assert.equal(spoken("<think>hmm</think>## Title\n1. **One** thing\n* and [a link](https://x.y)"), "Title One thing and a link");
 });
+
+test("the call's models are chosen together with their provider, and a model never outlives it", async () => {
+  const put = (body: unknown) => ideaCallRoutes.request("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert.equal((await put({ provider: "openai" })).status, 400, "a provider that is not connected is refused");
+  const chosen = await (await put({ provider: "local", model: "fast-one", sttModel: "whisper-x", ttsVoice: "nova" })).json() as { text: { provider: string; model: string; answering: { model: string }; providers: { id: string; models: string[] }[] }; listen: { chosen: string }; speak: { chosenVoice: string }; secure: { httpsPort: number | null } };
+  assert.deepEqual([chosen.text.provider, chosen.text.model, chosen.text.answering.model, chosen.listen.chosen, chosen.speak.chosenVoice], ["local", "fast-one", "fast-one", "whisper-x", "nova"]);
+  assert.deepEqual(chosen.text.providers.map(p => [p.id, p.models]), [["local", ["m"]]], "the picker is offered what the endpoint lists");
+  assert.equal(chosen.secure.httpsPort, null);
+
+  sent.length = 0; script.push({ role: "assistant", content: "Hello." });
+  await drain(null);
+  assert.equal((sent[0] as unknown as { model: string }).model, "fast-one", "the chosen model is the one asked");
+
+  const cleared = await (await put({ provider: null })).json() as { text: { provider: string | null; model: string | null } };
+  assert.deepEqual([cleared.text.provider, cleared.text.model], [null, null]);
+  assert.equal((await ideaCallRoutes.request("/listen", { method: "POST", body: new FormData() })).status, 400);
+  assert.equal((await ideaCallRoutes.request("/say", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status, 400);
+});

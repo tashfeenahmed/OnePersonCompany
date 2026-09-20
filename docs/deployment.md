@@ -35,6 +35,7 @@ resolve from `server/` regardless of the working directory. Copy
 | `OPC_COLLECT_MINUTES` | `30` | Default collection cadence. `0` disables the scheduler. |
 | `OPC_RETAIN_DAYS` | `400` | Reading retention. |
 | `OPC_LOAD_RETAIN_DAYS` | `30` | Server-load reading retention. |
+| `OPC_HTTPS_PORT` | `0` (off) | Also serve the app over HTTPS on this port, with a certificate the box makes for itself. Needed for the microphone on a LAN address — see below. |
 | `OPC_AGENT_USER` | unset | Account to run the agent gateway as, for `separate-user` isolation. |
 | `OPC_ENV_FILE` | `server/.env` | Where to read the above from. |
 
@@ -91,6 +92,29 @@ drafts stay browser-local. Settings → Data exports and imports preferences,
 validated and confirmed before replacement, and **Restore previous preferences**
 recovers the snapshot before that.
 
+
+## The microphone needs a secure address
+
+Browsers give a page the microphone only in a secure context: HTTPS, or
+`localhost` on the same machine. A box opened at `http://192.168.1.x:8787` is
+neither, and nothing the page does can change that. The idea call then says so
+and links to the secure address, if there is one.
+
+Set `OPC_HTTPS_PORT` (for example `8788`) and restart. The same app is then
+also served at `https://<host>:8788`, with a self-signed certificate made by
+`openssl` on first start and kept in `<data dir>/tls/`. It names `localhost`,
+the machine's hostname and every LAN address it has; a box that changes address
+gets a new certificate on the next start.
+
+- The first visit shows the browser's certificate warning, because nobody but
+  the box vouches for it. Proceed once; after that the page is a secure context
+  and Chrome, Edge, Safari and Firefox all allow the microphone.
+- The HTTPS origin is trusted wherever the plain one is: if
+  `http://<host>:PORT` is in `OPC_ALLOWED_ORIGINS`, `https://<host>:OPC_HTTPS_PORT`
+  is allowed too, and so is `localhost`.
+- It is a separate origin to the browser, so you sign in there once more.
+- A reverse proxy or Tailscale certificate in front of the plain port is the
+  no-warning route, and this does not get in its way.
 
 ## Reverse proxies and remote access
 
