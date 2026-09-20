@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "@/lib/theme";
-import { integrations } from "@/lib/api/integrations";
 import { ideaCallApi, type IdeaCallTool, type IdeaCallTurn, type IdeaCallUpdate } from "@/lib/api/ideaCall";
 import { mountOrb, type OrbHandle, type OrbVoice } from "./orb";
 import { sentence, splitSay, threadLayout, updatedCaption } from "./thread";
+import { CallSettings, DEFAULT_PREFS, type CallPrefs } from "./CallSettings";
+import { micBlocked, startRecorder, type Recorder } from "./recorder";
 import "./idea-call.css";
 
 /**
@@ -91,8 +92,12 @@ function recognitionCtor(): RecognitionCtor | null {
 }
 
 /** A plain English voice, preferring one that lives on the machine. */
-function pickVoice(): SpeechSynthesisVoice | null {
+const PREFS_KEY = "opc-idea-call-prefs";
+
+function pickVoice(chosen = ""): SpeechSynthesisVoice | null {
   const all = window.speechSynthesis?.getVoices() ?? [];
+  const asked = chosen ? all.find((v) => v.voiceURI === chosen) : undefined;
+  if (asked) return asked;
   const english = all.filter((v) => v.lang.toLowerCase().startsWith("en"));
   if (!english.length) return null;
   const named = english.find((v) => /samantha|daniel|karen|google us english/i.test(v.name));
@@ -141,6 +146,13 @@ const Sun = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <circle cx="12" cy="12" r="4.4" />
     <path d="M12 2.6v2.4M12 19v2.4M2.6 12h2.4M19 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7" />
+  </svg>
+);
+const Gear = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+    <circle cx="15" cy="7" r="2" />
+    <circle cx="9" cy="17" r="2" />
   </svg>
 );
 const Moon = () => (
@@ -203,7 +215,23 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
      server. An idea spoken to a box in the cupboard and one sent to a gateway
      are different things. */
   const [answering, setAnswering] = useState<{ label: string; reason: string | null } | null>(null);
-  const [fieldOpen, setFieldOpen] = useState(() => recognitionCtor() === null);
+  /* The field starts open only where no microphone can be had at all. */
+  const [fieldOpen, setFieldOpen] = useState(() => recognitionCtor() === null && micBlocked() !== null);
+  /* WHO HEARS AND WHO SPEAKS is partly this browser's business — see
+     CallSettings. Kept here, per browser, and read through a ref by the
+     imperative half. */
+  const [prefs, setPrefsState] = useState<CallPrefs>(() => {
+    try { return { ...DEFAULT_PREFS, ...(JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<CallPrefs>) }; }
+    catch { return DEFAULT_PREFS; }
+  });
+  const prefsRef = useRef(prefs);
+  const setPrefs = (next: CallPrefs) => {
+    prefsRef.current = next; setPrefsState(next);
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(next)); } catch { /* the choice lasts the call, then */ }
+  };
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const sttRef = useRef(false), httpsPortRef = useRef<number | null>(null);
+  const recorderRef = useRef<Recorder | null>(null);
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [behind, setBehind] = useState(false);
@@ -446,16 +474,16 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
   }
 
   /**
-   * One paragraph, out loud. The box's own speech endpoint when it has one —
-   * a real voice beats the browser's every time — and the browser's otherwise,
-   * which is why a failure here falls through rather than throwing: losing the
-   * audio must never lose the words.
+   * One paragraph, out loud. The browser's voice unless the owner chose the
+   * box's (Call settings): a model's voice is the better one and takes seconds
+   * a paragraph, which on a call is a silence. A failed clip falls through to
+   * the browser rather than throwing: losing the audio must never lose the words.
    */
   async function speakAloud(text: string): Promise<void> {
     if (!voiceOnRef.current || endedRef.current) return;
-    if (ttsRef.current) {
+    if (ttsRef.current && prefsRef.current.speak === "server") {
       try {
-        const clip = await integrations.speak(text);
+        const clip = await ideaCallApi.say(text);
         if (!voiceOnRef.current || endedRef.current) return;
         const audio = new Audio(clip.url);
         audioRef.current = audio;
@@ -473,7 +501,7 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
     if (!synth || !voiceOnRef.current || endedRef.current) return;
     await new Promise<void>((done) => {
       const u = new SpeechSynthesisUtterance(text);
-      const v = pickVoice();
+      const v = pickVoice(prefsRef.current.browserVoice);
       if (v) u.voice = v;
       u.lang = v?.lang ?? "en-US";
       u.rate = 1.02;
@@ -719,6 +747,81 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
     setOrbVoice("listen");
   }
 
+  /**
+   * THE MIC BUTTON. Three questions, in order: is something already listening
+   * (then this press ends the turn); may this page have a microphone at all;
+   * and who transcribes — this box from a recording, which works the same in
+   * every browser, or the browser's own recognition, which shows words as they
+   * are spoken and is really only Chrome's. See recorder.ts and CallSettings.
+   */
+  function micPressed() {
+    if (recorderRef.current) { recorderRef.current.stop(); return; }
+    if (recRef.current) { stopRecognition(); return; }
+    const blocked = micBlocked();
+    if (blocked === "insecure") { explainInsecure(); return; }
+    const want = prefsRef.current.listen;
+    const server = sttRef.current && blocked === null && (want === "server" || want === "auto" || !recCtor);
+    if (server) void recordTurn();
+    else if (recCtor) startListening();
+    else { dimLine(sttRef.current ? "This browser cannot record audio. Type instead." : "This browser has no speech recognition, and no transcription model is connected on this box. Type instead."); setFieldOpen(true); }
+  }
+
+  /** A browser hands over the microphone on HTTPS or localhost and nowhere
+   *  else. Nothing on the page can change that, so say where to go. */
+  function explainInsecure() {
+    /* Pressing the mic is an interruption whatever comes of it: stop the
+       greeting, so this is the line in front of them and not one scrolling by. */
+    bargeIn();
+    const port = httpsPortRef.current;
+    const m = addInstant("ai", port
+      ? "The browser only allows the microphone on a secure address. The first visit there shows a certificate warning, because this box vouches for itself. Open "
+      : "The browser only allows the microphone on a secure address (HTTPS, or localhost on this machine), and this box has no HTTPS port turned on. Set OPC_HTTPS_PORT, or type instead.");
+    if (port) {
+      const a = document.createElement("a");
+      a.href = `https://${location.hostname}:${port}${location.pathname}${location.search}`;
+      a.textContent = `https://${location.hostname}:${port}`;
+      a.className = "ic-link";
+      m.inner.querySelector(".ic-body")?.appendChild(a);
+    }
+    followRef.current = true;
+    reveal(m);
+    setFieldOpen(true);
+  }
+
+  async function recordTurn() {
+    if (endedRef.current) return;
+    bargeIn(); // never listen over our own voice
+    let recorder: Recorder;
+    try { recorder = await startRecorder(); }
+    catch (err) {
+      const name = err instanceof Error ? err.name : "";
+      dimLine(name === "NotAllowedError" ? "Microphone permission was refused. Allow it from the address bar, or type instead."
+        : name === "NotFoundError" ? "No microphone was found. Type instead." : `The microphone could not be opened${err instanceof Error ? `: ${err.message}` : ""}.`);
+      setFieldOpen(true);
+      return;
+    }
+    if (endedRef.current) { recorder.cancel(); return; }
+    recorderRef.current = recorder;
+    setListening(true);
+    setOrbVoice("listen");
+    const clip = await recorder.done;
+    recorderRef.current = null;
+    setListening(false);
+    setOrbVoice("idle");
+    if (!clip || !clip.heard || endedRef.current) return;
+    setBaseCaption({ text: "Transcribing", dots: true });
+    try {
+      const { text } = await ideaCallApi.listen(clip.blob, clip.filename);
+      setBaseCaption(null);
+      if (endedRef.current) return;
+      if (text.trim()) submit(text.trim(), null);
+      else dimLine("I did not catch that. Say it again, or type.");
+    } catch (err) {
+      setBaseCaption(null);
+      dimLine(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   /* -------------------------------------------------------------- hang up */
 
   async function hangUp() {
@@ -734,6 +837,7 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
     abortRef.current = null;
     stopSpeech();
     stopRecognition(true);
+    recorderRef.current?.cancel();
     runningRef.current.clear();
     orbRef.current?.setSearching(false);
     setOrbVoice("idle");
@@ -785,6 +889,7 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
       abortRef.current?.abort();
       stopSpeech();
       stopRecognition(true);
+      recorderRef.current?.cancel();
       if (flashRef.current !== null) clearTimeout(flashRef.current);
       };
     },
@@ -835,7 +940,9 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
         const doc = await ideaCallApi.read(venture.id);
         if (!alive) return;
         ttsRef.current = doc.voice.tts;
-        setAnswering(doc.answering);
+        sttRef.current = doc.voice.stt;
+        httpsPortRef.current = doc.secure.httpsPort;
+        setAnswering(doc.answering && { label: doc.answering.model ? `${doc.answering.label} · ${doc.answering.model}` : doc.answering.label, reason: doc.answering.reason });
         /* Earlier replies are cut into the same paragraphs they were spoken
            in. One turn as one block can be taller than the whole thread, and
            the focus layout has nowhere to put a message it cannot fit. */
@@ -946,11 +1053,7 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
 
   /* ---------------------------------------------------------------- view */
 
-  const micTitle = recCtor
-    ? listening
-      ? "Stop and send"
-      : "Talk"
-    : "Voice input is not supported in this browser — use the keyboard";
+  const micTitle = listening ? "Stop and send" : "Talk";
 
   return createPortal(
     <div
@@ -983,6 +1086,9 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
           >
             {voiceOn ? <SpeakerOn /> : <SpeakerOff />}
           </button>
+          <button type="button" className="ic-icon ic-quiet" onClick={() => setSettingsOpen((o) => !o)} aria-expanded={settingsOpen} aria-label="Call settings: models and voice" title="Models and voice">
+            <Gear />
+          </button>
           {answering && <span className="ic-answering" title={answering.reason ?? "The workspace's model"}>{answering.label}</span>}
         </div>
         <button
@@ -994,6 +1100,8 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
           <XMark />
         </button>
       </header>
+      {settingsOpen && <CallSettings prefs={prefs} onPrefs={setPrefs} browserListens={recCtor !== null} onClose={() => setSettingsOpen(false)}
+        onSaved={(doc) => setAnswering(doc.text.answering && { label: doc.text.answering.model ? `${doc.text.answering.label} · ${doc.text.answering.model}` : doc.text.answering.label, reason: doc.text.answering.reason })} />}
 
       <div className="ic-orbwrap" ref={wrapRef}>
         <canvas className="ic-orb" ref={canvasRef} />
@@ -1046,8 +1154,8 @@ export function IdeaCall({ venture, onClose }: Props): JSX.Element {
           <button
             type="button"
             className={`ic-btn ic-mic${listening ? " ic-live" : ""}`}
-            onClick={() => (listening ? stopRecognition() : startListening())}
-            disabled={!recCtor || !dockLive}
+            onClick={micPressed}
+            disabled={!dockLive}
             aria-label={micTitle}
             title={micTitle}
           >

@@ -380,6 +380,26 @@ async function modelFor(p: ModelProvider, e: Endpoint, override?: string): Promi
 }
 
 /** Forget a discovered model for an endpoint — call after its URL or key changes. */
+/**
+ * WHAT A CONNECTED PROVIDER OFFERS — its first endpoint's own `/models`, for a
+ * caller that lets the owner pick one (the idea call's settings). Cached ten
+ * minutes: a picker opened twice should not ask a gateway for its 240 ids
+ * twice. Empty on any failure; a list that could not be read is "type one in",
+ * not an error worth a red line.
+ */
+const listed = new Map<string, { at: number; ids: string[] }>();
+export async function providerModels(id: ProviderId): Promise<string[]> {
+  const p = factories.get(id)?.() ?? null, e = p?.endpoints[0];
+  if (!p || !e) return [];
+  const hit = listed.get(e.baseUrl);
+  if (hit && Date.now() - hit.at < 600_000) return hit.ids;
+  try {
+    const ids = readModelIds(await getJson<unknown>(`${e.baseUrl}/models`, e.key ? { Authorization: `Bearer ${e.key}` } : {}, p.label));
+    listed.set(e.baseUrl, { at: Date.now(), ids });
+    return ids;
+  } catch { return []; }
+}
+
 export function forgetDiscovered(baseUrl: string) {
   discovered.delete(baseUrl);
 }

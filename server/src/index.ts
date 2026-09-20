@@ -22,7 +22,9 @@ import { setupRoutes } from "./routes/setup.ts";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { allowedBrowserOrigin, BIND_HOST, COLLECT_MINUTES, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "./config.ts";
+import { allowedBrowserOrigin, BIND_HOST, COLLECT_MINUTES, HTTPS_PORT, LOAD_RETAIN_DAYS, PORT, RETAIN_DAYS } from "./config.ts";
+import { createServer as createTlsServer } from "node:https";
+import { certificate } from "./tls.ts";
 import { ventureRows } from "./db.ts";
 /* The collector schedule and the health checks, both owned by the deploy area
    — see integrations/deploy/manifest.ts for why they are one area. */
@@ -451,6 +453,13 @@ freellmapiInstance.boot();
  */
 agentInstances.boot();
 
+/* THE SAME APP OVER TLS, when a port was asked for — the door a browser needs
+   before it will hand a page the microphone. See config.ts and tls.ts. */
+if (HTTPS_PORT) {
+  const tls = certificate();
+  if (tls) serve({ fetch: app.fetch, port: HTTPS_PORT, hostname: BIND_HOST, createServer: createTlsServer, serverOptions: tls },
+    (info) => console.log(`[api] listening over TLS on ${BIND_HOST}:${info.port}`));
+}
 serve({ fetch: app.fetch, port: PORT, hostname: BIND_HOST }, (info) => {
   startOnboardingReconciliation();
   startBoardAutomation();

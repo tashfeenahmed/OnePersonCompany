@@ -180,10 +180,34 @@ export type Transcript = { text: string; ms: number; bytes: number; model: strin
  * time it worked. The failure this checks for is a body with no `text` field
  * at all, which is what a server answering some other shape looks like.
  */
+/**
+ * THE MODEL IDS THE TWO VOICE ENDPOINTS LIST, sorted into what hears and what
+ * speaks BY NAME — an OpenAI-compatible `/models` says nothing about what a
+ * model is for, so this is a guess offered as suggestions and the picker still
+ * takes anything typed. Empty lists on any failure.
+ */
+export async function voiceModels(): Promise<{ stt: string[]; tts: string[] }> {
+  const s = settings(), k = keys("voice_models");
+  const ids = async (base: string | null, key: string | null) => {
+    if (!base) return [] as string[];
+    try {
+      const res = await fetch(`${base}/models`, { headers: key ? { Authorization: `Bearer ${key}` } : {}, signal: AbortSignal.timeout(8000) });
+      const doc = res.ok ? await res.json() as { data?: { id?: unknown }[] } : null;
+      return (doc?.data ?? []).map(m => typeof m.id === "string" ? m.id : "").filter(Boolean);
+    } catch { return []; }
+  };
+  const speech = speechEndpoint(s);
+  const [hear, say] = await Promise.all([ids(normaliseBase(s.sttUrl), k.stt), s.tts === "piper" || s.tts === "off" ? [] : ids(speech.base, speech.key)]);
+  return {
+    stt: hear.filter(id => /whisper|transcri|stt|speech-to-text|scribe|asr|parakeet|voxtral/i.test(id)).slice(0, 40),
+    tts: say.filter(id => /tts|speech|voice|kokoro|orpheus|playai|aura|sonic|eleven/i.test(id) && !/whisper|transcri|stt|asr/i.test(id)).slice(0, 40),
+  };
+}
+
 export async function transcribe(
   audio: Uint8Array,
   filename: string,
-  opts: { reader?: string; key?: string | null } = {},
+  opts: { reader?: string; key?: string | null; model?: string } = {},
 ): Promise<Transcript> {
   const s = settings();
   const base = normaliseBase(s.sttUrl);
@@ -203,7 +227,9 @@ export async function transcribe(
   const key = opts.key !== undefined ? opts.key : keys(opts.reader ?? "voice_transcribe").stt;
   const form = new FormData();
   form.append("file", new Blob([audio]), filename);
-  form.append("model", s.sttModel);
+  /* A caller may name its own model on the same endpoint — the idea call lets
+     the owner pick one; everything else hears with the workspace's. */
+  form.append("model", opts.model?.trim() || s.sttModel);
   // The endpoint's own default is a JSON object with `text` in it; asked for
   // explicitly so a server whose default is SRT does not surprise this.
   form.append("response_format", "json");
@@ -243,7 +269,7 @@ export async function transcribe(
   }
 
   writeVoiceRun({ kind: "stt", ms, bytes: audio.byteLength, ok: true });
-  return { text: doc.text.trim(), ms, bytes: audio.byteLength, model: s.sttModel };
+  return { text: doc.text.trim(), ms, bytes: audio.byteLength, model: opts.model?.trim() || s.sttModel };
 }
 
 /* --------------------------------------------------------------- speech out */
@@ -289,8 +315,10 @@ function speechCheck(s: VoiceSettings, endpoint: SpeechEndpoint): SpeechCheck | 
   } catch { return null; }
 }
 
-export async function speak(text: string, opts: { voice?: string } = {}): Promise<Speech> {
-  const s = settings();
+export async function speak(text: string, opts: { voice?: string; model?: string } = {}): Promise<Speech> {
+  const base = settings();
+  /* As with `transcribe`: one caller's model, the workspace's endpoint. */
+  const s = opts.model?.trim() ? { ...base, ttsModel: opts.model.trim() } : base;
   if (s.tts === "off") throw new Error("Speech is off. Choose FreeLLMAPI, an OpenAI-compatible endpoint or Piper in Integrations → Voice.");
   const body = text.trim();
   if (!body) throw new Error("There is nothing to say.");
@@ -300,7 +328,7 @@ export async function speak(text: string, opts: { voice?: string } = {}): Promis
   const fingerprint = speechFingerprint(s, endpoint);
   const record = (check: Omit<SpeechCheck, "at">) => {
     // A dialogue's alternative speaker must not overwrite the default voice's check.
-    if (!voice || voice === s.ttsVoice)
+    if ((!voice || voice === s.ttsVoice) && !opts.model?.trim())
       setConfig(PLUGIN, "speechCheck", JSON.stringify({ ...check, at: new Date().toISOString(), fingerprint }));
   };
   const started = Date.now();

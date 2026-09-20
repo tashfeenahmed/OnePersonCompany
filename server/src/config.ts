@@ -29,6 +29,14 @@ export const LOAD_RETAIN_DAYS = num("OPC_LOAD_RETAIN_DAYS", 30, 1);
  *  one. In production this process serves it and the two ports are the same. */
 export const UI_PORT = num("OPC_UI_PORT", 5180, 1, 65535);
 /**
+ * A SECOND DOOR, OVER TLS — off (0) unless asked for. A browser hands a page
+ * the microphone only in a secure context, which means HTTPS or localhost; a
+ * box reached at http://192.168.1.x is neither, and no code on the page can
+ * change that. With a port here the same app is also served over HTTPS with a
+ * certificate this box makes for itself — see tls.ts.
+ */
+export const HTTPS_PORT = num("OPC_HTTPS_PORT", 0, 0, 65535);
+/**
  * THE PORTS AN `Origin` MAY NAME AND STILL BE THE OWNER'S OWN DASHBOARD.
  *
  * One set, in config, because it was typed twice inside the gate and the two
@@ -55,6 +63,13 @@ export function allowedBrowserOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
     if (origin !== url.origin) return false;
+    /* The TLS door's origin is the plain door's with the scheme and port
+       changed: wherever http://host:PORT is the owner's own dashboard,
+       https://host:HTTPS_PORT is too. */
+    if (HTTPS_PORT && url.protocol === "https:" && url.port === String(HTTPS_PORT)) {
+      const plain = `http://${url.hostname}:${PORT}`;
+      if (EXTRA_BROWSER_ORIGINS.has(plain) || ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return true;
+    }
     return EXTRA_BROWSER_ORIGINS.has(origin) || (
       url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) &&
       ALLOWED_ORIGIN_PORTS.has(url.port || "80")
