@@ -31,10 +31,15 @@ export type RunTools = {
   endStep(step: Step, label?: string | null): void;
   /** One turn on whoever is answering — an agent when one is live, the raw
    *  provider when not. `toOutput` streams it into the report. */
-  turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean }): Promise<{ text: string }>;
+  turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean; document?: boolean }): Promise<{ text: string }>;
   /** Whether anything answering has tools. Both kinds here fetch what they
    *  need themselves, so this only changes what the brief promises. */
   hasTools: boolean;
+  /** Whether a raw provider is connected for the analysis turn to use. The
+   *  measurement is this server's; the analysis is one structured completion,
+   *  and a provider answers that with thinking off and the output ceiling
+   *  (`document: true`) where an agent would bring tools it does not need. */
+  writerUsesProvider: boolean;
 };
 
 /** The executor's one branch for this area. A kind that is not ours is a

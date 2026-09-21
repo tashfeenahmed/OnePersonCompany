@@ -57,6 +57,9 @@ import {
   type PageStructure,
 } from "./pages.ts";
 import type { RunTools } from "./runs.ts";
+import { sanitizeReportHtml } from "../runs/html.ts";
+import { saveRunEvidence } from "../runs/artifacts.ts";
+import { ANALYSIS_REPLY, analysisHtml, askAnalysis, callout, cardsFence, h, hostLink, page, plainCallout, yesNo, type Analysis } from "./report.ts";
 
 /** Queries per run. Each one is a search, up to five page fetches and a share
  *  of one model turn; five is a run of a few minutes and twenty is a run
@@ -328,56 +331,171 @@ export async function serpRun(runId: string, v: VentureRow, input: Record<string
   }
 
   saveRows(runId, v.id, rows);
-  tools.say(renderFindings(v, rows));
+  saveRunEvidence(runId, {
+    collectedAt: now(),
+    brief: input.queries ?? "",
+    data: renderData(v, rows),
+    note: "The figures are counts this server read out of each page's HTML on one request to the search node; the analysis in the report is a model's reading of them.",
+  });
 
-  /* THE PROSE, AND ONLY THE PROSE. The model is handed the table it must not
-     recompute and told, in terms, that every figure it may use is already
-     written above it. */
+  /* THE ANALYSIS, AND ONLY THE ANALYSIS. The model is handed the table it must
+     not recompute and told, in terms, that every figure it may use is already
+     written above it. What comes back is JSON that the page renders; the
+     measured tables are laid out by this server. See report.ts. */
   const write = tools.startStep("write", "what they have that we do not");
   const usable = rows.filter((r) => !r.error && !r.degraded && !r.unmeasurable && r.competitors.some((c) => !c.error));
-  const res = await tools.turn(
-    [
-      {
-        role: "system",
-        content: [
-          `You are writing the second half of a SERP teardown for ${v.name}${v.host ? ` (${v.host})` : ""}.`,
-          ``,
-          `WHAT THE OWNER SAYS THIS BUSINESS IS: ${v.description || "nothing written down"}`,
-          ``,
-          `THE FIRST HALF IS ALREADY WRITTEN AND IS ABOVE YOUR ANSWER. It is a table of page structures this server read out of the HTML itself: word counts, heading counts, link counts, schema types, and the three markers. You did not compute it and you must not recompute it.`,
-          ``,
-          `RULES, all binding:`,
-          `- NEVER INVENT A FIGURE. Every number you write must appear in the data below. If you want one that is not there, say it is not measured.`,
-          `- A DEGRADED QUERY PROVES NOTHING. Where a query is marked degraded the search engine answered a different question; do not draw any conclusion about those pages.`,
-          `- A PAGE MARKED thin OR error WAS NOT READ. A 403 from a firewall is not a short page.`,
-          `- "OUR RANK" IS THE METASEARCH NODE'S ORDER ON ONE REQUEST, not Google's position. Where a Google position is given it is Search Console's average over its own window. Never merge the two and never call either "our ranking" without saying which.`,
-          `- A QUERY MARKED source=description WAS DERIVED FROM THE VENTURE RECORD by this server. Nothing says anybody searches for it. Say so if you use it.`,
-          ``,
-          `THE DATA:`,
-          ``,
-          renderData(v, rows),
-          ``,
-          `WRITE EXACTLY THIS, starting at the heading, and nothing before it:`,
-          ``,
-          `## What they have that we do not`,
-          `Per query that produced a usable comparison, the specific things the pages above us carry that ours does not — quoting the figures from the table. Where we are ahead on a field and still behind on the SERP, say that: it is the finding that stops a "make it longer" recommendation being made by reflex.`,
-          ``,
-          `## Recommendations`,
-          `Ranked, each one a change somebody could start this week on a named page of ours. Say what it costs and what it would change.`,
-          ``,
-          `Then a final fenced block, info string exactly \`json cards\`, holding 3 to 8 board-card suggestions as [{"title": "…", "body": "…", "urgency": 0-3}].`,
-        ].join("\n"),
-      },
-      {
-        role: "user",
-        content: usable.length
-          ? `Read the teardown of ${usable.length} quer${usable.length === 1 ? "y" : "ies"} for ${v.name} and write the two sections.`
-          : `No query in this teardown produced a usable comparison. Write the two sections saying exactly that and what would have to change for the next run to produce one.`,
-      },
-    ],
-    { toOutput: true },
+  const analysis = await askAnalysis(tools, [
+    {
+      role: "system",
+      content: [
+        `You are writing the analysis of a SERP teardown for ${v.name}${v.host ? ` (${v.host})` : ""}.`,
+        ``,
+        `WHAT THE OWNER SAYS THIS BUSINESS IS: ${v.description || "nothing written down"}`,
+        ``,
+        `THE MEASUREMENT IS ALREADY MADE AND WILL BE PRINTED ON THE PAGE ABOVE YOUR WORDS. It is a table of page structures this server read out of the HTML itself: word counts, heading counts, link counts, schema types, and the three markers. You did not compute it and you must not recompute it or restate it as a table.`,
+        ``,
+        `RULES, all binding:`,
+        `- NEVER INVENT A FIGURE. Every number you write must appear in the data below. If you want one that is not there, say it is not measured.`,
+        `- A DEGRADED QUERY PROVES NOTHING. Where a query is marked degraded the search engine answered a different question; do not draw any conclusion about those pages.`,
+        `- A PAGE MARKED thin OR error WAS NOT READ. A 403 from a firewall is not a short page.`,
+        `- "OUR RANK" IS THE METASEARCH NODE'S ORDER ON ONE REQUEST, not Google's position. Where a Google position is given it is Search Console's average over its own window. Never merge the two and never call either "our ranking" without saying which.`,
+        `- A QUERY MARKED source=description WAS DERIVED FROM THE VENTURE RECORD by this server. Nothing says anybody searches for it. Say so if you use it.`,
+        ``,
+        `THE DATA:`,
+        ``,
+        renderData(v, rows),
+        ``,
+        `WHAT TO WRITE. The headline names the single biggest finding. The verdict says it in one sentence before qualifying it. The sections are "what they have that we do not", per query that produced a usable comparison: the specific things the pages above us carry that ours does not, quoting the figures from the data — and where we are ahead on a field and still behind on the SERP, say that; it is the finding that stops a "make it longer" recommendation being made by reflex. The recommendations are ranked, each a change somebody could start this week on a NAMED page of ours, with what it costs and which measured figure it would move.`,
+        ``,
+        ANALYSIS_REPLY,
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: usable.length
+        ? `Read the teardown of ${usable.length} quer${usable.length === 1 ? "y" : "ies"} for ${v.name} and write the analysis.`
+        : `No query in this teardown produced a usable comparison. Write the analysis saying exactly that and what would have to change for the next run to produce one.`,
+    },
+  ]);
+  tools.endStep(write, analysis.failed ? `failed — ${analysis.failed}` : `${analysis.sections.length} sections, ${analysis.recommendations.length} recommendations, ${analysis.cards.length} cards`);
+
+  tools.say(sanitizeReportHtml(serpDocument(v, rows, analysis, now())) + cardsFence(analysis.cards));
+}
+
+/* --------------------------------------------------------------- the page */
+
+/**
+ * THE TEARDOWN AS A DESIGNED PAGE, composed here — every figure laid into
+ * markup by this server, the model's analysis rendered from its JSON. Exported
+ * for the tests, which hand it rows and an analysis and read the page back.
+ */
+export function serpDocument(v: VentureRow, rows: SerpRow[], analysis: Analysis, ts: string): string {
+  const day = ts.slice(0, 10);
+  const inResults = rows.filter((r) => r.ourRank !== null).length;
+  const searched = rows.filter((r) => !r.error).length;
+  const pagesRead = rows.reduce((n, r) => n + r.competitors.filter((c) => !c.error && !c.thin).length + (r.ours && !r.ours.error ? 1 : 0), 0);
+  const usable = rows.filter((r) => !r.error && !r.degraded && !r.unmeasurable);
+  const finding =
+    analysis.headline ??
+    (searched === 0
+      ? `No query could be searched for ${v.name}`
+      : `${v.name} is in the results for ${inResults} of ${searched} quer${searched === 1 ? "y" : "ies"} torn down`);
+
+  const callouts = [
+    callout(String(searched), ` / ${rows.length}`, `quer${rows.length === 1 ? "y" : "ies"} searched${usable.length !== searched ? ` · ${searched - usable.length} degraded or unmeasurable` : ""}`),
+    callout(String(inResults), searched ? ` / ${searched}` : "", `where ${h(v.host ?? "this site")} is in the search node's results`),
+    plainCallout(`${pagesRead} pages read`, `every figure below is a count over that page's own HTML`),
+  ];
+
+  const body: string[] = [];
+  body.push(`<h2>Every query at a glance</h2>`);
+  body.push(
+    `<p class="note"><strong>Two positions, and they are not the same number.</strong> “Ours” is where ${h(v.host ?? "this site")} came in the SearXNG result list on this one request, from whichever engines answered it. “Google” is Search Console's average position for the query over its own window, and it is only present for queries that came from Search Console.</p>`,
   );
-  tools.endStep(write, `${res.text.length} characters`);
+  body.push(`<table><thead><tr><th>Query</th><th>Source</th><th class="num">Ours</th><th class="num">Google</th><th class="num">Pages read</th><th>Check</th></tr></thead><tbody>`);
+  for (const r of rows)
+    body.push(
+      `<tr><td>${h(r.query)}</td><td><span class="badge${r.source === "description" ? " badge-warn" : ""}">${h(r.source)}</span></td>` +
+        `<td class="num">${r.ourRank ? `#${r.ourRank}` : `<span class="nul">not in results</span>`}</td>` +
+        `<td class="num">${r.gscPosition === null ? `<span class="nul">—</span>` : r.gscPosition.toFixed(1)}</td>` +
+        `<td class="num">${r.competitors.filter((c) => !c.error && !c.thin).length}</td>` +
+        `<td>${r.error ? `<span class="warn">search failed</span>` : r.unmeasurable ? `<span class="nul">unmeasurable</span>` : r.degraded ? `<span class="warn">degraded (${h(r.relevance)})</span>` : `ok (${h(r.relevance)})`}</td></tr>`,
+    );
+  body.push(`</tbody></table>`);
+
+  body.push(`<h2>The queries, one by one</h2>`);
+  for (const r of rows) body.push(queryCard(r));
+
+  body.push(analysisHtml(analysis, "teardown"));
+
+  body.push(`<h2>Evidence</h2>`);
+  body.push(
+    `<p class="note">Every page above is linked by its own URL and was fetched by this server; the figures are counts over that HTML. What is NOT here: how Google actually ranks these pages, anybody's backlinks, and any figure about search volume — none of the three is measured by a teardown.</p>`,
+  );
+
+  return page({
+    finding,
+    dateline: `SERP teardown · ${v.name} · ${rows.length} quer${rows.length === 1 ? "y" : "ies"} · ${day}`,
+    verdict: analysis.verdict,
+    callouts,
+    body: body.join("\n"),
+    footer: `Written ${day} from ${pagesRead} pages this server read and ${searched} searches on the search node. Every figure was counted here; the analysis is a model's reading of those figures.`,
+  });
+}
+
+function queryCard(r: SerpRow): string {
+  const parts: string[] = [];
+  parts.push(`<div class="cardhead"><span class="title">${h(r.query)}</span>`);
+  parts.push(`<span class="badge${r.source === "description" ? " badge-warn" : ""}">${h(r.source)}</span>`);
+  if (r.error) parts.push(`<span class="pill pill-warn">search failed</span>`);
+  else {
+    parts.push(r.ourRank ? `<span class="pill pill-yes">ours #${r.ourRank}</span>` : `<span class="pill">not in results</span>`);
+    if (r.gscPosition !== null) parts.push(`<span class="pill">Google ${r.gscPosition.toFixed(1)}${r.gscImpressions !== null ? ` · ${r.gscImpressions} impressions` : ""}</span>`);
+    if (r.unmeasurable) parts.push(`<span class="pill">unmeasurable</span>`);
+    if (r.degraded) parts.push(`<span class="pill pill-warn">degraded ${h(r.relevance)}</span>`);
+  }
+  parts.push(`</div>`);
+
+  if (r.error) {
+    parts.push(`<p class="warn">The search failed: ${h(r.error)}</p>`);
+    return `<article class="card">${parts.join("")}</article>`;
+  }
+  if (r.unmeasurable) parts.push(`<p class="note">This query cannot be checked for relevance: ${h(r.unmeasurable)}. The pages below were read; no gap list is drawn.</p>`);
+  if (r.degraded)
+    parts.push(
+      `<p class="note"><span class="warn">Degraded.</span> Only ${h(r.relevance)} of this query's countable words appear in the titles and snippets that came back, which is under the 0.3 floor — the engine answered a different question. The pages are listed for the record and no gap list is drawn from them.</p>`,
+    );
+  if (r.refused.length)
+    parts.push(`<p class="note">Engines that refused this search: ${r.refused.map((e) => `${h(e.engine)} (${h(e.reason)})`).join(", ")}. What came back is what the rest of them had.</p>`);
+
+  parts.push(`<table><thead><tr><th>Page</th><th class="num">Words</th><th class="num">h2</th><th class="num">h3</th><th class="num">Int.</th><th class="num">Ext.</th><th class="num">Images</th><th>Schema</th><th>FAQ</th><th>Table</th><th>Compare</th></tr></thead><tbody>`);
+  const line = (p: PageStructure, ours: boolean, label: string) => {
+    const name = `${hostLink(p.url, p.title)}${label ? ` <span class="badge badge-accent">${h(label)}</span>` : ""}`;
+    if (p.error) return `<tr${ours ? ' class="ours"' : ""}><td>${name}</td><td colspan="10"><span class="nul">not read — ${h(p.error)}</span></td></tr>`;
+    if (p.thin) return `<tr${ours ? ' class="ours"' : ""}><td>${name}</td><td colspan="10"><span class="nul">only ${p.chars} characters of text came back, so this page was not read</span></td></tr>`;
+    return (
+      `<tr${ours ? ' class="ours"' : ""}><td>${name}</td><td class="num">${p.words}</td><td class="num">${p.h2.length}</td><td class="num">${p.h3Count}</td>` +
+      `<td class="num">${p.internalLinks}</td><td class="num">${p.externalLinks}</td><td class="num">${p.images}</td>` +
+      `<td>${p.schema.length ? p.schema.map((x) => `<span class="chip">${h(x)}</span>`).join(" ") : `<span class="nul">none</span>`}</td>` +
+      `<td>${yesNo(p.faq)}</td><td>${yesNo(p.table)}</td><td>${yesNo(p.comparison)}</td></tr>`
+    );
+  };
+  if (r.ours) parts.push(line(r.ours, true, r.ourRank ? "ours" : "ours · front page — not in these results"));
+  for (const c of r.competitors) parts.push(line(c, false, ""));
+  parts.push(`</tbody></table>`);
+
+  if (r.gaps.length) {
+    parts.push(
+      `<p class="note">Median of the pages read, against ours. A median rather than a mean: one long glossary in a set of five would move a mean past every real page. Pages that could not be read are out of the denominator.</p>`,
+    );
+    parts.push(`<table><thead><tr><th>Field</th><th class="num">Ours</th><th class="num">Median of ${r.gaps[0]!.of}</th><th>What it is</th></tr></thead><tbody>`);
+    for (const g of r.gaps)
+      parts.push(
+        `<tr><td>${h(g.field)}</td><td class="num${g.ours !== null && g.theirs !== null && g.ours < g.theirs ? " warn" : ""}">${g.ours === null ? `<span class="nul">—</span>` : h(g.ours)}</td><td class="num">${g.theirs === null ? `<span class="nul">—</span>` : h(g.theirs)}</td><td>${h(g.what)}</td></tr>`,
+      );
+    parts.push(`</tbody></table>`);
+  }
+  return `<article class="card">${parts.join("")}</article>`;
 }
 
 /* ------------------------------------------------------------- persistence */
@@ -415,7 +533,6 @@ function saveRows(runId: string, ventureId: string, rows: SerpRow[]) {
 
 /* ---------------------------------------------------------------- rendering */
 
-const esc = (s: string) => s.replace(/\|/g, "\\|");
 const n = (v: number | null) => (v === null ? "—" : String(v));
 
 /** The data block the model is handed: the same figures as the report, in the
@@ -448,69 +565,6 @@ function renderData(v: VentureRow, rows: SerpRow[]): string {
     out.push("");
   }
   out.push(`The venture record: ${v.name}, ${v.website ?? "no site"}, stage ${v.stage}.`);
-  return out.join("\n");
-}
-
-/** `## Findings` and `## Evidence`, composed HERE rather than by a model,
- *  because they are the measurement. A table a model wrote from its own reading
- *  of a table would be the instrument marking its own paper. */
-function renderFindings(v: VentureRow, rows: SerpRow[]): string {
-  const out: string[] = [
-    `## Findings`,
-    ``,
-    `${rows.length} quer${rows.length === 1 ? "y" : "ies"} torn down for ${v.name}. Every figure below was read out of the pages' own HTML by this server; no model computed any of it.`,
-    ``,
-    `TWO POSITIONS AND THEY ARE NOT THE SAME NUMBER. "Ours" is where ${v.host ?? "this site"} came in the SearXNG result list on this one request, from whichever engines answered it. "Google" is Search Console's average position for the query over its own window, and it is only present for queries that came from Search Console.`,
-    ``,
-    `| Query | Source | Ours | Google | Pages read | Check |`,
-    `| --- | --- | --- | --- | --- | --- |`,
-  ];
-  for (const r of rows)
-    out.push(
-      `| ${esc(r.query)} | ${r.source} | ${r.ourRank ? `#${r.ourRank}` : "not in results"} | ${r.gscPosition === null ? "—" : r.gscPosition.toFixed(1)} | ${r.competitors.filter((c) => !c.error && !c.thin).length} | ${
-        r.error ? `search failed` : r.unmeasurable ? "unmeasurable" : r.degraded ? `degraded (${r.relevance})` : `ok (${r.relevance})`
-      } |`,
-    );
-
-  for (const r of rows) {
-    out.push(``, `### ${r.query}`, ``);
-    if (r.error) {
-      out.push(`The search failed: ${r.error}`);
-      continue;
-    }
-    if (r.unmeasurable) out.push(`This query cannot be checked for relevance: ${r.unmeasurable}. The pages below were read; no gap list is drawn.`, ``);
-    if (r.degraded)
-      out.push(
-        `DEGRADED. Only ${r.relevance} of this query's countable words appear in the titles and snippets that came back, which is under the ${0.3} floor — the engine answered a different question. The pages are listed for the record and NO gap list is drawn from them.`,
-        ``,
-      );
-    if (r.refused.length)
-      out.push(`Engines that refused this search: ${r.refused.map((e) => `${e.engine} (${e.reason})`).join(", ")}. What came back is what the rest of them had.`, ``);
-
-    out.push(`| Page | Words | h2 | h3 | Internal | External | Images | Schema | FAQ | Table | Comparison |`, `| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |`);
-    const line = (p: PageStructure, label: string) =>
-      p.error
-        ? `| ${label} ${esc(p.url)} | not read — ${esc(p.error)} | | | | | | | | | |`
-        : p.thin
-          ? `| ${label} ${esc(p.url)} | only ${p.chars} chars of text came back | | | | | | | | | |`
-          : `| ${label} ${esc(p.url)} | ${p.words} | ${p.h2.length} | ${p.h3Count} | ${p.internalLinks} | ${p.externalLinks} | ${p.images} | ${esc(p.schema.join(", ") || "none")} | ${p.faq ? "yes" : "no"} | ${p.table ? "yes" : "no"} | ${p.comparison ? "yes" : "no"} |`;
-    if (r.ours) out.push(line(r.ours, r.ourRank ? "**ours**" : "**ours (front page — we are not in these results)**"));
-    for (const c of r.competitors) out.push(line(c, ""));
-
-    if (r.gaps.length) {
-      out.push(``, `Median of the pages read, against ours. A median rather than a mean: one long glossary in a set of five would move a mean past every real page. Pages that could not be read are out of the denominator.`, ``);
-      out.push(`| Field | Ours | Median of ${r.gaps[0]!.of} | What it is |`, `| --- | --- | --- | --- |`);
-      for (const g of r.gaps) out.push(`| ${g.field} | ${n(g.ours)} | ${n(g.theirs)} | ${esc(g.what)} |`);
-    }
-  }
-
-  out.push(
-    ``,
-    `## Evidence`,
-    ``,
-    `Every page above is linked by its own URL and was fetched by this server; the figures are counts over that HTML. What is NOT here: how Google actually ranks these pages, anybody's backlinks, and any figure about search volume — none of the three is measured by a teardown.`,
-    ``,
-  );
   return out.join("\n");
 }
 

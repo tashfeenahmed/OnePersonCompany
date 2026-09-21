@@ -102,7 +102,7 @@ export function RunReport({
         </span>
 
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          {!live && !run.paper && ["research", "seo", "competitors", "demand", "geo"].includes(run.kind) && <ArtifactDownload runId={run.id} />}
+          {!live && !run.paper && ["research", "seo", "competitors", "demand", "geo", "serp", "aso"].includes(run.kind) && <ArtifactDownload runId={run.id} />}
           {!live && onRetry && <button className="rounded-md px-2.5 py-1.5 text-xs bg-muted hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] transition-colors disabled:opacity-50" disabled={busy} onClick={onRetry}>Retry saved inputs</button>}
           {run.canResume && onResume && <button className="rounded-md px-2.5 py-1.5 text-xs bg-muted hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] transition-colors disabled:opacity-50" disabled={busy} onClick={onResume}>Resume checkpoints</button>}
           {live && (

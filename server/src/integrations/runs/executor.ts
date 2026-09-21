@@ -903,6 +903,7 @@ async function execute(row: RunRow, s: Session) {
       endStep: (step, label) => s.endStep(step, label),
       turn: (turns, opts) => turn(s, turns, opts),
       hasTools: activeBackend() !== null,
+      writerUsesProvider: activeProvider() !== null,
     });
   /* THE ONE KIND THAT IS ABOUT A PERSON RATHER THAN A BUSINESS, owned by
      integrations/people/. It is the first branch here with no `venture!` in

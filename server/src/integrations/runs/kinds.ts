@@ -349,7 +349,7 @@ export const KINDS: KindDef[] = [
     kind: "serp",
     name: "SERP teardown",
     what:
-      "Searches for a set of queries, reads the pages that outrank this venture in code — headings, word count, links, schema, FAQ and table markup — and compares them with our own page. Queries come from the form, else from Search Console's striking-distance rows, else derived from the venture record and labelled as derived. It ranks nothing itself: the order is whichever engines the search node had.",
+      "Searches for a set of queries, reads the pages that outrank this venture in code — headings, word count, links, schema, FAQ and table markup — and compares them with our own page, then writes a designed HTML report: the finding, every query with its page-structure table and the gaps against the median, what the pages above us have that ours does not, and what to do, ranked. Queries come from the form, else from Search Console's striking-distance rows, else derived from the venture record and labelled as derived. It ranks nothing itself: the order is whichever engines the search node had.",
     needsVenture: true,
     inputs: [
       {
@@ -375,7 +375,7 @@ export const KINDS: KindDef[] = [
     kind: "aso",
     name: "Store listing audit",
     what:
-      "Reads this venture's App Store and Play listings the way a shopper does — title, description, screenshots, rating, how long since the last version — checks them against each store's own rules, and scores them on this app's rubric with the arithmetic printed. It cannot see Apple's subtitle or keyword field, and it says so rather than passing them by silence.",
+      "Reads this venture's App Store and Play listings the way a shopper does — title, description, screenshots, rating, how long since the last version — checks them against each store's own rules, scores them on this app's rubric with the arithmetic printed, and writes a designed HTML report: the score and grade per listing, every check with what it was computed from, the rival listings read the same way, what it means and what to change, ranked. It cannot see Apple's subtitle or keyword field, and it says so rather than passing them by silence.",
     needsVenture: true,
     inputs: [
       {
