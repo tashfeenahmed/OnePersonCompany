@@ -101,6 +101,9 @@ export type HistoryEntry = {
   ventureName: string | null;
   format: string;
   topic: string;
+  /** The exact-match key the server stores beside the topic — punctuation and
+   *  capitals off, nothing dropped. Whether two DIFFERENT topics are the same
+   *  piece of work is a model's judgment and is in `verdicts`, not here. */
   fingerprint: string;
   sourceUrl: string | null;
   sourceId: string | null;
@@ -131,7 +134,6 @@ export type SourcingDoc = {
   venture: { id: string; slug: string; name: string } | null;
   settings: {
     noveltyDays: number;
-    repeatLimit: number;
     minMinutes: number;
     maxMinutes: number;
     probeTop: number;

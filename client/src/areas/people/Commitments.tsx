@@ -115,11 +115,22 @@ export function Commitments() {
         >
           {scan.ok
             ? `Read ${scan.scanned} of ${scan.listed} sent messages over ${scan.days} days: ` +
-              `${scan.candidates} candidate sentences, ${scan.filed} filed, ` +
-              `${scan.alreadyKnown} already known, ${scan.droppedByModel} judged not a promise, ` +
+              `${scan.candidates} sentences judged, ${scan.filed} filed, ` +
+              `${scan.alreadyKnown} already known, ${scan.notPromise} judged not a promise, ` +
               `${scan.refusedSpans} model spans refused as not verbatim, ` +
-              `${scan.noRecipient} with no readable recipient. ` +
-              (scan.model ? `Refined by ${scan.model}.` : "No model answered — sentences are unrefined.")
+              `${scan.noRecipient} with no readable recipient` +
+              (scan.unshown ? `, ${scan.unshown} past the per-message ceiling and never judged` : "") +
+              `. ` +
+              /* THE UNJUDGED COUNT IS NOT A DETAIL. This gate files nothing it
+                 could not have judged, so a scan with no model behind it looks
+                 exactly like a quiet fortnight unless the page says otherwise. */
+              (scan.judgeModel
+                ? `Judged by ${scan.judgeModel}.`
+                : `No model answered, so nothing was filed from ${scan.unjudged} unjudged sentences.`) +
+              (scan.unjudged && scan.judgeModel
+                ? ` ${scan.unjudged} sentences went unjudged and were not filed.`
+                : "") +
+              (scan.model ? ` Spans tightened by ${scan.model}.` : "")
             : (scan.error ?? "The scan failed.")}
           {scan.note ? ` ${scan.note}` : ""}
         </p>

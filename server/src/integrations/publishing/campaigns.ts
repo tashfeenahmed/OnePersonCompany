@@ -508,8 +508,13 @@ export async function campaignRun(args: {
       `format` IS "post" because that is what a variant becomes — a Studio post
       — and the history is per format on purpose: the same subject as a post and
       as a video is two pieces of work, not a repeat.
+
+      AWAITED, BECAUSE THE GATE IS A MODEL'S JUDGMENT SINCE 2026-09-21 and not a
+      word count. It carries this run's `signal`, so cancelling a campaign does
+      not leave the fan-out waiting on a judge. An unreachable model ALLOWS —
+      the gate leans towards producing, and the cost of that is one duplicate.
     */
-    const gate = checkTopic(venture.id, "post", conceptTopic(concept));
+    const gate = await checkTopic(venture.id, "post", conceptTopic(concept), { signal });
     if (!gate.ok) {
       failedCount += channels.length;
       lines.push(`- ${concept.theme} — **not produced**: ${gate.reason}`);
@@ -571,10 +576,10 @@ export async function campaignRun(args: {
 /**
  * The concept as a SUBJECT — what it is about, without the art direction.
  *
- * This is what the novelty gate fingerprints and what goes in the history, so
- * the image note is deliberately left out of it: two posts making the same
- * argument over two different pictures are the same argument, and including the
- * picture would let one through as new.
+ * This is what the novelty gate judges and what goes in the history, so the
+ * image note is deliberately left out of it: two posts making the same argument
+ * over two different pictures are the same argument, and including the picture
+ * would let one through as new.
  */
 function conceptTopic(concept: ConceptRow): string {
   return `${concept.theme}. ${concept.description ?? ""}`.trim();

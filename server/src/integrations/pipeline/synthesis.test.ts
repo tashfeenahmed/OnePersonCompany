@@ -24,7 +24,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { HEADLINE_CHARS, HEADLINE_LINES, headline } from "./evidence.ts";
-import { dismissal, evidenceKey, gate, genericTitle, type Proposal } from "./synthesis.ts";
+import { evidenceKey, gate, type Proposal, type ProposalVerdict } from "./synthesis.ts";
 
 /* Same fixture shape as pipeline.test.ts, with the evidence line always named:
    in here it is the thing under test. */
@@ -35,17 +35,31 @@ const proposal = (title: string, evidence: string, evidenceLine: string, why = "
   evidenceLine,
 });
 
-const gateInput = (over: Partial<Parameters<typeof gate>[0]> = {}) => ({
-  proposals: [],
-  measured: ["revenue", "traffic", "tasks", "runs"],
-  openCardTitles: [],
-  openEvidenceKeys: [],
-  recentProposalTitles: [],
-  perVenture: 3,
-  remainingTonight: 6,
-  now: Date.parse("2026-09-06T00:00:00.000Z"),
-  ...over,
-});
+/* THE JUDGE SAID "file" TO EVERYTHING, unless a test says otherwise.
+   Since 2026-09-21 three of the refusals are a model's verdict rather than a
+   word list, and `gate()` takes that verdict as an argument so it stays pure.
+   Every test below is about a DETERMINISTIC rule — the caps, the measured
+   evidence, one-finding-one-card — so the judge is stubbed permissive and those
+   rules are tested in isolation, which is what they were always testing. The
+   tests for the judged refusals pass their own map. */
+const allFiled = (proposals: Proposal[]) =>
+  new Map(proposals.map((_, i) => [String(i), { verdict: "file" as ProposalVerdict, why: "a real action" }]));
+
+const gateInput = (over: Partial<Parameters<typeof gate>[0]> = {}) => {
+  const proposals = over.proposals ?? [];
+  return {
+    proposals,
+    measured: ["revenue", "traffic", "tasks", "runs"],
+    openCardTitles: [],
+    openEvidenceKeys: [],
+    recentProposalTitles: [],
+    judgements: allFiled(proposals),
+    perVenture: 3,
+    remainingTonight: 6,
+    now: Date.parse("2026-09-06T00:00:00.000Z"),
+    ...over,
+  };
+};
 
 const reasonOf = (v: unknown) => (v as { reason: string }).reason;
 
@@ -108,92 +122,108 @@ test("the same fact quoted with different rounding is the same finding", () => {
   );
 });
 
-/* --------------------------------------------- evidence that dismisses itself */
+/* ------------------------------------------- what the judge decides, applied */
 
-test("a finding that calls itself defensible files nothing", () => {
+/* THE VERDICTS THEMSELVES ARE A MODEL'S and are not asserted here. A test
+   pinning "Analyze subscription data" to `shrug` would be testing the model and
+   would pass against a stub while the live gate did something else. What is
+   tested is that `gate()` APPLIES each verdict, says which one it applied, and
+   refuses when nothing judged — the part that is this file's job. */
+
+const judged = (...verdicts: (ProposalVerdict | "unjudged")[]) =>
+  new Map(verdicts.map((verdict, i) => [String(i), { verdict, why: "the judge's reason" }]));
+
+test("a shrug is refused and the reason asks for the thing to change", () => {
+  const [v] = gate(
+    gateInput({
+      proposals: [proposal("Analyze subscription data for growth opportunities", "revenue", MRR_LINE)],
+      judgements: judged("shrug"),
+    }),
+  );
+  assert.equal(v!.accept, false);
+  assert.match(reasonOf(v), /names nothing to change/);
+  assert.match(reasonOf(v), /the judge's reason/);
+});
+
+test("a dismissed proposal is refused and the reason quotes the line that dismissed it", () => {
   const [v] = gate(
     gateInput({
       proposals: [
         proposal(
           "Review the noindex tag on the /manage page",
           "runs",
-          "The /manage page carries a noindex tag; on a logged-in surface the noindex is defensible, but it should be deliberate.",
+          "on a logged-in surface the noindex is defensible, but it should be deliberate",
         ),
       ],
+      judgements: judged("dismissed"),
     }),
   );
   assert.equal(v!.accept, false);
   assert.match(reasonOf(v), /evidence dismisses itself/);
+  assert.match(reasonOf(v), /noindex is defensible/);
 });
 
-test("the dismissal is read off the model's own rationale too", () => {
+test("a duplicate is refused as one", () => {
   const [v] = gate(
     gateInput({
-      proposals: [
-        proposal(
-          "Rewrite the checkout copy",
-          "traffic",
-          "the checkout page had 12 views and no conversions",
-          "The drop is by design — the page was unlisted during the migration.",
-        ),
-      ],
+      proposals: [proposal("Reply to the outstanding reviews", "tasks", "12 reviews are unanswered")],
+      judgements: judged("duplicate"),
     }),
   );
   assert.equal(v!.accept, false);
-  assert.match(reasonOf(v), /evidence dismisses itself/);
+  assert.match(reasonOf(v), /already proposed or on the board/);
 });
 
-test("the dismissal list is matched on whole words", () => {
-  assert.equal(dismissal("the redirect loop is intentional"), "intentional");
-  assert.equal(dismissal("THE NOINDEX IS DEFENSIBLE, BUT"), "is defensible");
-  /* The failure this guards: a caveat's opposite reading as the caveat. */
-  assert.equal(dismissal("the duplicate charge was unintentional"), null);
-  assert.equal(dismissal("traffic fell 40% week on week"), null);
-});
-
-/* ---------------------------------------------------- a verb and a shrug */
-
-test("a looking-at verb over words the evidence never used is refused", () => {
-  const [v] = gate(
+test("nothing is filed unjudged, and the refusal says the pass runs again tomorrow", () => {
+  /* The lean here is the opposite of the run-card gate's, on purpose: a nightly
+     that proposes nothing costs nothing, while a night's worth of unjudged
+     proposals is exactly the board noise this gate exists to prevent. */
+  const [absent] = gate(
     gateInput({
-      proposals: [
-        proposal(
-          "Analyze subscription data for growth opportunities",
-          "revenue",
-          /* The MRR figure alone. The fuller line the pass quoted on 6 September
-             happens to contain the word "subscription", which is what let this
-             same title through the genericness rule there — the rule asks
-             whether the title names anything the finding names, not whether a
-             human would call it vague. */
-          "MRR now $589.83; $248.58 thirty days ago; change $341.25",
-        ),
-      ],
+      proposals: [proposal("Rewrite the pricing page", "revenue", MRR_LINE)],
+      judgements: new Map(),
     }),
   );
-  assert.equal(v!.accept, false);
-  assert.match(reasonOf(v), /title is generic/);
-});
+  assert.equal(absent!.accept, false);
+  assert.match(reasonOf(absent), /not judged/);
+  assert.match(reasonOf(absent), /again tomorrow/);
 
-test("a looking-at verb over a thing the evidence names is an instruction", () => {
-  const [v] = gate(
+  const [explicit] = gate(
     gateInput({
-      proposals: [
-        proposal(
-          "Review the noindex tag on /manage",
-          "runs",
-          "The /manage page carries a noindex tag and no other page on the site does.",
-        ),
-      ],
+      proposals: [proposal("Rewrite the pricing page", "revenue", MRR_LINE)],
+      judgements: judged("unjudged"),
     }),
   );
-  assert.equal(v!.accept, true);
+  assert.equal(explicit!.accept, false);
+  assert.match(reasonOf(explicit), /not judged/);
 });
 
-test("only the LEADING verb counts, and only when it is one of the vague ones", () => {
-  assert.equal(genericTitle("Analyze the funnel", "MRR now $589.83"), true);
-  assert.equal(genericTitle("Rewrite the pricing page and review the copy", "MRR now $589.83"), false);
-  /* "analyst" is not "analyze". */
-  assert.equal(genericTitle("Analyst handover for the SEO work", "MRR now $589.83"), false);
+test("a verdict of file still has to pass every deterministic rule after it", () => {
+  /* The judge is not a bypass: it answers three of the refusals, and the caps,
+     the measured-evidence rule and one-finding-one-card still fire. */
+  const [unmeasured] = gate(
+    gateInput({
+      proposals: [proposal("Rewrite the pricing page", "memory", "a note about pricing")],
+      judgements: judged("file"),
+    }),
+  );
+  assert.equal(unmeasured!.accept, false);
+  assert.match(reasonOf(unmeasured), /not measured for this venture/);
+
+  const capped = gate(
+    gateInput({
+      proposals: [
+        proposal("Rewrite the pricing page", "revenue", MRR_LINE),
+        proposal("Add a plan comparison", "traffic", "pageviews fell 40%"),
+        proposal("Fix the broken links", "runs", "nine pages 404"),
+        proposal("Publish the FAQ", "tasks", "12 reviews are unanswered"),
+      ],
+      judgements: judged("file", "file", "file", "file"),
+      perVenture: 2,
+    }),
+  );
+  assert.deepEqual(capped.map((v) => v.accept), [true, true, false, false]);
+  assert.match(reasonOf(capped[2]), /cap of 2/);
 });
 
 /* ------------------------------------------------- the evidence it is given */

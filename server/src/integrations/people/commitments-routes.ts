@@ -40,10 +40,20 @@ const DEFINITIONS = {
     `Every row carries the sentence he actually wrote, verbatim, clipped at ` +
     `${MAX_SENTENCE} characters. Quote it whenever you report the promise; ` +
     `"what" is a model's shortest span of that sentence and is a summary.`,
+  judgment:
+    "Whether a sentence is a promise is decided by a model, one call per " +
+    "message, over every sentence he typed in it — there is no word list and " +
+    "no pattern deciding it. Every verdict is written to `gate_verdicts` " +
+    "under the gate `people.commitment`. When no model answers, the sentences " +
+    "are recorded as `unjudged` and NOTHING is filed: an empty scan with a " +
+    "non-zero `unjudged` means nobody looked, not that he promised nothing.",
   privacy:
     "The message bodies are read transiently and are never stored — not in " +
     "the database, not in a log. What is kept is the sentence, the recipient, " +
-    "the subject he wrote, the date and the thread id.",
+    "the subject he wrote, the date and the thread id. A sentence judged NOT " +
+    "a promise leaves only a pointer of the form `<message id>#<nth " +
+    "sentence>` in `gate_verdicts`, with the verdict and the judge's own " +
+    "clause — never the sentence itself.",
   deadlines:
     "dueText is his own words and is verified to appear in the message. due " +
     "is a date only where those words resolve to one unambiguously; it is " +

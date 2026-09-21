@@ -368,20 +368,24 @@ export const SKILLS: Skill[] = [
     about:
       "Promises found in the owner's OWN sent mail over a short window " +
       `(default ${DEFAULT_DAYS} days, at most ${MAX_MESSAGES} messages a ` +
-      "scan). A deterministic pass finds first-person future sentences; a " +
-      "model is then shown those sentences alone and asked for the shortest " +
-      "literal span of each that states the promise. Anything it returns that " +
-      "is not a verbatim span of the message is thrown away and the raw " +
-      "sentence used instead. Each row carries what was promised, to whom, " +
-      "the sentence he wrote, the thread, and a deadline only where he stated " +
-      "one.",
+      "scan). Code cuts the quoted text, signatures and footers off a message " +
+      "and splits what he himself typed into sentences; a model is then shown " +
+      "those sentences alone — never the subject, the recipient or the body — " +
+      "and answers, for each, whether it is a promise he made. A second pass " +
+      "asks for the shortest literal span of each kept sentence that states " +
+      "the promise, and anything that is not a verbatim span of the message is " +
+      "thrown away and the whole sentence used instead. Each row carries what " +
+      "was promised, to whom, the sentence he wrote, the thread, and a " +
+      "deadline only where he stated one.",
     rules: [
       "ALWAYS SHOW THE QUOTED SENTENCE. `what` is a model's shortest span of " +
         "it and is a summary; `sentence` is what he actually typed. Reporting " +
         "the summary without the sentence is reporting a paraphrase as a fact.",
-      "`by: \"pattern\"` means no model touched that row — the sentence is " +
-        "exactly as written and unrefined. That is a normal state, not a " +
-        "degraded one.",
+      "A SCAN WITH NO MODEL BEHIND IT FILES NOTHING. Whether a sentence is a " +
+        "promise is a judgment, and when no model answers, the sentences are " +
+        "recorded as `unjudged` in `gate_verdicts` and no row is written. The " +
+        "scan result carries that count: an empty scan with `unjudged` above " +
+        "zero means nobody looked, NOT that he promised nothing.",
       "NEVER INVENT A DEADLINE. `dueText` is his own words and was verified to " +
         "appear in the message. `due` is a date only where those words resolve " +
         "unambiguously (a weekday, today, tomorrow); otherwise it is null. An " +

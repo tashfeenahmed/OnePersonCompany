@@ -5,35 +5,73 @@
  * THE PRIVACY BARGAIN, WHICH IS THE FIRST THING TO KNOW. This is the only part
  * of this area that reads a message BODY. Bodies are transient by
  * construction: fetched in `gmail-sent.ts`, cleaned and scanned here, and gone
- * when `scan()` returns. Four things reach the database — one sentence of at
- * most 200 characters that the owner himself typed, who it was to, when it was
- * sent, and the thread it was in. No subject body, no snippet, no second
- * sentence for context, no draft of anything.
+ * when `scan()` returns. Four things reach `people_commitments` — one sentence
+ * of at most 200 characters that the owner himself typed AND that was judged a
+ * promise, who it was to, when it was sent, and the thread it was in. No
+ * subject body, no snippet, no second sentence for context, no draft of
+ * anything.
+ *
+ * WHAT THE JUDGE SEES, WHICH IS MORE THAN THE OLD PASS SHOWED IT. It is shown
+ * every sentence of his own writing in ONE message — never the quoted material
+ * below it, never the subject, never the recipient, never a second message. It
+ * has to be every sentence, because the thing being decided is WHICH of them
+ * are promises, and a filter that answered that in advance is precisely the bug
+ * described below. None of those sentences is stored. What is kept of a REFUSED
+ * sentence is one row in `gate_verdicts`: a pointer of the form
+ * `<gmail message id>#<nth sentence>`, the verdict, and the judge's own clause
+ * of at most 300 characters saying why. The pointer is deliberately not the
+ * sentence — it is enough to open the mail in his own client, and it is not a
+ * copy of a line he promised nothing in. The clause is the one thing this table
+ * holds that the old word lists did not, and it is the price of the rule being
+ * observable at all rather than only by rerunning a scan.
  *
  * IT IS HIS OWN WORDS OR IT IS NOT HERE. Only `in:sent` is read, so nothing
  * anybody else promised can appear and nothing he was ASKED to do can either.
- * A promise is a first-person future: "I'll", "we will", "let me". "You'll
- * send it over" is somebody else's business and never appears.
+ * Inside his own message the same line is drawn again, by the judge rather than
+ * by a pattern: "you'll send it over" is the recipient's business, and the
+ * question text says so.
  *
- * TWO STAGES, AND THE MODEL IS NEVER THE ONLY GATE.
+ * THREE STAGES, AND ONLY THE MIDDLE ONE IS A JUDGMENT.
  *
- *   1. A DETERMINISTIC PASS finds candidate sentences — a first-person future
- *      marker, a doing verb after it, no negation within the next 48
- *      characters, no question mark, and not one of the closing pleasantries
- *      ("let me know if you need anything") that are furniture rather than
- *      promises. This pass alone can put a row on the page.
- *   2. THE MODEL IS SHOWN ONLY THOSE CANDIDATE SENTENCES — never the body,
- *      never the subject, never the recipient — and asked for the shortest
- *      CONTIGUOUS SPAN of each that states the promise, plus the span that
- *      says when, if there is one. Anything it returns that is not a literal
- *      span of the message is thrown away and the untouched candidate is used
- *      instead.
+ *   1. CODE PARSES THE MAIL CLIENT'S OUTPUT. Quoted text, forward markers,
+ *      signatures, attributions and "Sent from my iPhone" are cut; soft wraps
+ *      are healed; the remainder is split into sentences. Every one of those is
+ *      a fact about how a mail client lays out a message, checkable by reading
+ *      the message, so every one of them stays here in code.
+ *   2. A MODEL DECIDES WHICH SENTENCES ARE PROMISES, in one call per message,
+ *      answering `promise` or `not` for each. This is the gate, it is the only
+ *      thing that decides recall, and it can go in BOTH directions.
+ *   3. A MODEL IS THEN ASKED FOR THE SHORTEST CONTIGUOUS SPAN of each kept
+ *      sentence that states the promise, plus the span that says when, if
+ *      there is one. Anything it returns that is not a literal span of the
+ *      message is thrown away and the untouched sentence is used instead.
  *
- * That grounding gate is absolute and it is why a model is allowed near this
- * at all: a model that "helpfully" tightened "I'll try to look at it" into
- * "I'll fix it" would have this dashboard telling the owner he promised
- * something he did not. THE RECIPIENT AND THE DATE NEVER COME FROM THE MODEL —
- * they come from headers, which cannot hallucinate.
+ * WHY THE GATE IS A MODEL AND NOT A WORD LIST. It used to be four lists: five
+ * first-person-future markers, nine negations, eight closing pleasantries, and
+ * fifty-nine doing verbs in one inline regex. The lists were not merely
+ * incomplete, they were UNFIXABLE in one direction: a model ran afterwards and
+ * was permitted only to REMOVE candidates, so every promise phrased outside
+ * those fifty-nine verbs — "I'll have a think and come back with numbers",
+ * "let me sort the Stripe side out" — was invisible and could never be
+ * recovered by anything downstream. Recall was decided entirely by a regex
+ * nobody could finish writing, which is the owner's rule (2026-09-21: a gate
+ * deciding a matter of MEANING is an LLM judgment, never a word list) failing
+ * in the most expensive way available: silently, on the side nobody can see.
+ *
+ * THE GROUNDING GATE ON STAGE 3 IS ABSOLUTE, and it is why a model is allowed
+ * to touch the words at all: a model that "helpfully" tightened "I'll try to
+ * look at it" into "I'll fix it" would have this dashboard telling the owner he
+ * promised something he did not. THE RECIPIENT AND THE DATE NEVER COME FROM A
+ * MODEL — they come from headers, which cannot hallucinate.
+ *
+ * FAILING OPEN HERE MEANS FILING NOTHING. Everywhere else in this codebase an
+ * unreachable judge lets the content through, because the cost of a gate that
+ * eats real work is higher than the noise it stops. This gate is the other way
+ * round and the reason is `nurture/facts.ts`: these sentences become grounding
+ * facts for OUTBOUND email drafts, so "let it through when unsure" means
+ * putting a promise he never made into a real message to a customer. So an
+ * unreachable model files nothing from that pass, and the `unjudged` rows in
+ * `gate_verdicts` are how that is visible instead of silent.
  *
  * DEADLINES ARE NEVER INVENTED. `due_text` is the owner's own words, held to
  * the same verbatim test as the sentence; `due` is this box's reading of those
@@ -50,6 +88,7 @@ import { textKey as normalise } from "../../shared/textkey.ts";
 import * as accounts from "../../accounts.ts";
 import { open as openMailbox } from "../../providers/gmail.ts";
 import { complete } from "../../models/provider.ts";
+import { judge } from "../../models/judge.ts";
 import { profileAddress } from "./gmail-meta.ts";
 import { reason } from "./contacts.ts";
 import { readSent, sentIds, type SentMessage } from "./gmail-sent.ts";
@@ -64,6 +103,17 @@ export const MAX_MESSAGES = 120;
 /** Candidate sentences per completion. Twelve keeps the reply inside a
  *  sensible token budget and keeps one bad message from poisoning a batch. */
 const REFINE_BATCH = 12;
+/**
+ * How many sentences of one message are put to the judge.
+ *
+ * A CEILING ON THE JUDGMENT, not a filter on it — the old pass sent the model
+ * only its own pattern hits, so a pasted log or a forty-paragraph proposal cost
+ * nothing; now every sentence he wrote goes, and one message has to have a
+ * bound. Sixty is far above a real email and well inside one call. Anything
+ * past it is counted as `unshown` in the scan result, because a sentence nobody
+ * judged must be a number on the page rather than a silence.
+ */
+export const MAX_CANDIDATES = 60;
 /** The quoted sentence's cap. A clipped promise is still a promise. */
 export const MAX_SENTENCE = 200;
 
@@ -126,83 +176,6 @@ export function sentences(body: string): string[] {
   return out;
 }
 
-/** First-person futures. `we` is included because the owner writes as the
- *  business; "you'll" and "they will" are deliberately absent. */
-const FUTURE = [
-  /\b(?:i|we)['’]ll\b/gi,
-  /\b(?:i|we)\s+(?:will|shall)\b/gi,
-  /\b(?:i['’]m|i am|we['’]re|we are)\s+going to\b/gi,
-  /\b(?:i|we)\s+(?:plan|intend|aim)\s+to\b/gi,
-  /\blet me\b/gi,
-];
-
-const NEGATION = /\b(?:not|won['’]t|can['’]t|cannot|never|unable|no longer|don['’]t|doesn['’]t)\b/i;
-
-/**
- * A doing verb after the marker.
- *
- * `have` is narrowed to "have it/that/this/them/the …" on purpose: bare `have`
- * turned "let me know if you have any questions" into a task, which is the
- * kind of false catch that teaches somebody to stop reading the list.
- */
-const VERBS =
-  /\b(?:send|sent|share|write|draft|prepare|put together|get|grab|make|build|fix|check|look|review|read|call|ring|email|reply|respond|follow up|update|confirm|book|schedule|set up|sort|arrange|add|remove|deploy|ship|publish|push|upload|invoice|pay|refund|introduce|forward|circle back|come back|revert|deliver|finish|complete|start|begin|do|handle|take care|have\s+(?:it|that|this|them|those|your|the\s+\w+))\b/i;
-
-/** Closing pleasantries. "Let me know if you need anything" is furniture. */
-const CLOSERS = [
-  /let me know if (?:you|there)/i,
-  /let me know (?:what|when|how|whether|if)/i,
-  /let me know\s*[.!]/i,
-  /i['’]?ll be (?:here|around|in touch)/i,
-  /i['’]?ll look forward/i,
-  /we['’]?ll speak soon/i,
-  /i['’]?ll leave (?:it|that) with you/i,
-  /let me know your thoughts/i,
-];
-
-/** How far from a marker a closer still counts as owning it. */
-const CLOSER_REACH = 25;
-
-function closerSpans(sentence: string): [number, number][] {
-  const spans: [number, number][] = [];
-  for (const re of CLOSERS) {
-    const m = re.exec(sentence);
-    if (m && m.index >= 0) spans.push([m.index, m.index + m[0].length]);
-  }
-  return spans;
-}
-
-/** Every qualifying marker position — not the first. "Let me know what you
- *  need and I'll get it sorted" carries two, and the second is the promise. */
-export function qualifyingMarks(sentence: string): number[] {
-  const marks: number[] = [];
-  for (const re of FUTURE) {
-    re.lastIndex = 0;
-    for (const m of sentence.matchAll(re)) {
-      const i = m.index ?? -1;
-      if (i < 0) continue;
-      /* The negation window is SHORT on purpose: "I won't have time" must die
-         at the marker, while "I'll send it Friday, though I can't promise the
-         rest" is still a promise about the first thing. */
-      if (NEGATION.test(sentence.slice(i, i + 48))) continue;
-      if (!VERBS.test(sentence.slice(i))) continue;
-      marks.push(i);
-    }
-  }
-  return [...new Set(marks)].sort((a, b) => a - b);
-}
-
-/** Refuse only when EVERY qualifying marker belongs to a closing pleasantry. */
-export function isCloser(sentence: string): boolean {
-  const spans = closerSpans(sentence);
-  if (!spans.length) return false;
-  const marks = qualifyingMarks(sentence);
-  if (!marks.length) return true;
-  return marks.every((i) =>
-    spans.some(([a, b]) => (i >= a && i < b) || (a >= i && a <= i + CLOSER_REACH)),
-  );
-}
-
 /** When, in the owner's own words. LIFTED VERBATIM, never parsed into a date
  *  here: "by end of week" is what he wrote and what the recipient read. */
 const DUE =
@@ -219,17 +192,33 @@ export function clip(text: string, max = MAX_SENTENCE): { text: string; clipped:
 
 export type Candidate = { sentence: string; dueText: string | null; clipped: boolean };
 
-/** The deterministic pass over one cleaned body. */
+/**
+ * EVERY SENTENCE HE WROTE IN ONE MESSAGE, in order, ready to be judged.
+ *
+ * THIS FUNCTION NO LONGER DECIDES ANYTHING. It used to be the gate — a
+ * first-person-future marker, a doing verb from a list of fifty-nine, a
+ * negation window, a closing-pleasantry list — and that is exactly what made a
+ * promise worded any other way unfindable forever, because the model that ran
+ * afterwards was only allowed to remove. What is left is the part that is a
+ * fact rather than a judgment: how long a fragment has to be before there is
+ * anything in it, that the same sentence twice in one mail is one promise, and
+ * the deadline words he typed.
+ *
+ * THE QUESTION MARK WENT WITH THE WORD LISTS, and it is worth saying why,
+ * because it looks like punctuation rather than meaning. "Can you confirm I'll
+ * get the file by Friday?" is him asking — but "I'll have this with you
+ * tomorrow, does that work?" is him promising, and one sentence cannot be told
+ * from the other by looking for a `?`. It is the same class of decision as the
+ * verb list and it now sits with the judge, whose question text names it.
+ */
 export function candidatesIn(body: string): Candidate[] {
   const seen = new Set<string>();
   const out: Candidate[] = [];
   for (const raw of sentences(body)) {
+    /* A FLOOR, NOT A FILTER. Under twelve characters there is no sentence to
+       judge — "Thanks.", "Will do." — and `grounded()` could not check a span
+       of one either. It is the same number for the same reason. */
     if (raw.length < 12) continue;
-    /* The question mark is tested against the WHOLE sentence: "Can you confirm
-       I'll get the file by Friday?" is him asking, not him promising. */
-    if (raw.includes("?")) continue;
-    if (!qualifyingMarks(raw).length) continue;
-    if (isCloser(raw)) continue;
     const key = normalise(raw);
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -243,7 +232,115 @@ export function candidatesIn(body: string): Candidate[] {
   return out;
 }
 
-/* ------------------------------------------------------------ the model pass */
+/* ------------------------------------------------- the gate: is it a promise */
+
+/**
+ * THE TWO WORDS. `promise` is an undertaking HE gave in that sentence; `not` is
+ * everything else, and everything else is most sentences in most emails.
+ *
+ * Two words rather than three on purpose. A `maybe` would have to be resolved
+ * by this file, and the only defensible resolution is the lean below — so the
+ * lean is stated in the question instead, where the model can apply it with the
+ * sentence in front of it.
+ */
+export const PROMISE_WORDS = ["promise", "not"] as const;
+export type PromiseWord = (typeof PROMISE_WORDS)[number];
+
+/** This gate's name in `gate_verdicts` — the one the 406 migration's own
+ *  comment uses as its example. Stable, because it is what a query joins on
+ *  when somebody asks in November why a promise never appeared. */
+export const PROMISE_GATE = "people.commitment";
+
+/**
+ * WHAT THE JUDGE IS ASKED, in full, and exported so a test can read it.
+ *
+ * THE LEAN IS AGAINST CALLING IT A PROMISE, and it is written into the question
+ * rather than left to the model's temperament because of where these sentences
+ * end up. `nurture/facts.ts` hands them to the drafter of OUTBOUND email as
+ * grounding facts, and `routes/actionInbox.ts` turns them into a board card
+ * with a priority. A sentence wrongly called a promise therefore does not just
+ * add a line to a list — it can put an undertaking he never gave into a real
+ * message to a real customer. A sentence wrongly called `not` costs him a
+ * reminder he would have liked. Those are not the same mistake and the question
+ * says which one to make.
+ *
+ * IT NAMES THE CASES THE FOUR DELETED WORD LISTS USED TO COVER — the closing
+ * pleasantry, the negation, the recipient's undertaking, the question he is
+ * asking — because those cases were real. The lists were wrong about how to
+ * recognise them, not about what they were.
+ */
+export const QUESTION = `You are reading sentences a person wrote in his OWN sent email. For each one, decide whether that sentence is a promise HE made.
+
+"promise" — in this sentence he commits himself, or his business, to doing something: sending, writing, paying, fixing, calling, looking into, coming back on it. It counts however it is phrased, with or without a deadline, hedged or firm, and whatever verb he happened to use. "I'll get the numbers over tonight", "let me sort the Stripe side out", "we'll have a think and come back to you with options" are all promises.
+
+"not" — everything else, which is most sentences. Something the person he is writing to will do. Something already finished. A question he is asking, even when it mentions something getting done. A fact, an opinion, a hope, a compliment, a piece of context, a price, a link. A refusal or an inability — "I won't be able to look at it this week" is the opposite of a promise. A closing pleasantry that undertakes nothing in particular: "let me know if you need anything", "I'll be around all week", "looking forward to it".
+
+Judge the sentence ALONE. You are not shown the message it came from, the subject or the recipient, and you should not imagine them. If a sentence would only be a promise given surrounding context you cannot see, it is "not".
+
+WHEN YOU ARE GENUINELY UNSURE, ANSWER "not". A sentence you call a promise is quoted back to him as something he owes somebody, and is given to a drafter as a fact when his next email to that person is written — so a wrong "promise" can put an undertaking he never gave into a real message. A wrong "not" only costs him a reminder. Lean that way deliberately.`;
+
+/** One candidate with the judge's answer to it. */
+export type Judged = {
+  candidate: Candidate;
+  verdict: PromiseWord | "unjudged";
+  why: string;
+};
+
+/**
+ * ONE CALL PER MESSAGE, which is the unit the sentences arrive in.
+ *
+ * NOT ONE CALL PER SCAN: a scan opens up to 120 messages, so a scan-wide batch
+ * would be one prompt of a thousand sentences from thirty different
+ * conversations, where one unparseable reply loses the whole fortnight and a
+ * retry costs the whole fortnight again. Per message the blast radius of a bad
+ * answer is one message, and the sentences of one message are the only ones
+ * that could ever have needed to be seen together.
+ *
+ * THE SUBJECT KEY IS A POINTER, NOT THE SENTENCE — `<message id>#<nth>`. It
+ * finds the mail in his own client and it keeps `gate_verdicts` from becoming a
+ * copy of every line he has written, which is the privacy bargain at the top of
+ * this file. It is also why the key is the sentence's position in the message
+ * and not a hash: a hash identifies nothing a person can open.
+ */
+export async function judgePromises(
+  candidates: Candidate[],
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<{ judged: Judged[]; model: string | null; why: string | null }> {
+  if (!candidates.length) return { judged: [], model: null, why: null };
+  const result = await judge({
+    gate: PROMISE_GATE,
+    question: QUESTION,
+    allowed: PROMISE_WORDS,
+    items: candidates.map((c, i) => ({ key: `${messageId}#${i + 1}`, text: c.sentence })),
+    signal,
+  });
+  return {
+    judged: candidates.map((candidate, i) => {
+      const v = result.verdicts[i];
+      return { candidate, verdict: v?.verdict ?? "unjudged", why: v?.why ?? (result.why ?? "") };
+    }),
+    model: result.model,
+    why: result.why,
+  };
+}
+
+/**
+ * THE ONES THAT GET FILED, and nothing else.
+ *
+ * `unjudged` IS NOT A PASS. A batch nobody judged — no provider configured, a
+ * model that answered prose twice — files nothing at all, and the rows are in
+ * `gate_verdicts` saying so. The alternative, filing the sentences and letting
+ * the page mark them unjudged, was rejected: the page is not the only consumer.
+ * `facts.ts` reads the same table with no idea of how a row got there, so an
+ * unjudged sentence would reach a draft as "you promised this" on the strength
+ * of nothing but a pattern nobody ran any more.
+ */
+export function keep(judged: Judged[]): Candidate[] {
+  return judged.filter((j) => j.verdict === "promise").map((j) => j.candidate);
+}
+
+/* ------------------------------------------------------------- the span pass */
 
 /**
  * One normalisation for three jobs — the dedup key, the grounding test and the
@@ -260,16 +357,30 @@ export function grounded(span: string, bodyNorm: string, min = 12): boolean {
   return n.length >= min && bodyNorm.includes(n);
 }
 
+/**
+ * IT IS NO LONGER ALLOWED TO OMIT ANYTHING.
+ *
+ * The old version of this prompt ended "omit an item entirely if it is not
+ * actually a promise", and an omission was read as a refusal — which was the
+ * ONE judgment the old design let a model make, and only ever in the direction
+ * of removal. That judgment now belongs to the gate above, where it works in
+ * both directions and is written down in `gate_verdicts`. Leaving it here as
+ * well would mean a sentence could be refused twice by two different calls with
+ * only one of the refusals recorded, and "why did that promise disappear" would
+ * have an answer the table does not contain.
+ */
 const SYSTEM =
-  "You tidy up promise sentences taken from a person's own sent email. For " +
-  "each numbered candidate return the shortest CONTIGUOUS SPAN of that " +
-  "candidate which states what he promised to do, and the span that says " +
-  "when, if the candidate contains one. COPY THE WORDS. Do not paraphrase, do " +
-  "not fix grammar, do not add a subject, do not merge two candidates. " +
-  "Anything you write that is not a literal span of the candidate will be " +
-  "thrown away and the untouched candidate used instead. Answer with JSON " +
-  'only: {"items":[{"i":1,"promise":"…","dueHint":"…"|null}]}. Omit an item ' +
-  "entirely if it is not actually a promise to do something.";
+  "You tidy up promise sentences taken from a person's own sent email. Each " +
+  "one has already been judged to be a promise he made; your only job is to " +
+  "quote the part of it that says what he promised. For each numbered " +
+  "candidate return the shortest CONTIGUOUS SPAN of that candidate which " +
+  "states what he promised to do, and the span that says when, if the " +
+  "candidate contains one. COPY THE WORDS. Do not paraphrase, do not fix " +
+  "grammar, do not add a subject, do not merge two candidates, and do not omit " +
+  "an item — return one for every number you were given. Anything you write " +
+  "that is not a literal span of the candidate will be thrown away and the " +
+  "untouched candidate used instead. Answer with JSON only: " +
+  '{"items":[{"i":1,"promise":"…","dueHint":"…"|null}]}.';
 
 type Item = { i?: unknown; promise?: unknown; dueHint?: unknown };
 
@@ -299,32 +410,41 @@ function parseItems(text: string, count: number): Map<number, { promise: string;
 }
 
 /**
- * One candidate after the model has (or has not) touched it.
+ * One judged promise after the span pass has (or has not) touched it.
  *
  * BOTH STRINGS ARE KEPT. `sentence` is what the owner typed, clipped and
  * otherwise untouched — the evidence, shown with every row. `what` is the
- * shortest span of it that states the promise, which is what a list reads
- * well. On a pattern-only row they are the same string, and the page says
- * which by showing `by`.
+ * shortest span of it that states the promise, which is what a list reads well
+ * and is the title `actionInbox.ts` puts on a board card. When no span came
+ * back they are the same string, and `by` says which.
  */
 export type Refined = {
   what: string;
   sentence: string;
   dueText: string | null;
   clipped: boolean;
-  by: "model" | "pattern";
-  dropped: boolean;
+  by: "model" | "verbatim";
 };
 
 /**
- * Hand a batch of candidate sentences to the model.
+ * TIGHTEN EACH KEPT SENTENCE TO THE SPAN THAT STATES THE PROMISE.
  *
- * EVERY FAILURE PATH ENDS AT THE RAW CANDIDATE — an unparseable reply, a
+ * WHY THIS SURVIVED THE GATE REWRITE. It is not a second gate and it does not
+ * decide anything: the question it asks is "which contiguous run of words in
+ * THIS sentence is the undertaking", which has a right answer checkable against
+ * the message itself, and `grounded()` checks it. The thing it produces is the
+ * `what` column — the one line that becomes a board card's title and the inbox
+ * row a person reads first — and a full sentence there reads badly: "Thanks for
+ * sending those over, and I'll have the revised contract with you Thursday and
+ * copy Jane in" is a worse card than "I'll have the revised contract with you
+ * Thursday". Deleting it would have cost that and saved nothing but one call on
+ * the sentences that were already kept.
+ *
+ * EVERY FAILURE PATH ENDS AT THE WHOLE SENTENCE — an unparseable reply, a
  * missing item, a reworded promise, an invented hint, a provider that is not
- * connected. Without a model nothing is lost and nothing is invented; the rows
- * arrive labelled `by: "pattern"`, which the page and the skill both say out
- * loud. A feature whose whole value is remembering what you owe somebody
- * cannot go silent because a model endpoint is down.
+ * connected. The row still arrives, labelled `by: "verbatim"`, because a
+ * promise with an untidy title is still a promise; this is the one half of the
+ * model pass where being unreachable costs nothing at all.
  */
 export async function refine(
   candidates: Candidate[],
@@ -335,8 +455,7 @@ export async function refine(
     sentence: c.sentence,
     dueText: c.dueText,
     clipped: c.clipped,
-    by: "pattern",
-    dropped: false,
+    by: "verbatim",
   });
   const fallback = candidates.map(asIs);
   if (!candidates.length) return { items: [], model: null, refused: 0, error: null };
@@ -356,11 +475,12 @@ export async function refine(
       const parsed = parseItems(reply.text, batch.length);
       batch.forEach((c, i) => {
         const got = parsed.get(i + 1);
-        /* An OMITTED item is the model saying "that is not a promise", which is
-           the one judgement it is allowed to make — it can only remove, never
-           add. */
+        /* AN OMITTED ITEM IS NOT A REFUSAL ANY MORE. It used to mean "that is
+           not a promise" and the candidate was dropped; the gate above owns that
+           decision now, so an omission here is just a model that answered
+           short, and the sentence keeps its own words. */
         if (!got) {
-          items.push({ ...asIs(c), by: "model", dropped: true });
+          items.push(asIs(c));
           return;
         }
         if (!grounded(got.promise, bodyNorm)) {
@@ -376,7 +496,6 @@ export async function refine(
           dueText: hint,
           clipped: c.clipped,
           by: "model",
-          dropped: false,
         });
       });
     } catch (e) {
@@ -489,14 +608,31 @@ export type ScanResult = {
   listed: number;
   scanned: number;
   truncated: boolean;
+  /** Sentences of his own that were PUT TO THE JUDGE. Not pattern hits: since
+   *  the word lists went, this is every sentence he wrote in the messages that
+   *  were opened. */
   candidates: number;
-  /** Dropped by the model as "not actually a promise". */
-  droppedByModel: number;
+  /** Judged `not` — the sentence was his own writing and was not a promise. */
+  notPromise: number;
+  /** Judged by nobody, because no model answered. These file NOTHING, which is
+   *  this gate's fail-open direction, and the same rows are in `gate_verdicts`.
+   *  A non-zero figure here means the scan under-reports. */
+  unjudged: number;
+  /** Sentences past the per-message ceiling, never shown to the judge. */
+  unshown: number;
   /** Model spans that were not literal spans of the message. */
   refusedSpans: number;
+  /** Sentences in messages whose recipient could not be read, and which were
+   *  therefore never judged at all. Since the word lists went this counts every
+   *  sentence of such a message rather than a handful of pattern hits, so it is
+   *  a larger number than it used to be and means something slightly different:
+   *  mail that could not be filed, measured in sentences. */
   noRecipient: number;
   alreadyKnown: number;
   filed: number;
+  /** Who judged, and who tightened the spans. Two different calls and often two
+   *  different models, and the first is the one that decided what was filed. */
+  judgeModel: string | null;
   model: string | null;
   modelError: string | null;
   mailboxes: { accountId: number; mailbox: string | null; ok: boolean; error: string | null }[];
@@ -527,11 +663,14 @@ export async function scan(days = DEFAULT_DAYS): Promise<ScanResult> {
     scanned: 0,
     truncated: false,
     candidates: 0,
-    droppedByModel: 0,
+    notPromise: 0,
+    unjudged: 0,
+    unshown: 0,
     refusedSpans: 0,
     noRecipient: 0,
     alreadyKnown: 0,
     filed: 0,
+    judgeModel: null,
     model: null,
     modelError: null,
     mailboxes: [],
@@ -579,7 +718,11 @@ export async function scan(days = DEFAULT_DAYS): Promise<ScanResult> {
   result.ok = result.mailboxes.some((m) => m.ok);
   const note =
     `${result.scanned} sent messages over ${window}d, ` +
-    `${result.candidates} candidates, ${result.filed} filed`;
+    `${result.candidates} sentences judged, ${result.filed} filed` +
+    /* THE UNJUDGED COUNT IS IN THE RUN NOTE, not only in the JSON. The run
+       ledger is where somebody looks when a fortnight came back empty, and "no
+       model answered" is a different answer from "he promised nothing". */
+    (result.unjudged ? `, ${result.unjudged} unjudged` : "");
   finishRun(
     runId,
     result.ok,
@@ -599,19 +742,34 @@ async function fileOne(
 ) {
   const body = cleanBody(message.text);
   if (!body.trim()) return;
-  const candidates = candidatesIn(body);
-  if (!candidates.length) return;
-  result.candidates += candidates.length;
+  const all = candidatesIn(body);
+  if (!all.length) return;
 
-  /* NO RECIPIENT, NO PROMISE. A promise this box cannot say who was made to is
-     a task with nobody's name on it, and the count is reported so the figure
-     is comparable with the others. */
+  /* NO RECIPIENT, NO PROMISE — AND NO JUDGE CALL EITHER. A promise this box
+     cannot say who was made to is a task with nobody's name on it, so nothing
+     here could be filed whatever a model said; asking anyway would spend a call
+     and show a model sentences for no possible outcome. The count is reported so
+     the figure is comparable with the others. */
   if (!message.to) {
-    result.noRecipient += candidates.length;
+    result.noRecipient += all.length;
     return;
   }
 
-  const refined = await refine(candidates, normalise(body));
+  const candidates = all.slice(0, MAX_CANDIDATES);
+  result.candidates += candidates.length;
+  result.unshown += all.length - candidates.length;
+
+  /* THE GATE. One call, every sentence of this message, both directions. */
+  const gate = await judgePromises(candidates, message.id);
+  if (gate.model) result.judgeModel = gate.model;
+  if (gate.why && !result.modelError) result.modelError = gate.why;
+  result.notPromise += gate.judged.filter((j) => j.verdict === "not").length;
+  result.unjudged += gate.judged.filter((j) => j.verdict === "unjudged").length;
+
+  const promises = keep(gate.judged);
+  if (!promises.length) return;
+
+  const refined = await refine(promises, normalise(body));
   if (refined.model) result.model = refined.model;
   if (refined.error && !result.modelError) result.modelError = refined.error;
   result.refusedSpans += refined.refused;
@@ -625,10 +783,6 @@ async function fileOne(
   );
 
   for (const item of refined.items) {
-    if (item.dropped) {
-      result.droppedByModel += 1;
-      continue;
-    }
     const id = idFor(mailbox, message.threadId, item.sentence);
     if (known.has(id)) {
       result.alreadyKnown += 1;

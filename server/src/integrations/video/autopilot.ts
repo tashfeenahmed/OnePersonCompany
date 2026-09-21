@@ -35,14 +35,21 @@
  * this week" with silence, and silence sends somebody looking for a bug in a
  * feature that is doing exactly what it was told.
  *
- * THE TOPIC IS GATED BEFORE IT IS PAID FOR, added 2026-09-06. A derived topic
- * now goes through integrations/socialfeed/novelty.ts BEFORE any Studio call
- * or any run is queued: a topic whose normalised fingerprint was already used
- * for this venture and this format inside the novelty window is REFUSED, the
- * refusal is logged as a skip with the clash quoted, and nothing is spent. The
- * "recent briefs in the prompt" trick below is still there and is still worth
- * having — it makes a good topic more likely — but an instruction to a model
- * is not a constraint, and the gate is the constraint.
+ * THE TOPIC IS GATED BEFORE IT IS PAID FOR, added 2026-09-06 and made a
+ * model's judgment on 2026-09-21. A derived topic goes through
+ * integrations/socialfeed/novelty.ts BEFORE any Studio call or any run is
+ * queued: a model reads it against what this venture has already made in this
+ * format inside the novelty window and answers `repeat` or `fresh`; a repeat is
+ * REFUSED, logged as a skip with the judge's reason quoted, and nothing is
+ * spent. It was a stem-overlap score until that date and it is not any more —
+ * "is this the same piece of work" is a matter of meaning. The gate LEANS
+ * towards allowing and an unreachable model allows, because a wrong refusal
+ * stops this pass producing anything and says so nowhere.
+ *
+ * THE GATE IS AWAITED, WHICH IS WHY THE TOPIC IS DERIVED FIRST AND SPENT LAST.
+ * The "recent briefs in the prompt" trick below is still there and is still
+ * worth having — it makes a good topic more likely — but an instruction to a
+ * model is not a constraint, and the gate is the constraint.
  *
  * A `shorts` JOB NEEDS A SOURCE URL, AND THE AUTOPILOT CAN FIND ONE.
  * integrations/socialfeed/sourcing.ts searches the
@@ -454,7 +461,7 @@ export async function runPass(trigger: "clock" | "manual"): Promise<PassResult> 
                because a refused POST must not cost this venture its VIDEO —
                the two cadences are independent and a repeat of one is not a
                repeat of the other. */
-            const gate = checkTopic(v.id, "post", topic.topic);
+            const gate = await checkTopic(v.id, "post", topic.topic);
             const post = gate.ok ? await makePost(v, topic.topic) : null;
             if (!post) {
               record({ v, kind: "post", action: "skipped", note: `“${topic.topic}” was refused — ${gate.reason}` });
@@ -518,7 +525,7 @@ export async function runPass(trigger: "clock" | "manual"): Promise<PassResult> 
                job's search costs a request on the owner's own node and a
                handful of metadata reads; a faceless run costs Pexels quota and
                ten minutes of CPU. Neither is spent on a repeat. */
-            const gate = checkTopic(v.id, format, topic.topic);
+            const gate = await checkTopic(v.id, format, topic.topic);
             if (!gate.ok) {
               record({ v, kind: "video", action: "skipped", note: `“${topic.topic}” was refused — ${gate.reason}` });
               continue;
