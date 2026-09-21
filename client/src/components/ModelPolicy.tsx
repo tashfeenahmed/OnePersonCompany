@@ -41,12 +41,12 @@ const MODES: { id: ModelPolicy["mode"]; label: string; note: string }[] = [
   {
     id: "series",
     label: "Series",
-    note: "One at a time. The right default for a single GPU — two completions at once halve the speed of both and can run the card out of memory.",
+    note: "One at a time, across everything on this box — chat, runs, collectors and the managed agent, which calls the provider through this box's relay. The right default for a single GPU: two completions at once halve the speed of both and can run the card out of memory.",
   },
   {
     id: "parallel",
     label: "Parallel",
-    note: "Up to the concurrency below. What a hosted API wants, and what two local boxes want.",
+    note: "Up to the concurrency below, shared by everything on this box including the managed agent. What a hosted API such as FreeLLMAPI wants, and what two local boxes want.",
   },
 ];
 

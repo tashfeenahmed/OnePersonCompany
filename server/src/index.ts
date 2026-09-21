@@ -102,6 +102,7 @@ import { chat } from "./routes/chat.ts";
   answer exists.
 */
 import { models } from "./routes/models.ts";
+import { relay } from "./routes/relay.ts";
 import { searchRoutes, searxngRoutes } from "./routes/searxng.ts";
 import { findRoutes } from "./routes/find.ts";
 /*
@@ -270,6 +271,13 @@ app.route("/api/chat", chat);
    through to it when no agent is live — so a plain chat with nothing in front
    of it still answers, and says which provider answered. */
 app.route("/api/models", models);
+/* THE SAME PROVIDER, AS A DOOR FOR THE MANAGED AGENTS. Hermes and OpenClaw
+   used to be handed the provider's own URL and made their calls straight to
+   it, beside this process's rather than behind it — so a "series" policy on
+   a one-GPU box bound every call this process made and none of the agent's.
+   The relay is an OpenAI-shaped endpoint on this port that forwards to the
+   default provider THROUGH its gate, and the agents are pointed at it. */
+app.route("/api/relay", relay);
 /* The locally installed search node: what is on disk, what is running, and the
    two buttons that change either. It is the only integration this box can
    INSTALL rather than merely connect to, so it is the only one with a route

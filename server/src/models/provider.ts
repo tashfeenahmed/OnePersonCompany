@@ -292,8 +292,12 @@ function totalInFlight(g: Gate): number {
   return n;
 }
 
-/** Wait for a slot, then choose an endpoint. Returns the release function. */
-async function acquire(p: ModelProvider): Promise<{ endpoint: Endpoint; release: () => void; queuedMs: number }> {
+/** Wait for a slot, then choose an endpoint. Returns the release function.
+ *  EXPORTED FOR ONE CALLER — routes/relay.ts, the OpenAI-shaped door the
+ *  managed agents are pointed at, so that an agent's completions stand in the
+ *  same queue as this process's own. Every other completion goes through
+ *  `complete()` or `completeTooled()` and never touches the gate directly. */
+export async function acquire(p: ModelProvider): Promise<{ endpoint: Endpoint; release: () => void; queuedMs: number }> {
   const g = gateFor(p.id);
   const started = Date.now();
   // The ceiling is the whole provider's, across all its endpoints — a "series"
@@ -363,7 +367,7 @@ export class NoProviderError extends Error {
  */
 const discovered = new Map<string, string>();
 
-async function modelFor(p: ModelProvider, e: Endpoint, override?: string): Promise<string> {
+export async function modelFor(p: ModelProvider, e: Endpoint, override?: string): Promise<string> {
   if (override) return override;
   if (p.defaultModel) return p.defaultModel;
   const cached = discovered.get(e.baseUrl);
