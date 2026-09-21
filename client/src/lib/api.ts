@@ -2717,6 +2717,11 @@ export type AgentPointedAt = {
   endpointUrl: string;
   model: string;
   at: string;
+  /** The door the agent actually calls: this box's relay, which forwards to
+   *  `endpointUrl` through the provider's gate, so the provider's series or
+   *  parallel policy binds the agent's calls too. Absent on an agent pointed
+   *  before the relay existed. */
+  relay?: string;
 };
 
 /**

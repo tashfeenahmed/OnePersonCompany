@@ -279,6 +279,7 @@ function Pointed({ agent, doc }: { agent: AgentReport; doc: AgentsDoc }) {
         <span className="font-mono">{agent.pointed.model}</span>{" "}
         <span className="text-muted-foreground">
           at {agent.pointed.endpointUrl} ({agent.pointed.endpoint})
+          {agent.pointed.relay && " · through this box's relay, so the provider's policy queues its calls"}
         </span>
       </p>
     );

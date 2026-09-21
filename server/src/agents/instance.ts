@@ -92,7 +92,8 @@ import { homedir, userInfo } from "node:os";
    area owns both, and reports what is actually true on Settings → Deployment. */
 import { agentUser, agentWorkDir } from "../integrations/deploy/isolation.ts";
 import { dirname, join } from "node:path";
-import { DATA_DIR } from "../config.ts";
+import { DATA_DIR, PORT } from "../config.ts";
+import { agentKey } from "../auth.ts";
 import { OUTPUT_TOKENS_CEILING } from "../runtime/budgets.ts";
 import { configValue, getPlugin, setConfig, upsertPlugin } from "../db.ts";
 import * as accounts from "../accounts.ts";
@@ -361,6 +362,10 @@ export type Pointed = {
   endpointUrl: string;
   model: string;
   at: string;
+  /** The door the agent actually calls: this box's relay (routes/relay.ts),
+   *  which forwards to `endpointUrl` through the provider's gate. Printed so
+   *  the page can say "through the relay" beside where the calls end up. */
+  relay: string;
 };
 
 /** Everything a configure needs, resolved once so the two writers below are
@@ -868,9 +873,23 @@ async function plan(s: Spec): Promise<Plan> {
   const endpoint = p.endpoints[0];
   if (!endpoint) throw new Error(`${p.label} has no endpoint configured.`);
   const model = await modelFor(p, endpoint, s.label);
+  /*
+    THE AGENT IS POINTED AT THIS BOX'S RELAY, NOT AT THE PROVIDER.
+
+    It used to get `endpoint.baseUrl` and `endpoint.key` and call the
+    provider itself — which put its completions BESIDE this process's rather
+    than behind the provider's gate, so a "series" policy on a one-GPU box
+    bound the runs and the chat and never the agent, and the agent's turn and
+    a run's turn met on the card. routes/relay.ts is the same provider behind
+    the same gate, on this port, keyed with the agent key the `opc` wrapper
+    already carries. The model name is still resolved against the real
+    endpoint here, because the agent writes it into its own config and the
+    relay only fills it in when a caller sends none.
+  */
+  const relay = `http://127.0.0.1:${PORT}/api/relay/v1`;
   return {
-    baseUrl: endpoint.baseUrl,
-    key: endpoint.key,
+    baseUrl: relay,
+    key: agentKey(),
     model,
     timeoutMs: p.policy.timeoutMs,
     door: doorKey(s),
@@ -881,6 +900,7 @@ async function plan(s: Spec): Promise<Plan> {
       endpointUrl: endpoint.baseUrl,
       model,
       at: new Date().toISOString(),
+      relay,
     },
   };
 }
