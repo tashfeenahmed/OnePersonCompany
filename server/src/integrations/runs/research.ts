@@ -1,3 +1,4 @@
+import { CARD_CONTRACT } from "./card-gate.ts";
 import type { ChatTurn } from "../../chat/backend.ts";
 import type { Block } from "./context.ts";
 import { renderBlocks } from "./context.ts";
@@ -78,7 +79,9 @@ Label inference as inference and a stale observation as stale. Do not claim a sy
 
 KEEP IT TIGHT. A briefing the owner reads in five minutes: aim for under about 2,500 words of prose plus tables. A document still being composed when the clock runs out is a document nobody gets. Write the whole page in one pass and stop at </html>.
 
-After </html> — and only there — you may append ONE fenced block, info string exactly \`json cards\`, holding three to eight board cards as [{"title": "…", "body": "…", "urgency": 0-3}]. They are filed straight into the board's Backlog when the run finishes, unreviewed, so each must be real work worded to stand on its own. Nothing else after the document.
+After </html> — and only there — you may append ONE fenced block, info string exactly \`json cards\`, holding board cards as [{"title": "…", "body": "…", "urgency": 0-3}]. Nothing else after the document.
+
+${CARD_CONTRACT}
 
 Write like a sharp analyst who wants to be read — specific, a little wry, never padded.`;
 }

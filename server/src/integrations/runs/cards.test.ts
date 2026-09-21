@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { db, now } from "../../db.ts";
+import { verdictsFor } from "./card-gate.ts";
 import { cardsOf, fileRunCards, runCardOrigin, runCardsFiled } from "./cards.ts";
 import { kindDef } from "./kinds.ts";
 
@@ -18,12 +19,12 @@ beforeEach(() => {
     .run("v-cards", "cards", "Cards", "launched", "#334455", "owner", now(), now(), 0, "{}");
 });
 
-test("a finished run's cards land in Backlog once, under the venture, with the run named", () => {
+test("a finished run's cards land in Backlog once, under the venture, with the run named", async () => {
   run("r-cards1", "done", fence([
     { title: "Rewrite the pricing page", body: "It ranks 14th.", urgency: 2 },
     { title: "Add FAQ schema", urgency: 9 },
   ]));
-  assert.deepEqual(fileRunCards("r-cards1"), { filed: 2, total: 2 });
+  assert.deepEqual(await fileRunCards("r-cards1"), { filed: 2, total: 2, refused: 0 });
   const rows = db.prepare(
     "SELECT c.title, c.body, c.urgency, c.venture_id, c.origin, k.key AS col FROM board_cards c JOIN board_columns k ON k.id=c.column_id WHERE c.origin LIKE 'run:r-cards1:%' ORDER BY c.origin",
   ).all() as { title: string; body: string; urgency: number; venture_id: string; origin: string; col: string }[];
@@ -37,22 +38,22 @@ test("a finished run's cards land in Backlog once, under the venture, with the r
   assert.equal(runCardsFiled("r-cards1"), 2);
 
   /* A second pass writes nothing — the origin is the receipt. */
-  assert.deepEqual(fileRunCards("r-cards1"), { filed: 0, total: 2 });
+  assert.deepEqual(await fileRunCards("r-cards1"), { filed: 0, total: 2, refused: 0 });
   assert.equal(runCardsFiled("r-cards1"), 2);
 });
 
-test("a card the owner deleted stays deleted, and a run that is not done files nothing", () => {
+test("a card the owner deleted stays deleted, and a run that is not done files nothing", async () => {
   run("r-cards2", "done", fence([{ title: "One", urgency: 1 }, { title: "Two", urgency: 1 }]));
-  fileRunCards("r-cards2");
+  await fileRunCards("r-cards2");
   db.prepare("DELETE FROM board_cards WHERE origin = ?").run(runCardOrigin("r-cards2", 0));
   /* The board keeps its filings receipt, so the row is not re-made. */
   db.prepare("INSERT OR IGNORE INTO board_automation_filings(origin,card_id,source,filed_at) VALUES(?,?,?,?)")
     .run(runCardOrigin("r-cards2", 0), null, "run", now());
-  assert.deepEqual(fileRunCards("r-cards2"), { filed: 0, total: 2 });
+  assert.deepEqual(await fileRunCards("r-cards2"), { filed: 0, total: 2, refused: 0 });
   assert.equal(runCardsFiled("r-cards2"), 1);
 
   run("r-cards3", "failed", fence([{ title: "Never", urgency: 1 }]));
-  assert.deepEqual(fileRunCards("r-cards3"), { filed: 0, total: 0 });
+  assert.deepEqual(await fileRunCards("r-cards3"), { filed: 0, total: 0, refused: 0 });
   assert.equal(runCardsFiled("r-cards3"), 0);
 });
 
@@ -62,4 +63,23 @@ test("cardsOf tolerates the labels models actually write and refuses what the pa
   assert.equal(cardsOf("```cards\n[{\"title\":\"  \"},{\"body\":\"no title\"},{\"title\":\"Kept\"}]\n```").length, 1);
   const many = Array.from({ length: 12 }, (_, i) => ({ title: `Card ${i}` }));
   assert.equal(cardsOf(fence(many)).length, 8);
+});
+
+/* THE GATE FAILS OPEN, AND THIS IS THE TEST THAT SAYS SO OUT LOUD.
+   There is no provider in a test process, so `judgeCards` cannot reach a model —
+   which is exactly the production case of a busy or missing GPU. Every card is
+   filed, and every one is recorded as `unjudged` with the reason, so the owner
+   can tell "the judge allowed this" from "the judge never saw it". */
+test("with no model reachable every card is filed and recorded unjudged", async () => {
+  run("r-cards-open", "done", fence([
+    { title: "Read their pricing page", body: "Homework, but nothing judged it.", urgency: 1 },
+    { title: "Fix the broken links", body: "Nine pages 404.", urgency: 3 },
+  ]));
+  assert.deepEqual(await fileRunCards("r-cards-open"), { filed: 2, total: 2, refused: 0 });
+
+  const verdicts = verdictsFor("r-cards-open");
+  assert.equal(verdicts.length, 2, "both suggestions are on the record");
+  assert.ok(verdicts.every((v) => v.verdict === "unjudged"), "neither was judged");
+  assert.ok(verdicts[0]!.why.length > 0, "the record says why it was not judged");
+  assert.equal(verdicts[0]!.title, "Read their pricing page");
 });

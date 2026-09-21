@@ -22,10 +22,19 @@
  * about the collectors (health, inbox, growth) sweeping data the owner did not
  * ask about. A run is work the owner asked for.
  *
- * VALIDATED THE WAY THE CLIENT VALIDATES. `readCards` on the run page drops
- * an entry with no title and clamps urgency to 0–3; a server that filed what
- * the page would refuse to draw would put cards on the board the report does
- * not show. Same rules, so the panel and the board agree on the count.
+ * PARSED THE WAY THE CLIENT PARSES. `readCards` on the run page drops an entry
+ * with no title and clamps urgency to 0–3, and `cardsOf` below matches it, so
+ * the panel and the report agree about what the model suggested.
+ *
+ * JUDGED IN A WAY THE CLIENT IS NOT, since 2026-09-21. A research chore —
+ * "Read their pricing page", "Track these two rivals" — is not filed, because
+ * the owner found thirty of them on his board and none was work. A MODEL makes
+ * that call, not a word list; see card-gate.ts for why, and for the table every
+ * verdict is written to. The page still draws every suggestion the report
+ * carries; the BOARD takes only the ones that change something, and
+ * `fileRunCards` answers with how many were refused so the run detail can say so
+ * rather than appearing to lose them. It is async for that judgment, and it
+ * still never throws.
  *
  * NEVER THROWS INTO THE EXECUTOR. A run that finished is finished; a board
  * that cannot be written to (no Backlog column, a locked database) is a
@@ -33,6 +42,7 @@
  */
 import { db } from "../../db.ts";
 import { fileCard } from "../../routes/board.ts";
+import { judgeCards, recordVerdicts } from "./card-gate.ts";
 import { fencedJson, kindDef } from "./kinds.ts";
 import { runRow } from "./store.ts";
 
@@ -67,16 +77,42 @@ export const runCardOrigin = (runId: string, index: number) => `run:${runId}:${i
 
 /**
  * File a finished run's cards. Answers how many were written this call —
- * zero on a second call for the same run, which is the dedupe working.
+ * zero on a second call for the same run, which is the dedupe working — and
+ * how many were refused as research chores, which is news about the model's
+ * answer rather than about the board.
+ *
+ * THE INDEX IN THE ORIGIN IS THE CARD'S POSITION IN THE FENCE, not a counter
+ * over the ones that survived. A refused card leaves a gap in the origins, and
+ * that is correct: the origin identifies which suggestion it was, so re-running
+ * this after the gate changes cannot file card 3 under card 2's origin.
  */
-export function fileRunCards(runId: string): { filed: number; total: number } {
+export async function fileRunCards(runId: string): Promise<{ filed: number; total: number; refused: number }> {
   const row = runRow(runId);
-  if (!row || row.status !== "done") return { filed: 0, total: 0 };
+  if (!row || row.status !== "done") return { filed: 0, total: 0, refused: 0 };
   const cards = cardsOf(row.output);
-  if (!cards.length) return { filed: 0, total: 0 };
+  if (!cards.length) return { filed: 0, total: 0, refused: 0 };
   const name = kindDef(row.kind)?.name ?? row.kind;
+
+  /* THE JUDGMENT, ONCE, FOR THE WHOLE BATCH. `unjudged` means the model could
+     not be reached and the card is filed anyway — see card-gate.ts on why this
+     fails open. */
+  const judged = await judgeCards(cards, { kind: name, venture: row.venture_id ?? undefined });
+  try {
+    recordVerdicts(row.id, cards, judged.verdicts, judged.model);
+  } catch (err) {
+    console.error(`[cards] ${row.id} could not record its verdicts: ${String(err)}`);
+  }
+  const verdictAt = new Map(judged.verdicts.map((v) => [v.index, v]));
+
   let filed = 0;
+  let refused = 0;
   for (const [i, card] of cards.entries()) {
+    const v = verdictAt.get(i);
+    if (v?.verdict === "homework") {
+      refused++;
+      console.log(`[cards] ${row.id} refused homework: ${card.title.slice(0, 80)} — ${v.why}`);
+      continue;
+    }
     /* WHERE IT CAME FROM, on the card itself. The board draws no origin
        column, and a card that says "Rewrite the pricing page" with nothing
        under it reads as something the owner typed and forgot. One line, last,
@@ -91,7 +127,7 @@ export function fileRunCards(runId: string): { filed: number; total: number } {
     });
     if (res.filed) filed++;
   }
-  return { filed, total: cards.length };
+  return { filed, total: cards.length, refused };
 }
 
 /** How many of a run's cards are on the board now — archived ones included,

@@ -34,6 +34,7 @@
  * down what the answer would probably have been. That is the one failure this
  * whole feature exists to prevent.
  */
+import { CARD_CONTRACT } from "./card-gate.ts";
 import { PORT } from "../../config.ts";
 import type { RunKind } from "./store.ts";
 
@@ -532,7 +533,7 @@ Then, at the end of the document, a fenced code block whose info string is exact
 [{"title": "…", "body": "…", "urgency": 2}]
 \`\`\`
 
-Between three and eight cards. \`urgency\` is 0 (whenever) to 3 (this week). A card is one action with a title somebody could tick off, and its body says why. These are FILED STRAIGHT INTO THE BOARD'S BACKLOG when the run finishes — nobody reviews them first — so every card must be real work worth a line on the board, worded so it makes sense on its own a week later, and never a restatement of a finding.`;
+${CARD_CONTRACT}`;
 
 /**
  * The system turn.

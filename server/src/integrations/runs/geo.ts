@@ -1,3 +1,4 @@
+import { CARD_CONTRACT } from "./card-gate.ts";
 import type { ChatTurn } from "../../chat/backend.ts";
 import type { ModelProvider, ToolWireTurn } from "../../models/provider.ts";
 import { assistantCallTurn, messageText, parseToolCalls, resultTurn, type ToolDialect } from "../runtime/tools.ts";
@@ -693,7 +694,7 @@ async function recommend(opts: {
             `Reply with ONLY a fenced block, info string \`json recommendations\`, holding:\n` +
             `{"recommendations": [{"title": "…", "why": "…", "cost": "…", "change": "…"}], "cards": [{"title": "…", "body": "…", "urgency": 2}]}\n\n` +
             `Three to six \`recommendations\`, ranked, each a thing that could be started this week and aimed at what a model would have to READ SOMEWHERE for the answers above to improve — the places it learns from, not the site's own copy alone. ${mode.kind === "web" ? "Prefer the pages that actually ranked in the SEARCHED lines: a listing on a page the model read beats a new page nobody has found. " : ""}\`why\` names the question or the answer above that it comes from. \`cost\` is what it would take. \`change\` is which of the answers above would move.\n` +
-            `Three to eight \`cards\`. \`urgency\` is 0 (whenever) to 3 (this week). A card is one action somebody could tick off and its body says why.\n\n` +
+            CARD_CONTRACT + `\n\n` +
             `Never invent a figure. The only measurements you have are the ones above. No prose outside the fence.`,
         },
         { role: "user", content: `What should be done about how models describe ${v.name}?` },

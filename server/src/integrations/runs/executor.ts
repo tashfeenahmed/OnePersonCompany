@@ -451,7 +451,7 @@ export function pump() {
     */
     if (live?.id === row.id) live.settling = true;
     abort.signal.throwIfAborted();
-  }).then(() => {
+  }).then(async () => {
       finishRunRow(row.id, {
         status: "done",
         output: session.output,
@@ -467,8 +467,12 @@ export function pump() {
          next turn finds the cards already in Backlog. A board that refuses is
          logged, not fatal: the report is done whatever the board says. */
       try {
-        const { filed, total } = fileRunCards(row.id);
-        if (total) console.log(`[runs] ${row.id} (${row.kind}) filed ${filed} of ${total} cards in Backlog`);
+        const { filed, total, refused } = await fileRunCards(row.id);
+        if (total)
+          console.log(
+            `[runs] ${row.id} (${row.kind}) filed ${filed} of ${total} cards in Backlog` +
+              (refused ? `, ${refused} refused as homework by the card gate` : ""),
+          );
       } catch (err) {
         console.error(`[runs] ${row.id} (${row.kind}) could not file its cards — ${err instanceof Error ? err.message : String(err)}`);
       }
