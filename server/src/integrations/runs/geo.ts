@@ -483,7 +483,7 @@ async function genericQuestions(opts: { v: VentureRow; category: string; tools: 
         },
         { role: "user", content: `Questions somebody with this problem would ask, about ${subject}.` },
       ],
-      { toOutput: false, forceProvider: true },
+      { toOutput: false, forceProvider: true, document: true },
     );
     generated = clean(fencedJson(res.text, "questions"));
   } catch (err) {
@@ -562,6 +562,13 @@ function strangersWords(v: VentureRow, category: string): string {
 async function judge(opts: { v: VentureRow; answers: Answer[]; tools: GeoTools }) {
   const { v, answers, tools } = opts;
   const step = tools.startStep("judge", "reading the answers");
+  /* `document: true` ON THE THREE JSON TURNS — the generator, this judge and
+     the adviser. It is the provider's "long structured answer" switch:
+     thinking off where the endpoint takes the knob, and the output allowance
+     lifted to the ceiling. Without it every judge on the local 27B model
+     spent its 4,096 tokens reasoning about nine rows and the fence was cut
+     off mid-array — "the judge did not answer usably" on every run from
+     2026-09-18 to 2026-09-21, and no recommendations either. */
   try {
     const truth = [
       `Name: ${v.name}`,
@@ -590,7 +597,7 @@ async function judge(opts: { v: VentureRow; answers: Answer[]; tools: GeoTools }
         },
         { role: "user", content: judgeUser },
       ],
-      { toOutput: false, forceProvider: true },
+      { toOutput: false, forceProvider: true, document: true },
     );
     const scores = fencedJson(res.text, "scores");
     if (Array.isArray(scores))
@@ -691,7 +698,7 @@ async function recommend(opts: {
         },
         { role: "user", content: `What should be done about how models describe ${v.name}?` },
       ],
-      { toOutput: false, forceProvider: true },
+      { toOutput: false, forceProvider: true, document: true },
     );
     const recommendations = readRecommendations(fencedJson(res.text, "recommendations"));
     const cards = readCards(fencedJson(res.text, "cards"));
