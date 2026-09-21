@@ -841,7 +841,35 @@ geoRoutes.get("/", (c) => {
     rivals: string | null;
     explanation: string | null;
     action: string | null;
+    searches: string | null;
   }[];
+
+  /* THE SEARCHES COLUMN, READ THE SAME WAY: NULL is "asked without tools" and
+     stays null; anything that is not an array of {query, results[]} is
+     treated as null rather than as a shorter list of searches. */
+  const searchesOf = (raw: string | null): { query: string; results: { title: string; url: string; snippet: string | null }[] }[] | null => {
+    if (raw === null) return null;
+    try {
+      const v: unknown = JSON.parse(raw);
+      if (!Array.isArray(v)) return null;
+      const out: { query: string; results: { title: string; url: string; snippet: string | null }[] }[] = [];
+      for (const item of v) {
+        if (!item || typeof item !== "object") return null;
+        const o = item as Record<string, unknown>;
+        if (typeof o.query !== "string" || !Array.isArray(o.results)) return null;
+        out.push({
+          query: o.query,
+          results: o.results
+            .filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
+            .filter((r) => typeof r.title === "string" && typeof r.url === "string")
+            .map((r) => ({ title: r.title as string, url: r.url as string, snippet: typeof r.snippet === "string" ? r.snippet : null })),
+        });
+      }
+      return out;
+    } catch {
+      return null;
+    }
+  };
 
   /* THE RIVALS COLUMN IS JSON IN A TEXT COLUMN AND IT IS READ DEFENSIVELY.
      NULL is "the judge did not answer for this row" and stays null on the
@@ -878,6 +906,9 @@ geoRoutes.get("/", (c) => {
     rivals: rivalsOf(r.rivals),
     explanation: r.explanation,
     action: r.action,
+    /* NULL is asked without tools, [] is had the tool and did not search —
+       the same convention as `rivals`, and drawn differently by the client. */
+    searches: searchesOf(r.searches),
   }));
 
   /* Grouped by provider, because "which model does not know you exist" is the

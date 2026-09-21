@@ -1,19 +1,42 @@
 import type { ChatTurn } from "../../chat/backend.ts";
-import type { ModelProvider } from "../../models/provider.ts";
+import type { ModelProvider, ToolWireTurn } from "../../models/provider.ts";
+import { assistantCallTurn, messageText, parseToolCalls, resultTurn, type ToolDialect } from "../runtime/tools.ts";
+import { verdictFor } from "../runtime/probe.ts";
 import { db, now, type VentureRow } from "../../db.ts";
 import { sanitizeReportHtml } from "./html.ts";
 import { fencedJson } from "./kinds.ts";
 import type { Step } from "./store.ts";
 
 /**
- * THE AI-VISIBILITY RUN — what a model says about the business when it is not
- * allowed to look. The executor owns the queue; this file owns the whole of
+ * THE AI-VISIBILITY RUN — what an assistant says about the business when a
+ * stranger asks it. The executor owns the queue; this file owns the whole of
  * the measurement and the document it produces.
  *
  * Every question goes through the raw provider — `forceProvider: true` on
- * every turn — even when an agent is live, because the thing being measured
- * is the model's own knowledge. An agent with a web search would answer every
- * question correctly and the run would have measured the search engine.
+ * every turn — even when an agent is live. Not because the model must be kept
+ * from looking: because the thing being measured has to be REPEATABLE. An
+ * agent brings its own memory, its own skills and its own idea of when to
+ * stop, and two runs a month apart would then differ in the agent as much as
+ * in the world.
+ *
+ * THE MODEL IS GIVEN ONE TOOL, AND IT IS WEB SEARCH. The first version of this
+ * run asked with no tools at all — "what does the model believe with nothing
+ * in front of it" — and the owner's objection was that this is not what a
+ * stranger gets any more. ChatGPT, Perplexity and the rest search first and
+ * answer from what they found, so a measurement of recall alone measured a
+ * situation nobody is in. The run now hands the model a `web_search` function
+ * backed by this box's own SearXNG node (providers/searxng.ts), lets it call
+ * it a bounded number of times per question, and records EVERY query and the
+ * top results each returned beside the answer. That record is the second half
+ * of the finding: "it named Intercom" is a fact; "it searched 'best support
+ * chatbot' and the top five results were these pages, none of which mention
+ * you" is a fact with a next step on it.
+ *
+ * THE OLD MEASUREMENT IS STILL HERE, behind the `search` input, and the run
+ * falls back to it — saying so on the page — when no search node is connected
+ * or the model turns out not to call tools. `searches` on the row tells the
+ * two apart: NULL is asked without tools, `[]` is had the tool and chose not
+ * to use it.
  *
  * THREE KINDS OF QUESTION, AND THE MIDDLE ONE IS THE POINT. A `direct`
  * question names the product — "What is X?" — and answers the question "does
@@ -53,6 +76,19 @@ export type GeoTools = {
   startStep(tool: string, label: string | null): Step;
   endStep(step: Step, label?: string | null): void;
   turn(turns: ChatTurn[], opts: { toOutput: boolean; forceProvider?: boolean; document?: boolean }): Promise<{ text: string }>;
+  /**
+   * ONE COMPLETION THAT MAY COME BACK AS A TOOL CALL — the raw provider's
+   * `completeTooled`, with the run's own signal and usage accounting. The
+   * message travels whole because a tool round has no prose to read; `text`
+   * is the wire's reader for the round that answers. Null when the box has
+   * no way to make one, which the run reports as "asked without tools".
+   */
+  tooled:
+    | ((turns: ToolWireTurn[], opts: { tools: unknown[]; toolChoice?: "auto" | "none" }) => Promise<{ message: unknown; text: string }>)
+    | null;
+  /** One web search on this box's search node, or null when none is
+   *  connected. The label names the node for the page's provenance line. */
+  search: { label: string; run(query: string): Promise<SearchHit[]> } | null;
   /** The active raw provider, or null when none is chosen. */
   provider: ModelProvider | null;
   /** The model the session last recorded — what the ledger row carries. */
@@ -64,6 +100,28 @@ export type GeoTools = {
 export type GeoQuestionKind = "direct" | "generic" | "extra";
 
 type Question = { text: string; kind: GeoQuestionKind };
+
+/** One result the search node returned, in the three fields a model reads. */
+export type SearchHit = { title: string; url: string; snippet: string | null };
+
+/** One query the model ran while answering, and what it was shown. */
+export type Search = { query: string; results: SearchHit[] };
+
+/**
+ * HOW THE QUESTIONS WERE ASKED, decided once per run and printed on the page.
+ * `web` is the measurement this run exists for; every `none` carries the
+ * reason, because "asked without tools" by choice and by accident are
+ * different findings and the reader is owed which.
+ */
+export type SearchMode = { kind: "web"; node: string } | { kind: "none"; why: string };
+
+/** The most searches one question may spend. An assistant answering a
+ *  recommendation question runs one to three; past that it is browsing, not
+ *  answering, and the rounds are paid for in completions. */
+const MAX_SEARCHES = 3;
+/** Results shown per search. Ten is a page; the model reads titles and
+ *  snippets, and a second page changes nothing about what it recommends. */
+const HITS_PER_SEARCH = 8;
 
 type Answer = {
   question: string;
@@ -78,6 +136,9 @@ type Answer = {
   rivals: string[] | null;
   explanation: string | null;
   action: string | null;
+  /** The searches the model ran before answering. NULL is asked without
+   *  tools; `[]` is had the tool and did not use it. */
+  searches: Search[] | null;
 };
 
 type Recommendation = { title: string; why: string; cost: string; change: string };
@@ -88,8 +149,19 @@ export async function geoRun(opts: { runId: string; venture: VentureRow; input: 
   const provider = tools.provider;
   if (!provider)
     throw new Error(
-      "AI visibility asks the model provider directly, and no provider is chosen. Pick one under Models — an agent cannot stand in for it, because the measurement is what a model says with no tools.",
+      "AI visibility asks the model provider directly, and no provider is chosen. Pick one under Models — an agent cannot stand in for it, because the measurement has to be the same model, with the same one tool, every run.",
     );
+
+  /* HOW THE ASKS WILL BE MADE, settled before the first one so every answer
+     in the run was asked the same way. The reasons are the page's words. */
+  let mode: SearchMode =
+    (input.search ?? "web").trim() === "none"
+      ? { kind: "none", why: "the owner chose to ask without tools" }
+      : !tools.search
+        ? { kind: "none", why: "no search node is connected — connect SearXNG under Integrations to ask with web search" }
+        : !tools.tooled
+          ? { kind: "none", why: "this box cannot make a tool-calling completion" }
+          : { kind: "web", node: tools.search.label };
 
   const category =
     (input.category ?? "").trim() ||
@@ -111,44 +183,50 @@ export async function geoRun(opts: { runId: string; venture: VentureRow; input: 
       .map((text): Question => ({ text, kind: "extra" })),
   ];
 
-  const ASK_SYSTEM =
-    "Answer from your own knowledge only. You have no tools, no web access and no documents. " +
-    "If you have not heard of something, say so plainly — a guess presented as knowledge is the " +
-    "one answer that is useless here. Two or three sentences.";
-
   const answers: Answer[] = [];
 
   for (const q of questions) {
     const step = tools.startStep("ask", q.text);
-    const res = await tools.turn(
-      [
-        { role: "system", content: ASK_SYSTEM },
-        { role: "user", content: q.text },
-      ],
-      { toOutput: false, forceProvider: true },
-    );
-    const hay = res.text.toLowerCase();
+    let asked: { text: string; searches: Search[] | null };
+    if (mode.kind === "web") {
+      const r = await askWithSearch({ question: q.text, tools, step: (label) => tools.startStep("search", label), done: (st, label) => tools.endStep(st, label) });
+      if (r.ok) asked = { text: r.text, searches: r.searches };
+      else {
+        /* THE MODEL DOES NOT CALL TOOLS — a 4xx naming the `tools` field, or
+           prose where a call was asked for. The whole run drops to the
+           no-tools measurement from here rather than mixing the two, and the
+           page says which model refused and why. */
+        mode = { kind: "none", why: `${tools.model() ?? provider.label} did not answer with tool calls — ${r.why}` };
+        asked = { text: await askPlain(q.text, tools), searches: null };
+      }
+    } else asked = { text: await askPlain(q.text, tools), searches: null };
+
+    const hay = asked.text.toLowerCase();
     const mentioned = hay.includes(v.name.toLowerCase()) || (v.host ? hay.includes(v.host.toLowerCase()) : false);
     answers.push({
       question: q.text,
       kind: q.kind,
-      answer: res.text,
+      answer: asked.text,
       mentioned,
       accurate: null,
       recommended: null,
       rivals: null,
       explanation: null,
       action: null,
+      searches: asked.searches,
     });
-    tools.endStep(step, mentioned ? "mentioned" : "not mentioned");
+    tools.endStep(
+      step,
+      `${mentioned ? "mentioned" : "not mentioned"}${asked.searches ? ` · ${asked.searches.length} ${asked.searches.length === 1 ? "search" : "searches"}` : ""}`,
+    );
   }
 
   await judge({ v, answers, tools });
 
   const ts = now();
   const stmt = db.prepare(
-    `INSERT INTO geo_answers (run_id, venture_id, provider, model, question, answer, mentioned, accurate, recommended, ts, kind, rivals, explanation, action)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO geo_answers (run_id, venture_id, provider, model, question, answer, mentioned, accurate, recommended, ts, kind, rivals, explanation, action, searches)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const a of answers)
     stmt.run(
@@ -166,15 +244,16 @@ export async function geoRun(opts: { runId: string; venture: VentureRow; input: 
       a.rivals === null ? null : JSON.stringify(a.rivals),
       a.explanation,
       a.action,
+      a.searches === null ? null : JSON.stringify(a.searches),
     );
 
-  const advice = await recommend({ v, answers, tools });
+  const advice = await recommend({ v, answers, tools, mode });
 
   /* ONE `say`, AT THE END, AND IT IS THE WHOLE DOCUMENT. Every turn above ran
      with `toOutput: false`, so nothing has been written to the row yet and the
      steps list is what showed progress while it ran. The page reads the row,
      sees a document, and frames it. */
-  tools.say(sanitizeReportHtml(composeDocument({ v, provider, model: tools.model(), answers, advice, ts })));
+  tools.say(sanitizeReportHtml(composeDocument({ v, provider, model: tools.model(), answers, advice, ts, mode })));
 
   /* THE CARDS, APPENDED AFTER THE DOCUMENT — the same shape the competitor
      sweep uses, for the same reason: `GET /runs/:id` parses the fence out of
@@ -182,6 +261,156 @@ export async function geoRun(opts: { runId: string; venture: VentureRow; input: 
      to learn a new one. See runs/html.ts's `splitTrailingFence`. */
   if (advice.cards.length)
     tools.say(`\n\n\`\`\`json cards\n${JSON.stringify(advice.cards, null, 2)}\n\`\`\`\n`);
+}
+
+/* ------------------------------------------------------------------ the asks */
+
+const ASK_PLAIN =
+  "Answer from your own knowledge only. You have no tools, no web access and no documents. " +
+  "If you have not heard of something, say so plainly — a guess presented as knowledge is the " +
+  "one answer that is useless here. Two or three sentences.";
+
+/** The no-tools ask: one completion, the model's own weights and nothing else. */
+async function askPlain(question: string, tools: GeoTools): Promise<string> {
+  const res = await tools.turn(
+    [
+      { role: "system", content: ASK_PLAIN },
+      { role: "user", content: question },
+    ],
+    { toOutput: false, forceProvider: true },
+  );
+  return res.text;
+}
+
+const ASK_WEB =
+  "You are a general-purpose AI assistant with a web_search tool, answering a person who typed this question into you. " +
+  "Behave as you normally would: when the question is about products, tools, services or companies, SEARCH FIRST — one to " +
+  `three searches, ${MAX_SEARCHES} at most — and answer from what you found, naming specific products. Do not pad the answer ` +
+  "with things you did not find and do not describe a product you have neither found nor heard of. Two to four sentences, " +
+  "and name the pages you relied on by URL. After your last search, answer.";
+
+/** The one tool, in the OpenAI request shape every provider here speaks. */
+const WEB_SEARCH_TOOL = {
+  type: "function",
+  function: {
+    name: "web_search",
+    description:
+      "Search the web and get the top results: title, URL and a snippet for each. Use it the way a search engine is used — a short query in the words a person would type.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "The search query, a few words." } },
+      required: ["query"],
+    },
+  },
+};
+
+/**
+ * THE ASK WITH SEARCH IN ITS HANDS — a bounded loop of at most `MAX_SEARCHES`
+ * tool rounds and one answering round.
+ *
+ * WHY THE LOOP IS HERE AND NOT `integrations/runtime/loop.ts`. That loop is
+ * the skills registry as tools, for chat: nineteen tools, a catalogue, the
+ * write gate, a streamed transcript. This is one function, one purpose, and
+ * a result that has to be RECORDED on the row rather than shown. The two
+ * share the dialect helpers, which is where the shape of a tool call lives,
+ * and nothing else.
+ *
+ * THE MODEL IS NEVER LEFT WITHOUT AN ANSWER. Once the searches are spent the
+ * tools are taken away — no `tools` field at all — and the final round asks
+ * for the answer with what it has. A round that comes back with neither prose
+ * nor a call is asked once more the same way. What is recorded is every
+ * query actually run and what it was shown, in order.
+ *
+ * `ok: false` IS "THIS MODEL DOES NOT CALL TOOLS", and it is only said on the
+ * first round: a 4xx that names the `tools` field, or prose where a search
+ * was expected on a question about products. Every later failure is the
+ * provider's and is thrown, as a plain ask's would be.
+ */
+async function askWithSearch(opts: {
+  question: string;
+  tools: GeoTools;
+  step: (label: string) => Step;
+  done: (step: Step, label: string) => void;
+}): Promise<{ ok: true; text: string; searches: Search[] } | { ok: false; why: string }> {
+  const { question, tools } = opts;
+  const tooled = tools.tooled!;
+  const node = tools.search!;
+  const searches: Search[] = [];
+  const turns: ToolWireTurn[] = [
+    { role: "system", content: ASK_WEB },
+    { role: "user", content: question },
+  ];
+
+  /* TWO CEILINGS, BECAUSE ONE IS NOT ENOUGH. Searches are capped, and so are
+     ROUNDS: a model that keeps calling the tool with no query, or a name it
+     does not have, spends no search and would otherwise loop forever. */
+  const MAX_ROUNDS = MAX_SEARCHES + 2;
+  for (let round = 0; ; round++) {
+    const spent = searches.length >= MAX_SEARCHES || round >= MAX_ROUNDS;
+    let reply: { message: unknown; text: string };
+    try {
+      reply = await tooled(turns, spent ? { tools: [] } : { tools: [WEB_SEARCH_TOOL], toolChoice: "auto" });
+    } catch (err) {
+      /* The same verdict the chat loop's probe reaches: a 4xx that names the
+         tools field is a model that does not take one. Anything else is the
+         provider's failure and is thrown as a plain ask's would be. */
+      const message = err instanceof Error ? err.message : String(err);
+      const refused = verdictFor(err).mode === "text" || (/tool|function/i.test(message) && /\b4\d\d\b|unsupported|not support/i.test(message));
+      if (round === 0 && refused) return { ok: false, why: message.slice(0, 200) };
+      throw err;
+    }
+    const { calls, shape } = parseToolCalls(reply.message);
+    const prose = messageText(reply.message) || reply.text;
+
+    if (!calls.length || spent) {
+      if (prose.trim()) return { ok: true, text: prose.trim(), searches };
+      /* Neither a call nor a word. Once, the model is asked plainly for the
+         answer; twice is a provider that is not answering and is thrown. */
+      if (round > MAX_ROUNDS) throw new Error("The model answered with neither text nor a tool call after every search was spent.");
+      turns.push({ role: "user", content: "Answer the question now, in two to four sentences, with what you have." });
+      continue;
+    }
+
+    const dialect: ToolDialect = shape ?? "openai";
+    turns.push(assistantCallTurn(messageText(reply.message), calls, dialect));
+    for (const call of calls) {
+      if (call.name !== "web_search") {
+        turns.push(resultTurn(call, `There is no tool named ${call.name}. The only tool is web_search.`, dialect));
+        continue;
+      }
+      const query = typeof call.args.query === "string" ? call.args.query.trim().slice(0, 200) : "";
+      if (!query || searches.length >= MAX_SEARCHES) {
+        turns.push(resultTurn(call, query ? `No more searches: ${MAX_SEARCHES} is the limit. Answer with what you have.` : "web_search needs a query.", dialect));
+        continue;
+      }
+      const st = opts.step(query);
+      let results: SearchHit[];
+      try {
+        results = (await node.run(query)).slice(0, HITS_PER_SEARCH);
+      } catch (err) {
+        /* THE NODE FAILED, NOT THE MODEL. The failure is the tool's answer —
+           the model reads it and answers without — and it is recorded as a
+           search that returned nothing, because that is what happened. */
+        const why = err instanceof Error ? err.message : String(err);
+        opts.done(st, `failed — ${why}`);
+        searches.push({ query, results: [] });
+        turns.push(resultTurn(call, `The search failed: ${why}. Answer with what you have.`, dialect));
+        continue;
+      }
+      opts.done(st, `${results.length} results`);
+      searches.push({ query, results });
+      turns.push(resultTurn(call, resultsText(query, results), dialect));
+    }
+  }
+}
+
+/** What the model is shown for one search: a numbered list it can cite. */
+function resultsText(query: string, results: SearchHit[]): string {
+  if (!results.length) return `No results for "${query}".`;
+  return (
+    `Top ${results.length} results for "${query}":\n` +
+    results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ""}`).join("\n")
+  );
 }
 
 /* ------------------------------------------------- the questions a stranger asks */
@@ -341,7 +570,7 @@ async function judge(opts: { v: VentureRow; answers: Answer[]; tools: GeoTools }
       `What it is: ${v.description || "not written down"}`,
     ].join("\n");
     const judgeUser = answers
-      .map((a, i) => `[${i + 1}] (${a.kind}) QUESTION: ${a.question}\nANSWER: ${a.answer}`)
+      .map((a, i) => `[${i + 1}] (${a.kind}) QUESTION: ${a.question}\nANSWER: ${a.answer}${searchedLine(a)}`)
       .join("\n\n");
     const res = await tools.turn(
       [
@@ -355,7 +584,7 @@ async function judge(opts: { v: VentureRow; answers: Answer[]; tools: GeoTools }
             `recommended: true if the answer recommends or suggests this product by name, false if it recommends other things instead, null if it is not a question where anything is recommended.\n` +
             `rivals: the specific products, brands or services the answer named INSTEAD OF or BESIDE this one, as an array of their names. [] when it named none. Names only — no descriptions.\n` +
             `explanation: one or two sentences saying what the answer actually said about this product, or what it said instead of it, and why that is or is not a problem for THIS question.\n` +
-            `action: one sentence saying the specific thing to do so that THIS question's answer improves — aimed at what a model would have to READ somewhere, not at the product's own marketing copy.\n\n` +
+            `action: one sentence saying the specific thing to do so that THIS question's answer improves — aimed at what a model would have to READ somewhere, not at the product's own marketing copy. Where an answer carries a SEARCHED line, the pages listed are what the model actually read before answering: name the specific page or site to get onto, or the one that is wrong about the product.\n\n` +
             `Never invent. If you cannot tell, use null for that field rather than a guess — a null is read as "not judged" and is harmless; a guess is read as a measurement.\n\n` +
             `Reply with ONLY a fenced block, info string \`json scores\`, holding [{"n": 1, "accurate": true, "recommended": null, "rivals": [], "explanation": "…", "action": "…"}, …]. No prose.`,
         },
@@ -395,6 +624,19 @@ async function judge(opts: { v: VentureRow; answers: Answer[]; tools: GeoTools }
   }
 }
 
+/** The searches behind one answer, as a line for the judge and the adviser:
+ *  every query, and the top pages each was shown. Empty when the answer was
+ *  made without tools or without searching. */
+function searchedLine(a: Answer): string {
+  if (!a.searches || !a.searches.length) return "";
+  return (
+    "\nSEARCHED: " +
+    a.searches
+      .map((s) => `"${s.query}" → ${s.results.length ? s.results.slice(0, 5).map((r) => r.url).join(", ") : "no results"}`)
+      .join(" | ")
+  );
+}
+
 /** A model's one-or-two sentences, or null. An empty string and the word
  *  "null" arriving as prose are both the absence of an answer. */
 function sentence(v: unknown): string | null {
@@ -416,8 +658,9 @@ async function recommend(opts: {
   v: VentureRow;
   answers: Answer[];
   tools: GeoTools;
+  mode: SearchMode;
 }): Promise<{ recommendations: Recommendation[]; cards: Card[]; failed: boolean }> {
-  const { v, answers, tools } = opts;
+  const { v, answers, tools, mode } = opts;
   const step = tools.startStep("write", "recommendations");
   const told = (b: boolean | null) => (b === null ? "not judged" : b ? "yes" : "no");
   const mentions = answers.filter((a) => a.mentioned).length;
@@ -429,19 +672,20 @@ async function recommend(opts: {
           content:
             `You are advising the owner of ${v.name} (${v.website ?? "no site recorded"}) on how models talk about it.\n\n` +
             `THE RECORD:\n${v.description || "nothing written down"}\n\n` +
-            `WHAT WAS MEASURED: a model with no tools was asked ${answers.length} questions — some naming the product (\`direct\`), some the questions a stranger would ask without knowing it exists (\`generic\`). ` +
+            `WHAT WAS MEASURED: ${mode.kind === "web" ? "a model with a web search tool" : "a model with no tools"} was asked ${answers.length} questions — some naming the product (\`direct\`), some the questions a stranger would ask without knowing it exists (\`generic\`). ` +
+            (mode.kind === "web" ? `Where an answer carries a SEARCHED line, those are the queries it ran and the pages it was shown before answering — the places it learned from. ` : "") +
             `${mentions} answers mentioned the product. Here is all of it:\n\n` +
             answers
               .map(
                 (a) =>
-                  `(${a.kind}) Q: ${a.question}\nA: ${a.answer}\nmentioned: ${a.mentioned}, accurate: ${told(a.accurate)}, recommended: ${told(a.recommended)}` +
+                  `(${a.kind}) Q: ${a.question}\nA: ${a.answer}${searchedLine(a)}\nmentioned: ${a.mentioned}, accurate: ${told(a.accurate)}, recommended: ${told(a.recommended)}` +
                   `${a.rivals && a.rivals.length ? `, named instead: ${a.rivals.join(", ")}` : ""}`,
               )
               .join("\n\n") +
             `\n\nThe \`generic\` questions are the ones that matter: they are what a buyer actually asks.\n\n` +
             `Reply with ONLY a fenced block, info string \`json recommendations\`, holding:\n` +
             `{"recommendations": [{"title": "…", "why": "…", "cost": "…", "change": "…"}], "cards": [{"title": "…", "body": "…", "urgency": 2}]}\n\n` +
-            `Three to six \`recommendations\`, ranked, each a thing that could be started this week and aimed at what a model would have to READ SOMEWHERE for the answers above to improve — the places it learns from, not the site's own copy alone. \`why\` names the question or the answer above that it comes from. \`cost\` is what it would take. \`change\` is which of the answers above would move.\n` +
+            `Three to six \`recommendations\`, ranked, each a thing that could be started this week and aimed at what a model would have to READ SOMEWHERE for the answers above to improve — the places it learns from, not the site's own copy alone. ${mode.kind === "web" ? "Prefer the pages that actually ranked in the SEARCHED lines: a listing on a page the model read beats a new page nobody has found. " : ""}\`why\` names the question or the answer above that it comes from. \`cost\` is what it would take. \`change\` is which of the answers above would move.\n` +
             `Three to eight \`cards\`. \`urgency\` is 0 (whenever) to 3 (this week). A card is one action somebody could tick off and its body says why.\n\n` +
             `Never invent a figure. The only measurements you have are the ones above. No prose outside the fence.`,
         },
@@ -519,6 +763,16 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** The host of a result, for the eye: a reader scanning ten hits wants to
+ *  know which SITES ranked, and the full URL is on the link. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
 /**
  * THE ANSWER, VERBATIM BUT NOT RAW. A model answering "recommend a tool"
  * writes markdown — `**Intercom**` and a bulleted list — and a verbatim
@@ -575,6 +829,11 @@ td.q { width: 40%; }
 .response { white-space: pre-wrap; max-height: 16rem; overflow: auto; border: 1px solid var(--rule);
   border-radius: 8px; padding: 10px 12px; font-size: 13px; background: #fbfbfc; }
 .part p { margin: 0; font-size: 13.5px; }
+.search { margin: 0 0 8px; }
+.search .query { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+ol.hits { margin: 0; padding-left: 20px; font-size: 12.5px; line-height: 1.5; }
+ol.hits a { color: var(--accent); text-decoration: none; }
+ol.hits .host { color: var(--muted); font-size: 11.5px; }
 ol.recs { margin: 0; padding-left: 20px; }
 ol.recs li { margin-bottom: 14px; }
 ol.recs .rt { font-weight: 600; }
@@ -594,8 +853,11 @@ function composeDocument(opts: {
   answers: Answer[];
   advice: { recommendations: Recommendation[]; cards: Card[]; failed: boolean };
   ts: string;
+  mode: SearchMode;
 }): string {
-  const { v, provider, model, answers, advice, ts } = opts;
+  const { v, provider, model, answers, advice, ts, mode } = opts;
+  const searched = answers.reduce((n, a) => n + (a.searches?.length ?? 0), 0);
+  const how = mode.kind === "web" ? `with web search (${mode.node})` : `no tools, no web access — ${mode.why}`;
   const day = ts.slice(0, 10);
   const who = `${v.name}${v.host ? ` or ${v.host}` : ""}`;
 
@@ -630,7 +892,7 @@ function composeDocument(opts: {
   out.push(`<header>`);
   out.push(`<h1>${esc(finding)}</h1>`);
   out.push(
-    `<p class="dateline">${esc(provider.label)}${model ? ` · ${esc(model)}` : ""} · no tools, no web access · ${esc(day)}</p>`,
+    `<p class="dateline">${esc(provider.label)}${model ? ` · ${esc(model)}` : ""} · ${esc(how)} · ${esc(day)}</p>`,
   );
   out.push(`</header>`);
   out.push(`<div class="rule"></div>`);
@@ -658,7 +920,7 @@ function composeDocument(opts: {
     ),
   );
   out.push(
-    `<div class="callout"><div class="plain">${esc(provider.label)}<br>${esc(model ?? "model not recorded")}</div><div class="cap">asked ${esc(day)} · ${answers.length} questions · ${mentions} mentioned ${esc(who)}</div></div>`,
+    `<div class="callout"><div class="plain">${esc(provider.label)}<br>${esc(model ?? "model not recorded")}</div><div class="cap">asked ${esc(day)} · ${answers.length} questions · ${mentions} mentioned ${esc(who)}${mode.kind === "web" ? ` · ${searched} ${searched === 1 ? "search" : "searches"} run` : ""}</div></div>`,
   );
   out.push(`</div>`);
 
@@ -680,7 +942,7 @@ function composeDocument(opts: {
      three paragraphs above the table; it is the definition of the column and
      it belongs under the column. */
   out.push(
-    `<p class="note"><strong>Read those columns with their definitions.</strong> “Mentioned” is string presence of ${esc(who)} in the answer — mechanical, checkable, and the only MEASURED column here. It counts an answer that repeats the name back while saying it has never heard of it, which is why every answer is printed in full below. Accuracy, recommendation, the rivals and the readings were judged by a second completion; “not judged” means it did not answer for that row, never that the answer was wrong.</p>`,
+    `<p class="note"><strong>Read those columns with their definitions.</strong> “Mentioned” is string presence of ${esc(who)} in the answer — mechanical, checkable, and the only MEASURED column here. It counts an answer that repeats the name back while saying it has never heard of it, which is why every answer is printed in full below. Accuracy, recommendation, the rivals and the readings were judged by a second completion; “not judged” means it did not answer for that row, never that the answer was wrong.${mode.kind === "web" ? ` Every ask below also lists what the model <em>searched</em> before answering and the pages it was shown — those pages are where the answer came from, and they are where a change has to land.` : ""}</p>`,
   );
 
   const chart = barChart(answers);
@@ -715,7 +977,9 @@ function composeDocument(opts: {
   }
 
   out.push(
-    `<footer>Written ${esc(day)} from ${answers.length} answers and no sources: nothing was fetched, and every word quoted above is ${esc(provider.label)} answering out of its own weights.</footer>`,
+    mode.kind === "web"
+      ? `<footer>Written ${esc(day)} from ${answers.length} answers and ${searched} ${searched === 1 ? "search" : "searches"} on ${esc(mode.node)}: every word quoted above is ${esc(provider.label)} answering with those results in front of it, and every query and result it saw is listed under its ask.</footer>`
+      : `<footer>Written ${esc(day)} from ${answers.length} answers and no sources: nothing was fetched, and every word quoted above is ${esc(provider.label)} answering out of its own weights (${esc(mode.why)}).</footer>`,
   );
   out.push(`</div></body></html>`);
   return out.join("\n");
@@ -759,6 +1023,23 @@ function askCard(a: Answer): string {
     );
   parts.push(`<div class="part"><span class="label">PROMPT</span><p class="prompt">${esc(a.question)}</p></div>`);
   parts.push(`<div class="part"><span class="label">RESPONSE</span><div class="response">${answerHtml(a.answer)}</div></div>`);
+  if (a.searches !== null)
+    parts.push(
+      `<div class="part"><span class="label">SEARCHED</span>${
+        a.searches.length === 0
+          ? `<p><span class="nul">had the tool and did not search</span></p>`
+          : a.searches
+              .map(
+                (s) =>
+                  `<div class="search"><div class="query">“${esc(s.query)}”</div>${
+                    s.results.length === 0
+                      ? `<span class="nul">no results</span>`
+                      : `<ol class="hits">${s.results.map((r) => `<li><a href="${esc(r.url)}" rel="noopener">${esc(r.title)}</a> <span class="host">${esc(hostOf(r.url))}</span></li>`).join("")}</ol>`
+                  }</div>`,
+              )
+              .join("")
+      }</div>`,
+    );
   parts.push(
     `<div class="part"><span class="label">WHAT THIS MEANS</span><p>${a.explanation ? esc(a.explanation) : `<span class="nul">not judged</span>`}</p></div>`,
   );

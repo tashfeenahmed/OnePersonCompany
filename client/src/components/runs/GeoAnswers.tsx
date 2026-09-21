@@ -110,8 +110,8 @@ export function GeoAnswers({
         <p className="text-muted-foreground text-[14px]">
           Nothing has been asked about {venture.name} yet. A run puts the
           questions a stranger would ask — and a few that name the product — to
-          the active provider with no tools and no web, and keeps whatever
-          comes back.
+          the active provider with a web search tool in its hands, and keeps
+          whatever comes back along with what it searched.
         </p>
       ) : (
         <div className="flex flex-col gap-6">
@@ -276,6 +276,47 @@ function AnswerCard({
         )}
       </div>
 
+      {a.searches !== null && (
+        <div className="mb-2.5">
+          <Label>searched</Label>
+          {a.searches.length === 0 ? (
+            <p className="text-muted-foreground text-[13px] italic">
+              had the tool and did not search
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {a.searches.map((s, i) => (
+                <div key={`${i}-${s.query}`} className="text-[13px] leading-relaxed">
+                  <span className="font-medium">“{s.query}”</span>
+                  {s.results.length === 0 ? (
+                    <span className="text-muted-foreground italic"> · no results</span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {" · "}
+                      {s.results.slice(0, 5).map((r, j) => (
+                        <span key={r.url}>
+                          {j > 0 && ", "}
+                          <a
+                            href={r.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={r.title}
+                            className="hover:text-foreground underline underline-offset-2"
+                          >
+                            {hostOf(r.url)}
+                          </a>
+                        </span>
+                      ))}
+                      {s.results.length > 5 && ` and ${s.results.length - 5} more`}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mb-2.5">
         <Label>what this means</Label>
         <p
@@ -358,4 +399,14 @@ function Pill({ label, value }: { label: string; value: boolean | null }) {
       {value === null ? `${label}?` : value ? label : `not ${label}`}
     </span>
   );
+}
+
+/** The host of a result, which is what a reader scanning a search wants to
+ *  know: which SITES ranked. The full URL is on the link. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }

@@ -34,14 +34,24 @@ function venture(slug: string, description: string) {
 
 /** The tools seam, with a `turn` the test supplies. Everything else is the
  *  minimum the run touches. */
-function tools(turn: GeoTools["turn"], sink: string[]): GeoTools {
+function tools(
+  turn: GeoTools["turn"],
+  sink: string[],
+  extra: Partial<Pick<GeoTools, "tooled" | "search">> = {},
+): GeoTools {
   return {
     say: (text) => sink.push(text),
     startStep: (tool, label): Step => ({ toolCallId: `${tool}:${label ?? ""}`, tool, label, startedAt: now(), finishedAt: null }),
     endStep: () => {},
     turn,
+    /* No search node and no tool-calling completion unless the test supplies
+       them: the run then asks without tools and says so, which is what every
+       test written before web search expects. */
+    tooled: null,
+    search: null,
     provider,
     model: () => "stub-model-1",
+    ...extra,
   };
 }
 
@@ -234,4 +244,158 @@ test("a judge that fails leaves nulls, does not fail the run, and the page says 
   assert.ok(output.includes("not judged"));
   assert.ok(!output.includes("```json cards"), "an unusable recommendations turn proposes no cards");
   assert.ok(output.includes("did not answer usably"));
+});
+
+test("with a search node the model searches before it answers, every query and result lands on the row and the page, and the no-tools ask is never made", async () => {
+  const v = venture("geo-searched", "Scallopbot is a support chatbot widget for websites");
+  const sink: string[] = [];
+  const plainAsks: string[] = [];
+  const searched: string[] = [];
+  /* The tool-calling stub: a search on the first round of every question, an
+     answer citing what it found on the second. */
+  const tooled: NonNullable<GeoTools["tooled"]> = async (turns, opts) => {
+    const last = turns[turns.length - 1] as Record<string, unknown>;
+    if (last.role === "tool") {
+      assert.equal(opts.tools.length, 1, "the tool stays offered while searches remain");
+      assert.match(String(last.content), /Top 2 results for "best support chatbot"/);
+      return { message: { role: "assistant", content: "People use Intercom (https://example.com/roundup) or Drift." }, text: "People use Intercom (https://example.com/roundup) or Drift." };
+    }
+    assert.equal((opts.tools[0] as { function: { name: string } }).function.name, "web_search");
+    return {
+      message: {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "best support chatbot" }) } }],
+      },
+      text: "",
+    };
+  };
+  const search: NonNullable<GeoTools["search"]> = {
+    label: "SearXNG at 127.0.0.1:8888",
+    run: async (query) => {
+      searched.push(query);
+      return [
+        { title: "10 best support chatbots", url: "https://example.com/roundup", snippet: "A roundup." },
+        { title: "Intercom vs Drift", url: "https://www.example.org/compare", snippet: null },
+      ];
+    },
+  };
+  await geoRun({
+    runId: "r-geo-searched",
+    venture: v,
+    input: {},
+    tools: tools(
+      async (turns) => {
+        const system = turns[0]!.content;
+        if (system.includes("STRANGER")) return { text: "```json questions\n" + JSON.stringify(["What's the best tool for a support chatbot widget?", "Compare live chat widgets.", "Is there a free support chatbot?"]) + "\n```" };
+        if (system.includes("marking another model's answers")) {
+          assert.match(turns[1]!.content, /SEARCHED: "best support chatbot" → https:\/\/example\.com\/roundup, https:\/\/www\.example\.org\/compare/, "the judge sees what was searched");
+          return { text: scores(6) };
+        }
+        if (system.includes("advising the owner")) {
+          assert.match(system, /a model with a web search tool/);
+          return { text: ADVICE };
+        }
+        plainAsks.push(turns[1]!.content);
+        return { text: ANSWER };
+      },
+      sink,
+      { tooled, search },
+    ),
+  });
+
+  assert.equal(plainAsks.length, 0, "no question was asked without tools");
+  assert.equal(searched.length, 6, "one search per question: three direct, three generic");
+
+  const rows = db
+    .prepare("SELECT question, answer, mentioned, searches FROM geo_answers WHERE run_id=? ORDER BY rowid")
+    .all("r-geo-searched") as unknown as { question: string; answer: string; mentioned: number; searches: string }[];
+  assert.equal(rows.length, 6);
+  for (const r of rows) {
+    assert.equal(r.answer, "People use Intercom (https://example.com/roundup) or Drift.");
+    assert.equal(r.mentioned, 0);
+    assert.deepEqual(JSON.parse(r.searches), [
+      {
+        query: "best support chatbot",
+        results: [
+          { title: "10 best support chatbots", url: "https://example.com/roundup", snippet: "A roundup." },
+          { title: "Intercom vs Drift", url: "https://www.example.org/compare", snippet: null },
+        ],
+      },
+    ]);
+  }
+
+  const { doc } = splitTrailingFence(sink.join(""));
+  assert.ok(looksLikeHtmlReport(doc));
+  assert.match(doc, /with web search \(SearXNG at 127\.0\.0\.1:8888\)/, "the dateline says how the questions were asked");
+  assert.equal(doc.split(">SEARCHED<").length - 1, 6, "every ask card lists what was searched");
+  assert.match(doc, /“best support chatbot”/);
+  assert.match(doc, /href="https:\/\/example\.com\/roundup"/);
+  assert.match(doc, /6 searches run/);
+});
+
+test("with no search node the run asks without tools and the page says why", async () => {
+  const v = venture("geo-unsearched", "Scallopbot is a support chatbot widget for websites");
+  const sink: string[] = [];
+  await geoRun({
+    runId: "r-geo-unsearched",
+    venture: v,
+    input: {},
+    tools: tools(async (turns) => {
+      const system = turns[0]!.content;
+      if (system.includes("STRANGER")) return { text: "```json questions\n" + JSON.stringify(["What's the best tool for a support chatbot widget?", "Compare live chat widgets.", "Is there a free support chatbot?"]) + "\n```" };
+      if (system.includes("marking another model's answers")) return { text: scores(6) };
+      if (system.includes("advising the owner")) return { text: ADVICE };
+      assert.match(system, /no tools, no web access/);
+      return { text: ANSWER };
+    }, sink),
+  });
+  const rows = db.prepare("SELECT searches FROM geo_answers WHERE run_id=?").all("r-geo-unsearched") as unknown as { searches: string | null }[];
+  assert.equal(rows.length, 6);
+  assert.ok(rows.every((r) => r.searches === null), "asked without tools is NULL, never []");
+  const { doc } = splitTrailingFence(sink.join(""));
+  assert.match(doc, /no tools, no web access — no search node is connected/);
+  assert.equal(doc.includes(">SEARCHED<"), false);
+});
+
+test("the owner can switch the search off, and a model that will not call tools drops the whole run to no tools and says which model", async () => {
+  const v = venture("geo-off", "Scallopbot is a support chatbot widget for websites");
+  const sink: string[] = [];
+  const search: NonNullable<GeoTools["search"]> = { label: "SearXNG", run: async () => [] };
+  const turn: GeoTools["turn"] = async (turns) => {
+    const system = turns[0]!.content;
+    if (system.includes("STRANGER")) return { text: "```json questions\n" + JSON.stringify(["What's the best tool for a support chatbot widget?", "Compare live chat widgets.", "Is there a free support chatbot?"]) + "\n```" };
+    if (system.includes("marking another model's answers")) return { text: scores(6) };
+    if (system.includes("advising the owner")) return { text: ADVICE };
+    return { text: ANSWER };
+  };
+  let tooledCalls = 0;
+  await geoRun({
+    runId: "r-geo-off",
+    venture: v,
+    input: { search: "none" },
+    tools: tools(turn, sink, { search, tooled: async () => { tooledCalls++; return { message: null, text: "" }; } }),
+  });
+  assert.equal(tooledCalls, 0, "switched off means no tool-calling completion is made");
+  assert.match(splitTrailingFence(sink.join("")).doc, /the owner chose to ask without tools/);
+
+  /* A provider that refuses the `tools` field on the first round. */
+  const v2 = venture("geo-refused", "Scallopbot is a support chatbot widget for websites");
+  const sink2: string[] = [];
+  await geoRun({
+    runId: "r-geo-refused",
+    venture: v2,
+    input: {},
+    tools: tools(turn, sink2, {
+      search,
+      tooled: async () => {
+        tooledCalls++;
+        throw new Error("Stub Provider (main) answered 400: unknown field `tools` is not supported by this model");
+      },
+    }),
+  });
+  assert.equal(tooledCalls, 1, "one refusal is enough; every later ask is made without tools");
+  const rows = db.prepare("SELECT searches FROM geo_answers WHERE run_id=?").all("r-geo-refused") as unknown as { searches: string | null }[];
+  assert.ok(rows.every((r) => r.searches === null));
+  assert.match(splitTrailingFence(sink2.join("")).doc, /stub-model-1 did not answer with tool calls — Stub Provider \(main\) answered 400/);
 });
