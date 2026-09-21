@@ -32,7 +32,7 @@ import { tokenAccounts } from "../../providers/replicate.ts";
 import * as meta from "../../providers/meta.ts";
 import { accountRows, lastRead, postRows, readPosts, shapePost } from "./posts.ts";
 import { candidateRows, channelFor, discover, settings as sourcingSettings } from "./sourcing.ts";
-import { checkRows, forget, historyRows, noveltyDays, repeatLimit, restore } from "./novelty.ts";
+import { checkRows, forget, historyRows, noveltyDays, restore } from "./novelty.ts";
 import { channel, deliveryRows, sweep } from "./deliver.ts";
 import { shapeUgc, ugcRows, ugcSeconds, videoModel } from "./ugc.ts";
 
@@ -133,10 +133,10 @@ socialfeedRoutes.get("/sourcing", (c) => {
   return c.json({
     venture: v ? { id: v.id, slug: v.slug, name: v.name } : null,
     settings: {
+      /* How far back the judge is shown. There is no threshold beside it any
+         more: whether two topics are the same piece of work is a model's
+         verdict, not a share of shared words. See novelty.ts. */
       noveltyDays: noveltyDays(),
-      /* The share of a new topic's words that must already have been used for
-         it to count as the same piece of work. Asymmetric — see novelty.ts. */
-      repeatLimit: repeatLimit(),
       minMinutes: Math.round(s.minSeconds / 60),
       maxMinutes: Math.round(s.maxSeconds / 60),
       probeTop: s.probe,
@@ -178,6 +178,9 @@ socialfeedRoutes.get("/sourcing", (c) => {
       ventureName: ventureRowById(r.venture_id)?.name ?? null,
       format: r.format,
       topic: r.topic,
+      /* The exact-match key, not a similarity fingerprint: two rows with the
+         same one are the same topic typed twice. Whether two DIFFERENT topics
+         are the same piece of work is in `verdicts`, where a model said so. */
       fingerprint: r.fingerprint,
       sourceUrl: r.source_url,
       sourceId: r.source_id,

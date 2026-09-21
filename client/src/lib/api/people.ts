@@ -197,12 +197,23 @@ export type ScanResult = {
   listed: number;
   scanned: number;
   truncated: boolean;
+  /** Sentences of his own put to the judge — every sentence of every message
+   *  that was opened, not a pattern's hits. */
   candidates: number;
-  droppedByModel: number;
+  /** Judged as not a promise. */
+  notPromise: number;
+  /** Judged by nobody, because no model answered. These file NOTHING, so a
+   *  non-zero figure means the scan under-reports and the page must say so. */
+  unjudged: number;
+  /** Past the per-message ceiling, never shown to the judge. */
+  unshown: number;
   refusedSpans: number;
   noRecipient: number;
   alreadyKnown: number;
   filed: number;
+  /** The model that decided what was filed, and the one that tightened the
+   *  spans. Two calls, often two different models. */
+  judgeModel: string | null;
   model: string | null;
   modelError: string | null;
   error?: string | null;

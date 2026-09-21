@@ -154,12 +154,16 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- Pexels download before anybody notices. This table is what the gate in
       -- novelty.ts reads, and the gate runs BEFORE anything is spent.
       --
-      -- \`fingerprint\` IS A NORMALISED FORM OF THE TOPIC and not the topic.
-      -- See novelty.ts for exactly what it does: lowercase, strip URLs and
-      -- punctuation, drop stop words and short words, five-character stems,
-      -- sorted, joined. Two briefs that are the same video in different words
-      -- have the same or nearly the same fingerprint, which is the comparison
-      -- a string equality cannot make.
+      -- \`fingerprint\` IS THE EXACT-MATCH KEY, and since 2026-09-21 that is
+      -- ALL it is: \`normalise(topic)\` — lowercase, accents folded, punctuation
+      -- and spacing collapsed, nothing dropped and nothing re-ordered. Two rows
+      -- with the same key are the same topic typed twice, which is a fact.
+      --
+      -- IT USED TO BE A SIMILARITY FINGERPRINT (stop words dropped, stems,
+      -- sorted) because the gate scored stem overlap. It does not any more: "is
+      -- this the same piece of work" is a matter of meaning and is now a
+      -- model's judgment, recorded in \`gate_verdicts\`. Rows written before
+      -- that date are rewritten by \`novelty.ts\`'s reindex at boot.
       --
       -- A ROW IS WRITTEN WHEN WORK IS QUEUED, not when it finishes. A run that
       -- failed still used up its topic — re-deriving the same subject the next
@@ -209,17 +213,22 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
         venture_id  TEXT,
         format      TEXT NOT NULL,
         -- 'topic' or 'source'. Two different questions with two different
-        -- answers: a topic is compared by fingerprint over a window, a source
-        -- video is compared by id and forever.
+        -- answers: a topic is a matter of meaning over a window and a model
+        -- judges it, a source video is a matter of identity and code compares
+        -- its id, forever.
         kind        TEXT NOT NULL,
         value       TEXT NOT NULL,
+        -- The exact-match key of the topic that was judged. Null for a source
+        -- check, which compares ids.
         fingerprint TEXT,
         verdict     TEXT NOT NULL,
         reason      TEXT,
         matched_id  INTEGER,
         matched     TEXT,
-        -- The overlap, 0..1, where one was computed. Null for a source check,
-        -- which is an identity test and not a similarity one.
+        -- 1 for a word-for-word duplicate, and NULL everywhere else — for a
+        -- source check, which is an identity test, and for a model's verdict,
+        -- which is a judgement and has no percentage behind it. It held a stem
+        -- overlap until 2026-09-21; old rows keep theirs.
         score       REAL
       );
       CREATE INDEX IF NOT EXISTS novelty_checks_ts ON novelty_checks (ts DESC);

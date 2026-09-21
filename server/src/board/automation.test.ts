@@ -5,6 +5,7 @@ import { db, insertAccount, upsertPlugin } from "../db.ts";
 import { boardRoutes, fileCard } from "../routes/board.ts";
 import { actionInboxRoutes } from "../routes/actionInbox.ts";
 import { ackEvent, insertEvent, insertRule } from "../integrations/proactive/store.ts";
+import { registerProvider, setProviderChoiceReader } from "../models/provider.ts";
 import { boardAutomationStatus, configureBoardAutomation, registerBoardSource, syncBoardCards, type BoardCandidate } from "./automation.ts";
 import { boardAutomationRoutes } from "./routes.ts";
 import { growthCandidates, healthCandidates, inboxCandidates } from "./sources.ts";
@@ -180,7 +181,30 @@ test("email cards identify the sender and subject, including colon-containing th
   assert.equal(cards.find(c => c.origin === "inbox:triage:991:uncached")?.title, "Reply needed: Confirm the delivery date");
 });
 
-test("search growth cards require fresh measured data and a matching opted-in venture", () => {
+/** A model on the wire answering the growth sweep's ONE judgment call: every
+ *  query named here is a `need`, everything else is `brand`. The verdicts are
+ *  the stub's on purpose — what these tests check is the wiring around them, and
+ *  `brand-query.test.ts` says why a test may never assert a real verdict. */
+function stubJudge(needs: string[]) {
+  const original=globalThis.fetch;
+  const sent: { keys: string[]; user: string }[]=[];
+  registerProvider("local",()=>({id:"local",label:"Test model",defaultModel:"test-judge",
+    endpoints:[{baseUrl:"https://local.invalid/v1",key:null,label:"Test"}],
+    policy:{mode:"parallel",concurrency:1,balance:"round-robin",timeoutMs:1000}}));
+  setProviderChoiceReader(()=>"local");
+  globalThis.fetch=async (_url,init)=>{
+    const body=JSON.parse(String(init?.body)) as { messages: { role: string; content: string }[] };
+    const user=body.messages.find(m=>m.role==="user")?.content ?? "";
+    const keys=[...user.matchAll(/^key: (.+)$/gm)].map(m=>m[1]!);
+    sent.push({keys,user});
+    return Response.json({choices:[{message:{role:"assistant",content:JSON.stringify({verdicts:keys.map(key=>
+      ({key,verdict:needs.includes(key)?"need":"brand",why:"a test reply"}))})},finish_reason:"stop"}],
+      model:"test-judge",usage:{prompt_tokens:10,completion_tokens:10}});
+  };
+  return {sent,restore:()=>{globalThis.fetch=original;setProviderChoiceReader(()=>null);}};
+}
+
+test("search growth cards require fresh measured data and a matching opted-in venture", async () => {
   const time=new Date().toISOString(), today=time.slice(0,10), yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
   db.prepare("INSERT INTO ventures(id,slug,name,host,stage,color,color_source,created_at,updated_at,position) VALUES(?,?,?,?,?,?,?,?,?,0)")
     .run("test-v","test-venture","Test Venture","example.test","launched","#334455","owner",time,time);
@@ -189,15 +213,21 @@ test("search growth cards require fresh measured data and a matching opted-in ve
     .run("sc-domain:example.test",account,"Test Search",yesterday,today,time);
   db.prepare("INSERT INTO gsc_queries(property,query,clicks,impressions,position,seen_at) VALUES(?,?,?,?,?,?)")
     .run("sc-domain:example.test","test query",10,500,9,time);
-  const cards=growthCandidates(); assert.equal(cards.length,1); assert.equal(cards[0]!.ventureId,"test-v"); assert.match(cards[0]!.detail,/500 impressions/);
-  db.prepare("UPDATE gsc_queries SET impressions=2").run(); assert.equal(growthCandidates().length,0);
-  db.prepare("UPDATE gsc_queries SET impressions=500,seen_at='2000-01-01T00:00:00.000Z'").run(); assert.equal(growthCandidates().length,0);
-  db.prepare("UPDATE gsc_queries SET seen_at=?").run(time);
-  db.prepare("INSERT INTO synthesis_venture_prefs(venture_id,proposals,updated_at) VALUES(?,0,?)").run("test-v",time);
-  assert.equal(growthCandidates().length,0);
+  const model=stubJudge(["test query"]);
+  try {
+    const cards=await growthCandidates(); assert.equal(cards.length,1); assert.equal(cards[0]!.ventureId,"test-v"); assert.match(cards[0]!.detail,/500 impressions/);
+    db.prepare("UPDATE gsc_queries SET impressions=2").run(); assert.equal((await growthCandidates()).length,0);
+    db.prepare("UPDATE gsc_queries SET impressions=500,seen_at='2000-01-01T00:00:00.000Z'").run(); assert.equal((await growthCandidates()).length,0);
+    db.prepare("UPDATE gsc_queries SET seen_at=?").run(time);
+    db.prepare("INSERT INTO synthesis_venture_prefs(venture_id,proposals,updated_at) VALUES(?,0,?)").run("test-v",time);
+    assert.equal((await growthCandidates()).length,0);
+    /* A row excluded by the measurements is not a question for a model either:
+       the only batch sent was the one with a live row in it. */
+    assert.equal(model.sent.length,1);
+  } finally { model.restore(); }
 });
 
-test("search growth cards skip brand queries, including another venture's brand on our own property", () => {
+test("search growth cards skip the queries judged brand, and ask about every venture at once", async () => {
   const time=new Date().toISOString(), today=time.slice(0,10), yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
   const venture=db.prepare("INSERT INTO ventures(id,slug,name,host,stage,color,color_source,created_at,updated_at,position) VALUES(?,?,?,?,'launched','#334455','owner',?,?,0)");
   venture.run("free-v","freellmapi","FreeLLMAPI","freellmapi.co",time,time);
@@ -211,10 +241,59 @@ test("search growth cards skip brand queries, including another venture's brand 
   query.run("sc-domain:freellmapi.co","freelmapi",800,time);
   query.run("sc-domain:freellmapi.co","free llm api",300,time);
   query.run("sc-domain:neu.ie","freellmapi",500,time);
-  const cards=growthCandidates();
-  assert.equal(cards.length,1);
-  assert.equal(cards[0]!.ventureId,"free-v");
-  assert.match(cards[0]!.title,/free llm api/);
-  db.prepare("DELETE FROM gsc_queries WHERE query='free llm api'").run();
-  assert.equal(growthCandidates().length,0);
+  const model=stubJudge(["free llm api"]);
+  try {
+    const cards=await growthCandidates();
+    assert.equal(cards.length,1);
+    assert.equal(cards[0]!.ventureId,"free-v");
+    assert.match(cards[0]!.title,/free llm api/);
+    /* ONE CALL for both ventures' heads, and the sibling's name travels with it:
+       `freellmapi` on the neu.ie property is the row that used to file a card
+       under the wrong venture, and a model can only see that if it was told Neu
+       is not the only venture the owner has. */
+    assert.equal(model.sent.length,1);
+    assert.deepEqual(model.sent[0]!.keys.filter(k=>k==="freellmapi").length,1);
+    for (const name of ["FreeLLMAPI","Neu","neu.ie"]) assert.ok(model.sent[0]!.user.includes(name),`the roster is missing ${name}`);
+    db.prepare("DELETE FROM gsc_queries WHERE query='free llm api'").run();
+    assert.equal((await growthCandidates()).length,0);
+  } finally { model.restore(); }
+});
+
+test("a sweep with no model reachable files nothing from search rather than the brand head", async () => {
+  /* THE DELIBERATE LEAN, and the opposite of the card gates': an unfiled row is
+     read again on the next sweep, while a filed card leaves a permanent receipt
+     in board_automation_filings and is never re-judged. This process has no
+     provider, which is the production case of a busy or missing GPU. */
+  const time=new Date().toISOString(), today=time.slice(0,10), yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
+  db.prepare("INSERT INTO ventures(id,slug,name,host,stage,color,color_source,created_at,updated_at,position) VALUES(?,?,?,?,'launched','#334455','owner',?,?,0)")
+    .run("test-v","test-venture","Test Venture","example.test",time,time);
+  upsertPlugin("gsc",true,null); const account=insertAccount("gsc","Unjudged Search");
+  db.prepare("INSERT INTO gsc_sites(property,account_id,account_label,window_start,window_end,seen_at) VALUES(?,?,'Unjudged Search',?,?,?)")
+    .run("sc-domain:example.test",account,yesterday,today,time);
+  db.prepare("INSERT INTO gsc_queries(property,query,clicks,impressions,position,seen_at) VALUES(?,?,10,500,9,?)")
+    .run("sc-domain:example.test","best widget for teams",time);
+  assert.deepEqual(await growthCandidates(),[]);
+});
+
+test("one batch is spent across the ventures, not head-first on the loudest property", async () => {
+  const time=new Date().toISOString(), today=time.slice(0,10), yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
+  const venture=db.prepare("INSERT INTO ventures(id,slug,name,host,stage,color,color_source,created_at,updated_at,position) VALUES(?,?,?,?,'launched','#334455','owner',?,?,0)");
+  venture.run("loud-v","loud","Loud Venture","loud.test",time,time);
+  venture.run("quiet-v","quiet","Quiet Venture","quiet.test",time,time);
+  upsertPlugin("gsc",true,null); const account=insertAccount("gsc","Batch Search");
+  const site=db.prepare("INSERT INTO gsc_sites(property,account_id,account_label,window_start,window_end,seen_at) VALUES(?,?,'Batch Search',?,?,?)");
+  site.run("sc-domain:loud.test",account,yesterday,today,time);
+  site.run("sc-domain:quiet.test",account,yesterday,today,time);
+  const query=db.prepare("INSERT INTO gsc_queries(property,query,clicks,impressions,position,seen_at) VALUES(?,?,1,?,9,?)");
+  /* The loud property's whole head outranks everything the quiet one has, and
+     its rows alone would fill the batch if the batch were filled in order. */
+  for (let i=0;i<25;i++) query.run("sc-domain:loud.test",`loud query ${i}`,100000-i,time);
+  for (let i=0;i<25;i++) query.run("sc-domain:quiet.test",`quiet query ${i}`,200-i,time);
+  const model=stubJudge(["quiet query 0"]);
+  try {
+    const cards=await growthCandidates();
+    assert.equal(model.sent.length,1);
+    assert.ok(model.sent[0]!.keys.some(k=>k.startsWith("quiet query")),"the quieter venture never got a question");
+    assert.deepEqual(cards.map(c=>c.ventureId),["quiet-v"]);
+  } finally { model.restore(); }
 });

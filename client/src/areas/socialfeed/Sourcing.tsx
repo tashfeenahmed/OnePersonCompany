@@ -205,8 +205,8 @@ export function History() {
         <VentureSelect ventures={ventures} value={ventureId} onChange={setVentureId} none="Every venture" />
         {d && (
           <span className="text-muted-foreground text-[12.5px]">
-            A topic is refused when {Math.round(d.settings.repeatLimit * 100)}% of its distinctive words were already used
-            within {d.settings.noveltyDays} days. A source video is refused forever — for the venture that used it.
+            A topic is put to a model against everything made in the last {d.settings.noveltyDays} days and refused only
+            if it judges it the same piece of work. A source video is refused forever — for the venture that used it.
             Finished work is announced on {d.settings.deliverTo === "off" ? "nothing; the delivery message is switched off" : d.settings.deliverTo}.
           </span>
         )}

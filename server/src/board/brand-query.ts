@@ -1,5 +1,6 @@
 /**
- * IS THIS SEARCH QUERY SOMEBODY LOOKING FOR US BY NAME.
+ * IS THIS SEARCH QUERY SOMEBODY LOOKING FOR US BY NAME, OR SOMEBODY DESCRIBING
+ * A NEED WE COULD WIN.
  *
  * Search Console returns a venture's own brand and every misspelling of it
  * alongside the queries that describe what it does, and the two want opposite
@@ -10,39 +11,38 @@
  * was impressions and position, which brand rows clear easily — they are the
  * rows a small site has the most of.
  *
- * WHAT COUNTS AS THE BRAND
+ * WHY THIS IS A MODEL'S JUDGMENT AND NO LONGER A STRING COMPARISON
  *
- * Three spellings of one name, because a venture carries three: the display
- * name, the slug, and the host's own label (`freellmapi` out of
- * `freellmapi.co`). All are folded to letters and digits, so `Free LLM API`,
- * `free-llm-api` and `freellmapi` are one token. Tokens under four characters
- * are dropped: `neu` matched half the English language at distance 2 and would
- * have suppressed real queries for every venture that shares those letters.
+ * The owner's rule, 2026-09-21: a gate that decides a matter of MEANING is an
+ * LLM judgment, never word matching. This gate was the clearest case in the
+ * codebase for it. Its previous version folded three spellings of the name to
+ * letters and digits and asked four questions of every query word — is it equal
+ * to a token, does it contain a token of five characters or more, is it within
+ * one edit of a short token or two of a long one, does the whole query with its
+ * spaces removed match — and each of those numbers was a guess that had already
+ * been retuned once. Four characters, five characters, distance one, distance
+ * two, "one or two words only": five hand-set dials standing in for one
+ * question a competent reader answers instantly.
  *
- * MATCHING, PER QUERY WORD
+ * The dials could not answer it. The old header spent forty lines arguing with
+ * itself about a single pair of queries, because `free llm api` concatenates to
+ * `freellmapi` EXACTLY — the venture's name is the generic phrase it serves.
+ * The resolution was a rule with no meaning behind it: apply the whole-query
+ * comparison only to queries of one or two words. That rule is why `free llmapi`
+ * was brand and `best free llm api` was not, and nothing about the number two
+ * explains the difference. A model is told what the difference IS: a name typed
+ * with a stray space is a typo, a category typed in words is a person
+ * describing the category.
  *
- * A query is the brand's if ANY of its words is the brand — equal to a token,
- * containing a token of five characters or more (`freellmapi.co`,
- * `myfreellmapi`), or within a small edit distance of one. That word rule is
- * what makes `freellmapi github`, `github freellmapi`, `freellmapi pricing`
- * and `freellmapi login` all navigational: the modifier changes nothing about
- * who is being looked for.
+ * ONE CALL FOR THE WHOLE SWEEP. `sources.ts` collects every candidate query it
+ * might file a card for and asks once. A call per query would be sixty round
+ * trips to decide six cards, and a model shown the whole batch can also see
+ * which queries are the same searcher twice.
  *
- * THE WHOLE-QUERY RULE, AND WHY IT IS DELIBERATELY WEAK
- *
- * A brand typed with a stray space (`freell mapi`, `free llmapi`) has to be
- * caught too, so the query with its spaces removed is compared as well. But
- * that comparison is dangerous in exactly one direction: a venture named after
- * the generic phrase it serves concatenates to that phrase. `free llm api`
- * joins to `freellmapi` EXACTLY — and `free llm api` is the single most
- * valuable non-brand query FreeLLMAPI has. So the whole-query rule is applied
- * only to queries of one or two words, and only by equality or distance 1. A
- * name split in two is a typo; a name split in three is a person describing
- * the category, and those queries are the ones the growth card is for.
- *
- * The edit distance is written here rather than pulled in: the server has no
- * runtime dependencies beyond hono, and this needs eight lines of it.
+ * `unjudged` MEANS NO CARD HERE, WHICH IS THE OPPOSITE OF THE USUAL LEAN. See
+ * `judgeSearchIntent`.
  */
+import { judge } from "../models/judge.ts";
 
 /** The three fields a venture row carries that can spell its name. */
 export type BrandNames = {
@@ -51,104 +51,137 @@ export type BrandNames = {
   host?: string | null;
 };
 
-/** Letters and digits only — the one fold both sides of every comparison get. */
-const fold = (raw: string | null | undefined): string =>
-  String(raw ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+/** `brand` is navigation to something of ours; `need` is a description of a
+ *  problem or a category. Two words, because a third ("unsure") would be read
+ *  downstream as "file it" by anybody who forgot to handle it. */
+export const SEARCH_INTENTS = ["brand", "need"] as const;
+export type SearchIntent = (typeof SEARCH_INTENTS)[number];
 
-/** Under this, a token is initials or a stub and matches far too much. */
-const MIN_TOKEN = 4;
+/** A verdict per query, or `unjudged` when no model answered for the batch. */
+export type QueryIntent = SearchIntent | "unjudged";
 
-/** Below this length a token is only allowed the tighter distance. */
-const TIGHT_DISTANCE_MAX = 6;
+export const BRAND_QUERY_GATE = "board.brand-query";
 
-/** The shortest token a substring match may use. */
-const MIN_CONTAINED = 5;
-
-/**
- * The host's own label: the registrable domain minus its public suffix, so
- * `freellmapi.co` and `blog.example.co.uk` give `freellmapi` and `example`.
- * Kept local rather than imported so this module stays pure string work.
- */
-function hostLabel(host: string | null | undefined): string {
-  const cleaned = String(host ?? "").trim().toLowerCase()
-    .replace(/^sc-domain:/, "").replace(/^https?:\/\//, "").split("/")[0]!.replace(/^www\./, "");
-  const parts = cleaned.split(".").filter(Boolean);
-  if (parts.length < 2) return parts[0] ?? "";
-  /* Drop the suffix: two labels means the first one, three-plus means the one
-     before a known two-part suffix, else the second-to-last. */
-  const last = parts[parts.length - 1]!, secondLast = parts[parts.length - 2]!;
-  const twoPartSuffix = last.length === 2 && ["co", "com", "org", "net", "gov", "edu", "ac"].includes(secondLast);
-  return parts[parts.length - (twoPartSuffix ? 3 : 2)] ?? "";
-}
-
-/** The distinct brand tokens a venture answers to, longest first. */
-export function brandTokens(brand: BrandNames): string[] {
-  const tokens = [fold(brand.name), fold(brand.slug), fold(hostLabel(brand.host))]
-    .filter(token => token.length >= MIN_TOKEN);
-  return [...new Set(tokens)].sort((a, b) => b.length - a.length);
-}
+/** The one fold both sides of every lookup get, so the caller can find its own
+ *  row back. Search Console returns the same query with different spacing and
+ *  case across properties; this is bookkeeping, not matching. */
+export const queryKey = (query: string): string =>
+  String(query ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 
 /**
- * Damerau-Levenshtein, restricted (optimal string alignment): insertions,
- * deletions, substitutions and the transposition of two ADJACENT characters,
- * which is the one that catches `freellampi` for `freellmapi`. The unrestricted
- * variant differs only on strings that transpose and then edit between the
- * transposed pair; no misspelling of a brand does that.
+ * THE HOSTNAME A STORED PROPERTY OR VENTURE FIELD MEANS.
  *
- * Bails out early once the answer cannot be within `max`, which is what keeps
- * it cheap against a long tail of unrelated queries.
+ * Parsing, not judging: `sc-domain:freellmapi.co`, `https://freellmapi.co/` and
+ * `www.freellmapi.co` are three spellings of one hostname, and which one a row
+ * carries depends on which API wrote it.
  */
-export function editDistance(a: string, b: string, max: number): number {
-  if (a === b) return 0;
-  if (Math.abs(a.length - b.length) > max) return max + 1;
-  let prev2: number[] = [], prev: number[] = [], row: number[] = [];
-  prev = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    row = new Array<number>(b.length + 1);
-    row[0] = i;
-    let least = i;
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      let value = Math.min(row[j - 1]! + 1, prev[j]! + 1, prev[j - 1]! + cost);
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) value = Math.min(value, prev2[j - 2]! + 1);
-      row[j] = value;
-      if (value < least) least = value;
-    }
-    if (least > max) return max + 1;
-    prev2 = prev;
-    prev = row;
-  }
-  return prev[b.length]!;
-}
+const hostname = (raw: string | null | undefined): string =>
+  String(raw ?? "").trim().toLowerCase()
+    .replace(/^sc-domain:/, "").replace(/^https?:\/\//, "").split(/[/?#]/)[0]!.replace(/^www\./, "");
 
-/** How far off a token a word may be and still be that token. */
-const allowance = (token: string): number => (token.length <= TIGHT_DISTANCE_MAX ? 1 : 2);
-
-/** Is this single folded word the brand, by equality, containment or typo? */
-function wordIsBrand(word: string, tokens: readonly string[]): boolean {
-  if (!word) return false;
-  return tokens.some(token =>
-    word === token ||
-    (token.length >= MIN_CONTAINED && word.includes(token)) ||
-    editDistance(word, token, allowance(token)) <= allowance(token));
+/**
+ * THE PART THAT IS A FACT AND NOT A JUDGMENT, so the model is never asked it.
+ *
+ * `site:freellmapi.co` is a person asking Google to list a site's own pages.
+ * That is what the operator DOES; no reading of intent is involved, and there is
+ * no page to improve either way. And a query that is exactly one of our
+ * hostnames is somebody who typed the address into the search box — an exact
+ * string equality between two hostnames, which is checkable, unlike "is this
+ * word close enough to our name".
+ *
+ * Deliberately nothing else. The moment this function starts asking whether a
+ * word is NEARLY a hostname it is the edit-distance gate again.
+ */
+export function navigationalByFact(query: string, brands: readonly BrandNames[]): boolean {
+  const raw = queryKey(query);
+  if (!raw) return false;
+  if (raw.startsWith("site:")) return true;
+  const hosts = new Set(brands.map(b => hostname(b.host)).filter(Boolean));
+  return hosts.has(hostname(raw));
 }
 
 /**
- * Is this query somebody navigating to this venture rather than describing a
- * need it could meet? See the header for the rules and for why the whole-query
- * comparison is the weak one.
+ * HOW MANY QUERIES ONE SWEEP MAY ASK ABOUT.
+ *
+ * Not a threshold on meaning — a bound on a single reply. The judge discards a
+ * reply that does not carry a verdict for every item, and a verdict is roughly
+ * thirty tokens of JSON, so a batch of sixty fits inside the workspace's output
+ * allowance with room to spare and a batch of six hundred would be refused
+ * wholesale, every sweep, forever.
+ *
+ * The cap is applied to the order the caller gives, so a caller with more
+ * queries than this spends the allowance by interleaving its ventures rather
+ * than letting the loudest property fill the batch; see `sources.ts`.
  */
-export function isBrandQuery(query: string, brand: BrandNames): boolean {
-  const raw = String(query ?? "").trim().toLowerCase();
-  if (!raw) return false;
-  /* `site:freellmapi.co` is a person listing our own pages. Navigational
-     whoever's brand it names, so it does not even need a token to match. */
-  if (raw.startsWith("site:")) return true;
-  const tokens = brandTokens(brand);
-  if (!tokens.length) return false;
-  const words = raw.split(/[^a-z0-9]+/).filter(Boolean);
-  if (words.some(word => wordIsBrand(word, tokens))) return true;
-  if (words.length > 2) return false;
-  const joined = words.join("");
-  return tokens.some(token => joined === token || editDistance(joined, token, 1) <= 1);
+export const QUERIES_JUDGED_PER_SWEEP = 60;
+
+const question = [
+  "You are triaging Google Search Console queries for a one-person software portfolio. For each query, decide what the searcher was doing.",
+  '"brand" — they were navigating to one of the ventures listed below: they typed its name, a misspelling or mistyping of it, its domain, a repository path, or its name with a modifier such as "login", "app", "github", "pricing", "reddit" or "review". A query that names ANY venture on the list is brand, even when it was measured on a different venture\'s property. There is nothing to improve for these: the page the searcher wanted is the page they already got.',
+  '"need" — they described a problem, a category, a comparison or a product they wanted, without naming one of the ventures. These are the queries a better page could win.',
+  'THE HARD CASE, and the reason this is your judgment and not a spelling comparison: a venture named after the generic phrase it serves. "freellmapi" is brand; "free llm api" is a person describing the category and is a need, as are "best free llm api" and "openrouter alternative". A name typed with a stray space ("freell mapi", "jot thespot") is still a mistyped name and is brand. Judge which of the two the words read as.',
+  'WHEN YOU GENUINELY CANNOT TELL, ANSWER "brand". A wrongly filed navigational query becomes a card on the owner\'s board that he has to read and clear by hand, and it is filed permanently. A missed opportunity is offered again on the next sweep.',
+].join("\n\n");
+
+/**
+ * JUDGE A WHOLE SWEEP'S QUERIES AT ONCE. Keyed by `queryKey`, one entry for
+ * every query given, never throwing.
+ *
+ * WHY `unjudged` MUST MEAN "NO CARD" IN THE CALLER, which is the opposite of
+ * the lean `judge` recommends and of what the card gates do. The two directions
+ * are not symmetrical here, because the two mistakes are not symmetrical:
+ *
+ *   - Not filing a real opportunity costs one sweep. The Search Console rows
+ *     are stored and the next pass reads the same ones, so the card appears
+ *     when a model is reachable again.
+ *   - Filing a navigational query writes a receipt into
+ *     `board_automation_filings`, keyed by origin and kept after the card is
+ *     deleted. The board never offers it again and never re-judges it. The
+ *     wrong verdict is permanent, and clearing it is manual work — which is the
+ *     exact complaint this gate was built to answer.
+ *
+ * So a sweep with no model reachable files nothing from search, and says so in
+ * `gate_verdicts` rather than quietly filing the whole brand head.
+ */
+export async function judgeSearchIntent(
+  queries: readonly string[],
+  brands: readonly BrandNames[],
+  opts: { signal?: AbortSignal } = {},
+): Promise<Map<string, QueryIntent>> {
+  const intents = new Map<string, QueryIntent>();
+  const items: { key: string; text: string }[] = [];
+  for (const query of queries) {
+    const key = queryKey(query);
+    if (!key || intents.has(key)) continue;
+    if (navigationalByFact(key, brands)) {
+      /* Decided in code, so it is not in `gate_verdicts`: a `site:` query and a
+         bare hostname explain themselves to anybody reading the query. */
+      intents.set(key, "brand");
+      continue;
+    }
+    intents.set(key, "unjudged");
+    items.push({ key, text: `The searcher typed: ${query}` });
+  }
+  if (!items.length) return intents;
+
+  /* THE WHOLE ROSTER, NOT THIS VENTURE'S NAME. A property that ranks for a
+     sibling venture's name used to file a card under the wrong venture —
+     "neu.ie: improve the page targeting 'freellmapi'" — so the model is shown
+     every launched venture and every name it answers to. */
+  const roster = brands
+    .map(b => [b.name, b.slug && b.slug !== b.name ? `slug ${b.slug}` : "", b.host ? `site ${hostname(b.host)}` : ""]
+      .filter(Boolean).join(", "))
+    .filter(Boolean);
+  const result = await judge({
+    gate: BRAND_QUERY_GATE,
+    question,
+    items: items.slice(0, QUERIES_JUDGED_PER_SWEEP),
+    allowed: SEARCH_INTENTS,
+    context: roster.length
+      ? `THE OWNER'S VENTURES, AND EVERY NAME EACH ONE ANSWERS TO:\n${roster.map(r => `- ${r}`).join("\n")}`
+      : "The owner has no launched ventures on record, so no query can be navigational to one.",
+    signal: opts.signal,
+  });
+  for (const verdict of result.verdicts) intents.set(verdict.key, verdict.verdict);
+  return intents;
 }

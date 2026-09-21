@@ -2797,6 +2797,47 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE stripe_charges ADD COLUMN amount_refunded REAL;
     `,
   },
+  {
+    name: "406_gate_verdicts",
+    sql: `
+      -- WHAT A MODEL GATE DECIDED, AND WHY.
+      --
+      -- The owner's rule (21 Sep 2026) is that a gate deciding a matter of
+      -- meaning is a model's judgment, never a list of words. The standing
+      -- objection to that, written down in pipeline/synthesis.ts, was that a
+      -- model's rule is "unobservable except by running a night". This table is
+      -- the answer, and it is the reason the rule can be followed without
+      -- losing the one property the word lists had.
+      --
+      -- ONE TABLE FOR EVERY GATE, keyed by \`gate\` — 'synthesis.dismissal',
+      -- 'board.brand-query', 'people.commitment', 'socialfeed.novelty'. A table
+      -- per gate would be six migrations and six shapes for one question, and
+      -- the interesting reads are cross-gate anyway ("what did the judges refuse
+      -- last night").
+      --
+      -- \`subject\` IS THE CALLER'S OWN IDENTIFIER for the thing judged: a card
+      -- index, a proposal title, a search query, a contact address. Not a
+      -- foreign key, because the things judged live in eight different tables
+      -- and some of them are never stored at all — a refused proposal exists
+      -- only as the sentence a model wrote.
+      --
+      -- APPEND ONLY, AND NOT UNIQUE. The same subject is judged again next
+      -- week, and the history is the point: a gate whose verdict on one query
+      -- flips every night is a gate to look at.
+      --
+      -- 'unjudged' IS NOT A REFUSAL. It records the gate failing open because
+      -- no model could be reached, and those items were let through.
+      CREATE TABLE IF NOT EXISTS gate_verdicts (
+        gate    TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        why     TEXT,
+        model   TEXT,
+        at      TEXT NOT NULL
+      );
+      CREATE INDEX gate_verdicts_gate_at ON gate_verdicts(gate, at DESC);
+    `,
+  },
 /* SORTED BY NAME, NOT BY POSITION IN THIS FILE. The prefix is the order, and
    it was not: this array ran 017 before 015, and the integration blocks
    concatenated after it ran one area's 3xx steps ahead of another's 1xx. The

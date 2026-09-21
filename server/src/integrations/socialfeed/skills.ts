@@ -130,20 +130,26 @@ export const SKILLS: Skill[] = [
     about:
       "Two halves of one decision. `candidates` is what a video search found " +
       "for a venture, ranked, with a reason on every one that was refused. " +
-      "`history` is every topic and source this box has already used, with the " +
-      "normalised fingerprint the gate compares against. `verdicts` is every " +
-      "decision the gate has taken — allows as well as refusals — and it runs " +
-      "BEFORE anything is generated, so a refusal costs nothing.",
+      "`history` is every topic and source this box has already used. " +
+      "`verdicts` is every decision the gate has taken — allows as well as " +
+      "refusals — and it runs BEFORE anything is generated, so a refusal costs " +
+      "nothing.",
     rules: [
-      "A REFUSAL IS THE FEATURE WORKING AND IS NOT A FAILURE. “Refused: 62% " +
-        "of this topic's words were already used on 12 August” means a " +
-        "duplicate video was NOT made and no money was spent. Never report it " +
-        "as an error or as a reason the autopilot is broken.",
-      "THE COMPARISON IS ON A NORMALISED FINGERPRINT AND IS ASYMMETRIC. It is " +
-        "the share of the NEW topic's distinctive words that the old one " +
-        "already had, so a short brief entirely contained in a longer old one " +
-        "scores 1.0 and is refused. Do not describe it as a similarity " +
-        "percentage between two texts.",
+      "A REFUSAL IS THE FEATURE WORKING AND IS NOT A FAILURE. “A model … " +
+        "judged it the same piece of work” means a duplicate video was NOT " +
+        "made and no money was spent. Never report it as an error or as a " +
+        "reason the autopilot is broken.",
+      "A TOPIC IS JUDGED BY A MODEL AND NOT BY A WORD COUNT. The proposal and " +
+        "everything made inside the window go to a model together, and it " +
+        "answers `repeat` or `fresh` with a reason — recorded in " +
+        "`gate_verdicts` under the gate `socialfeed.novelty`. It LEANS FRESH " +
+        "when the answer is unclear, and a topic nobody could judge — no model " +
+        "reachable — is ALLOWED and recorded as `unjudged`, never refused. " +
+        "There is no similarity percentage and no threshold setting; do not " +
+        "describe one, and `score` on a verdict is 1 only for a word-for-word " +
+        "duplicate and null otherwise. A proposal whose text is identical to " +
+        "an earlier one is refused by plain string equality before any model " +
+        "is asked, because that is a fact rather than a judgement.",
       "A TOPIC IS COMPARED OVER A WINDOW, A SOURCE VIDEO FOREVER, AND BOTH ARE " +
         "PER VENTURE. The window is the `noveltyDays` setting; a topic older " +
         "than it is allowed back, because a business may make the same point " +

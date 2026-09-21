@@ -22,7 +22,7 @@ import {
   type StageOutcome as Outcome,
   type Stage,
 } from "./registry.ts";
-import { gate, normalise, similarity, readActions, type Proposal } from "./synthesis.ts";
+import { gate, normalise, readActions, type Proposal, type ProposalVerdict } from "./synthesis.ts";
 import { staleDeps, summarise, unsatisfied } from "./nightly.ts";
 import { dueNight } from "./routes.ts";
 import { readBool, refuseDry } from "./params.ts";
@@ -222,16 +222,28 @@ const proposal = (title: string, evidence = "traffic", evidenceLine = "pageviews
   evidenceLine,
 });
 
-const gateInput = (over: Partial<Parameters<typeof gate>[0]> = {}) => ({
-  proposals: [],
-  measured: ["traffic", "tasks"],
-  openCardTitles: [],
-  recentProposalTitles: [],
-  perVenture: 3,
-  remainingTonight: 6,
-  now: Date.parse("2026-09-06T00:00:00.000Z"),
-  ...over,
-});
+/* The judge — a model since 2026-09-21 — is stubbed permissive so that the
+   deterministic refusals below are tested on their own. `judged()` is for the
+   tests that are about a verdict being applied. */
+const gateInput = (over: Partial<Parameters<typeof gate>[0]> = {}) => {
+  const proposals = over.proposals ?? [];
+  return {
+    proposals,
+    measured: ["traffic", "tasks"],
+    openCardTitles: [],
+    recentProposalTitles: [],
+    judgements: new Map(
+      proposals.map((_, i) => [String(i), { verdict: "file" as ProposalVerdict, why: "a real action" }]),
+    ),
+    perVenture: 3,
+    remainingTonight: 6,
+    now: Date.parse("2026-09-06T00:00:00.000Z"),
+    ...over,
+  };
+};
+
+const judged = (...verdicts: (ProposalVerdict | "unjudged")[]) =>
+  new Map(verdicts.map((verdict, i) => [String(i), { verdict, why: "the judge's reason" }]));
 
 test("a one-word action is refused", () => {
   const [v] = gate(gateInput({ proposals: [proposal("Improve")] }));
@@ -246,23 +258,33 @@ test("a proposal resting on evidence this box does not measure is refused by nam
   assert.match((v as { reason: string }).reason, /traffic, tasks/);
 });
 
-test("a proposal that is already an open card is refused, quoting the card", () => {
+test("a proposal the judge calls a duplicate is refused as one", () => {
+  /* Which proposals ARE duplicates is the model's call, and it is shown the open
+     board to make it — see `judgeProposals`. This asserts only that the verdict
+     is applied and named. */
   const [v] = gate(
     gateInput({
       proposals: [proposal("Rewrite the pricing page copy")],
       openCardTitles: ["Rewrite pricing page copy for clarity"],
+      judgements: judged("duplicate"),
     }),
   );
   assert.equal(v!.accept, false);
-  assert.match((v as { reason: string }).reason, /already an open card/);
+  assert.match((v as { reason: string }).reason, /already proposed or on the board/);
 });
 
-test("figures are stripped before comparison, so the same job with a new number still collides", () => {
-  assert.ok(similarity("Reply to 12 outstanding reviews", "Reply to 40 outstanding reviews") >= 0.6);
+test("figures and stopwords are stripped from a finding's identity key", () => {
+  /* `normalise` survived the move to a model judge because what is left of it is
+     an identity key for one finding — equality, not a similarity threshold. */
   assert.equal(normalise("Reply to 12 outstanding reviews"), "reply outstanding reviews");
+  assert.equal(normalise("Reply to 40 outstanding reviews"), "reply outstanding reviews");
 });
 
-test("a proposal made recently is not repeated, and the reason says how long ago", () => {
+test("the recent proposals are handed to the judge rather than compared here", () => {
+  /* The gate no longer decides "proposed four days ago" itself; the titles and
+     their dates go into the judge's context (`judgeProposals`). A permissive
+     verdict therefore files it, which is the honest behaviour for a pure
+     function that was told the proposal is fine. */
   const [v] = gate(
     gateInput({
       proposals: [proposal("Add a pricing FAQ to the landing page")],
@@ -271,19 +293,24 @@ test("a proposal made recently is not repeated, and the reason says how long ago
       ],
     }),
   );
-  assert.equal(v!.accept, false);
-  assert.match((v as { reason: string }).reason, /proposed 4 days ago and dropped/);
+  assert.equal(v!.accept, true);
 });
 
-test("the same action twice in one answer is accepted once", () => {
+test("a twin inside one answer is refused when the judge names it", () => {
+  /* One model call sees the whole batch, which is how the twin is caught at all
+     — a per-proposal call could not see its sibling. */
   const verdicts = gate(
     gateInput({
-      proposals: [proposal("Publish a comparison page against the main competitor"), proposal("Publish comparison page against main competitor")],
+      proposals: [
+        proposal("Publish a comparison page against the main competitor"),
+        proposal("Publish comparison page against main competitor"),
+      ],
+      judgements: judged("file", "duplicate"),
     }),
   );
   assert.equal(verdicts[0]!.accept, true);
   assert.equal(verdicts[1]!.accept, false);
-  assert.match((verdicts[1] as { reason: string }).reason, /already accepted from this same answer/);
+  assert.match((verdicts[1] as { reason: string }).reason, /already proposed or on the board/);
 });
 
 test("the per-venture cap refuses the fourth good action", () => {

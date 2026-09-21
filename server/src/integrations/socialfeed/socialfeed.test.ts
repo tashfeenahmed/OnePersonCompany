@@ -1,12 +1,31 @@
 /**
- * THE THREE PIECES OF ARITHMETIC THIS AREA TURNS ON.
+ * THE PIECES OF THIS AREA THAT CAN BE ASSERTED AT ALL.
  *
- * Everything here is pure: the fingerprint, the judgement made against a list
- * of rows, and the candidate ranking. That is not an accident of how the code
- * came out — each of the three was deliberately separated from the database
- * call around it so that it could be asserted, because each one is a rule that
- * REFUSES something and a refusal nobody can check is a refusal nobody will
- * trust.
+ * THE NOVELTY GATE IS A MODEL'S JUDGMENT SINCE 2026-09-21, so what is tested
+ * about it CHANGED SHAPE. It used to be arithmetic and this file used to assert
+ * the arithmetic — including, in as many words, that "exam prep with an AI
+ * tutor" is the same piece of work as "AI tutoring for exams" because two stems
+ * matched. That test passed for a year while being a claim about MEANING that a
+ * stemmer had no way to make, and it is exactly the assertion that made a word
+ * list look correct. It is gone.
+ *
+ * WHAT IS TESTED NOW IS EVERYTHING AROUND THE JUDGMENT, which is where an LLM
+ * gate actually fails: the branches that must never reach a model (no topic, a
+ * window of zero, an empty history, a word-for-word duplicate), the wiring (ONE
+ * judge call per check, recorded once, keyed by the topic), and above all THE
+ * LEAN AND THE FAIL-OPEN — with no provider in a test process, every path that
+ * asks a model must ALLOW the generation and say so. That is the production
+ * case of a busy GPU, and it is the direction this gate is deliberately wrong
+ * in: a wrong refusal stops the owner's autopilot silently, a wrong allow costs
+ * one duplicate video.
+ *
+ * The model's own similarity verdicts are NOT asserted anywhere. A test pinning
+ * one would be testing the model, would pass against a stub, and would be the
+ * old mistake with a new spelling.
+ *
+ * The ranking and the small parsers below are still pure arithmetic — duration
+ * fit, recency, engine agreement, a video id — and are still asserted as such,
+ * because none of them is a question a competent person could answer two ways.
  *
  * The two that spend money are not tested here and cannot be: `animate` calls
  * Replicate and `discover` calls a search node. What IS asserted about the
@@ -15,108 +34,58 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fingerprint, judgeTopic, overlap, stem } from "./novelty.ts";
+import { db } from "../../db.ts";
+import { recentVerdicts } from "../../models/judge.ts";
+import {
+  checkTopic,
+  forget,
+  judgeTopic,
+  normalise,
+  NOVELTY_GATE,
+  reindex,
+  remember,
+} from "./novelty.ts";
 import { pagePosts, POST_INSIGHT_METRICS } from "../../providers/meta.ts";
 import { parseChannels, parseDuration, rank, videoId, type RawCandidate } from "./sourcing.ts";
 import { animate } from "./ugc.ts";
 
-/* --------------------------------------------------------- fingerprinting */
+/* ------------------------------------------------- the exact-match key */
 
-test("the fingerprint drops stop words, short words and punctuation", () => {
-  assert.equal(fingerprint("The best way to make a chatbot!"), "chatbot");
-  /* Word order does not change it: the tokens are sorted. */
-  assert.equal(fingerprint("planning permission guide"), fingerprint("guide to planning permission"));
+test("the key folds capitals, punctuation and spacing, because those are one string", () => {
+  assert.equal(normalise("  The BEST way — to make a chatbot!! "), "the best way to make a chatbot");
+  assert.equal(normalise("Pricing: explained"), normalise("pricing explained"));
 });
 
-test("the fingerprint stems, so inflections collapse", () => {
-  assert.equal(fingerprint("tutoring"), fingerprint("tutors"));
-  assert.equal(fingerprint("tutoring"), "tutor");
+test("the key drops NOTHING and re-orders NOTHING — it is not a fingerprint", () => {
+  /* THIS IS THE CONVERSION, ASSERTED. The old normaliser dropped stop words,
+     stemmed what was left and SORTED it, so these pairs collapsed into one
+     token string and the gate then called them the same piece of work by
+     counting. Whether they are is a judgment and belongs to the model; all this
+     function may say is whether the two strings are the same string. */
+  assert.notEqual(normalise("tutoring"), normalise("tutors"));
+  assert.notEqual(normalise("planning permission guide"), normalise("guide to planning permission"));
+  assert.notEqual(normalise("why we changed our pricing"), normalise("our pricing, explained"));
+  assert.ok(normalise("the best way to make a chatbot").includes("the best way"));
 });
 
-test("a URL is removed whole rather than tokenised", () => {
-  /* Otherwise a link in a brief supplies a dozen tokens of host and path and
-     swamps every real word in the comparison. */
-  assert.equal(fingerprint("chatbot https://example.com/very/long/path?q=1"), "chatbot");
+test("a URL is part of the string rather than being deleted from it", () => {
+  /* The old fingerprint removed URLs whole, because a link supplied a dozen
+     tokens of host and path and swamped the overlap score. There is no score
+     any more, and for an EXACT match a link is simply part of what was written. */
+  assert.equal(normalise("chatbot https://example.com/x?q=1"), "chatbot https example com x q 1");
 });
 
-test("the fingerprint of nothing is empty, and that is a refusal rather than a match", () => {
-  assert.equal(fingerprint("the and for with"), "");
-  const v = judgeTopic("the and for with", [], { days: 30, limit: 0.6 });
-  assert.equal(v.ok, false);
-  assert.match(v.reason, /no distinctive words/);
-});
-
-test("overlap is asymmetric: the share of the NEW topic already covered", () => {
-  const short = fingerprint("AI tutoring exams");
-  const long = fingerprint("how AI tutoring helps students prepare for their exams at home");
-  /* Everything in the short one is in the long one. */
-  assert.equal(overlap(short, long), 1);
-  /* The reverse is not true, and must not be: the longer brief says more. */
-  assert.ok(overlap(long, short) < 1);
-});
-
-/* --------------------------------------- P1: the flagship example (review 6) */
-
-test("the example the settings hint, the header and the README all promise is caught", () => {
-  /* THIS IS THE REGRESSION. The five-character truncation this shipped with
-     did NOT collapse `exams`/`exam` — neither word is five characters long, so
-     neither was touched — and the overlap came out at 0.33 and 0.5, both under
-     the 0.6 default. So the owner read "these score high on purpose" in three
-     places and it was false. Stripping the inflection BEFORE truncating is
-     what makes the promise true. */
-  assert.equal(fingerprint("AI tutoring for exams"), "exam tutor");
-  assert.equal(fingerprint("exam prep with an AI tutor"), "exam prep tutor");
-  const score = overlap(fingerprint("exam prep with an AI tutor"), fingerprint("AI tutoring for exams"));
-  assert.ok(score >= 0.6, `overlap was ${score}, which the default 0.6 threshold would allow`);
-
-  const v = judgeTopic("exam prep with an AI tutor", [row(1, "AI tutoring for exams", day(10))], {
-    days: 30,
-    limit: 0.6,
-    at: new Date(day(12)),
-  });
-  assert.equal(v.ok, false);
-  assert.equal(v.matched?.id, 1);
-});
-
-test("the stem takes one inflection off and never `s` after `s`", () => {
-  assert.equal(stem("exams"), "exam");
-  assert.equal(stem("tutoring"), "tutor");
-  assert.equal(stem("tutors"), "tutor");
-  assert.equal(stem("stories"), "story");
-  /* Porter's rule, and it is what lets a plural meet its singular: `business`
-     keeps its `ss`, `businesses` loses `es`, and both land on `business`. */
-  assert.equal(stem("business"), "business");
-  assert.equal(stem("businesses"), "business");
-  assert.equal(stem("processes"), stem("process"));
-  /* The floor: four characters have to survive, so short words are left whole
-     rather than colliding with each other. */
-  assert.equal(stem("cars"), "cars");
-});
-
-test("the stem no longer collapses words that are not the same word", () => {
-  /* The five-character truncation over-refused as well as under-refusing:
-     these two pairs fingerprinted identically, so a genuinely new topic could
-     be refused at 1.0 against something unrelated. */
-  assert.notEqual(fingerprint("marketing automation"), fingerprint("marker automation"));
-  assert.notEqual(fingerprint("customer support"), fingerprint("custom support"));
-});
-
-/* --------------------------------- P1: every script, not just English (5) */
-
-test("a non-Latin topic fingerprints to something rather than to nothing", () => {
-  /* THIS IS THE REGRESSION. `[^a-z0-9\s]` does not mean "drop punctuation",
-     it means "drop every letter that is not English" — so both of these came
-     out as the empty string, which judgeTopic turns into a refusal saying the
-     topic "has no distinctive words left". On an install whose model answers
-     in Russian or Japanese the gate refused 100% of topics, forever. */
-  const cyrillic = fingerprint("Как обрабатывать повторяющиеся вопросы");
-  assert.notEqual(cyrillic, "");
-  assert.ok(cyrillic.includes("вопросы"), cyrillic);
-
-  /* A script with no spaces survives as ONE token. That is a weak fingerprint
-     and it is the honest one: a weak gate lets work through, which is the
-     correct direction to be wrong in. */
-  assert.equal(fingerprint("日本語のトピック"), "日本語のトピック");
+test("a non-Latin topic keys to something rather than to nothing", () => {
+  /* THIS IS THE REGRESSION, AND IT IS WORTH KEEPING THROUGH THE CONVERSION.
+     `[^a-z0-9\s]` does not mean "drop punctuation", it means "drop every letter
+     that is not English" — so both of these came out as the empty string, and an
+     empty string was read as a refusal. On an install whose model answers in
+     Russian or Japanese the gate refused 100% of topics, forever. */
+  assert.equal(normalise("Как обрабатывать повторяющиеся вопросы"), "как обрабатывать повторяющиеся вопросы");
+  /* Japanese has no spaces to collapse and every character here is a letter,
+     so the string survives whole. That is the honest answer for an exact-match
+     key: it is not this function's job to segment a script it cannot read. */
+  assert.equal(normalise("日本語のトピック"), "日本語のトピック");
 });
 
 test("Japanese dakuten survive — ピ must not become ヒ", () => {
@@ -124,30 +93,14 @@ test("Japanese dakuten survive — ピ must not become ヒ", () => {
      turning a `pi` into a `hi`: a different sound and a different word. Only
      the Latin/Greek/Cyrillic combining block is removed, and NFC puts back
      anything that was decomposed and not stripped. */
-  assert.ok(fingerprint("トピック").includes("ピ"));
+  assert.ok(normalise("トピック").includes("ピ"));
 });
 
-test("accents are normalised away, so gérer and gerer are one word", () => {
-  assert.equal(fingerprint("gérer les demandes répétitives"), fingerprint("gerer les demandes repetitives"));
+test("accents are normalised away, so gérer and gerer are one string", () => {
+  assert.equal(normalise("gérer les demandes répétitives"), normalise("gerer les demandes repetitives"));
   /* And they are not MANGLED, which is what the old normaliser did: it turned
      "répétitives" into "titiv" by deleting the accented letters mid-word. */
-  assert.ok(fingerprint("répétitives").startsWith("repeti"), fingerprint("répétitives"));
-});
-
-test("a non-Latin topic is judged on its words rather than refused as empty", () => {
-  const history = [row(1, "Как обрабатывать повторяющиеся вопросы", day(10))];
-  const same = judgeTopic("повторяющиеся вопросы: как их обрабатывать", history, {
-    days: 30,
-    limit: 0.6,
-    at: new Date(day(12)),
-  });
-  assert.equal(same.ok, false, "a Russian rewording should be refused as a repeat");
-  const different = judgeTopic("проверка личности преподавателя", history, {
-    days: 30,
-    limit: 0.6,
-    at: new Date(day(12)),
-  });
-  assert.equal(different.ok, true, "an unrelated Russian topic should be allowed");
+  assert.ok(normalise("répétitives").startsWith("repeti"), normalise("répétitives"));
 });
 
 /* ------------------------------------------------------------- the gate */
@@ -157,67 +110,170 @@ const day = (n: number) => new Date(Date.UTC(2026, 0, n)).toISOString();
 const row = (id: number, topic: string, at: string) => ({
   id,
   topic,
-  fingerprint: fingerprint(topic),
+  fingerprint: normalise(topic),
   created_at: at,
 });
 
-test("a topic that is a rewording of a recent one is refused, with the clash quoted", () => {
-  const history = [row(7, "AI tutoring for exam preparation", day(10))];
-  const v = judgeTopic("exam prep with an AI tutor", history, {
-    days: 30,
-    limit: 0.6,
-    at: new Date(day(20)),
-  });
+/** Every gate verdict recorded since this file started, newest first. The judge
+ *  writes one row per item it was asked about, so this is also the count of
+ *  what was PUT to a model. */
+const judged = () => recentVerdicts(NOVELTY_GATE, 50);
+
+test("a brief with no words in it is refused as a fact, and no model is asked", async () => {
+  const before = judged().length;
+  const v = await judgeTopic("  —  !! ", [], { days: 30 });
   assert.equal(v.ok, false);
-  assert.equal(v.matched?.id, 7);
-  assert.match(v.reason, /AI tutoring for exam preparation/);
-  assert.match(v.reason, /novelty window is 30 days/);
+  assert.match(v.reason, /no topic to compare/);
+  assert.equal(judged().length, before, "there was nothing to judge, so nothing was asked");
 });
 
-test("the same topic outside the window is allowed back", () => {
-  const history = [row(7, "AI tutoring for exam preparation", day(1))];
-  const v = judgeTopic("exam prep with an AI tutor", history, {
-    days: 5,
-    limit: 0.6,
-    at: new Date(day(20)),
-  });
-  assert.equal(v.ok, true);
-  assert.equal(v.matched, null);
-});
-
-test("a genuinely different topic is allowed even inside the window", () => {
+test("a window of zero days switches the topic check off entirely, without a model", async () => {
+  const before = judged().length;
   const history = [row(7, "AI tutoring for exam preparation", day(19))];
-  const v = judgeTopic("how identity verification works for tutors", history, {
-    days: 30,
-    limit: 0.6,
-    at: new Date(day(20)),
-  });
-  assert.equal(v.ok, true);
-});
-
-test("a window of zero days switches the topic check off entirely", () => {
-  const history = [row(7, "AI tutoring for exam preparation", day(19))];
-  const v = judgeTopic("AI tutoring for exam preparation", history, {
+  const v = await judgeTopic("AI tutoring for exam preparation", history, {
     days: 0,
-    limit: 0.6,
     at: new Date(day(20)),
   });
   assert.equal(v.ok, true);
   assert.match(v.reason, /zero days/);
+  assert.equal(judged().length, before, "a switched-off gate must not spend a round trip");
 });
 
-test("the WORST clash is the one reported, not the first one found", () => {
-  /* Row 1 covers two of the three tokens and row 2 covers all three. A gate
-     that reported the first match over the threshold would quote the weaker
-     one, and the sentence a person reads would name the wrong video. */
-  const history = [
-    row(1, "tutoring exams without pricing", day(18)),
-    row(2, "tutoring exams payment", day(19)),
-  ];
-  const v = judgeTopic("tutoring exams payment", history, { days: 30, limit: 0.6, at: new Date(day(20)) });
+test("an empty history is an allow, and no model is asked to compare with nothing", async () => {
+  const before = judged().length;
+  const v = await judgeTopic("how identity verification works for tutors", [], {
+    days: 30,
+    at: new Date(day(20)),
+  });
+  assert.equal(v.ok, true);
+  assert.match(v.reason, /nothing this could repeat/);
+  assert.equal(judged().length, before);
+});
+
+test("a word-for-word duplicate is refused by string equality, before any model", async () => {
+  /* AN EXACT MATCH IS A FACT AND NOT A JUDGEMENT, so it stays in code — and it
+     is the one refusal that can still name the row it clashed with, which is
+     why `matched` is filled here and null on a model's verdict. */
+  const before = judged().length;
+  const history = [row(7, "AI tutoring for exam preparation", day(19))];
+  const v = await judgeTopic("  ai TUTORING for exam preparation!  ", history, {
+    days: 30,
+    at: new Date(day(20)),
+  });
   assert.equal(v.ok, false);
-  assert.equal(v.matched?.id, 2);
+  assert.match(v.reason, /word-for-word/);
+  assert.equal(v.matched?.id, 7);
   assert.equal(v.matched?.score, 1);
+  assert.equal(judged().length, before, "an identical string needs no model");
+});
+
+test("the same topic outside the window is never shown to the judge at all", async () => {
+  const before = judged().length;
+  const history = [row(7, "AI tutoring for exam preparation", day(1))];
+  const v = await judgeTopic("AI tutoring for exam preparation", history, {
+    days: 5,
+    at: new Date(day(20)),
+  });
+  assert.equal(v.ok, true, "a business may make the same point twice a year");
+  assert.equal(v.matched, null);
+  assert.equal(judged().length, before);
+});
+
+test("with no model reachable the topic is ALLOWED and recorded as unjudged", async () => {
+  /* THE LEAN, AND THE WHOLE REASON IT IS STATED. There is no provider in a test
+     process, which is the production case of a busy or missing GPU. A gate that
+     refused here would stop the owner's autopilot producing anything, night
+     after night, and report the outage to nobody. */
+  const before = judged().length;
+  const history = [row(7, "AI tutoring for exam preparation", day(19))];
+  const v = await judgeTopic("how identity verification works for tutors", history, {
+    days: 30,
+    at: new Date(day(20)),
+  });
+  assert.equal(v.ok, true);
+  assert.match(v.reason, /ALLOWED rather than refused/);
+  assert.match(v.reason, /unjudged/);
+  assert.equal(v.matched, null);
+
+  const rows = judged();
+  assert.equal(rows.length - before, 1, "exactly one verdict recorded, so the failure is visible");
+  assert.equal(rows[0]!.verdict, "unjudged");
+});
+
+test("one check is ONE judge call, whatever the history holds", async () => {
+  /* The candidate is the item and the history is the context. A call per
+     history row would be forty round trips for one question — and a model shown
+     one old topic at a time cannot notice that three of them are one subject. */
+  const before = judged().length;
+  const history = [
+    row(1, "tutoring exams without pricing", day(14)),
+    row(2, "tutoring exams payment", day(15)),
+    row(3, "what our tutors are paid", day(16)),
+    row(4, "how a lesson is booked", day(17)),
+  ];
+  const v = await judgeTopic("a parent's first week with us", history, {
+    days: 30,
+    at: new Date(day(20)),
+  });
+  assert.equal(v.ok, true);
+  const rows = judged();
+  assert.equal(rows.length - before, 1, "one item judged, not one per history row");
+  assert.equal(rows[0]!.subject, "a parent's first week with us", "recorded under the topic itself");
+});
+
+/* --------------------------------------------- the gate against the table */
+
+test("checkTopic reads the venture's live history, refuses an exact repeat and writes it down", async () => {
+  const venture = "v-novelty-exact";
+  remember({ ventureId: venture, format: "post", topic: "Why we changed our pricing" });
+
+  const repeated = await checkTopic(venture, "post", "why we changed our pricing!");
+  assert.equal(repeated.ok, false);
+  assert.match(repeated.reason, /word-for-word/);
+
+  const check = db
+    .prepare("SELECT * FROM novelty_checks WHERE venture_id = ? ORDER BY id DESC LIMIT 1")
+    .get(venture) as { verdict: string; score: number | null; fingerprint: string | null };
+  assert.equal(check.verdict, "refuse");
+  assert.equal(check.score, 1, "1 is the exact-duplicate fact; a model's verdict has no score");
+  assert.equal(check.fingerprint, "why we changed our pricing");
+
+  /* A DIFFERENT FORMAT IS A DIFFERENT LEDGER. The same subject as a post and as
+     a video is two pieces of work, so the video side sees no history at all. */
+  const asVideo = await checkTopic(venture, "faceless", "why we changed our pricing");
+  assert.equal(asVideo.ok, true);
+});
+
+test("an archived history entry is not put to the judge, which is what archiving IS", async () => {
+  const venture = "v-novelty-archived";
+  const entry = remember({ ventureId: venture, format: "post", topic: "The one about onboarding" });
+  const refused = await checkTopic(venture, "post", "the one about onboarding");
+  assert.equal(refused.ok, false, "an exact repeat while the entry is live");
+
+  forget(entry.id);
+  const allowed = await checkTopic(venture, "post", "the one about onboarding");
+  assert.equal(allowed.ok, true, "archiving is how the owner overrules the gate");
+  assert.match(allowed.reason, /nothing this could repeat/);
+});
+
+test("a stored key is brought back into step by the reindex", () => {
+  /* WHY THE REINDEX SURVIVED THE CONVERSION. The column is a cache of a pure
+     function of the topic, and that function was REPLACED: it used to be sorted
+     stems and it is now the exact-match key. A row written before the change
+     holds a string nothing will ever equal, so the free word-for-word check
+     would see straight past a topic proposed twice. */
+  const venture = "v-novelty-reindex";
+  const entry = remember({ ventureId: venture, format: "post", topic: "Our new pricing page" });
+  db.prepare("UPDATE content_history SET fingerprint = ? WHERE id = ?").run("new page price", entry.id);
+
+  const changed = reindex();
+  assert.ok(changed >= 1);
+  const after = db.prepare("SELECT fingerprint FROM content_history WHERE id = ?").get(entry.id) as {
+    fingerprint: string;
+  };
+  assert.equal(after.fingerprint, "our new pricing page");
+  /* Idempotent: a second pass over rows that already agree writes nothing. */
+  assert.equal(reindex(), 0);
 });
 
 /* ---------------------------------------------------------- the ranking */

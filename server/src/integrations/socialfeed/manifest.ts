@@ -12,7 +12,8 @@
  *   #23  organic post history and performance, joined to the drafts that
  *        produced them by Meta's own post id
  *   #27  source discovery for the shorts format, a durable topic and source
- *        history, a deterministic novelty gate, and delivery of finished work
+ *        history, a novelty gate — a model's judgment since 2026-09-21, and a
+ *        stem-overlap score before it — and delivery of finished work
  *   #22  the UGC image-to-video format, which is optional and small
  *
  * ONE CONFIG-ONLY PLUGIN AND NO CREDENTIAL. Everything here needs a key that
@@ -39,7 +40,7 @@ import { upsertPlugin } from "../../db.ts";
 import { socialfeedRoutes } from "./routes.ts";
 import { startPostsTimer, DEFAULT_LIMIT } from "./posts.ts";
 import { startDelivery } from "./deliver.ts";
-import { DEFAULT_NOVELTY_DAYS, DEFAULT_REPEAT_LIMIT, reindex, SOCIALFEED_PLUGIN } from "./novelty.ts";
+import { DEFAULT_NOVELTY_DAYS, reindex, SOCIALFEED_PLUGIN } from "./novelty.ts";
 import { DEFAULT_MAX_MINUTES, DEFAULT_MIN_MINUTES, parseChannels } from "./sourcing.ts";
 import { DEFAULT_UGC_SECONDS } from "./ugc.ts";
 import { SKILLS, PACKS } from "./skills.ts";
@@ -71,35 +72,29 @@ export const manifest: IntegrationManifest = {
         noveltyDays: {
           label: "Novelty window (days)",
           hint:
-            `How recently a topic must have been used before the gate refuses ` +
-            `it as a repeat. Default ${DEFAULT_NOVELTY_DAYS}. ZERO SWITCHES ` +
-            `THE TOPIC CHECK OFF entirely, which is a real thing to want if ` +
-            `you make one post a month. Source videos are NOT affected: a ` +
-            `video that has been cut up once is never offered again, whatever ` +
+            `How far back the gate looks. Everything this venture made in this ` +
+            `format inside the window is put to a MODEL together with the ` +
+            `proposed topic, and the model answers whether it is the same piece ` +
+            `of work — there is no percentage to set, because "the same video ` +
+            `in different words" is not something a word count can decide. ` +
+            `Default ${DEFAULT_NOVELTY_DAYS}. It leans towards allowing when ` +
+            `the answer is unclear, and it allows when no model can be reached, ` +
+            `because a wrong refusal stops the autopilot silently. ZERO ` +
+            `SWITCHES THE TOPIC CHECK OFF entirely, which is a real thing to ` +
+            `want if you make one post a month. Source videos are NOT affected: ` +
+            `a video that has been cut up once is never offered again, whatever ` +
             `this says, because a second short out of the same footage is the ` +
             `same footage.`,
           ph: String(DEFAULT_NOVELTY_DAYS),
           check: (v) => whole(v, 0, 3650, "A whole number of days"),
         },
-        repeatLimit: {
-          label: "Repeat threshold",
-          hint:
-            `How much of a new topic's distinctive words must already have ` +
-            `been used for it to count as the same piece of work. A number ` +
-            `between 0.1 and 1; default ${DEFAULT_REPEAT_LIMIT}. The ` +
-            `comparison is on a normalised fingerprint — stop words dropped, ` +
-            `five-character stems, order ignored — so “AI tutoring for exams” ` +
-            `and “exam prep with an AI tutor” score high on purpose. Lower it ` +
-            `to refuse more; 1 refuses only an exact repeat of every word.`,
-          ph: String(DEFAULT_REPEAT_LIMIT),
-          check(value) {
-            if (!value.trim()) return null;
-            const n = Number(value.trim());
-            return Number.isFinite(n) && n >= 0.1 && n <= 1
-              ? null
-              : "A number between 0.1 and 1 — the share of a topic's words that must already have been used.";
-          },
-        },
+        /* THERE IS NO `repeatLimit` SETTING, AND ITS REMOVAL IS THE POINT.
+           It was the share of a new topic's stems that had to have been used
+           before — a dial on a word list, which asked the owner to express
+           "these two are the same video" as a number between 0.1 and 1. A
+           model answers that in words now. An install that had a value stored
+           under the old key simply stops being read: the key is gone from this
+           map, so the settings page no longer offers it and nothing loads it. */
         minMinutes: {
           label: "Shortest source video (minutes)",
           hint:
@@ -215,22 +210,24 @@ export const manifest: IntegrationManifest = {
 
   onStart() {
     /*
-      THE FINGERPRINTS FIRST, AND ONLY WHEN THEY DISAGREE.
+      THE STORED KEYS FIRST, AND ONLY WHERE THEY DISAGREE.
 
       `content_history.fingerprint` is a CACHE of a pure function of the topic,
-      and the function changed twice on the day it was written — once to stop
-      erasing every non-Latin letter, once to fix a stem that both under- and
-      over-collapsed. A row written before either change holds a fingerprint the
-      gate can never match, so a topic that IS a repeat would sail straight
-      through it. This rewrites only the rows that disagree and writes nothing
-      at all on a box where nothing changed.
+      and on 2026-09-21 that function was REPLACED: the gate stopped scoring
+      stem overlap and became a model's judgment, and the column stopped being a
+      similarity fingerprint and became `normalise(topic)` — the exact-match key
+      behind the one check that is still code. Every row written before that
+      holds sorted stems, which nothing will ever equal, so the free
+      word-for-word duplicate check would see nothing until this has run. It
+      rewrites only the rows that disagree and writes nothing at all on a box
+      where nothing changed.
     */
     try {
       const changed = reindex();
-      if (changed) console.log(`[socialfeed] re-fingerprinted ${changed} history rows`);
+      if (changed) console.log(`[socialfeed] re-keyed ${changed} history rows`);
     } catch {
-      /* onStart work must not throw. A stale fingerprint costs a duplicate,
-         not a boot. */
+      /* onStart work must not throw. A stale key costs at worst one duplicate
+         — `judgeTopic` re-normalises each row it reads anyway — not a boot. */
     }
     startPostsTimer();
     startDelivery();

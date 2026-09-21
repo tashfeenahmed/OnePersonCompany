@@ -20,32 +20,29 @@
  * clock — a rule that can only be observed by running a nightly is a rule
  * nobody checks.
  *
- * NINE REFUSALS, IN THE ORDER THEY FIRE:
+ * THE REFUSALS, IN THE ORDER THEY FIRE:
  *
  *   1. AN EMPTY OR ONE-WORD ACTION. "Improve marketing" is not an instruction.
  *   2. EVIDENCE THAT IS NOT MEASURED. The proposal names the packet key it
  *      rests on; if that key is null for this venture, the proposal is a guess
  *      wearing a citation and it is dropped by name. This is the rule the whole
  *      evidence packet exists to make enforceable.
- *   3. A TITLE THAT IS A VERB AND A SHRUG. "Analyze subscription data for
- *      growth opportunities" opens with a looking-at verb and names nothing the
- *      evidence line actually says. Refused unless what follows the verb shares
- *      a word with the finding — "Review the noindex tag on /manage" is a real
- *      instruction and survives.
- *   4. EVIDENCE THAT DISMISSES ITSELF. A finding that says "the noindex is
- *      defensible" or "this is by design" is the model telling the owner there
- *      is nothing to do; filing a card off it is filing his own caveat back at
- *      him. Read off the quoted line and the proposal's own rationale, by
- *      phrase list, with no second model call.
- *   5. ALREADY ON THE BOARD. Compared against the venture's OWN open cards by
- *      normalised title — figures stripped, stopwords dropped, 60% of the
- *      remaining words shared. Re-proposing a card the owner is already looking
- *      at is the fastest way to teach him to stop reading these.
- *   6. ALREADY PROPOSED RECENTLY, filed or dropped. A proposal he declined last
- *      Tuesday is not improved by being re-offered on Friday.
- *   7. THE SAME ACTION TWICE INSIDE ONE ANSWER. A model asked for three
- *      sometimes gives one of them in two wordings, and nothing above catches
- *      that because neither copy is on the board yet.
+ *   3-7. WHAT THE JUDGE SAID — one model call, `judgeProposals`, answering
+ *      `file` | `shrug` | `dismissed` | `duplicate` for every proposal at once.
+ *      `shrug` is a title that names nothing the evidence says ("Analyze
+ *      subscription data for growth opportunities"). `dismissed` is evidence
+ *      that says there is nothing to do ("the noindex is defensible"), where
+ *      filing a card hands the owner back his own caveat. `duplicate` covers all
+ *      three of the sameness refusals this file used to make with a 0.6 Jaccard
+ *      overlap: already an open card, proposed recently, or the same action
+ *      twice inside one answer — and the model sees the whole open board and
+ *      tonight's whole batch, so it can catch the twin no per-proposal check
+ *      could.
+ *
+ *      THESE WERE THREE WORD LISTS UNTIL 2026-09-21 and the arguments for
+ *      keeping them are recorded in `judgeProposals`. The owner's rule is that a
+ *      gate deciding a matter of meaning is a model's judgment; the
+ *      observability the lists were defended for now lives in `gate_verdicts`.
  *   8. EVIDENCE ALREADY SPENT. One finding buys ONE card. Three actions off one
  *      revenue line — analyse it, instrument it, alert on it — share about one
  *      word each, so every title rule above passes them and the owner gets
@@ -69,6 +66,7 @@
  */
 import { configValue, db, now, ventureRowById, ventureRows } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
+import { judge } from "../../models/judge.ts";
 import { fileCard } from "../../routes/board.ts";
 import { measuredKeys, openCards, packetFor, type EvidencePacket } from "./evidence.ts";
 import { registerStage, type StageResult } from "./registry.ts";
@@ -81,13 +79,7 @@ export const DEFAULT_PER_NIGHT_VENTURES = 3;
 export const DEFAULT_PER_VENTURE = 3;
 export const DEFAULT_PER_NIGHT = 6;
 export const DEFAULT_REPEAT_DAYS = 14;
-/** How alike two actions have to be to count as the same one. 0.6 of the
- *  distinct words after the figures and the stopwords are gone, which in
- *  practice is the same verb and the same object. Deliberately on the
- *  permissive side: refusing a genuinely new action costs the owner one idea he
- *  can still have tomorrow, while accepting a duplicate costs him a line he has
- *  to read and delete every day it recurs. */
-export const SIMILARITY = 0.6;
+
 
 export type SynthesisSettings = {
   venturesPerNight: number;
@@ -145,9 +137,17 @@ const STOPWORDS = new Set([
  *
  * NOT `shared/textkey.ts`, and deliberately. That module answers "is this the
  * same sentence" and keeps digits and stopwords for exactly that reason; this
- * one feeds a Jaccard similarity, where both are noise. Folding it into the
- * identity key would make every re-proposal with a different number read as a
- * new action — which is the duplicate this gate exists to catch.
+ * one builds an IDENTITY KEY for one finding, where both are noise. Folding it
+ * into that key would make every re-proposal with a different number read as a
+ * new finding — which is the duplicate the one-finding-one-card cap exists to
+ * catch.
+ *
+ * WHAT THIS IS NOT ANY MORE. It used to feed a Jaccard similarity that decided
+ * "is this the same ACTION as one already on the board" at a 0.6 threshold.
+ * That was a judgment about meaning wearing arithmetic, and it is now a model's
+ * (see `judgeProposals`). What is left here is equality after normalisation —
+ * two proposals resting on the same quoted figure — which is a fact about the
+ * evidence and stays in code.
  */
 export function normalise(text: string): string {
   return String(text ?? "")
@@ -163,15 +163,6 @@ export function tokens(text: string): Set<string> {
   return new Set(normalise(text).split(/\s+/).filter(Boolean));
 }
 
-/** How alike, 0 to 1. Jaccard over the distinct normalised words. */
-export function similarity(a: string, b: string): number {
-  const A = tokens(a);
-  const B = tokens(b);
-  if (!A.size || !B.size) return 0;
-  let shared = 0;
-  for (const w of A) if (B.has(w)) shared += 1;
-  return shared / (A.size + B.size - shared);
-}
 
 export type Proposal = {
   title: string;
@@ -212,80 +203,98 @@ export function evidenceKey(p: { evidence: string; evidenceLine?: string | null 
 
 /* ------------------------------------------------------ evidence that says no */
 
-/**
- * THE PHRASES A FINDING USES TO DISMISS ITSELF.
- *
- * The case that produced this list: a run reported "…the noindex is
- * defensible, but…", the model quoted that sentence as its evidence, and a card
- * saying "Review the noindex tag on the /manage page" reached the board. The
- * analyst had already answered the question the card asks. Filing it is handing
- * the owner back his own caveat with a checkbox on it.
- *
- * ONE LIST, EXPORTED, AND NO MODEL CALL. The gate is deterministic on purpose —
- * asking a second model "does this evidence dismiss itself" would make the rule
- * unobservable except by running a night. The cost of a phrase list is that it
- * reads sentiment by keyword and will miss a caveat phrased a new way; the
- * benefit is that every miss and every false positive is a one-line diff to a
- * constant that has a test beside it.
- */
-export const DISMISSALS = [
-  "is defensible",
-  "is expected",
-  "by design",
-  "intentional",
-  "not a problem",
-  "no action needed",
-  "working as intended",
-  "likely fine",
-  "can be ignored",
-] as const;
 
-/** The dismissal a text contains, or null. Case-insensitive, and on word
- *  boundaries so "unintentional" is not read as "intentional". */
-export function dismissal(...texts: (string | null | undefined)[]): string | null {
-  const hay = texts.map((t) => String(t ?? "")).join(" \n ").toLowerCase();
-  for (const phrase of DISMISSALS) {
-    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`).test(hay)) return phrase;
-  }
-  return null;
-}
 
-/* ------------------------------------------------------------ a verb and a shrug */
-
-/** Verbs that describe LOOKING AT something rather than doing anything to it.
- *  Fine in a real instruction — "Review the noindex tag on /manage" — and the
- *  whole of a useless one. */
-export const VAGUE_VERBS = [
-  "analyze",
-  "analyse",
-  "review",
-  "explore",
-  "investigate",
-  "look into",
-  "consider",
-] as const;
+/* ------------------------------------------------- the judgment, by a model */
 
 /**
- * IS THIS TITLE A VERB AND A SHRUG?
+ * WHAT A MODEL DECIDES ABOUT A NIGHT'S PROPOSALS.
  *
- * True when the title OPENS with one of the looking-at verbs and nothing after
- * the verb appears in the evidence line it cites. "Analyze subscription data
- * for growth opportunities" against a line about MRR names data, growth and
- * opportunities — three words the finding never uses — and is a card the owner
- * cannot start. "Review the noindex tag on /manage" against a line naming the
- * noindex and /manage is an instruction with a place in it, and passes.
+ * WHY THIS IS NOT THREE WORD LISTS ANY MORE. Until 2026-09-21 three of the nine
+ * refusals were vocabulary: `VAGUE_VERBS` (7 verbs) decided whether a title was
+ * "a verb and a shrug", `DISMISSALS` (9 phrases) decided whether the evidence
+ * dismissed itself, and a Jaccard overlap at 0.6 over stopword-stripped words
+ * decided whether an action was already on the board. The file argued for the
+ * lists in as many words — "the benefit is that every miss and every false
+ * positive is a one-line diff to a constant that has a test beside it" — and the
+ * cost it admitted was that it "reads sentiment by keyword and will miss a
+ * caveat phrased a new way".
  *
- * Only the LEADING verb counts. "Rewrite the pricing page and review the copy"
- * is doing something; a rule matching the verb anywhere would refuse it.
+ * The owner's rule settles it: a gate deciding a matter of meaning is a model's
+ * judgment, never a word match. All three questions are about meaning, a model
+ * can answer all three in one call, and the observability the lists were
+ * defended for is kept by `gate_verdicts` — every verdict, its reason and the
+ * model that gave it, queryable the morning after rather than only reproducible
+ * by running a night.
+ *
+ * ONE CALL, FOUR WORDS, AND THE BOARD IN THE CONTEXT. The model is shown the
+ * proposals together with the venture's whole open board and the titles proposed
+ * recently, because "is this already being done" cannot be answered without
+ * them — and because a model shown all of tonight's proposals at once can see
+ * the twin inside its own answer, which no per-proposal call could.
  */
-export function genericTitle(title: string, evidenceLine: string): boolean {
-  const t = String(title ?? "").trim().toLowerCase();
-  const verb = VAGUE_VERBS.find((v) => new RegExp(`^${v}(?![a-z])`).test(t));
-  if (!verb) return false;
-  const line = tokens(evidenceLine);
-  for (const w of tokens(t.slice(verb.length))) if (line.has(w)) return false;
-  return true;
+export type ProposalVerdict = "file" | "shrug" | "dismissed" | "duplicate";
+
+const PROPOSAL_VERDICTS = ["file", "shrug", "dismissed", "duplicate"] as const;
+
+const JUDGE_QUESTION = `You are the gate on one person's work board. A nightly pass has read this venture's own figures and proposed some actions. Decide what happens to each.
+
+"file" — a real action worth a line on his board. It names something that will be different when it is done, and it rests on the finding it quotes.
+
+"shrug" — the title names nothing to change. "Analyze subscription data for growth opportunities", "Review the traffic", "Explore pricing" — a looking-at instruction whose object is vague, or a title that names nothing the quoted evidence actually says. Judge the title against its evidence line, not against your sense of whether the work is worthwhile.
+
+"dismissed" — the evidence itself says there is nothing to do. The quoted line, or the proposal's own reasoning, calls the finding expected, intentional, by design, defensible, fine, or not a problem. Filing this hands the owner back his own caveat with a checkbox on it.
+
+"duplicate" — the same action as one of the open cards or recent proposals listed below, or the same action as another proposal in this same batch worded differently. Say which one in your reason. Two actions resting on the same figure but doing different things to it are NOT duplicates.
+
+When a proposal is more than one of these, answer with the first that applies in the order above. When you genuinely cannot tell, answer "shrug" — this pass runs again tomorrow, so a proposal held back costs nothing, while a vague card costs him a line he has to read and delete every morning.`;
+
+/**
+ * Ask. Never throws; an unreachable model means every proposal comes back
+ * `unjudged` and `gate()` refuses them, which is the quiet failure this pass
+ * should have.
+ */
+export async function judgeProposals(
+  proposals: Proposal[],
+  opts: {
+    ventureName?: string;
+    openCardTitles?: string[];
+    recentProposalTitles?: { title: string; at: string; verdict: string }[];
+    signal?: AbortSignal;
+  } = {},
+): Promise<{ by: Map<string, { verdict: ProposalVerdict | "unjudged"; why: string }>; model: string | null }> {
+  const open = (opts.openCardTitles ?? []).slice(0, 60);
+  const recent = (opts.recentProposalTitles ?? []).slice(0, 40);
+  const context = [
+    opts.ventureName ? `The venture is ${opts.ventureName}.` : null,
+    open.length
+      ? `ALREADY OPEN CARDS ON HIS BOARD (${open.length}):\n${open.map((t) => `- ${t}`).join("\n")}`
+      : "There are no open cards on his board for this venture.",
+    recent.length
+      ? `PROPOSED RECENTLY (do not repeat):\n${recent.map((r) => `- ${r.title} [${r.verdict}, ${r.at.slice(0, 10)}]`).join("\n")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const res = await judge({
+    gate: "synthesis.proposal",
+    question: JUDGE_QUESTION,
+    allowed: PROPOSAL_VERDICTS,
+    context,
+    signal: opts.signal,
+    items: proposals.map((p, i) => ({
+      key: String(i),
+      /* The index keys the answer back to the proposal; the TITLE is what the
+         record shows, because a `gate_verdicts` row saying "0" answers nobody's
+         question about why a proposal never became a card. */
+      subject: p.title.slice(0, 200),
+      text:
+        `title: ${p.title}\nwhy: ${p.why}\nevidence section: ${p.evidence}\n` +
+        `evidence line: ${String(p.evidenceLine ?? "(quoted nothing)")}`,
+    })),
+  });
+  return { by: res.by, model: res.model };
 }
 
 export type Verdict =
@@ -314,12 +323,15 @@ export function gate(input: {
    *  gets and what every row filed before the column existed reads as. */
   openEvidenceKeys?: string[];
   recentProposalTitles: { title: string; at: string; verdict: string }[];
+  /** What `judgeProposals` said, keyed by the proposal's index as a string.
+   *  Absent, or `unjudged`, refuses the proposal — see the comment in the loop
+   *  for why this gate fails closed where the run-card gate fails open. */
+  judgements?: Map<string, { verdict: ProposalVerdict | "unjudged"; why: string }>;
   perVenture: number;
   /** How many the night has left across every venture. */
   remainingTonight: number;
   now?: number;
 }): Verdict[] {
-  const at = input.now ?? Date.now();
   const out: Verdict[] = [];
   /* The findings already spent: on the board before tonight, and on the
      proposals accepted so far in this same answer. Two collections rather than
@@ -329,7 +341,7 @@ export function gate(input: {
   const takenHere = new Map<string, string>();
   let accepted = 0;
 
-  for (const p of input.proposals) {
+  for (const [i, p] of input.proposals.entries()) {
     const title = String(p.title ?? "").trim();
 
     if (!title || tokens(title).size < 2) {
@@ -352,67 +364,42 @@ export function gate(input: {
       continue;
     }
 
-    /* A VERB AND A SHRUG. Before the board checks, because this one is about
-       the proposal alone and costs nothing: a title that names nothing the
-       evidence says is not improved by being new. */
-    if (genericTitle(title, p.evidenceLine)) {
+    /* WHAT THE JUDGE SAID. Three of the nine refusals used to live here as word
+       lists — a verb-and-a-shrug title, evidence that dismisses itself, and a
+       Jaccard overlap deciding "this is the same action as one already on the
+       board". All three are questions about meaning, so all three are now one
+       model call made before this function runs (`judgeProposals`), and its
+       answer arrives as an argument so that this gate stays pure and testable.
+
+       NO JUDGEMENT MEANS NO PROPOSAL, which is the opposite lean to the card
+       gate in runs/card-gate.ts, and deliberately. A run's cards are findings
+       from work the owner ASKED for, so dropping one unjudged loses something
+       real. Synthesis invents proposals unprompted every night: not proposing
+       tonight costs nothing, because the same packet is read again tomorrow,
+       while filing a night's worth of unjudged proposals puts exactly the noise
+       on the board this gate exists to keep off it. */
+    const said = input.judgements?.get(String(i));
+    if (!said || said.verdict === "unjudged") {
       out.push({
         accept: false,
         proposal: p,
         reason:
-          `the title is generic — it opens with a looking-at verb and names nothing the evidence line says. ` +
-          `The evidence is: "${String(p.evidenceLine ?? "").slice(0, 160)}". Name the thing to change and where it is.`,
+          `not judged — ${said?.why || "no model was reachable to judge it"}. ` +
+          `Nothing is filed unjudged; tonight's packet will be read again tomorrow.`,
       });
       continue;
     }
-
-    /* THE FINDING ALREADY SAID THERE WAS NOTHING TO DO. Read off the quoted
-       line and off the model's own rationale, because the caveat lands in
-       either one. */
-    const says = dismissal(p.evidenceLine, p.why);
-    if (says) {
+    if (said.verdict !== "file") {
+      const because = said.why || "the judge gave no reason";
       out.push({
         accept: false,
         proposal: p,
         reason:
-          `the evidence dismisses itself — it says "${says}" about the very finding this rests on. ` +
-          `The line is: "${String(p.evidenceLine ?? "").slice(0, 160)}".`,
-      });
-      continue;
-    }
-
-    const clash = input.openCardTitles.find((t) => similarity(title, t) >= SIMILARITY);
-    if (clash) {
-      out.push({
-        accept: false,
-        proposal: p,
-        reason: `already an open card: "${clash.slice(0, 120)}" — it is on the board, leave it there.`,
-      });
-      continue;
-    }
-
-    const repeat = input.recentProposalTitles.find((r) => similarity(title, r.title) >= SIMILARITY);
-    if (repeat) {
-      const days = Math.max(1, Math.round((at - Date.parse(repeat.at)) / 86_400_000));
-      out.push({
-        accept: false,
-        proposal: p,
-        reason:
-          `proposed ${days} day${days === 1 ? "" : "s"} ago and ${repeat.verdict === "filed" ? "filed" : "dropped"} ` +
-          `then: "${repeat.title.slice(0, 120)}" — not repeating it.`,
-      });
-      continue;
-    }
-
-    /* A DUPLICATE INSIDE ONE ANSWER. A model asked for three actions sometimes
-       gives the same one twice in two wordings, and nothing above catches it
-       because neither is on the board yet. */
-    const twin = out.find((v) => v.accept && similarity(title, v.proposal.title) >= SIMILARITY);
-    if (twin) {
-      out.push({
-        accept: false,
-        proposal: p,
-        reason: `the same action as "${twin.proposal.title.slice(0, 120)}", already accepted from this same answer.`,
+          said.verdict === "shrug"
+            ? `the title names nothing to change — ${because}. Name the thing to change and where it is.`
+            : said.verdict === "dismissed"
+              ? `the evidence dismisses itself — ${because}. The line is: "${String(p.evidenceLine ?? "").slice(0, 160)}".`
+              : `the same action as something already proposed or on the board — ${because}.`,
       });
       continue;
     }
@@ -878,8 +865,20 @@ export async function passForVenture(
   if (!proposals.length)
     return { ...base, packet, model, ran: true, why: "the model proposed nothing, which is a valid answer." };
 
+  /* JUDGED BEFORE THE GATE, so the gate stays pure. The same pass already
+     reached a model to get these proposals, so a judge call failing here almost
+     always means the box lost its provider mid-pass — and then nothing is
+     filed, which is the right way for a nightly to fail. */
+  const judged = await judgeProposals(proposals, {
+    ventureName: v.name,
+    openCardTitles: openCards(v.id, { all: true }).map((c) => c.title),
+    recentProposalTitles: recent,
+    signal: opts.signal,
+  });
+
   const verdicts = gate({
     proposals,
+    judgements: judged.by,
     measured: measuredKeys(packet),
     /* THE WHOLE OPEN BOARD FOR THIS VENTURE, not the slice the packet showed
        the model. The packet is capped for prompt size; the GATE is the thing
