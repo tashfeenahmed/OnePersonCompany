@@ -48,6 +48,9 @@ import * as searxng from "../../providers/searxng.ts";
 import { registrable } from "../../shared/host.ts";
 import { fetchHtml, tokens } from "./pages.ts";
 import type { RunTools } from "./runs.ts";
+import { sanitizeReportHtml } from "../runs/html.ts";
+import { saveRunEvidence } from "../runs/artifacts.ts";
+import { ANALYSIS_REPLY, analysisHtml, askAnalysis, callout, cardsFence, h, hostLink, page, plainCallout, type Analysis } from "./report.ts";
 
 /* -------------------------------------------------------- hard constants */
 
@@ -685,41 +688,152 @@ export async function asoRun(runId: string, v: VentureRow, input: Record<string,
       ts,
     );
 
-  tools.say(renderFindings(v, audited));
+  saveRunEvidence(runId, {
+    collectedAt: ts,
+    brief: input.store ?? "",
+    data: renderData(audited),
+    note: "Every check and score was computed by this server from the listing documents; the analysis in the report is a model's reading of them.",
+  });
 
   const write = tools.startStep("write", "recommendations");
-  const res = await tools.turn(
-    [
-      {
-        role: "system",
-        content: [
-          `You are writing the recommendations half of a store-listing audit for ${v.name}.`,
-          ``,
-          `THE CHECKLIST AND THE SCORES ARE ALREADY WRITTEN AND ARE ABOVE YOUR ANSWER. This server computed every one of them from the listing documents; you did not, and you must not recompute or re-grade anything.`,
-          ``,
-          `RULES, all binding:`,
-          `- NEVER INVENT A FIGURE. Only the numbers below exist.`,
-          `- A CHECK MARKED "not scored" WAS NOT ANSWERED. It is not a pass and it is not a failure — say what would have to be connected for it to be answerable.`,
-          `- APPLE DOES NOT INDEX THE DESCRIPTION and Play does. Never give the same description advice for both stores.`,
-          `- A RATING OF 0 MEANS NOBODY HAS RATED IT, not that the app is rated zero.`,
-          ``,
-          `THE AUDIT:`,
-          ``,
-          renderData(audited),
-        ].join("\n"),
-      },
-      { role: "user", content: `Write the recommendations for ${v.name}'s store listing${audited.length === 1 ? "" : "s"}.` },
-    ],
-    { toOutput: true },
+  const analysis = await askAnalysis(tools, [
+    {
+      role: "system",
+      content: [
+        `You are writing the analysis of a store-listing audit for ${v.name}.`,
+        ``,
+        `THE CHECKLIST AND THE SCORES ARE ALREADY COMPUTED AND WILL BE PRINTED ON THE PAGE ABOVE YOUR WORDS. This server computed every one of them from the listing documents; you did not, and you must not recompute, re-grade or restate them as a table.`,
+        ``,
+        `RULES, all binding:`,
+        `- NEVER INVENT A FIGURE. Only the numbers below exist.`,
+        `- A CHECK MARKED "not scored" WAS NOT ANSWERED. It is not a pass and it is not a failure — say what would have to be connected for it to be answerable.`,
+        `- APPLE DOES NOT INDEX THE DESCRIPTION and Play does. Never give the same description advice for both stores.`,
+        `- A RATING OF 0 MEANS NOBODY HAS RATED IT, not that the app is rated zero.`,
+        ``,
+        `THE AUDIT:`,
+        ``,
+        renderData(audited),
+        ``,
+        `WHAT TO WRITE. The headline names the single biggest finding about the listing${audited.length === 1 ? "" : "s"}. The verdict says it in one sentence before qualifying it. The sections read the checks that failed or warned and the rival listings: what a shopper sees on ours that they do not see on theirs, and the other way round, quoting the figures. The recommendations are ranked, each a change to a NAMED listing field on a named store, with what it costs and which check it would move.`,
+        ``,
+        ANALYSIS_REPLY,
+      ].join("\n"),
+    },
+    { role: "user", content: `Write the analysis of ${v.name}'s store listing${audited.length === 1 ? "" : "s"}.` },
+  ]);
+  tools.endStep(write, analysis.failed ? `failed — ${analysis.failed}` : `${analysis.sections.length} sections, ${analysis.recommendations.length} recommendations, ${analysis.cards.length} cards`);
+
+  tools.say(sanitizeReportHtml(asoDocument(v, audited, analysis, ts)) + cardsFence(analysis.cards));
+}
+
+/* --------------------------------------------------------------- the page */
+
+type Audited = { ref: AppRef; listing: Listing; checks: CheckRow[]; scored: Scored; rivals: RivalListing[]; rivalNote: string | null };
+
+/**
+ * THE AUDIT AS A DESIGNED PAGE, composed here — the score with its arithmetic,
+ * every check with what it was computed from, the rivals read the same way,
+ * and the model's analysis rendered from its JSON. Exported for the tests.
+ */
+export function asoDocument(v: VentureRow, audited: Audited[], analysis: Analysis, ts: string): string {
+  const day = ts.slice(0, 10);
+  const read = audited.filter((a) => !a.listing.error);
+  const storeName = (s: string) => (s === "appstore" ? "App Store" : "Google Play");
+  const finding =
+    analysis.headline ??
+    (read.length === 0
+      ? `No listing of ${v.name} could be read`
+      : read.length === 1
+        ? `${read[0]!.listing.name ?? v.name} on the ${storeName(read[0]!.ref.store)} scores ${read[0]!.scored.score ?? "no grade"}${read[0]!.scored.grade ? ` (${read[0]!.scored.grade})` : ""} on this app's rubric`
+        : `${read.length} listings of ${v.name} audited: ${read.map((a) => `${storeName(a.ref.store)} ${a.scored.score ?? "refused"}`).join(", ")}`);
+
+  const callouts = audited.map((a) =>
+    a.listing.error
+      ? plainCallout(`${h(storeName(a.ref.store))}<br><span class="nul">not read</span>`, h(a.listing.error))
+      : callout(String(a.scored.score ?? "—"), a.scored.grade ? ` ${a.scored.grade}` : "", `${h(storeName(a.ref.store))} · ${h(a.listing.name ?? a.ref.appId)} · coverage ${h(a.scored.coverage)}${a.scored.refusal ? ` · ${h(a.scored.refusal)}` : ""}`),
   );
-  tools.endStep(write, `${res.text.length} characters`);
+
+  const body: string[] = [];
+  body.push(
+    `<p class="note"><strong>The score is this app's own rubric and it is printed with its parts.</strong> Dimensions are weighted ${Object.entries(DIMENSIONS).map(([d, w]) => `${h(d)} ${w}`).join(", ")}; a check is worth 1 for pass, 0.5 for warn, 0 for fail; a check that could not be answered is out of the denominator entirely, and a dimension under ${COVERAGE_MIN * 100}% coverage is refused rather than guessed. It is not an App Store Optimization industry benchmark of any kind and it may not be compared with anybody else's score.</p>`,
+  );
+
+  for (const a of audited) body.push(listingCard(a, storeName(a.ref.store)));
+
+  body.push(analysisHtml(analysis, "audit"));
+
+  body.push(`<h2>Evidence</h2><ul class="plain">`);
+  for (const a of audited)
+    body.push(
+      `<li>${h(a.listing.name ?? a.ref.appId)}: ${a.listing.url ? hostLink(a.listing.url, "the listing") : "no public listing URL"}${a.ref.store === "appstore" ? ", read through Apple's public lookup document" : ", title read from the store page and the rating from the Play Console export"}.</li>`,
+    );
+  body.push(`</ul>`);
+
+  return page({
+    finding,
+    dateline: `Store listing audit · ${v.name} · ${audited.length} listing${audited.length === 1 ? "" : "s"} · ${day}`,
+    verdict: analysis.verdict,
+    callouts,
+    body: body.join("\n"),
+    footer: `Written ${day} from ${read.length} listing${read.length === 1 ? "" : "s"} this server read and ${audited.reduce((n, a) => n + a.rivals.length, 0)} rival listings read the same way. Every check was computed here; the analysis is a model's reading of those checks.`,
+  });
+}
+
+function listingCard(a: Audited, store: string): string {
+  const parts: string[] = [];
+  parts.push(`<div class="cardhead"><span class="title">${h(a.listing.name ?? a.ref.appId)}</span><span class="badge badge-accent">${h(store)}</span>`);
+  if (!a.listing.error) {
+    parts.push(`<span class="pill pill-yes">score ${h(a.scored.score ?? "refused")}${a.scored.grade ? ` · ${h(a.scored.grade)}` : ""}</span>`);
+    parts.push(`<span class="pill">coverage ${h(a.scored.coverage)}</span>`);
+  }
+  parts.push(`</div>`);
+  if (a.listing.error) {
+    parts.push(`<p class="warn">The listing could not be read: ${h(a.listing.error)}</p>`);
+    return `<article class="card">${parts.join("")}</article>`;
+  }
+  if (a.scored.refusal) parts.push(`<p class="note"><span class="warn">Refused.</span> ${h(a.scored.refusal)}</p>`);
+  parts.push(
+    `<p class="note">Title ${h(a.listing.name?.length ?? 0)} chars · description ${a.listing.descriptionChars ?? "not read"} chars · screenshots ${a.listing.screenshots ?? "not read"} · rating ${a.listing.rating ?? "not read"}${a.listing.ratingCount === null ? "" : ` over ${a.listing.ratingCount} ratings`} · updated ${h(a.listing.updatedAt ?? "not read")}</p>`,
+  );
+
+  parts.push(`<h3>The score, by dimension</h3>`);
+  parts.push(`<table><thead><tr><th>Dimension</th><th class="num">Weight</th><th class="num">Score</th><th class="num">Coverage</th><th>Why not</th></tr></thead><tbody>`);
+  for (const [d, x] of Object.entries(a.scored.dimensions))
+    parts.push(`<tr><td>${h(d)}</td><td class="num">${h(x.weight)}</td><td class="num">${x.score === null ? `<span class="nul">refused</span>` : h(x.score)}</td><td class="num">${h(x.coverage)}</td><td>${x.reason ? h(x.reason) : `<span class="nul">—</span>`}</td></tr>`);
+  parts.push(`</tbody></table>`);
+  parts.push(`<div class="arith">${a.scored.arithmetic.map((line) => h(line)).join("<br>")}</div>`);
+
+  parts.push(`<h3>Every check</h3>`);
+  parts.push(`<table><thead><tr><th>Check</th><th>Result</th><th>Computed from</th></tr></thead><tbody>`);
+  for (const c of a.checks)
+    parts.push(
+      `<tr><td>${h(c.id)}</td><td>${c.result === null ? `<span class="nul">not scored</span>` : c.result === "pass" ? `<span class="yes">pass</span>` : c.result === "warn" ? `<span class="warn">warn</span>` : `<span class="warn">fail</span>`}</td><td>${h(c.detail)}</td></tr>`,
+    );
+  parts.push(`</tbody></table>`);
+
+  if (a.listing.notes.length) {
+    parts.push(`<p class="note">What could not be read, and why — this is part of the reading, not a footnote:</p><ul class="plain">`);
+    for (const nn of a.listing.notes) parts.push(`<li>${h(nn)}</li>`);
+    parts.push(`</ul>`);
+  }
+
+  parts.push(`<h3>Rival listings, read the same way</h3>`);
+  if (a.rivals.length) {
+    if (a.rivalNote) parts.push(`<p class="note">${h(a.rivalNote)}</p>`);
+    parts.push(`<table><thead><tr><th>Listing</th><th>Store</th><th class="num">Title chars</th><th class="num">Screenshots</th><th class="num">Description chars</th><th class="num">Rating</th></tr></thead><tbody>`);
+    for (const r of a.rivals)
+      parts.push(
+        `<tr><td>${hostLink(r.url, r.name)}${r.name ? ` ${h(r.name)}` : ""}</td><td>${h(r.store)}</td><td class="num">${r.titleChars ?? "—"}</td><td class="num">${r.screenshots ?? "—"}</td><td class="num">${r.descriptionChars ?? "—"}</td><td class="num">${r.rating ?? "—"}</td></tr>`,
+      );
+    parts.push(`</tbody></table>`);
+  } else parts.push(`<p class="note">No competitor listing was read. ${h(a.rivalNote ?? "")}</p>`);
+
+  return `<article class="card">${parts.join("")}</article>`;
 }
 
 /* ------------------------------------------------------------- rendering */
 
-type Audited = { ref: AppRef; listing: Listing; checks: CheckRow[]; scored: Scored; rivals: RivalListing[]; rivalNote: string | null };
-
-const esc = (s: string) => s.replace(/\|/g, "\\|");
+/* ------------------------------------------------------------- rendering */
 
 function renderData(audited: Audited[]): string {
   const out: string[] = [];
@@ -741,66 +855,6 @@ function renderData(audited: Audited[]): string {
       ``,
     );
   }
-  return out.join("\n");
-}
-
-function renderFindings(v: VentureRow, audited: Audited[]): string {
-  const out: string[] = [
-    `## Findings`,
-    ``,
-    `${audited.length} store listing${audited.length === 1 ? "" : "s"} audited for ${v.name}. Every check below was computed by this server from the listing documents; no model scored anything.`,
-    ``,
-    `THE SCORE IS THIS APP'S OWN RUBRIC and it is printed with its parts. Dimensions are weighted ${Object.entries(DIMENSIONS).map(([d, w]) => `${d} ${w}`).join(", ")}; a check is worth 1 for pass, 0.5 for warn, 0 for fail; a check that could not be answered is out of the denominator entirely, and a dimension under ${COVERAGE_MIN * 100}% coverage is refused rather than guessed. It is not App Store Optimization industry benchmark of any kind and it may not be compared with anybody else's score.`,
-    ``,
-  ];
-
-  for (const a of audited) {
-    out.push(`### ${a.listing.name ?? a.ref.appId} — ${a.ref.store === "appstore" ? "App Store" : "Google Play"}`, ``);
-    if (a.listing.error) {
-      out.push(`The listing could not be read: ${a.listing.error}`, ``);
-      continue;
-    }
-    out.push(
-      `Score **${a.scored.score ?? "refused"}**${a.scored.grade ? ` (${a.scored.grade})` : ""}${a.scored.refusal ? ` — ${a.scored.refusal}` : ""}. Coverage ${a.scored.coverage} of the rubric's weight could be answered.`,
-      ``,
-      `| Dimension | Weight | Score | Coverage | Why not |`,
-      `| --- | --- | --- | --- | --- |`,
-      ...Object.entries(a.scored.dimensions).map(([d, x]) => `| ${d} | ${x.weight} | ${x.score ?? "refused"} | ${x.coverage} | ${x.reason ? esc(x.reason) : "—"} |`),
-      ``,
-      `The arithmetic, in full:`,
-      ``,
-      ...a.scored.arithmetic.map((line) => `- ${esc(line)}`),
-      ``,
-      `| Check | Result | Computed from |`,
-      `| --- | --- | --- |`,
-      ...a.checks.map((c) => `| ${c.id} | ${c.result ?? "not scored"} | ${esc(c.detail)} |`),
-      ``,
-      `What could not be read, and why — this is part of the reading, not a footnote:`,
-      ``,
-      ...a.listing.notes.map((nn) => `- ${nn}`),
-      ``,
-    );
-    if (a.rivals.length) {
-      out.push(
-        `Competitor listings, read the same way. ${a.rivalNote ?? ""}`,
-        ``,
-        `| Listing | Store | Title chars | Screenshots | Description chars | Rating |`,
-        `| --- | --- | --- | --- | --- | --- |`,
-        ...a.rivals.map((r) => `| [${esc(r.name ?? r.url)}](${r.url}) | ${r.store} | ${r.titleChars ?? "—"} | ${r.screenshots ?? "—"} | ${r.descriptionChars ?? "—"} | ${r.rating ?? "—"} |`),
-        ``,
-      );
-    } else out.push(`No competitor listing was read. ${a.rivalNote ?? ""}`, ``);
-  }
-
-  out.push(
-    `## Evidence`,
-    ``,
-    ...audited.map(
-      (a) =>
-        `- ${a.listing.name ?? a.ref.appId}: ${a.listing.url ? `[the listing](${a.listing.url})` : "no public listing URL"}${a.ref.store === "appstore" ? ", read through Apple's public lookup document" : ", title read from the store page and the rating from the Play Console export"}.`,
-    ),
-    ``,
-  );
   return out.join("\n");
 }
 
