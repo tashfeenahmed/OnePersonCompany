@@ -45,7 +45,7 @@ test("the analysis block is read strictly: the shape asked for, or a stated fail
   assert.match(empty.failed!, /nothing usable/);
 });
 
-test("the SERP teardown is one designed HTML document with the measured tables, the analysis and the cards fence after it", () => {
+test("the SERP teardown is one designed HTML document with the measured tables, the analysis and the cards fence after it", async () => {
   const v = venture("serp-page");
   const rows: SerpRow[] = [
     {
@@ -83,7 +83,7 @@ test("the SERP teardown is one designed HTML document with the measured tables, 
 
   /* The cards file into the board the same way every other kind's do. */
   db.prepare("INSERT INTO agent_runs(id,kind,venture_id,title,input,status,queued_at,output) VALUES(?,?,?,?,?,?,?,?)").run("r-serp-page", "serp", v.id, "t", "{}", "done", now(), out);
-  const filed = fileRunCards("r-serp-page");
+  const filed = await fileRunCards("r-serp-page");
   assert.equal(filed.total, 1);
 });
 

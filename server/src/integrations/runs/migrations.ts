@@ -417,5 +417,39 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE geo_answers ADD COLUMN searches TEXT;
     `,
   },
+  {
+    name: "079_run_card_verdicts",
+    sql: `
+      -- WHY A SUGGESTED CARD DID OR DID NOT REACH THE BOARD.
+      --
+      -- The gate on run cards is a model's judgment (runs/card-gate.ts), and the
+      -- objection to making it one was that a model's rule is unobservable
+      -- except by running a night. This table is the answer: one row per
+      -- suggestion, holding what the judge said, why, and which model said it.
+      -- "Where did that card go" is a query.
+      --
+      -- FILED CARDS ARE RECORDED TOO, not only refusals. A gate you can only
+      -- see the refusals of cannot be shown to be working, and the ratio is the
+      -- thing worth watching over a fortnight.
+      --
+      -- \`idx\` IS THE CARD'S POSITION IN THE REPORT'S FENCE, which is also what
+      -- its board origin carries (\`run:<id>:<n>\`), so a verdict joins back to
+      -- the card it judged even when the ones before it were dropped.
+      --
+      -- \`verdict\` IS 'change', 'homework' OR 'unjudged'. The third is not a
+      -- refusal: it is the gate failing open because the model could not be
+      -- reached or did not answer, and those cards were filed.
+      CREATE TABLE IF NOT EXISTS run_card_verdicts (
+        run_id  TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+        idx     INTEGER NOT NULL,
+        title   TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        why     TEXT,
+        model   TEXT,
+        at      TEXT NOT NULL,
+        PRIMARY KEY (run_id, idx)
+      );
+    `,
+  },
 
 ];
