@@ -19,13 +19,19 @@
  *     description entirely, so the same advice about description length is
  *     right on one store and wrong on the other. Every description check
  *     carries which store it is talking about.
- *   * PLAY'S STORE PAGE IS A JAVASCRIPT SHELL. The HTML that comes back
- *     carries the titles, ratings and thumbnails of a dozen OTHER apps beside
- *     this one, and a reader that counted images would report a competitor's
- *     screenshots as ours. So from Play this reads the TITLE and nothing else,
- *     and the rating and installs come from the Play Console export the
- *     collector already writes. What cannot be attributed is null with its
- *     reason, never a number.
+ *   * PLAY'S STORE PAGE CARRIES OTHER APPS BESIDE THIS ONE. The HTML that
+ *     comes back holds the titles, ratings and thumbnails of a dozen "similar"
+ *     apps, and a reader that counted every image would report a competitor's
+ *     screenshots as ours. So nothing is read from Play by counting loosely:
+ *     each field is taken from the ONE anchor the page gives this app and no
+ *     other — `data-g-id="description"` for the full description, the images
+ *     whose alt text is "Screenshot image" (the similar-app cards say
+ *     "Icon image" and "Thumbnail image"), the "Updated on" label's own
+ *     value, the `itemprop="starRating"` block and its reviews count. The
+ *     rating prefers the Play Console export the collector already writes,
+ *     which is the developer's own figure; the page's star is the fallback
+ *     for a rival. What has no anchor — the short description, the version —
+ *     is null with its reason, never a number. See `parsePlayPage`.
  *
  * WHERE THE LISTING COMES FROM, per store:
  *
@@ -34,8 +40,11 @@
  *               screenshot list, the rating, the current version's release
  *               date. Keyless, public, and the same document the store page
  *               renders from.
- *   Play        the public store page for the TITLE, plus play_stats for the
- *               rating and installs. Everything else is null with a reason.
+ *   Play        the public store page, read at its attributable anchors —
+ *               title, full description, screenshot count, update date, the
+ *               star rating and its count where the page shows one — plus
+ *               play_stats for the developer's own rating. The short
+ *               description and the version have no anchor and stay null.
  *
  * THE SCORE IS THIS APP'S RUBRIC AND IS SHOWN WITH ITS PARTS. Weighted
  * dimensions, pass/warn/fail worth 1/0.5/0, N/A excluded from the denominator,
@@ -266,15 +275,148 @@ export async function appleListing(appId: string, storefront: string | null): Pr
 }
 
 /**
- * Play, and what can honestly be taken from it.
+ * WHAT THE PLAY PAGE SAYS ABOUT THIS APP, AND ONLY THIS APP.
  *
- * ONLY THE TITLE COMES OFF THE PAGE. See the file header: the store page's
- * HTML carries a dozen other apps' names, ratings and thumbnails, and there is
- * no attributable anchor around this app's own. So the title is read from
- * `og:title` — which is this app's, because it is the page's own title — and
- * every other field is null with the reason on it. The RATING comes from the
- * Play Console export the collector already writes, which is the developer's
- * own figure and better than anything scraped.
+ * Pure — HTML in, fields out — so it can be tested against a page saved to
+ * disk and so a change in Play's markup shows up as a failing test rather
+ * than a run quietly reading null. Every regex below is anchored on markup
+ * that exists ONCE on the page and belongs to the app the page is about;
+ * nothing is read by position or by "the first number after the title".
+ *
+ * WHAT WAS CHECKED, 2026-09-21, against three live pages (two of the owner's
+ * and one with millions of reviews): the description div occurs once and is
+ * the full description; the screenshot images carry alt="Screenshot image"
+ * while the similar-app cards carry "Icon image" and "Thumbnail image"; the
+ * "Updated on" label is followed by its date; the star block carries the
+ * average and, beside it, "N reviews"; the downloads figure sits beside its
+ * "Downloads" label. A listing nobody has rated shows NO star block at all,
+ * which is why rating and count are null rather than zero for such a page.
+ */
+export type PlayPage = {
+  name: string | null;
+  description: string | null;
+  screenshots: number | null;
+  /** ISO date, from the "Updated on" label. */
+  updatedAt: string | null;
+  rating: number | null;
+  ratingCount: number | null;
+  /** Play's bucketed figure as shown — "500+", "1K+" — kept as text because
+   *  it is a floor, not a count. */
+  downloads: string | null;
+  genre: string | null;
+  inAppPurchases: boolean;
+  containsAds: boolean;
+};
+
+const unescapeHtml = (t: string): string =>
+  t
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n: string) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+
+/** "244M" → 244000000, "1.2K" → 1200, "37" → 37. Null for anything else. */
+export function compactNumber(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const m = /^([\d.,]+)\s*([KMB])?$/i.exec(text.trim());
+  if (!m) return null;
+  const base = Number(m[1]!.replace(/,/g, ""));
+  if (!Number.isFinite(base)) return null;
+  const mult = { K: 1e3, M: 1e6, B: 1e9 }[(m[2] ?? "").toUpperCase()] ?? 1;
+  return Math.round(base * mult);
+}
+
+const MONTHS: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
+
+/** "Sep 17, 2026" or "17 Sep 2026" → "2026-09-17", as a date and not an instant. */
+export function calendarDate(text: string | null): string | null {
+  if (!text) return null;
+  const t = text.trim();
+  let m = /^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$/.exec(t);
+  let month: number | undefined;
+  let day: number;
+  let year: number;
+  if (m) {
+    month = MONTHS[m[1]!.slice(0, 4).toLowerCase()] ?? MONTHS[m[1]!.slice(0, 3).toLowerCase()];
+    day = Number(m[2]);
+    year = Number(m[3]);
+  } else {
+    m = /^(\d{1,2})\s+([A-Za-z]{3,9})\.?\s+(\d{4})$/.exec(t);
+    if (!m) return null;
+    month = MONTHS[m[2]!.slice(0, 4).toLowerCase()] ?? MONTHS[m[2]!.slice(0, 3).toLowerCase()];
+    day = Number(m[1]);
+    year = Number(m[3]);
+  }
+  if (month === undefined || !(day >= 1 && day <= 31)) return null;
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+export function parsePlayPage(html: string): PlayPage {
+  const og = /<meta property="og:title" content="([^"]{0,300})"/i.exec(html)?.[1] ?? null;
+  const name = og ? unescapeHtml(og).replace(/\s*-\s*Apps on Google Play\s*$/i, "").trim() || null : null;
+
+  const descMatch = /<div[^>]*data-g-id="description"[^>]*>([\s\S]*?)<\/div>/i.exec(html);
+  const description = descMatch ? unescapeHtml(descMatch[1]!) || null : null;
+
+  const shots = html.match(/<img[^>]+alt="Screenshot image"[^>]*>/gi);
+  const screenshots = shots ? shots.length : null;
+
+  const upd = /Updated on<\/div>\s*<div[^>]*>([^<]{4,40})</i.exec(html)?.[1] ?? null;
+  /* "Sep 17, 2026" is a calendar date with no zone; parsed as a local time
+     and printed as UTC it comes out a day early on any box east of Greenwich.
+     So it is read as a date, never as an instant. */
+  const updatedAt = calendarDate(upd);
+
+  /* The star block is the ONE rating on the page that is this app's; the
+     similar-app cards carry their own stars in a different shape. Both the
+     average and the count are read from inside it and nowhere else. */
+  let rating: number | null = null;
+  let ratingCount: number | null = null;
+  const starAt = html.search(/itemprop="starRating"/i);
+  if (starAt >= 0) {
+    const block = html.slice(starAt, starAt + 800);
+    const avg = />\s*([0-5](?:\.\d)?)\s*</.exec(block)?.[1];
+    if (avg) rating = Number(avg);
+    /* Tags become spaces here, not nothing: "<div>4.3</div><div>1.2K reviews"
+       stripped bare reads as "4.31.2K reviews". */
+    const count = /(?:^|\s)([\d.,]+[KMB]?)\s*reviews/i.exec(unescapeHtml(block.replace(/<[^>]+>/g, " ")))?.[1];
+    ratingCount = compactNumber(count ?? null);
+  }
+
+  const downloads = />([\d.,]+[KMB]?\+?)<\/div>\s*<div[^>]*>Downloads</i.exec(html)?.[1] ?? null;
+  const genre = /itemprop="genre"[^>]*>(?:<[^>]+>)*([^<]{1,60})</i.exec(html)?.[1]?.trim() ?? null;
+
+  return {
+    name,
+    description,
+    screenshots,
+    updatedAt,
+    rating,
+    ratingCount,
+    downloads,
+    genre,
+    inAppPurchases: /In-app purchases/.test(html),
+    containsAds: /Contains ads/.test(html),
+  };
+}
+
+/**
+ * Play, read at its anchors, with the Console export's rating on top.
+ *
+ * THE RATING PREFERS THE CONSOLE. The page's star is what a shopper sees and
+ * is right for a rival; for the owner's own app the Play Console export the
+ * collector already writes is the developer's own figure, and it is present
+ * for a listing the page shows no star for yet. The COUNT is the page's,
+ * because the export has none. A page with no star block is a listing with
+ * too few ratings for Play to show one, and both stay null with that said.
  */
 export async function playListing(pkg: string): Promise<Listing> {
   const stats = db
@@ -300,18 +442,37 @@ export async function playListing(pkg: string): Promise<Listing> {
     genres: [],
     url: `https://play.google.com/store/apps/details?id=${pkg}`,
     notes: [
-      "Play's store page is a JavaScript shell: the HTML that comes back carries the names, ratings and thumbnails of a dozen OTHER apps beside this one, with nothing that attributes a figure to this app. So only the TITLE is read from it. The screenshot count, the short and full descriptions and the update date are NOT READ — they are null, not zero.",
-      "The rating is the developer's own figure from the Play Console export, not a number scraped off the page.",
-      "Play's rating COUNT is not in the Console export this box collects, so the volume check cannot run.",
+      "Play's SHORT DESCRIPTION and the VERSION have no anchor in the page HTML this box reads — they are null, not empty, and the subtitle check is not scored.",
     ],
     error: null,
   };
 
   const got = await fetchHtml(base.url!);
   if ("error" in got) return { ...base, error: `The Play listing ${got.error}` };
-  const og = /<meta property="og:title" content="([^"]{0,300})"/i.exec(got.html)?.[1] ?? null;
-  const title = og ? og.replace(/\s*-\s*Apps on Google Play\s*$/i, "").trim() : null;
-  return { ...base, name: title || null };
+  const page = parsePlayPage(got.html);
+  const notes = [...base.notes];
+  if (page.description === null) notes.push("The full description was not found at its anchor on the page, so it is null here — not empty.");
+  if (page.screenshots === null) notes.push("No screenshot image was found at its anchor on the page, so the count is null — not zero.");
+  if (page.updatedAt === null) notes.push("The 'Updated on' date was not found on the page, so freshness is not measured.");
+  if (page.rating === null && base.rating === null) notes.push("The page shows no star block, which is what Play does for a listing too few people have rated to show an average; the Console export carries no rating either. Both rating checks stay unscored.");
+  else if (page.rating === null) notes.push("The page shows no star block (Play hides the average until enough people have rated), so the rating here is the Console export's own figure and the count is not measured.");
+  if (page.downloads) notes.push(`Play shows ${page.downloads} downloads — its bucketed floor as shoppers see it, not a count.`);
+  if (page.inAppPurchases) notes.push("The page is labelled 'In-app purchases'.");
+  if (page.containsAds) notes.push("The page is labelled 'Contains ads'.");
+
+  return {
+    ...base,
+    name: page.name,
+    description: page.description,
+    descriptionChars: page.description === null ? null : page.description.length,
+    screenshots: page.screenshots,
+    rating: base.rating ?? page.rating,
+    ratingFrom: base.rating !== null ? base.ratingFrom : page.rating !== null ? "the star shown on the Play page" : null,
+    ratingCount: page.ratingCount,
+    updatedAt: page.updatedAt,
+    genres: page.genre ? [page.genre] : [],
+    notes,
+  };
 }
 
 /* ------------------------------------------------- which apps are this venture's */
@@ -411,7 +572,7 @@ export function runChecks(l: Listing): CheckRow[] {
 
   /* visuals */
   if (l.screenshots === null)
-    add("screenshot-count", null, l.store === "play" ? "Play's page cannot be read for a screenshot count attributable to this app." : "The screenshot list was not in the listing document.");
+    add("screenshot-count", null, l.store === "play" ? "No screenshot was found at its anchor on the Play page." : "The screenshot list was not in the listing document.");
   else
     add(
       "screenshot-count",
@@ -446,7 +607,7 @@ export function runChecks(l: Listing): CheckRow[] {
     null,
     l.store === "appstore"
       ? "Apple's subtitle is in App Store Connect's version localisations, which this box does not fetch. Not scored."
-      : "Play's short description is not attributable in the page HTML this reads. Not scored.",
+      : "Play's short description has no anchor in the page HTML this box reads. Not scored.",
   );
 
   /* ratings */
@@ -460,7 +621,7 @@ export function runChecks(l: Listing): CheckRow[] {
     );
   else add("rating-level", l.rating >= GOOD_RATING ? "pass" : l.rating >= POOR_RATING ? "warn" : "fail", `${l.rating} from ${l.ratingFrom ?? "the store"}; ${GOOD_RATING} is the line.`);
 
-  if (l.ratingCount === null) add("rating-volume", null, l.store === "play" ? "Play's rating count is not in the Console export." : "no rating count was available");
+  if (l.ratingCount === null) add("rating-volume", null, l.store === "play" ? "Play shows no rating count for this listing — the page hides the star until enough people have rated — and the Console export carries none." : "no rating count was available");
   else
     add(
       "rating-volume",
@@ -483,7 +644,7 @@ export function runChecks(l: Listing): CheckRow[] {
 
   /* freshness */
   const age = ageDays(l.updatedAt);
-  if (age === null) add("freshness", null, l.store === "play" ? "Play's update date is not attributable in the page HTML this reads." : "no release date was available");
+  if (age === null) add("freshness", null, l.store === "play" ? "The 'Updated on' date was not found on the Play page." : "no release date was available");
   else
     add(
       "freshness",
@@ -579,9 +740,9 @@ export type RivalListing = { name: string | null; url: string; store: string; sc
  *
  * The search is the app's own leading words, restricted to nothing — the
  * results that happen to be store listings are the ones kept. Apple's are read
- * through the same public lookup as ours, which makes them like-for-like; a
- * Play result is recorded as a URL with its figures null, for the reason the
- * header gives.
+ * through the same public lookup as ours, and Play's through the same anchored
+ * page read, which makes both like-for-like: a rival's screenshot count was
+ * counted the way ours was.
  */
 async function rivals(l: Listing): Promise<{ rows: RivalListing[]; note: string | null }> {
   const terms = keywordCoverage(l.name, l.description).considered.slice(0, 3);
@@ -618,17 +779,19 @@ async function rivals(l: Listing): Promise<{ rows: RivalListing[]; note: string 
       continue;
     }
     const play = /play\.google\.com\/store\/apps\/details\?id=([A-Za-z0-9_.]+)/.exec(r.url);
-    if (play && play[1] !== l.appId)
+    if (play && play[1] !== l.appId) {
+      const got = await playListing(play[1]!);
       rows.push({
-        name: r.title,
-        url: r.url,
+        name: got.name ?? r.title,
+        url: got.url ?? r.url,
         store: "play",
-        screenshots: null,
-        descriptionChars: null,
-        rating: null,
-        titleChars: null,
-        note: "A Play listing: only its URL is recorded. See the note on Play above.",
+        screenshots: got.screenshots,
+        descriptionChars: got.descriptionChars,
+        rating: got.rating,
+        titleChars: got.name ? got.name.length : null,
+        note: got.error,
       });
+    }
   }
   return {
     rows,
