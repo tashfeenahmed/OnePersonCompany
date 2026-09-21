@@ -431,6 +431,13 @@ export type GeoAnswer = {
    *  sentence on what to do about it. Null where it did not answer. */
   explanation: string | null;
   action: string | null;
+  /**
+   * WHAT THE MODEL SEARCHED BEFORE IT ANSWERED — every query, and the top
+   * results it was shown. Null is "asked without tools" (every row before
+   * migration 078, and any run made with the tool switched off); `[]` is
+   * "had the tool and did not use it". Drawn differently, because they are.
+   */
+  searches: { query: string; results: { title: string; url: string; snippet: string | null }[] }[] | null;
 };
 
 export type GeoDoc = {

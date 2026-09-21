@@ -4,11 +4,12 @@ import { GeoAnswers } from "@/components/runs/GeoAnswers";
 /**
  * WHAT THE MODELS SAY WHEN SOMEBODY ASKS THEM ABOUT YOU.
  *
- * The odd one out: this run uses no tools and does not touch the web on
- * purpose. Giving the model a search tool would measure the search engine,
- * which every other page in here already does — the question is what it
- * believes with nothing in front of it, because that is what a stranger asking
- * it for a recommendation gets.
+ * The model is asked the way a stranger's assistant would be asked today: with
+ * a web search tool in its hands, one it may use a few times per question.
+ * What it searched and what it was shown are kept beside every answer,
+ * because that is where the answer came from and where a change has to land.
+ * The older no-tools reading is still available from the composer, for
+ * comparison, and every row says which way it was asked.
  *
  * The answers live under the composer rather than only inside their reports,
  * because the interesting reading is across runs: the same question, asked of

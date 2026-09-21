@@ -80,7 +80,8 @@ import { resolve } from "node:path";
 import { ask, activeBackend, type ChatTurn } from "../../chat/backend.ts";
 import { consumeTurn } from "../../chat/consume.ts";
 import { CANCELLING, type RunStatusOrCancelling } from "../../../../shared/runStatus.ts";
-import { activeProvider, complete, type ProviderId } from "../../models/provider.ts";
+import { activeProvider, complete, completeTooled, type ProviderId, type ToolWireTurn } from "../../models/provider.ts";
+import { borrowKey as searxKey, search as searxSearch } from "../../providers/searxng.ts";
 import { ventureContext } from "../../routes/ventures.ts";
 import { appendChatMessage, db, now, ventureRowById, type VentureRow } from "../../db.ts";
 import {
@@ -775,6 +776,56 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: TurnOpts): Promise
   return { text: cleanedHtml(s, r.text, opts.toOutput), backend: `provider:${r.provider}`, model: r.model };
 }
 
+/**
+ * ONE COMPLETION THAT MAY ANSWER WITH A TOOL CALL, on the raw provider, with
+ * the run's own signal and the same usage accounting the provider branch of
+ * `agentTurn` keeps. The message travels whole — a tool round has no prose —
+ * and the caller's parser decides what it was.
+ */
+async function tooledTurn(
+  s: Session,
+  turns: ToolWireTurn[],
+  opts: { tools: unknown[]; toolChoice?: "auto" | "none" },
+): Promise<{ message: unknown; text: string }> {
+  const signal = live?.id === s.id ? live.abort.signal : undefined;
+  const r = await completeTooled(turns, { signal, tools: opts.tools, toolChoice: opts.toolChoice });
+  await noteOutcome(r.provider, r.endpoint, null);
+  s.backend = `provider:${r.provider}`;
+  s.model = r.model ?? s.model;
+  if (r.usage) {
+    s.usage.prompt += r.usage.prompt;
+    s.usage.completion += r.usage.completion;
+    s.sawUsage = true;
+  }
+  s.flush();
+  return { message: r.message, text: r.text };
+}
+
+/**
+ * THIS BOX'S SEARCH NODE AS ONE FUNCTION, or null when none is connected.
+ * The same door the demand collector borrows — the managed SearXNG instance
+ * with no key, or a remote one with the plugin's own — read at the start of
+ * the run so a node connected mid-run is not half-used.
+ */
+function searchNode(): { label: string; run(query: string): Promise<{ title: string; url: string; snippet: string | null }[]> } | null {
+  const door = searxKey("geo");
+  if (!door) return null;
+  let label = "SearXNG";
+  try {
+    label = `SearXNG at ${new URL(door.url).host}`;
+  } catch {
+    /* The label is for the page's provenance line; a URL that does not parse
+       still names the node. */
+  }
+  return {
+    label,
+    run: async (query) => {
+      const a = await searxSearch(door.url, door.key, query);
+      return a.results.map((r) => ({ title: r.title, url: r.url, snippet: r.content ? r.content.slice(0, 300) : null }));
+    },
+  };
+}
+
 /* ------------------------------------------------------------ the six kinds */
 
 async function execute(row: RunRow, s: Session) {
@@ -786,8 +837,10 @@ async function execute(row: RunRow, s: Session) {
     throw new Error("The venture this run was for is not in the table any more, so there is nothing to work on.");
 
   /* THE AI-VISIBILITY KIND, owned by integrations/runs/geo.ts. Every turn it
-     makes is on the raw provider — the measurement is what a model says with
-     no tools — so it borrows the session's say/step/turn and the provider. */
+     makes is on the raw provider — the same model with the same one tool,
+     every run — so it borrows the session's say/step/turn and the provider,
+     plus the two things its web search needs: a tool-calling completion on
+     that provider and this box's search node. */
   if (row.kind === "geo")
     return geoRun({
       runId: row.id,
@@ -798,6 +851,8 @@ async function execute(row: RunRow, s: Session) {
         startStep: (tool, label) => s.startStep(tool, label),
         endStep: (step, label) => s.endStep(step, label),
         turn: (turns, opts) => turn(s, turns, opts),
+        tooled: (turns, opts) => tooledTurn(s, turns, opts),
+        search: searchNode(),
         provider: activeProvider(),
         model: () => s.model,
       },

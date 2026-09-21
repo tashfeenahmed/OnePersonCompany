@@ -397,4 +397,25 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE geo_answers ADD COLUMN action      TEXT;
     `,
   },
+  {
+    name: "078_geo_answer_searches",
+    sql: `
+      -- WHAT THE MODEL LOOKED AT BEFORE IT ANSWERED.
+      --
+      -- Until now every answer in this table was a model speaking from its
+      -- own weights: no tools, no web. That measured one thing — recall — and
+      -- the owner's point was that it is not the thing a stranger gets any
+      -- more. An assistant asked "what's the best tool for X" searches first
+      -- and answers from what it found, so the run now hands the model a
+      -- web_search tool and records, per answer, the queries it ran and the
+      -- top results each returned.
+      --
+      -- NULL IS "ASKED WITHOUT TOOLS", \`[]\` IS "HAD THE TOOL AND DID NOT
+      -- USE IT". They are different facts about the answer, the same
+      -- convention \`rivals\` keeps, and every row written before this
+      -- migration is NULL because that is exactly what it was.
+      ALTER TABLE geo_answers ADD COLUMN searches TEXT;
+    `,
+  },
+
 ];

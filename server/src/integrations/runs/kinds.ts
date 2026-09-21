@@ -146,7 +146,7 @@ export const KINDS: KindDef[] = [
     kind: "geo",
     name: "AI visibility",
     what:
-      "Asks the active model provider — no tools, no web — both the questions that NAME the venture and a set of GENERATED generic ones a stranger with the problem would ask without knowing it exists, judges every answer for mention, accuracy, recommendation and which rivals were named instead, and writes a visual report carrying the prompt, the answer verbatim, what it means and what to do for each. This one deliberately never uses an agent: the measurement is what a model says unaided.",
+      "Asks the active model provider — with a web search tool in its hands, the way an assistant answers a stranger today — both the questions that NAME the venture and a set of GENERATED generic ones a stranger with the problem would ask without knowing it exists. It records every search the model ran and the pages it was shown, judges every answer for mention, accuracy, recommendation and which rivals were named instead, and writes a visual report carrying the prompt, the searches, the answer verbatim, what it means and what to do for each. The search is this box's own SearXNG node; with none connected, or with the tool switched off below, it asks with no tools and says so on the page. This one deliberately never uses an agent: the same model with the same one tool is what makes two runs comparable.",
     needsVenture: true,
     inputs: [
       {
@@ -165,6 +165,18 @@ export const KINDS: KindDef[] = [
         kind: "textarea",
         required: false,
         default: "",
+      },
+      {
+        key: "search",
+        label: "What the model may use",
+        hint: "Web search is what a stranger's assistant has. Switching it off measures the model's own recall instead — the older reading, kept for comparison.",
+        kind: "select",
+        required: false,
+        default: "web",
+        options: [
+          { value: "web", label: "Web search — the model searches before it answers" },
+          { value: "none", label: "No tools — the model answers from its own knowledge" },
+        ],
       },
     ],
   },
