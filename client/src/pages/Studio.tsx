@@ -6,6 +6,7 @@ import {
   Clapperboard,
   ChevronDown,
   Film,
+  GalleryHorizontal,
   Image as ImageIcon,
   Loader2,
   Menu,
@@ -49,6 +50,9 @@ import { appPage } from "../../../shared/navigation";
 import { studioApi, type StudioFormat, type StudioPost, type StudioReadiness } from "@/lib/api/studio";
 import { autopilotApi, stewieApi, videoApi, youtubeApi, type VideoJob, type YoutubeHit } from "@/lib/api/video";
 import { motionApi } from "@/lib/api/motion";
+import { carouselApi, type Carousel } from "@/lib/api/carousel";
+import { CarouselResult } from "@/components/studio/CarouselResult";
+import { CAROUSEL_SIZES, DEFAULT_CAROUSEL_SIZE, type CarouselSize } from "../../../shared/carousel";
 import { isLive, runsApi, type RunDetail, type RunSummary } from "@/lib/api/runs";
 
 /* THE THREE PAGES THE RAIL OPENS BESIDE ITSELF, loaded when one is asked for
@@ -72,8 +76,8 @@ const References = lazy(() => import("@/pages/References").then((m) => ({ defaul
  * page at all: it is drawn under this page's Motion tab and its address
  * redirects here (see App.tsx).
  *
- * THE SHAPE. A title, one row of tabs — Image post, UGC clip, Faceless,
- * Shorts, Motion, Stewie — and under the chosen tab the fewest fields that
+ * THE SHAPE. A title, one row of tabs — Image post, Carousel, UGC clip,
+ * Faceless, Shorts, Motion, Stewie — and under the chosen tab the fewest fields that
  * pipeline needs. Everything ever made, of every kind, sits in the rail on
  * the left, newest first, with Autopilot and Publishing at the top of it:
  * the thing that fills the rail on a schedule, and the place a finished
@@ -94,13 +98,21 @@ const References = lazy(() => import("@/pages/References").then((m) => ({ defaul
  * outside that wrapper, because the rail already says where you are and a
  * strip above it would push the whole page down by its height for nothing.
  *
- * WHAT EACH TAB ACTUALLY CALLS, because the six are three different things
+ * WHAT EACH TAB ACTUALLY CALLS, because the seven are three different things
  * on the server. An image post is one request that holds the line until the
  * picture exists (`studioApi.create`). A UGC clip is queued through the
  * socialfeed area's own route, which names what will be spent before the
- * run starts. The other four are `video` RUNS on the shared queue — one
+ * run starts. The other five are `video` RUNS on the shared queue — one
  * `runsApi.start` with a `format` — and they finish in the background, so
  * the rail polls while anything is moving and stops when nothing is.
+ *
+ * THE CAROUSEL IS A RUN EVEN THOUGH IT MAKES NO VIDEO. Six slides, each coded
+ * as HTML, drawn by headless Chrome, measured and looked at by a vision model
+ * with up to two fixes apiece, is minutes of work — the image post's
+ * hold-the-line request would time out under it. So it is `format:
+ * "carousel"` on the same queue, and the rail learns which runs are carousels
+ * (and their first slide, for the thumbnail) from `carouselApi.list`, the way
+ * it learns a video's from `videoApi.list`.
  *
  * THE YOUTUBE TAB IS THE SHORTS TAB WITH THE SEARCH PUT BACK IN. Cutting
  * clips has always taken a URL, which assumed the choosing had already
@@ -120,10 +132,11 @@ const References = lazy(() => import("@/pages/References").then((m) => ({ defaul
  */
 
 // Reel creation is retired from Studio; existing Reel runs remain in history.
-type Make = "image" | "ugc" | "faceless" | "youtube" | "motion" | "stewie";
+type Make = "image" | "carousel" | "ugc" | "faceless" | "youtube" | "motion" | "stewie";
 
 const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[] = [
   { key: "image", label: "Image post", icon: ImageIcon, about: "A caption and a picture in the venture's own brand." },
+  { key: "carousel", label: "Carousel", icon: GalleryHorizontal, about: "Six slides in the venture's own brand — a hook, four points and a comment-bait ask — coded as HTML, drawn by the browser and checked by a vision model." },
   { key: "ugc", label: "UGC clip", icon: Clapperboard, about: "The product, from its own reference pictures, put in a scene and animated." },
   { key: "faceless", label: "Faceless video", icon: VideoIcon, about: "A script from the venture over stock footage, captions burned in." },
   /* Lucide has no YouTube mark in the version installed here, and drawing
@@ -157,9 +170,9 @@ function palette(v: Venture): string[] {
  *  after the venture and says nothing about the format. */
 type Generation =
   | { key: string; kind: "post"; ts: string; post: StudioPost }
-  | { key: string; kind: "run"; ts: string; run: RunSummary; job: (VideoJob & { clipCount: number }) | null; input: Record<string, string> | null };
+  | { key: string; kind: "run"; ts: string; run: RunSummary; job: (VideoJob & { clipCount: number }) | null; carousel: Carousel | null; input: Record<string, string> | null };
 
-const FORMAT_LABEL: Record<string, string> = { image: "Image post", ugc: "UGC clip", faceless: "Faceless video", shorts: "YouTube Shorts", reel: "Reel", motion: "Motion", stewie: "Stewie" };
+const FORMAT_LABEL: Record<string, string> = { image: "Image post", carousel: "Carousel", ugc: "UGC clip", faceless: "Faceless video", shorts: "YouTube Shorts", reel: "Reel", motion: "Motion", stewie: "Stewie" };
 
 function isMake(v: string | null): v is Make {
   return MAKES.some((m) => m.key === v);
@@ -215,6 +228,10 @@ export function Studio() {
   const runRows = runs.data?.runs ?? [];
   const settledCount = runRows.filter((r) => !isLive(r.status)).length;
   const videos = useApi(() => videoApi.list(railVenture).catch(() => null), [railVenture, settledCount]);
+  /* Which runs are carousels, and each one's title and first slide. Re-read on
+     the same beat as the videos — a carousel row exists from its first step,
+     but its thumbnail is only worth fetching again when a run settles. */
+  const carousels = useApi(() => carouselApi.list(railVenture).catch(() => null), [railVenture, settledCount]);
   const liveIds = runRows.filter((r) => isLive(r.status)).map((r) => r.id).join(",");
   const liveDetails = useApi(
     () => Promise.all(liveIds.split(",").filter(Boolean).map((id) => runsApi.get(id).catch(() => null))),
@@ -223,13 +240,14 @@ export function Studio() {
 
   const generations = useMemo<Generation[]>(() => {
     const jobs = new Map((videos.data?.videos ?? []).map((v) => [v.runId, v]));
+    const decks = new Map((carousels.data?.carousels ?? []).map((c) => [c.runId, c]));
     const inputs = new Map((liveDetails.data ?? []).filter((d): d is RunDetail => !!d).map((d) => [d.id, d.input]));
     const rows: Generation[] = [
       ...(posts.data?.posts ?? []).map((post) => ({ key: `post:${post.id}`, kind: "post" as const, ts: post.ts, post })),
-      ...(runs.data?.runs ?? []).map((run) => ({ key: `run:${run.id}`, kind: "run" as const, ts: run.queuedAt, run, job: jobs.get(run.id) ?? null, input: inputs.get(run.id) ?? null })),
+      ...(runs.data?.runs ?? []).map((run) => ({ key: `run:${run.id}`, kind: "run" as const, ts: run.queuedAt, run, job: jobs.get(run.id) ?? null, carousel: decks.get(run.id) ?? null, input: inputs.get(run.id) ?? null })),
     ];
     return rows.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
-  }, [posts.data, runs.data, videos.data, liveDetails.data]);
+  }, [posts.data, runs.data, videos.data, carousels.data, liveDetails.data]);
   const open = generations.find((g) => g.key === openKey) ?? null;
 
   function replacePost(post: StudioPost) {
@@ -240,18 +258,24 @@ export function Studio() {
     if (openKey === `post:${id}`) setParam("open", null);
   }
 
+  async function deleteRun(id: string) {
+    await runsApi.remove(id);
+    runs.setData((d) => d ? { ...d, runs: d.runs.filter((r) => r.id !== id) } : d);
+    videos.setData((d) => d ? { ...d, videos: d.videos.filter((v) => v.runId !== id) } : d);
+    carousels.setData((d) => d ? { ...d, carousels: d.carousels.filter((c) => c.runId !== id) } : d);
+    if (openKey === `run:${id}`) setParam("open", null);
+    runs.reload();
+    videos.reload();
+    carousels.reload();
+  }
+
   async function deleteGeneration(g: Generation) {
     if (g.kind === "post") {
       await studioApi.remove(g.post.id);
       forgetPost(g.post.id);
       posts.reload();
     } else {
-      await runsApi.remove(g.run.id);
-      runs.setData((d) => d ? { ...d, runs: d.runs.filter((r) => r.id !== g.run.id) } : d);
-      videos.setData((d) => d ? { ...d, videos: d.videos.filter((v) => v.runId !== g.run.id) } : d);
-      if (openKey === g.key) setParam("open", null);
-      runs.reload();
-      videos.reload();
+      await deleteRun(g.run.id);
     }
   }
 
@@ -294,7 +318,7 @@ export function Studio() {
   );
   const column = openKey ? (
     <GenerationColumn key={openKey} openKey={openKey} generation={open} ventures={ventures}
-      onChangedPost={replacePost} onDeletedPost={forgetPost} />
+      onChangedPost={replacePost} onDeletedPost={forgetPost} onDeleteRun={deleteRun} />
   ) : create;
 
   const rail = <Rail
@@ -417,12 +441,13 @@ function CreateColumn({ make, onMake, ventures, venture, onVenture, readiness, o
 
 /* -------------------------------------------------------- generation view */
 
-function GenerationColumn({ openKey, generation, ventures, onChangedPost, onDeletedPost }: {
+function GenerationColumn({ openKey, generation, ventures, onChangedPost, onDeletedPost, onDeleteRun }: {
   openKey: string;
   generation: Generation | null;
   ventures: Venture[];
   onChangedPost: (post: StudioPost) => void;
   onDeletedPost: (id: string) => void;
+  onDeleteRun: (id: string) => Promise<void>;
 }) {
   const runId = openKey.startsWith("run:") ? openKey.slice(4) : "";
   const postId = openKey.startsWith("post:") ? openKey.slice(5) : "";
@@ -436,7 +461,7 @@ function GenerationColumn({ openKey, generation, ventures, onChangedPost, onDele
   return (
     <section aria-label="Generation details" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-6 pb-20 sm:px-8">
       <div className="mx-auto w-full max-w-[820px]">
-        {runId ? <RunPanel key={runId} runId={runId} /> : selectedPost ? (
+        {runId ? <RunPanel key={runId} runId={runId} onDelete={() => onDeleteRun(runId)} /> : selectedPost ? (
           <PostCard post={selectedPost}
             palette={(() => { const v = ventures.find((x) => x.id === selectedPost.ventureId); return v ? palette(v) : undefined; })()}
             onChanged={(next) => { fallback.setData(next); onChangedPost(next); }} onDeleted={onDeletedPost} />
@@ -542,7 +567,7 @@ function Rail({ ventures, railVenture, onRailVenture, generations, loading, open
   );
 }
 
-const FORMAT_ICON: Record<string, typeof Film> = { ugc: Clapperboard, faceless: VideoIcon, shorts: Scissors, reel: Film, motion: Shapes, stewie: Tv };
+const FORMAT_ICON: Record<string, typeof Film> = { carousel: GalleryHorizontal, ugc: Clapperboard, faceless: VideoIcon, shorts: Scissors, reel: Film, motion: Shapes, stewie: Tv };
 
 function GenerationThumbnail({ src, children }: { src?: string | null; children: ReactNode }) {
   const [failedSource, setFailedSource] = useState<string | null>(null);
@@ -577,18 +602,19 @@ function GenerationRow({ generation: g, active, onClick, onDelete }: { generatio
     );
   }
   const r = g.run;
-  const format = g.job?.format ?? g.input?.format ?? "";
+  const format = g.carousel ? "carousel" : g.job?.format ?? g.input?.format ?? "";
   const Icon = FORMAT_ICON[format] ?? VideoIcon;
   const live = isLive(r.status);
   const title =
-    g.job?.script?.title ?? g.job?.script?.brief ?? g.input?.brief ?? g.input?.url ?? r.ventureName ?? "Video";
+    g.carousel?.title ?? g.job?.script?.title ?? g.job?.script?.brief ?? g.input?.brief ?? g.input?.url ?? r.ventureName ?? "Video";
   const what = FORMAT_LABEL[format] ?? "Video";
-  const clips = g.job && g.job.clipCount > 0 ? ` · ${g.job.clipCount} clips` : "";
+  const clips = g.job && g.job.clipCount > 0 ? ` · ${g.job.clipCount} clips`
+    : g.carousel && g.carousel.slides.length ? ` · ${g.carousel.slides.length} slides` : "";
   const details = `${what}${clips} · ${live ? r.status : r.status === "done" ? (g.job?.onDisk === false ? "file gone" : "done") : r.status} · ${ago(r.queuedAt)}`;
   return (
     <div className={cn("sidebar-row flex min-w-0 items-center rounded-lg", active ? "bg-accent" : "hover:bg-accent/60")}>
       <button onClick={onClick} aria-current={active ? "true" : undefined} title={`${title}\n${details}`} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left">
-        <GenerationThumbnail src={live ? null : g.job?.thumbnailUrl}>
+        <GenerationThumbnail src={live ? null : g.carousel?.thumbnailUrl ?? g.job?.thumbnailUrl}>
           {live ? <Loader2 className="text-muted-foreground size-4 animate-spin" strokeWidth={1.6} /> : <Icon className="text-muted-foreground size-4" strokeWidth={1.6} />}
         </GenerationThumbnail>
         <span className="min-w-0 flex-1 overflow-hidden">
@@ -647,6 +673,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
 }) {
   const [brief, setBrief] = useState("");
   const [shape, setShape] = useState<StudioFormat>("square");
+  const [size, setSize] = useState<CarouselSize>(DEFAULT_CAROUSEL_SIZE);
   const [platform, setPlatform] = useState<string | null>(null);
   const [assetIds, setAssetIds] = useState<string[]>([]);
   const [autoReferences, setAutoReferences] = useState(true);
@@ -701,7 +728,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const [background, setBackground] = useState("");
   const gameplay = stewie.data?.backgrounds ?? footage.data?.backgrounds ?? (stewie.data?.worker?.backgrounds ?? []).map(id => ({ id, label: gameplayLabel(id), thumbnailUrl: null }));
 
-  const needsVenture = make === "image" || make === "ugc";
+  const needsVenture = make === "image" || make === "ugc" || make === "carousel";
   const ready =
     !busy && (make !== "motion" || !voiceover || narrationReady) &&
     (!needsVenture || !!venture) &&
@@ -722,6 +749,13 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         const res = await studioApi.create({ ventureId: venture!.id, brief: brief.trim(), format: shape, platform, assetIds: autoReferences ? undefined : assetIds });
         onPost(res.post);
         setBrief("");
+      } else if (make === "carousel") {
+        /* A video RUN with no video in it — see the header. The prompt is the
+           angle; empty lets the model choose one from the venture's facts. */
+        const run = await runsApi.start({ kind: "video", ventureId: venture!.id, input: { format: "carousel", brief: brief.trim(), size } });
+        setSaid(run.status === "running" ? "Started. Each slide appears in the rail's carousel as it is checked." : "Queued behind the runs ahead of it.");
+        setBrief("");
+        onRun(run.id);
       } else if (make === "ugc") {
         const res = await socialfeedApi.startUgc({ venture: venture!.slug, brief: brief.trim(), assets: assetIds, aspect });
         setSaid(`Queued. Image: ${res.spend.image}. Video: ${res.spend.video}.`);
@@ -785,11 +819,11 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   );
   const briefField = (
     <Field
-      label={make === "image" ? "What should the post be about? (optional)" : make === "youtube" ? "What to look for (optional)" : make === "ugc" ? "Describe the opening shot" : make === "stewie" ? `What should they explain?${stewieMode === "pages" ? " (optional)" : ""}` : "What should the video be about?"}
-      hint={make === "image" ? "Leave this empty and AI picks an angle from the venture’s saved facts and brand." : make === "youtube" ? "Optional direction for the moments AI selects." : make === "ugc" ? "The person, the setting, and what happens. Reference pictures are optional." : make === "motion" ? "AI writes the scenes and chooses their timing. A saved scene list is optional." : make === "faceless" ? "AI writes the narration and finds matching footage. Length follows the script unless you set a target." : undefined}
+      label={make === "image" ? "What should the post be about? (optional)" : make === "carousel" ? "What should the carousel be about? (optional)" : make === "youtube" ? "What to look for (optional)" : make === "ugc" ? "Describe the opening shot" : make === "stewie" ? `What should they explain?${stewieMode === "pages" ? " (optional)" : ""}` : "What should the video be about?"}
+      hint={make === "image" ? "Leave this empty and AI picks an angle from the venture’s saved facts and brand." : make === "carousel" ? "An angle or a topic. Leave it empty and AI picks one from the venture’s saved facts." : make === "youtube" ? "Optional direction for the moments AI selects." : make === "ugc" ? "The person, the setting, and what happens. Reference pictures are optional." : make === "motion" ? "AI writes the scenes and chooses their timing. A saved scene list is optional." : make === "faceless" ? "AI writes the narration and finds matching footage. Length follows the script unless you set a target." : undefined}
     >
       <Textarea aria-label={make === "youtube" ? "What to look for" : "Generation brief"} value={brief} onChange={(e) => setBrief(e.target.value)} rows={3} maxLength={make === "stewie" ? 2500 : 2000}
-        placeholder={make === "image" ? "For example, introduce our weekly digests" : make === "youtube" ? "For example, practical advice for first-time founders" : make === "ugc" ? "A person at their desk, holding the product up to the camera…" : make === "faceless" ? "For example, five hidden gems in Lisbon" : make === "motion" ? "For example, three reasons to try our new app" : "One or two lines…"}
+        placeholder={make === "image" ? "For example, introduce our weekly digests" : make === "carousel" ? "For example, five mistakes people make choosing an LLM API" : make === "youtube" ? "For example, practical advice for first-time founders" : make === "ugc" ? "A person at their desk, holding the product up to the camera…" : make === "faceless" ? "For example, five hidden gems in Lisbon" : make === "motion" ? "For example, three reasons to try our new app" : "One or two lines…"}
         className="text-[14.5px]" />
     </Field>
   );
@@ -818,6 +852,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const shapeField = <Field label="Shape"><ShapePicker value={shownAspect} onChange={(value) => { setAspect(value); setAspectChanged(true); }} options={ASPECT_OPTIONS} /></Field>;
   const cost = {
     image: readiness?.image.ready ? `One image, billed through ${readiness.image.providerLabel}.` : "Connect an image provider to include a picture. Otherwise, only the caption is saved.",
+    carousel: "Your workspace AI plans six slides and codes each one; the browser on this box draws them. Each slide is measured for text outside the frame and, if the model can see, looked at for overlap, contrast and typos — up to two fixes per slide. No image provider is used.",
     ugc: "Creates a still, then animates it if a video model is connected. Generation uses the connected providers’ credits.",
     faceless: "Your workspace AI writes the script; stock footage and narration are assembled into a video.",
     youtube: "AI selects complete moments from the transcript. Clips are vertical by default; missing transcript or framing support is noted in the result.",
@@ -866,11 +901,16 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
       {make === "ugc" && assetsField}
       {make === "faceless" && shapeField}
       {make === "stewie" && <GameplayPicker backgrounds={gameplay} value={background} onChange={setBackground} loading={footage.loading && stewie.loading} />}
+      {make === "carousel" && <Field label="Size">
+        <ShapePicker value={size} onChange={setSize} label="Carousel size"
+          options={(Object.keys(CAROUSEL_SIZES) as CarouselSize[]).map((key) => ({ key, label: CAROUSEL_SIZES[key].label, ratio: CAROUSEL_SIZES[key].ratio }))} />
+        <p className="text-muted-foreground text-[12.5px]">{CAROUSEL_SIZES[size].width}×{CAROUSEL_SIZES[size].height} pixels per slide.</p>
+      </Field>}
       {make === "image" && <Field label="Written for">
         <Chips value={platform ?? ""} onChange={(v) => setPlatform(v || null)} options={["", ...PLATFORMS].map((p) => ({ key: p, label: <SocialPlatformLabel platform={p} /> }))} />
       </Field>}
 
-      <details open={optionsOpen} onToggle={(e) => setOptionsOpen(e.currentTarget.open)} className="group/options border-line-soft border-t pt-3">
+      {make !== "carousel" && <details open={optionsOpen} onToggle={(e) => setOptionsOpen(e.currentTarget.open)} className="group/options border-line-soft border-t pt-3">
         <summary className="text-muted-foreground hover:text-foreground flex cursor-pointer list-none items-center gap-2 text-[13px] [&::-webkit-details-marker]:hidden">
           <ChevronDown className="size-3.5 transition-transform group-open/options:rotate-180" />
           Optional settings{!needsVenture && venture ? ` · ${venture.name}` : ""}
@@ -901,7 +941,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
             {spec && <SceneListEditor key={spec} id={spec} onChanged={() => specs.reload()} onDeleted={() => { setSpec(""); specs.reload(); }} />}
           </>}
         </div>
-      </details>
+      </details>}
 
       <div className="flex flex-wrap items-center gap-2.5">
         <Button disabled={!ready} onClick={() => void go()}>
@@ -1111,7 +1151,7 @@ function YoutubePicker({ keeps, onKeeps }: { keeps: Record<string, Keep>; onKeep
 /* ------------------------------------------------------------- run panel */
 
 /** Read the run directly, so links also work outside the rail's latest 60. */
-function RunPanel({ runId }: { runId: string }) {
+function RunPanel({ runId, onDelete }: { runId: string; onDelete: () => Promise<void> }) {
   const detail = useApi(() => runsApi.get(runId), [runId]);
   const run = detail.data;
   const live = run ? isLive(run.status) : false;
@@ -1122,6 +1162,7 @@ function RunPanel({ runId }: { runId: string }) {
     return () => clearInterval(t);
   }, [live, reload]);
   const d = detail.data;
+  const carousel = d?.input?.format === "carousel";
   if (!run) return (
     <div className="bg-card grid gap-3 rounded-[14px] p-4.5">
       {detail.error ? <><p role="alert">{detail.error}</p><Button variant="outline" onClick={reload}>Try again</Button></>
@@ -1144,12 +1185,17 @@ function RunPanel({ runId }: { runId: string }) {
       </div>
       {run.error && <p className="text-destructive text-[13.5px] leading-relaxed">{run.error}</p>}
       {live && d && d.steps.length > 0 && <RunSteps steps={d.steps} />}
+      {/* A carousel is drawn while it is still moving, a slide at a time:
+          `version` is the count of finished steps, so it is re-read exactly
+          when a slide lands. */}
+      {carousel && <CarouselResult runId={run.id} version={d?.steps.filter((s) => s.finishedAt).length ?? 0}
+        onDelete={live ? undefined : onDelete} />}
       {live && (!d || d.steps.length === 0) && (
         <p className="text-muted-foreground text-[13px]">
           {run.status === "queued" ? "Waiting its turn. The queue runs one at a time." : "Working. The steps appear here as it goes."}
         </p>
       )}
-      {!live && <VideoResult runId={run.id} />}
+      {!live && !carousel && <VideoResult runId={run.id} />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { useStore } from "@/lib/store";
 import { bytes } from "@/lib/format";
 import { useApi } from "@/hooks/useApi";
 import { videoApi, type VideoJob } from "@/lib/api/video";
+import { CarouselResult } from "@/components/studio/CarouselResult";
 
 /**
  * THE THING THE RUN MADE, ABOVE THE NOTE ABOUT IT.
@@ -43,7 +44,10 @@ export function VideoResult({ runId }: { runId: string }) {
      for no picture. The parent remounts this when the run settles. */
   const doc = useApi(() => videoApi.get(runId).catch(() => null), [runId]);
   const job = doc.data;
-  if (!job) return null;
+  /* A CAROUSEL RUN HAS NO VIDEO ROW. It is a `video` run that made six
+     pictures instead (videoplus/carousel.ts), so a run with no video is asked
+     once more, for a carousel; anything else still draws nothing. */
+  if (!job) return doc.loading ? null : <CarouselResult runId={runId} />;
   return <VideoPanel job={job} />;
 }
 
