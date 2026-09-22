@@ -226,7 +226,7 @@ export async function stewieVideo(opts: {
     const prepared = await ask<PreparedReel>(a, "/agent/reel/prepare-script", {
       method: "POST", body: JSON.stringify({ prompt: input.prompt, mode, urls }),
     }, AbortSignal.any([AbortSignal.timeout(120_000), ...(signal ? [signal] : [])]));
-    script = await writeStewieScript(prepared, signal);
+    script = await writeStewieScript(prepared, signal, opts.venture?.id ?? null);
     s.endStep(scriptStep, `${script.provider}${script.model ? ` · ${script.model}` : ""}`);
   } catch (error) {
     s.endStep(scriptStep, "failed");

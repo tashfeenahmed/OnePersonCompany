@@ -33,6 +33,7 @@ import { WireError } from "../../chat/wire.ts";
 import { activeModel, completeTooled } from "../../models/provider.ts";
 import { parseToolCalls } from "./tools.ts";
 import { capability, isFresh, writeCapability, type Capability, type ToolMode } from "./store.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 /** The whole probe surface: one function, one string parameter, no side
  *  effects on the box. It is not a skill tool and never will be — a model that
@@ -136,6 +137,8 @@ export async function probeTools(opts: { force?: boolean; signal?: AbortSignal }
       tools: [PROBE_TOOL],
       toolChoice: "auto",
       signal: opts.signal,
+      /* A capability probe is about the box, not a venture. */
+      venture: PORTFOLIO_VENTURE,
     });
     const { calls, shape } = parseToolCalls(reply.message);
     const called = calls.some((c) => c.name === PROBE_TOOL.function.name);

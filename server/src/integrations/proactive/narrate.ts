@@ -32,6 +32,7 @@ import { complete, NoProviderError } from "../../models/provider.ts";
 import { flattenNumbers, movements, type Movement } from "./movement.ts";
 import { NARRATION_SKILLS, snapshotSkills } from "./catalogue.ts";
 import { setNarration, snapshots, type RuleRow } from "./store.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 /** How many movements from any one skill, and in total, reach the prompt. */
 const PER_SKILL = 6;
@@ -174,7 +175,7 @@ export async function narrate(
         { role: "system", content: SYSTEM },
         { role: "user", content: buildPrompt(r, observed, against, context, compared) },
       ],
-      { signal },
+      { signal, venture: r.venture_id ?? PORTFOLIO_VENTURE },
     );
     const text = reply.text.trim();
     if (!text) {

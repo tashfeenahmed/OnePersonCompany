@@ -46,6 +46,7 @@ import { activeProvider, complete, type VisionTurn } from "../../models/provider
 import { imageDimensions } from "../../tools/chrome.ts";
 import { lastShot } from "../ventures/capture.ts";
 import { optedIn, settings } from "./settings.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 /* ------------------------------------------------------------- the probe */
 
@@ -128,6 +129,8 @@ export async function capability(opts: { force?: boolean } = {}): Promise<Capabi
   try {
     const reply = await complete(turns, {
       model: model ?? undefined,
+      /* A capability probe is about the box, not a venture. */
+      venture: PORTFOLIO_VENTURE,
       /* One 1x1 pixel: one tile. Declared for the same reason the real call
          declares its own — see `imageTokens`. */
       imageTokens: imageTokens(1, 1),
@@ -538,7 +541,7 @@ export async function lookAt(v: VentureRow, opts: { force?: boolean } = {}): Pro
   let provider: string | null = null;
   try {
     const size = imageDimensions(bytes);
-    const reply = await complete(turns, { imageTokens: imageTokens(size?.width ?? null, size?.height ?? null) });
+    const reply = await complete(turns, { imageTokens: imageTokens(size?.width ?? null, size?.height ?? null), venture: v.id });
     text = reply.text;
     model = reply.model;
     provider = reply.provider;

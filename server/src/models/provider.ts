@@ -112,6 +112,14 @@ export type CompleteOptions = {
   /** Answer with this connected provider instead of the workspace's — see
    *  `providerFor`. */
   provider?: ProviderId;
+  /**
+   * WHICH VENTURE THIS CALL IS FOR, in the budget ledger. A call made inside
+   * a run is filed under the run's venture whatever is named here; a call made
+   * outside one — a gate, a writer, a caption, a triage pass — is filed under
+   * the venture it names, and under the portfolio when it names none. See
+   * `ventureFor` in runtime/budgets.ts for why null is no longer stored.
+   */
+  venture?: string | null;
   /** Override the provider's default model for this call. */
   model?: string;
   signal?: AbortSignal;
@@ -459,7 +467,7 @@ export async function complete(turns: VisionTurn[], opts: CompleteOptions = {}):
        truncated reply a smaller allowance produced. */
     budgeted({ turns: budgetShape(turns, opts.imageTokens), model: opts.model, provider: providerFor(opts.provider)?.id, ...(opts.jsonObject ? { jsonObject: true } : {}), ...(want ? { maxOutputTokens: want } : {}) }, maxOutputTokens =>
       completeUnmetered(turns, opts, maxOutputTokens),
-    false, want);
+    false, want, opts.venture);
   if (runContext.getStore()) return work();
   return runContext.run({ id: `direct:${randomUUID()}`, venture: null, automation: true, signal: opts.signal ?? AbortSignal.timeout(budgets().runSeconds * 1000), sequence: 0, resume: false }, work);
 }
@@ -675,7 +683,7 @@ export async function completeTooled(
   const work = () =>
     budgeted({ turns, model: opts.model, provider: providerFor(opts.provider)?.id, ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}) }, (maxOutputTokens) =>
       completeTooledUnmetered(turns, opts, maxOutputTokens),
-    false, opts.maxOutputTokens);
+    false, opts.maxOutputTokens, opts.venture);
   /* A caller already inside a run context keeps it — which is the whole point
      for a tool loop: every round of one turn reserves against ONE run id, so
      the per-run call and dollar ceilings bound the loop rather than each of

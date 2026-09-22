@@ -43,8 +43,12 @@ import {
   openRouterCredits,
   openRouterKeys,
   replicatePredictions,
+  ventureRows,
+  type OpenRouterKeyRecord,
+  type VentureRow,
 } from "../db.ts";
 import { CANNOT } from "../providers/replicate.ts";
+import { PSEUDO_VENTURES, isPseudoVenture } from "../runtime/budgets.ts";
 /* Four places, and a NUMBER rather than a string so nothing downstream parses
    one back into arithmetic. The rule and the reason live in shared/money.ts. */
 import { money } from "../shared/money.ts";
@@ -400,6 +404,174 @@ function replicateSection(fromIso: string) {
   };
 }
 
+/* ------------------------------------------------------------- ventures */
+
+/**
+ * WHAT EACH VENTURE'S MODEL WORK COST, as far as this box can say — and a
+ * plain statement of how far that is.
+ *
+ * TWO LEDGERS, AND THEY DO NOT JOIN. This box's own meter (`budget_usage`) is
+ * one row per model call OPC made, filed under the venture the call was for —
+ * a synthesis pass for Betaware, a caption for Viral Video Maker — or under a
+ * pseudo-venture (`portfolio`, `chief`) when the work spanned the roster. The
+ * providers' invoices (OpenAI, OpenRouter) are what the products THEMSELVES
+ * spent calling the shared keys from their own servers: Betaware's app, My
+ * Voice Agents' app, Viral Video Maker's generation. OpenAI reports one
+ * project for all of them and Replicate reports no money at all, so that half
+ * cannot be split by venture from here — and it says so rather than
+ * apportioning a bill by a token count that never touched it. The one honest
+ * bridge is an OpenRouter key NAMED for a product: its per-key totals are that
+ * product's own spend and are shown against the venture whose name it carries.
+ */
+type MeteredRow = {
+  venture_id: string | null;
+  calls: number;
+  tokens: number;
+  reported: number;
+  agent: number;
+};
+
+/** `viral-video-maker`, `Viral Video Maker`, `ViralVideoMaker` and
+ *  `viralvideomaker.co` are one name; `FLA` and `GetPreg` are nobody's. */
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+export function keyNamesVenture(keyName: string, v: Pick<VentureRow, "name" | "slug" | "host" | "website">): boolean {
+  const k = norm(keyName);
+  if (!k) return false;
+  let host = v.host ?? "";
+  if (!host && v.website) {
+    try { host = new URL(v.website).hostname; } catch { host = ""; }
+  }
+  const bare = host.replace(/^www\./, "");
+  const candidates = [v.name, v.slug, bare, bare.split(".")[0] ?? ""].map(norm).filter(Boolean);
+  return candidates.includes(k);
+}
+
+/** Which of this box's OWN calls in the window went to a provider that also
+ *  sends an invoice — the fact that decides whether the invoice is OPC's
+ *  spend or the products'. Read off the two ledgers that name a backend. */
+function ownBackends(fromIso: string): string[] {
+  const seen = new Set<string>();
+  const runs = db
+    .prepare("SELECT DISTINCT backend FROM agent_runs WHERE coalesce(started_at, queued_at) >= ? AND backend IS NOT NULL")
+    .all(fromIso) as { backend: string }[];
+  const chats = db
+    .prepare("SELECT DISTINCT backend FROM chat_messages WHERE role = 'assistant' AND ts >= ? AND backend IS NOT NULL")
+    .all(fromIso) as { backend: string }[];
+  for (const r of [...runs, ...chats]) seen.add(r.backend);
+  return [...seen].sort();
+}
+
+export function venturesSection(fromIso: string, keys: OpenRouterKeyRecord[], openaiProjects: { id: string; name: string; usd: number }[]) {
+  const metered = db
+    .prepare(
+      `SELECT venture_id, count(*) AS calls, coalesce(sum(tokens), 0) AS tokens,
+              coalesce(sum(status = 'reported'), 0) AS reported,
+              coalesce(sum(status = 'unmetered-agent'), 0) AS agent
+         FROM budget_usage WHERE at >= ? GROUP BY venture_id`,
+    )
+    .all(fromIso) as unknown as MeteredRow[];
+  const byVenture = new Map(metered.map((r) => [r.venture_id, r]));
+  const allTokens = metered.reduce((n, r) => n + r.tokens, 0);
+  const allCalls = metered.reduce((n, r) => n + r.calls, 0);
+
+  const ventures = ventureRows();
+  const claimed = new Set<string>();
+  const keysFor = (v: VentureRow) => {
+    const mine = keys.filter((k) => keyNamesVenture(k.name, v));
+    for (const k of mine) claimed.add(`${k.account_id}:${k.name}`);
+    if (!mine.length) return null;
+    return {
+      names: mine.map((k) => k.name),
+      usd: money(mine.reduce((n, k) => n + k.usd, 0)),
+      usdMonth: money(mine.reduce((n, k) => n + k.usd_month, 0)),
+      usdWeek: money(mine.reduce((n, k) => n + k.usd_week, 0)),
+      usdDay: money(mine.reduce((n, k) => n + k.usd_day, 0)),
+    };
+  };
+  const meteredOf = (id: string | null) => {
+    const r = byVenture.get(id);
+    return {
+      calls: r?.calls ?? 0,
+      tokens: r?.tokens ?? 0,
+      reportedCalls: r?.reported ?? 0,
+      agentCalls: r?.agent ?? 0,
+      /** This venture's share of every token this box metered in the window. */
+      share: allTokens > 0 ? Number(((r?.tokens ?? 0) / allTokens).toFixed(4)) : 0,
+    };
+  };
+
+  const list: {
+    id: string | null; slug: string | null; name: string; kind: "venture" | "pseudo" | "unattributed";
+    why?: string; metered: ReturnType<typeof meteredOf>; openrouterKeys: ReturnType<typeof keysFor>;
+  }[] = ventures.map((v) => ({
+    id: v.id, slug: v.slug, name: v.name, kind: "venture" as const,
+    metered: meteredOf(v.id), openrouterKeys: keysFor(v),
+  }));
+  for (const [id, p] of Object.entries(PSEUDO_VENTURES))
+    list.push({ id, slug: id, name: p.name, kind: "pseudo", why: p.why, metered: meteredOf(id), openrouterKeys: null });
+  /* Rows filed before every call carried a venture, and rows for a venture
+     since deleted: both are money that reached no venture, and both are listed
+     rather than dropped so the column still adds up to the total. */
+  for (const r of metered) {
+    if (r.venture_id === null) list.push({
+      id: null, slug: null, name: "Unattributed", kind: "unattributed",
+      why: "Calls metered before 22 Sep 2026, when a call outside a run was filed with no venture. No new row is written this way.",
+      metered: meteredOf(null), openrouterKeys: null,
+    });
+    else if (!ventures.some((v) => v.id === r.venture_id) && !isPseudoVenture(r.venture_id)) list.push({
+      id: r.venture_id, slug: null, name: r.venture_id, kind: "unattributed",
+      why: "Filed under a venture id that is no longer on the roster.",
+      metered: meteredOf(r.venture_id), openrouterKeys: null,
+    });
+  }
+  list.sort((a, b) => b.metered.tokens - a.metered.tokens || a.name.localeCompare(b.name));
+
+  const unclaimedKeys = keys.filter((k) => !claimed.has(`${k.account_id}:${k.name}`));
+  const backends = ownBackends(fromIso);
+  const invoicedUsedHere = backends.filter((b) => b === "provider:openai" || b === "provider:openrouter");
+
+  return {
+    list,
+    metered: {
+      calls: allCalls,
+      tokens: allTokens,
+      /** Every backend this box's own calls went to in the window, as the run
+       *  and chat ledgers name it. */
+      backends,
+      note:
+        "One row per model call this box made, filed under the venture the call was for. " +
+        "Tokens are what the backend reported, or the reservation where it reported nothing; " +
+        "no dollars, because the meter prices nothing unless a budget price per million is set.",
+    },
+    unattributed: {
+      openai: {
+        usd: money(openaiProjects.reduce((n, p) => n + p.usd, 0)),
+        projects: openaiProjects.map((p) => p.name),
+        why:
+          invoicedUsedHere.includes("provider:openai")
+            ? "OpenAI bills one project for every product and this box's own calls also went to it in the window, so the bill mixes product-side spend with OPC's and neither half can be split by venture from here."
+            : "OpenAI bills one project for every product, and none of this box's own calls in the window went to OpenAI, so this is the products' own spend — Betaware, My Voice Agents, Viral Video Maker and the rest calling the shared key from their own servers. It cannot be split by venture until each product has its own project.",
+      },
+      openrouter: {
+        usd: money(unclaimedKeys.reduce((n, k) => n + k.usd, 0)),
+        usdMonth: money(unclaimedKeys.reduce((n, k) => n + k.usd_month, 0)),
+        keys: unclaimedKeys.map((k) => k.name),
+        why:
+          "OpenRouter keys whose name is not a venture's name, slug or host. Their spend is real and belongs to whatever uses them; nothing here guesses which venture that is.",
+      },
+      replicate: {
+        why: "Replicate publishes no cost at all (see `replicate.cannot`), so Viral Video Maker's generation spend there has no dollar figure to attribute.",
+      },
+    },
+    note:
+      "Two ledgers that do not join. `metered` is OPC's own model work by venture; the provider invoices above are what the products themselves spent on the shared keys. " +
+      "The only bridge is an OpenRouter key named for a product, shown under that venture as `openrouterKeys`. " +
+      (invoicedUsedHere.length
+        ? `This box's own calls went to ${invoicedUsedHere.join(" and ")} in the window, so part of that invoice is OPC's.`
+        : "None of this box's own calls in the window went to OpenAI or OpenRouter, so no share of those invoices is apportioned by metered tokens: it would be a number about nothing."),
+  };
+}
+
 /* ------------------------------------------------------------------ route */
 
 costs.get("/", (c) => {
@@ -409,6 +581,7 @@ costs.get("/", (c) => {
   );
   const fromMs = Date.now() - days * 86_400_000;
   const from = utcDay(fromMs);
+  const openai = openaiSection(from);
 
   return c.json({
     window: { days, from, to: utcDay(Date.now()) },
@@ -433,8 +606,11 @@ costs.get("/", (c) => {
         "net of VAT. Nothing here converts between them — a combined figure would " +
         "need a real, dated exchange rate, which this box does not fetch.",
     },
-    openai: openaiSection(from),
+    openai,
     openrouter: openrouterSection(from),
     replicate: replicateSection(new Date(fromMs).toISOString()),
+    /* Per venture: OPC's own metered calls, the OpenRouter keys named for a
+       product, and a plain statement of what stays portfolio-wide and why. */
+    ventures: venturesSection(new Date(fromMs).toISOString(), openRouterKeys(), openai.projects),
   });
 });

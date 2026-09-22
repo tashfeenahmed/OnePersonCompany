@@ -30,8 +30,32 @@ export function saveBudgets(value: unknown): string | null {
 }
 export function queuePaused() { return readFlag(RUNTIME_KEYS.queuePaused); }
 export function setQueuePaused(paused: boolean) { writeFlag(RUNTIME_KEYS.queuePaused, paused); }
+/**
+ * A run's venture is null when the RUN does not decide it: a pipeline stage
+ * that walks every venture, a chat with nobody's venture open, a model probe.
+ * The CALL then names one where it can (`CompleteOptions.venture`), and what
+ * neither names is filed under a pseudo-venture rather than left null —
+ * because 947 rows and 7.6M tokens of "venture_id IS NULL" answered nobody's
+ * question about what the money was for, and a per-venture cost figure with
+ * a third of the ledger missing from every venture is not a figure.
+ */
 type Context = { id: string; venture: string | null; automation: boolean; signal: AbortSignal; sequence: number; resume: boolean };
 export const runContext = new AsyncLocalStorage<Context>();
+/** Work for the whole portfolio and no one venture: the nightly pipeline's
+ *  cross-venture stages, mail triage, people, model probes, the model test. */
+export const PORTFOLIO_VENTURE = "portfolio";
+/** The chief of staff's own work for the owner: a chat with no venture open,
+ *  the chief's memory pass, the morning briefing. */
+export const CHIEF_VENTURE = "chief";
+export const PSEUDO_VENTURES: Record<string, { name: string; why: string }> = {
+  [PORTFOLIO_VENTURE]: { name: "Portfolio", why: "Model calls that work across every venture at once: pipeline stages that walk the roster, mail triage, people and commitments, the model probe and the model test page." },
+  [CHIEF_VENTURE]: { name: "Chief of staff", why: "The chief of staff's own work for the owner: chat turns with no venture open, the memory tidy, the briefing." },
+};
+export const isPseudoVenture = (id: string | null) => id !== null && Object.hasOwn(PSEUDO_VENTURES, id);
+/** The venture a call is filed under: the run's, else the call's, else the portfolio. */
+export function ventureFor(ctx: Pick<Context, "venture"> | undefined, named?: string | null): string {
+  return ctx?.venture ?? named ?? PORTFOLIO_VENTURE;
+}
 export function hasMeteredLimits(p = budgets()) { return !!(p.runTokens || p.dailyTokens || p.ventureDailyTokens || p.runUsd || p.dailyUsd || p.ventureDailyUsd); }
 export function assertMeterable(kind: string) {
   if (hasMeteredLimits() && ["video", "shotsqa"].includes(kind)) throw new Error("This job can use tools whose costs are not metered. It is blocked while token or dollar budgets are enabled.");
@@ -61,8 +85,9 @@ export function outputAllowance(request?: number, p = budgets()): number {
   return Math.max(p.maxOutputTokens, Math.min(OUTPUT_TOKENS_CEILING, Math.floor(request)));
 }
 
-function reserve(turns: unknown, agent: boolean, maxOutputTokens?: number) {
+function reserve(turns: unknown, agent: boolean, maxOutputTokens?: number, named?: string | null) {
   const ctx = runContext.getStore(); if (!ctx) return null;
+  const filedUnder = ventureFor(ctx, named);
   ctx.signal.throwIfAborted();
   const p = budgets();
   if (agent && hasMeteredLimits(p)) throw new Error("This agent cannot guarantee usage limits across its tools. Select a direct model provider or disable token and dollar budgets for this work.");
@@ -76,18 +101,18 @@ function reserve(turns: unknown, agent: boolean, maxOutputTokens?: number) {
   db.exec("BEGIN IMMEDIATE");
   try {
     const totals = (where: string, args: (string | null)[]) => db.prepare(`SELECT count(*) AS calls, coalesce(sum(tokens),0) AS tokens, coalesce(sum(usd),0) AS usd FROM budget_usage WHERE ${where}`).get(...args) as { calls: number; tokens: number; usd: number };
-    const run = totals("run_id = ?", [ctx.id]), daily = totals("at >= ?", [start]), venture = totals("at >= ? AND venture_id IS ?", [start, ctx.venture]);
+    const run = totals("run_id = ?", [ctx.id]), daily = totals("at >= ?", [start]), venture = totals("at >= ? AND venture_id = ?", [start, filedUnder]);
     const auto = db.prepare("SELECT count(*) AS n FROM budget_usage WHERE at >= ? AND automation = 1").get(start) as { n: number };
     if (run.calls >= p.runCalls || daily.calls >= p.dailyCalls || (ctx.automation && auto.n >= p.automationDailyCalls)) throw new Error("The configured model-call budget has been reached.");
     for (const [limit, used, increment, label] of [
       [p.runTokens, run.tokens, tokens, "job token"], [p.dailyTokens, daily.tokens, tokens, "daily token"], [p.ventureDailyTokens, venture.tokens, tokens, "venture token"],
       [p.runUsd, run.usd, usd, "job dollar"], [p.dailyUsd, daily.usd, usd, "daily dollar"], [p.ventureDailyUsd, venture.usd, usd, "venture dollar"],
     ] as [number, number, number, string][]) if (limit > 0 && used + increment > limit) throw new Error(`This request would exceed the ${label} budget, including in-flight reservations.`);
-    const result = db.prepare("INSERT INTO budget_usage (run_id, venture_id, automation, at, tokens, usd, status) VALUES (?,?,?,?,?,?,?)").run(ctx.id, ctx.venture, Number(ctx.automation), now(), tokens, usd, agent ? "unmetered-agent" : "reserved");
+    const result = db.prepare("INSERT INTO budget_usage (run_id, venture_id, automation, at, tokens, usd, status) VALUES (?,?,?,?,?,?,?)").run(ctx.id, filedUnder, Number(ctx.automation), now(), tokens, usd, agent ? "unmetered-agent" : "reserved");
     db.exec("COMMIT"); return { id: Number(result.lastInsertRowid), tokens, usd, price: p.usdPerMillion, output };
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
-export async function budgeted<T extends { usage?: { prompt: number; completion: number } | null }>(turns: unknown, work: (maxOutputTokens?: number) => Promise<T>, agent = false, maxOutputTokens?: number): Promise<T> {
+export async function budgeted<T extends { usage?: { prompt: number; completion: number } | null }>(turns: unknown, work: (maxOutputTokens?: number) => Promise<T>, agent = false, maxOutputTokens?: number, venture?: string | null): Promise<T> {
   const ctx = runContext.getStore();
   const key = ctx ? `${ctx.sequence++}:${createHash("sha256").update(JSON.stringify(turns)).digest("hex")}` : null;
   // Only AI visibility has a fully replayable, direct-model pipeline.
@@ -95,7 +120,7 @@ export async function budgeted<T extends { usage?: { prompt: number; completion:
     const cached = db.prepare("SELECT reply FROM run_checkpoints WHERE run_id=? AND step_key=?").get(ctx.id, key) as {reply: string} | undefined;
     if (cached) return JSON.parse(cached.reply) as T;
   }
-  const reservation = reserve(turns, agent, maxOutputTokens);
+  const reservation = reserve(turns, agent, maxOutputTokens, venture);
   try {
     const result = await work(reservation?.output);
     if (reservation) {

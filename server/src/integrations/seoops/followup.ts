@@ -46,6 +46,7 @@ import {
   type Side,
 } from "./diagnose.ts";
 import { WINDOW_DAYS, settings } from "./settings.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 /* ------------------------------------------------------------------ rows */
 
@@ -541,7 +542,7 @@ export async function runFollowUp(b: BaselineRow, dayOffset: number, useModel = 
           role: "user",
           content: `${promptFacts(b.url, WINDOW_DAYS, before, after, judgement.delta)}\n\nChoose one diagnosis.`,
         },
-      ]);
+      ], { venture: b.venture_id ?? PORTFOLIO_VENTURE });
       model = reply.model;
       const checked = validateModelDiagnosis(reply.text);
       if ("unreadable" in checked) {

@@ -257,6 +257,7 @@ When a proposal is more than one of these, answer with the first that applies in
 export async function judgeProposals(
   proposals: Proposal[],
   opts: {
+    ventureId?: string;
     ventureName?: string;
     openCardTitles?: string[];
     recentProposalTitles?: { title: string; at: string; verdict: string }[];
@@ -283,6 +284,7 @@ export async function judgeProposals(
     allowed: PROPOSAL_VERDICTS,
     context,
     signal: opts.signal,
+    venture: opts.ventureId ?? null,
     items: proposals.map((p, i) => ({
       key: String(i),
       /* The index keys the answer back to the proposal; the TITLE is what the
@@ -828,7 +830,7 @@ export async function passForVenture(
     try {
       const reply = await complete(
         attempt === 0 ? turns : [...turns, { role: "system" as const, content: NUDGE }],
-        { signal: opts.signal },
+        { signal: opts.signal, venture: v.id },
       );
       text = reply.text;
       model = reply.model;
@@ -870,6 +872,7 @@ export async function passForVenture(
      always means the box lost its provider mid-pass — and then nothing is
      filed, which is the right way for a nightly to fail. */
   const judged = await judgeProposals(proposals, {
+    ventureId: v.id,
     ventureName: v.name,
     openCardTitles: openCards(v.id, { all: true }).map((c) => c.title),
     recentProposalTitles: recent,

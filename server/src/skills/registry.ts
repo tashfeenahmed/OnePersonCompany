@@ -447,6 +447,18 @@ const BUILTIN_ENTRIES: Skill[] = [
         "will be — they are in the `ledger` skill, which also carries the " +
         "per-venture split. Answer “what does this cost me a month” from `ledger`, " +
         "and use this document for the provider half of it.",
+      "PER VENTURE IS `ventures.list`, and it is two ledgers that do not join. " +
+        "`metered` is this box's own model calls filed under the venture they " +
+        "were for (tokens, never dollars; `portfolio` and `chief` are the " +
+        "cross-venture buckets, `Unattributed` is rows from before every call " +
+        "carried a venture). `openrouterKeys` is the OpenRouter key named for " +
+        "that product — the product's own spend, in dollars. Do not apportion " +
+        "the OpenAI or OpenRouter invoice by metered tokens: `ventures.note` " +
+        "says whether any of this box's calls went to those providers at all.",
+      "WHAT STAYS PORTFOLIO-WIDE, AND WHY, is `ventures.unattributed`: OpenAI " +
+        "bills one project for every product, Replicate bills nothing readable, " +
+        "and an OpenRouter key not named for a venture is listed by name rather " +
+        "than guessed onto one. Say that when asked for a venture's margin.",
     ],
     views: [
       {
@@ -467,6 +479,7 @@ const BUILTIN_ENTRIES: Skill[] = [
     asks: [
       "What did I spend on models last month, and which project spent it?",
       "How much OpenRouter credit is left?",
+      "What has Betaware's model work cost this month, and what can't be split out?",
     ],
   },
 

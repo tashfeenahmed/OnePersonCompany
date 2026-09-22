@@ -42,6 +42,7 @@ import { db, now, ventureRowById } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
 import { ventureClaimRefusal } from "../knowledge/store.ts";
 import { textKey } from "../../shared/textkey.ts";
+import { CHIEF_VENTURE } from "../../runtime/budgets.ts";
 
 /** A note is a sentence, not a document. Past this it is a report, and a
  *  report belongs in a run. */
@@ -542,7 +543,7 @@ export async function consolidate(opts: { force?: boolean; week?: string } = {})
   let text = "";
   let model: string | null = null;
   try {
-    const reply = await complete([{ role: "user", content: prompt }]);
+    const reply = await complete([{ role: "user", content: prompt }], { venture: CHIEF_VENTURE });
     text = reply.text;
     model = reply.model;
   } catch (err) {

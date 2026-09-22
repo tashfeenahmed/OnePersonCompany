@@ -43,6 +43,7 @@
  * `judgeSearchIntent`.
  */
 import { judge } from "../models/judge.ts";
+import { PORTFOLIO_VENTURE } from "../runtime/budgets.ts";
 
 /** The three fields a venture row carries that can spell its name. */
 export type BrandNames = {
@@ -181,6 +182,8 @@ export async function judgeSearchIntent(
       ? `THE OWNER'S VENTURES, AND EVERY NAME EACH ONE ANSWERS TO:\n${roster.map(r => `- ${r}`).join("\n")}`
       : "The owner has no launched ventures on record, so no query can be navigational to one.",
     signal: opts.signal,
+    /* One sweep over the whole roster: a query is judged against every brand. */
+    venture: PORTFOLIO_VENTURE,
   });
   for (const verdict of result.verdicts) intents.set(verdict.key, verdict.verdict);
   return intents;

@@ -145,6 +145,9 @@ export async function judge<T extends string>(opts: {
   signal?: AbortSignal;
   /** Skip the recording table. For a gate asked on a very hot path. */
   record?: boolean;
+  /** The venture the verdict is for, in the budget ledger. See
+   *  `CompleteOptions.venture`. */
+  venture?: string | null;
 }): Promise<JudgeResult<T>> {
   const keys = opts.items.map((i) => i.key);
   /* RECORDED ON THE WAY OUT, INCLUDING THIS PATH. An unreachable model is the
@@ -182,7 +185,7 @@ export async function judge<T extends string>(opts: {
     try {
       const reply = await complete(
         attempt === 0 ? turns : [...turns, { role: "system" as const, content: `STOP. ${shape}` }],
-        { jsonObject: true, signal: opts.signal },
+        { jsonObject: true, signal: opts.signal, venture: opts.venture },
       );
       text = reply.text;
       model = reply.model;

@@ -36,6 +36,7 @@ import type { WireTurn } from "../../chat/wire.ts";
 import { allowedFrom, ungrounded, type Fact } from "./validate.ts";
 import type { DraftPlan } from "./planner.ts";
 import { ruleLines } from "./style.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 const MAX_BODY = 3000;
 
@@ -226,7 +227,7 @@ export async function word(
   for (let attempt = 1; attempt <= 2; attempt++) {
     let text: string;
     try {
-      const reply = await complete(turns, { model: undefined });
+      const reply = await complete(turns, { model: undefined, venture: plan.venture ?? PORTFOLIO_VENTURE });
       text = reply.text;
       model = reply.model;
     } catch (err) {
