@@ -9,7 +9,7 @@ export function ShapePicker<T extends string>({ value, onChange, options, label 
 }) {
   const name = useId();
   return (
-    <div role="radiogroup" aria-label={label} className="grid grid-cols-3 gap-1.5">
+    <div role="radiogroup" aria-label={label} className={cn("grid gap-1.5", options.length === 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3")}>
       {options.map((option) => {
         const [width, height] = option.ratio.split(":").map(Number);
         const scale = 30 / Math.max(width, height);

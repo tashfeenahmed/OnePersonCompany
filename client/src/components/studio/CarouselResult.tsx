@@ -1,0 +1,143 @@
+import { useState } from "react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Download, GalleryHorizontal, Loader2, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useApi } from "@/hooks/useApi";
+import { carouselApi, type Carousel, type CarouselSlide, type SlideVerdict } from "@/lib/api/carousel";
+import { cn } from "@/lib/utils";
+
+/**
+ * SIX SLIDES, IN ORDER, EACH WITH WHAT THE CHECKS SAID ABOUT IT.
+ *
+ * THE VERDICT IS ON THE SLIDE, NOT IN A LOG. A carousel whose fourth slide
+ * failed its check twice is still six pictures, and the one that failed is the
+ * one somebody should look at before posting — so every slide carries its own
+ * badge and, under it, the issues in the checker's words. "Unverified" is drawn
+ * as a dashed circle and never as a tick: nobody looked at that picture.
+ *
+ * NO "SEND TO PUBLISHING". A publishing item holds one media file
+ * (`publish_items.media_kind`), so a carousel cannot travel there as one post
+ * yet; sending six single-image drafts would be six posts nobody asked for.
+ * The slides download one at a time or as a zip instead.
+ *
+ * WHILE THE RUN IS MOVING this is re-read whenever the parent's `version`
+ * changes — the count of finished steps — so each slide appears as it lands
+ * rather than all six at the end.
+ */
+export function CarouselResult({ runId, version = 0, onDelete }: { runId: string; version?: number; onDelete?: () => Promise<void> }) {
+  const doc = useApi(() => carouselApi.get(runId).catch(() => null), [runId, version]);
+  /* The last answer stays on screen while the next is fetched, so a slide
+     landing does not blank the five already drawn. */
+  const [shown, setShown] = useState<Carousel | null>(null);
+  if (doc.data && doc.data !== shown) setShown(doc.data);
+  const c = doc.data ?? (shown?.runId === runId ? shown : null);
+  if (!c) return null;
+  return <CarouselPanel carousel={c} onDelete={onDelete} />;
+}
+
+const VERDICT: Record<SlideVerdict, { label: string; icon: typeof CheckCircle2; className: string }> = {
+  pass: { label: "Passed the checks", icon: CheckCircle2, className: "text-emerald-600 dark:text-emerald-400" },
+  fail: { label: "Failed a check", icon: AlertTriangle, className: "text-destructive" },
+  unverified: { label: "Unverified — no vision model looked", icon: CircleDashed, className: "text-muted-foreground" },
+};
+
+export function CarouselPanel({ carousel: c, onDelete }: { carousel: Carousel; onDelete?: () => Promise<void> }) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const passed = c.slides.filter((s) => s.verdict === "pass").length;
+  const retried = c.slides.filter((s) => s.attempts > 1).length;
+  const any = c.slides.some((s) => s.image);
+
+  async function remove() {
+    if (!onDelete || busy) return;
+    setBusy(true);
+    setProblem(null);
+    try { await onDelete(); } catch (err) {
+      setProblem(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="bg-card mb-4 grid gap-3.5 rounded-[14px] p-4.5">
+      <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <GalleryHorizontal className="size-[15px] shrink-0 self-center" strokeWidth={1.8} />
+        <span className="text-[14.5px] font-medium tracking-tight">{c.title ?? "Carousel"}</span>
+        <span className="text-muted-foreground text-[13px]">
+          {c.width}×{c.height} · {c.slides.length} of 6 slides
+          {c.slides.length ? ` · ${passed} passed` : ""}
+          {retried ? ` · ${retried} retried` : ""}
+        </span>
+      </div>
+      <p className="text-muted-foreground text-[12.5px] leading-relaxed">
+        Coded by {c.coderModel ?? "the workspace model"}
+        {c.visionModel ? `, checked by ${c.visionModel}` : ""}. Every slide was also measured for text outside the frame.
+        {c.visionNote ? ` ${c.visionNote}` : ""}
+      </p>
+      {c.error && <p className="text-destructive text-[13px] leading-relaxed">{c.error}</p>}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {c.slides.map((s) => <SlideCard key={s.n} runId={c.runId} slide={s} ratio={`${c.width} / ${c.height}`} />)}
+      </div>
+
+      {c.caption && (
+        <div className="grid gap-1">
+          <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">Caption</div>
+          <p className="text-[13.5px] leading-relaxed whitespace-pre-line">{c.caption}</p>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {any && (
+          <Button asChild variant="outline" size="sm">
+            <a href={carouselApi.zip(c.runId)} download>
+              <Download className="size-[14px]" strokeWidth={1.8} />
+              Download all as a zip
+            </a>
+          </Button>
+        )}
+        {onDelete && (
+          <Button variant={armed ? "destructive" : "ghost"} size="sm" disabled={busy} className="ml-auto"
+            onClick={() => (armed ? void remove() : setArmed(true))}>
+            {busy ? <Loader2 className="size-[14px] animate-spin" /> : <Trash2 className="size-[14px]" strokeWidth={1.8} />}
+            {armed ? "Delete it and the six pictures" : "Delete"}
+          </Button>
+        )}
+      </div>
+      {problem && <p className="text-destructive text-[13px]">{problem}</p>}
+      <p className="text-muted-foreground text-[12px] leading-relaxed">
+        Publishing takes one picture per post, so a carousel is not sent there as a draft. Download the slides and post them as a carousel on the platform.
+      </p>
+    </div>
+  );
+}
+
+function SlideCard({ runId, slide: s, ratio }: { runId: string; slide: CarouselSlide; ratio: string }) {
+  const v = VERDICT[s.verdict] ?? VERDICT.unverified;
+  return (
+    <figure className="grid min-w-0 content-start gap-1.5">
+      <div className="bg-muted overflow-hidden rounded-[10px] border" style={{ aspectRatio: ratio }}>
+        {s.image
+          ? <a href={s.image} target="_blank" rel="noreferrer"><img src={s.image} alt={`Slide ${s.n}: ${s.headline}`} loading="lazy" className="size-full object-contain" /></a>
+          : <span className="text-muted-foreground grid size-full place-items-center p-2 text-center text-[12px]">No picture{s.note ? ` — ${s.note}` : ""}</span>}
+      </div>
+      <figcaption className="grid gap-1">
+        <div className="flex items-center gap-1.5 text-[12.5px]">
+          <span className="text-muted-foreground tabular-nums">{s.n}</span>
+          <v.icon className={cn("size-[13px] shrink-0", v.className)} strokeWidth={1.9} aria-label={v.label} />
+          <span className={cn("truncate", v.className)} title={v.label}>{s.verdict}{s.attempts > 1 ? ` · ${s.attempts} tries` : ""}</span>
+          {s.image && (
+            <a href={carouselApi.slideDownload(runId, s.n)} download className="text-muted-foreground hover:text-foreground ml-auto" aria-label={`Download slide ${s.n}`} title="Download this slide">
+              <Download className="size-[13px]" strokeWidth={1.8} />
+            </a>
+          )}
+        </div>
+        {s.issues.length > 0 && (
+          <ul className="text-muted-foreground grid gap-0.5 text-[11.5px] leading-snug">
+            {s.issues.map((i) => <li key={i}>– {i}</li>)}
+          </ul>
+        )}
+      </figcaption>
+    </figure>
+  );
+}
