@@ -51,6 +51,7 @@
 import { configValue, db, now } from "../../db.ts";
 import { complete } from "../../models/provider.ts";
 import { notAStyleRule, STYLE_RULE_MAX } from "./validate.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 export const PLUGIN = "nurture";
 
@@ -268,7 +269,7 @@ export async function derive(): Promise<Derivation> {
     const reply = await complete([
       { role: "system", content: SYSTEM },
       { role: "user", content: derivationPrompt(list) },
-    ]);
+    ], { venture: PORTFOLIO_VENTURE });
     text = reply.text;
     model = reply.model;
   } catch (err) {

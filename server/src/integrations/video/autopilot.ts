@@ -343,7 +343,7 @@ async function deriveTopic(
   ].join("\n");
 
   try {
-    const reply = await complete([{ role: "system", content: system }, { role: "user", content: user }]);
+    const reply = await complete([{ role: "system", content: system }, { role: "user", content: user }], { venture: v.id });
     const topic = reply.text.trim().split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "";
     const clean = topic.replace(/^["“']|["”']$/g, "").trim();
     if (!clean) return { error: "the model answered with nothing" };

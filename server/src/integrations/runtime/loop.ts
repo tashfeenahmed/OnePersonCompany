@@ -66,7 +66,7 @@
  */
 import type { ChatStreamEvent, ChatTurn } from "../../chat/backend.ts";
 import { serviceHeaders } from "../../auth.ts";
-import { runContext, spentOnRun } from "../../runtime/budgets.ts";
+import { runContext, spentOnRun, CHIEF_VENTURE } from "../../runtime/budgets.ts";
 import { activeModel, activeProvider, completeTooled, type ProviderId, type ToolWireTurn } from "../../models/provider.ts";
 import { apiBase, entry, isLive, skills, UNIVERSAL_RULES } from "../../skills/registry.ts";
 import { PRESENT_BRIEF } from "../../skills/present.ts";
@@ -448,8 +448,8 @@ function bounded(body: string, how?: string): string {
 
 export type DirectTurnOptions = {
   signal: AbortSignal;
-  /** Which venture the conversation is about, for the budget ledger. Null is a
-   *  legitimate answer and is stored as such. */
+  /** Which venture the conversation is about, for the budget ledger. A chat
+   *  with none open is the chief of staff's own and is filed under `chief`. */
   ventureId?: string | null;
   /** A stable id for the WHOLE turn, so every round reserves against one run.
    *  The caller passes its own where it has one. */
@@ -481,7 +481,7 @@ export async function* directTurn(
      object per round would restart the checkpoint keys at zero. */
   const ctx = {
     id: runId,
-    venture: opts.ventureId ?? null,
+    venture: opts.ventureId ?? CHIEF_VENTURE,
     automation: false,
     signal: opts.signal,
     sequence: 0,

@@ -196,6 +196,7 @@ export async function judgeCards(
       const reply = await complete(attempt === 0 ? turns : [...turns, { role: "system" as const, content: AGAIN }], {
         jsonObject: true,
         signal: opts.signal,
+        venture: opts.venture ?? null,
       });
       text = reply.text;
       model = reply.model;

@@ -1090,7 +1090,7 @@ async function refreshRepoInner(
             `THE MATERIAL, and it is all of it:\n\n${renderMaterial(material)}`,
         },
       ],
-      { signal: opts.signal },
+      { signal: opts.signal, venture: ventureId },
     );
     out.modelUsed = reply.model ?? reply.provider;
     const parsed = tryParse(reply.text);

@@ -57,6 +57,7 @@ import {
   writeBriefing,
   type BriefingRow,
 } from "./store.ts";
+import { CHIEF_VENTURE } from "../../runtime/budgets.ts";
 
 export const PLUGIN = "briefing";
 
@@ -393,7 +394,7 @@ export async function write(facts: Facts, signal?: AbortSignal): Promise<Written
         { role: "system", content: SYSTEM },
         { role: "user", content: JSON.stringify(facts) },
       ],
-      { signal },
+      { signal, venture: CHIEF_VENTURE },
     );
     const text = reply.text.trim();
     if (!text)
