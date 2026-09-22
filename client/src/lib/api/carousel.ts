@@ -60,10 +60,22 @@ export type Carousel = {
 
 export type CarouselList = { carousels: Carousel[] };
 
+/** The workspace model a carousel will use — the one chosen under Settings →
+ *  Models, whatever it is — and whether it has been seen to take a picture.
+ *  `supports: null` is "not checked yet", never a no. */
+export type CarouselModel = {
+  provider: string | null;
+  label: string | null;
+  /** Null when the endpoint picks its own model. */
+  model: string | null;
+  vision: { supports: boolean | null; detail: string; at: string | null };
+};
+
 export const carouselApi = {
   list: (venture?: string | null) =>
     call<CarouselList>(`/carousel${venture ? `?venture=${encodeURIComponent(venture)}` : ""}`),
   get: (runId: string) => call<Carousel>(`/carousel/${encodeURIComponent(runId)}`),
+  model: () => call<CarouselModel>("/carousel/model"),
   /** Plain addresses, for an <a download>: the browser fetches them itself. */
   slideDownload: (runId: string, n: number) => `/api/carousel/${encodeURIComponent(runId)}/slides/${n}?download=1`,
   zip: (runId: string) => `/api/carousel/${encodeURIComponent(runId)}/zip`,
