@@ -155,6 +155,7 @@ test("a thread comes back with its comments by score, cut breadth-first, with th
           c("low", 1),
           c("high", 50, [c("r1", 3, [], "t1_high"), c("r2", 9, [], "t1_high")]),
           c("mid", 7),
+          { kind: "t1", data: { id: "gone", body: "[removed]", score: 99, created_utc: now() - 10 * DAY, author: "[deleted]", parent_id: "t3_abc123", replies: "" } },
           { kind: "more", data: { count: 4, children: ["x1", "x2", "x3", "x4"] } },
         ],
       },
@@ -169,9 +170,9 @@ test("a thread comes back with its comments by score, cut breadth-first, with th
   assert.deepEqual(t.comments.map((x) => x.id), ["high", "mid", "low"]);
   assert.deepEqual(t.comments[0]!.replies.map((x) => x.id), ["r2"], "the higher-scored reply survives the cut");
   assert.equal(t.comments[0]!.moreReplies, 1);
-  assert.equal(t.archived, 9);
+  assert.equal(t.archived, 10);
   assert.equal(t.returned, 4);
-  assert.equal(t.omitted, 5);
+  assert.equal(t.omitted, 6, "the removed comment scored 99 and still lost its place");
   assert.match(t.comments[0]!.permalink, /\/comments\/abc123\/_\/high\/$/);
 });
 

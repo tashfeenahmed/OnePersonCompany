@@ -269,6 +269,8 @@ export type Comment = {
   permalink: string;
   text: string;
   textTruncated: boolean;
+  /** Deleted or removed: the archive kept the slot, not the words. */
+  removed: boolean;
   replies: Comment[];
   /** Replies the archive collapsed or this answer left out. */
   moreReplies: number;
@@ -346,7 +348,8 @@ function shapeComment(
   const created = num(raw.created_utc);
   const ok = settled(created, nowSec);
   const bodyRaw = str(raw.body);
-  const body = clip(bodyRaw === "[removed]" || bodyRaw === "[deleted]" ? "" : bodyRaw, textChars);
+  const removed = bodyRaw === "[removed]" || bodyRaw === "[deleted]" || !bodyRaw.trim();
+  const body = clip(removed ? "" : bodyRaw, textChars);
   const parent = str(raw.parent_id);
   return {
     id,
@@ -359,6 +362,7 @@ function shapeComment(
     permalink: `https://www.reddit.com/r/${sub || str(raw.subreddit)}/comments/${postId}/_/${id}/`,
     text: body.text,
     textTruncated: body.truncated,
+    removed,
     replies: [],
     moreReplies: 0,
   };
@@ -614,7 +618,10 @@ export async function readThread(ref: string, o: { maxComments: number; textChar
   })) ?? []) as TreeNode[];
 
   let archived = 0;
-  const byScore = (a: Comment, b: Comment) => (b.score ?? -1) - (a.score ?? -1);
+  /* Removed comments sort last: their slot is kept for their replies' sake,
+     but they should never take a place a readable comment could have. */
+  const byScore = (a: Comment, b: Comment) =>
+    Number(a.removed) - Number(b.removed) || (b.score ?? -1) - (a.score ?? -1);
   const build = (nodes: TreeNode[], depth: number): { list: Comment[]; more: number } => {
     const list: Comment[] = [];
     let more = 0;
@@ -648,6 +655,8 @@ export async function readThread(ref: string, o: { maxComments: number; textChar
     const next: Comment[] = [];
     for (const c of frontier) {
       if (left <= 0) break;
+      /* An empty slot with nothing under it is not worth a place. */
+      if (c.removed && !c.replies.length) continue;
       keep.add(c);
       left--;
       next.push(...c.replies);
