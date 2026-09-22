@@ -41,6 +41,7 @@ import {
   type Person,
   type Temperature,
 } from "./contacts.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 /** A paragraph that names fourteen people names nobody. */
 const MAX_NAMED = 6;
@@ -536,7 +537,7 @@ export async function writeBrief(
           lines.map((l) => `- ${l}`).join("\n") +
           "\n\nWrite the paragraph.",
       },
-    ]);
+    ], { venture: PORTFOLIO_VENTURE });
     model = `${reply.provider}${reply.model ? `:${reply.model}` : ""}`;
     const text = reply.text.trim();
     const problem = refuse(text, shown);

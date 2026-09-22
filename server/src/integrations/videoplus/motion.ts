@@ -142,7 +142,7 @@ export async function writeSceneSpec(opts: {
     const reply = await complete([
       { role: "system", content: system },
       { role: "user", content: feedback ? `${user}\n\nYour previous answer was rejected: ${feedback}. Send a complete, corrected JSON object only, with no reasoning.` : user },
-    ], { signal: opts.signal, jsonObject: true, maxOutputTokens: 8192 });
+    ], { signal: opts.signal, jsonObject: true, maxOutputTokens: 8192, venture: v?.id ?? null });
     lastText = reply.text;
     const raw = readModelJson(reply.text, "scenes");
     const checked = readSceneSpec(raw, opts.limits);

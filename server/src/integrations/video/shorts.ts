@@ -437,6 +437,7 @@ export async function shortsVideo(opts: {
         maxSeconds: maxClip,
         brief: input.brief,
         signal,
+        ventureId: v?.id ?? null,
       });
       windows = picked.windows;
       chosenBy = source_of === "subtitles" ? "transcript" : source_of === "words" ? "words" : "speech";

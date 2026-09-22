@@ -90,6 +90,7 @@ import {
   type ThreadRow,
   type ThreadStub,
 } from "../../providers/gmail.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 /* ------------------------------------------------------------------ knobs */
 
@@ -852,7 +853,7 @@ async function scanOnce(
       const reply = await complete([
         { role: "system", content: systemTurn(keys) },
         { role: "user", content: userTurn(batch.map(rowOf)) },
-      ]);
+      ], { venture: PORTFOLIO_VENTURE });
       model = reply.model ?? model;
       judgements = parseBatch(reply.text, batch.length);
     } catch (err) {

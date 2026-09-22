@@ -318,7 +318,7 @@ export type Verdict = {
 export async function judgeTopic(
   topic: string,
   history: Pick<HistoryRow, "id" | "topic" | "fingerprint" | "created_at">[],
-  opts: { days: number; at?: Date; signal?: AbortSignal },
+  opts: { days: number; at?: Date; signal?: AbortSignal; ventureId?: string | null },
 ): Promise<Verdict> {
   const key = normalise(topic);
   /* A FACT AND NOT A JUDGMENT: there is no topic here. Punctuation and spaces
@@ -392,6 +392,7 @@ export async function judgeTopic(
     question: QUESTION,
     items: [{ key: topic.replace(/\s+/g, " ").slice(0, 120), text: topic }],
     allowed: NOVELTY_WORDS,
+    venture: opts.ventureId ?? null,
     context:
       `Already made for this business in this format in the last ${opts.days} days, newest first:\n` +
       recent
@@ -470,7 +471,7 @@ export async function checkTopic(
       "SELECT id, topic, fingerprint, created_at FROM content_history WHERE venture_id = ? AND format = ? AND archived_at IS NULL ORDER BY created_at DESC LIMIT 200",
     )
     .all(ventureId, format) as unknown as Pick<HistoryRow, "id" | "topic" | "fingerprint" | "created_at">[];
-  const verdict = await judgeTopic(topic, rows, { days, signal: opts.signal });
+  const verdict = await judgeTopic(topic, rows, { days, signal: opts.signal, ventureId });
   writeCheck({
     ventureId,
     format,

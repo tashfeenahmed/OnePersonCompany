@@ -159,6 +159,7 @@ export async function writeScript(opts: {
   const reply = await complete([{ role: "system", content: system }, { role: "user", content: user }], {
     signal: opts.signal,
     jsonObject: true,
+    venture: opts.venture?.id ?? null,
   });
 
   const parsed = readScript(reply.text, opts.brief, count, opts.seconds, opts.venture ? END_CARD_SECONDS : 0);
@@ -304,6 +305,8 @@ export async function pickWindows(opts: {
   maxSeconds: number;
   brief: string;
   signal?: AbortSignal;
+  /** The venture the clips are for, in the budget ledger. */
+  ventureId?: string | null;
 }): Promise<{ windows: Window[]; model: string | null; raw: string }> {
   const system = [
     `You are choosing the moments of a long video that would work on their own as a short vertical clip.`,
@@ -339,6 +342,7 @@ export async function pickWindows(opts: {
   const reply = await complete([{ role: "system", content: system }, { role: "user", content: user }], {
     signal: opts.signal,
     jsonObject: true,
+    venture: opts.ventureId ?? null,
   });
   return { windows: readWindows(reply.text, opts.duration, opts.maxSeconds, opts.want), model: reply.model, raw: reply.text };
 }

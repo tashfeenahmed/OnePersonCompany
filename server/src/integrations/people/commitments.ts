@@ -92,6 +92,7 @@ import { judge } from "../../models/judge.ts";
 import { profileAddress } from "./gmail-meta.ts";
 import { reason } from "./contacts.ts";
 import { readSent, sentIds, type SentMessage } from "./gmail-sent.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 /** The default window a scan covers when the caller names none. Short on
  *  purpose: a promise from four months ago is either done or forgotten, and
@@ -314,6 +315,7 @@ export async function judgePromises(
     allowed: PROMISE_WORDS,
     items: candidates.map((c, i) => ({ key: `${messageId}#${i + 1}`, text: c.sentence })),
     signal,
+    venture: PORTFOLIO_VENTURE,
   });
   return {
     judged: candidates.map((candidate, i) => {
@@ -470,7 +472,7 @@ export async function refine(
       const reply = await complete([
         { role: "system", content: SYSTEM },
         { role: "user", content: batch.map((c, i) => `${i + 1}. ${c.sentence}`).join("\n") },
-      ]);
+      ], { venture: PORTFOLIO_VENTURE });
       model = `${reply.provider}${reply.model ? `:${reply.model}` : ""}`;
       const parsed = parseItems(reply.text, batch.length);
       batch.forEach((c, i) => {

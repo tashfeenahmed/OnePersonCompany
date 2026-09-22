@@ -67,6 +67,7 @@ import * as openrouterChat from "../providers/openrouter-chat.ts";
    is also imported by routes/plugins.ts and routes/freellmapi.ts — so the
    registration happens whichever of them loads first. */
 import * as freellmapi from "../providers/freellmapi.ts";
+import { PORTFOLIO_VENTURE } from "../runtime/budgets.ts";
 
 export const models = new Hono();
 
@@ -329,7 +330,7 @@ models.post("/complete", async (c) => {
 
   const chosen = activeProvider();
   try {
-    const reply = await complete(turns, { model, signal: c.req.raw.signal });
+    const reply = await complete(turns, { model, signal: c.req.raw.signal, venture: PORTFOLIO_VENTURE });
     noteOutcome(reply.provider, reply.endpoint, null);
     return c.json(reply);
   } catch (err) {

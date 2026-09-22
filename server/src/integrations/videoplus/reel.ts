@@ -308,7 +308,7 @@ export async function writeDialogue(opts: {
      `readDialogue` reads `lines` out of one. A bare array would also be
      understood, but nothing here needs it and the flag is what turns optional
      thinking off on the router — the failure this writer actually has. */
-  const reply = await complete(turns, { signal: opts.signal, jsonObject: true });
+  const reply = await complete(turns, { signal: opts.signal, jsonObject: true, venture: v?.id ?? null });
   const first = readDialogue(reply.text, opts.captures.length, opts.lines);
   if (first) return { script: first, model: reply.model, text: reply.text };
 
@@ -329,7 +329,7 @@ export async function writeDialogue(opts: {
           "That was not readable as JSON. Send ONLY the JSON object — it must start with { and end with } and contain nothing else, no reasoning and no code fence.",
       },
     ],
-    { signal: opts.signal, jsonObject: true },
+    { signal: opts.signal, jsonObject: true, venture: v?.id ?? null },
   );
   return {
     script: readDialogue(retry.text, opts.captures.length, opts.lines),

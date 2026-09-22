@@ -4402,6 +4402,19 @@ per-venture model figure on this box. Its dollars are tokens × the
 every stored dollar is structurally zero, so `usd` is NULL with the reason and
 the measured TOKEN count stands on its own.
 
+Since 22 Sep 2026 no row is written with a null venture. A call inside a run
+is filed under the run's venture; a call outside one names its venture
+(`CompleteOptions.venture`) — a caption for a venture, a synthesis pass, an
+alert rule's narration — and what genuinely spans the roster is filed under a
+pseudo-venture: `portfolio` (pipeline stages that walk every venture, mail
+triage, people, the model probe and test page) or `chief` (a chat with no
+venture open, the chief's memory tidy, the briefing). `/api/costs` publishes
+the split as `ventures.list` beside the provider invoices, and says in
+`ventures.unattributed` what stays portfolio-wide: OpenAI bills one project for
+every product and Replicate bills nothing readable, so the products' own
+spend on the shared keys cannot be split from here; an OpenRouter key named
+for a product is the one bridge and is shown under that venture.
+
 ### Electricity, so local inference is not free
 
 A model call to a provider arrives with a price on it; the same call on the
