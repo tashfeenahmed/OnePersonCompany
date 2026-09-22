@@ -29,6 +29,8 @@ import { ASPECTS, DEFAULT_ASPECT, type Fit } from "./assemble.ts";
 import { clipRows, forgetJob, jobRow } from "./store.ts";
 import { deleteThumbnails } from "./thumbnails.ts";
 import * as leases from "../deploy/leases.ts";
+import { carouselRun, forgetCarousel } from "../videoplus/carousel.ts";
+import { carouselSize } from "../../../../shared/carousel.ts";
 import { motionVideo } from "../videoplus/motion.ts";
 import { reelVideo } from "../videoplus/reel.ts";
 import { stewieVideo } from "../videoplus/stewie.ts";
@@ -41,8 +43,12 @@ import { forgetSocialfeed } from "../socialfeed/forget.ts";
    instead of a new member of the RunKind union, a new page and a new entry in
    three shared files. `reel` and `motion` were added by the videoplus area on
    the same argument and on the same day: all five produce one video_jobs row,
-   under one lease, on one queue. */
-export const FORMATS = ["faceless", "shorts", "ugc", "reel", "motion", "stewie"] as const;
+   under one lease, on one queue. `carousel` (2026-09-22) is the one format
+   that makes no video at all — six PNGs — and is here for the same reason:
+   it is minutes of browser renders and model calls, and the queue, the lease
+   and the rail's polling were already built for exactly that. It writes no
+   video_jobs row; videoplus/carousel.ts keeps its own. */
+export const FORMATS = ["faceless", "shorts", "ugc", "reel", "motion", "stewie", "carousel"] as const;
 export type Format = (typeof FORMATS)[number];
 
 export function readFormat(raw: string | undefined): Format {
@@ -227,6 +233,19 @@ async function renderVideo(opts: {
     });
   }
 
+  if (format === "carousel") {
+    return carouselRun({
+      runId: opts.runId,
+      session: opts.session,
+      venture: opts.venture,
+      /* `size` is the carousel's own vocabulary (square, portrait, story,
+         landscape) and not `aspect`: 4:5 is a carousel shape and not a video
+         one, and ASPECTS above would quietly turn it into 9:16. */
+      input: { prompt: brief, size: carouselSize(opts.input.size) },
+      signal: opts.signal,
+    });
+  }
+
   if (format === "motion") {
     return motionVideo({
       runId: opts.runId,
@@ -276,6 +295,7 @@ export function forgetVideo(runId: string) {
   rmSync(runDir(runId), { recursive: true, force: true });
   forgetJob(runId);
   forgetFraming(runId);
+  forgetCarousel(runId);
   /* And the socialfeed area's UGC row, for the `ugc` format. That module
      imports db.ts and nothing else precisely so this line cannot close a
      cycle — see integrations/socialfeed/forget.ts. */

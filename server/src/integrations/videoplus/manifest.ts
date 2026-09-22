@@ -30,6 +30,7 @@ import type { IntegrationManifest } from "../manifest.ts";
 import { upsertPlugin } from "../../db.ts";
 import { motionRoutes } from "./routes.ts";
 import { stewieRoutes } from "./stewie-routes.ts";
+import { carouselRoutes } from "./carousel-routes.ts";
 import { WORKDASH_PLUGIN } from "./stewie.ts";
 import { VIDEOPLUS_PLUGIN } from "./settings.ts";
 import { SKILLS, PACKS } from "./skills.ts";
@@ -251,5 +252,6 @@ export const manifest: IntegrationManifest = {
   routes: [
     { path: "/api/motion", app: motionRoutes },
     { path: "/api/stewie", app: stewieRoutes },
+    { path: "/api/carousel", app: carouselRoutes },
   ],
 };

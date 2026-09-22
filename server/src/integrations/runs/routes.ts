@@ -267,7 +267,11 @@ runRoutes.post("/", async (c) => {
       ? `Paper — ${input.topic ?? venture?.name ?? "untitled"}`
       : def.kind === "dossier"
         ? dossierTitle(input.person ?? "")
-        : `${def.name} — ${venture?.name ?? "portfolio"}`;
+        /* A carousel rides the video kind but makes no video; "Video —" on
+           its run page and in the ledger would name the wrong thing. */
+        : def.kind === "video" && (input.format ?? "").trim().toLowerCase() === "carousel"
+          ? `Carousel — ${venture?.name ?? "portfolio"}`
+          : `${def.name} — ${venture?.name ?? "portfolio"}`;
 
   insertRun({ id, kind: def.kind, ventureId: venture?.id ?? null, title, input });
   /* Started here rather than left to the next tick, so a box with a free slot
