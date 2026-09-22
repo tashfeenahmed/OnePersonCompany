@@ -68,6 +68,7 @@ import {
   createItem,
   itemRow,
   itemRows,
+  mediaPaths,
   patchItem,
   publicMediaUrl,
   schedule,
@@ -82,6 +83,7 @@ import { PLUGIN, settings, TICK_MS } from "./settings.ts";
 import { imageModel } from "../ventures/studio.ts";
 import { readFileSync, statSync } from "node:fs";
 import { mimeFromPath } from "./items.ts";
+import { ensureCarouselCaption } from "./carouselCaption.ts";
 
 export const publishingRoutes = new Hono();
 
@@ -290,16 +292,20 @@ publishingRoutes.post("/items", async (c) => {
   const sourceObj = (body.source ?? {}) as { kind?: unknown; id?: unknown };
   const kind = String(sourceObj.kind ?? body.sourceKind ?? "manual");
   const id = typeof sourceObj.id === "string" ? sourceObj.id : typeof body.sourceId === "string" ? body.sourceId : null;
-  if (kind !== "studio_post" && kind !== "video_job" && kind !== "video_clip" && kind !== "manual")
-    return c.json(bad('A source kind is "studio_post", "video_job", "video_clip" or "manual".'), 400);
-  if (kind !== "manual" && !id) return c.json(bad("A studio_post, video_job or video_clip source needs an id."), 400);
+  if (kind !== "studio_post" && kind !== "video_job" && kind !== "video_clip" && kind !== "carousel" && kind !== "manual")
+    return c.json(bad('A source kind is "studio_post", "video_job", "video_clip", "carousel" or "manual".'), 400);
+  if (kind !== "manual" && !id) return c.json(bad("A studio_post, video_job, video_clip or carousel source needs an id."), 400);
 
   const source = (kind === "manual" ? { kind: "manual", id: null } : { kind, id: id! }) as Source;
+  let caption = typeof body.caption === "string" ? body.caption : null;
+  /* A carousel with no caption gets one written before it is queued — the
+     way a Studio image post has its caption before it is ever sent here. */
+  if (source.kind === "carousel" && !caption?.trim()) caption = (await ensureCarouselCaption(source.id)).caption;
   const created = createItem({
     ventureId: typeof body.ventureId === "string" ? body.ventureId : null,
     source,
     destinationId: typeof body.destinationId === "string" ? body.destinationId : null,
-    caption: typeof body.caption === "string" ? body.caption : null,
+    caption,
   });
   if (!created.ok) return c.json(bad(created.error), 400);
   return c.json(
@@ -482,6 +488,28 @@ publishingRoutes.get("/items/:id/media", (c) => {
       "Cache-Control": "public, max-age=600",
     },
   );
+});
+
+/** One slide of a carousel item, by position — each has its own URL because
+ *  Instagram fetches every picture separately. Only a path the item already
+ *  records is served. */
+publishingRoutes.get("/items/:id/media/:n", (c) => {
+  const row = itemRow(c.req.param("id"));
+  if (!row) return c.json(bad("No item by that id."), 404);
+  const n = Number(c.req.param("n"));
+  const path = Number.isInteger(n) && n >= 1 ? mediaPaths(row.id)[n - 1] : undefined;
+  if (!path) return c.json(bad("That item has no picture at that position."), 404);
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(path);
+  } catch {
+    return c.json(bad("That picture is no longer on disk."), 404);
+  }
+  return c.body(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 200, {
+    "Content-Type": mimeFromPath(path),
+    "Content-Length": String(bytes.byteLength),
+    "Cache-Control": "public, max-age=600",
+  });
 });
 
 /* -------------------------------------------------------------- calendar */

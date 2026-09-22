@@ -1298,6 +1298,119 @@ export async function postInstagramImage(
   };
 }
 
+/**
+ * SEVERAL PHOTOS AS ONE PAGE POST — the Graph API's documented multi-photo
+ * shape (Page Photos reference): each photo uploaded to `/photos` with
+ * `published=false`, which returns its id and puts nothing on the timeline,
+ * then ONE `/feed` post carrying the caption and every id, in order, as
+ * `attached_media[i]={"media_fbid":…}`.
+ *
+ * A FAILED UPLOAD STOPS EVERYTHING BEFORE THE FEED CALL. Unpublished photos
+ * are not a post — Meta deletes them after about a day — so stopping at slide
+ * four leaves nothing in anybody's feed, which is the whole requirement:
+ * never a carousel with slides missing, never slide one alone.
+ */
+export async function postPageCarousel(
+  page: { id: string; token: string },
+  caption: string,
+  media: { bytes: Uint8Array; mime: string; name: string }[],
+  t: Transport,
+): Promise<PublishOutcome> {
+  const ids: string[] = [];
+  for (const [i, m] of media.entries()) {
+    const form = new FormData();
+    form.set("published", "false");
+    form.set("access_token", page.token);
+    form.set("source", new Blob([m.bytes], { type: m.mime }), m.name);
+    const out = await graphWrite(t, `${page.id}/photos`, form, 180_000);
+    if (!out.ok) return failed(`Facebook refused slide ${i + 1} of the carousel, so nothing was posted — ${out.error}`);
+    const id = typeof out.doc.id === "string" ? out.doc.id : null;
+    if (!id) return failed(`Facebook gave no id for slide ${i + 1}, so nothing was posted.`);
+    ids.push(id);
+  }
+  const form = new URLSearchParams({ message: caption, access_token: page.token });
+  ids.forEach((id, i) => form.set(`attached_media[${i}]`, JSON.stringify({ media_fbid: id })));
+  const out = await graphWrite(t, `${page.id}/feed`, form, 60_000);
+  if (!out.ok) return failed(`Facebook refused the carousel post — ${out.error}`);
+  const id = typeof out.doc.id === "string" ? out.doc.id : null;
+  return {
+    ok: true,
+    id,
+    url: id ? `https://www.facebook.com/${id.replace("_", "/posts/")}` : null,
+    configured: true,
+    error: null,
+    note: null,
+  };
+}
+
+/**
+ * An Instagram carousel, the documented three steps: a container per picture
+ * with `is_carousel_item=true` (no caption — it goes on the parent), a
+ * `media_type=CAROUSEL` container naming them as `children` in order, then
+ * `/media_publish` on that parent. Each picture is fetched by Meta from its own
+ * URL, which is why every slide has one.
+ */
+export async function postInstagramCarousel(
+  ig: { id: string; token: string },
+  caption: string,
+  imageUrls: string[],
+  t: Transport,
+): Promise<PublishOutcome> {
+  const children: string[] = [];
+  for (const [i, url] of imageUrls.entries()) {
+    const item = await graphWrite(
+      t,
+      `${ig.id}/media`,
+      new URLSearchParams({ image_url: url, is_carousel_item: "true", access_token: ig.token }),
+      60_000,
+    );
+    if (!item.ok) return failed(`Instagram refused slide ${i + 1} of the carousel, so nothing was posted — ${item.error}`);
+    const id = typeof item.doc.id === "string" ? item.doc.id : null;
+    if (!id) return failed(`Instagram made no container for slide ${i + 1}, so nothing was posted.`);
+    children.push(id);
+  }
+  const parent = await graphWrite(
+    t,
+    `${ig.id}/media`,
+    new URLSearchParams({ media_type: "CAROUSEL", children: children.join(","), caption, access_token: ig.token }),
+    60_000,
+  );
+  if (!parent.ok) return failed(`Instagram refused the carousel container — ${parent.error}`);
+  const creationId = typeof parent.doc.id === "string" ? parent.doc.id : null;
+  if (!creationId) return failed("Instagram made no carousel container and gave no reason.");
+
+  const published = await graphWrite(
+    t,
+    `${ig.id}/media_publish`,
+    new URLSearchParams({ creation_id: creationId, access_token: ig.token }),
+    60_000,
+  );
+  if (!published.ok) return failed(`Instagram refused to publish the carousel — ${published.error}`);
+  const mediaId = typeof published.doc.id === "string" ? published.doc.id : null;
+
+  let url: string | null = null;
+  if (mediaId) {
+    try {
+      const res = await t.fetch(
+        `${GRAPH}/${mediaId}?fields=permalink&access_token=${encodeURIComponent(ig.token)}`,
+        { signal: AbortSignal.timeout(TIMEOUT_MS) },
+      );
+      const doc = (await res.json().catch(() => null)) as { permalink?: string } | null;
+      url = str(doc?.permalink);
+    } catch {
+      /* The post is live either way. */
+    }
+  }
+  return {
+    ok: true,
+    id: mediaId,
+    url,
+    configured: true,
+    error: null,
+    note: url ? null : "Posted; the permalink could not be read back.",
+  };
+}
+
 /* `redact` and `describeBody` are imported for the transport contract's sake
    and re-exported so a caller holding only this module can compose the same
    record — see providers/social.ts. */

@@ -138,6 +138,13 @@ export function describeBody(init: RequestInit | undefined): string | null {
     }
     return `multipart: ${parts.join(", ")}`;
   }
+  /* Meta's form posts go up as URLSearchParams, which is neither a string nor
+     FormData — and used to be recorded as "binary", hiding which fields a
+     /feed call carried. Names only, as for the other two. */
+  if (body instanceof URLSearchParams) {
+    const names = [...body.keys()].filter((k) => !SECRET_PARAMS.includes(k));
+    return names.length ? `form: ${names.join(", ")}` : "form";
+  }
   if (body instanceof Uint8Array) return `bytes, ${Math.round(body.byteLength / 1024)} KB`;
   return "binary";
 }

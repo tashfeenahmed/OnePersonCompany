@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, CircleDashed, Download, GalleryHorizontal, Loader2, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { AlertTriangle, CheckCircle2, CircleDashed, Download, GalleryHorizontal, Loader2, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { publishingApi } from "@/areas/publishing/api";
 import { useApi } from "@/hooks/useApi";
 import { carouselApi, type Carousel, type CarouselSlide, type SlideVerdict } from "@/lib/api/carousel";
 import { cn } from "@/lib/utils";
@@ -14,10 +16,12 @@ import { cn } from "@/lib/utils";
  * badge and, under it, the issues in the checker's words. "Unverified" is drawn
  * as a dashed circle and never as a tick: nobody looked at that picture.
  *
- * NO "SEND TO PUBLISHING". A publishing item holds one media file
- * (`publish_items.media_kind`), so a carousel cannot travel there as one post
- * yet; sending six single-image drafts would be six posts nobody asked for.
- * The slides download one at a time or as a zip instead.
+ * "SEND TO PUBLISHING" FILES ONE DRAFT HOLDING ALL SIX, in order — one post,
+ * not six. Like the image post card's button it chooses no destination: the
+ * queue does that, and refuses the places that cannot take a carousel (TikTok,
+ * and Instagram while the slides are PNG) rather than posting slide one. It is
+ * offered only when all six pictures exist; the server refuses anything less.
+ * The slides still download one at a time or as a zip.
  *
  * WHILE THE RUN IS MOVING this is re-read whenever the parent's `version`
  * changes — the count of finished steps — so each slide appears as it lands
@@ -44,8 +48,27 @@ export function CarouselPanel({ carousel: c, onDelete }: { carousel: Carousel; o
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<string | null>(null);
   const passed = c.slides.filter((s) => s.verdict === "pass").length;
   const any = c.slides.some((s) => s.image);
+  const complete = c.slides.length === 6 && c.slides.every((s) => s.image);
+
+  /** One DRAFT publishing item with all six slides. The server writes a
+   *  caption from the plan first if the carousel has none. */
+  async function sendToPublishing() {
+    setSending(true);
+    setProblem(null);
+    setSent(null);
+    try {
+      const res = await publishingApi.queue({ sourceKind: "carousel", sourceId: c.runId, ventureId: c.ventureId ?? undefined });
+      setSent(res.note);
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function remove() {
     if (!onDelete || busy) return;
@@ -108,6 +131,12 @@ export function CarouselPanel({ carousel: c, onDelete }: { carousel: Carousel; o
             </a>
           </Button>
         )}
+        {complete && (
+          <Button variant="outline" size="sm" disabled={sending} onClick={() => void sendToPublishing()}>
+            {sending ? <Loader2 className="size-[14px] animate-spin" /> : <Send className="size-[14px]" strokeWidth={1.8} />}
+            Send to publishing
+          </Button>
+        )}
         {onDelete && (
           <Button variant={armed ? "destructive" : "ghost"} size="sm" disabled={busy} className="ml-auto"
             onClick={() => (armed ? void remove() : setArmed(true))}>
@@ -117,9 +146,11 @@ export function CarouselPanel({ carousel: c, onDelete }: { carousel: Carousel; o
         )}
       </div>
       {problem && <p className="text-destructive text-[13px]">{problem}</p>}
-      <p className="text-muted-foreground text-[12px] leading-relaxed">
-        Publishing takes one picture per post, so a carousel is not sent there as a draft. Download the slides and post them as a carousel on the platform.
-      </p>
+      {sent && (
+        <p className="text-muted-foreground text-[13px] leading-relaxed">
+          {sent} All six slides go as one post. <Link to="/social/publishing" className="underline decoration-dotted">Open the queue</Link>.
+        </p>
+      )}
     </div>
   );
 }

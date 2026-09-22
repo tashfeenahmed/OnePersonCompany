@@ -30,6 +30,11 @@ export type Limits = {
   imageTypes: string[];
   imageBytes: number;
   videoBytes: number | null;
+  /** How many pictures one carousel post may carry, or null where this app
+   *  does not publish carousels to that destination at all. */
+  carousel: { min: number; max: number } | null;
+  /** Why not, when `carousel` is null. */
+  carouselNote: string | null;
   needsPublicUrl: boolean;
   note: string;
 };
@@ -90,11 +95,16 @@ export type PublishItem = {
   source: { kind: string; id: string | null };
   caption: string | null;
   media: {
-    kind: "image" | "video" | "none";
+    /** `carousel` is several pictures, in order, as one post. */
+    kind: "image" | "video" | "none" | "carousel";
     onDisk: boolean;
     mime: string | null;
     bytes: number | null;
+    /** For a carousel, the FIRST slide — a thumbnail, never what is posted. */
     url: string | null;
+    count: number;
+    /** A carousel's slides, in order. Empty for every other kind. */
+    images: { n: number; url: string; onDisk: boolean; mime: string | null; bytes: number | null }[];
   };
   status: ItemStatus;
   scheduledFor: string | null;
@@ -290,7 +300,7 @@ export const publishingApi = {
 
   queue: (body: {
     ventureId?: string;
-    sourceKind: "studio_post" | "video_job" | "video_clip" | "manual";
+    sourceKind: "studio_post" | "video_job" | "video_clip" | "carousel" | "manual";
     sourceId?: string;
     destinationId?: string | null;
     caption?: string;
