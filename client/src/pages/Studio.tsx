@@ -852,7 +852,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   const shapeField = <Field label="Shape"><ShapePicker value={shownAspect} onChange={(value) => { setAspect(value); setAspectChanged(true); }} options={ASPECT_OPTIONS} /></Field>;
   const cost = {
     image: readiness?.image.ready ? `One image, billed through ${readiness.image.providerLabel}.` : "Connect an image provider to include a picture. Otherwise, only the caption is saved.",
-    carousel: "Your workspace AI plans six slides and codes each one; the browser on this box draws them. Each slide is measured for text outside the frame and, if the model can see, looked at for overlap, contrast and typos — up to two fixes per slide. No image provider is used.",
+    carousel: "Your workspace AI plans six slides and codes them as one strip; the browser on this box draws it once and cuts it into six. Each slide is measured for text outside its frame and, if the model can see, looked at for overlap, contrast and typos — up to two revisions. Icons and fonts are built in; no image provider is used.",
     ugc: "Creates a still, then animates it if a video model is connected. Generation uses the connected providers’ credits.",
     faceless: "Your workspace AI writes the script; stock footage and narration are assembled into a video.",
     youtube: "AI selects complete moments from the transcript. Clips are vertical by default; missing transcript or framing support is noted in the result.",

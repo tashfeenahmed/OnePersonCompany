@@ -45,7 +45,6 @@ export function CarouselPanel({ carousel: c, onDelete }: { carousel: Carousel; o
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const passed = c.slides.filter((s) => s.verdict === "pass").length;
-  const retried = c.slides.filter((s) => s.attempts > 1).length;
   const any = c.slides.some((s) => s.image);
 
   async function remove() {
@@ -65,16 +64,29 @@ export function CarouselPanel({ carousel: c, onDelete }: { carousel: Carousel; o
         <span className="text-[14.5px] font-medium tracking-tight">{c.title ?? "Carousel"}</span>
         <span className="text-muted-foreground text-[13px]">
           {c.width}×{c.height} · {c.slides.length} of 6 slides
-          {c.slides.length ? ` · ${passed} passed` : ""}
-          {retried ? ` · ${retried} retried` : ""}
+          {any ? ` · ${passed} passed` : ""}
+          {c.attempts > 1 ? ` · coded ${c.attempts} times` : ""}
         </span>
       </div>
       <p className="text-muted-foreground text-[12.5px] leading-relaxed">
         Coded by {c.coderModel ?? "the workspace model"}
-        {c.visionModel ? `, checked by ${c.visionModel}` : ""}. Every slide was also measured for text outside the frame.
+        {c.visionModel ? `, checked by ${c.visionModel}` : ""}. The six were drawn as one strip and cut apart; every slide was also measured for text outside its frame or across a cut.
         {c.visionNote ? ` ${c.visionNote}` : ""}
       </p>
       {c.error && <p className="text-destructive text-[13px] leading-relaxed">{c.error}</p>}
+
+      {/* THE STRIP, as it swipes: the one picture the six were cut from, so a
+          shape that runs across a cut can be seen joining up. */}
+      {c.strip && (
+        <div className="overflow-x-auto rounded-[10px] border">
+          <img src={c.strip} alt={`All six slides of ${c.title ?? "the carousel"}, side by side`} loading="lazy" className="block h-40 w-auto max-w-none" />
+        </div>
+      )}
+      {c.stripIssues.length > 0 && (
+        <ul className="text-muted-foreground grid gap-0.5 text-[12px] leading-snug">
+          {c.stripIssues.map((i) => <li key={i}>– {i}</li>)}
+        </ul>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {c.slides.map((s) => <SlideCard key={s.n} runId={c.runId} slide={s} ratio={`${c.width} / ${c.height}`} />)}
@@ -125,7 +137,7 @@ function SlideCard({ runId, slide: s, ratio }: { runId: string; slide: CarouselS
         <div className="flex items-center gap-1.5 text-[12.5px]">
           <span className="text-muted-foreground tabular-nums">{s.n}</span>
           <v.icon className={cn("size-[13px] shrink-0", v.className)} strokeWidth={1.9} aria-label={v.label} />
-          <span className={cn("truncate", v.className)} title={v.label}>{s.verdict}{s.attempts > 1 ? ` · ${s.attempts} tries` : ""}</span>
+          <span className={cn("truncate", v.className)} title={v.label}>{s.verdict}{s.history.length > 1 && s.history[0]?.verdict === "fail" ? ` · fixed on try ${s.history.length}` : ""}</span>
           {s.image && (
             <a href={carouselApi.slideDownload(runId, s.n)} download className="text-muted-foreground hover:text-foreground ml-auto" aria-label={`Download slide ${s.n}`} title="Download this slide">
               <Download className="size-[13px]" strokeWidth={1.8} />

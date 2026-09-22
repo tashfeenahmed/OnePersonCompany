@@ -23,9 +23,10 @@ export type CarouselSlide = {
   verdict: SlideVerdict;
   /** What the checks found on the KEPT render. Empty on a clean pass. */
   issues: string[];
-  /** How many times it was coded. More than one means a retry fired. */
+  /** How many times the carousel's one document was coded. */
   attempts: number;
-  history: { verdict: SlideVerdict; issues: string[]; note: string | null }[];
+  /** This slide's verdict on each attempt, in order. */
+  history: { verdict: SlideVerdict; issues: string[] }[];
   note: string | null;
   /** Null when the file is not on disk — nothing rendered, or it was pruned. */
   image: string | null;
@@ -42,6 +43,13 @@ export type Carousel = {
   title: string | null;
   caption: string | null;
   slides: CarouselSlide[];
+  /** The whole strip the six were cut from, when it is on disk. */
+  strip: string | null;
+  /** Issues about the set as a whole: consistency, text across a cut. */
+  stripIssues: string[];
+  /** How many times the one document was coded. More than one means the
+   *  checks sent it back for revision. */
+  attempts: number;
   thumbnailUrl: string | null;
   coderModel: string | null;
   visionModel: string | null;
@@ -59,4 +67,5 @@ export const carouselApi = {
   /** Plain addresses, for an <a download>: the browser fetches them itself. */
   slideDownload: (runId: string, n: number) => `/api/carousel/${encodeURIComponent(runId)}/slides/${n}?download=1`,
   zip: (runId: string) => `/api/carousel/${encodeURIComponent(runId)}/zip`,
+  stripDownload: (runId: string) => `/api/carousel/${encodeURIComponent(runId)}/strip?download=1`,
 };

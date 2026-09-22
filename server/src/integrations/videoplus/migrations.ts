@@ -131,4 +131,18 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS studio_carousels_venture ON studio_carousels (venture_id, ts DESC);
     `,
   },
+  {
+    name: "490_studio_carousels_strip",
+    sql: `
+      -- ONE STRIP INSTEAD OF SIX PAGES (2026-09-22). A carousel is now coded
+      -- as a single document six slides wide, drawn once and cut apart, so
+      -- what was per slide is partly per carousel: the issues about the set
+      -- as a whole (consistency, text across a cut), how many times the one
+      -- document was coded, and the attempt-by-attempt verdicts. The strip
+      -- itself is \`video/<run>/carousel.png\`, beside the six slides.
+      ALTER TABLE studio_carousels ADD COLUMN strip_issues TEXT;
+      ALTER TABLE studio_carousels ADD COLUMN attempts INTEGER;
+      ALTER TABLE studio_carousels ADD COLUMN history TEXT;
+    `,
+  },
 ];

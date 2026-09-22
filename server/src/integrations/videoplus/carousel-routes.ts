@@ -6,7 +6,8 @@
  * other Studio video, and deleted with its run — `forgetVideo` takes the row
  * and the run directory takes the files. What is here is the reading side the
  * Studio needs: the list its rail merges with the runs, one carousel with its
- * verdicts, each slide's PNG, and all six as one zip.
+ * verdicts, each slide's PNG, the strip they were cut from, and all six as
+ * one zip.
  *
  * NO PATH FROM A CALLER EVER REACHES THE DISK. A slide is addressed by run id
  * and number, both checked, and the file name is rebuilt from the number
@@ -16,7 +17,7 @@ import { Hono } from "hono";
 import { readFileSync } from "node:fs";
 import { crc32 } from "node:zlib";
 import { db, ventureRow } from "../../db.ts";
-import { carouselRow, shapeCarousel, slidePath, type CarouselRow } from "./carousel.ts";
+import { carouselRow, shapeCarousel, slidePath, stripPath, type CarouselRow } from "./carousel.ts";
 import { CAROUSEL_SIZES, CAROUSEL_SLIDES } from "../../../../shared/carousel.ts";
 
 export const carouselRoutes = new Hono();
@@ -57,6 +58,15 @@ carouselRoutes.get("/:runId/slides/:n", (c) => {
   const path = slidePath(runId, n);
   if (!path) return c.json({ error: `Slide ${c.req.param("n")} of that carousel is not on disk.` }, 404);
   return png(readFileSync(path), `${runId}-slide-${n}.png`, c.req.query("download") === "1");
+});
+
+/** The whole strip the six were cut from — what the carousel looks like
+ *  swiped end to end. */
+carouselRoutes.get("/:runId/strip", (c) => {
+  const runId = c.req.param("runId");
+  const path = stripPath(runId);
+  if (!path) return c.json({ error: "That carousel's strip is not on disk." }, 404);
+  return png(readFileSync(path), `${runId}-strip.png`, c.req.query("download") === "1");
 });
 
 /**
