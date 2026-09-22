@@ -6,23 +6,29 @@ import { crc32 } from "node:zlib";
 import { resolve } from "node:path";
 import type { VisionTurn } from "../../models/provider.ts";
 import { imageDimensions } from "../../tools/chrome.ts";
+import { decodePixels } from "../../tools/png.ts";
 import {
-  makeSlide,
-  measureSlideHtml,
+  coderSystem,
+  feedbackText,
+  makeStrip,
+  measureStrip,
   parsePlan,
-  parseVerdict,
+  parseStripVerdict,
   pickHtml,
   readGeometry,
-  renderSlideHtml,
-  type SlideDeps,
-  type SlidePlan,
+  renderStrip,
+  sortGeometry,
+  type StripDeps,
   type VerifyOutcome,
 } from "./carousel.ts";
+import { FONTS_HREF, hasIcon, iconSamples, inlineIcons, prepareHtml } from "./carousel-kit.ts";
 import { storedZip } from "./carousel-routes.ts";
 import { findBrowser } from "./chrome.ts";
 import { carouselSize } from "../../../../shared/carousel.ts";
 
 const slides = (n: number) => Array.from({ length: n }, (_, i) => ({ headline: `Headline ${i + 1}`, body: `Body ${i + 1}`, visual: "a line" }));
+
+/* ------------------------------------------------------------ the plan */
 
 test("a plan is six slides whose roles come from their position, not the model's labels", () => {
   const got = parsePlan(`Thinking about it first {not json}\n${JSON.stringify({ title: "Six things", caption: "Read on.", slides: slides(6).map((s) => ({ ...s, role: "cta" })) })}`);
@@ -48,17 +54,38 @@ test("fewer than six usable slides, or no slides at all, is a reason and never a
   assert.ok("error" in parsePlan(JSON.stringify({ slides: "six" })));
 });
 
-test("the verdict must say pass or fail; a fail must point at something", () => {
-  assert.deepEqual(parseVerdict('{"pass":true,"issues":[]}'), { pass: true, issues: [] });
-  assert.deepEqual(
-    parseVerdict('```json\n{"pass":false,"issues":["The headline is cut off at the right edge.",{"where":"footer","problem":"overlaps the logo"}]}\n```'),
-    { pass: false, issues: ["The headline is cut off at the right edge.", "footer: overlaps the logo"] },
-  );
-  assert.deepEqual(parseVerdict('{"pass":"false","issues":["x is faint"]}'), { pass: false, issues: ["x is faint"] });
-  assert.equal(parseVerdict('{"pass":false,"issues":[]}'), null);
-  assert.equal(parseVerdict('{"pass":"mostly","issues":[]}'), null);
-  assert.equal(parseVerdict("Looks fine to me."), null);
-  assert.equal(parseVerdict(JSON.stringify({ pass: false, issues: Array.from({ length: 12 }, (_, i) => `issue ${i}`) }))!.issues.length, 6);
+/* --------------------------------------------------------- the verdict */
+
+test("the verdict is read per slide, by number or by order, with strip issues kept apart", () => {
+  const got = parseStripVerdict(JSON.stringify({
+    pass: false,
+    strip: ["Slide 4 uses a serif headline; the others use a sans."],
+    slides: [{ n: 3, pass: false, issues: ["The headline is cut off at the right edge.", { where: "footer", problem: "overlaps the logo" }] }, { n: 1, pass: true, issues: [] }],
+  }), 6);
+  assert.ok(got);
+  assert.deepEqual(got.strip, ["Slide 4 uses a serif headline; the others use a sans."]);
+  assert.deepEqual(got.slides[2], { pass: false, issues: ["The headline is cut off at the right edge.", "footer: overlaps the logo"] });
+  assert.equal(got.slides.filter((s) => s.pass).length, 5, "slides it did not mention passed");
+
+  const ordered = parseStripVerdict('```json\n{"pass":"false","slides":[{"pass":true},{"pass":"false","issues":["x is faint"]}]}\n```', 6);
+  assert.deepEqual(ordered?.slides[1], { pass: false, issues: ["x is faint"] });
+});
+
+test("a fail that points at nothing is not a verdict; a slide failed with no issue is a pass", () => {
+  assert.equal(parseStripVerdict('{"pass":false,"strip":[],"slides":[{"n":2,"pass":false,"issues":[]}]}', 6), null);
+  assert.equal(parseStripVerdict("Looks fine to me."), null);
+  assert.equal(parseStripVerdict('{"verdict":"mostly"}'), null);
+  const clean = parseStripVerdict('{"pass":true,"strip":[],"slides":[]}', 6);
+  assert.ok(clean && clean.slides.every((s) => s.pass) && clean.strip.length === 0);
+  const capped = parseStripVerdict(JSON.stringify({ pass: false, strip: Array.from({ length: 12 }, (_, i) => `issue ${i}`) }), 6);
+  assert.equal(capped?.strip.length, 6);
+});
+
+test("geometry lines go to the slide they name, anything else to the strip", () => {
+  assert.deepEqual(sortGeometry(["Slide 2: the text runs outside.", "Slide 9: out of range", "a strip-wide note"], 6), {
+    strip: ["Slide 9: out of range", "a strip-wide note"],
+    slides: [[], ["the text runs outside."], [], [], [], []],
+  });
 });
 
 test("the document is cut out of a fenced reply and its scripts are removed", () => {
@@ -81,101 +108,156 @@ test("a carousel size is one of the four names, portrait when it is anything els
   assert.equal(carouselSize(undefined), "portrait");
 });
 
+/* ------------------------------------------------------------ the kit */
+
+test("icons are inlined from the vendored sets; an unknown name renders as nothing and is reported", () => {
+  const got = inlineIcons(`<div><i data-lucide="rocket" class="big" style="color:red"></i><span data-tabler="bolt"/> <i data-lucide="not-an-icon"></i></div>`);
+  assert.match(got.html, /<svg [^>]*viewBox="0 0 24 24"[^>]*class="big" style="color:red" data-icon="lucide:rocket"><path /);
+  assert.match(got.html, /data-icon="tabler:bolt"/);
+  assert.doesNotMatch(got.html, /not-an-icon|<i /);
+  assert.deepEqual(got.missing, ["lucide:not-an-icon"]);
+});
+
+test("every icon name the prompt offers exists, and the prompt lists the fonts and the cuts", () => {
+  const s = iconSamples();
+  assert.ok(s.lucide.length > 40 && s.tabler.length > 30);
+  assert.ok([...s.lucide.map((n) => hasIcon("lucide", n)), ...s.tabler.map((n) => hasIcon("tabler", n))].every(Boolean));
+  const system = coderSystem({ width: 1080, height: 1350 });
+  assert.match(system, /6480px wide and 1350px tall/);
+  assert.match(system, /1080px, 2160px, 3240px, 4320px, 5400px/);
+  assert.match(system, /Bricolage Grotesque \(display\)/);
+  assert.match(system, /data-lucide="rocket"/);
+});
+
+test("the prepared page links the curated fonts and the venture's own font, and inlines icons", () => {
+  const got = prepareHtml(`<!doctype html><html><head><title>x</title></head><body><i data-lucide="check"></i></body></html>`, "Poppins");
+  assert.ok(got.html.includes(FONTS_HREF.replace(/&/g, "&amp;")));
+  assert.match(got.html, /family=Poppins&amp;display=block/);
+  assert.match(got.html, /data-icon="lucide:check"/);
+  assert.equal(prepareHtml("<html><body></body></html>", "Inter").html.match(/<link /g)?.length, 1, "a font already in the list is not linked twice");
+});
+
 /* ------------------------------------------------------------ the loop */
 
-const slide: SlidePlan = { n: 2, role: "body", headline: "One idea", body: "Said plainly.", visual: "" };
-
-function scripted(opts: { verdicts: VerifyOutcome[]; geometry?: string[][]; codeFails?: number[] }) {
+function scripted(opts: { verdicts: VerifyOutcome[]; geometry?: string[][]; codeFails?: number[]; missing?: string[] }) {
   const seen: VisionTurn[][] = [];
   let coded = 0;
   let measured = 0;
   let verified = 0;
-  const deps: SlideDeps = {
+  const deps: StripDeps = {
     async code(turns) {
       seen.push(turns);
       const i = coded++;
       if (opts.codeFails?.includes(i)) throw new Error("the model timed out");
       return { text: `<!doctype html><html><body>attempt ${i}</body></html>`, model: "test-model" };
     },
+    prepare: (doc) => ({ html: doc, missingIcons: opts.missing ?? [] }),
     async render(_html, attempt) {
-      return { ok: true, path: `/tmp/slide-2.try${attempt}.png` };
+      return { ok: true, strip: `/tmp/carousel.try${attempt}.png`, slides: [1, 2, 3, 4, 5, 6].map((n) => `/tmp/slide-${n}.try${attempt}.png`) };
     },
     async measure() {
       return opts.geometry?.[measured++] ?? [];
     },
     async verify() {
-      return opts.verdicts[verified++] ?? { kind: "verdict", pass: true, issues: [] };
+      return opts.verdicts[verified++] ?? allPass();
     },
   };
-  const turns = (feedback: { html: string; issues: string[] } | null): VisionTurn[] => [
-    { role: "user", content: feedback ? `FIX: ${feedback.issues.join(" | ")} IN ${feedback.html}` : "first" },
+  const turns = (feedback: { html: string; issues: string } | null): VisionTurn[] => [
+    { role: "user", content: feedback ? `FIX:\n${feedback.issues}\nIN ${feedback.html}` : "first" },
   ];
   return { deps, turns, seen, count: () => ({ coded, measured, verified }) };
 }
 
-test("a failed slide goes back to the coder with the issues and its own HTML, and stops when it passes", async () => {
-  const s = scripted({ verdicts: [{ kind: "verdict", pass: false, issues: ["The headline overlaps the logo."] }, { kind: "verdict", pass: true, issues: [] }] });
-  const got = await makeSlide({ slide, deps: s.deps, turns: s.turns });
+function allPass(): VerifyOutcome {
+  return { kind: "verdict", strip: [], slides: Array.from({ length: 6 }, () => ({ pass: true, issues: [] })) };
+}
+function failSlide(n: number, issue: string, strip: string[] = []): VerifyOutcome {
+  return {
+    kind: "verdict",
+    strip,
+    slides: Array.from({ length: 6 }, (_, i) => (i === n - 1 ? { pass: false, issues: [issue] } : { pass: true, issues: [] })),
+  };
+}
+
+test("a failed strip goes back to the coder as the SAME document with issues listed per slide, and stops when it passes", async () => {
+  const s = scripted({ verdicts: [failSlide(3, "The headline overlaps the logo.", ["Slide 5 uses a different footer."]), allPass()] });
+  const got = await makeStrip({ deps: s.deps, turns: s.turns });
   assert.equal(got.verdict, "pass");
   assert.equal(got.attempts, 2);
-  assert.equal(got.file, "slide-2.try1.png");
+  assert.equal(got.kept?.attempt, 1);
+  assert.equal(got.kept?.slides[5], "/tmp/slide-6.try1.png");
   assert.equal(got.html, "<!doctype html><html><body>attempt 1</body></html>");
-  assert.equal(got.model, "test-model");
   assert.deepEqual(got.history.map((h) => h.verdict), ["fail", "pass"]);
-  assert.match(String(s.seen[1]![0]!.content), /FIX: The headline overlaps the logo\. IN <!doctype html><html><body>attempt 0/);
+  assert.deepEqual(got.history[0]!.slides.map((x) => x.verdict), ["pass", "pass", "fail", "pass", "pass", "pass"]);
+  const retry = String(s.seen[1]![0]!.content);
+  assert.match(retry, /THE CAROUSEL AS A WHOLE:\n- Slide 5 uses a different footer\./);
+  assert.match(retry, /SLIDE 3:\n- The headline overlaps the logo\./);
+  assert.match(retry, /IN <!doctype html><html><body>attempt 0/);
 });
 
-test("the geometry check fails a slide even when the vision model passed it", async () => {
+test("the geometry check fails a slide even when the vision model passed it, and names the slide", async () => {
   const s = scripted({
-    geometry: [['The text "One idea" runs outside the 1080x1350 frame.'], []],
-    verdicts: [{ kind: "verdict", pass: true, issues: [] }, { kind: "verdict", pass: true, issues: [] }],
+    geometry: [['Slide 2: the text "One idea" crosses the cut between slide 2 and slide 3 (…).'], []],
+    verdicts: [allPass(), allPass()],
   });
-  const got = await makeSlide({ slide, deps: s.deps, turns: s.turns });
+  const got = await makeStrip({ deps: s.deps, turns: s.turns });
   assert.equal(got.verdict, "pass");
   assert.equal(got.attempts, 2);
-  assert.match(String(s.seen[1]![0]!.content), /runs outside the 1080x1350 frame/);
+  assert.deepEqual(got.history[0]!.slides[1], { verdict: "fail", issues: ['the text "One idea" crosses the cut between slide 2 and slide 3 (…).'] });
+  assert.match(String(s.seen[1]![0]!.content), /SLIDE 2:\n- the text "One idea" crosses the cut/);
 });
 
-test("retries stop at two, and the last render is kept with its verdict and issues", async () => {
-  const fail: VerifyOutcome = { kind: "verdict", pass: false, issues: ["The body text is too faint on the background."] };
-  const s = scripted({ verdicts: [fail, fail, fail, fail] });
-  const got = await makeSlide({ slide, deps: s.deps, turns: s.turns });
+test("revisions stop at two, and the last render is kept with each slide's verdict", async () => {
+  const bad = failSlide(4, "The body text is too faint on the background.");
+  const s = scripted({ verdicts: [bad, bad, bad, bad] });
+  const got = await makeStrip({ deps: s.deps, turns: s.turns });
   assert.equal(got.verdict, "fail");
   assert.equal(got.attempts, 3);
   assert.equal(s.count().coded, 3);
-  assert.equal(got.file, "slide-2.try2.png");
-  assert.deepEqual(got.issues, ["The body text is too faint on the background."]);
+  assert.equal(got.kept?.attempt, 2);
+  assert.deepEqual(got.slides[3], { verdict: "fail", issues: ["The body text is too faint on the background."] });
+  assert.equal(got.slides[0]!.verdict, "pass");
 });
 
-test("with no vision model a clean slide is unverified — never a pass — and is not retried", async () => {
+test("with no vision model a clean strip is unverified — never a pass — and is not revised", async () => {
   const s = scripted({ verdicts: [{ kind: "unverified", note: "the model cannot take a picture" }] });
-  const got = await makeSlide({ slide, deps: s.deps, turns: s.turns });
+  const got = await makeStrip({ deps: s.deps, turns: s.turns });
   assert.equal(got.verdict, "unverified");
+  assert.ok(got.slides.every((x) => x.verdict === "unverified"));
   assert.equal(got.attempts, 1);
   assert.equal(got.note, "the model cannot take a picture");
 });
 
-test("a model failure on the first attempt throws; on a retry it keeps the render it has", async () => {
-  await assert.rejects(makeSlide({ slide, deps: scripted({ verdicts: [], codeFails: [0] }).deps, turns: () => [] }), /timed out/);
-  const s = scripted({ verdicts: [{ kind: "verdict", pass: false, issues: ["Overlap in the footer."] }], codeFails: [1] });
-  const got = await makeSlide({ slide, deps: s.deps, turns: s.turns });
+test("unknown icons do not fail a strip, but a revision is told about them", async () => {
+  const s = scripted({ verdicts: [failSlide(1, "The hook is clipped."), allPass()], missing: ["lucide:rockett"] });
+  const got = await makeStrip({ deps: s.deps, turns: s.turns });
+  assert.equal(got.verdict, "pass");
+  assert.match(String(s.seen[1]![0]!.content), /ICONS THAT DO NOT EXIST[^\n]*lucide:rockett/);
+  assert.equal(feedbackText({ verdict: "pass", strip: [], slides: [], note: null, missingIcons: [] }), "");
+});
+
+test("a model failure on the first attempt throws; on a revision it keeps the render it has", async () => {
+  await assert.rejects(makeStrip({ deps: scripted({ verdicts: [], codeFails: [0] }).deps, turns: () => [] }), /timed out/);
+  const s = scripted({ verdicts: [failSlide(2, "Overlap in the footer.")], codeFails: [1] });
+  const got = await makeStrip({ deps: s.deps, turns: s.turns });
   assert.equal(got.verdict, "fail");
-  assert.equal(got.file, "slide-2.try0.png");
-  assert.match(got.note ?? "", /Retry 1 could not be coded/);
+  assert.equal(got.kept?.attempt, 0);
+  assert.match(got.note ?? "", /Revision 1 could not be coded/);
 });
 
 test("a reply with no document is a failed attempt that is sent back, not a crash", async () => {
   let n = 0;
-  const deps: SlideDeps = {
+  const deps: StripDeps = {
     async code() { return { text: n++ === 0 ? "Sorry, here is my plan instead." : "<html><body>ok</body></html>", model: null }; },
-    async render(_h, attempt) { return { ok: true, path: `/x/slide-1.try${attempt}.png` }; },
+    prepare: (doc) => ({ html: doc, missingIcons: [] }),
+    async render(_h, attempt) { return { ok: true, strip: `/x/c.try${attempt}.png`, slides: [] }; },
     async measure() { return []; },
-    async verify() { return { kind: "verdict", pass: true, issues: [] }; },
+    async verify() { return allPass(); },
   };
-  const got = await makeSlide({ slide: { ...slide, n: 1 }, deps, turns: () => [] });
+  const got = await makeStrip({ deps, turns: () => [] });
   assert.equal(got.verdict, "pass");
   assert.equal(got.attempts, 2);
-  assert.deepEqual(got.history[0]!.issues, ["The reply contained no HTML document."]);
+  assert.deepEqual(got.history[0]!.strip, ["The reply contained no HTML document."]);
 });
 
 /* ----------------------------------------------------------- the zip */
@@ -199,27 +281,41 @@ test("the zip is a valid stored archive: one local header per file, a central di
 
 /* ------------------------------------------------- the real browser */
 
-test("in a real browser, a slide renders at exactly its size and overflowing text is measured", async (t) => {
+test("in a real browser, one strip renders six slides wide, is cut at the right offsets, and is measured", async (t) => {
   const browser = findBrowser();
   if (!browser.path) return t.skip("no Chrome or Chromium on this machine");
   const dir = mkdtempSync(resolve(tmpdir(), "opc-carousel-"));
+  const W = 200, H = 250;
+  const colours = ["#e11d48", "#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2"];
+  const sections = colours.map((c, i) => `<section style="position:absolute;left:${i * W}px;top:0;width:${W}px;height:${H}px;background:${c}"><p style="margin:40px 20px;font:700 20px sans-serif;color:#fff">Slide ${i + 1}</p></section>`).join("");
+  const good = `<!doctype html><html><head><style>html,body{margin:0;width:${W * 6}px;height:${H}px;overflow:hidden;position:relative}</style></head><body>${sections}</body></html>`;
   try {
-    const good = `<!doctype html><html><head><style>html,body{margin:0;width:540px;height:675px;overflow:hidden;background:#123}h1{color:#fff;font:700 40px sans-serif;margin:60px}</style></head><body><h1>Fits well</h1></body></html>`;
-    const shot = await renderSlideHtml({ browser: browser.path, html: good, dir, name: "good", width: 540, height: 675 });
+    const shot = await renderStrip({ browser: browser.path, html: good, dir, name: "strip", slideName: (n) => `s${n}`, width: W, height: H });
     assert.ok(shot.ok, shot.ok ? "" : shot.error);
-    assert.deepEqual(imageDimensions(readFileSync(shot.path)), { width: 540, height: 675 });
-    assert.deepEqual(await measureSlideHtml({ browser: browser.path, html: good, dir, name: "good", width: 540, height: 675 }), []);
+    assert.deepEqual(imageDimensions(readFileSync(shot.strip)), { width: W * 6, height: H });
+    for (let n = 1; n <= 6; n++) {
+      const px = decodePixels(readFileSync(shot.slides[n - 1]!));
+      assert.ok(!("error" in px));
+      assert.deepEqual([px.width, px.height], [W, H]);
+      /* The top-left pixel is that slide's own colour: the cut is on the boundary. */
+      const want = colours[n - 1]!.slice(1).match(/../g)!.map((h) => parseInt(h, 16));
+      assert.deepEqual([...px.data.subarray(0, 3)], want, `slide ${n}'s first pixel`);
+      /* And the bottom row is still the slide — the Linux height quirk was trimmed. */
+      const last = (px.height - 1) * px.width * px.channels;
+      assert.deepEqual([...px.data.subarray(last, last + 3)], want, `slide ${n}'s bottom row`);
+    }
+    assert.deepEqual(await measureStrip({ browser: browser.path, html: good, dir, name: "good", width: W, height: H }), []);
 
-    const bad = `<!doctype html><html><head><style>html,body{margin:0;width:540px;height:675px;overflow:hidden}h1{position:absolute;left:400px;top:40px;white-space:nowrap;font:700 60px sans-serif}.box{position:absolute;top:300px;left:40px;width:200px;height:40px;overflow:hidden;font:20px sans-serif}</style></head><body><h1>Runs off the edge</h1><div class="box">A long paragraph that cannot possibly fit inside a box this small and gets cut off.</div></body></html>`;
-    const issues = await measureSlideHtml({ browser: browser.path, html: bad, dir, name: "bad", width: 540, height: 675 });
-    assert.ok(issues.some((i) => /Runs off the edge.*outside the 540x675 frame/.test(i)), issues.join("\n"));
-    assert.ok(issues.some((i) => /A long paragraph.*cut off by the box around it/.test(i)), issues.join("\n"));
+    const bad = good.replace("</body>", `<h1 style="position:absolute;left:${W * 2 - 60}px;top:120px;margin:0;white-space:nowrap;font:700 30px sans-serif">Across the cut</h1><h2 style="position:absolute;left:${W * 6 - 50}px;top:180px;margin:0;white-space:nowrap;font:700 24px sans-serif">Off the end</h2><div style="position:absolute;left:${W * 4 + 20}px;top:60px;width:120px;height:30px;overflow:hidden;font:16px sans-serif">A long paragraph that cannot possibly fit inside a box this small.</div></body>`);
+    const issues = await measureStrip({ browser: browser.path, html: bad, dir, name: "bad", width: W, height: H });
+    assert.ok(issues.some((i) => /^Slide [23]: the text "Across the cut" crosses the cut between slide 2 and slide 3/.test(i)), issues.join("\n"));
+    assert.ok(issues.some((i) => /^Slide 6: the text "Off the end" runs outside the 200x250 frame \(\d+px past the right edge\)/.test(i)), issues.join("\n"));
+    assert.ok(issues.some((i) => /^Slide 5: the text "A long paragraph.*cut off by the box around it/.test(i)), issues.join("\n"));
 
-    /* The first Pi run's false alarm: a frame-sized box a few pixels taller
-       than its content (an inline SVG's descender gap), with every letter
-       plainly inside. Nothing visible is cut, so nothing is reported. */
-    const snug = `<!doctype html><html><head><style>html,body{margin:0;width:540px;height:675px;overflow:hidden}.frame{position:relative;width:540px;height:675px;overflow:hidden}.art{position:absolute;inset:0}.t{position:absolute;left:40px;top:300px;font:700 40px sans-serif}.f{position:absolute;left:40px;bottom:40px;font:16px sans-serif}</style></head><body><div class="frame"><div class="art"><svg width="540" height="675"><circle cx="270" cy="200" r="80" fill="teal"/></svg></div><div class="t">Stop juggling keys</div><div class="f">FreeLLMAPI 1 / 6</div></div></body></html>`;
-    assert.deepEqual(await measureSlideHtml({ browser: browser.path, html: snug, dir, name: "snug", width: 540, height: 675 }), []);
+    /* The first Pi run's false alarm: a box a few pixels taller than its
+       content (an inline SVG's descender gap), every letter plainly inside. */
+    const snug = good.replace("</body>", `<div style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;overflow:hidden"><div style="position:absolute;inset:0"><svg width="${W}" height="${H}"><circle cx="100" cy="100" r="40" fill="teal"/></svg></div><div style="position:absolute;left:20px;bottom:20px;font:14px sans-serif">Footer 1 / 6</div></div></body>`);
+    assert.deepEqual(await measureStrip({ browser: browser.path, html: snug, dir, name: "snug", width: W, height: H }), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

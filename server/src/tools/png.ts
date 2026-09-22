@@ -18,6 +18,9 @@ export type PixelStats = {
   distinctColours: number;
 };
 
+/** Decoded 8-bit samples, row-major, `channels` bytes a pixel. */
+export type Pixels = { width: number; height: number; channels: number; data: Buffer };
+
 export type Decoded = { stats: PixelStats; error: null } | { stats: null; error: string };
 
 const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -28,19 +31,20 @@ const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const STEP = 3;
 
 /**
- * A PNG, far enough to say what is in it.
+ * A PNG's samples, unfiltered — the half of `decodePng` that the carousel's
+ * cutter also needs.
  *
  * Truecolour and greyscale, 8 bits, non-interlaced — which is what Chrome
  * writes and what `capture.ts` therefore has on disk. Anything else returns an
- * error string, which becomes an `unchecked` verdict rather than a failure.
+ * error string.
  */
-export function decodePng(bytes: Buffer): Decoded {
-  if (bytes.length < 24) return { stats: null, error: "The file is too short to be a PNG." };
+export function decodePixels(bytes: Buffer): Pixels | { error: string } {
+  if (bytes.length < 24) return { error: "The file is too short to be a PNG." };
   for (let i = 0; i < PNG_SIG.length; i++)
-    if (bytes[i] !== PNG_SIG[i]) return { stats: null, error: "The file does not start with a PNG signature." };
+    if (bytes[i] !== PNG_SIG[i]) return { error: "The file does not start with a PNG signature." };
 
   const size = imageDimensions(bytes);
-  if (!size) return { stats: null, error: "The PNG has no readable IHDR." };
+  if (!size) return { error: "The PNG has no readable IHDR." };
   const { width, height } = size;
 
   let at = 8;
@@ -66,23 +70,23 @@ export function decodePng(bytes: Buffer): Decoded {
     at = body + len + 4;
   }
 
-  if (depth !== 8) return { stats: null, error: `This reader handles 8-bit samples; that file is ${depth}-bit.` };
-  if (interlace !== 0) return { stats: null, error: "That PNG is interlaced, which this reader does not undo." };
+  if (depth !== 8) return { error: `This reader handles 8-bit samples; that file is ${depth}-bit.` };
+  if (interlace !== 0) return { error: "That PNG is interlaced, which this reader does not undo." };
   const channels = colorType === 0 ? 1 : colorType === 2 ? 3 : colorType === 4 ? 2 : colorType === 6 ? 4 : 0;
   if (!channels)
-    return { stats: null, error: `Colour type ${colorType} (palette or unknown) is not one this reader decodes.` };
-  if (!idat.length) return { stats: null, error: "The PNG carries no image data." };
+    return { error: `Colour type ${colorType} (palette or unknown) is not one this reader decodes.` };
+  if (!idat.length) return { error: "The PNG carries no image data." };
 
   let raw: Buffer;
   try {
     raw = inflateSync(Buffer.concat(idat));
   } catch (err) {
-    return { stats: null, error: `The image data would not decompress — ${err instanceof Error ? err.message : String(err)}` };
+    return { error: `The image data would not decompress — ${err instanceof Error ? err.message : String(err)}` };
   }
 
   const stride = width * channels;
   if (raw.length < (stride + 1) * height)
-    return { stats: null, error: "The decompressed image is shorter than its own header says it should be." };
+    return { error: "The decompressed image is shorter than its own header says it should be." };
 
   /* Unfiltered in place, one scanline at a time, into a single buffer holding
      the previous row — the five PNG filters are all defined against the byte
@@ -120,11 +124,26 @@ export function decodePng(bytes: Buffer): Decoded {
           break;
         }
         default:
-          return { stats: null, error: `Scanline ${y} uses filter ${filter}, which is not a PNG filter.` };
+          return { error: `Scanline ${y} uses filter ${filter}, which is not a PNG filter.` };
       }
     }
     prev = row;
   }
+  return { width, height, channels, data: out };
+}
+
+/**
+ * A PNG, far enough to say what is in it.
+ *
+ * Truecolour and greyscale, 8 bits, non-interlaced — which is what Chrome
+ * writes and what `capture.ts` therefore has on disk. Anything else returns an
+ * error string, which becomes an `unchecked` verdict rather than a failure.
+ */
+export function decodePng(bytes: Buffer): Decoded {
+  const px = decodePixels(bytes);
+  if ("error" in px) return { stats: null, error: px.error };
+  const { width, height, channels, data: out } = px;
+  const stride = width * channels;
 
   let n = 0;
   let sum = 0;
@@ -252,4 +271,72 @@ export function trimPngFile(path: string, height: number): void {
   } catch {
     /* Left as the browser wrote it. */
   }
+}
+
+/* ------------------------------------------------ cutting and shrinking
+ *
+ * ADDED FOR THE CAROUSEL (videoplus/carousel.ts), which renders six slides as
+ * one wide strip in one browser launch and cuts it apart here. Pure JS on the
+ * decoder above and zlib, like everything else in this file: no image
+ * library, because this is two loops over a buffer. */
+
+function chunk(type: string, data: Buffer): Buffer {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write(type, 4, "latin1");
+  const tail = Buffer.alloc(4);
+  tail.writeUInt32BE(crc32(data, crc32(head.subarray(4))) >>> 0, 0);
+  return Buffer.concat([head, data, tail]);
+}
+
+/** An 8-bit PNG from samples, every scanline filter 0. */
+export function encodePng(px: Pixels): Buffer {
+  const colorType = ({ 1: 0, 2: 4, 3: 2, 4: 6 } as Record<number, number>)[px.channels];
+  if (colorType === undefined) throw new Error(`${px.channels} channels is not a PNG layout`);
+  const stride = px.width * px.channels;
+  const raw = Buffer.alloc((stride + 1) * px.height);
+  for (let y = 0; y < px.height; y++) px.data.copy(raw, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(px.width, 0);
+  ihdr.writeUInt32BE(px.height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = colorType;
+  return Buffer.concat([Buffer.from(PNG_SIG), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 6 })), chunk("IEND", Buffer.alloc(0))]);
+}
+
+/** The rectangle x, y, w, h of a decoded picture. Clamped to the picture. */
+export function cropPixels(px: Pixels, x: number, y: number, w: number, h: number): Pixels {
+  const x0 = Math.max(0, Math.min(px.width, Math.round(x)));
+  const y0 = Math.max(0, Math.min(px.height, Math.round(y)));
+  const cw = Math.max(0, Math.min(px.width - x0, Math.round(w)));
+  const ch = Math.max(0, Math.min(px.height - y0, Math.round(h)));
+  const stride = px.width * px.channels;
+  const out = Buffer.alloc(cw * ch * px.channels);
+  for (let row = 0; row < ch; row++) {
+    const from = (y0 + row) * stride + x0 * px.channels;
+    px.data.copy(out, row * cw * px.channels, from, from + cw * px.channels);
+  }
+  return { width: cw, height: ch, channels: px.channels, data: out };
+}
+
+/** A smaller copy, by averaging each `factor`×`factor` block. For a picture
+ *  a model only needs to see the shape of — never for anything published. */
+export function shrinkPixels(px: Pixels, factor: number): Pixels {
+  const f = Math.max(1, Math.floor(factor));
+  if (f === 1) return px;
+  const w = Math.max(1, Math.floor(px.width / f));
+  const h = Math.max(1, Math.floor(px.height / f));
+  const c = px.channels;
+  const out = Buffer.alloc(w * h * c);
+  const sums = new Float64Array(c);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      sums.fill(0);
+      for (let dy = 0; dy < f; dy++) {
+        const base = ((y * f + dy) * px.width + x * f) * c;
+        for (let dx = 0; dx < f; dx++) for (let k = 0; k < c; k++) sums[k] = sums[k]! + px.data[base + dx * c + k]!;
+      }
+      for (let k = 0; k < c; k++) out[(y * w + x) * c + k] = Math.round(sums[k]! / (f * f));
+    }
+  return { width: w, height: h, channels: c, data: out };
 }

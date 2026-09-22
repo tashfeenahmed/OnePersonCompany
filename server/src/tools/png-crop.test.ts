@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { crc32, deflateSync, inflateSync } from "node:zlib";
-import { cropPngHeight, decodePng } from "./png.ts";
+import { cropPixels, cropPngHeight, decodePixels, decodePng, encodePng, shrinkPixels } from "./png.ts";
 import { imageDimensions } from "./chrome.ts";
 
 /** A w×h RGB PNG whose row y is solid (y, 0, 255 - y), filter type 0. */
@@ -43,4 +43,25 @@ test("a PNG's bottom rows are cut off without touching the rows that stay", () =
   assert.equal(cropPngHeight(whole, 0), whole);
   const junk = Buffer.from("not a png at all");
   assert.equal(cropPngHeight(junk, 5), junk);
+});
+
+test("a strip is cut into equal slides at exact offsets, and each slide round-trips through the encoder", () => {
+  /* 12×4 RGB, column x painted (x*20, y, 0), so every pixel says where it came from. */
+  const w = 12, h = 4;
+  const data = Buffer.alloc(w * h * 3);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data.set([x * 20, y, 0], (y * w + x) * 3);
+  const strip = encodePng({ width: w, height: h, channels: 3, data });
+  const back = decodePixels(strip);
+  assert.ok(!("error" in back));
+  assert.deepEqual([back.width, back.height, back.channels], [12, 4, 3]);
+  for (let n = 0; n < 3; n++) {
+    const slide = decodePixels(encodePng(cropPixels(back, n * 4, 0, 4, 4)));
+    assert.ok(!("error" in slide));
+    assert.deepEqual(imageDimensions(encodePng(slide)), { width: 4, height: 4 });
+    assert.equal(slide.data[0], n * 4 * 20, `slide ${n} starts at column ${n * 4}`);
+    assert.equal(slide.data[(3 * 4 + 3) * 3 + 1], 3, "the last row is row 3");
+  }
+  const half = shrinkPixels(back, 2);
+  assert.deepEqual([half.width, half.height], [6, 2]);
+  assert.equal(half.data[0], 10, "the block of columns 0 and 1 averages to 10");
 });
