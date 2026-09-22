@@ -444,7 +444,7 @@ export const VERIFY_SYSTEM = [
   ``,
   `FAIL the slide only for these faults, each of which you can see:`,
   `1. Text overflow or clipping — letters or words cut off at an edge or by a box.`,
-  `2. Overlap — text on top of text, text over the logo or over a shape that hides it.`,
+  `2. Overlap — text on top of text, text over the logo, or any line, shape or graphic drawn across letters. Look at every word, including the small ones in the corners.`,
   `3. Low contrast or unreadable text — faint, tiny, or on a busy background.`,
   `4. An empty or broken layout — the content missing, a large unintended blank area, a broken-image icon, visible code or CSS.`,
   `5. The wrong shape — content not filling the frame, a band of bare canvas along an edge.`,
@@ -595,17 +595,66 @@ export async function renderSlideHtml(opts: {
 /**
  * THE GEOMETRY CHECK — the measuring script, appended to a copy of the slide.
  *
- * It waits for fonts (a fallback face and the web font are different widths),
- * then reports two things: a box holding text that pokes outside the frame,
- * and a box that clips text it holds (overflow hidden with more content than
- * room). The findings go into a <meta> the dumped DOM carries back.
+ * Every run of text is measured by its own glyph box (a Range, not its
+ * element's box, which includes padding), and two things are reported: text
+ * that pokes outside the frame, and text that a box with overflow hidden cuts
+ * off. A container that is a few pixels taller than its content box is NOT a
+ * fault by itself — an inline SVG's descender gap did exactly that on the
+ * first Pi run and cost a slide all three attempts over nothing visible. The
+ * findings go into a <meta> the dumped DOM carries back.
  *
  * THE FRAME IS THE SLIDE'S OWN SIZE, NOT `innerHeight`. Measured on Chrome
  * 146 on macOS, a page with text hanging off its right edge reported an
  * innerHeight 56 px short of the window it was given, for one early frame;
  * the slide is W×H by definition, so that is what is checked against.
  */
-const measureScript = (w: number, h: number) => `<script>(function(){function run(){var W=${w},H=${h},out=[];function own(el){var t="";for(var c=el.firstChild;c;c=c.nextSibling)if(c.nodeType===3)t+=c.nodeValue;return t.replace(/\\s+/g," ").trim();}function say(s){if(out.length<8&&out.indexOf(s)<0)out.push(s);}var els=document.body?document.body.getElementsByTagName("*"):[];for(var i=0;i<els.length;i++){var el=els[i],cs=getComputedStyle(el);if(cs.display==="none"||cs.visibility==="hidden"||+cs.opacity===0)continue;var r=el.getBoundingClientRect();if(!r.width||!r.height)continue;var t=own(el);if(t&&(r.left<-1||r.top<-1||r.right>W+1||r.bottom>H+1)){var past=[];if(r.left<-1)past.push(Math.round(-r.left)+"px past the left edge");if(r.right>W+1)past.push(Math.round(r.right-W)+"px past the right edge");if(r.top<-1)past.push(Math.round(-r.top)+"px past the top");if(r.bottom>H+1)past.push(Math.round(r.bottom-H)+"px past the bottom");say('The text "'+t.slice(0,50)+'" runs outside the '+W+"x"+H+" frame ("+past.join(", ")+").");}var inner=(el.innerText||"").replace(/\\s+/g," ").trim();if(inner&&((cs.overflowX!=="visible"&&el.scrollWidth>el.clientWidth+2)||(cs.overflowY!=="visible"&&el.scrollHeight>el.clientHeight+2)))say('The text starting "'+inner.slice(0,50)+'" is cut off by its box ('+el.scrollWidth+"x"+el.scrollHeight+" of content in "+el.clientWidth+"x"+el.clientHeight+").");}var m=document.createElement("meta");m.name="opc-geometry";m.content=JSON.stringify(out);document.head.appendChild(m);}if(document.fonts&&document.fonts.ready)document.fonts.ready.then(function(){setTimeout(run,300)});else setTimeout(run,300);})();</script>`;
+/* Plain JavaScript run INSIDE the page, so a string: the server is compiled
+   without the DOM library, and this never runs in Node. */
+const MEASURE_IN_PAGE = String.raw`function measure(W, H) {
+  var out = [];
+  function say(line) { if (out.length < 8 && out.indexOf(line) < 0) out.push(line); }
+  function px(n) { return Math.round(n) + "px"; }
+  var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+    var text = (node.nodeValue || "").replace(/\s+/g, " ").trim();
+    var el = node.parentElement;
+    if (!text || !el) continue;
+    var style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
+    var range = document.createRange();
+    range.selectNodeContents(node);
+    var r = range.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    var quote = '"' + text.slice(0, 50) + '"';
+    var past = [];
+    if (r.left < -1) past.push(px(-r.left) + " past the left edge");
+    if (r.right > W + 1) past.push(px(r.right - W) + " past the right edge");
+    if (r.top < -1) past.push(px(-r.top) + " past the top");
+    if (r.bottom > H + 1) past.push(px(r.bottom - H) + " past the bottom");
+    if (past.length) { say("The text " + quote + " runs outside the " + W + "x" + H + " frame (" + past.join(", ") + ")."); continue; }
+    for (var a = el; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+      var cs = getComputedStyle(a);
+      var clipX = cs.overflowX !== "visible", clipY = cs.overflowY !== "visible";
+      if (!clipX && !clipY) continue;
+      var b = a.getBoundingClientRect();
+      if ((clipX && (r.left < b.left - 2 || r.right > b.right + 2)) || (clipY && (r.top < b.top - 2 || r.bottom > b.bottom + 2))) {
+        say("The text " + quote + " is cut off by the box around it (the text needs " + px(r.width) + "x" + px(r.height) + ", the box shows " + px(b.width) + "x" + px(b.height) + ").");
+        break;
+      }
+    }
+  }
+  var meta = document.createElement("meta");
+  meta.name = "opc-geometry";
+  meta.content = JSON.stringify(out);
+  document.head.appendChild(meta);
+}`;
+
+/** The measuring function, as a script appended to a copy of the slide. It
+ *  waits for fonts — a fallback face and the web font are different widths —
+ *  and then a little longer for layout to settle. */
+const measureScript = (w: number, h: number) =>
+  `<script>(function(){${MEASURE_IN_PAGE}\nfunction run(){measure(${w},${h});}` +
+  `if(document.fonts&&document.fonts.ready)document.fonts.ready.then(function(){setTimeout(run,300)});else setTimeout(run,300);})();</script>`;
 
 export function readGeometry(dom: string): string[] | null {
   const m = /<meta[^>]*name="opc-geometry"[^>]*content="([^"]*)"/i.exec(dom) ?? /<meta[^>]*content="([^"]*)"[^>]*name="opc-geometry"/i.exec(dom);

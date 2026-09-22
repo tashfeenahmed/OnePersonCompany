@@ -213,7 +213,13 @@ test("in a real browser, a slide renders at exactly its size and overflowing tex
     const bad = `<!doctype html><html><head><style>html,body{margin:0;width:540px;height:675px;overflow:hidden}h1{position:absolute;left:400px;top:40px;white-space:nowrap;font:700 60px sans-serif}.box{position:absolute;top:300px;left:40px;width:200px;height:40px;overflow:hidden;font:20px sans-serif}</style></head><body><h1>Runs off the edge</h1><div class="box">A long paragraph that cannot possibly fit inside a box this small and gets cut off.</div></body></html>`;
     const issues = await measureSlideHtml({ browser: browser.path, html: bad, dir, name: "bad", width: 540, height: 675 });
     assert.ok(issues.some((i) => /Runs off the edge.*outside the 540x675 frame/.test(i)), issues.join("\n"));
-    assert.ok(issues.some((i) => /A long paragraph.*cut off by its box/.test(i)), issues.join("\n"));
+    assert.ok(issues.some((i) => /A long paragraph.*cut off by the box around it/.test(i)), issues.join("\n"));
+
+    /* The first Pi run's false alarm: a frame-sized box a few pixels taller
+       than its content (an inline SVG's descender gap), with every letter
+       plainly inside. Nothing visible is cut, so nothing is reported. */
+    const snug = `<!doctype html><html><head><style>html,body{margin:0;width:540px;height:675px;overflow:hidden}.frame{position:relative;width:540px;height:675px;overflow:hidden}.art{position:absolute;inset:0}.t{position:absolute;left:40px;top:300px;font:700 40px sans-serif}.f{position:absolute;left:40px;bottom:40px;font:16px sans-serif}</style></head><body><div class="frame"><div class="art"><svg width="540" height="675"><circle cx="270" cy="200" r="80" fill="teal"/></svg></div><div class="t">Stop juggling keys</div><div class="f">FreeLLMAPI 1 / 6</div></div></body></html>`;
+    assert.deepEqual(await measureSlideHtml({ browser: browser.path, html: snug, dir, name: "snug", width: 540, height: 675 }), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
