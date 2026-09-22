@@ -36,8 +36,9 @@ import { manifest as socialfeed } from "./socialfeed/manifest.ts";
 import { manifest as runtime } from "./runtime/manifest.ts";
 import { manifest as references } from "./references/manifest.ts";
 import { manifest as ideacall } from "./ideacall/manifest.ts";
+import { manifest as redditarchive } from "./redditarchive/manifest.ts";
 
-export const MANIFESTS: IntegrationManifest[] = [insights, analytics, ops, signals, ventures, runs, subagents, chief, mailflow, activity, proactive, people, security, video, growth, mobilehealth, agentcore, knowledge, deploy, finance, pipeline, customers, migrate, nurture, publishing, webanalytics, runtime, socialfeed, seoops, videoplus, references, ideacall];
+export const MANIFESTS: IntegrationManifest[] = [insights, analytics, ops, signals, ventures, runs, subagents, chief, mailflow, activity, proactive, people, security, video, growth, mobilehealth, agentcore, knowledge, deploy, finance, pipeline, customers, migrate, nurture, publishing, webanalytics, runtime, socialfeed, seoops, videoplus, references, ideacall, redditarchive];
 
 export function manifestPlugins(): Record<string, PluginRegistryEntry> {
   return Object.assign({}, ...MANIFESTS.map((m) => m.plugins ?? {}));

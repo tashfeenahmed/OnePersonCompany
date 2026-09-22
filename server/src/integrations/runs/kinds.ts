@@ -597,11 +597,13 @@ export function systemBrief(opts: {
         `EVERY MEASUREMENT THIS BOX HOLDS IS ONE COMMAND AWAY. The wrapper ${cli} is installed and carries its own key — you need no header, no token and no key file, and you must not go looking for one.`,
         `- \`${cli}\` on its own lists every connected source, each with its parameters.`,
         `- \`${cli} help <id>\` explains one, including the rules for reading its document.`,
-        `- \`${cli} <id> [--flags]\` reads it. \`ventures --key <slug>\` is the venture record itself; \`gsc\`, \`bing\`, \`umami\`, \`uptime\`, \`stripe\`, \`mobile\`, \`adsense\`, \`costs\`, \`demand\`, \`search\`, \`github\`, \`npm\`, \`meta\`, \`cloudflare\`, \`domains\`, \`hetzner\` and \`insights\` are the ones a report about a business usually wants.`,
+        `- \`${cli} <id> [--flags]\` reads it. \`ventures --key <slug>\` is the venture record itself; \`gsc\`, \`bing\`, \`umami\`, \`uptime\`, \`stripe\`, \`mobile\`, \`adsense\`, \`costs\`, \`demand\`, \`reddit\`, \`search\`, \`github\`, \`npm\`, \`meta\`, \`cloudflare\`, \`domains\`, \`hetzner\` and \`insights\` are the ones a report about a business usually wants.`,
+        `REDDIT IS READ THROUGH \`${cli} reddit\`, NEVER FROM reddit.com, which blocks this machine: \`reddit search --subreddit <name> --q <words>\`, \`reddit comments --subreddit <name> --q <words>\` and \`reddit thread --id <id or reddit.com URL>\` return posts and comments with dates, scores and permalinks.`,
         `The blocks below were read for you from the same source; anything NOT below is a command away rather than a gap to write around.`,
       ]
     : [
         `THIS DASHBOARD'S OWN MEASUREMENTS ARE AT http://127.0.0.1:${PORT}/api/skills, which lists every skill and its data route, each with the rules for reading its own document. It needs the \`x-opc-key\` header.`,
+        `Reddit is read through the \`reddit\` skill there (views search, comments, thread), never from reddit.com, which blocks this machine.`,
       ];
 
   const tools = hasTools
