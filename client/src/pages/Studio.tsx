@@ -723,6 +723,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
   );
   /* What the Pi and the Dell can do right now. Asking wakes nothing. */
   const stewie = useApi(() => (make === "stewie" ? stewieApi.read().catch(() => null) : Promise.resolve(null)), [make]);
+  const carouselModel = useApi(() => (make === "carousel" ? carouselApi.model().catch(() => null) : Promise.resolve(null)), [make]);
   const footage = useApi(() => (make === "stewie" ? stewieApi.backgrounds().catch(() => null) : Promise.resolve(null)), [make]);
   const [stewieMode, setStewieMode] = useState<"images" | "pages">("images");
   const [background, setBackground] = useState("");
@@ -950,6 +951,16 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         </Button>
       </div>
       <p className="text-muted-foreground text-[12.5px] leading-relaxed">{cost}</p>
+      {/* WHICH MODEL, SAID BY NAME. A carousel has no model of its own: it
+          uses the workspace's, whatever the owner picked — hosted or their own
+          local one — and whether that model can see decides whether the slides
+          are checked or left unverified. */}
+      {make === "carousel" && carouselModel.data && <p className="text-muted-foreground text-[12.5px] leading-relaxed">
+        {carouselModel.data.label
+          ? <>Uses {carouselModel.data.label}{carouselModel.data.model ? ` · ${carouselModel.data.model}` : " (the endpoint picks the model)"} — {carouselModel.data.vision.supports === true ? "it can see, so each slide is checked" : carouselModel.data.vision.supports === false ? "it cannot see images, so slides will be marked unverified" : "not yet known whether it can see; the first carousel checks"}.</>
+          : "No workspace model is chosen."}{" "}
+        <Link to="/settings?tab=models" className="underline decoration-dotted">Models settings</Link>
+      </p>}
       {said && <p className="text-[13.5px]">{said}</p>}
       {refused && <p className="text-destructive text-[13.5px] leading-relaxed">{refused}</p>}
     </div>

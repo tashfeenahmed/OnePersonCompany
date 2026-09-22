@@ -36,6 +36,45 @@ carouselRoutes.get("/", (c) => {
   });
 });
 
+/**
+ * WHICH MODEL A CAROUSEL WILL USE, AND WHETHER IT CAN SEE — for the one line
+ * the Studio's Carousel tab draws under its form.
+ *
+ * There is no carousel model. Planning, coding and the visual check are all
+ * `complete()` with no provider and no model named, so they go to whatever the
+ * owner chose under Settings → Models: a hosted router, OpenRouter, or their
+ * own local box serving whatever model they loaded. This route only reports
+ * that choice.
+ *
+ * NOTHING IS PROBED HERE. Whether the model takes pictures is read from the
+ * vision probe's cache (`seoops/vision.ts`, keyed by provider and model); a
+ * model never asked is `supports: null`, and the first carousel asks. Naming
+ * the model does not call the endpoint either: the configured model is
+ * reported, and "the endpoint chooses" is said as that.
+ */
+carouselRoutes.get("/model", async (c) => {
+  const { activeProvider } = await import("../../models/provider.ts");
+  const p = activeProvider();
+  if (!p)
+    return c.json({
+      provider: null,
+      label: null,
+      model: null,
+      vision: { supports: null, detail: "No model is chosen. Choose one under Settings → Models.", at: null },
+    });
+  let vision: { supports: boolean | null; detail: string; at: string | null } = {
+    supports: null,
+    detail: "Not checked yet — the first carousel asks whether this model takes a picture.",
+    at: null,
+  };
+  try {
+    const { storedCapability } = await import("../seoops/vision.ts");
+    const held = storedCapability(p.id, p.defaultModel);
+    if (held) vision = { supports: held.supports, detail: held.detail, at: held.at };
+  } catch { /* no vision probe on this server: "not checked" */ }
+  return c.json({ provider: p.id, label: p.label, model: p.defaultModel, vision });
+});
+
 carouselRoutes.get("/:runId", (c) => {
   const row = carouselRow(c.req.param("runId"));
   if (!row) return c.json({ error: "No carousel for that run. It may still be planning, or it was not a carousel run." }, 404);
