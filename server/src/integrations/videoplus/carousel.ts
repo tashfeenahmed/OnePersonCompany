@@ -550,7 +550,7 @@ export function verifyText(b: CarouselBrand, size: { width: number; height: numb
     `A carousel for ${b.name}: ${plan.slides.length} slides, each ${size.width}x${size.height}px.`,
     stripOnly
       ? `Only the whole strip is attached (slides 1 to ${plan.slides.length}, left to right). Judge each slide from it.`
-      : `Image 1 is the whole strip. Images 2 to ${plan.slides.length + 1} are slides 1 to ${plan.slides.length}.`,
+      : `The whole strip comes first, then each slide on its own, each labelled. Each slide picture shows ONLY that slide — content you saw in another picture is not on it.`,
     `Brand palette: ${[c.bg, c.ink, c.accent, c.primary, c.secondary].filter(Boolean).join(", ")}.`,
     ``,
     ...plan.slides.map((s) => `Slide ${s.n} (${s.role}) — headline: ${s.headline} | body: ${s.body || "(none)"}`),
@@ -1113,9 +1113,16 @@ export async function carouselRun(opts: {
       const slides = multi ? shot.slides.map((path) => shrunkDataUrl(path, slideFactor)) : [];
       const ask = async (withSlides: boolean) => {
         const pictures = [strip, ...(withSlides ? slides.filter((x): x is NonNullable<typeof x> => !!x) : [])];
+        /* EVERY PICTURE IS NAMED IN TEXT RIGHT BEFORE IT. Sent as a bare run
+           of seven images, qwen3.8 on the Pi blended them and failed clean
+           slides as "mixed with slide 1" (run r-23dkyo); a label per image
+           is what lets a model keep them apart. */
         const content: ContentPart[] = [
           { type: "text", text: verifyText(brand, size, p, !withSlides) },
-          ...pictures.map((pic): ContentPart => ({ type: "image_url", image_url: { url: pic.url } })),
+          ...pictures.flatMap((pic, i): ContentPart[] => [
+            { type: "text", text: i === 0 ? "THE WHOLE STRIP, all slides side by side, shrunk:" : `SLIDE ${i} ON ITS OWN — judge only what is in this picture (headline: ${p.slides[i - 1]?.headline ?? ""}):` },
+            { type: "image_url", image_url: { url: pic.url } },
+          ]),
         ];
         return patient(() =>
           complete([{ role: "system", content: VERIFY_SYSTEM }, { role: "user", content }], {
