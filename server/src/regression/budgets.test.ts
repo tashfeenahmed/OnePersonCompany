@@ -26,3 +26,23 @@ test("safe checkpoints replay completed calls without charging twice", async () 
   assert.deepEqual(resumed, first); assert.equal(calls, 1);
   assert.equal((db.prepare("SELECT count(*) AS n FROM budget_usage").get() as { n: number }).n, 1);
 });
+test("no ledger row is filed without a venture: the run's, else the call's, else the portfolio", async () => {
+  reset();
+  const { PORTFOLIO_VENTURE, ventureFor } = await import("../runtime/budgets.ts");
+  const ok = async () => ({ usage: { prompt: 1, completion: 1 } });
+  const inCtx = <T>(venture: string | null, fn: () => Promise<T>) =>
+    runContext.run({ id: `r-${venture ?? "none"}`, venture, automation: false, signal: new AbortController().signal, sequence: 0, resume: false }, fn);
+  await inCtx("v-run", () => budgeted("a", ok, false, undefined, "v-named"));
+  await inCtx(null, () => budgeted("b", ok, false, undefined, "v-named"));
+  await inCtx(null, () => budgeted("c", ok));
+  const rows = db.prepare("SELECT run_id, venture_id FROM budget_usage ORDER BY id").all() as { run_id: string; venture_id: string | null }[];
+  assert.deepEqual(rows.map((r) => r.venture_id), ["v-run", "v-named", PORTFOLIO_VENTURE]);
+  assert.equal(rows.some((r) => r.venture_id === null), false);
+  assert.equal(ventureFor(undefined, null), PORTFOLIO_VENTURE);
+});
+test("a venture budget is charged to the venture a call was filed under, pseudo-venture included", async () => {
+  reset(); saveBudgets({ ...DEFAULT_BUDGETS, ventureDailyTokens: 1 });
+  const inCtx = <T>(fn: () => Promise<T>) =>
+    runContext.run({ id: "r-x", venture: null, automation: false, signal: new AbortController().signal, sequence: 0, resume: false }, fn);
+  await assert.rejects(inCtx(() => budgeted("prompt", async () => ({ usage: null }))), /venture token budget/);
+});

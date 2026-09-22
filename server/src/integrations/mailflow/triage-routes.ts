@@ -53,6 +53,7 @@ import {
   ventureByDomains,
   ventureKeys,
 } from "./triage.ts";
+import { PORTFOLIO_VENTURE } from "../../runtime/budgets.ts";
 
 export const triageRoutes = new Hono();
 
@@ -501,7 +502,7 @@ triageRoutes.post("/reply", async (c) => {
     reply = await complete([
       { role: "system", content: REPLY_SYSTEM },
       { role: "user", content: prompt },
-    ]);
+    ], { venture: venture?.id ?? PORTFOLIO_VENTURE });
   } catch (err) {
     if (err instanceof NoProviderError)
       return c.json(

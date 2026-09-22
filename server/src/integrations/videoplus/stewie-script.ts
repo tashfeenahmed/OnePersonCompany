@@ -4,7 +4,7 @@ export type PreparedReel = { messages: VisionTurn[]; grounded: boolean; sources:
 
 /** The render relay supplies its research and format; all inference stays on the
  * workspace's central provider, with the same budget, cancellation and policy. */
-export async function writeStewieScript(prepared: PreparedReel, signal?: AbortSignal) {
+export async function writeStewieScript(prepared: PreparedReel, signal?: AbortSignal, ventureId: string | null = null) {
   if (!Array.isArray(prepared.messages) || !prepared.messages.length || prepared.messages.length > 10 ||
       prepared.messages.some(message => !["system", "user"].includes(message.role) || typeof message.content !== "string" || message.content.length > 40_000)) {
     throw new Error("The render relay returned an invalid script brief. Update the render relay agent and retry.");
@@ -16,7 +16,7 @@ export async function writeStewieScript(prepared: PreparedReel, signal?: AbortSi
      (`Array.isArray(lines)` below). Turning the flag on here would make every
      render fail. The prompt is the relay's, not ours, so it cannot be moved to
      an object from this side either. */
-  const reply = await complete(prepared.messages, { signal });
+  const reply = await complete(prepared.messages, { signal, venture: ventureId });
   // Reject malformed output before the render relay queues a GPU wake/render.
   if (reply.text.length > 16_000) throw new Error("The script was too long. No render was started; try again.");
   const first = reply.text.indexOf("[");
