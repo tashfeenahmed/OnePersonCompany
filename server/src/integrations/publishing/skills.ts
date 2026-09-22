@@ -169,8 +169,8 @@ export const SKILLS: Skill[] = [
           "File a Studio post or a finished video into the queue as a DRAFT, optionally addressed to a destination. Asking twice returns the row that already exists.",
         params: [
           { name: "ventureId", type: "string", required: false, about: "A venture's id. Derived from the source when omitted." },
-          { name: "sourceKind", type: "string", required: true, about: "studio_post, video_job or manual." },
-          { name: "sourceId", type: "string", required: false, about: "The Studio post's id, or the video run's id." },
+          { name: "sourceKind", type: "string", required: true, about: "studio_post, video_job, video_clip, carousel (a Studio carousel's run id — all six slides as one post) or manual." },
+          { name: "sourceId", type: "string", required: false, about: "The Studio post's id, the video run's id, or the carousel's run id." },
           { name: "destinationId", type: "string", required: false, about: "Where it should go. Leave it out to decide later." },
           { name: "caption", type: "string", required: false, about: "Overrides the source's own caption for this item only." },
         ],

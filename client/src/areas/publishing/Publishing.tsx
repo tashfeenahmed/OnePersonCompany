@@ -344,6 +344,21 @@ function ItemCard({
         <span className="text-muted-foreground ml-auto text-[12.5px]">{item.id}</span>
       </div>
 
+      {/* A CAROUSEL IS DRAWN AS WHAT IT IS: every slide, in order, swiped
+          sideways — so what is approved is visibly all of them, not slide one. */}
+      {item.media.kind === "carousel" && item.media.images.length > 0 && (
+        <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1" aria-label={`${item.media.images.length} slides, in order`}>
+          {item.media.images.map((img) => (
+            <figure key={img.n} className="relative shrink-0 snap-start">
+              {img.onDisk
+                ? <img src={img.url} alt={`Slide ${img.n}`} loading="lazy" className="border-line-soft h-40 w-auto rounded-[11px] border object-contain" />
+                : <span className="text-muted-foreground border-line-soft grid h-40 w-32 place-items-center rounded-[11px] border text-[12px]">slide {img.n} missing</span>}
+              <figcaption className="bg-background/85 text-muted-foreground absolute top-1.5 left-1.5 rounded-md px-1.5 text-[11.5px] tabular-nums">{img.n}/{item.media.images.length}</figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
+
       <div className="flex gap-3">
         {item.media.kind === "image" && item.media.onDisk && (
           <img
@@ -362,6 +377,10 @@ function ItemCard({
           <p className="text-muted-foreground mt-1 text-[12.5px]">
             {item.media.kind === "none"
               ? "no media"
+              : item.media.kind === "carousel"
+                ? `carousel of ${item.media.count} images, posted as one${item.media.mime ? `, ${item.media.mime}` : ""}${
+                    item.media.bytes ? `, ${bytes(item.media.bytes)} in all` : ""
+                  }${item.media.onDisk ? "" : " — a slide is no longer on disk"}`
               : `${item.media.kind}${item.media.mime ? `, ${item.media.mime}` : ""}${
                   item.media.bytes ? `, ${bytes(item.media.bytes)}` : ""
                 }${item.media.onDisk ? "" : " — the file is no longer on disk"}`}
@@ -375,7 +394,7 @@ function ItemCard({
         <SelectField aria-label="Publishing destination" value={destinationId} onValueChange={setDestinationId}>
           <SelectOption value="">Choose a destination</SelectOption>
           {destinations.filter(d => d.ventureId === item.ventureId && (d.enabled || d.id === item.destinationId)).map(d =>
-            <SelectOption key={d.id} value={d.id} disabled={!d.enabled}>{d.label} — {d.handle ?? d.id}{!d.enabled ? " (disabled)" : ""}</SelectOption>)}
+            <SelectOption key={d.id} value={d.id} disabled={!d.enabled || (item.media.kind === "carousel" && d.limits?.carousel === null)}>{d.label} — {d.handle ?? d.id}{!d.enabled ? " (disabled)" : item.media.kind === "carousel" && d.limits?.carousel === null ? " (no carousels)" : ""}</SelectOption>)}
         </SelectField>
         {(item.status === "approved" || item.status === "scheduled") && <p className="text-muted-foreground text-[12.5px]">Saving changes returns this to a draft and removes its schedule. Review and approve it again when ready.</p>}
         <div className="flex gap-2">
@@ -413,17 +432,24 @@ function ItemCard({
           <span className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">Send to</span>
           {destinations
             .filter((d) => d.enabled && d.ventureId === item.ventureId)
-            .map((d) => (
-              <button
-                key={d.id}
-                disabled={busy !== null}
-                onClick={() => void act("dest", () => publishingApi.patchItem(item.id, { destinationId: d.id }))}
-                className="hover:border-line-strong inline-flex items-center gap-2 rounded-[12px] border px-2.5 py-1 text-[13px]"
-              >
-                <SocialPlatformIcon platform={d.kind} />
-                {d.label} — {d.handle}
-              </button>
-            ))}
+            .map((d) => {
+              /* A destination this app cannot post a carousel to is shown and
+                 refused here, with the reason on hover — not offered and then
+                 refused at the approve button. */
+              const noCarousel = item.media.kind === "carousel" && d.limits !== null && d.limits.carousel === null;
+              return (
+                <button
+                  key={d.id}
+                  disabled={busy !== null || noCarousel}
+                  title={noCarousel ? d.limits?.carouselNote ?? "No carousels here." : undefined}
+                  onClick={() => void act("dest", () => publishingApi.patchItem(item.id, { destinationId: d.id }))}
+                  className="hover:border-line-strong inline-flex items-center gap-2 rounded-[12px] border px-2.5 py-1 text-[13px] disabled:opacity-50"
+                >
+                  <SocialPlatformIcon platform={d.kind} />
+                  {d.label} — {d.handle}{noCarousel ? " · no carousels" : ""}
+                </button>
+              );
+            })}
         </div>
       )}
 

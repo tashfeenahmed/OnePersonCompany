@@ -48,7 +48,9 @@ import {
   appSecretProof,
   parseApp,
   parseLines,
+  postInstagramCarousel,
   postInstagramImage,
+  postPageCarousel,
   postPageFeed,
   postPagePhoto,
   postPageVideo,
@@ -67,6 +69,7 @@ import {
 import { destinationRow, type DestinationRow } from "./destinations.ts";
 import {
   itemRow,
+  mediaPaths,
   mimeFromPath,
   problemsFor,
   publicMediaUrl,
@@ -391,6 +394,11 @@ async function submit(
   t: Transport,
 ): Promise<PublishOutcome> {
   const caption = row.caption ?? "";
+  /* A CAROUSEL IS DECIDED FIRST AND GOES ITS OWN WAY. Its `media_path` is
+     null by design (migration 491), so falling through to the single-image
+     publishers below would post the caption with no pictures — and a
+     publisher that took `media_path` for slide one would post one slide. */
+  if (row.media_kind === "carousel") return submitCarousel(row, dest, caption, t);
   const media = row.media_path ? readMedia(row.media_path) : null;
   if (row.media_path && !media)
     return failed("The media file could not be read off this disk.");
@@ -508,6 +516,83 @@ async function submitMeta(
   if (!media) return postPageFeed(cred, caption, t);
   if (row.media_kind === "video") return postPageVideo(cred, caption, media, t);
   return postPagePhoto(cred, caption, media, t);
+}
+
+/**
+ * A carousel: every slide read off the disk first, then ONE multi-image post
+ * through the network's own documented call. Anything short of all of them is
+ * a refusal before a byte moves.
+ */
+async function submitCarousel(
+  row: ItemRow,
+  dest: DestinationRow,
+  caption: string,
+  t: Transport,
+): Promise<PublishOutcome> {
+  const paths = mediaPaths(row.id);
+  if (!paths.length) return failed("This carousel item has no pictures recorded, so nothing was posted.", false);
+  const media: { bytes: Uint8Array; mime: string; name: string }[] = [];
+  for (const [i, path] of paths.entries()) {
+    const m = readMedia(path);
+    if (!m) return failed(`Slide ${i + 1} could not be read off this disk, so nothing was posted.`);
+    media.push(m);
+  }
+
+  if (dest.plugin_id === "linkedin") {
+    const values = credentialsFor("linkedin", dest.account_id, ["token", "author"]);
+    if (!values) return failed("The LinkedIn account this destination came from is not connected.", false);
+    const { urn } = linkedin.parseUrn(values.author);
+    if (!urn) return failed("The stored LinkedIn author is not a URN.", false);
+    return linkedin.postImages({ token: (values.token ?? "").trim(), author: urn }, caption, media, t);
+  }
+
+  if (dest.plugin_id === "meta") {
+    const values = credentialsFor("meta", dest.account_id, ["token"]);
+    if (!values) return failed("The Meta account this destination came from is not connected.", false);
+    const token = parseLines(values.token)[0] ?? "";
+    if (!token) return failed("The stored Meta token has no usable line.", false);
+    const app = parseApp(values.app);
+    const proof = app ? appSecretProof(token, app) : null;
+    const listing = await publishablePages(token, proof, t);
+    if (!listing.ok) return failed(`Meta would not list the Pages — ${listing.error}`);
+    const page =
+      dest.kind === "page"
+        ? listing.pages.find((p) => p.id === dest.external_id)
+        : listing.pages.find((p) => p.instagram.id === dest.external_id);
+    /* The rehearsal's synthetic page, for submitMeta's reason. */
+    const resolved =
+      page ?? (t.dry ? { id: dest.kind === "ig" ? "DRY-PAGE" : dest.external_id, token: "DRY-PAGE-TOKEN" } : undefined);
+    if (!resolved)
+      return failed(
+        dest.kind === "page"
+          ? `This token no longer administers Page ${dest.external_id}. Probe the destinations again.`
+          : `No Page this token administers is linked to Instagram account ${dest.external_id}.`,
+      );
+    if (!resolved.token)
+      return failed(
+        "Meta would not mint a Page access token for that Page, so nothing can be posted as it. " +
+          "The system user needs a ROLE on the Page in Business settings — the scope is not the problem.",
+        false,
+      );
+    if (dest.kind === "ig") {
+      const urls = paths.map((_, i) => publicMediaUrl(row.id, i + 1));
+      if (urls.some((u) => !u))
+        return failed(
+          "Instagram fetches every picture itself, and no public base URL is set. " +
+            "Set `publicBaseUrl` under Integrations → Publishing.",
+          false,
+        );
+      return postInstagramCarousel({ id: dest.external_id, token: resolved.token }, caption, urls as string[], t);
+    }
+    return postPageCarousel({ id: resolved.id, token: resolved.token }, caption, media, t);
+  }
+
+  /* TikTok photo mode and anything else: not implemented, and said so. The
+     limits already refuse these before approval; this is the last wall. */
+  return failed(
+    `A carousel is not published to ${dest.kind === "tiktok" ? "TikTok" : dest.plugin_id} from this app. Nothing was posted.`,
+    false,
+  );
 }
 
 async function submitLinkedIn(

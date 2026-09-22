@@ -27,9 +27,16 @@
  * THE MEDIA IS A PATH AND NOT A COPY, for the reason the migration gives: the
  * PNG belongs to the Studio and the mp4 to the video area. A file that has
  * gone is a refusal naming the file, never a publish of nothing.
+ *
+ * A CAROUSEL IS ONE ITEM WITH SEVERAL PICTURES (2026-09-22). Its slides live in
+ * `publish_item_media`, in order, and its `media_path` stays null — see
+ * migration 491 for why that null is the rule that keeps any single-image path
+ * from posting slide one on its own.
  */
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { resolve } from "node:path";
+import { DATA_DIR } from "../../config.ts";
 import { db, now, ventureRowById } from "../../db.ts";
 import { destinationRow, readCapabilities, type DestinationRow } from "./destinations.ts";
 import { checkLimits, LIMITS, type DestinationKind, type LimitProblem, type MediaKind } from "./limits.ts";
@@ -90,6 +97,14 @@ export function itemRow(id: string): ItemRow | undefined {
   return db.prepare("SELECT * FROM publish_items WHERE id = ?").get(id) as ItemRow | undefined;
 }
 
+/** A carousel item's pictures, in the order they are posted. Empty for every
+ *  other kind of item. */
+export function mediaPaths(itemId: string): string[] {
+  return (
+    db.prepare("SELECT path FROM publish_item_media WHERE item_id = ? ORDER BY idx").all(itemId) as unknown as { path: string }[]
+  ).map((r) => r.path);
+}
+
 /* ------------------------------------------------------------------ media */
 
 /** What a file actually is, from its first bytes. An extension is a claim and
@@ -131,6 +146,8 @@ export type Source =
   | { kind: "studio_post"; id: string }
   | { kind: "video_job"; id: string }
   | { kind: "video_clip"; id: string }
+  /** A Studio carousel, by its run id: six slides, one post. */
+  | { kind: "carousel"; id: string }
   | { kind: "manual"; id: null };
 
 export type ResolvedSource = {
@@ -138,8 +155,23 @@ export type ResolvedSource = {
   caption: string | null;
   mediaKind: MediaKind;
   mediaPath: string | null;
+  /** A carousel's slides, in order. Only ever set with `mediaKind: "carousel"`. */
+  mediaPaths?: string[];
   error: string | null;
 };
+
+/** How many slides a Studio carousel has. Spelled here rather than imported
+ *  from shared/carousel.ts's CAROUSEL_SLIDES only to keep this file's imports
+ *  inside the server — the test below holds the two equal. */
+export const CAROUSEL_SLIDE_COUNT = 6;
+
+/** Where a carousel run's slide n is drawn — `videoplus/carousel.ts`'s
+ *  `slidePath`, rebuilt from the run id and the number so no stored string is
+ *  ever a path. Null for an id that is not a run id. */
+export function carouselSlideFile(runId: string, n: number): string | null {
+  if (!/^r-[a-zA-Z0-9_-]+$/.test(runId)) return null;
+  return resolve(DATA_DIR, "video", runId, `slide-${n}.png`);
+}
 
 /**
  * What a source artefact actually is, read once at the moment an item is made.
@@ -176,6 +208,25 @@ export function resolveSource(source: Source): ResolvedSource {
       mediaPath: onDisk ? row.image_path : null,
       error: null,
     };
+  }
+
+  if (source.kind === "carousel") {
+    const row = db
+      .prepare("SELECT venture_id, caption FROM studio_carousels WHERE run_id = ?")
+      .get(source.id) as { venture_id: string | null; caption: string | null } | undefined;
+    const none = { ventureId: row?.venture_id ?? null, caption: row?.caption ?? null, mediaKind: "none" as const, mediaPath: null };
+    if (!row) return { ...none, error: `There is no carousel for run ${source.id}.` };
+    /* ALL SIX OR NOTHING. A carousel missing a slide is not a shorter
+       carousel; it is a broken one, and queueing the five that exist would be
+       publishing something nobody looked at. */
+    const paths: string[] = [];
+    for (let n = 1; n <= CAROUSEL_SLIDE_COUNT; n++) {
+      const path = carouselSlideFile(source.id, n);
+      if (!path || !existsSync(path))
+        return { ...none, error: `Slide ${n} of that carousel is not on disk, so it cannot go to Publishing. Only a finished carousel with all ${CAROUSEL_SLIDE_COUNT} slides can.` };
+      paths.push(path);
+    }
+    return { ventureId: row.venture_id, caption: row.caption, mediaKind: "carousel", mediaPath: null, mediaPaths: paths, error: null };
   }
 
   if (source.kind === "video_clip") {
@@ -222,6 +273,9 @@ export function shapeItem(r: ItemRow) {
   const dest = r.destination_id ? destinationRow(r.destination_id) : undefined;
   const venture = ventureRowById(r.venture_id);
   const facts = mediaFacts(r);
+  const images = r.media_kind === "carousel"
+    ? mediaPaths(r.id).map((path, i) => ({ n: i + 1, url: `/api/publishing/items/${r.id}/media/${i + 1}`, ...fileFacts(path) }))
+    : [];
   return {
     id: r.id,
     ventureId: r.venture_id,
@@ -239,14 +293,29 @@ export function shapeItem(r: ItemRow) {
       : null,
     source: { kind: r.source_kind, id: r.source_id },
     caption: r.caption,
-    media: {
-      kind: r.media_kind as MediaKind,
-      /** Present but gone from disk is a real state and the queue draws it. */
-      onDisk: facts.onDisk,
-      mime: facts.mime,
-      bytes: facts.bytes,
-      url: r.media_kind === "none" ? null : `/api/publishing/items/${r.id}/media`,
-    },
+    media: r.media_kind === "carousel"
+      ? {
+          kind: "carousel" as MediaKind,
+          /** Every slide on disk; one missing makes the whole carousel absent. */
+          onDisk: images.length > 0 && images.every((i) => i.onDisk),
+          mime: images[0]?.mime ?? null,
+          bytes: images.reduce((n, i) => n + (i.bytes ?? 0), 0) || null,
+          /** The first slide, for a list that draws one thumbnail. Never what
+           *  is posted: the publishers read `images`, all of them. */
+          url: images[0]?.url ?? null,
+          count: images.length,
+          images,
+        }
+      : {
+          kind: r.media_kind as MediaKind,
+          /** Present but gone from disk is a real state and the queue draws it. */
+          onDisk: facts.onDisk,
+          mime: facts.mime,
+          bytes: facts.bytes,
+          url: r.media_kind === "none" ? null : `/api/publishing/items/${r.id}/media`,
+          count: r.media_kind === "none" ? 0 : 1,
+          images: [],
+        },
     status: r.status as ItemStatus,
     scheduledFor: r.scheduled_for,
     approvedAt: r.approved_at,
@@ -285,10 +354,14 @@ export function shapeItem(r: ItemRow) {
  */
 function mediaFacts(r: ItemRow): { onDisk: boolean; mime: string | null; bytes: number | null } {
   if (!r.media_path) return { onDisk: false, mime: null, bytes: null };
+  return fileFacts(r.media_path);
+}
+
+function fileFacts(path: string): { onDisk: boolean; mime: string | null; bytes: number | null } {
   try {
-    const stat = statSync(r.media_path);
+    const stat = statSync(path);
     let mime: string | null = null;
-    const fd = openSync(r.media_path, "r");
+    const fd = openSync(path, "r");
     try {
       const head = Buffer.alloc(16);
       const read = readSync(fd, head, 0, 16, 0);
@@ -296,7 +369,7 @@ function mediaFacts(r: ItemRow): { onDisk: boolean; mime: string | null; bytes: 
     } finally {
       closeSync(fd);
     }
-    return { onDisk: true, mime: mime ?? mimeFromPath(r.media_path), bytes: stat.size };
+    return { onDisk: true, mime: mime ?? mimeFromPath(path), bytes: stat.size };
   } catch {
     return { onDisk: false, mime: null, bytes: null };
   }
@@ -316,8 +389,10 @@ export function problemsFor(r: ItemRow, dest: DestinationRow): LimitProblem[] {
     problems.push({ field: "media", message: "That destination is switched off." });
 
   const mediaKind = r.media_kind as MediaKind;
+  /* A carousel is photos, so it needs the photo capability; whether the
+     network takes several in one post is limits.ts's question. */
   const capable =
-    mediaKind === "video" ? caps.video : mediaKind === "image" ? caps.photo : caps.text;
+    mediaKind === "video" ? caps.video : mediaKind === "image" || mediaKind === "carousel" ? caps.photo : caps.text;
   if (!capable)
     problems.push({
       field: "media",
@@ -329,6 +404,26 @@ export function problemsFor(r: ItemRow, dest: DestinationRow): LimitProblem[] {
 
   if (r.media_path && !facts.onDisk)
     problems.push({ field: "media", message: "The file this item points at is no longer on disk." });
+
+  if (mediaKind === "carousel") {
+    const slides = mediaPaths(r.id).map(fileFacts);
+    const gone = slides.map((f, i) => (f.onDisk ? 0 : i + 1)).filter((n) => n > 0);
+    if (!slides.length)
+      problems.push({ field: "media", message: "This carousel item has no pictures recorded." });
+    else if (gone.length)
+      problems.push({ field: "media", message: `Slide${gone.length === 1 ? "" : "s"} ${gone.join(", ")} of this carousel ${gone.length === 1 ? "is" : "are"} no longer on disk. Nothing is posted with a slide missing.` });
+    problems.push(
+      ...checkLimits(kind, {
+        caption: r.caption,
+        media: {
+          kind: "carousel",
+          images: slides.map((f) => ({ mime: f.mime, bytes: f.bytes })),
+          publicUrl: publicMediaUrl(r.id, 1),
+        },
+      }),
+    );
+    return problems;
+  }
 
   problems.push(
     ...checkLimits(kind, {
@@ -353,9 +448,11 @@ export function problemsFor(r: ItemRow, dest: DestinationRow): LimitProblem[] {
  * have, the two destinations that fetch their own media say so rather than
  * attempting a post that would fail minutes later at somebody else's fetcher.
  */
-export function publicMediaUrl(itemId: string): string | null {
+export function publicMediaUrl(itemId: string, n?: number): string | null {
   const base = settings().publicBaseUrl;
-  return base ? `${base}/api/publishing/items/${itemId}/media` : null;
+  if (!base) return null;
+  /* A carousel's slides each have their own address, by position. */
+  return `${base}/api/publishing/items/${itemId}/media${n ? `/${n}` : ""}`;
 }
 
 /* ------------------------------------------------------------- the writes */
@@ -414,25 +511,39 @@ export function createItem(input: {
 
   const id = `pi-${randomUUID().slice(0, 8)}`;
   const ts = now();
-  db.prepare(
-    `INSERT INTO publish_items
-       (id, venture_id, destination_id, source_kind, source_id, caption, media_kind,
-        media_path, status, idempotency_key, campaign_id, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,'draft',?,?,?,?)`,
-  ).run(
-    id,
-    ventureId,
-    input.destinationId ?? null,
-    input.source.kind,
-    input.source.id,
-    caption,
-    resolved.mediaKind,
-    resolved.mediaPath,
-    key,
-    input.campaignId ?? null,
-    ts,
-    ts,
-  );
+  /* The item and its pictures in one transaction: a carousel item with no
+     pictures recorded would be a row that looks like a carousel and posts
+     nothing. */
+  const own = !db.isTransaction;
+  if (own) db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare(
+      `INSERT INTO publish_items
+         (id, venture_id, destination_id, source_kind, source_id, caption, media_kind,
+          media_path, status, idempotency_key, campaign_id, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,'draft',?,?,?,?)`,
+    ).run(
+      id,
+      ventureId,
+      input.destinationId ?? null,
+      input.source.kind,
+      input.source.id,
+      caption,
+      resolved.mediaKind,
+      resolved.mediaPath,
+      key,
+      input.campaignId ?? null,
+      ts,
+      ts,
+    );
+    (resolved.mediaPaths ?? []).forEach((path, i) =>
+      db.prepare("INSERT INTO publish_item_media (item_id, idx, path) VALUES (?,?,?)").run(id, i + 1, path),
+    );
+    if (own) db.exec("COMMIT");
+  } catch (err) {
+    if (own) db.exec("ROLLBACK");
+    throw err;
+  }
   return { ok: true, item: itemRow(id)!, created: true };
 }
 

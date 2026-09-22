@@ -333,4 +333,34 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE publish_items ADD COLUMN approved_content TEXT;
     `,
   },
+
+  {
+    name: "491_publish_item_media",
+    sql: `
+      -- SEVERAL PICTURES ON ONE ITEM, IN ORDER — a carousel going out as ONE
+      -- post, not six.
+      --
+      -- A CHILD TABLE AND NOT A JSON COLUMN, because the order is the post:
+      -- slide three going out second is a different carousel, and a primary
+      -- key on (item, idx) is an order the database keeps rather than one a
+      -- parser has to be trusted with.
+      --
+      -- \`publish_items.media_path\` STAYS NULL ON A CAROUSEL ITEM, and that is
+      -- the safety rule rather than a saving. Every single-image publisher
+      -- reads that one column; a carousel that put slide one there would be a
+      -- carousel that some path could post as slide one alone. With the column
+      -- empty and \`media_kind = 'carousel'\`, a publisher that has not learned
+      -- carousels has nothing to send and says so.
+      --
+      -- PATHS AND NOT COPIES, for the same reason as \`media_path\`: the PNGs
+      -- belong to the run that drew them. Every existing row is a single-image,
+      -- video or caption item and has no rows here, which is exactly right.
+      CREATE TABLE IF NOT EXISTS publish_item_media (
+        item_id  TEXT NOT NULL,
+        idx      INTEGER NOT NULL,
+        path     TEXT NOT NULL,
+        PRIMARY KEY (item_id, idx)
+      );
+    `,
+  },
 ];

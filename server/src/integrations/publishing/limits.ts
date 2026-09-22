@@ -44,6 +44,34 @@
  *                  the account is — both facts belong on the destination's
  *                  probe, not in a silent success.
  *
+ * CAROUSELS — SEVERAL PICTURES AS ONE POST (2026-09-22). Each network's
+ * multi-image post is its own documented request, and the counts below are
+ * those documents' numbers:
+ *
+ *   FACEBOOK PAGE  Each photo is uploaded to /photos with `published=false`,
+ *                  then ONE /feed post names them all in `attached_media`
+ *                  (Graph API, Page Photos reference). Meta publishes no
+ *                  ceiling on the count; ten is this app's, on the same
+ *                  argument as the byte caps above.
+ *   INSTAGRAM      A container per picture with `is_carousel_item=true`, then
+ *                  a `media_type=CAROUSEL` container naming them as
+ *                  `children`, then /media_publish. At most ten, at least
+ *                  two, and still JPEG only — which the Studio's PNG slides
+ *                  are not, so an Instagram carousel is refused here until
+ *                  they are converted.
+ *   LINKEDIN       The Posts API's `content.multiImage.images`: two to twenty
+ *                  images, each uploaded through the Images API first. PNG,
+ *                  JPEG and GIF.
+ *   TIKTOK         REFUSED. Photo mode is a different request
+ *                  (`/v2/post/publish/content/init/`, `media_type: PHOTO`),
+ *                  pulls JPEG or WebP only from a verified domain, and needs
+ *                  its own portal approval. It is not implemented, so a
+ *                  carousel for TikTok is a refusal with that sentence — never
+ *                  a post of slide one.
+ *   X              There is no X destination on this box at all (X takes up
+ *                  to four pictures a post). A carousel cannot be addressed
+ *                  to one, so there is nothing to refuse.
+ *
  * NOTHING HERE IS A SETTING. These are other companies' rules; a box where the
  * owner could raise Instagram's caption ceiling would be a box that fails at
  * Instagram instead of here.
@@ -55,8 +83,9 @@ export type DestinationKind = "page" | "ig" | "linkedin" | "tiktok";
 export const DESTINATION_KINDS: DestinationKind[] = ["page", "ig", "linkedin", "tiktok"];
 
 /** What the item is carrying. `none` is a caption with no picture, which only
- *  Facebook and LinkedIn accept — the other two are media networks. */
-export type MediaKind = "image" | "video" | "none";
+ *  Facebook and LinkedIn accept — the other two are media networks.
+ *  `carousel` is several pictures, in order, as ONE post. */
+export type MediaKind = "image" | "video" | "none" | "carousel";
 
 export type Limits = {
   kind: DestinationKind;
@@ -76,6 +105,11 @@ export type Limits = {
   /** This app's cap on a video, in bytes. Null where video is not implemented
    *  for this destination at all. */
   videoBytes: number | null;
+  /** How many pictures one carousel post may carry here, or null where this
+   *  app does not publish carousels to this destination at all. */
+  carousel: { min: number; max: number } | null;
+  /** Why, in one sentence, when `carousel` is null. */
+  carouselNote: string | null;
   /** True when the network fetches the media from a URL rather than taking
    *  bytes — which makes a publicly reachable base URL a precondition. */
   needsPublicUrl: boolean;
@@ -95,6 +129,8 @@ export const LIMITS: Record<DestinationKind, Limits> = {
     imageTypes: ["image/jpeg", "image/png", "image/gif", "image/webp"],
     imageBytes: 25 * MB,
     videoBytes: 1024 * MB,
+    carousel: { min: 2, max: 10 },
+    carouselNote: null,
     needsPublicUrl: false,
     note:
       "Bytes go up as multipart, so nothing has to be publicly reachable. " +
@@ -115,6 +151,8 @@ export const LIMITS: Record<DestinationKind, Limits> = {
     imageTypes: ["image/jpeg"],
     imageBytes: 8 * MB,
     videoBytes: null,
+    carousel: { min: 2, max: 10 },
+    carouselNote: null,
     needsPublicUrl: true,
     note:
       "Instagram fetches the picture from a URL it can reach, so this needs a " +
@@ -129,6 +167,8 @@ export const LIMITS: Record<DestinationKind, Limits> = {
     imageTypes: ["image/png", "image/jpeg", "image/gif"],
     imageBytes: 10 * MB,
     videoBytes: null,
+    carousel: { min: 2, max: 20 },
+    carouselNote: null,
     needsPublicUrl: false,
     note:
       "The image is uploaded as bytes and confirmed AVAILABLE before the post " +
@@ -145,6 +185,11 @@ export const LIMITS: Record<DestinationKind, Limits> = {
     imageTypes: [],
     imageBytes: 0,
     videoBytes: 512 * MB,
+    carousel: null,
+    carouselNote:
+      "TikTok photo mode is not implemented here: it is a separate Content Posting API " +
+      "request that needs its own portal approval and takes JPEG or WebP only. Nothing is " +
+      "posted, not even the first slide.",
     needsPublicUrl: true,
     note:
       "Video only, pulled by TikTok from a public URL, so this needs a public " +
@@ -161,6 +206,8 @@ export function countHashtags(caption: string): number {
 
 export type MediaFacts = {
   kind: MediaKind;
+  /** A carousel's pictures, in order — each one's sniffed mime and size. */
+  images?: { mime?: string | null; bytes?: number | null }[];
   /** The mime this app believes the file is, from its magic bytes rather than
    *  from its extension — see assets.ts's `sniff`. */
   mime?: string | null;
@@ -218,7 +265,8 @@ export function checkLimits(
       });
   }
 
-  if (!limits.media.includes(post.media.kind))
+  if (post.media.kind === "carousel") problems.push(...carouselProblems(limits, post.media.images ?? []));
+  else if (!limits.media.includes(post.media.kind))
     problems.push({
       field: "media",
       message:
@@ -265,5 +313,50 @@ export function checkLimits(
         "that reaches this API from the internet.",
     });
 
+  return problems;
+}
+
+/**
+ * A carousel's own problems: whether this destination takes one at all, the
+ * count, and every picture's type and size — naming the slides, because
+ * "slide 4 is 30 MB" is one thing to fix and "a picture is too big" is six to
+ * look at.
+ */
+function carouselProblems(
+  limits: Limits,
+  images: { mime?: string | null; bytes?: number | null }[],
+): LimitProblem[] {
+  if (!limits.carousel)
+    return [{ field: "media", message: `${limits.label} does not take a carousel from this app — ${limits.carouselNote ?? limits.note}` }];
+  const problems: LimitProblem[] = [];
+  const { min, max } = limits.carousel;
+  if (images.length < min || images.length > max)
+    problems.push({
+      field: "media",
+      message:
+        `This carousel has ${images.length} picture${images.length === 1 ? "" : "s"} and ${limits.label} ` +
+        `takes ${min} to ${max} in one post.`,
+    });
+  const slides = (test: (i: { mime?: string | null; bytes?: number | null }) => boolean) =>
+    images.map((img, i) => (test(img) ? i + 1 : 0)).filter((n) => n > 0);
+  const wrongType = slides((img) => !!img.mime && !limits.imageTypes.includes(img.mime));
+  if (wrongType.length) {
+    const mimes = [...new Set(wrongType.map((n) => images[n - 1]!.mime))].join(", ");
+    problems.push({
+      field: "media",
+      message:
+        `${limits.label} accepts ${limits.imageTypes.join(", ")} and ` +
+        `${wrongType.length === images.length ? "every slide" : `slide${wrongType.length === 1 ? "" : "s"} ${wrongType.join(", ")}`} ` +
+        `${wrongType.length === 1 ? "is" : "are"} ${mimes}. Convert them, or send this carousel somewhere that takes them.`,
+    });
+  }
+  const tooBig = slides((img) => typeof img.bytes === "number" && img.bytes > limits.imageBytes);
+  if (tooBig.length)
+    problems.push({
+      field: "media",
+      message:
+        `Slide${tooBig.length === 1 ? "" : "s"} ${tooBig.join(", ")} ${tooBig.length === 1 ? "is" : "are"} over this app's ` +
+        `${Math.round(limits.imageBytes / MB)} MB cap per picture for ${limits.label}.`,
+    });
   return problems;
 }

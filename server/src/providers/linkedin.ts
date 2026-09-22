@@ -239,7 +239,7 @@ export async function postText(
   caption: string,
   t: Transport,
 ): Promise<PublishOutcome> {
-  return createPost(cred, caption, null, null, t);
+  return createPost(cred, caption, null, t);
 }
 
 /**
@@ -257,6 +257,38 @@ export async function postImage(
   altText: string | null,
   t: Transport,
 ): Promise<PublishOutcome> {
+  const up = await uploadImage(cred, media, t);
+  if (!up.ok) return failed(up.error);
+  return createPost(cred, caption, { media: { id: up.urn, ...(altText ? { altText: altText.slice(0, 120) } : {}) } }, t);
+}
+
+/**
+ * SEVERAL IMAGES AS ONE POST — the Posts API's documented `multiImage`
+ * content: two to twenty images, each uploaded and AVAILABLE first, then one
+ * post naming their URNs in order. An upload that fails stops everything
+ * before the post, so nothing reaches the feed with a slide missing.
+ */
+export async function postImages(
+  cred: { token: string; author: string },
+  caption: string,
+  media: { bytes: Uint8Array; mime: string }[],
+  t: Transport,
+): Promise<PublishOutcome> {
+  const urns: string[] = [];
+  for (const [i, m] of media.entries()) {
+    const up = await uploadImage(cred, m, t);
+    if (!up.ok) return failed(`Slide ${i + 1}: ${up.error} Nothing was posted.`);
+    urns.push(up.urn);
+  }
+  return createPost(cred, caption, { multiImage: { images: urns.map((id) => ({ id })) } }, t);
+}
+
+/** Initialise, PUT the bytes, wait for AVAILABLE — the image's URN, or why not. */
+async function uploadImage(
+  cred: { token: string; author: string },
+  media: { bytes: Uint8Array; mime: string },
+  t: Transport,
+): Promise<{ ok: true; urn: string } | { ok: false; error: string }> {
   let uploadUrl: string;
   let imageUrn: string;
   try {
@@ -270,11 +302,11 @@ export async function postImage(
       value?: { uploadUrl?: string; image?: string };
     } | null;
     if (!init.ok || !body?.value?.uploadUrl || !body.value.image)
-      return failed(describe("LinkedIn would not start the image upload", init.status, body));
+      return { ok: false, error: describe("LinkedIn would not start the image upload", init.status, body) };
     uploadUrl = body.value.uploadUrl;
     imageUrn = body.value.image;
   } catch (err) {
-    return failed(`The image upload did not start (${err instanceof Error ? err.name : "Error"}).`);
+    return { ok: false, error: `The image upload did not start (${err instanceof Error ? err.name : "Error"}).` };
   }
 
   try {
@@ -284,15 +316,14 @@ export async function postImage(
       body: media.bytes,
       signal: AbortSignal.timeout(120_000),
     });
-    if (!put.ok) return failed(`LinkedIn rejected the image bytes (${put.status}).`);
+    if (!put.ok) return { ok: false, error: `LinkedIn rejected the image bytes (${put.status}).` };
   } catch (err) {
-    return failed(`The image bytes did not upload (${err instanceof Error ? err.name : "Error"}).`);
+    return { ok: false, error: `The image bytes did not upload (${err instanceof Error ? err.name : "Error"}).` };
   }
 
   const ready = await imageReady(cred.token, imageUrn, t);
-  if (!ready.ok) return failed(ready.error!);
-
-  return createPost(cred, caption, imageUrn, altText, t);
+  if (!ready.ok) return { ok: false, error: ready.error! };
+  return { ok: true, urn: imageUrn };
 }
 
 /** WAITING_UPLOAD → PROCESSING → AVAILABLE. A dry transport answers AVAILABLE
@@ -327,11 +358,15 @@ async function imageReady(
   };
 }
 
+/** The post's `content`: one image, several, or none for a text post. */
+type PostContent =
+  | { media: { id: string; altText?: string } }
+  | { multiImage: { images: { id: string }[] } };
+
 async function createPost(
   cred: { token: string; author: string },
   caption: string,
-  imageUrn: string | null,
-  altText: string | null,
+  content: PostContent | null,
   t: Transport,
 ): Promise<PublishOutcome> {
   try {
@@ -347,13 +382,7 @@ async function createPost(
           targetEntities: [],
           thirdPartyDistributionChannels: [],
         },
-        ...(imageUrn
-          ? {
-              content: {
-                media: { id: imageUrn, ...(altText ? { altText: altText.slice(0, 120) } : {}) },
-              },
-            }
-          : {}),
+        ...(content ? { content } : {}),
         /* The only value accepted on creation. A draft is not a thing this API
            makes, which is why the review step in this app is the app's own. */
         lifecycleState: "PUBLISHED",
