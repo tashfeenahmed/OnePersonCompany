@@ -92,4 +92,43 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    name: "489_studio_carousels",
+    sql: `
+      -- A CAROUSEL: SIX SLIDES THE MODEL CODED AS HTML AND CHROME DREW.
+      --
+      -- ONE ROW PER RUN, keyed on the run. A carousel is a \`video\` run with
+      -- \`format: "carousel"\` (see videoplus/carousel.ts for why it is a run
+      -- and not a request), so the queue, the steps and the status live on
+      -- agent_runs, and this row holds only what is the carousel's own: the
+      -- size it was drawn at, the plan's title and caption, and the six slides.
+      --
+      -- \`slides\` IS JSON, written after every slide so a carousel half way
+      -- through can already be looked at: per slide its copy, the verdict
+      -- (pass, fail or unverified), the issues the checks found, how many
+      -- times it was coded, and the attempt-by-attempt history. The PNG is
+      -- \`video/<run>/slide-<n>.png\` — the name is rebuilt from the number
+      -- and never read out of this column, so nothing stored here is a path.
+      --
+      -- \`vision_note\` IS THE HONESTY COLUMN. A slide nobody looked at is
+      -- "unverified", never "pass", and this says why nobody looked.
+      CREATE TABLE IF NOT EXISTS studio_carousels (
+        run_id        TEXT PRIMARY KEY,
+        venture_id    TEXT,
+        ts            TEXT NOT NULL,
+        size          TEXT NOT NULL,
+        width         INTEGER NOT NULL,
+        height        INTEGER NOT NULL,
+        prompt        TEXT NOT NULL DEFAULT '',
+        title         TEXT,
+        caption       TEXT,
+        slides        TEXT NOT NULL DEFAULT '[]',
+        coder_model   TEXT,
+        vision_model  TEXT,
+        vision_note   TEXT,
+        error         TEXT
+      );
+      CREATE INDEX IF NOT EXISTS studio_carousels_venture ON studio_carousels (venture_id, ts DESC);
+    `,
+  },
 ];

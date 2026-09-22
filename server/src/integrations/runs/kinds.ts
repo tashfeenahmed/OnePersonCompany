@@ -222,13 +222,13 @@ export const KINDS: KindDef[] = [
     kind: "video",
     name: "Video",
     what:
-      "Makes a vertical video on this machine. `faceless` writes a script from the venture, finds stock footage on Pexels for every beat, burns captions in the venture's own colour and font, and adds an end card. `shorts` downloads a long video with yt-dlp and cuts one to five vertical clips out of it, choosing the windows from timed words and camera cuts where it can measure them and from even spacing where it cannot — which it says on every clip, and following the subject with the crop where there is something to follow. `reel` screenshots the venture's OWN pages and plays a two-voice walkthrough over them, scrolling. `motion` renders a scene list — a title card, a number, a before/after, a list, a call to action — as animated typography in the venture's own colours. `ugc` takes the venture's own reference pictures out of its asset library, puts the product into a scene with the image model, and animates that still with a Replicate image-to-video model — which is SKIPPED, with a sentence, when no such model is configured, so nothing is spent. `stewie` is the Peter & Stewie two-hander over mobile-game footage with cloned voices — rendered by Workdash's reel worker on the Dell through the Pi, so it needs a Workdash account under Integrations and a few minutes, and copies the mp4 back here. It publishes nothing anywhere: the file lands on this page.",
+      "Makes a vertical video on this machine. `faceless` writes a script from the venture, finds stock footage on Pexels for every beat, burns captions in the venture's own colour and font, and adds an end card. `shorts` downloads a long video with yt-dlp and cuts one to five vertical clips out of it, choosing the windows from timed words and camera cuts where it can measure them and from even spacing where it cannot — which it says on every clip, and following the subject with the crop where there is something to follow. `reel` screenshots the venture's OWN pages and plays a two-voice walkthrough over them, scrolling. `motion` renders a scene list — a title card, a number, a before/after, a list, a call to action — as animated typography in the venture's own colours. `ugc` takes the venture's own reference pictures out of its asset library, puts the product into a scene with the image model, and animates that still with a Replicate image-to-video model — which is SKIPPED, with a sentence, when no such model is configured, so nothing is spent. `stewie` is the Peter & Stewie two-hander over mobile-game footage with cloned voices — rendered by Workdash's reel worker on the Dell through the Pi, so it needs a Workdash account under Integrations and a few minutes, and copies the mp4 back here. `carousel` is not a video: the model plans six slides for the venture (a hook, four points, a comment-bait ask), codes each one as an HTML page at the chosen size in the venture's colours, headless Chrome draws it to a PNG, and every slide is measured for text outside the frame and — when the workspace model can see — looked at for overlap, contrast, broken layout, off-brand colour and typos, with up to two fixes per slide. It publishes nothing anywhere: the file lands on this page.",
     needsVenture: false,
     inputs: [
       {
         key: "format",
         label: "What to make",
-        hint: "faceless, shorts, ugc, reel, motion or stewie",
+        hint: "faceless, shorts, ugc, reel, motion, stewie or carousel",
         kind: "select",
         required: true,
         default: "faceless",
@@ -239,6 +239,7 @@ export const KINDS: KindDef[] = [
           { value: "reel", label: "Reel — two voices over your own pages" },
           { value: "motion", label: "Motion — animated typography from a scene list" },
           { value: "stewie", label: "Stewie — Peter & Stewie explain it over gameplay footage" },
+          { value: "carousel", label: "Carousel — six still slides, coded as HTML and checked" },
         ],
       },
       {
@@ -318,6 +319,22 @@ export const KINDS: KindDef[] = [
         kind: "text",
         required: false,
         default: "",
+      },
+      {
+        /* Carousel only — its own four sizes, spelled in shared/carousel.ts.
+           Not `aspect`, because 4:5 is a carousel shape and no video one. */
+        key: "size",
+        label: "Carousel size",
+        hint: "Carousel only. square 1080x1080, portrait 1080x1350 (the default), story 1080x1920 or landscape 1920x1080.",
+        kind: "select",
+        required: false,
+        default: "portrait",
+        options: [
+          { value: "portrait", label: "Portrait 4:5 — 1080x1350" },
+          { value: "square", label: "Square 1:1 — 1080x1080" },
+          { value: "story", label: "Story 9:16 — 1080x1920" },
+          { value: "landscape", label: "Landscape 16:9 — 1920x1080" },
+        ],
       },
       {
         key: "aspect",

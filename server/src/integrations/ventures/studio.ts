@@ -232,7 +232,7 @@ const STAGE_VOICE: Record<string, string> = {
  * whether any of it is his, so a prompt can say so rather than call his
  * choice a reading.
  */
-function effectivePalette(v: VentureRow) {
+export function effectivePalette(v: VentureRow) {
   const measured = readBrand(v.brand).palette;
   const own = brandOverrides(v.id);
   return {
@@ -245,7 +245,7 @@ function effectivePalette(v: VentureRow) {
   };
 }
 
-function brandFacts(v: VentureRow): string[] {
+export function brandFacts(v: VentureRow): string[] {
   const brand = readBrand(v.brand);
   const palette = effectivePalette(v);
   const facts: string[] = [
