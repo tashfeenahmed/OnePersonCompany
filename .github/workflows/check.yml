@@ -12,9 +12,5 @@ jobs:
           cache-dependency-path: |
             server/package-lock.json
             client/package-lock.json
-      # Ubuntu 24.04 blocks unprivileged user namespaces, which Chrome's sandbox
-      # needs. google-chrome ships an AppArmor profile that exempts it; the
-      # runner's /usr/bin/chromium (found first) does not, and aborts at start.
-      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: npm run setup
       - run: npm run check
