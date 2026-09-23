@@ -91,8 +91,9 @@ const BROWSER_KEY: ConfigKey = { plugin: CAPTURE_PLUGIN, key: "chromium", label:
  * Where a headless-capable browser might be, in the order they are tried.
  *
  * Chrome first because `--headless=new` is its flag and the Chromium builds
- * accept the same one. The four macOS applications are full paths; the PATH
- * names are aliases, which is how a Linux box finds one.
+ * accept the same one. The four macOS applications and Chrome's Linux paths
+ * are full paths; the PATH names are aliases, which is how any other Linux
+ * box finds one.
  *
  * The application paths are probed on every platform rather than gated on
  * `darwin`. A path that is not there costs one `existsSync`, and a gate is one
@@ -103,6 +104,11 @@ const BROWSER_CANDIDATES = [
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
   "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+  /* Chrome's own Linux paths, so Chrome beats a `chromium` that is merely
+     earlier on PATH. GitHub's Ubuntu runner has both, and its Chromium hangs
+     headless where Chrome does not; a box with only Chromium still finds it. */
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
 ] as const;
 
 const BROWSER_NAMES = [
