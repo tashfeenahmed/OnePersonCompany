@@ -23,7 +23,7 @@ import {
   type Stage,
 } from "./registry.ts";
 import { gate, normalise, readActions, type Proposal, type ProposalVerdict } from "./synthesis.ts";
-import { staleDeps, summarise, unsatisfied } from "./nightly.ts";
+import { phoneSummary, staleDeps, summarise, unsatisfied } from "./nightly.ts";
 import { dueNight } from "./routes.ts";
 import { readBool, refuseDry } from "./params.ts";
 import { dueDay } from "../../shared/time.ts";
@@ -207,6 +207,43 @@ test("the overnight summary separates skips from failures and says when cost is 
   assert.match(text, /Skipped: capture \(not due/);
   assert.match(text, /1 stage keeps its own timer and was not started here: collect/);
   assert.match(text, /Cost is not measured/);
+});
+
+test("the phone version groups failures by a cause it can name and keeps each stage's own note", () => {
+  const stage = (stageId: string, outcome: string, p: { error?: string; note?: string } = {}) => ({
+    stageId, area: "x", startedAt: "", finishedAt: null, outcome: outcome as "completed", reason: null,
+    error: p.error ?? null, note: p.note ?? null, ms: 1, usd: null, counts: {},
+  });
+  const dell = "Could not reach Local · Dell 5820 (Dell 5820) at http://192.168.1.50:11434/v1/chat/completions (TypeError).";
+  const text = phoneSummary({
+    counts: { completed: 2, skipped: 1, failed: 3, "over-budget": 0 },
+    usd: null,
+    titles: new Map([["collect", "Refresh connected data"], ["mail", "Review incoming mail"], ["brief", "Morning brief"], ["seo", "SEO analyst"], ["alerts", "Check alerts"]]),
+    stages: [
+      stage("collect", "completed", { note: "21 sources refreshed; 0 failed." }),
+      stage("alerts", "completed"),
+      stage("mail", "failed", { error: `tash@example.com: The scorer failed part-way: ${dell}` }),
+      stage("brief", "failed", { error: `The briefing was assembled but not written up: ${dell}` }),
+      stage("seo", "failed", { error: "2 analysis jobs failed. Open their reports for details." }),
+    ],
+  });
+  assert.equal(
+    text,
+    [
+      "🌙 Overnight run: 2 done, 3 failed, 1 skipped",
+      "",
+      "❌ Couldn't reach the Dell, it looks switched off, so these 2 failed:",
+      "• Review incoming mail, Morning brief",
+      "",
+      "❌ Also failed:",
+      "• SEO analyst: 2 analysis jobs failed.",
+      "",
+      "✅ Done:",
+      "• Refresh connected data: 21 sources refreshed; 0 failed",
+      "• Check alerts",
+    ].join("\n"),
+  );
+  assert.ok(!text.includes("192.168"), "no model URL on a phone");
 });
 
 /* ------------------------------------------------------------ synthesis gate */

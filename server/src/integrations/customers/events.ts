@@ -46,6 +46,42 @@ export type ParsedEvent = {
   /** True where the event is not worth a message at all whatever the settings
    *  say: a subscription update that changed nothing a person would act on. */
   uninteresting: boolean;
+  /** The payload facts a phone message is worded from — see EventDetail. */
+  detail: EventDetail;
+};
+
+/**
+ * WHAT A PHONE MESSAGE NEEDS THAT THE SUMMARY SENTENCE FLATTENED.
+ *
+ * The summary is the feed's record and stays as it was. A push wants the
+ * pieces: which price (so the product and the venture can be looked up), how
+ * often it bills (so "$19/yr" rather than "USD 19.00"), why a subscription
+ * ended, when Stripe will retry. Every field is copied from the payload or
+ * left out; none is inferred. Stored as JSON beside the row because its shape
+ * is owned by customers/notice.ts, which reads it, and that file may learn a
+ * field without a migration.
+ */
+export type EventDetail = {
+  plan?: string | null;
+  priceId?: string | null;
+  productId?: string | null;
+  /** The product's own name, only where Stripe expanded it into the payload. */
+  productName?: string | null;
+  interval?: string | null;
+  intervalCount?: number | null;
+  /** The recurring price in major units, times the quantity. */
+  unitAmount?: number | null;
+  status?: string | null;
+  attempt?: number | null;
+  /** Stripe's cancellation reason, or a dispute's reason code. */
+  reason?: string | null;
+  billingReason?: string | null;
+  mode?: string | null;
+  cancelAt?: string | null;
+  trialEnd?: string | null;
+  nextAttempt?: string | null;
+  dueBy?: string | null;
+  chargeId?: string | null;
 };
 
 type Obj = Record<string, unknown>;
@@ -94,6 +130,41 @@ function planName(o: Obj): string | null {
   return null;
 }
 
+const isoOf = (v: unknown): string | null =>
+  typeof v === "number" && v > 0 ? new Date(v * 1000).toISOString() : null;
+
+/** The price on a subscription's first item or an invoice's first line, at
+ *  every place Stripe has kept it: an expanded or bare `price`, the newer
+ *  `pricing.price_details`, and the older `plan`. */
+function priceFacts(line: Obj | undefined): EventDetail {
+  if (!line) return {};
+  const price = (line.price ?? line.plan) as Obj | string | undefined;
+  const details = (line.pricing as Obj | undefined)?.price_details as Obj | undefined;
+  const p: Obj = price && typeof price === "object" ? price : {};
+  const product = p.product ?? details?.product;
+  const recurring = (p.recurring ?? null) as Obj | null;
+  const qty = typeof line.quantity === "number" && line.quantity > 0 ? line.quantity : 1;
+  const unit = typeof p.unit_amount === "number" ? money(p.unit_amount * qty) : typeof p.amount === "number" ? money(p.amount * qty) : null;
+  return {
+    priceId: typeof price === "string" ? price : str(p, "id") ?? (details ? str(details, "price") : null),
+    plan: typeof p.nickname === "string" && p.nickname.trim() ? p.nickname.trim() : null,
+    productId: typeof product === "string" ? product : product && typeof product === "object" ? str(product as Obj, "id") : null,
+    productName: product && typeof product === "object" && typeof (product as Obj).name === "string" ? ((product as Obj).name as string).trim() || null : null,
+    interval: (recurring ? str(recurring, "interval") : null) ?? str(p, "interval"),
+    intervalCount: (recurring ? num(recurring, "interval_count") : null) ?? num(p, "interval_count"),
+    unitAmount: unit,
+  };
+}
+
+const firstOf = (list: unknown): Obj | undefined => {
+  const data = (list as Obj | undefined)?.data;
+  return Array.isArray(data) && data.length ? (data[0] as Obj) : undefined;
+};
+
+/** Undefined and null fields dropped, so the stored JSON is only what was there. */
+const compact = (d: EventDetail): EventDetail =>
+  Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null && v !== undefined)) as EventDetail;
+
 /**
  * One event, read.
  *
@@ -119,6 +190,23 @@ export function parseEvent(
     isPaymentFailure: false,
     uninteresting: false,
   };
+  /* Facts for the phone message, per object type. Subscriptions carry their
+     price on the first item; invoices on the first line; a Checkout Session
+     carries no lines unless expanded, so only its mode and subscription. */
+  const subDetail = (): EventDetail => compact({
+    ...priceFacts(firstOf(object.items)),
+    status: str(object, "status"),
+    cancelAt: isoOf(object.cancel_at) ?? (object.cancel_at_period_end === true ? isoOf(object.current_period_end) : null),
+    trialEnd: isoOf(object.trial_end),
+    reason: ((object.cancellation_details as Obj | undefined)?.reason as string | undefined) ?? null,
+  });
+  const invoiceDetail = (): EventDetail => compact({
+    ...priceFacts(firstOf(object.lines)),
+    attempt: num(object, "attempt_count"),
+    billingReason: str(object, "billing_reason"),
+    nextAttempt: isoOf(object.next_payment_attempt),
+    chargeId: str(object, "charge"),
+  });
 
   switch (type) {
     case "customer.subscription.created": {
@@ -127,6 +215,7 @@ export function parseEvent(
         ...base,
         objectType: "subscription",
         subscription: base.objectId,
+        detail: subDetail(),
         summary: `New subscription${plan ? ` on ${plan}` : ""}${
           str(object, "status") ? ` (${str(object, "status")})` : ""
         }.`,
@@ -141,6 +230,7 @@ export function parseEvent(
         ...base,
         objectType: "subscription",
         subscription: base.objectId,
+        detail: subDetail(),
         summary:
           `Subscription ended${plan ? ` on ${plan}` : ""}` +
           `${reason ? `, reason recorded by Stripe as “${reason}”` : ""}.`,
@@ -163,6 +253,7 @@ export function parseEvent(
           ...base,
           objectType: "subscription",
           subscription: base.objectId,
+          detail: {},
           uninteresting: true,
           summary: `Subscription updated (${status}) — no field a person acts on changed.`,
         };
@@ -170,6 +261,7 @@ export function parseEvent(
         ...base,
         objectType: "subscription",
         subscription: base.objectId,
+        detail: compact({ ...subDetail(), mode: scheduled ? "cancel-scheduled" : null }),
         summary: scheduled
           ? `Cancellation scheduled${plan ? ` on ${plan}` : ""} — it keeps billing until the period ends.`
           : `Subscription is now ${status}${plan ? ` on ${plan}` : ""}.`,
@@ -186,6 +278,7 @@ export function parseEvent(
         amount,
         currency,
         subscription: invoiceSubscription(object),
+        detail: invoiceDetail(),
         isPaymentFailure: true,
         summary:
           `Invoice payment failed${cash(amount, currency) ? ` for ${cash(amount, currency)}` : ""}` +
@@ -202,6 +295,7 @@ export function parseEvent(
         amount,
         currency,
         subscription: invoiceSubscription(object),
+        detail: invoiceDetail(),
         summary: `Invoice paid${cash(amount, currency) ? ` — ${cash(amount, currency)}` : ""}.`,
       };
     }
@@ -216,6 +310,11 @@ export function parseEvent(
         objectType: "dispute",
         amount,
         currency,
+        detail: compact({
+          reason,
+          dueBy: typeof due === "number" && due ? isoOf(due) : null,
+          chargeId: str(object, "charge"),
+        }),
         summary:
           `Dispute opened${cash(amount, currency) ? ` for ${cash(amount, currency)}` : ""}` +
           `${reason ? `, reason “${reason}”` : ""}` +
@@ -232,6 +331,7 @@ export function parseEvent(
         objectType: "dispute",
         amount,
         currency,
+        detail: compact({ status, chargeId: str(object, "charge") }),
         summary: `Dispute closed as ${status}${cash(amount, currency) ? ` — ${cash(amount, currency)}` : ""}.`,
       };
     }
@@ -246,6 +346,7 @@ export function parseEvent(
         amount,
         currency,
         subscription: str(object, "subscription"),
+        detail: compact({ mode }),
         summary:
           `Checkout completed${mode ? ` (${mode})` : ""}` +
           `${cash(amount, currency) ? ` — ${cash(amount, currency)}` : ""}.`,
@@ -256,6 +357,7 @@ export function parseEvent(
       return {
         ...base,
         objectType: null,
+        detail: {},
         summary: `${type} — this area has no reading for that type, so only the fact is recorded.`,
         uninteresting: true,
       };

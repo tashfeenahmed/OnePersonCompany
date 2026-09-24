@@ -138,12 +138,17 @@ async function sweepOnce(): Promise<SweepResult> {
     const publishItem = filed.find(item => item.itemId)?.itemId ?? null;
     const filingError = !venture ? "The video's venture no longer exists." : filed.filter(item => !item.itemId).map(item => item.note).join(" · ") || null;
 
+    /* Worded for a phone: what it is and for whom, then where it went. The
+       title is shown only when it says more than "Video — FreeLLMAPI". */
+    const dash = /^(.+?) — (.+)$/.exec(row.title);
+    const made = (dash?.[1] ?? "video").toLowerCase();
+    const drafts = filed.filter(item => item.itemId).length;
     const text =
-      `<b>${escapeHtml(venture?.name ?? "A venture")}</b> — a video the autopilot made is ready.\n` +
-      `${escapeHtml(row.title.slice(0, 200))}\n` +
+      `${made === "carousel" ? "🖼️" : "🎬"} New ${escapeHtml(made)} ready for <b>${escapeHtml(venture?.name ?? "a venture")}</b>\n` +
+      (dash ? "" : `${escapeHtml(row.title.slice(0, 200))}\n`) +
       (publishItem
-        ? `Filed ${filed.filter(item => item.itemId).length} draft(s) in the publishing queue. Nothing has been posted.${filingError ? ` Some clips could not be filed: ${escapeHtml(filingError)}` : ""}`
-        : `It could not be filed in the publishing queue: ${escapeHtml(filingError ?? "No draft was created.")}`);
+        ? `Saved as ${drafts === 1 ? "a draft" : `${drafts} drafts`} in Publishing. Nothing has been posted yet.${filingError ? `\nSome clips couldn't be saved: ${escapeHtml(filingError)}` : ""}`
+        : `It couldn't be saved to Publishing: ${escapeHtml(filingError ?? "no draft was created.")}`);
 
     let sent = false;
     let reason: string | null = filingError;

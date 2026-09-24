@@ -57,6 +57,7 @@
 import { now } from "../../db.ts";
 import { quietDeferral } from "../customers/events.ts";
 import { settings as customerSettings } from "../customers/store.ts";
+import { when } from "../../shared/phone.ts";
 import { readings, resultsFor, type NativeResult } from "./jobs.ts";
 import {
   alreadySeen,
@@ -90,21 +91,29 @@ function clip(text: string, max: number): { text: string; cut: boolean } {
  * for "something went wrong" — a second vocabulary for the same idea is how a
  * glyph stops meaning anything.
  */
-export function message(r: NativeResult, bodyChars: number): string {
-  const mark = r.failed ? "⚠" : "⏰";
-  const when = r.at ? `${r.at.slice(0, 16).replace("T", " ")} UTC` : "time not recorded";
+export function message(
+  r: NativeResult,
+  bodyChars: number,
+  o: { zone?: string; now?: Date } = {},
+): string {
+  const who = RUNTIME_NAMES[r.runtime] ?? r.runtime;
+  const name = r.jobName ?? `A ${who} scheduled job`;
+  const now = o.now ?? new Date();
   const { text, cut } = clip((r.body ?? "").trim(), bodyChars);
+  /* The time only when it is news: a result quiet hours held, or one the
+     relay picked up late. A reminder that just ran needs no clock. */
+  const late = r.at && now.getTime() - Date.parse(r.at) > 30 * 60_000;
   return [
-    `${mark} ${r.jobName ?? r.jobId}${r.failed ? " — FAILED" : ""}`,
-    ``,
+    r.failed ? `⚠️ ${name} didn't finish` : `⏰ ${name}`,
     text,
-    cut ? `\n… shortened. The whole result is in ${r.runtime}'s own store.` : "",
-    ``,
-    `${when} · ${r.runtime} · scheduled by ${r.runtime}, not by this dashboard`,
+    cut ? `\n(Cut short. The rest is in ${who}.)` : "",
+    late ? `${text ? "\n" : ""}That ran ${when(r.at!, o.zone ?? customerSettings().timezone, now)}.` : "",
   ]
     .filter((l) => l !== "")
     .join("\n");
 }
+
+const RUNTIME_NAMES: Record<string, string> = { hermes: "Hermes", openclaw: "OpenClaw" };
 
 /* --------------------------------------------------------------- the ingest */
 
@@ -255,6 +264,7 @@ async function deliverOnce(at: Date): Promise<DeliverResult> {
           silent: false,
         },
         s.jobsBodyChars,
+        { zone: cs.timezone, now: at },
       ),
     );
     if (result.sent) {
@@ -271,9 +281,8 @@ async function deliverOnce(at: Date): Promise<DeliverResult> {
      would be announcing a backlog nobody asked about. */
   if (out.held > 0 && out.delivered > 0)
     await push(
-      `…and ${out.held} more scheduled result${out.held === 1 ? "" : "s"} waiting. ` +
-        `They are on the Scheduled jobs panel on your agent's page under Integrations, and ` +
-        `the next pass will send them.`,
+      `…and ${out.held} more scheduled job result${out.held === 1 ? " is" : "s are"} on the way. ` +
+        `They'll arrive in the next few minutes.`,
     ).catch(() => ({ sent: false }));
 
   return out;

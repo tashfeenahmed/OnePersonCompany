@@ -473,6 +473,11 @@ export type BusinessEventRecord = {
   suppressed_by: string | null;
   deferred_until: string | null;
   seen_at: string;
+  /** The subscription the event is about, where the payload named one. */
+  subscription: string | null;
+  /** JSON of `EventDetail` (customers/events.ts). NULL on rows written before
+   *  migration 255. */
+  detail: string | null;
 };
 
 export type EventWrite = {
@@ -490,6 +495,8 @@ export type EventWrite = {
   currency: string | null;
   muted: boolean;
   suppressedBy: string | null;
+  subscription?: string | null;
+  detail?: Record<string, unknown> | null;
 };
 
 /** INSERT OR IGNORE on Stripe's own event id — that is the whole dedupe, and
@@ -501,8 +508,9 @@ export function insertEvents(rows: EventWrite[]): number {
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO business_events
        (id, account_id, account_label, venture_id, type, at, summary, object_id,
-        object_type, customer, amount, currency, muted, suppressed_by, seen_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        object_type, customer, amount, currency, muted, suppressed_by, seen_at,
+        subscription, detail)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   let added = 0;
   db.exec("BEGIN");
@@ -512,6 +520,8 @@ export function insertEvents(rows: EventWrite[]): number {
         e.id, e.accountId, e.accountLabel, e.ventureId, e.type, e.at, e.summary,
         e.objectId, e.objectType, e.customer, e.amount, e.currency,
         e.muted ? 1 : 0, e.suppressedBy, seen,
+        e.subscription ?? null,
+        e.detail && Object.keys(e.detail).length ? JSON.stringify(e.detail) : null,
       );
       added += Number(info.changes ?? 0);
     }

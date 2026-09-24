@@ -77,6 +77,7 @@ import {
   type EventWrite,
 } from "./store.ts";
 import { ventureMap, ventureOfSubscription, soleVenture } from "./venture.ts";
+import { SALE_TYPES, SALE_WINDOW_MINUTES, dbLookup, digestText, groupSales, noticeText } from "./notice.ts";
 
 export const PLUGIN = "customers";
 
@@ -103,6 +104,10 @@ export const MAX_DELIVERY_ATTEMPTS = 5;
 /** How many messages one pass will send. A burst ceiling, not a policy: past
  *  this the rest wait for the next pass rather than arriving as forty pings. */
 const MAX_SENDS_PER_PASS = 10;
+
+/** Up to this many notices in one pass go one message each; past it, one
+ *  digest carries them all. proactive/pushes.ts keeps the same line. */
+export const SINGLE_MAX = 3;
 
 /**
  * HOW STALE AN EVENT MAY BE AND STILL BE WORTH A MESSAGE.
@@ -362,6 +367,8 @@ export async function runPass(): Promise<PassResult> {
             currency: parsed.currency,
             muted: suppressedBy !== null,
             suppressedBy,
+            subscription: parsed.subscription,
+            detail: parsed.detail,
           };
         });
         out.newEvents += insertEvents(writes);
@@ -674,6 +681,8 @@ async function fillAddresses(
  */
 export async function deliverPending(
   s: ReturnType<typeof settings>,
+  /** The outbound call; a test passes its own. */
+  send: (text: string) => Promise<{ sent: boolean; reason?: string }> = push,
 ): Promise<{ delivered: number; deferred: number; suppressed: number }> {
   const pending = pendingEvents(200);
   if (!pending.length) return { delivered: 0, deferred: 0, suppressed: 0 };
@@ -728,7 +737,7 @@ export async function deliverPending(
   const trips = recentRevenueTrips();
   const at = new Date();
   const nowMs = at.getTime();
-  let sent = 0;
+  const ready: BusinessEventRecord[] = [];
 
   for (const e of pending) {
     if (collapsed.has(e.id)) continue;
@@ -756,22 +765,57 @@ export async function deliverPending(
       continue;
     }
 
+    /* THE REST OF A SALE ALREADY TOLD. Stripe's three events for one new
+       subscriber nearly always arrive in one walk and are grouped below; when
+       a walk boundary splits them, the late one is part of a message that has
+       already gone, and a second "new sale" for the same person is the
+       duplicate this table exists to prevent. */
+    const told = SALE_TYPES.has(e.type) ? saleAlreadyTold(e) : null;
+    if (told) {
+      suppress(e.id, `told with the sale in ${told}`);
+      suppressed += 1;
+      continue;
+    }
+
     const until = quietDeferral(at, s.timezone, s.quiet);
     if (until) {
       defer(e.id, until);
       deferred += 1;
       continue;
     }
+    ready.push(e);
+  }
+  if (!ready.length) return { delivered, deferred, suppressed };
 
-    if (sent >= MAX_SENDS_PER_PASS) break;
-    const result = await push(message(e, standsFor.get(e.id) ?? 1));
-    sent += 1;
-    if (result.sent) {
-      markDelivered(e.id);
-      delivered += 1;
-    } else {
-      markDeliveryFailed(e.id, result.reason ?? "Telegram did not accept the message.");
+  /*
+    ONE SALE, ONE MESSAGE; MANY AT ONCE, ONE MESSAGE.
+
+    groupSales folds checkout + first invoice + new subscription for the same
+    customer into one notice, and each notice's rows share one send: they are
+    all marked delivered when it goes and all marked failed when it does not,
+    so a retry sends the whole notice again rather than a fragment. Past
+    SINGLE_MAX notices in one pass, the lot is one digest — the rule the alert
+    and run pushes keep (proactive/pushes.ts), for the same reason.
+  */
+  const lu = dbLookup();
+  const groups = groupSales(ready).map((rows) => ({ rows, standsFor: standsFor.get(rows[0]!.id) ?? 1 }));
+  const settle = (rows: BusinessEventRecord[], result: { sent: boolean; reason?: string }) => {
+    for (const r of rows) {
+      if (result.sent) markDelivered(r.id);
+      else markDeliveryFailed(r.id, result.reason ?? "Telegram did not accept the message.");
     }
+    if (result.sent) delivered += rows.length;
+  };
+  if (groups.length > SINGLE_MAX) {
+    const all = groups.flatMap((g) => g.rows);
+    settle(all, await safePush(send, digestText(groups, lu, s.timezone, at)));
+    return { delivered, deferred, suppressed };
+  }
+  let sent = 0;
+  for (const g of groups) {
+    if (sent >= MAX_SENDS_PER_PASS) break;
+    sent += 1;
+    settle(g.rows, await safePush(send, noticeText(g.rows, lu, s.timezone, g.standsFor, at)));
   }
 
   return { delivered, deferred, suppressed };
@@ -820,23 +864,60 @@ async function push(text: string): Promise<{ sent: boolean; reason?: string }> {
   return notify(text, { html: false });
 }
 
-/**
- * One event on a phone. Plain text, for proactive/telegram.ts's reason: a
- * summary can contain any character at all and a stray `<` in HTML mode is a
- * 400 from Telegram rather than a message.
- */
-export function message(e: BusinessEventRecord, standsFor: number): string {
-  const when = `${e.at.slice(0, 16).replace("T", " ")} UTC`;
-  const lines = [
-    `${e.type}`,
-    e.summary,
-    standsFor > 1
-      ? `This stands for ${standsFor} failed-payment events for the same customer within the hour.`
-      : "",
-    e.venture_id ? `Venture: ${e.venture_id}` : "",
-    `${when} · ${e.account_label}`,
+/** A push that throws is a push that failed: the rows record why and the
+ *  next pass retries, instead of the pass dying half-way through a notice. */
+async function safePush(
+  send: (text: string) => Promise<{ sent: boolean; reason?: string }>,
+  text: string,
+): Promise<{ sent: boolean; reason?: string }> {
+  try {
+    return await send(text);
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** The delivered sale-type row this one belongs with, if any — same customer
+ *  or same subscription, inside the sale window. A sale that already told an
+ *  event of THIS type is a different purchase (a customer buying twice), and
+ *  this one is news of its own. */
+function saleAlreadyTold(e: BusinessEventRecord): string | null {
+  if (!e.customer && !e.subscription) return null;
+  const t = Date.parse(e.at);
+  const window = [
+    new Date(t - SALE_WINDOW_MINUTES * 60_000).toISOString(),
+    new Date(t + SALE_WINDOW_MINUTES * 60_000).toISOString(),
   ];
-  return lines.filter(Boolean).join("\n");
+  const sameType = db
+    .prepare(
+      `SELECT 1 FROM business_events
+        WHERE delivered_at IS NOT NULL AND id <> ? AND type = ?
+          AND ((customer IS NOT NULL AND customer = ?) OR (subscription IS NOT NULL AND subscription = ?))
+          AND at BETWEEN ? AND ? LIMIT 1`,
+    )
+    .get(e.id, e.type, e.customer ?? "", e.subscription ?? "", window[0]!, window[1]!);
+  if (sameType) return null;
+  const row = db
+    .prepare(
+      `SELECT id FROM business_events
+        WHERE delivered_at IS NOT NULL AND id <> ?
+          AND type IN ('checkout.session.completed', 'invoice.paid', 'customer.subscription.created')
+          AND type <> ?
+          AND ((customer IS NOT NULL AND customer = ?) OR (subscription IS NOT NULL AND subscription = ?)
+               OR (type = 'customer.subscription.created' AND object_id = ?))
+          AND at BETWEEN ? AND ?
+        ORDER BY at LIMIT 1`,
+    )
+    .get(
+      e.id,
+      e.type,
+      e.customer ?? "",
+      e.subscription ?? "",
+      e.subscription ?? "",
+      window[0]!,
+      window[1]!,
+    ) as { id: string } | undefined;
+  return row?.id ?? null;
 }
 
 /** Re-exported for the manifest's collector entry, which wants the shared

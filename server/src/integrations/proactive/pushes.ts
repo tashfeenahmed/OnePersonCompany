@@ -52,6 +52,8 @@ import { EXTRA_BROWSER_ORIGINS } from "../../config.ts";
 import { quietDeferral } from "../customers/events.ts";
 import { settings as customerSettings } from "../customers/store.ts";
 import { PLUGIN as BRIEFING } from "./briefing.ts";
+import { clearWords, docAt, tripWords, type TripFacts } from "./alert-words.ts";
+import { clip, duration, lanOnly, plainCause, plural, when } from "../../shared/phone.ts";
 
 export const ALERTS_KEY = "alertsTelegram";
 export const RUNS_KEY = "runsTelegram";
@@ -116,17 +118,29 @@ const UNTOLD = (subject: Subject, refExpr: string) =>
 
 /* ------------------------------------------------------------------- words */
 
-const utc = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} UTC`;
-const clip = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n).trimEnd()}…`);
-const origin = () => [...EXTRA_BROWSER_ORIGINS][0] ?? "";
+/*
+  HOW THESE READ, and why. The owner reads them on a phone: what happened
+  first, in plain words, with the thing's real name — "💾 Disk is 87% full on
+  Demo box", "✅ Competitor research for Video To Reel is done: 5 new cards on
+  the board (1 h 4 min)". No rule paths, run ids or UTC stamps: the Alerts page
+  and the run's own page carry those. The words for an alert live in
+  alert-words.ts, because `/alerts` in the bot says the same things.
 
+  A time is given only when it helps: an event told more than half an hour
+  after it happened, or a trip that has already recovered.
+*/
+
+const origin = () => [...EXTRA_BROWSER_ORIGINS][0] ?? "";
+/** A link only helps if it opens on the phone; a LAN address does not, away
+ *  from home. */
+const phoneLink = (path: string) => (origin() && !lanOnly(origin()) ? `${origin()}${path}` : null);
+const STALE_MINUTES = 30;
+const late = (iso: string, now: Date) => now.getTime() - Date.parse(iso) > STALE_MINUTES * 60_000;
+const zone = () => customerSettings().timezone;
+
+/** Kept for callers that print a duration; "time not recorded" for none. */
 export function took(ms: number | null): string {
-  if (ms === null || !Number.isFinite(ms)) return "time not recorded";
-  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))} s`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`;
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.round((ms % 3_600_000) / 60_000);
-  return m ? `${h} h ${m} min` : `${h} h`;
+  return duration(ms) ?? "time not recorded";
 }
 
 export type TripRow = {
@@ -138,48 +152,63 @@ export type TripRow = {
   recovery_message: string | null;
   rule: string;
   venture_id: string | null;
+  skill: string;
+  path: string;
+  op: string;
+  threshold: number | null;
+  window_minutes: number | null;
+  observed: number | null;
+  previous: number | null;
+  context: string | null;
 };
 
 const ventureName = (id: string | null) => (id ? ventureRowById(id)?.name ?? null : null);
 
-/** The rule's name, unless the event's own sentence already starts with it
- *  (the engine writes "Name: …"; the anomaly pass writes "Label: …"). */
-const tripLine = (t: TripRow) => (t.message.startsWith(t.rule) ? t.message : `${t.rule}: ${t.message}`);
+export const tripFacts = (t: TripRow): TripFacts => ({ ...t, venture: ventureName(t.venture_id) });
 
-export function tripMessage(t: TripRow): string {
-  const venture = ventureName(t.venture_id);
+type Say = { zone?: string; now?: Date; doc?: unknown };
+
+/** The model's narration is left on the Alerts page: it is three sentences,
+ *  and on a phone the headline is the news. */
+export function tripMessage(t: TripRow, o: Say = {}): string {
+  const z = o.zone ?? zone();
+  const now = o.now ?? new Date();
+  const w = tripWords(tripFacts(t), o.doc !== undefined ? o.doc : docAt(t.skill, t.ts), z, now);
   return [
-    `⚠ Alert tripped — ${t.rule}`,
-    clip(tripLine(t), 600),
-    t.narration ? clip(t.narration.trim(), 500) : null,
-    t.cleared_at ? `✓ It has since recovered (${utc(t.cleared_at)}): ${clip(t.recovery_message ?? "", 300)}` : null,
-    [venture ? `Venture: ${venture}` : null, utc(t.ts), `${origin()}/alerts`].filter(Boolean).join(" · "),
+    `${w.emoji} ${w.head}`,
+    ...w.lines,
+    late(t.ts, now) ? `That was ${when(t.ts, z, now)}.` : null,
+    t.cleared_at ? `✅ Already fine again ${when(t.cleared_at, z, now)}.` : null,
   ]
     .filter(Boolean)
-    .join("\n\n");
+    .join("\n");
 }
 
-export function clearMessage(t: TripRow): string {
-  const held = t.cleared_at ? Date.parse(t.cleared_at) - Date.parse(t.ts) : null;
-  return [
-    `✓ Recovered — ${t.rule}`,
-    clip(t.recovery_message ?? "The condition no longer holds.", 400),
-    `Tripped ${utc(t.ts)}, cleared after ${took(held)}.`,
-  ].join("\n");
+export function clearMessage(t: TripRow, o: Say = {}): string {
+  const z = o.zone ?? zone();
+  const w = clearWords(tripFacts(t), o.doc !== undefined ? o.doc : docAt(t.skill, t.cleared_at), z, o.now ?? new Date(), docAt(t.skill, t.ts));
+  return [`${w.emoji} ${w.head}`, ...w.lines].join("\n");
 }
 
-export function groupedTrips(trips: TripRow[]): string {
-  const lines = [`⚠ ${trips.length} alerts tripped`, ""];
-  for (const t of trips.slice(0, GROUP_LINES))
-    lines.push(`• ${clip(tripLine(t), 200)}${t.cleared_at ? " (since recovered)" : ""}`);
+export function groupedTrips(trips: TripRow[], o: Say = {}): string {
+  const z = o.zone ?? zone();
+  const now = o.now ?? new Date();
+  const lines = [`⚠️ ${trips.length} alerts went off`];
+  for (const t of trips.slice(0, GROUP_LINES)) {
+    const w = tripWords(tripFacts(t), docAt(t.skill, t.ts), z, now);
+    lines.push(`• ${w.emoji} ${clip(w.head, 160)}${t.cleared_at ? " (fine again now)" : ""}`);
+  }
   if (trips.length > GROUP_LINES) lines.push(`…and ${trips.length - GROUP_LINES} more.`);
-  lines.push("", `/alerts lists what is still open · ${origin()}/alerts`);
+  lines.push("Send /alerts to see what's still open.");
   return lines.join("\n");
 }
 
-export function groupedClears(trips: TripRow[]): string {
-  const lines = [`✓ ${trips.length} alerts recovered`, ""];
-  for (const t of trips.slice(0, GROUP_LINES)) lines.push(`• ${t.rule}`);
+export function groupedClears(trips: TripRow[], o: Say = {}): string {
+  const z = o.zone ?? zone();
+  const now = o.now ?? new Date();
+  const lines = [`✅ ${trips.length} alerts are back to normal`];
+  for (const t of trips.slice(0, GROUP_LINES))
+    lines.push(`• ${clip(clearWords(tripFacts(t), docAt(t.skill, t.cleared_at), z, now, docAt(t.skill, t.ts)).head, 160)}`);
   if (trips.length > GROUP_LINES) lines.push(`…and ${trips.length - GROUP_LINES} more.`);
   return lines.join("\n");
 }
@@ -190,46 +219,86 @@ export type RunRowLite = {
   venture_id: string | null;
   title: string;
   status: "done" | "failed";
+  started_at?: string | null;
   finished_at: string;
   ms: number | null;
   error: string | null;
 };
 
-export type RunFacts = { kindName: string; cards: number; link: string };
+/** `link` is null where the dashboard is only reachable at home. */
+export type RunFacts = { kindName: string; cards: number; link: string | null };
 
-export function runMessage(r: RunRowLite, f: RunFacts): string {
+/** What the run was, as a noun a person uses: "Competitor research". */
+const RUN_NOUNS: Record<string, string> = {
+  research: "Research",
+  competitors: "Competitor research",
+  seo: "SEO review",
+  demand: "Demand research",
+  geo: "AI visibility check",
+  papers: "Paper search",
+  shotsqa: "Screenshot check",
+  serp: "Search results teardown",
+  aso: "Store listing audit",
+};
+
+const squash = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function runWhat(r: RunRowLite, f: RunFacts): { what: string; titleLine: string | null } {
   const venture = ventureName(r.venture_id);
-  const ok = r.status === "done";
-  return [
-    `${ok ? "✓" : "⚠"} ${f.kindName} ${ok ? "finished" : "FAILED"}${venture ? ` — ${venture}` : ""}`,
-    clip(r.title, 200),
-    ok ? "" : clip((r.error ?? "It stopped without giving a reason.").trim(), 400),
-    [took(r.ms), ok ? `${f.cards} card${f.cards === 1 ? "" : "s"} filed` : "", `run ${r.id}`]
-      .filter(Boolean)
-      .join(" · "),
-    f.link,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const dash = /^(.+?) — (.+)$/.exec(r.title);
+  /* A video run's title says what it made ("Carousel — FreeLLMAPI"). */
+  const noun = r.kind === "video" && dash ? dash[1]! : RUN_NOUNS[r.kind] ?? f.kindName;
+  const what = `${noun}${venture ? ` for ${venture}` : ""}`;
+  /* The title is worth a line only when it says more than kind and venture —
+     "Competitors — VideoToReel" says nothing "Competitor research for Video
+     To Reel" did not. */
+  const generic = dash && (!venture || squash(dash[2]!) === squash(venture) || squash(dash[2]!).includes(squash(venture)) || squash(venture).includes(squash(dash[2]!)));
+  return { what, titleLine: generic ? null : clip(r.title, 120) };
+}
+
+const runMs = (r: RunRowLite) =>
+  r.ms ?? (r.started_at && r.finished_at ? Date.parse(r.finished_at) - Date.parse(r.started_at) : null);
+
+const cardWords = (n: number) => (n ? `${plural(n, "new card")} on the board` : "no new cards");
+
+export function runMessage(r: RunRowLite, f: RunFacts, o: Say = {}): string {
+  const now = o.now ?? new Date();
+  const { what, titleLine } = runWhat(r, f);
+  const lines: (string | null)[] = [];
+  if (r.status === "done") {
+    const d = duration(runMs(r));
+    lines.push(`✅ ${what} is done: ${cardWords(f.cards)}${d ? ` (${d})` : ""}`, titleLine);
+  } else {
+    const cause = plainCause(r.error);
+    lines.push(`⚠️ ${what} failed${cause.known ? `: ${cause.text}` : ""}`, titleLine, cause.known ? null : `Reason: ${cause.text}`);
+  }
+  if (late(r.finished_at, now)) lines.push(`That was ${when(r.finished_at, o.zone ?? zone(), now)}.`);
+  lines.push(f.link);
+  return lines.filter(Boolean).join("\n");
 }
 
 export function groupedRuns(rows: { r: RunRowLite; f: RunFacts }[]): string {
-  const failed = rows.filter((x) => x.r.status === "failed").length;
-  const lines = [
-    `${failed ? "⚠" : "✓"} ${rows.length} agent runs ended — ${rows.length - failed} finished, ${failed} failed`,
-    "",
-  ];
+  const failed = rows.filter((x) => x.r.status === "failed");
+  const done = rows.length - failed.length;
+  const head = !failed.length
+    ? `✅ ${plural(rows.length, "agent run")} finished`
+    : !done
+      ? `⚠️ ${plural(rows.length, "agent run")} failed`
+      : `⚠️ ${rows.length} agent runs finished: ${done} done, ${failed.length} failed`;
+  /* Ten failures from one cause — the Dell switched off overnight — are one
+     sentence, not ten repetitions of it. */
+  const causes = failed.map((x) => plainCause(x.r.error));
+  const shared = causes.length > 1 && causes.every((c) => c.known && c.text === causes[0]!.text) ? causes[0]!.text : null;
+  const lines = [head];
+  if (shared) lines.push(`${failed.length === rows.length ? "They all" : `All ${failed.length} failures`} had the same cause: ${shared}.`);
   for (const { r, f } of rows.slice(0, GROUP_LINES)) {
-    const venture = ventureName(r.venture_id);
-    const head = `${r.status === "done" ? "✓" : "⚠"} ${f.kindName}${venture ? ` · ${venture}` : ""}`;
-    const tail =
-      r.status === "done"
-        ? `${took(r.ms)}, ${f.cards} card${f.cards === 1 ? "" : "s"}`
-        : clip((r.error ?? "no reason given").trim(), 120);
-    lines.push(`${head} — ${tail} (${r.id})`);
+    const { what } = runWhat(r, f);
+    if (r.status === "done") {
+      const d = duration(runMs(r));
+      lines.push(`• ✅ ${what}: ${cardWords(f.cards)}${d ? ` (${d})` : ""}`);
+    } else lines.push(`• ❌ ${what}${shared ? "" : `: ${clip(plainCause(r.error).text, 100)}`}`);
   }
   if (rows.length > GROUP_LINES) lines.push(`…and ${rows.length - GROUP_LINES} more.`);
-  lines.push("", "Each run is on its worker's page under Team, by the id in brackets.");
   return lines.join("\n");
 }
 
@@ -265,7 +334,8 @@ const empty = (): PushResult => ({ sent: 0, suppressed: 0, failed: 0, held: 0 })
 /* ------------------------------------------------------------------ alerts */
 
 const TRIP_SELECT = `SELECT e.id, e.ts, e.message, e.narration, e.cleared_at, e.recovery_message,
-                            r.name AS rule, r.venture_id
+                            e.observed, e.previous, e.context,
+                            r.name AS rule, r.venture_id, r.skill, r.path, r.op, r.threshold, r.window_minutes
                        FROM alert_events e JOIN alert_rules r ON r.id = e.rule_id`;
 
 export async function pushAlerts(opts: { send?: Send; at?: Date; on?: boolean } = {}): Promise<PushResult> {
@@ -378,7 +448,7 @@ async function runDeps(): Promise<{ isRunning: (id: string) => boolean; facts: (
     facts: (r) => ({
       kindName: kindDef(r.kind)?.name ?? r.kind,
       cards: r.status === "done" ? runCardsFiled(r.id) : 0,
-      link: `${origin()}${runThreadPage({ id: r.id, kind: r.kind })}`,
+      link: phoneLink(runThreadPage({ id: r.id, kind: r.kind })),
     }),
   };
 }
@@ -393,7 +463,7 @@ export async function pushRuns(opts: RunDeps = {}): Promise<PushResult> {
      is socialfeed/deliver.ts's to announce. */
   const rows = db
     .prepare(
-      `SELECT id, kind, venture_id, title, status, finished_at, ms, error
+      `SELECT id, kind, venture_id, title, status, started_at, finished_at, ms, error
          FROM agent_runs r
         WHERE status IN ('done', 'failed') AND finished_at IS NOT NULL
           AND ${UNTOLD("run", "r.id")}
