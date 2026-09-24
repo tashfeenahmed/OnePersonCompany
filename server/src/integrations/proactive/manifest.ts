@@ -63,6 +63,7 @@ import {
 import { briefingRoutes } from "./briefing-routes.ts";
 import { suggestionRoutes } from "./suggestion-routes.ts";
 import { SKILLS, PACKS } from "./skills.ts";
+import { ALERTS_KEY, RUNS_KEY, armPushes, pushSettings, startPushes } from "./pushes.ts";
 
 /** A minute after each collect tick — see the file header. */
 const OFFSET_MS = 60_000;
@@ -80,7 +81,7 @@ export const manifest: IntegrationManifest = {
   config: {
     /*
       SETTINGS AND NOT A PLUGIN. There is no credential, no account and no
-      collector; what there is is a schedule and five switches, and they belong
+      collector; what there is is a schedule and its switches, and they belong
       in the one registry that checks a value before storing it. The same
       argument ops/backups.ts makes for itself.
     */
@@ -128,6 +129,35 @@ export const manifest: IntegrationManifest = {
             "same lock the chat bridge uses, so it cannot reach anybody else — " +
             "and rich blocks are flattened to lines of text on the way. With no " +
             "bot paired it simply does not go, and the briefing says so.",
+          ph: "off",
+          check: onOffCheck,
+        },
+        /* THE TWO PUSHES live on this entry because it is already the
+           area's Telegram switchboard, and `alerts` has no plugin of its own
+           to hang a setting on. See pushes.ts. */
+        [ALERTS_KEY]: {
+          label: "Push alert trips to Telegram",
+          hint:
+            "“on” or “off”. OFF until you turn it on. When a rule trips, one " +
+            "message goes to your paired chat, and a short one when it " +
+            "recovers. A rule that could not READ its figure is not pushed — " +
+            "that is a plugin problem, not a business one, and it stays on the " +
+            "Alerts page and in /alerts. Turning this on tells you about trips " +
+            "from now on; nothing already on the page is sent. Honours the " +
+            "quiet hours set on the Customers plugin.",
+          ph: "off",
+          check: onOffCheck,
+        },
+        [RUNS_KEY]: {
+          label: "Push finished agent runs to Telegram",
+          hint:
+            "“on” or “off”. OFF until you turn it on. When a sub-agent run " +
+            "finishes or fails, one message: venture, kind, how long it took, " +
+            "how many cards it filed, and its id. More than three at once — the " +
+            "nightly pipeline — arrive as one message. Cancelled runs are not " +
+            "sent, and an autopilot video is already announced by the social " +
+            "feed. Runs that ended before you switched this on are not sent. " +
+            "Honours the quiet hours set on the Customers plugin.",
           ph: "off",
           check: onOffCheck,
         },
@@ -183,6 +213,9 @@ export const manifest: IntegrationManifest = {
          settings it sits with. */
       after() {
         upsertPlugin(BRIEFING, true, null);
+        /* The moment a push is switched on is its watermark — see pushes.ts. */
+        try { armPushes(pushSettings()); }
+        catch (err) { console.error("[pushes] could not arm:", err); }
       },
     },
   },
@@ -255,5 +288,6 @@ export const manifest: IntegrationManifest = {
     }
 
     startBriefing();
+    startPushes();
   },
 };

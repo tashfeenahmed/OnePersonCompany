@@ -277,4 +277,51 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
     name: "106_alert_event_context",
     sql: `ALTER TABLE alert_events ADD COLUMN context TEXT;`,
   },
+  {
+    name: "492_telegram_pushes",
+    sql: `
+      -- WHAT WENT TO THE PHONE, ONE ROW PER THING TOLD — see pushes.ts.
+      --
+      -- A LEDGER RATHER THAN A COLUMN ON EACH SOURCE, because the sources are
+      -- two areas' tables (alert_events here, agent_runs in runs) and a trip
+      -- and its recovery are two messages about one row. "subject" says which
+      -- message: 'alert-trip', 'alert-clear' or 'run'; "ref" is the event id
+      -- or the run id as text.
+      --
+      -- THE ROW IS WRITTEN AFTER notify() ANSWERS, never before, so a crash in
+      -- between costs a resend rather than a silent loss — and the primary key
+      -- is what stops a second pass sending the same thing twice.
+      -- 'suppressed' is a decision with its reason in "note" (pushing was off,
+      -- it predates the switch, it was too old); 'failed' is retried until
+      -- "attempts" reaches the ceiling in pushes.ts.
+      CREATE TABLE telegram_pushes (
+        subject  TEXT NOT NULL,
+        ref      TEXT NOT NULL,
+        state    TEXT NOT NULL CHECK (state IN ('sent','suppressed','failed')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        note     TEXT,
+        at       TEXT NOT NULL,
+        PRIMARY KEY (subject, ref)
+      ) WITHOUT ROWID;
+
+      -- THE MOMENT EACH PUSH WAS SWITCHED ON. Anything older is history, not
+      -- news: turning a push on tells you about what happens NEXT.
+      CREATE TABLE telegram_push_marks (
+        subject  TEXT PRIMARY KEY,
+        armed_at TEXT NOT NULL
+      ) WITHOUT ROWID;
+
+      -- EVERYTHING ALREADY ON DISK IS HISTORY. Without these rows the first
+      -- pass after an upgrade would find every trip and every run ever
+      -- recorded with nothing saying it had been dealt with.
+      INSERT OR IGNORE INTO telegram_pushes (subject, ref, state, note, at)
+        SELECT 'alert-trip', CAST(id AS TEXT), 'suppressed', 'before pushes existed',
+               strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          FROM alert_events WHERE kind = 'trip';
+      INSERT OR IGNORE INTO telegram_pushes (subject, ref, state, note, at)
+        SELECT 'run', id, 'suppressed', 'before pushes existed',
+               strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          FROM agent_runs WHERE finished_at IS NOT NULL;
+    `,
+  },
 ];
