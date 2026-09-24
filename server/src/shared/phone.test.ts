@@ -35,9 +35,9 @@ test("durations and lists", () => {
 
 test("known causes are said in plain words; the rest are shortened, not dressed up", () => {
   const dell = "Could not reach Local · Dell 5820 (Dell 5820) at http://192.168.1.50:11434/v1/chat/completions (TypeError).";
-  assert.deepEqual(plainCause(dell), { text: "couldn't reach the Dell, it looks switched off", known: true });
-  assert.equal(plainCause("Hermes stopped mid-answer — Local · Dell 5820 could not be reached — fetch failed").text, "couldn't reach the Dell, it looks switched off");
-  assert.equal(plainCause("tashfene@example.com: The scorer failed part-way: " + dell).text, "couldn't reach the Dell, it looks switched off");
+  assert.deepEqual(plainCause(dell), { text: "couldn't reach Dell 5820, it may be switched off", known: true });
+  assert.equal(plainCause("Hermes stopped mid-answer — Local · Dell 5820 could not be reached — fetch failed").text, "couldn't reach Dell 5820, it may be switched off");
+  assert.equal(plainCause("tashfene@example.com: The scorer failed part-way: " + dell).text, "couldn't reach Dell 5820, it may be switched off");
   assert.equal(plainCause("interrupted by a restart").text, "it was cut off when OPC restarted");
   assert.equal(
     plainCause("The job ran out of time: its 7,200-second runtime limit ended before the work did.").text,

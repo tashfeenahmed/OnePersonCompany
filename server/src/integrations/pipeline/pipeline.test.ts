@@ -232,7 +232,7 @@ test("the phone version groups failures by a cause it can name and keeps each st
     [
       "🌙 Overnight run: 2 done, 3 failed, 1 skipped",
       "",
-      "❌ Couldn't reach the Dell, it looks switched off, so these 2 failed:",
+      "❌ Couldn't reach Dell 5820, it may be switched off, so these 2 failed:",
       "• Review incoming mail, Morning brief",
       "",
       "❌ Also failed:",
