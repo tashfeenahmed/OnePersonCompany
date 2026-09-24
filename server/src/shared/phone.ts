@@ -4,7 +4,7 @@
  * The owner reads these on a lock screen, so each helper answers one question
  * a person would ask rather than printing what the machine stored: "$19/yr"
  * and not "USD 19.00", "at 10:32pm" and not "2026-09-24 21:32 UTC", "couldn't
- * reach the Dell, it looks switched off" and not a URL and an exception class.
+ * reach Dell 5820, it may be switched off" and not a URL and an exception class.
  *
  * NOTHING HERE READS THE DATABASE. The zone is the caller's (every pusher
  * already holds the customers area's `settings().timezone`), so each helper is
@@ -122,9 +122,9 @@ export const clip = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0,
  * knows. `known: false` means the text is the raw reason, shortened, and the
  * caller should put it on its own last line rather than in the headline.
  *
- * ORDER MATTERS: the Dell line is checked before the generic "connection"
- * one, because "Hermes stopped mid-answer — Local · Dell 5820 could not be
- * reached" is both, and the useful answer is which machine.
+ * ORDER MATTERS: the unreachable-machine line is checked before the generic
+ * "connection" one, because "Hermes stopped mid-answer — Local · Dell 5820
+ * could not be reached" is both, and the useful answer is which machine.
  */
 export function plainCause(raw: string | null | undefined): { text: string; known: boolean } {
   const s = (raw ?? "").trim();
@@ -132,8 +132,7 @@ export function plainCause(raw: string | null | undefined): { text: string; know
   const machine = /Could not reach (?:Local · )?([^(]+?) \(/i.exec(s)?.[1] ?? /(?:Local · )?([\w .-]+?) could not be reached/i.exec(s)?.[1];
   if (machine) {
     const name = machine.replace(/^Local · /, "").trim();
-    if (/dell/i.test(name)) return { text: "couldn't reach the Dell, it looks switched off", known: true };
-    return { text: `couldn't reach ${name}`, known: true };
+    return { text: `couldn't reach ${name}, it may be switched off`, known: true };
   }
   if (/interrupted by a restart/i.test(s)) return { text: "it was cut off when OPC restarted", known: true };
   const limit = /runtime limit|(\d[\d,]*)-second/i.test(s) && /ran out of time/i.test(s)

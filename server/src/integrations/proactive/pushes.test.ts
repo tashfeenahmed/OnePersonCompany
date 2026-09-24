@@ -175,7 +175,7 @@ test("runs: finished, failed and filing runs; cancelled and autopilot video are 
   const first = await pushRuns({ send: ok, isRunning: (id) => filing.has(id), facts: facts.facts });
   assert.equal(first.held, 1, "a run still filing its cards waits");
   assert.equal(sent.length, 2);
-  assert.ok(sent.some((m) => m === `⚠️ Research failed: couldn't reach the Dell, it looks switched off\nTitle of ${failed}\n/team/research/runs/x`));
+  assert.ok(sent.some((m) => m === `⚠️ Research failed: couldn't reach Dell 5820, it may be switched off\nTitle of ${failed}\n/team/research/runs/x`));
   assert.ok(sent.some((m) => m.includes(`Title of ${videoFailed}`)), "a failed autopilot video is not announced elsewhere");
   assert.ok(!sent.some((m) => m.includes(`Title of ${video}`)));
   assert.ok(!sent.some((m) => /\br-t\d{4}\b/.test(m.replace(/Title of r-t\d{4}/g, ""))), "no run id outside the test's own titles");
