@@ -933,3 +933,17 @@ test("usage is the whole turn's, not the last round's", async () => {
     clearRuntimeConfig();
   }
 });
+
+test("a scheduled job's result reads as a message: its name, its words, and a time only when late", async () => {
+  const { message } = await import("./relay.ts");
+  const at = "2026-09-24T08:00:00.000Z";
+  const r = { runtime: "hermes" as const, jobId: "j-7f3", jobName: "Morning check", ref: "x", at, status: "ok", failed: false, body: "All good.", silent: false };
+  assert.equal(message(r, 500, { zone: "Europe/Dublin", now: new Date("2026-09-24T08:01:00.000Z") }), "⏰ Morning check\nAll good.");
+  assert.equal(
+    message({ ...r, failed: true, jobName: null }, 500, { zone: "Europe/Dublin", now: new Date("2026-09-24T09:30:00.000Z") }),
+    "⚠️ A Hermes scheduled job didn't finish\nAll good.\n\nThat ran at 9:00am.",
+  );
+  const long = message({ ...r, body: "x".repeat(50) }, 10, { zone: "UTC", now: new Date(at) });
+  assert.match(long, /\n\(Cut short\. The rest is in Hermes\.\)$/);
+  assert.ok(!long.includes("UTC") && !long.includes("j-7f3"));
+});

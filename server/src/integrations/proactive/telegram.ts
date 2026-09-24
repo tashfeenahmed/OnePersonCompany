@@ -21,8 +21,12 @@
  * chat bridge already does with every answer it sends.
  */
 import { plainRich } from "../../skills/present.ts";
-import { build, settings, zoned } from "./briefing.ts";
+import { briefingHeader, build, phoneFallback, settings, zoned } from "./briefing.ts";
 import { briefing, events, latestBriefing, rules } from "./store.ts";
+import { docAt, tripWords } from "./alert-words.ts";
+import { ventureRowById } from "../../db.ts";
+import { settings as customerSettings } from "../customers/store.ts";
+import { when } from "../../shared/phone.ts";
 
 /** How many open events one message names. Past this it says how many more. */
 const MAX_EVENTS = 8;
@@ -50,13 +54,8 @@ export async function briefingText(): Promise<string> {
       row = last;
     }
     const body = row.markdown.trim();
-    if (!body)
-      return (
-        `Briefing — ${row.day}\n\n` +
-        (row.note ?? "No write-up was produced.") +
-        "\n\nThe facts it was assembled from are on the Alerts → Briefing page."
-      );
-    return `Briefing — ${row.day}\n\n${plainRich(body)}`;
+    if (!body) return phoneFallback(row, s.timezone);
+    return `${briefingHeader(row.day, s.timezone)}\n\n${plainRich(body)}`;
   } catch (err) {
     return `The briefing could not be produced: ${err instanceof Error ? err.message : String(err)}`;
   }
@@ -89,9 +88,29 @@ export function alertsText(): string {
     ];
 
     if (trips.length) {
+      /* The same words the push used (alert-words.ts), so the alert a phone
+         was told about is recognisable when it is asked for again. */
+      const zone = customerSettings().timezone;
       lines.push("", "Tripped:");
-      for (const e of trips.slice(0, MAX_EVENTS))
-        lines.push(`• ${e.ts.slice(0, 16).replace("T", " ")} — ${e.message}`);
+      for (const e of trips.slice(0, MAX_EVENTS)) {
+        const r = byRule.get(e.rule_id);
+        if (!r) {
+          lines.push(`• ${e.message} (${when(e.ts, zone)})`);
+          continue;
+        }
+        const w = tripWords(
+          {
+            rule: r.name, skill: r.skill, path: r.path, op: r.op, threshold: r.threshold,
+            window_minutes: r.window_minutes, observed: e.observed, previous: e.previous,
+            message: e.message, context: e.context, ts: e.ts, cleared_at: e.cleared_at ?? null,
+            recovery_message: e.recovery_message ?? null,
+            venture: r.venture_id ? (ventureRowById(r.venture_id)?.name ?? null) : null,
+          },
+          docAt(r.skill, e.ts),
+          zone,
+        );
+        lines.push(`• ${w.emoji} ${w.head} (${when(e.ts, zone)})`);
+      }
       if (trips.length > MAX_EVENTS) lines.push(`  …and ${trips.length - MAX_EVENTS} more.`);
     }
 

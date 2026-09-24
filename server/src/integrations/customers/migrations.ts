@@ -292,4 +292,22 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       UPDATE stripe_disputes SET closed_at = NULL;
     `,
   },
+
+  {
+    name: "255_business_events_detail",
+    sql: `
+      -- WHAT THE PHONE MESSAGE IS WORDED FROM.
+      --
+      -- summary stays the feed's one factual sentence. A push needs the parts
+      -- it flattened — the price id (to find the product and the venture), the
+      -- billing interval (so "$19/yr"), a cancellation reason, Stripe's next
+      -- retry — and the subscription id on invoices and checkouts, which is
+      -- what lets checkout + invoice + new subscription be told as ONE sale.
+      --
+      -- detail is JSON owned by customers/notice.ts. Rows written before this
+      -- step have NULL in both, and the notice falls back to the summary.
+      ALTER TABLE business_events ADD COLUMN subscription TEXT;
+      ALTER TABLE business_events ADD COLUMN detail TEXT;
+    `,
+  },
 ];

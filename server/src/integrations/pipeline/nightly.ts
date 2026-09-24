@@ -50,6 +50,7 @@ import { db, now } from "../../db.ts";
 import { budgets, runContext, spentOnRun } from "../../runtime/budgets.ts";
 import { RUNTIME_KEYS, readSetting, writeSetting } from "../../runtime/settings.ts";
 import { INTERRUPTED, NOW, settleOpenRows } from "../../shared/settle.ts";
+import { clip, plainCause } from "../../shared/phone.ts";
 import { dueDay, wall } from "../../shared/time.ts";
 import {
   allStages,
@@ -296,6 +297,9 @@ export type NightResult = {
   why: string | null;
   run: ReturnType<typeof shapeRun> | null;
   stages: ReturnType<typeof shapeStageResult>[];
+  /** The same night worded for a phone (`phoneSummary`). Absent on a result
+   *  that did not run. */
+  phone?: string;
 };
 
 function mintRunId(): string {
@@ -562,7 +566,8 @@ export async function runNight(
     }
 
     const stages = stageResultRows(id).map(shapeStageResult);
-    const summary = summarise({ id, dry, trigger: opts.trigger, counts, usd: usdTotal, stages, titles: new Map(list.map(p => [p.stage.id,p.stage.title])) });
+    const titles = new Map(list.map(p => [p.stage.id,p.stage.title]));
+    const summary = summarise({ id, dry, trigger: opts.trigger, counts, usd: usdTotal, stages, titles });
     db.prepare(
       `UPDATE pipeline_runs SET finished_at = ?, planned = ?, completed = ?, skipped = ?, failed = ?,
               over_budget = ?, usd = ?, ms = ?, summary = ?, current_stage = NULL WHERE id = ?`,
@@ -580,7 +585,7 @@ export async function runNight(
     );
 
     const row = runRow(id)!;
-    return { ran: true, why: null, run: shapeRun(row), stages };
+    return { ran: true, why: null, run: shapeRun(row), stages, phone: phoneSummary({ counts, usd: usdTotal, stages, titles }) };
   } finally {
     walking = false;
     activeRunId = null; activeAbort = null;
@@ -661,6 +666,57 @@ export function summarise(input: {
       : `Model spend on this night: $${input.usd.toFixed(4)}. Includes direct calls and sub-agent jobs linked to workflow blocks.`,
   );
 
+  return lines.join("\n");
+}
+
+/**
+ * THE SAME NIGHT, FOR A PHONE.
+ *
+ * The transcript keeps `summarise`'s full account. A phone gets what a person
+ * would text: how the night went in one line, the failures grouped by cause
+ * in plain words — nine steps failing because the Dell was off is one
+ * sentence, not nine copies of a URL and an exception class — then what got
+ * done. Each stage's own note is its area's sentence and is kept as written.
+ */
+export function phoneSummary(input: {
+  counts: Record<StageOutcome, number>;
+  usd: number | null;
+  stages: ReturnType<typeof shapeStageResult>[];
+  titles?: ReadonlyMap<string, string>;
+}): string {
+  const title = (id: string) => input.titles?.get(id) ?? id;
+  const c = input.counts;
+  const bad = input.stages.filter((s) => s.outcome === "failed" || s.outcome === "over-budget");
+  const parts = [`${c.completed} done`, c.failed ? `${c.failed} failed` : "", c["over-budget"] ? `${c["over-budget"]} over budget` : "", c.skipped ? `${c.skipped} skipped` : ""].filter(Boolean);
+  const lines = [`🌙 Overnight run: ${parts.join(", ")}`];
+
+  /* Failures by cause: a cause this box can name once, with the steps under
+     it; anything else on its own line with its reason shortened. */
+  const byCause = new Map<string, string[]>();
+  const odd: string[] = [];
+  for (const s of bad) {
+    if (s.outcome === "over-budget") {
+      odd.push(`• ${title(s.stageId)}: ran out of budget`);
+      continue;
+    }
+    const cause = plainCause(s.error ?? s.reason);
+    if (cause.known) byCause.set(cause.text, [...(byCause.get(cause.text) ?? []), title(s.stageId)]);
+    /* The pointer back to the dashboard ("Open their reports for details.")
+       is for a screen; on a phone it is a second sentence to read. */
+    else odd.push(`• ${title(s.stageId)}: ${clip(cause.text.replace(/\s*(Open their reports for details|See the per-venture notes)\.$/, ""), 120)}`);
+  }
+  for (const [cause, names] of byCause) {
+    lines.push("", `❌ ${cause[0]!.toUpperCase()}${cause.slice(1)}, so ${names.length === 1 ? "this" : `these ${names.length}`} failed:`);
+    lines.push(`• ${names.join(", ")}`);
+  }
+  if (odd.length) lines.push("", byCause.size ? "❌ Also failed:" : "❌ Failed:", ...odd);
+
+  const ran = input.stages.filter((s) => s.outcome === "completed");
+  if (ran.length) {
+    lines.push("", "✅ Done:");
+    for (const s of ran) lines.push(`• ${title(s.stageId)}${s.note ? `: ${clip(s.note.replace(/\.$/, ""), 140)}` : ""}`);
+  }
+  if (input.usd !== null && input.usd > 0) lines.push("", `Spent $${input.usd.toFixed(2)} on models.`);
   return lines.join("\n");
 }
 
@@ -815,7 +871,7 @@ export async function deliver(out: NightResult): Promise<{ chat: boolean; telegr
        imports every manifest — including this area's. A static import would
        close that loop. */
     const { notify } = await import("../../telegram/bridge.ts");
-    const sent = await notify(text.replace(/\*\*/g, ""));
+    const sent = await notify(out.phone ?? text.replace(/\*\*/g, ""));
     return { chat, telegram: sent.sent, note: sent.sent ? null : (sent.reason ?? "The Telegram push did not go.") };
   } catch (err) {
     return { chat, telegram: false, note: err instanceof Error ? err.message : "The Telegram push failed." };

@@ -93,16 +93,14 @@ test("a trip is sent once, its recovery once, and an unreadable never", async ()
 
   assert.equal((await pushAlerts({ send: ok })).sent, 1);
   assert.equal(sent.length, 1);
-  assert.match(sent[0]!, /^⚠ Alert tripped — Disk full/);
-  assert.match(sent[0]!, /disk is 91/);
-  assert.ok(!sent[0]!.includes("Disk full: Disk full"), "the rule name is not repeated");
+  assert.equal(sent[0], "⚠️ Disk full\nIt's at 91, above your limit of 85.");
   await pushAlerts({ send: ok });
   assert.equal(sent.length, 1, "a second pass sends nothing");
 
   clearIncidents(r.id, "trip", now(), "disk is 60 — back under the line.");
   await pushAlerts({ send: ok });
   assert.equal(sent.length, 2);
-  assert.match(sent[1]!, /^✓ Recovered — Disk full\ndisk is 60/);
+  assert.match(sent[1]!, /^✅ Back to normal: Disk full\nIt lasted \d+ s\.$/);
   assert.equal(state("alert-clear", e.id)?.state, "sent");
   await pushAlerts({ send: ok });
   assert.equal(sent.length, 2);
@@ -117,7 +115,7 @@ test("a trip that recovered before it could be sent says so, and is not told twi
   await pushAlerts({ send: ok });
   await pushAlerts({ send: ok });
   assert.equal(sent.length, 1);
-  assert.match(sent[0]!, /since recovered .*fine again/);
+  assert.match(sent[0]!, /\n✅ Already fine again at \d{1,2}:\d\d[ap]m\.$/);
   assert.equal(state("alert-clear", e.id)?.note, "told with the trip");
 });
 
@@ -139,7 +137,8 @@ test("more than three trips at once are one message", async () => {
   const r = await pushAlerts({ send: ok });
   assert.equal(r.sent, 5);
   assert.equal(sent.length, 1);
-  assert.match(sent[0]!, /^⚠ 5 alerts tripped/);
+  assert.match(sent[0]!, /^⚠️ 5 alerts went off\n• ⚠️ A\n/);
+  assert.match(sent[0]!, /Send \/alerts to see what's still open\.$/);
 });
 
 test("quiet hours hold a push rather than dropping it", async () => {
@@ -176,14 +175,15 @@ test("runs: finished, failed and filing runs; cancelled and autopilot video are 
   const first = await pushRuns({ send: ok, isRunning: (id) => filing.has(id), facts: facts.facts });
   assert.equal(first.held, 1, "a run still filing its cards waits");
   assert.equal(sent.length, 2);
-  assert.ok(sent.some((m) => m.startsWith("⚠ Research FAILED") && m.includes("Dell 5820") && m.includes(`run ${failed}`)));
-  assert.ok(sent.some((m) => m.includes(`run ${videoFailed}`)), "a failed autopilot video is not announced elsewhere");
-  assert.ok(!sent.some((m) => m.includes(video)));
+  assert.ok(sent.some((m) => m === `⚠️ Research failed: couldn't reach the Dell, it looks switched off\nTitle of ${failed}\n/team/research/runs/x`));
+  assert.ok(sent.some((m) => m.includes(`Title of ${videoFailed}`)), "a failed autopilot video is not announced elsewhere");
+  assert.ok(!sent.some((m) => m.includes(`Title of ${video}`)));
+  assert.ok(!sent.some((m) => /\br-t\d{4}\b/.test(m.replace(/Title of r-t\d{4}/g, ""))), "no run id outside the test's own titles");
 
   filing.clear();
   await pushRuns({ send: ok, ...facts });
   assert.equal(sent.length, 3);
-  assert.match(sent[2]!, /^✓ Research finished\nTitle of r-t\d+\n12 min · 2 cards filed · run r-t\d+\n\/team\/research\/runs\/x$/);
+  assert.match(sent[2]!, /^✅ Research is done: 2 new cards on the board \(12 min\)\nTitle of r-t\d+\n\/team\/research\/runs\/x$/);
   await pushRuns({ send: ok, ...facts });
   assert.equal(sent.length, 3);
 });
@@ -196,7 +196,8 @@ test("runs: the nightly batch is one message", async () => {
   const r = await pushRuns({ send: ok, ...facts });
   assert.equal(r.sent, 11);
   assert.equal(sent.length, 1);
-  assert.match(sent[0]!, /^⚠ 11 agent runs ended — 1 finished, 10 failed/);
+  assert.match(sent[0]!, /^⚠️ 11 agent runs finished: 1 done, 10 failed\n/);
+  assert.equal(sent[0]!.split("\n").filter((l) => l.startsWith("• ❌ Research: Hermes stopped mid-answer")).length, 10);
 });
 
 test("the run message says how long, in words a phone can read", () => {
@@ -204,7 +205,7 @@ test("the run message says how long, in words a phone can read", () => {
     { id: "r-abc", kind: "seo", venture_id: null, title: "SEO audit", status: "done", finished_at: now(), ms: 3_900_000, error: null },
     { kindName: "SEO", cards: 1, link: "http://box/x" },
   );
-  assert.equal(text, "✓ SEO finished\nSEO audit\n1 h 5 min · 1 card filed · run r-abc\nhttp://box/x");
+  assert.equal(text, "✅ SEO review is done: 1 new card on the board (1 h 5 min)\nSEO audit\nhttp://box/x");
 });
 
 test("runs: the run area's own helpers load lazily and name the kind, the cards and the page", async () => {
@@ -213,6 +214,5 @@ test("runs: the run area's own helpers load lazily and name the kind, the cards 
   const id = run({ kind: "seo", status: "done" });
   await pushRuns({ send: ok });
   assert.equal(sent.length, 1);
-  assert.match(sent[0]!, /^✓ SEO .*finished/);
-  assert.match(sent[0]!, new RegExp(`0 cards filed · run ${id}\\n.*${id}$`));
+  assert.equal(sent[0], `✅ SEO review is done: no new cards (2 min)\nTitle of ${id}`, "a LAN-only dashboard link is left off");
 });

@@ -42,6 +42,7 @@ import { appendChatMessage, chatMessages, configValue, ventureRows } from "../..
 import { dailySchedule, zoned } from "../../shared/time.ts";
 import { complete, NoProviderError } from "../../models/provider.ts";
 import { plainRich, PRESENT_BRIEF } from "../../skills/present.ts";
+import { dayName, plainCause, plural } from "../../shared/phone.ts";
 import { apiBase, snapshotSkills, takeSnapshots } from "./catalogue.ts";
 import { serviceHeaders } from "../../auth.ts";
 import { flattenNumbers, movements, type Movement } from "./movement.ts";
@@ -466,13 +467,19 @@ export async function deliver(
     the alert is worse than a missed alert.
   */
   const { notify } = await import("../../telegram/bridge.ts");
-  const sent = await notify(`Briefing — ${row.day}\n\n${plainRich(text)}`);
+  const sent = await notify(
+    body ? `${briefingHeader(row.day, s.timezone)}\n\n${plainRich(body)}` : phoneFallback(row, s.timezone),
+  );
   return {
     chat,
     telegram: sent.sent,
     note: sent.sent ? null : (sent.reason ?? "Telegram push did not go."),
   };
 }
+
+/** "☀️ Your briefing for Thu 24 Sep" — the push and `/briefing` both open
+ *  with it, rather than an ISO date. */
+export const briefingHeader = (day: string, zone: string) => `☀️ Your briefing for ${dayName(day, new Date(), zone)}`;
 
 /** What is sent when there is no prose: the honest sentence and the counts, so
  *  a briefing with no model behind it is still a message worth receiving. */
@@ -505,6 +512,37 @@ function factsFallback(row: BriefingRow): string {
     lines.push("");
     lines.push("The facts are on the briefing page; only the write-up is missing.");
   }
+  return lines.join("\n");
+}
+
+/**
+ * The fallback as a phone reads it. The transcript keeps `factsFallback`; a
+ * phone gets the counts in words and the reason the write-up is missing in
+ * plain English, rather than a heading, a UTC stamp and a model URL.
+ */
+export function phoneFallback(row: BriefingRow, zone: string): string {
+  let facts: Facts | null = null;
+  try {
+    facts = JSON.parse(row.facts) as Facts;
+  } catch {
+    facts = null;
+  }
+  const why = row.note ? plainCause(row.note.replace(/^The briefing was assembled but not written up: /, "")) : null;
+  const lines = [
+    briefingHeader(row.day, zone),
+    why?.known ? `No write-up today: ${why.text}. Here are the numbers.` : "No write-up today. Here are the numbers.",
+  ];
+  if (facts) {
+    if (facts.alerts.included) {
+      const trips = facts.alerts.trips?.length ?? 0;
+      const open = facts.alerts.openTotal ?? 0;
+      lines.push(`• ${trips ? `${plural(trips, "alert")} went off` : "No alerts went off"}, ${open} still open`);
+    }
+    if (facts.runs.included) lines.push(`• ${plural(facts.runs.finished?.length ?? 0, "agent run")} ended`);
+    if (facts.board.included)
+      lines.push(`• Board: ${facts.board.overdue?.length ?? 0} overdue, ${facts.board.dueSoon?.length ?? 0} due in the next three days`);
+  }
+  if (why && !why.known) lines.push(`Reason: ${why.text}`);
   return lines.join("\n");
 }
 
