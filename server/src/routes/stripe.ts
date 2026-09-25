@@ -258,23 +258,27 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
         churnedFromStartSubs: fromStart.length,
         startBookMrr: money(startBook),
         /*
-          THE QUICK RATIO — new MRR over (new MRR + churned MRR), the shape
-          ChartMogul and Baremetrics put on their health card. It is kept
-          SEPARATE from `ratePct` on purpose: the churn rate divides by the
-          reconstructed starting book, and this divides by the window's own
-          movement, so it is exact where the rate is `approximate`. A
-          subscription that started and ended inside the window is in BOTH its
-          sides — it did arrive and it did leave — which is the definition, not
-          an inconsistency.
-          null when the window moved no money at all: 0/0 is not a healthy
-          ratio, it is no measurement. A window with churn and no new revenue
-          reads as 0.0, which is the worst honest figure.
-          `newMrr` counts subscriptions STILL BILLING: one that arrived and
-          churned inside the window is in the lost side only — counting money
-          that is already gone as gained would inflate the ratio with revenue
-          the book no longer has.
+          THE QUICK RATIO — MRR gained over MRR lost in the window, the SaaS
+          quick ratio ChartMogul and Baremetrics publish:
+            (new + expansion + reactivation) / (churned + contraction).
+          4 or more is the usual "healthy" line; under 1 the book is shrinking.
+          EXPANSION AND CONTRACTION ARE NOT IN IT: a subscription that changed
+          plan leaves no trace of its old price on the object, so upgrades and
+          downgrades are invisible here exactly as they are to `ratePct`. This
+          is new-versus-churned only, and marked so. A customer who comes back
+          on a new subscription is new MRR, which is how reactivation lands.
+          A subscription that started AND ended inside the window is on BOTH
+          sides — it did arrive and it did leave — which is the published
+          definition. `newMrr` counts only what is still billing, so the gained
+          side is published on its own (`quickRatioInMrr`) rather than left for
+          a card to reconstruct. Never-billed cancellations (expired checkouts,
+          cancelled trials) are on neither side, as they are out of churn.
+          null when nothing churned: x/0 is not a ratio. `quickRatioInMrr` and
+          `quickRatioOutMrr` still say whether that was growth or a still window.
         */
-        quickRatio: gained + lost > 0 ? Number((gained / (gained + lost)).toFixed(2)) : null,
+        quickRatio: lost > 0 ? Number(((gained + (lost - lostFromStart)) / lost).toFixed(2)) : null,
+        quickRatioInMrr: money(gained + (lost - lostFromStart)),
+        quickRatioOutMrr: money(lost),
         /** The same question asked of HEADS rather than of money, because a
          *  churned $99 plan and a churned $1 plan are one row each here and
          *  nothing alike above. Its own denominator, named the same way. */

@@ -4,12 +4,10 @@ import { db, insertAccount, upsertPlugin, writeStripeSubscriptions } from "../db
 import { stripeRoutes } from "./stripe.ts";
 
 /*
-  THE QUICK RATIO the /api/stripe document publishes per churn row: new MRR
-  over (new MRR + churned MRR) for the window — the health figure ChartMogul
-  and Baremetrics lead with. These pin the ENDPOINT's value, not just the
-  client card that reads it, because the whole point of the field is that it
-  is exact over the window's own movement while `ratePct` is approximate over
-  a reconstructed book.
+  THE QUICK RATIO the /api/stripe document publishes per churn row: MRR
+  gained over MRR lost in the window (ChartMogul, Baremetrics), new versus
+  churned only — plan changes leave no trace on the subscription. These pin
+  the ENDPOINT's value, not just the client card that reads it.
 */
 
 const DAY = 86_400_000;
@@ -24,6 +22,7 @@ function fixture(id: string) {
   return account;
 }
 const sub = (
+  currency: string,
   account: number,
   id: string,
   status: string,
@@ -36,7 +35,7 @@ const sub = (
   accountLabel: "acc",
   id,
   status,
-  currency: "usd",
+  currency,
   monthlyUsd,
   listedMonthlyUsd: monthlyUsd,
   interval: "month",
@@ -53,61 +52,108 @@ const sub = (
   paidCents,
 });
 
-async function churnRow(days: number) {
-  const doc = (await (await stripeRoutes.request(`/?days=${days}`)).json()) as {
-    churn: { days: number; currency: string; newMrr: number; churnedMrr: number; quickRatio: number | null }[];
-  };
-  const row = doc.churn.find((r) => r.days === 30);
-  assert.ok(row, "the 30-day churn row is in the document");
+type Row = {
+  days: number;
+  currency: string;
+  newMrr: number;
+  churnedMrr: number;
+  quickRatio: number | null;
+  quickRatioInMrr: number;
+  quickRatioOutMrr: number;
+};
+async function churnRows(days = 30) {
+  const doc = (await (await stripeRoutes.request(`/?days=${days}`)).json()) as { churn: Row[] };
+  return doc.churn.filter((r) => r.days === days);
+}
+async function churnRow(days = 30) {
+  const row = (await churnRows(days))[0];
+  assert.ok(row, "the churn row is in the document");
   return row;
 }
+type SubArgs = Parameters<typeof sub> extends [string, ...infer R] ? R : never;
+const usd = (...a: SubArgs) => sub("usd", ...a);
 
-test("the churn row publishes the quick ratio over the window's own movement", async () => {
+test("the churn row publishes gained over lost for the window", async () => {
   const account = fixture("ratio");
   writeStripeSubscriptions([
     /* 100/month of standing book, older than every window. */
-    sub(account, "qr_standing", "active", 100, 200, null, 10000),
+    usd(account, "qr_standing", "active", 100, 200, null, 10000),
     /* 160 arrived this month. */
-    sub(account, "qr_new", "active", 160, 10, null, 16000),
+    usd(account, "qr_new", "active", 160, 10, null, 16000),
     /* 40 left this month, from before the window opened. */
-    sub(account, "qr_lost", "canceled", 40, 300, 5, 4000),
+    usd(account, "qr_lost", "canceled", 40, 300, 5, 4000),
   ]);
-  const row = await churnRow(30);
+  const row = await churnRow();
   assert.equal(row.newMrr, 160);
   assert.equal(row.churnedMrr, 40);
-  /* 160 / (160 + 40) = 0.8 — the benchmark line, exactly. */
-  assert.equal(row.quickRatio, 0.8);
+  assert.equal(row.quickRatioInMrr, 160);
+  assert.equal(row.quickRatioOutMrr, 40);
+  /* 160 / 40 = 4 — the healthy line, exactly. */
+  assert.equal(row.quickRatio, 4);
 });
 
-test("revenue that arrived and churned inside the window counts as lost, not gained", async () => {
+test("revenue that arrived and churned inside the window is on both sides", async () => {
   const account = fixture("both");
   writeStripeSubscriptions([
-    sub(account, "qr_inout", "canceled", 50, 10, 2, 5000),
+    usd(account, "qr_standing", "active", 100, 200, null, 10000),
+    usd(account, "qr_new", "active", 60, 10, null, 6000),
+    usd(account, "qr_lost", "canceled", 20, 300, 5, 2000),
+    usd(account, "qr_inout", "canceled", 50, 10, 2, 5000),
   ]);
-  /* `newMrr` counts subscriptions STILL BILLING, so this reads 0/50 — the
-     conservative side. Booking gone revenue as gained would report 0.5 and
-     flatter a book that kept none of it. */
-  const row = await churnRow(30);
-  assert.equal(row.newMrr, 0);
-  assert.equal(row.churnedMrr, 50);
-  assert.equal(row.quickRatio, 0);
+  const row = await churnRow();
+  /* newMrr is still-billing only; the ratio's gained side includes it. */
+  assert.equal(row.newMrr, 60);
+  assert.equal(row.quickRatioInMrr, 110);
+  assert.equal(row.quickRatioOutMrr, 70);
+  assert.equal(row.quickRatio, Number((110 / 70).toFixed(2)));
 });
 
-test("churn with no new revenue reads 0, the worst honest figure", async () => {
+test("never-billed cancellations are on neither side", async () => {
+  const account = fixture("unpaid");
+  writeStripeSubscriptions([
+    usd(account, "qr_standing", "active", 100, 200, null, 10000),
+    usd(account, "qr_new", "active", 30, 10, null, 3000),
+    usd(account, "qr_lost", "canceled", 10, 300, 5, 1000),
+    /* Expired checkout created and ended in the window: never collected. */
+    usd(account, "qr_expired", "incomplete_expired", 500, 6, 5, 0),
+  ]);
+  const row = await churnRow();
+  assert.equal(row.quickRatioInMrr, 30);
+  assert.equal(row.quickRatioOutMrr, 10);
+  assert.equal(row.quickRatio, 3);
+});
+
+test("churn with no new revenue reads 0", async () => {
   const account = fixture("zero");
   writeStripeSubscriptions([
-    sub(account, "qr_standing2", "active", 100, 200, null, 10000),
-    sub(account, "qr_onlyloss", "canceled", 30, 300, 4, 3000),
+    usd(account, "qr_standing2", "active", 100, 200, null, 10000),
+    usd(account, "qr_onlyloss", "canceled", 30, 300, 4, 3000),
   ]);
-  assert.equal((await churnRow(30)).quickRatio, 0);
+  assert.equal((await churnRow()).quickRatio, 0);
 });
 
-test("growth with no churn reads 1.00: the best the window can report", async () => {
+test("growth with no churn has no ratio, and its sides say it was growth", async () => {
   const account = fixture("one");
   writeStripeSubscriptions([
-    sub(account, "qr_quiet", "active", 100, 200, null, 10000),
-    sub(account, "qr_growth", "active", 20, 3, null, 2000),
+    usd(account, "qr_quiet", "active", 100, 200, null, 10000),
+    usd(account, "qr_growth", "active", 20, 3, null, 2000),
   ]);
-  /* gained 20, lost 0 → 1.00: nothing left the book in the window. */
-  assert.equal((await churnRow(30)).quickRatio, 1);
+  const row = await churnRow();
+  assert.equal(row.quickRatio, null);
+  assert.equal(row.quickRatioInMrr, 20);
+  assert.equal(row.quickRatioOutMrr, 0);
+});
+
+test("each currency gets its own ratio; nothing is blended", async () => {
+  const account = fixture("fx");
+  writeStripeSubscriptions([
+    usd(account, "qr_usd_new", "active", 80, 10, null, 8000),
+    usd(account, "qr_usd_lost", "canceled", 40, 300, 5, 4000),
+    sub("eur", account, "qr_eur_new", "active", 10, 10, null, 1000),
+    sub("eur", account, "qr_eur_lost", "canceled", 50, 300, 5, 5000),
+  ]);
+  const rows = await churnRows();
+  const byCur = Object.fromEntries(rows.map((r) => [r.currency, r.quickRatio]));
+  assert.equal(byCur.USD, 2);
+  assert.equal(byCur.EUR, 0.2);
 });

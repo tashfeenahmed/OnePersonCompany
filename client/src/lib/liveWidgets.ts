@@ -2926,39 +2926,52 @@ Object.assign(LIVE_BUILDERS, {
   },
 
   /*
-    THE QUICK RATIO — the health figure ChartMogul and Baremetrics lead with,
-    and the one this board did not show. It answers the question the churn
-    card cannot: churn alone says nothing about whether the book is growing.
-    New MRR over the window's total movement (new + churned) puts both sides
-    in one number: 0.8 means four dollars arrived for every one that left —
-    the benchmark every retention tool calls healthy — and 0.5 means the book
-    is standing still while it bleeds.
+    THE QUICK RATIO — the SaaS health figure ChartMogul and Baremetrics
+    publish: MRR gained over MRR lost in the window. It answers the question
+    the churn card cannot: churn alone says nothing about whether the book is
+    growing. 4 or more is the usual healthy line (four dollars in for every
+    one that leaves); between 1 and 4 the book grows but leaks; under 1 it is
+    shrinking.
 
-    WHY NOT DERIVE IT FROM `ratePct` on the churn card: the churn rate divides
-    by the RECONSTRUCTED starting book (approximate, drifts at 90d); the quick
-    ratio divides by the window's own counted movement and is exact. A
-    subscription that arrived and churned inside the window counts on the lost
-    side only — `newMrr` is money still billing, so a ratio that booked gone
-    revenue as gained would flatter the book. A window that moved no money at
-    all is no measurement — null, not a confident 0 or 1.
+    NEW VERSUS CHURNED ONLY, AND THE CARD SAYS SO. The published formula also
+    counts expansion and contraction; a subscription that changed plan leaves
+    no trace of its old price, so upgrades and downgrades are not in it, and a
+    reader comparing this with another tool's figure needs to know.
+
+    A window where nothing churned has no ratio (x/0) — it reads "No churn"
+    when money arrived, and is empty when nothing moved at all.
   */
   "stripe.quickRatio": ({ stripe: S, window: W }: LiveInputs) => {
     const days = churnDays(W);
     const c = churnRow(S, days);
-    if (!c || c.quickRatio === null) return null;
-    const healthy = c.quickRatio >= 0.8;
+    if (!c) return null;
+    const inMrr = c.quickRatioInMrr;
+    const outMrr = c.quickRatioOutMrr;
+    if (c.quickRatio === null && !(inMrr > 0)) return null;
+    const name = isAll(W) ? { name: `Quick ratio · ${days}d` } : {};
+    const moved = `${inCurrency(inMrr, c.currency, 0)} new MRR in, ${inCurrency(outMrr, c.currency, 0)} churned out`;
+    const excludes = "upgrades and downgrades not counted";
+    if (c.quickRatio === null) {
+      return {
+        ...name,
+        value: "No churn",
+        tone: "ok" as StatusTone,
+        sub: also(also(moved, "nothing churned in the window"), excludes),
+      };
+    }
+    const q = c.quickRatio;
+    const tone: StatusTone = q >= 4 ? "ok" : q >= 1 ? "warn" : "bad";
+    const verdict =
+      q >= 4
+        ? "at or above the 4× healthy line"
+        : q >= 1
+          ? "growing, but under the 4× healthy line"
+          : "shrinking: more MRR churned than arrived";
     return {
-      ...(isAll(W) ? { name: `Quick ratio · ${days}d` } : {}),
-      value: c.quickRatio.toFixed(2),
-      tone: healthy ? ("ok" as StatusTone) : ("warn" as StatusTone),
-      sub: also(
-        `${inCurrency(c.newMrr, c.currency, 0)} in, ${inCurrency(c.churnedMrr, c.currency, 0)} out`,
-        c.quickRatio >= 1
-          ? "nothing churned in the window"
-          : healthy
-            ? `${Math.round(c.quickRatio / (1 - c.quickRatio) * 10) / 10}× more new MRR than lost`
-            : "below 0.80: less than four dollars in per dollar lost",
-      ),
+      ...name,
+      value: `${q.toFixed(2)}×`,
+      tone,
+      sub: also(also(moved, verdict), excludes),
     };
   },
 

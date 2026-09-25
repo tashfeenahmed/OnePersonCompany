@@ -6,9 +6,8 @@ import { WIDGETS } from "../data/widgets.ts";
 const build = (key: string, data: Record<string, unknown>) =>
   LIVE_BUILDERS[key]!({ points: [], ...data } as LiveInputs);
 
-/** A churn row shaped exactly as /api/stripe sends one (the quickRatio field
- *  this card reads is computed server-side over the same new/lost figures the
- *  churn card already prints, so the row below pins both). */
+/** A churn row shaped exactly as /api/stripe sends one. The quick ratio and
+ *  its two sides are computed server-side; the card only reads them. */
 function churnRow(days: number, patch: Record<string, unknown> = {}) {
   return {
     days,
@@ -23,7 +22,9 @@ function churnRow(days: number, patch: Record<string, unknown> = {}) {
     churnedFromStartMrr: 40,
     churnedFromStartSubs: 1,
     startBookMrr: 1000,
-    quickRatio: 0.8,
+    quickRatio: 4,
+    quickRatioInMrr: 160,
+    quickRatioOutMrr: 40,
     subRatePct: 5,
     startSubs: 20,
     notChurn: {
@@ -39,51 +40,67 @@ function churnRow(days: number, patch: Record<string, unknown> = {}) {
 }
 const stripe = (row: Record<string, unknown> | null) => ({ stripe: { churn: row ? [row] : [] } });
 
-test("quick ratio card exists and stays empty without a churn row", () => {
+test("quick ratio card exists and stays empty without a churn row or any movement", () => {
   assert.ok(WIDGETS["stripe.quickRatio"], "catalog entry");
   assert.equal(build("stripe.quickRatio", stripe(null)), null);
-  assert.equal(build("stripe.quickRatio", stripe(churnRow(30, { quickRatio: null }))), null, "0/0 is no measurement, not 0.00");
+  assert.equal(
+    build("stripe.quickRatio", stripe(churnRow(30, { quickRatio: null, quickRatioInMrr: 0, quickRatioOutMrr: 0 }))),
+    null,
+    "a window that moved nothing is no measurement",
+  );
 });
 
-test("quick ratio divides the window's movement and says so in dollars", () => {
+test("quick ratio is gained over lost, with both sides in money", () => {
   const p = build("stripe.quickRatio", { window: 30, ...stripe(churnRow(30)) })!;
-  assert.equal(p.value, "0.80");
+  assert.equal(p.value, "4.00×");
   assert.equal(p.tone, "ok");
-  assert.match(p.sub!, /US\$160 in, US\$40 out/);
-  assert.match(p.sub!, /4× more new MRR than lost/);
+  assert.match(p.sub!, /US\$160 new MRR in, US\$40 churned out/);
+  assert.match(p.sub!, /at or above the 4× healthy line/);
+  assert.match(p.sub!, /upgrades and downgrades not counted/);
 });
 
-test("quick ratio below the 0.8 benchmark warns with the benchmark in words", () => {
+test("between 1 and 4 the book grows but warns", () => {
   const p = build("stripe.quickRatio", {
     window: 30,
-    ...stripe(churnRow(30, { newMrr: 100, churnedMrr: 100, quickRatio: 0.5 })),
+    ...stripe(churnRow(30, { quickRatio: 2, quickRatioInMrr: 100, quickRatioOutMrr: 50 })),
   })!;
-  assert.equal(p.value, "0.50");
+  assert.equal(p.value, "2.00×");
   assert.equal(p.tone, "warn");
-  assert.match(p.sub!, /below 0\.80/);
+  assert.match(p.sub!, /under the 4× healthy line/);
 });
 
-test("a window that lost money and gained none reads as 0.00, not as no measurement", () => {
+test("just under 4 is not rounded up into the healthy tone", () => {
   const p = build("stripe.quickRatio", {
     window: 30,
-    ...stripe(churnRow(30, { newMrr: 0, churnedMrr: 120, quickRatio: 0 })),
+    ...stripe(churnRow(30, { quickRatio: 3.96, quickRatioInMrr: 99, quickRatioOutMrr: 25 })),
   })!;
-  assert.equal(p.value, "0.00");
+  assert.equal(p.value, "3.96×");
   assert.equal(p.tone, "warn");
 });
 
-test("a window that gained and lost nothing churned never divides by zero", () => {
+test("under 1 the book is shrinking and reads bad", () => {
   const p = build("stripe.quickRatio", {
     window: 30,
-    ...stripe(churnRow(30, { newMrr: 200, churnedMrr: 0, quickRatio: 1 })),
+    ...stripe(churnRow(30, { quickRatio: 0, quickRatioInMrr: 0, quickRatioOutMrr: 120 })),
   })!;
-  assert.equal(p.value, "1.00");
+  assert.equal(p.value, "0.00×");
+  assert.equal(p.tone, "bad");
+  assert.match(p.sub!, /shrinking/);
+});
+
+test("growth with nothing churned never divides by zero", () => {
+  const p = build("stripe.quickRatio", {
+    window: 30,
+    ...stripe(churnRow(30, { quickRatio: null, quickRatioInMrr: 200, quickRatioOutMrr: 0 })),
+  })!;
+  assert.equal(p.value, "No churn");
+  assert.equal(p.tone, "ok");
   assert.match(p.sub!, /nothing churned in the window/);
 });
 
 test("quick ratio follows the currency of the churn row it reads", () => {
   const p = build("stripe.quickRatio", { window: 30, ...stripe(churnRow(30, { currency: "eur" })) })!;
-  assert.match(p.sub!, /€160 in, €40 out/);
+  assert.match(p.sub!, /€160 new MRR in, €40 churned out/);
 });
 
 test("the all-time picker names the 90-day window it actually reads", () => {
