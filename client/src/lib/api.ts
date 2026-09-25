@@ -969,6 +969,11 @@ export type StripeReport = {
     churnedFromStartMrr: number;
     churnedFromStartSubs: number;
     startBookMrr: number;
+    /** New MRR over (new MRR + churned MRR) for the window — the Quick Ratio
+     *  (ChartMogul, Baremetrics). Exact over the window's own movement, unlike
+     *  the reconstructed book behind `ratePct`. null = the window moved no
+     *  money, which is no measurement rather than a ratio of zero. */
+    quickRatio: number | null;
     /** The same question asked of heads rather than of money, with its own
      *  denominator. A churned $99 plan and a churned $1 plan are one row each
      *  here and nothing alike above. */

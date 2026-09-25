@@ -257,6 +257,24 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
         churnedFromStartMrr: money(lostFromStart),
         churnedFromStartSubs: fromStart.length,
         startBookMrr: money(startBook),
+        /*
+          THE QUICK RATIO — new MRR over (new MRR + churned MRR), the shape
+          ChartMogul and Baremetrics put on their health card. It is kept
+          SEPARATE from `ratePct` on purpose: the churn rate divides by the
+          reconstructed starting book, and this divides by the window's own
+          movement, so it is exact where the rate is `approximate`. A
+          subscription that started and ended inside the window is in BOTH its
+          sides — it did arrive and it did leave — which is the definition, not
+          an inconsistency.
+          null when the window moved no money at all: 0/0 is not a healthy
+          ratio, it is no measurement. A window with churn and no new revenue
+          reads as 0.0, which is the worst honest figure.
+          `newMrr` counts subscriptions STILL BILLING: one that arrived and
+          churned inside the window is in the lost side only — counting money
+          that is already gone as gained would inflate the ratio with revenue
+          the book no longer has.
+        */
+        quickRatio: gained + lost > 0 ? Number((gained / (gained + lost)).toFixed(2)) : null,
         /** The same question asked of HEADS rather than of money, because a
          *  churned $99 plan and a churned $1 plan are one row each here and
          *  nothing alike above. Its own denominator, named the same way. */

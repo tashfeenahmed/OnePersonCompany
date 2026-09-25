@@ -2925,6 +2925,43 @@ Object.assign(LIVE_BUILDERS, {
     return { ...(isAll(W) ? { name: `What is not churn · ${days}d` } : {}), rows };
   },
 
+  /*
+    THE QUICK RATIO — the health figure ChartMogul and Baremetrics lead with,
+    and the one this board did not show. It answers the question the churn
+    card cannot: churn alone says nothing about whether the book is growing.
+    New MRR over the window's total movement (new + churned) puts both sides
+    in one number: 0.8 means four dollars arrived for every one that left —
+    the benchmark every retention tool calls healthy — and 0.5 means the book
+    is standing still while it bleeds.
+
+    WHY NOT DERIVE IT FROM `ratePct` on the churn card: the churn rate divides
+    by the RECONSTRUCTED starting book (approximate, drifts at 90d); the quick
+    ratio divides by the window's own counted movement and is exact. A
+    subscription that arrived and churned inside the window counts on the lost
+    side only — `newMrr` is money still billing, so a ratio that booked gone
+    revenue as gained would flatter the book. A window that moved no money at
+    all is no measurement — null, not a confident 0 or 1.
+  */
+  "stripe.quickRatio": ({ stripe: S, window: W }: LiveInputs) => {
+    const days = churnDays(W);
+    const c = churnRow(S, days);
+    if (!c || c.quickRatio === null) return null;
+    const healthy = c.quickRatio >= 0.8;
+    return {
+      ...(isAll(W) ? { name: `Quick ratio · ${days}d` } : {}),
+      value: c.quickRatio.toFixed(2),
+      tone: healthy ? ("ok" as StatusTone) : ("warn" as StatusTone),
+      sub: also(
+        `${inCurrency(c.newMrr, c.currency, 0)} in, ${inCurrency(c.churnedMrr, c.currency, 0)} out`,
+        c.quickRatio >= 1
+          ? "nothing churned in the window"
+          : healthy
+            ? `${Math.round(c.quickRatio / (1 - c.quickRatio) * 10) / 10}× more new MRR than lost`
+            : "below 0.80: less than four dollars in per dollar lost",
+      ),
+    };
+  },
+
   "stripe.payouts": ({ points, stripe: S }: LiveInputs) => {
     const b = firstCurrency(S?.balance);
     if (!b) return null;
