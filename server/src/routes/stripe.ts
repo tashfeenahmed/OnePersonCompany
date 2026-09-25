@@ -257,6 +257,28 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
         churnedFromStartMrr: money(lostFromStart),
         churnedFromStartSubs: fromStart.length,
         startBookMrr: money(startBook),
+        /*
+          THE QUICK RATIO — MRR gained over MRR lost in the window, the SaaS
+          quick ratio ChartMogul and Baremetrics publish:
+            (new + expansion + reactivation) / (churned + contraction).
+          4 or more is the usual "healthy" line; under 1 the book is shrinking.
+          EXPANSION AND CONTRACTION ARE NOT IN IT: a subscription that changed
+          plan leaves no trace of its old price on the object, so upgrades and
+          downgrades are invisible here exactly as they are to `ratePct`. This
+          is new-versus-churned only, and marked so. A customer who comes back
+          on a new subscription is new MRR, which is how reactivation lands.
+          A subscription that started AND ended inside the window is on BOTH
+          sides — it did arrive and it did leave — which is the published
+          definition. `newMrr` counts only what is still billing, so the gained
+          side is published on its own (`quickRatioInMrr`) rather than left for
+          a card to reconstruct. Never-billed cancellations (expired checkouts,
+          cancelled trials) are on neither side, as they are out of churn.
+          null when nothing churned: x/0 is not a ratio. `quickRatioInMrr` and
+          `quickRatioOutMrr` still say whether that was growth or a still window.
+        */
+        quickRatio: lost > 0 ? Number(((gained + (lost - lostFromStart)) / lost).toFixed(2)) : null,
+        quickRatioInMrr: money(gained + (lost - lostFromStart)),
+        quickRatioOutMrr: money(lost),
         /** The same question asked of HEADS rather than of money, because a
          *  churned $99 plan and a churned $1 plan are one row each here and
          *  nothing alike above. Its own denominator, named the same way. */

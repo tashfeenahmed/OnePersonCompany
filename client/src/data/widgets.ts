@@ -1195,6 +1195,13 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { stripe: true },
   },
+  "stripe.quickRatio": {
+    src: "stripe",
+    name: "Quick ratio",
+    window: "selected",
+    kind: "metric",
+    live: { stripe: true },
+  },
   "stripe.payouts": {
     src: "stripe",
     name: "Payout balance",

@@ -969,6 +969,18 @@ export type StripeReport = {
     churnedFromStartMrr: number;
     churnedFromStartSubs: number;
     startBookMrr: number;
+    /** The SaaS quick ratio for the window: MRR gained over MRR lost
+     *  (ChartMogul, Baremetrics), NEW-VERSUS-CHURNED ONLY — upgrades and
+     *  downgrades leave no trace on the subscription and are not in it.
+     *  4+ is the usual healthy line, under 1 the book is shrinking. A
+     *  subscription that started and ended in the window is on both sides.
+     *  null when nothing churned (x/0 is not a ratio). */
+    quickRatio: number | null;
+    /** The ratio's numerator: new MRR, including subscriptions that started
+     *  in the window and have since ended (unlike `newMrr`). */
+    quickRatioInMrr: number;
+    /** The ratio's denominator: churned MRR (same as `churnedMrr`). */
+    quickRatioOutMrr: number;
     /** The same question asked of heads rather than of money, with its own
      *  denominator. A churned $99 plan and a churned $1 plan are one row each
      *  here and nothing alike above. */
