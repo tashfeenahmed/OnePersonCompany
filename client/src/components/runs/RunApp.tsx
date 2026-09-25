@@ -91,7 +91,16 @@ export function RunApp({
   slug,
   name,
   extras,
+  narrow,
 }: {
+  /** A filter the ledger cannot express — the People page's `?person=`,
+   *  which is a title match rather than a column. `label` names it in the
+   *  heading, `preset` pre-fills the brief so a new run is about them. */
+  narrow?: {
+    label: string;
+    match: (r: RunSummary) => boolean;
+    preset?: Record<string, string>;
+  } | null;
   /** The server's own discriminator: `research`, `competitors`, … */
   kind: string;
   /** This app's URL segment, for the run addresses this page hands out. */
@@ -159,6 +168,14 @@ export function RunApp({
   const venture = ventures.find((v) => v.id === chosen) ?? null;
 
   const [values, setValues] = useState<Record<string, string>>({});
+  /* A different person in the rail is a different brief: drop what was
+     typed for the last one so the preset shows through. */
+  const narrowLabel = narrow?.label ?? null;
+  const [valuesFor, setValuesFor] = useState(narrowLabel);
+  if (valuesFor !== narrowLabel) {
+    setValuesFor(narrowLabel);
+    setValues({});
+  }
   const [starting, setStarting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [busyRun, setBusyRun] = useState(false);
@@ -179,8 +196,8 @@ export function RunApp({
   */
   const listVenture = filter === "venture" ? filterVenture!.id : null;
   const list = useApi(
-    () => runsApi.list({ kind, venture: listVenture, limit: 40 }),
-    [kind, listVenture, reload],
+    () => runsApi.list({ kind, venture: listVenture, limit: narrow ? 200 : 40 }),
+    [kind, listVenture, reload, !!narrow],
   );
   const info: KindInfo | null =
     list.data?.kinds.find((k) => k.kind === kind) ?? null;
@@ -236,7 +253,7 @@ export function RunApp({
     clearing a defaulted box stays cleared.
   */
   const valueOf = (f: { key: string; default: string | null }) =>
-    values[f.key] ?? f.default ?? "";
+    values[f.key] ?? narrow?.preset?.[f.key] ?? f.default ?? "";
 
   const needsVenture = info?.needsVenture ?? true;
   const missing = (info?.inputs ?? []).filter(
@@ -315,10 +332,11 @@ export function RunApp({
 
   /* The server already narrowed to the venture; `none` and `missing` are the
      two it cannot express, so they are applied here. Forty rows at most. */
-  const shown =
+  const unnarrowed =
     filter === "none" ? runs.filter((r) => r.ventureId === null)
     : filter === "missing" ? []
     : runs;
+  const shown = narrow ? unnarrowed.filter(narrow.match) : unnarrowed;
 
   const running = list.data?.running ?? null;
   const busyHere =
@@ -335,7 +353,8 @@ export function RunApp({
   for (const f of info?.inputs ?? []) resolved[f.key] = valueOf(f);
 
   const scopeWord =
-    filter === "venture" ? filterVenture!.name
+    narrow ? narrow.label
+    : filter === "venture" ? filterVenture!.name
     : filter === "none" ? "no venture"
     : filter === "missing" ? `“${asked}”, which is not a venture here`
     : "every venture";
@@ -346,7 +365,9 @@ export function RunApp({
         <div className="mt-2 mb-5">
           <h1 className="mb-1 text-[27px] font-normal tracking-[-0.025em]">
             {info?.name ?? name}
-            {filter === "venture" && (
+            {narrow ? (
+              <span className="text-muted-foreground"> · {narrow.label}</span>
+            ) : filter === "venture" && (
               <span className="text-muted-foreground"> · {filterVenture!.name}</span>
             )}
           </h1>
@@ -559,6 +580,8 @@ export function RunApp({
           <p className="text-muted-foreground text-[14px]">
             {list.loading && !list.data
               ? "Reading the history…"
+              : narrow
+                ? `Nothing has been run for ${narrow.label} yet.`
               : filter === "venture"
                 ? `Nothing has been run for ${filterVenture!.name} yet.`
                 : filter === "none"
