@@ -107,3 +107,49 @@ test("the all-time picker names the 90-day window it actually reads", () => {
   const p = build("stripe.quickRatio", { window: "all", ...stripe(churnRow(90)) })!;
   assert.equal(p.name, "Quick ratio · 90d");
 });
+
+/* ---- stripe.atRisk: the money on past-due subscriptions ---- */
+
+const atRisk = (row: Record<string, unknown> | null) => ({ stripe: row ? { atRisk: row } : null });
+
+test("at-risk card exists and needs the document", () => {
+  assert.ok(WIDGETS["stripe.atRisk"], "catalog entry");
+  assert.equal(build("stripe.atRisk", atRisk(null)), null);
+});
+
+test("at-risk MRR names the money and how many cards failed", () => {
+  const p = build("stripe.atRisk", atRisk({
+    subscriptions: 3,
+    mrr: [{ currency: "USD", amount: 137.5 }],
+    note: "",
+  }))!;
+  assert.equal(p.value, "US$138");
+  assert.equal(p.tone, "bad");
+  assert.match(p.sub!, /3 subscriptions failed to collect/);
+  assert.match(p.sub!, /not in MRR until it collects/);
+});
+
+test("one failed subscription reads as one subscription", () => {
+  const p = build("stripe.atRisk", atRisk({
+    subscriptions: 1,
+    mrr: [{ currency: "EUR", amount: 20 }],
+    note: "",
+  }))!;
+  assert.match(p.sub!, /1 subscription failed to collect/);
+});
+
+test("nothing past due is the good news: zero, tone ok", () => {
+  const p = build("stripe.atRisk", atRisk({ subscriptions: 0, mrr: [], note: "" }))!;
+  assert.equal(p.value, "—");
+  assert.equal(p.tone, "ok");
+  assert.match(p.sub!, /nothing past due right now/);
+});
+
+test("several currencies are counted apart, not blended", () => {
+  const p = build("stripe.atRisk", atRisk({
+    subscriptions: 3,
+    mrr: [{ currency: "USD", amount: 30 }, { currency: "EUR", amount: 40 }],
+    note: "",
+  }))!;
+  assert.match(p.sub!, /2 currencies counted apart/);
+});

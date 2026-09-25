@@ -3081,6 +3081,32 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
+  "stripe.atRisk": ({ stripe: S }: LiveInputs) => {
+    const a = S?.atRisk;
+    if (!a) return null;
+    /*
+      THE PREVENTABLE HALF OF FUTURE CHARTS. `stripe.pending` is somebody's
+      DECISION and the play there is a save offer at most; this is a card that
+      was billed and bounced — the contract exists, the money is contracted,
+      and a recovery email or a fixed card saves it outright. ChartMogul,
+      ProfitWell and Baremetrics all give this its own tile for that reason.
+      Zero is not silence-worthy noise either: on a book of any size, nothing
+      past due is the good news, so the card stays on the board at zero with
+      tone ok.
+    */
+    const mrr = firstCurrency(a.mrr);
+    return {
+      value: mrr ? inCurrency(mrr.amount, mrr.currency, 0) : "—",
+      tone: a.subscriptions > 0 ? ("bad" as StatusTone) : ("ok" as StatusTone),
+      sub: also(
+        a.subscriptions
+          ? `${count(a.subscriptions)} subscription${a.subscriptions === 1 ? "" : "s"} failed to collect`
+          : "nothing past due right now",
+        mrr ? `not in MRR until it collects${a.mrr.length > 1 ? ` · ${a.mrr.length} currencies counted apart` : ""}` : "",
+      ),
+    };
+  },
+
   "stripe.pending": ({ stripe: S }: LiveInputs) => {
     const p = S?.subscriptions.pendingCancellation;
     if (!p) return null;
