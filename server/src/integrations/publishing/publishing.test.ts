@@ -895,3 +895,37 @@ test("every publishing status has a word in the shared outbound lifecycle", () =
      the claim depends on being the same idea in both queues. */
   assert.equal(outboxStatus("publishing"), "sending");
 });
+
+test("a schedule in the PAST is refused: it would publish on the next tick", async () => {
+  const id = seedApproved("past-sched");
+  const res = await publishingRoutes.request(`/items/${id}/schedule`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ at: new Date(Date.now() - 60_000).toISOString() }),
+  });
+  assert.equal(res.status, 400);
+  const doc = (await res.json()) as { error: string };
+  assert.match(doc.error, /already passed/);
+  assert.match(doc.error, /Publish now/);
+  /* The item is untouched: still approved, still unscheduled. */
+  const row = itemRow(id)!;
+  assert.equal(row.status, "approved");
+  assert.equal(row.scheduled_for, null);
+
+  /* A future instant still schedules, and an unreadable one is refused. */
+  const future = await publishingRoutes.request(`/items/${id}/schedule`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ at: new Date(Date.now() + 3_600_000).toISOString() }),
+  });
+  assert.equal(future.status, 200);
+  assert.equal(itemRow(id)!.status, "scheduled");
+
+  const junk = await publishingRoutes.request(`/items/${id}/schedule`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ at: "tomorrow-ish" }),
+  });
+  assert.equal(junk.status, 400);
+  assert.match(((await junk.json()) as { error: string }).error, /not a date/);
+});

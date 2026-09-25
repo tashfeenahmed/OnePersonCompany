@@ -29,6 +29,7 @@
 import { SubTabs } from "@/components/TabStrip";
 import { WindowPicker } from "@/components/WindowPicker";
 import { bytes, when } from "@/lib/format";
+import { pastTime } from "./scheduleTime";
 import { PageShell } from "@/components/PageShell";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -474,10 +475,16 @@ function ItemCard({
               onChange={(e) => setAt(e.target.value)}
               className="h-8 w-[200px] text-[13.5px]"
             />
+            {/* A time in the past is not a schedule: the server publishes
+                anything whose time has passed on its next tick, so pressing
+                "Schedule" with a stale picker value would post to a live
+                audience immediately. The server refuses this too; the button
+                says why before the click, not after. */}
             <Button
               size="sm"
               variant="secondary"
-              disabled={!at}
+              disabled={!at || pastTime(at)}
+              title={pastTime(at) ? "That time has already passed — pick a future time, or use Publish now." : undefined}
               onClick={() =>
                 void act("schedule", () =>
                   publishingApi.schedule(item.id, new Date(at).toISOString()),

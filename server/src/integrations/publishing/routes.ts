@@ -372,6 +372,24 @@ publishingRoutes.post("/items/:id/schedule", async (c) => {
   const body = (await c.req.json().catch(() => null)) as { at?: unknown } | null;
   if (typeof body?.at !== "string")
     return c.json(bad("Expected { at } — an ISO instant, e.g. 2026-09-08T09:30:00Z."), 400);
+  /* A TIME THAT HAS ALREADY GONE IS NOT A SCHEDULE, IT IS AN IMMEDIATE
+     PUBLISH wearing one's clothes. The scheduler takes anything whose time
+     has passed on its very next tick, so accepting a past instant here meant
+     the "Schedule" button could publish to a live audience the moment it was
+     pressed — the one thing this area's own contract says it never does by
+     accident. (The auto-scheduler cannot produce this: nextSlot() is always
+     in the future, and it calls schedule() directly, below this door.) */
+  const when = Date.parse(body.at);
+  if (Number.isNaN(when)) return c.json(bad("That is not a date this can read."), 400);
+  if (when <= Date.now())
+    return c.json(
+      bad(
+        "That time has already passed, and a schedule in the past publishes on the next " +
+          "tick — which is publishing now, not scheduling it. Pick a time in the future, " +
+          "or use Publish now if you meant now.",
+      ),
+      400,
+    );
   const res = schedule(c.req.param("id"), body.at);
   if (!res.ok) return c.json(bad(res.error), 400);
   return c.json({ item: shapeItem(res.item), timezone: settings().timezone });
