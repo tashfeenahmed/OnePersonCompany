@@ -2925,6 +2925,56 @@ Object.assign(LIVE_BUILDERS, {
     return { ...(isAll(W) ? { name: `What is not churn · ${days}d` } : {}), rows };
   },
 
+  /*
+    THE QUICK RATIO — the SaaS health figure ChartMogul and Baremetrics
+    publish: MRR gained over MRR lost in the window. It answers the question
+    the churn card cannot: churn alone says nothing about whether the book is
+    growing. 4 or more is the usual healthy line (four dollars in for every
+    one that leaves); between 1 and 4 the book grows but leaks; under 1 it is
+    shrinking.
+
+    NEW VERSUS CHURNED ONLY, AND THE CARD SAYS SO. The published formula also
+    counts expansion and contraction; a subscription that changed plan leaves
+    no trace of its old price, so upgrades and downgrades are not in it, and a
+    reader comparing this with another tool's figure needs to know.
+
+    A window where nothing churned has no ratio (x/0) — it reads "No churn"
+    when money arrived, and is empty when nothing moved at all.
+  */
+  "stripe.quickRatio": ({ stripe: S, window: W }: LiveInputs) => {
+    const days = churnDays(W);
+    const c = churnRow(S, days);
+    if (!c) return null;
+    const inMrr = c.quickRatioInMrr;
+    const outMrr = c.quickRatioOutMrr;
+    if (c.quickRatio === null && !(inMrr > 0)) return null;
+    const name = isAll(W) ? { name: `Quick ratio · ${days}d` } : {};
+    const moved = `${inCurrency(inMrr, c.currency, 0)} new MRR in, ${inCurrency(outMrr, c.currency, 0)} churned out`;
+    const excludes = "upgrades and downgrades not counted";
+    if (c.quickRatio === null) {
+      return {
+        ...name,
+        value: "No churn",
+        tone: "ok" as StatusTone,
+        sub: also(also(moved, "nothing churned in the window"), excludes),
+      };
+    }
+    const q = c.quickRatio;
+    const tone: StatusTone = q >= 4 ? "ok" : q >= 1 ? "warn" : "bad";
+    const verdict =
+      q >= 4
+        ? "at or above the 4× healthy line"
+        : q >= 1
+          ? "growing, but under the 4× healthy line"
+          : "shrinking: more MRR churned than arrived";
+    return {
+      ...name,
+      value: `${q.toFixed(2)}×`,
+      tone,
+      sub: also(also(moved, verdict), excludes),
+    };
+  },
+
   "stripe.payouts": ({ points, stripe: S }: LiveInputs) => {
     const b = firstCurrency(S?.balance);
     if (!b) return null;
