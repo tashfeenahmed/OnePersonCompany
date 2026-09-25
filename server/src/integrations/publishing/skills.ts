@@ -197,10 +197,10 @@ export const SKILLS: Skill[] = [
         method: "POST",
         path: "/api/publishing/items/:id/schedule",
         about:
-          "Put an APPROVED item on the calendar for an instant. Refused for anything not approved — the calendar does not carry consent.",
+          "Put an APPROVED item on the calendar for a FUTURE instant. Refused for anything not approved — the calendar does not carry consent — and for an instant that has already passed, which would publish on the next tick rather than schedule.",
         params: [
           { name: "id", type: "string", required: true, in: "path", about: "The item's id." },
-          { name: "at", type: "string", required: true, about: "An ISO instant, e.g. 2026-09-08T09:30:00Z." },
+          { name: "at", type: "string", required: true, about: "A future ISO instant with its zone, e.g. 2026-09-08T09:30:00Z." },
         ],
       },
       {

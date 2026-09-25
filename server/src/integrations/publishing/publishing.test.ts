@@ -895,3 +895,61 @@ test("every publishing status has a word in the shared outbound lifecycle", () =
      the claim depends on being the same idea in both queues. */
   assert.equal(outboxStatus("publishing"), "sending");
 });
+
+test("a schedule in the PAST is refused: it would publish on the next tick", async () => {
+  const id = seedApproved("past-sched");
+  const res = await publishingRoutes.request(`/items/${id}/schedule`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ at: new Date(Date.now() - 60_000).toISOString() }),
+  });
+  assert.equal(res.status, 400);
+  const doc = (await res.json()) as { error: string };
+  assert.match(doc.error, /already passed/);
+  assert.match(doc.error, /Publish now/);
+  /* The item is untouched: still approved, still unscheduled. */
+  const row = itemRow(id)!;
+  assert.equal(row.status, "approved");
+  assert.equal(row.scheduled_for, null);
+
+  /* A future instant still schedules, and an unreadable one is refused. */
+  const future = await publishingRoutes.request(`/items/${id}/schedule`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ at: new Date(Date.now() + 3_600_000).toISOString() }),
+  });
+  assert.equal(future.status, 200);
+  assert.equal(itemRow(id)!.status, "scheduled");
+
+  const junk = await publishingRoutes.request(`/items/${id}/schedule`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ at: "tomorrow-ish" }),
+  });
+  assert.equal(junk.status, 400);
+  assert.match(((await junk.json()) as { error: string }).error, /not a date/);
+});
+
+test("the past check compares instants, not wall-clock strings, whatever zone the caller writes", async () => {
+  const id = seedApproved("zone-sched");
+  const post = (at: string) =>
+    publishingRoutes.request(`/items/${id}/schedule`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ at }),
+    });
+  /* Thirty minutes ago, written in UTC+14: its wall clock reads hours AHEAD
+     of the server's, and it is still the past. */
+  const pastMs = Date.now() - 30 * 60_000;
+  const plus14 = new Date(pastMs + 14 * 3_600_000).toISOString().slice(0, 19) + "+14:00";
+  assert.equal(Date.parse(plus14), Math.floor(pastMs / 1000) * 1000);
+  assert.equal((await post(plus14)).status, 400);
+  assert.equal(itemRow(id)!.scheduled_for, null);
+
+  /* An hour ahead, written in UTC-12: its wall clock reads BEHIND, and it is
+     the future — accepted and stored as the same instant in UTC. */
+  const futureMs = Math.floor((Date.now() + 3_600_000) / 1000) * 1000;
+  const minus12 = new Date(futureMs - 12 * 3_600_000).toISOString().slice(0, 19) + "-12:00";
+  assert.equal((await post(minus12)).status, 200);
+  assert.equal(itemRow(id)!.scheduled_for, new Date(futureMs).toISOString());
+});
