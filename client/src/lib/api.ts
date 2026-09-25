@@ -950,6 +950,14 @@ export type StripeReport = {
      *  real churn until they have been. */
     unresolvedCancellations: number;
   };
+  /** MRR on past-due subscriptions: still contracted, failing to collect.
+   *  The preventable half of future churn — the customer exists and the card
+   *  just needs fixing. Never added to MRR or to pendingCancellation. */
+  atRisk: {
+    subscriptions: number;
+    mrr: StripeMoney[];
+    note: string;
+  };
   /** One row per window per currency. `ratePct` is REVENUE churn over a
    *  reconstructed starting book — `basis` says exactly which, because a rate
    *  quoted without its denominator is not a measurement. */

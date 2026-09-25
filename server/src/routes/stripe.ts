@@ -615,6 +615,33 @@ stripeRoutes.get("/", (c) => {
         (s) => s.ended_at && s.paid_cents === null,
       ).length,
     },
+    /*
+      AT-RISK REVENUE — the money that is still a subscription RIGHT NOW and
+      is failing to collect: `past_due` rows. ChartMogul, ProfitWell and
+      Baremetrics all publish this as a first-class "at-risk MRR" figure for
+      one reason: it is the only churn that can be prevented after the fact,
+      because the customer exists, the contract exists, and a failed card is a
+      solvable problem. `subscriptions.pastDue` counts these rows; this counts
+      what they are WORTH per month, which is the number that decides whether
+      it is worth an afternoon of writing to people.
+
+      Kept apart from `pendingCancellation` on purpose: a customer who
+      switched off auto-renew has DECIDED; a past-due customer was billed and
+      the bank said no. Same MRR, opposite situations, different actions.
+      Dunning recovery emails belong to the second group only.
+    */
+    atRisk: (() => {
+      const failing = subs.filter((s) => s.status === "past_due");
+      return {
+        subscriptions: failing.length,
+        mrr: perCurrency(failing),
+        note:
+          "MRR on past-due subscriptions: still contracted, currently failing to " +
+          "collect. Not in MRR (billing and failing), not churn (not cancelled). " +
+          "Stripe retries the card on its own schedule; this figure is what a " +
+          "recovery email is fighting for.",
+      };
+    })(),
     churn: churnSection(subs, nowMs),
     ...ventureSection(days),
     revenue: revenueSection(days, nowMs),
