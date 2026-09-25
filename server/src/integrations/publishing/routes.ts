@@ -386,7 +386,7 @@ publishingRoutes.post("/items/:id/schedule", async (c) => {
       bad(
         "That time has already passed, and a schedule in the past publishes on the next " +
           "tick — which is publishing now, not scheduling it. Pick a time in the future, " +
-          "or use Publish now if you meant now.",
+          "or use Publish now on the Publishing screen if you meant now.",
       ),
       400,
     );
