@@ -4,7 +4,7 @@ import { qs } from "@/lib/qs";
 /** One thing the server found. The shape is `FindHit` in
  *  server/src/routes/find.ts; `to` is the server's, never composed here. */
 export type FindHit = {
-  group: "chat" | "card" | "report" | "venture";
+  group: "chat" | "card" | "report" | "venture" | "person";
   id: string;
   title: string;
   snippet: string | null;
