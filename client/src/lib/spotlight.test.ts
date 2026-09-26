@@ -54,6 +54,16 @@ test("a chat both sides found is one row: the server's address, the owner's titl
   assert.ok(merged.findIndex(i => i.group === "Cards") > merged.findIndex(i => i.group === "Chats"));
 });
 
+test("a watched person from the server lands in a People group of its own", () => {
+  const merged = mergeItems(localItems("nadia", sources), [
+    { group: "person", id: "p1", title: "Nadia Okonkwo", snippet: null, to: "/outputs/dossier?person=p1", ventureId: null, at: null },
+  ], sources);
+  const person = merged.find((i) => i.group === "People");
+  assert.deepEqual([person?.key, person?.to, person?.title], ["person:p1", "/outputs/dossier?person=p1", "Nadia Okonkwo"]);
+  assert.ok(merged.findIndex((i) => i.group === "People") > merged.findIndex((i) => i.group === "Reports"),
+    "People sorts last, so a name the palette already had never buries a page");
+});
+
 test("marks keep the text's own case and do not overlap", () => {
   assert.deepEqual(markParts("The Board boards", ["board", "boa"]), [
     { text: "The ", hit: false }, { text: "Board", hit: true }, { text: " ", hit: false }, { text: "board", hit: true }, { text: "s", hit: false },
