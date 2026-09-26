@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Loader2, Play, X } from "lucide-react";
 import { Link, Navigate, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { TopBar } from "@/components/PageShell";
@@ -14,6 +14,7 @@ import { PersonAvatar } from "@/components/org/PersonAvatar";
 import { UNFILED } from "@/components/org/Watchlist";
 import { attaches } from "@/components/org/dossiers";
 import { OUTPUTS, orderedOutputs, outputBySlug, type OutputDef } from "@/data/outputs";
+import { clickPicks, keyAction, toggle } from "@/lib/railPick";
 import { MOVED_APPS, appPage } from "../../../shared/navigation";
 import { Competitors } from "@/pages/runs/Competitors";
 import { Demand } from "@/pages/runs/Demand";
@@ -183,6 +184,13 @@ function VentureRail({ output }: { output: OutputDef }) {
       title={title}
       onMouseDown={pick.noTextSelect}
       onClick={(e) => (key === ALL || key === NONE ? pick.clear() : pick.click(e, key))}
+      onKeyDown={(e) => {
+        if (key === ALL || key === NONE) return;
+        pick.noScroll(e);
+        pick.key(e, key);
+      }}
+      aria-describedby={key === ALL || key === NONE ? undefined : pickHintId(output.slug)}
+      aria-pressed={key === ALL || key === NONE ? undefined : pick.has(key)}
       className={cn(
         "flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors select-none",
         pick.has(key) ? pickedRow : active ? "bg-accent text-foreground font-medium" : "hover:bg-accent hover:text-foreground",
@@ -201,10 +209,13 @@ function VentureRail({ output }: { output: OutputDef }) {
       aria-label={`${output.name} by venture`}
       className="border-line-soft hidden w-[220px] shrink-0 flex-col border-r md:flex"
     >
+      <span id={pickHintId(output.slug)} className="sr-only">
+        {pickHintText}
+      </span>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
       <div
         className="text-muted-foreground px-2 pb-1.5 text-[11.5px] font-medium tracking-[0.08em] uppercase"
-        title="Shift-click to pick several, then run them all"
+        title="Shift-click or Space to pick several, then run them all"
       >
         Ventures
       </div>
@@ -264,6 +275,14 @@ function VentureRail({ output }: { output: OutputDef }) {
 
 const pickedRow = "bg-foreground/[0.07] text-foreground ring-1 ring-inset ring-foreground/15";
 
+/** One hidden sentence per rail that says how picking works; every pickable
+ *  row points at it via aria-describedby, so a screen reader reads the
+ *  gesture the first time focus lands on a row instead of leaving Space to
+ *  be discovered by accident. */
+export const pickHintId = (scope: string) => `rail-pick-hint-${scope}`;
+export const pickHintText =
+  "Press Space to add or remove this from a batch run. Enter opens it as usual.";
+
 type Pick = ReturnType<typeof usePick>;
 
 /**
@@ -271,6 +290,14 @@ type Pick = ReturnType<typeof usePick>;
  * gesture from Finder works; a plain click on anything clears the pick, since
  * wandering off to read a report is putting the batch down. The pick is
  * per page — moving to another output starts empty.
+ *
+ * THE KEYBOARD PICKS TOO. Tab already walks these rows — they are real
+ * links — so a keyboard user could reach every one of them and still not
+ * batch: Enter only navigated. SPACE on a focused row toggles its pick and
+ * SHIFT+ENTER picks for the hand already on Enter, the same file-manager
+ * gesture the mouse half borrowed. Enter alone keeps navigating: the row is
+ * still a link first and a picker second. The decision lives in
+ * `lib/railPick.ts`, tested there; this is the wiring.
  */
 function usePick(scope: string) {
   const [keys, setKeys] = useState<string[]>([]);
@@ -284,16 +311,28 @@ function usePick(scope: string) {
     has: (key: string) => keys.includes(key),
     clear: () => setKeys([]),
     click: (e: MouseEvent, key: string) => {
-      if (!(e.shiftKey || e.metaKey || e.ctrlKey)) {
+      if (!clickPicks(e)) {
         setKeys([]);
         return;
       }
       e.preventDefault();
-      setKeys((k) => (k.includes(key) ? k.filter((x) => x !== key) : [...k, key]));
+      setKeys((k) => toggle(k, key));
     },
-    /* Shift-mousedown would otherwise select the text between two rows. */
+    /** Returns whether the key was a picking key; the row navigates when it
+     *  was not. React's synthetic keyboard event carries the same modifiers
+     *  the pure helper reads. */
+    key: (e: KeyboardEvent, key: string) => {
+      if (keyAction(e) !== "pick") return;
+      e.preventDefault();
+      setKeys((k) => toggle(k, key));
+    },
+    /* Shift-mousedown would otherwise select the text between two rows, and
+       Space would scroll the rail out from under the focused row. */
     noTextSelect: (e: MouseEvent) => {
       if (e.shiftKey) e.preventDefault();
+    },
+    noScroll: (e: KeyboardEvent) => {
+      if (e.key === " ") e.preventDefault();
     },
   };
 }
@@ -322,6 +361,13 @@ function RunPicked({ pick, run }: { pick: Pick; run: () => Promise<string[]> }) 
 
   return (
     <div className="border-line-soft shrink-0 border-t p-2">
+      {/* Announce the batch as it grows. Without this, toggling picks with
+          the keyboard changes only colors; a screen-reader user pressing
+          Space gets no confirmation anything happened. Polite so it waits
+          behind the row's own pressed-state announcement. */}
+      <p role="status" className="sr-only">
+        {n === 0 ? "Batch cleared" : `${n} ${n === 1 ? "row" : "rows"} picked`}
+      </p>
       {n > 0 && (
         <div className="flex items-center gap-1">
           <button
@@ -348,7 +394,10 @@ function RunPicked({ pick, run }: { pick: Pick; run: () => Promise<string[]> }) 
         </div>
       )}
       {failed.length > 0 && (
-        <p className="text-destructive px-1 pt-1.5 text-[12px] leading-relaxed">
+        /* role="alert": a bulk run that half-failed used to appear as quiet
+           red text at the bottom of a rail — invisible to a screen reader,
+           and easy to miss with eyes on the queue. Same words, announced. */
+        <p role="alert" className="text-destructive px-1 pt-1.5 text-[12px] leading-relaxed">
           {failed.join(" ")}
         </p>
       )}
@@ -417,6 +466,13 @@ function PeopleRail() {
         title={opts.title}
         onMouseDown={pick.noTextSelect}
         onClick={(e) => (opts.pickable && key ? pick.click(e, key) : pick.clear())}
+        onKeyDown={(e) => {
+          if (!opts.pickable || !key) return;
+          pick.noScroll(e);
+          pick.key(e, key);
+        }}
+        aria-describedby={opts.pickable && key ? pickHintId("dossier") : undefined}
+        aria-pressed={opts.pickable && key ? picked : undefined}
         className={cn(
           "flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors select-none",
           picked ? pickedRow : active ? "bg-accent text-foreground font-medium" : "hover:bg-accent hover:text-foreground",
@@ -453,10 +509,13 @@ function PeopleRail() {
 
   return (
     <nav aria-label="Dossiers by person" className="border-line-soft hidden w-[220px] shrink-0 flex-col border-r md:flex">
+      <span id={pickHintId("dossier")} className="sr-only">
+        {pickHintText}
+      </span>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
         <div
           className="text-muted-foreground px-2 pb-1.5 text-[11.5px] font-medium tracking-[0.08em] uppercase"
-          title="Shift-click to pick several, then run them all"
+          title="Shift-click or Space to pick several, then run them all"
         >
           People
         </div>
