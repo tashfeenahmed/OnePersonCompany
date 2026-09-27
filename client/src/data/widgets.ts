@@ -1237,6 +1237,14 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "metric",
     live: { stripe: true },
   },
+  "stripe.atRisk": {
+    src: "stripe",
+    name: "At-risk MRR",
+    window: "now",
+    kind: "metric",
+    live: { stripe: true },
+    invert: true,
+  },
   "stripe.declines": {
     src: "stripe",
     name: "Failed payments",
